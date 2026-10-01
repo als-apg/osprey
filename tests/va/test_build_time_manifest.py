@@ -159,6 +159,10 @@ def editable_tree(tmp_path) -> Path:
     return _facility_tree(tmp_path / "data")
 
 
+#: The one remedy a refusal about an unreadable per-tree source names.
+_REPAIR_ONLY = "Repair the file: the manifest is not built without it."
+
+
 class TestManifestPaths:
     """The object that replaced the module-level package path constants."""
 
@@ -214,6 +218,40 @@ class TestManifestPaths:
         )
 
 
+class TestMachineStateCandidates:
+    """Every non-underscore key of the machine-state list is a candidate address."""
+
+    @staticmethod
+    def _candidates(tree: Path, document) -> list[str]:
+        text = document if isinstance(document, str) else json.dumps(document, indent=2)
+        (tree / "machine_state_channels.json").write_text(text)
+        return loaders.load_machine_state_candidate_addresses(
+            ManifestPaths(data_root=tree, tier=DEFAULT_TIER)
+        )
+
+    def test_candidates_are_the_document_keys_whatever_the_member_order(self, editable_tree):
+        document = {
+            "B:X": {"group": "Beam", "label": "B X"},
+            "A:Y": {"label": "A Y", "group": "Beam"},
+        }
+
+        assert self._candidates(editable_tree, document) == ["B:X", "A:Y"]
+
+    def test_underscore_keys_are_metadata_not_candidates(self, editable_tree):
+        document = {"_comment": "text", "_version": "1", "_provenance": "stamp"}
+
+        assert self._candidates(editable_tree, document) == []
+
+    def test_an_entry_is_a_candidate_whatever_its_value(self, editable_tree):
+        assert self._candidates(editable_tree, {"A": {}, "B": "text"}) == ["A", "B"]
+
+    def test_a_list_that_is_not_a_json_object_is_refused_naming_the_file(self, editable_tree):
+        with pytest.raises(loaders.ManifestFileError) as excinfo:
+            self._candidates(editable_tree, "[]")
+
+        assert "machine_state_channels.json" in str(excinfo.value)
+
+
 class TestNonProfileBehaviorUnchanged:
     """A build that sources the bundled tree must produce today's manifest.
 
@@ -262,6 +300,70 @@ class TestPreparedFromFacilityTree:
             edited.manifest["_metadata"]["total_channels"]
             == baseline.manifest["_metadata"]["total_channels"] + 1
         )
+
+    def test_a_machine_state_list_with_sorted_keys_is_reconciled_whole(self, editable_tree):
+        state_list = editable_tree / "machine_state_channels.json"
+        document = json.loads(state_list.read_text())
+        state_list.write_text(json.dumps(document, sort_keys=True, indent=2))
+        addresses = [key for key in document if not key.startswith("_")]
+
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        reconciliation = prepared.manifest["_metadata"]["machine_state_reconciliation"]
+        assert addresses
+        assert reconciliation["candidates_checked"] == len(addresses)
+        assert reconciliation["invalid"] == []
+
+    def test_an_unreadable_machine_state_list_raises_naming_the_file(self, editable_tree):
+        from osprey.errors import BuildProfileError
+
+        (editable_tree / "machine_state_channels.json").write_text("not json {")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert "machine_state_channels.json" in str(excinfo.value)
+
+    def test_a_machine_state_list_that_is_not_an_object_raises_naming_the_file(self, editable_tree):
+        from osprey.errors import BuildProfileError
+
+        (editable_tree / "machine_state_channels.json").write_text("[]")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert "machine_state_channels.json" in str(excinfo.value)
+        assert _REPAIR_ONLY in str(excinfo.value)
+        assert "remove it" not in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        "source",
+        ["simulation/machine.json", "machine_state_channels.json"],
+        ids=["scenario-seed", "machine-state-list"],
+    )
+    def test_an_unreadable_per_tree_source_is_repaired_never_removed(self, editable_tree, source):
+        from osprey.errors import BuildProfileError
+
+        (editable_tree / source).write_text("not json {")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        message = str(excinfo.value)
+        assert str(editable_tree / source) in message
+        assert _REPAIR_ONLY in message
+        assert "remove it" not in message
+
+    @pytest.mark.parametrize(
+        "source",
+        ["simulation/machine.json", "machine_state_channels.json"],
+        ids=["scenario-seed", "machine-state-list"],
+    )
+    def test_a_tree_without_a_per_tree_source_backs_no_manifest(self, editable_tree, source):
+        (editable_tree / source).unlink()
+
+        assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is None
+        assert manifest_gap_reason(editable_tree, DEFAULT_TIER) == f"missing {source}"
 
 
 class TestStagedSubset:
@@ -537,6 +639,16 @@ class TestCorruptDatabaseDegrades:
             assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is None
 
         assert "could not be read" in caplog.text
+        assert "Repair the file(s)" in caplog.text
+        assert "remove them" not in caplog.text
+
+    def test_removing_every_corrupt_database_leaves_no_manifest(self, editable_tree):
+        paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+        for database in paths.paradigm_databases.values():
+            database.unlink()
+
+        assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is None
+        assert "are all absent" in manifest_gap_reason(editable_tree, DEFAULT_TIER)
 
     def test_the_refusal_for_every_database_corrupt_names_them_as_unreadable(self, editable_tree):
         """Distinct wording from the absent case: these files exist and are broken."""
@@ -1718,3 +1830,17 @@ class TestGraphYieldsNothing:
             prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
         assert "machine.json" in str(excinfo.value)
+        assert _REPAIR_ONLY in str(excinfo.value)
+
+    def test_a_graph_tree_machine_state_list_that_is_not_an_object_raises_naming_the_file(
+        self, tmp_path
+    ):
+        from osprey.errors import BuildProfileError
+
+        root, config = _graph_tree(tmp_path / "data")
+        (root / "machine_state_channels.json").write_text("[]")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert "machine_state_channels.json" in str(excinfo.value)

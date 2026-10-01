@@ -28,7 +28,8 @@ def _write_dotenv(path, values: dict) -> None:
 # secret's config-declared name present too -- this is the fixture the
 # security spec (the exclusion list) gets unit-tested against.
 _FULL_CONFIG = {
-    "facility": {"name": "Test Facility", "prefix": "test", "timezone": "America/Los_Angeles"},
+    "facility": {"name": "Test Facility", "prefix": "test"},
+    "system": {"timezone": "America/Los_Angeles"},
     "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
     "ci": {"provider": "gitlab", "token_env_var": "TEST_CI_TOKEN"},
     "registry": {
@@ -214,7 +215,8 @@ def test_env_production_created_with_restrictive_mode_atomically(monkeypatch, tm
 def test_env_production_module_disabled_omits_its_vars(tmp_path):
     _write_dotenv(tmp_path / ".env", _INCLUDED_ENV)
     config = {
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "llm": {"api_key_env_var": "CBORG_API_KEY"},
         "modules": {
             "web_terminals": {"image_source": "local"},
@@ -228,6 +230,32 @@ def test_env_production_module_disabled_omits_its_vars(tmp_path):
     generated = env_production.parse_dotenv_file(result)
 
     assert generated == {"CBORG_API_KEY": "llm-secret", "TZ": "UTC"}
+
+
+@pytest.mark.parametrize(
+    ("system", "expected"),
+    [({"timezone": "Asia/Tokyo"}, "Asia/Tokyo"), (None, "UTC")],
+    ids=["declared", "absent"],
+)
+def test_env_production_tz_follows_system_timezone(tmp_path, system, expected):
+    """``.env.users`` carries ``TZ`` from ``system.timezone``, the key every other
+    service's compose reads, and UTC when it is absent. A ``timezone`` under
+    ``facility`` is not a key and moves nothing."""
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "llm-secret"})
+    config: dict = {
+        "facility": {"timezone": "America/Los_Angeles"},
+        "llm": {"api_key_env_var": "CBORG_API_KEY"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+    if system is not None:
+        config["system"] = system
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    assert env_production.parse_dotenv_file(result) == {
+        "CBORG_API_KEY": "llm-secret",
+        "TZ": expected,
+    }
 
 
 def test_env_production_missing_var_in_env_is_skipped_not_fabricated(tmp_path):
@@ -293,7 +321,8 @@ def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
     }
     first = next(iter(personas))
     return {
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -510,7 +539,7 @@ _GATEWAY_WITHOUT_ENDPOINT_ENTRY = {
 @pytest.fixture
 def a_gateway_that_ships_no_endpoint(monkeypatch):
     """Register the synthetic built-in for the length of one test."""
-    from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+    from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 
     monkeypatch.setitem(
         CLAUDE_CODE_PROVIDERS, _GATEWAY_WITHOUT_ENDPOINT, _GATEWAY_WITHOUT_ENDPOINT_ENTRY
@@ -1168,7 +1197,8 @@ def _catalog_config(project_path, persona="operator", deployed_services=("openob
     """
     return {
         "deployed_services": list(deployed_services),
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -1709,3 +1739,480 @@ def test_referenced_persona_names_refuses_an_undeclared_role() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="admin"):
         env_production._referenced_persona_names(config)
+
+
+# ---------------------------------------------------------------------------
+# The gate reads the whole telemetry block
+#
+# For a config whose only references live under `openobserve`, every answer --
+# the generated file, the refusal set, the account advisory and the refusal
+# sentence -- is the one a reader of the two `openobserve` keys alone gives.
+# ---------------------------------------------------------------------------
+
+_PINNED_CHAIN = {
+    "ANTHROPIC_API_KEY": "cc-secret",
+    "ZO_INGEST_USER_EMAIL": "ingest-account@example.org",
+    "ZO_INGEST_SA_TOKEN": "Fak3T0kenFak3T0k",
+    "ZO_ROOT_USER_EMAIL": "store-account@example.org",
+    "ZO_ROOT_USER_PASSWORD": "store-admin-secret",
+}
+
+
+def _shipped_block(**overrides):
+    """The control-assistant preset's telemetry block, with ``overrides`` applied."""
+    block = {
+        "enabled": True,
+        "backend": "openobserve",
+        "protocol": "http/protobuf",
+        "openobserve": {
+            "user": _SHIPPED_INGEST_USER,
+            "password": _SHIPPED_INGEST_TOKEN,
+            "org": "default",
+        },
+        "log_user_prompts": True,
+        "log_assistant_responses": True,
+        "log_tool_details": True,
+        "log_raw_api_bodies": True,
+        "log_tool_content": True,
+    }
+    block.update(overrides)
+    return block
+
+
+def _write_block_persona(tmp_path, block, name="operator-proj"):
+    """Write a rendered persona project whose ``claude_code.telemetry`` is ``block``."""
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_name": name,
+                "claude_code": {"provider": "anthropic", "telemetry": block},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return name
+
+
+@pytest.mark.parametrize("deployed_services", [("openobserve",), ()])
+def test_the_shipped_store_block_generates_the_pinned_users_file(tmp_path, deployed_services):
+    """The generated payload for the shipped block, line for line."""
+    _write_dotenv(tmp_path / ".env", _PINNED_CHAIN)
+    config = _catalog_config(
+        _write_block_persona(tmp_path, _shipped_block()), deployed_services=deployed_services
+    )
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    lines = [
+        line
+        for line in result.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert lines == [
+        "ANTHROPIC_API_KEY=cc-secret",
+        "ZO_INGEST_USER_EMAIL=ingest-account@example.org",
+        "TZ=UTC",
+    ]
+
+
+_OPERATOR = "(persona 'operator')"
+_INGEST_ACCOUNT = {"ZO_INGEST_USER_EMAIL": f"claude_code.telemetry.openobserve.user {_OPERATOR}"}
+
+
+@pytest.mark.parametrize(
+    ("block", "deployed_services", "required", "accounts"),
+    [
+        (_shipped_block(), ("openobserve",), {}, _INGEST_ACCOUNT),
+        (
+            _shipped_block(),
+            (),
+            {"ZO_INGEST_SA_TOKEN": f"claude_code.telemetry.openobserve.password {_OPERATOR}"},
+            _INGEST_ACCOUNT,
+        ),
+        (
+            _shipped_block(
+                openobserve={
+                    "user": "${ZO_ROOT_USER_EMAIL}",
+                    "password": "${ZO_ROOT_USER_PASSWORD}",
+                }
+            ),
+            ("openobserve",),
+            {"ZO_ROOT_USER_PASSWORD": f"claude_code.telemetry.openobserve.password {_OPERATOR}"},
+            {"ZO_ROOT_USER_EMAIL": f"claude_code.telemetry.openobserve.user {_OPERATOR}"},
+        ),
+        (
+            _shipped_block(
+                openobserve={"user": "ingest@example.org", "password": _SHIPPED_STORE_PASSWORD}
+            ),
+            (),
+            {},
+            {},
+        ),
+        (_shipped_block(openobserve={"password": "literal-password"}), (), {}, {}),
+        (_shipped_block(enabled=False), (), {}, _INGEST_ACCOUNT),
+    ],
+    ids=[
+        "shipped-store-deployed",
+        "shipped-external-store",
+        "bare-root-identity",
+        "literal-user-defaulted-password",
+        "literal-password",
+        "switched-off",
+    ],
+)
+def test_the_store_block_answers_are_pinned(tmp_path, block, deployed_services, required, accounts):
+    """Exact answers of the refusal set and the account advisory."""
+    config = _catalog_config(
+        _write_block_persona(tmp_path, block), deployed_services=deployed_services
+    )
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == required
+    assert env_production._telemetry_user_references(config, tmp_path) == accounts
+
+
+def test_the_external_store_refusal_sentence_is_pinned(tmp_path, monkeypatch):
+    """The whole refusal sentence for an unset store token, word for word."""
+    monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(_write_block_persona(tmp_path, _shipped_block()), deployed_services=())
+
+    problem = env_production.users_env_generation_problem(config, tmp_path)
+
+    assert problem is not None
+    assert problem.replace(str(tmp_path), "<root>") == (
+        "Generating <root>/.env.users from <root>/.env would leave web terminals "
+        "unauthenticated: claude_code.telemetry.openobserve.password (persona "
+        "'operator') needs ZO_INGEST_SA_TOKEN, set in none of them. Add the missing "
+        "variable(s) to <root>/.env, or author .env.users yourself (an existing file "
+        "is never regenerated) if this deploy authenticates another way. Note: "
+        "ZO_INGEST_SA_TOKEN is an observability-store credential that reads every "
+        "transcript the store holds — the root password is the store's single admin "
+        "credential, and the ingest service account `osprey up` provisions reads back "
+        "every log and metric too (OpenObserve has no ingest-only role in any "
+        "edition). One .env.users is handed to every persona alike, read-only ones "
+        "included, so this file never carries either of them. The env chain is still "
+        "where it belongs — that is what the store and the agent read — but a web "
+        "terminal will not receive it from here. A telemetry block that names its own "
+        "fallback (${VAR:-default}) is not asked for here at all."
+    )
+
+
+# ---------------------------------------------------------------------------
+# A generic collector's references sit anywhere in its block, not under `openobserve`
+#
+# Every reference outside the account table is handled as a secret: required
+# when it carries no default of its own, never copied into `.env.users`.
+# ---------------------------------------------------------------------------
+
+
+def _collector_block(**overrides):
+    """A generic-collector telemetry block, with ``overrides`` applied."""
+    return {
+        "enabled": True,
+        "backend": "generic",
+        "endpoint": "https://collector.example.org:4318",
+        **overrides,
+    }
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {"collector.key": "${OTLP_TOKEN}"},
+        {"collector.key": "key-${OTLP_TOKEN}"},
+        "collector.key=${OTLP_TOKEN},deployment.tier=site",
+    ],
+    ids=["whole-value", "embedded", "wire-string"],
+)
+def test_a_bare_reference_is_a_requirement(tmp_path, attributes):
+    """A bare reference is required whichever shape the value takes."""
+    block = _collector_block(resource_attributes=attributes)
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    reported = env_production._telemetry_credential_requirements(config, tmp_path)
+
+    assert list(reported) == ["OTLP_TOKEN"]
+    assert reported["OTLP_TOKEN"].startswith("claude_code.telemetry.resource_attributes")
+    assert reported["OTLP_TOKEN"].endswith("(persona 'operator')")
+
+
+def test_a_reference_with_its_own_default_asks_nothing(tmp_path):
+    """A reference that names its own fallback resolves on its own."""
+    block = _collector_block(endpoint="${COLLECTOR_URL:-https://collector.example.org:4318}")
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
+
+
+def test_a_switched_off_collector_block_is_asked_for_nothing(tmp_path):
+    """The master switch gates the whole-block walk as it gates the store login."""
+    block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
+
+
+def test_a_reference_anywhere_in_the_block_is_read(tmp_path):
+    """The endpoint and list members are walked too, each named by its key path."""
+    block = _collector_block(
+        endpoint="${COLLECTOR_URL}", resource_attributes=["site=${SITE_LABEL}"]
+    )
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == {
+        "COLLECTOR_URL": "claude_code.telemetry.endpoint (persona 'operator')",
+        "SITE_LABEL": "claude_code.telemetry.resource_attributes[0] (persona 'operator')",
+    }
+
+
+def test_the_store_issued_exclusion_holds_under_any_key(tmp_path):
+    """A credential this deploy mints is never asked for, whichever key names it."""
+    block = _collector_block(resource_attributes={"ingest.key": "${ZO_INGEST_SA_TOKEN}"})
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
+
+
+def test_a_block_secret_in_the_chain_never_reaches_the_users_file(tmp_path):
+    """Required from the chain, and still never copied into the shared file."""
+    _write_dotenv(
+        tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_TOKEN": "c0llect0r-t0ken"}
+    )
+    block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    raw_text = result.read_text(encoding="utf-8")
+    assert "OTLP_TOKEN" not in raw_text
+    assert "c0llect0r-t0ken" not in raw_text
+
+
+def test_an_unset_block_secret_refuses_the_deploy_by_name(tmp_path, monkeypatch):
+    """The refusal names the key and the variable, with the collector note."""
+    monkeypatch.delenv("OTLP_TOKEN", raising=False)
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    with pytest.raises(RuntimeError, match="OTLP_TOKEN") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert (
+        "claude_code.telemetry.resource_attributes.collector.key (persona 'operator') "
+        "needs OTLP_TOKEN"
+    ) in message
+    assert "handled as a credential" in message
+    assert "OpenObserve" not in message
+    assert not (tmp_path / env_production.USERS_ENV_FILENAME).exists()
+
+
+def test_the_deploy_config_block_is_walked_too(tmp_path):
+    """The deploy config's own telemetry block answers as a persona's does."""
+    config = _catalog_config(_write_block_persona(tmp_path, {"enabled": False}))
+    config["claude_code"] = {
+        "telemetry": _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
+    }
+
+    assert env_production._telemetry_credential_requirements(config, tmp_path) == {
+        "OTLP_TOKEN": "claude_code.telemetry.resource_attributes.collector.key (deploy config)"
+    }
+
+
+def test_only_the_account_table_feeds_the_account_advisory(tmp_path):
+    """A defaulted reference outside the account table is not an account name."""
+    block = _shipped_block(resource_attributes={"tenant": "${TENANT_NAME:-site}"})
+    config = _catalog_config(_write_block_persona(tmp_path, block))
+
+    assert env_production._telemetry_user_references(config, tmp_path) == _INGEST_ACCOUNT
+
+
+def test_a_store_secret_and_a_collector_secret_each_get_their_own_note(tmp_path, monkeypatch):
+    """The store note names only the store secret; the collector note the rest."""
+    monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
+    monkeypatch.delenv("RELAY_KEY", raising=False)
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    block = _shipped_block(resource_attributes={"relay.key": "${RELAY_KEY}"})
+    config = _catalog_config(_write_block_persona(tmp_path, block), deployed_services=())
+
+    problem = env_production.users_env_generation_problem(config, tmp_path)
+
+    assert problem is not None
+    assert "Note: ZO_INGEST_SA_TOKEN is an observability-store credential" in problem
+    assert "Note: RELAY_KEY is referenced from the telemetry block" in problem
+
+
+# ---------------------------------------------------------------------------
+# The variables a terminal's telemetry block needs delivered to its container
+#
+# The collector's token first, then every referenced variable, minus the two
+# names every terminal already receives by a fixed route.
+# ---------------------------------------------------------------------------
+
+
+def _telemetry_config(block: dict) -> dict:
+    return {"claude_code": {"provider": "anthropic", "telemetry": block}}
+
+
+_COLLECTOR_TELEMETRY = {
+    "enabled": True,
+    "backend": "generic",
+    "endpoint": "${OTLP_ENDPOINT:-https://collector.example.org}",
+    "resource_attributes": {"site": "${SITE_NAME}"},
+    "auth": {"token_env": "OTLP_TOKEN"},
+}
+
+
+def test_telemetry_delivered_vars_is_the_token_then_every_reference():
+    """The token name leads; references follow in walk order."""
+    assert env_production.telemetry_delivered_vars(_telemetry_config(_COLLECTOR_TELEMETRY)) == (
+        "OTLP_TOKEN",
+        "OTLP_ENDPOINT",
+        "SITE_NAME",
+    )
+
+
+def test_telemetry_delivered_vars_is_empty_when_telemetry_is_off():
+    """A block the builder discards needs nothing delivered."""
+    block = {**_COLLECTOR_TELEMETRY, "enabled": False}
+    assert env_production.telemetry_delivered_vars(_telemetry_config(block)) == ()
+
+
+def test_telemetry_delivered_vars_never_repeats_a_fixed_route_name():
+    """The ingest token and the account name already reach every terminal."""
+    block = {
+        "enabled": True,
+        "backend": "generic",
+        "endpoint": "https://collector.example.org",
+        "resource_attributes": {
+            "ingest": "${ZO_INGEST_SA_TOKEN}",
+            "account": "${ZO_INGEST_USER_EMAIL:-x}",
+        },
+    }
+    assert env_production.telemetry_delivered_vars(_telemetry_config(block)) == ()
+
+
+def test_the_shipped_openobserve_block_delivers_nothing_beyond_the_fixed_routes():
+    """The control-assistant preset's block adds no line to any service."""
+    assert env_production.telemetry_delivered_vars(_telemetry_config(_shipped_block())) == ()
+
+
+def test_telemetry_delivered_vars_refuses_a_value_in_place_of_a_name():
+    """A token value where the name belongs is refused, never echoed."""
+    block = {**_COLLECTOR_TELEMETRY, "auth": {"token_env": "abc.def-123"}}
+    with pytest.raises(ValueError, match="auth.token_env") as excinfo:
+        env_production.telemetry_delivered_vars(_telemetry_config(block))
+    assert "abc.def-123" not in str(excinfo.value)
+
+
+def test_personas_needing_telemetry_vars_maps_each_persona_to_its_list(tmp_path):
+    """Each persona answers with its own names; one exporting nothing is absent."""
+    config = _persona_config(
+        tmp_path, {"ops": "anthropic", "physics": "anthropic", "viewer": "anthropic"}
+    )
+    blocks = {
+        "ops": {**_COLLECTOR_TELEMETRY},
+        "physics": {
+            "enabled": True,
+            "backend": "generic",
+            "endpoint": "https://collector.example.org",
+            "auth": {"token_env": "PHYSICS_COLLECTOR_TOKEN"},
+        },
+        "viewer": {**_COLLECTOR_TELEMETRY, "enabled": False},
+    }
+    for persona, block in blocks.items():
+        config_yml = tmp_path / f"{persona}-proj" / "config.yml"
+        config_yml.write_text(
+            yaml.safe_dump({"project_name": f"{persona}-proj", **_telemetry_config(block)}),
+            encoding="utf-8",
+        )
+
+    assert env_production.personas_needing_telemetry_vars(config, tmp_path) == {
+        "ops": ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME"),
+        "physics": ("PHYSICS_COLLECTOR_TOKEN",),
+    }
+
+
+# ---------------------------------------------------------------------------
+# The collector's bearer token is required from the env chain
+#
+# Every exporting terminal receives it through its own compose environment, so
+# the chain must carry it; `.env.users` never does.
+# ---------------------------------------------------------------------------
+
+
+def _token_block(**overrides):
+    return _collector_block(auth={"token_env": "OTLP_COLLECTOR_TOKEN"}, **overrides)
+
+
+def test_a_collector_token_missing_from_the_chain_refuses_the_deploy(tmp_path, monkeypatch):
+    """The refusal names the variable and the key that names it."""
+    monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(_write_block_persona(tmp_path, _token_block()))
+
+    with pytest.raises(RuntimeError, match="OTLP_COLLECTOR_TOKEN") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert "claude_code.telemetry.auth.token_env (persona 'operator')" in message
+    assert "telemetry collector's bearer token" in message
+    assert "never through .env.users" in message
+    assert not (tmp_path / env_production.USERS_ENV_FILENAME).exists()
+
+
+def test_a_collector_token_in_the_chain_is_not_copied_into_env_users(tmp_path):
+    """Required from the chain, delivered by compose, never written to the shared file."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_COLLECTOR_TOKEN": "c0llect0r-t0ken"},
+    )
+    config = _catalog_config(_write_block_persona(tmp_path, _token_block()))
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    raw_text = result.read_text(encoding="utf-8")
+    assert "OTLP_COLLECTOR_TOKEN" not in raw_text
+    assert "c0llect0r-t0ken" not in raw_text
+
+
+def test_a_persona_with_telemetry_off_is_asked_for_no_collector_token(tmp_path):
+    """A block the builder discards presents no token."""
+    config = _catalog_config(_write_block_persona(tmp_path, _token_block(enabled=False)))
+
+    gap = env_production._required_vars_missing_from_chain(config, tmp_path)
+
+    assert gap.collector_tokens == frozenset()
+    assert "OTLP_COLLECTOR_TOKEN" not in gap.missing
+
+
+def test_the_openobserve_refusal_set_is_unchanged_by_the_collector_walk(tmp_path):
+    """The store persona's gap and users file carry nothing of the collector walk."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, password="${ZO_ROOT_USER_PASSWORD}")
+    )
+
+    gap = env_production._required_vars_missing_from_chain(config, tmp_path)
+
+    assert gap.missing == {
+        "ZO_ROOT_USER_PASSWORD": "claude_code.telemetry.openobserve.password (persona 'operator')"
+    }
+    assert gap.telemetry == gap.telemetry_store == frozenset({"ZO_ROOT_USER_PASSWORD"})
+    assert gap.collector_tokens == frozenset()
+
+    _write_dotenv(tmp_path / ".env", {**_PINNED_CHAIN, "ZO_ROOT_USER_PASSWORD": "root-pw"})
+    result = env_production.ensure_env_production(config, tmp_path)
+    lines = [
+        line
+        for line in result.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert lines == [
+        "ANTHROPIC_API_KEY=cc-secret",
+        "ZO_INGEST_USER_EMAIL=ingest-account@example.org",
+        "TZ=UTC",
+    ]

@@ -998,9 +998,11 @@ class TestLogging:
     def test_authorization_logs_nothing(self, caplog: pytest.LogCaptureFixture) -> None:
         """One line per allowed request would be one line per keystroke."""
         cookie = _mint(_unlocked("alice"))
+        app = _app()
+        caplog.clear()
         caplog.set_level(logging.DEBUG, logger="osprey.services.auth_sidecar.routes.verify")
 
-        with TestClient(_app()) as client:
+        with TestClient(app) as client:
             assert _verify(client, "alice", cookie).status_code == 200
 
         assert caplog.text == ""

@@ -81,21 +81,20 @@ Linting and Formatting
 .. code-block:: bash
 
    # Lint and format
-   uv run ruff check src/ tests/
-   uv run ruff format src/ tests/
+   uv run ruff check .
+   uv run ruff format .
 
    # Auto-fix lint issues
-   uv run ruff check --fix src/ tests/
+   uv run ruff check --fix .
 
    # Type checking
-   uv run python scripts/mypy_gate.py
+   uv run mypy
 
-The type check is held to a written-down set of errors: ``scripts/mypy_baseline.json``
-lists every error the tree reports today, and the gate beside it fails on an error the
-baseline does not already carry. An error that disappears is reported as a notice, never
-a failure. ``uv run mypy`` on its own is still the way to read the full report, and once
-errors are actually fixed, ``uv run python scripts/mypy_gate.py --update`` refreshes the
-baseline.
+The type check must report zero errors. ``uv run mypy`` prints the full report over the
+declared trees. CI and ``scripts/ci_check.sh`` run the same check through
+``scripts/mypy_gate.py``, which fails on any error and refuses a run made without the stub
+packages the ``dev`` extra declares (fix: ``uv sync --extra dev``). There is no list of
+tolerated errors: an error is fixed where it is reported.
 
 The check's targets are declared in ``pyproject.toml``: it covers the framework source
 and the connectors package together, and the gate reads that same list, so CI and a local
@@ -141,11 +140,15 @@ All new functionality must include tests.
    uv run pytest tests/path/to/test_file.py::test_function_name -v
 
    # E2E tests (requires API keys) -- MUST use path, NOT marker.
-   # Name the provider: a run that names none is refused before the first test.
+   # Name the provider: a run that names none is refused before the first test
+   # when it selects a test not marked model_free.
    # Sync the extras the suite reaches for too -- the chat-bridge modules skip
    # themselves without theirs, which looks like a pass.
    uv sync --extra dev --extra teams --extra gchat --extra virtual-accelerator
    OSPREY_E2E_PROVIDER=als-apg uv run pytest tests/e2e/ -v
+
+   # The e2e tests that reach no model need no provider.
+   uv run pytest tests/e2e/ -m model_free -v
 
    # Browser smokes (Playwright + Chromium; skips if the browser is absent)
    uv run pytest tests/interfaces/ -m browser -v

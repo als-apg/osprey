@@ -9,7 +9,7 @@
  * (topic files) accents, monospace typography, geometric icons.
  *
  * API endpoints consumed:
- *   GET    /api/claude-memory              -> list all memory files
+ *   GET    /api/claude-memory              -> list all memory files and the MEMORY.md line limits
  *   GET    /api/claude-memory/{filename}   -> read file content
  *   POST   /api/claude-memory              -> create new file
  *   PUT    /api/claude-memory/{filename}   -> update file content
@@ -19,11 +19,6 @@
 import { fetchJSON, apiRequest } from './api.js';
 import { fmtBytes } from './session-helpers.js';
 import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
-
-// ---- Constants ---- //
-
-const TRUNCATION_LIMIT = 200;
-const TRUNCATION_WARNING = 180;
 
 // ---- Shared Fetch Cache ---- //
 
@@ -65,6 +60,11 @@ class MemoryGallery {
     this.editDirty = false;
     this.loaded = false;
     this.searchQuery = '';
+    // Set from the list response; gauges are drawn only after it arrives.
+    /** @type {number} */
+    this.lineLimit = 0;
+    /** @type {number} */
+    this.lineWarning = 0;
 
     // DOM refs (populated by _buildDOM)
     this.loadingEl = null;
@@ -154,6 +154,8 @@ class MemoryGallery {
     try {
       const data = await fetchMemoryFilesShared();
       this.files = data.files || [];
+      this.lineLimit = data.line_limit;
+      this.lineWarning = data.line_warning;
       /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
       this.renderGallery();
       this.loaded = true;
@@ -284,17 +286,17 @@ class MemoryGallery {
   renderLineGauge(lineCount) {
     const gauge = _el('div', 'memory-line-gauge');
     const fill = _el('div', 'memory-line-gauge-fill');
-    const pct = Math.min(100, (lineCount / TRUNCATION_LIMIT) * 100);
+    const pct = Math.min(100, (lineCount / this.lineLimit) * 100);
     fill.style.width = pct + '%';
 
-    if (lineCount >= TRUNCATION_LIMIT) {
+    if (lineCount >= this.lineLimit) {
       fill.classList.add('memory-gauge-over');
-    } else if (lineCount >= TRUNCATION_WARNING) {
+    } else if (lineCount >= this.lineWarning) {
       fill.classList.add('memory-gauge-warn');
     }
 
     gauge.appendChild(fill);
-    gauge.title = `${lineCount}/${TRUNCATION_LIMIT} lines (truncated after ${TRUNCATION_LIMIT})`;
+    gauge.title = `${lineCount}/${this.lineLimit} lines (truncated after ${this.lineLimit})`;
     return gauge;
   }
 
@@ -353,7 +355,7 @@ class MemoryGallery {
       left.appendChild(gauge);
 
       const label = _el('span', 'memory-gauge-label');
-      label.textContent = `${this.selectedFile.line_count}/${TRUNCATION_LIMIT}`;
+      label.textContent = `${this.selectedFile.line_count}/${this.lineLimit}`;
       left.appendChild(label);
     }
     this.detailActionsEl.appendChild(left);

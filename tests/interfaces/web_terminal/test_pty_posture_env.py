@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import re
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -47,6 +46,11 @@ from osprey.interfaces.web_terminal.pty_manager import (
     POOL_FINGERPRINT_EXCLUDED_ENV,
     PtyRegistry,
     env_fingerprint,
+)
+from tests.interfaces.web_terminal._pty_child import (
+    CHILD_HANG_CEILING,
+    wait_for_exit,
+    wait_for_report,
 )
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
@@ -62,29 +66,14 @@ def _reporting_command(report: Path) -> list[str]:
 
     Appends one line per exec — ``readonly``, ``writes``, or ``<unset>`` — so a
     respawn under the same key leaves two lines and a reattach leaves one. The
-    ``exec sleep`` keeps the process running long enough to be reattached (and
-    to be observed dying when it is replaced).
+    ``exec sleep`` outlives the hang ceiling, so the child stays running through
+    every wait on it; the registry's cleanup ends it.
     """
     return [
         "/bin/sh",
         "-c",
-        f'printf "%s\\n" "${{OSPREY_EXECUTION_MODE:-<unset>}}" >> "{report}"; exec sleep 30',
+        f'printf "%s\\n" "${{OSPREY_EXECUTION_MODE:-<unset>}}" >> "{report}"; exec sleep {int(CHILD_HANG_CEILING) * 10}',
     ]
-
-
-def _child_env_lines(report: Path, expected: int, timeout: float = 5.0) -> list[str]:
-    """Wait for ``expected`` child generations to report, then return their lines."""
-    deadline = time.monotonic() + timeout
-    lines: list[str] = []
-    while time.monotonic() < deadline:
-        if report.exists():
-            lines = report.read_text().split()
-            if len(lines) >= expected:
-                return lines
-        time.sleep(0.02)
-    raise AssertionError(
-        f"child env report never reached {expected} line(s) within {timeout}s; got {lines!r}"
-    )
 
 
 @pytest.fixture
@@ -207,7 +196,7 @@ class TestAnEnvChangeReachesTheChild:
             extra_env=_connection_env(execution_mode=first, telemetry_id="sess-1"),
         )
         assert reused is False
-        assert _child_env_lines(report, 1) == [first or "<unset>"]
+        assert wait_for_report(report, 1, first_child) == [first or "<unset>"]
 
         second_child, reused = registry.get_or_create_session(
             "sess-1",
@@ -220,7 +209,7 @@ class TestAnEnvChangeReachesTheChild:
         assert reused is False
         assert second_child is not first_child
         # The child itself — not the store — reports the new marker.
-        assert _child_env_lines(report, 2) == [first or "<unset>", second or "<unset>"]
+        assert wait_for_report(report, 2, second_child) == [first or "<unset>", second or "<unset>"]
         assert second_child.is_alive
 
     def test_mismatch_terminates_the_stale_child(self, registry, report):
@@ -229,7 +218,7 @@ class TestAnEnvChangeReachesTheChild:
         stale, _ = registry.get_or_create_session(
             "sess-1", command, 24, 80, extra_env=_connection_env()
         )
-        _child_env_lines(report, 1)
+        wait_for_report(report, 1, stale)
         assert stale.is_alive
 
         fresh, reused = registry.get_or_create_session(
@@ -261,8 +250,8 @@ class TestAnEnvChangeReachesTheChild:
             extra_env=_connection_env(telemetry_id="sess-writes"),
         )
 
-        assert _child_env_lines(sandboxed_report, 1) == ["readonly"]
-        assert _child_env_lines(writable_report, 1) == ["<unset>"]
+        assert wait_for_report(sandboxed_report, 1, sandboxed) == ["readonly"]
+        assert wait_for_report(writable_report, 1, writable) == ["<unset>"]
         assert sandboxed.is_alive and writable.is_alive
 
         # Reattaching either one leaves both children exactly as they were.
@@ -290,7 +279,7 @@ class TestWarmReuse:
         env = _connection_env(execution_mode="readonly", telemetry_id="sess-1")
 
         first, _ = registry.get_or_create_session("sess-1", command, 24, 80, extra_env=env)
-        _child_env_lines(report, 1)
+        wait_for_report(report, 1, first)
 
         second, reused = registry.get_or_create_session(
             "sess-1", command, 24, 80, extra_env=dict(env)
@@ -322,7 +311,7 @@ class TestWarmReuse:
                 started_at="2026-08-23T00:00:00+00:00",
             ),
         )
-        _child_env_lines(report, 1)
+        wait_for_report(report, 1, first)
 
         # A later reconnect: new timestamp, session id now known, and the
         # switch_session shape (no telemetry names) — same posture.
@@ -345,16 +334,14 @@ class TestWarmReuse:
         first, _ = registry.get_or_create_session(
             "sess-1", ["/bin/sh", "-c", "exit 0"], 24, 80, extra_env=env
         )
-        deadline = time.monotonic() + 5
-        while first.is_alive and time.monotonic() < deadline:
-            time.sleep(0.02)
+        wait_for_exit(first)
         assert not first.is_alive
 
         second, reused = registry.get_or_create_session(
             "sess-1", _reporting_command(report), 24, 80, extra_env=dict(env)
         )
         assert reused is False
-        assert _child_env_lines(report, 1) == ["readonly"]
+        assert wait_for_report(report, 1, second) == ["readonly"]
         assert second.is_alive
 
 

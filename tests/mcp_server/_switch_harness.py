@@ -181,6 +181,7 @@ def raw_config(
     live_probe=LIVE_PROBE,
     va_probe=VA_PROBE,
     drain_timeout_s=None,
+    probe_timeout_s=None,
     live_type=SERVED_LIVE_TYPE,
 ):
     """A config with a servable block for each target."""
@@ -195,8 +196,16 @@ def raw_config(
         "writes_enabled": False,
         "connector": {live_type: live_block, "virtual_accelerator": va_block},
     }
-    if drain_timeout_s is not None:
-        control_system["target_switch"] = {"drain_timeout_s": drain_timeout_s}
+    target_switch = {
+        key: value
+        for key, value in (
+            ("drain_timeout_s", drain_timeout_s),
+            ("probe_timeout_s", probe_timeout_s),
+        )
+        if value is not None
+    }
+    if target_switch:
+        control_system["target_switch"] = target_switch
     return {"control_system": control_system, "archiver": {"type": "mongodb_archiver"}}
 
 

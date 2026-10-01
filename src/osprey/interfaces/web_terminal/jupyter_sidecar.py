@@ -43,7 +43,8 @@ plugins that make no sense inside an embedded panel (see
 
 A sidecar that exits on its own — outside :meth:`JupyterSidecar.stop` — is
 reported once, with its last stderr lines, and :attr:`JupyterSidecar.on_exit`
-is invoked so the terminal can retract the panel. Nothing restarts it.
+is invoked so the terminal can retract the panel. The terminal starts a fresh
+sidecar when the operator opens the panel again.
 """
 
 from __future__ import annotations
@@ -406,6 +407,12 @@ class JupyterSidecar:
         return self._tail.text if self._tail is not None else ""
 
     @property
+    def exit_status(self) -> int | None:
+        """The status of an exit :meth:`stop` did not cause; ``None`` otherwise."""
+        with self._exit_lock:
+            return self._exit_status
+
+    @property
     def auth_headers(self) -> dict[str, str]:
         return {"authorization": f"Bearer {self._token}"}
 
@@ -635,9 +642,11 @@ class JupyterSidecar:
         if callback is not None:
             callback()
 
-    def _read_port(self) -> int | None:
-        assert self._runtime_dir is not None and self._process is not None
-        info = self._runtime_dir / f"jpserver-{self._process.pid}.json"
+    @staticmethod
+    def _read_port(process: subprocess.Popen[bytes], runtime_dir: Path | None) -> int | None:
+        if runtime_dir is None:
+            return None
+        info = runtime_dir / f"jpserver-{process.pid}.json"
         try:
             return int(json.loads(info.read_text(encoding="utf-8"))["port"])
         except (OSError, ValueError, KeyError, TypeError):
@@ -658,22 +667,30 @@ class JupyterSidecar:
     def wait_ready(self, timeout: float) -> None:
         """Block until the sidecar answers ``api/status`` with the token.
 
+        The process and its runtime directory are bound once: :meth:`stop` may
+        run on another thread while this waits, and it clears both.
+
         Raises:
-            RuntimeError: the process exited, or *timeout* seconds passed,
-                before it answered. The message carries the stderr tail.
+            RuntimeError: the process exited, :meth:`stop` ran, or *timeout*
+                seconds passed, before it answered. The exit and timeout
+                messages carry the stderr tail.
         """
-        if self._process is None:
+        process = self._process
+        runtime_dir = self._runtime_dir
+        if process is None:
             raise RuntimeError(f"{_NAME} was not spawned")
         deadline = time.monotonic() + timeout
         port: int | None = None
         while True:
-            status = self._process.poll()
+            if self._stopping.is_set():
+                raise RuntimeError(f"{_NAME} was stopped before it was ready")
+            status = process.poll()
             if status is not None:
                 raise RuntimeError(
                     f"{_NAME} exited with status {status} before it was ready\n{self.stderr_tail}"
                 )
             if port is None:
-                port = self._read_port()
+                port = self._read_port(process, runtime_dir)
             if port is not None and self._answers(port):
                 self._port = port
                 logger.info("%s ready at %s", _NAME, self.url)
@@ -703,7 +720,7 @@ class JupyterSidecar:
             # open until the reap below collects it.
             logger.info("%s stopped (pid %s)", _NAME, process.pid)
         if runtime_dir is not None:
-            _reap_stragglers(runtime_dir)
+            _reap_stragglers(str(runtime_dir))
         if self._watcher is not None:
             self._watcher.join(timeout=1)
             self._watcher = None

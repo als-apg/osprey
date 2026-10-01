@@ -32,7 +32,7 @@ import { apiRequest } from '../api.js';
 import { resetFetchCache } from './data.js';
 import { createScaffoldGalleryDetailContent } from './detail-content.js';
 import { READ_ONLY_REASON, createReadOnlyBadge } from './utils.js';
-import { scaffoldWritesEnabled, WRITES_DISABLED_REASON } from './write-gate.js';
+import { scaffoldWritesEnabled, writesDisabledReason } from './write-gate.js';
 
 /**
  * The subset of an ArtifactGallery instance this module reads, writes, or
@@ -267,7 +267,7 @@ export function createScaffoldGalleryDetail(gallery) {
         // posture rather than a fault. Preview and Diff stay live — reading
         // what the agent runs is not authoring it.
         btn.disabled = true;
-        btn.title = WRITES_DISABLED_REASON;
+        btn.title = writesDisabledReason();
       }
       if (readOnly && mode.key === 'edit') {
         // Preview and Diff stay open — reading a reserved file is fine, and

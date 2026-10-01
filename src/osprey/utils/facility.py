@@ -8,9 +8,26 @@ precisely because each reader picked its own.
 
 from __future__ import annotations
 
+from difflib import get_close_matches
 from typing import Any
+from zoneinfo import available_timezones
 
-__all__ = ["resolve_facility_name"]
+__all__ = [
+    "DEFAULT_FACILITY_ZONE",
+    "SET_FACILITY_ZONE",
+    "closest_zone_name",
+    "is_zone_name",
+    "resolve_facility_name",
+]
+
+#: The zone every reader falls back to and every preset pins.
+DEFAULT_FACILITY_ZONE = "UTC"
+
+#: The one remedy sentence the build reminder and the health row both print.
+SET_FACILITY_ZONE = (
+    "Set system.timezone under `config:` in profile.yml to your facility's zone, "
+    "for example America/New_York."
+)
 
 
 def resolve_facility_name(config: dict[str, Any], default: str) -> str:
@@ -36,3 +53,46 @@ def resolve_facility_name(config: dict[str, Any], default: str) -> str:
     if isinstance(facility, dict) and facility.get("name"):
         return str(facility["name"])
     return str(config.get("facility_name") or default)
+
+
+def is_zone_name(name: str) -> bool:
+    """Whether *name* is a zone in the IANA time zone database, spelled exactly.
+
+    Membership, not ``ZoneInfo(name)``: the lookup opens a file, so on a
+    case-insensitive filesystem it accepts ``america/los_angeles``, while the
+    case-sensitive filesystem of every container refuses it. A host with no
+    zone database at all (no system tzdata and no ``tzdata`` wheel) cannot
+    judge, so it accepts every name rather than refusing all of them.
+
+    Args:
+        name: The zone name as written.
+
+    Returns:
+        bool: ``True`` when the name is a zone, or when there is no database.
+    """
+    if name == DEFAULT_FACILITY_ZONE:
+        return True
+    zones = available_timezones()
+    if not zones:
+        return True
+    return name in zones
+
+
+def closest_zone_name(name: str) -> str | None:
+    """The zone a mistyped *name* most likely meant.
+
+    A case-insensitive exact match first, then the closest spelling.
+
+    Args:
+        name: The zone name as written.
+
+    Returns:
+        str | None: A zone name, or ``None`` when nothing is close.
+    """
+    zones = available_timezones()
+    folded = name.casefold()
+    for zone in zones:
+        if zone.casefold() == folded:
+            return zone
+    matches = get_close_matches(name, sorted(zones), n=1, cutoff=0.8)
+    return matches[0] if matches else None

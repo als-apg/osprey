@@ -32,6 +32,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 import osprey
 from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
+from osprey.docs_links import DEPLOY_DOCS_URL
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.utils.shell_resolver import resolve_shell_command
 from osprey.version import pins_prerelease
@@ -126,10 +127,6 @@ BOOT_HOOK_POLL_SEC: int = 5
 BOOT_HOOK_LOG_DIR: str = "/tmp/osprey-boot-hook.$(id -u)"
 BOOT_HOOK_LOG: str = f"{BOOT_HOOK_LOG_DIR}/boot.log"
 
-#: Where the unit's ``Documentation=`` points. The deployment how-to is the page
-#: that covers what a host needs before the unit can bring a stack up.
-DEPLOY_DOCS_URL: str = "https://als-apg.github.io/osprey/how-to/deploy-a-facility.html"
-
 #: The CI-only variable holding the deploy host's SSH private key. Fixed rather
 #: than profile-named: it authenticates the pipeline to the host and is never
 #: part of the deployment's own environment, so the profile has no business
@@ -153,6 +150,9 @@ PROFILE_PATH: str = PROFILE_FILENAME
 BUILD_DIR: str = BUILD_OUTPUT_DIR
 STATE_DIR_PATH: str = STATE_DIR
 VERIFY_PATH: str = "scripts/verify.sh"
+#: The one group every health check has: the deployment's containers. It runs
+#: first, because a container that is down explains the endpoint failures below it.
+CONTAINERS_GROUP_ID: str = "containers"
 BOOT_HOOK_PATH: str = f"scripts/{BOOT_HOOK_OUTPUT_NAME}"
 
 #: What ``osprey users env --output`` writes on the deploy host, at the repo
@@ -305,7 +305,8 @@ class VerifyContext:
     Attributes:
         facility_name: The profile's ``name:`` — the script's title.
         osprey_version: Installed framework version, for the provenance header.
-        groups: Probe groups, in the order they run.
+        groups: The endpoint probe groups, in the order they run after the
+            containers group.
         runs_verify_on_up: Whether ``osprey up`` runs this script itself — see
             :attr:`CIContext.runs_verify_on_up`. The header tells the operator
             which it is, so nobody assumes a health report that never runs.
@@ -317,17 +318,25 @@ class VerifyContext:
     runs_verify_on_up: bool = False
 
     @property
+    def group_ids(self) -> tuple[str, ...]:
+        """Every group the script accepts, in the order it runs them."""
+        return (CONTAINERS_GROUP_ID, *(group.id for group in self.groups))
+
+    @property
     def usage_group(self) -> str:
-        """The group the usage comment shows as an example argument."""
-        return self.groups[0].id if self.groups else ""
+        """The group the usage comment shows as an example argument.
+
+        The containers group leads every script, so the example always names a
+        group that exists.
+        """
+        return self.group_ids[0]
 
     @property
     def has_tcp_probe(self) -> bool:
         """Whether any group needs the TCP helper.
 
-        The helper shells out to ``python3``, which is one more thing that has
-        to exist on the deploy host. A script with no TCP probe must not carry
-        it: an operator reading the check would take the dependency as real.
+        A script with no TCP probe must not carry the helper: an unused
+        helper is dead text an operator has to read past.
         """
         return any(probe.kind == "tcp" for group in self.groups for probe in group.probes)
 

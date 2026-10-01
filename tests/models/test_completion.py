@@ -378,3 +378,38 @@ class TestGetChatCompletionAcceptsAProviderDefault:
         assert seen["base_url"] == "http://127.0.0.1:4000/v1"
         assert seen["model_id"] == "amsc/gpt-oss-120b-safeguard"
         assert seen["extra_body"] == {"api_key": "upstream-amsc-key"}
+
+
+class TestCompletionNamesItsProviderAndModel:
+    """A completion runs only once it knows which provider and which model it calls."""
+
+    def test_a_provider_that_waives_the_model_id_is_still_refused_without_one(self, monkeypatch):
+        from osprey.models import completion as completion_module
+        from osprey.models.provider_registry import get_provider_registry
+
+        calls: list[dict] = []
+
+        def fake_execute(self, **kwargs):  # noqa: ARG001 - stands in for the provider adapter's execute, which collects keyword arguments
+            calls.append(kwargs)
+            return "ok"
+
+        monkeypatch.setattr(
+            completion_module, "get_provider_config", lambda provider: {"api_key": "k"}
+        )
+        cls = get_provider_registry().get_provider("anthropic")
+        monkeypatch.setattr(cls, "requires_model_id", False)
+        monkeypatch.setattr(cls, "execute_completion", fake_execute)
+
+        with pytest.raises(ValueError, match="Model ID required for anthropic"):
+            completion_module.get_chat_completion(
+                message="ping", provider="anthropic", max_tokens=4
+            )
+        assert calls == []
+
+    def test_a_model_config_without_a_provider_is_refused_by_name(self):
+        from osprey.models import completion as completion_module
+
+        with pytest.raises(
+            ValueError, match="Provider must be specified either directly or via model_config"
+        ):
+            completion_module.get_chat_completion(message="ping", model_config={"model_id": "m"})

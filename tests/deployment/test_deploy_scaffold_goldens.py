@@ -47,6 +47,7 @@ from osprey.cli.deploy_scaffold_templates import (
     render,
     service_image_names,
 )
+from tests.cli.test_emitted_artifacts_clean import _nonzero_exits
 
 GOLDENS = Path(__file__).parent / "goldens"
 EXEMPLAR_DIR = GOLDENS / "exemplar-profile"
@@ -338,7 +339,7 @@ def test_probe_group_filter_is_not_named_groups(rendered_verify: str) -> None:
     would leave every ``wants`` call false. The script exits 0 either way, and
     a health check that runs no probes reports perfect health.
     """
-    assert 'PROBE_GROUPS="${*:-services web}"' in rendered_verify
+    assert 'PROBE_GROUPS="${SELECTED:-containers services web}"' in rendered_verify
     assert not re.search(r"^\s*GROUPS=", rendered_verify, re.MULTILINE)
     assert not re.search(r"\$\{?GROUPS\b", rendered_verify)
 
@@ -366,17 +367,20 @@ def test_health_check_drops_the_web_group_when_there_are_no_terminals(
     profile["config"]["modules.web_terminals"]["enabled"] = False
     rendered = render(VERIFY_TEMPLATE, build_verify_context(profile, FROZEN_VERSION))
 
-    assert 'PROBE_GROUPS="${*:-services}"' in rendered
+    assert 'PROBE_GROUPS="${SELECTED:-containers services}"' in rendered
     assert "Web terminals" not in rendered
     assert "nginx" not in rendered
-    assert "./scripts/verify.sh services" in rendered
+    assert "./scripts/verify.sh containers" in rendered
 
 
 def test_health_check_is_advisory(rendered_verify: str) -> None:
-    """It always exits 0 — a failed probe never fails a deploy."""
+    """It exits 0 unless run with ``--strict`` or given an argument it does not have."""
     assert rendered_verify.rstrip().endswith("exit 0")
-    assert not re.search(r"^\s*exit [1-9]", rendered_verify, re.MULTILINE)
     assert not re.search(r"^set -e", rendered_verify, re.MULTILINE)
+    assert _nonzero_exits(rendered_verify) == [
+        ("*)", "exit 2"),
+        ('elif [ "$STRICT" -eq 1 ]; then', "exit 1"),
+    ]
 
 
 # ── Security: no secret reaches a file or a remote command line ──────────────

@@ -1,4 +1,4 @@
-"""The dispatch worker's agent receives the tracing and tool-content switches.
+"""The dispatch worker's agent receives the telemetry block the resolver emits.
 
 The worker resolves its provider env through the same resolver every launch
 path uses, then hands the SDK ``build_clean_env()``; the SDK builds the CLI's
@@ -72,3 +72,29 @@ def test_worker_sdk_env_carries_traces_and_tool_content(tmp_path, monkeypatch):
     }
     for name, value in _EXPECTED.items():
         assert cli_env[name] == value, name
+
+
+def test_worker_exports_a_left_out_signal_as_none(tmp_path, monkeypatch):
+    """A signal left out reaches the CLI as ``none`` over a stale export."""
+    render = tmp_path / "build"
+    render.mkdir()
+    config = _TRACING_CONFIG.replace(
+        "    content_max_length: 262144\n",
+        "    content_max_length: 262144\n    signals: [metrics, logs]\n",
+    )
+    assert "signals: [metrics, logs]" in config
+    (render / "config.yml").write_text(config)
+    environ = _isolated_environ(monkeypatch, tmp_path)
+    environ["OTEL_TRACES_EXPORTER"] = "otlp"
+    environ["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] = "1"
+
+    dispatch_api._inject_provider_env_once()
+
+    cli_env = {
+        **{k: v for k, v in environ.items() if k != "CLAUDECODE"},
+        **build_clean_env(),
+    }
+    assert cli_env["OTEL_METRICS_EXPORTER"] == "otlp"
+    assert cli_env["OTEL_LOGS_EXPORTER"] == "otlp"
+    assert cli_env["OTEL_TRACES_EXPORTER"] == "none"
+    assert cli_env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "0"

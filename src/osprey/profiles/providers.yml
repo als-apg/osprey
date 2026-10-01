@@ -21,11 +21,23 @@
 #                  and only when it wants to pin them rather than let the
 #                  build derive them from `models`.
 #   api_protocol   optional — `anthropic` or `openai`, the only two values it
-#                  takes. `anthropic` names an endpoint that speaks the
-#                  Anthropic API directly and so skips the translation proxy;
-#                  an absent key means `openai`. Anything else, a capitalised
+#                  takes. It overrides the protocol the provider's adapter
+#                  declares, in both directions: `anthropic` skips the
+#                  translation proxy, and `openai` routes through it. An
+#                  absent key leaves the adapter's declaration (Anthropic for
+#                  `anthropic`, `cborg` and `als-apg`), and means `openai` for
+#                  an entry with no adapter class. Anything else, a capitalised
 #                  `Anthropic` included, is refused when the provider is
 #                  resolved rather than silently routed through the proxy.
+#   requests_per_minute
+#                  optional — a positive whole number: the most model calls a
+#                  minute the channel finder's subagent and its benchmark loop
+#                  send this provider. Absent, calls are not paced.
+#   supports_images
+#                  optional — true or false: whether images reach the model on
+#                  this provider's OpenAI route (the one the translation proxy
+#                  calls). Absent, the provider's adapter decides; local model
+#                  servers and entries with no adapter take none.
 #
 # Add your own gateway by appending an entry; the keys above are the whole
 # contract. A copy of this file beside profile.yml replaces the packaged
@@ -44,6 +56,8 @@ providers:
       - claude-opus-5
       - claude-sonnet-5
       - claude-haiku-4-5
+    # The free tier allows 20 requests a minute per key; raise or delete on a paid tier.
+    requests_per_minute: 18
   amsc-i2:
     api_key: ${AMSC_I2_API_KEY}
     base_url: https://api.i2-core.american-science-cloud.org/v1
@@ -96,6 +110,8 @@ providers:
       - mistral:7b
       - gpt-oss:20b
       - gpt-oss:120b
+    # The served model takes images? Enable them on this route:
+    # supports_images: true
   argo:
     api_key: ${ARGO_API_KEY}
     base_url: ${ARGO_BASE_URL:-https://apps.inside.anl.gov/argoapi/v1}
@@ -130,3 +146,5 @@ providers:
     models:
       - deepseek-v4-flash
       - deepseek-v4-pro
+    # The served model takes images? Enable them on this route:
+    # supports_images: true

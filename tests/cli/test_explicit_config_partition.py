@@ -138,8 +138,17 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
 #: the sandbox simulator now, so the frozen render holds the old value. The
 #: frozen value is asserted before the key is skipped, so the exception proves
 #: the freeze rather than blinding the comparison; the difference itself is
-#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``.
-_VALUE_MOVED_SINCE_THE_FREEZE = {"control_system.type": "live_standin"}
+#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``. The two presets
+#: that carry a text-embedding block now state each model's input window
+#: (``max_input_tokens``), so the frozen renders hold the models list as it was
+#: before that key existed; lists are leaves here, so the whole list is the
+#: frozen value.
+_VALUE_MOVED_SINCE_THE_FREEZE = {
+    "control_system.type": "live_standin",
+    "ariel.enhancement_modules.text_embedding.models": [
+        {"dimension": 768, "name": "nomic-embed-text"}
+    ],
+}
 
 #: The same, for a leaf one cell alone retired, keyed by fixture directory.
 #:
@@ -309,8 +318,12 @@ def test_root_render_is_partitioned_between_its_sources(
     # the tool-content gate and the content limit, which the telemetry block
     # did not carry when the freeze ran; and every preset that turns on the
     # full tool-call record gains its two `audit.tool_call.*` keys, which
-    # did not exist when the freeze ran; and every preset gains
-    # `simulation.models`, which did not exist when the freeze ran either.
+    # did not exist when the freeze ran; and every preset that carries a
+    # keyword block gains its `fuzzy_threshold`, the fuzzy-fallback floor,
+    # which was a number fixed in the keyword module; and control-assistant
+    # gains the readiness-probe bound, which was a constant when the freeze ran;
+    # and every preset gains `simulation.models`, which did not exist when the
+    # freeze ran either.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -331,6 +344,10 @@ def test_root_render_is_partitioned_between_its_sources(
     for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
         if key in config:
             expected_gain = expected_gain | {key}
+    if "ariel.search_modules.keyword.settings.fuzzy_threshold" in config:
+        expected_gain = expected_gain | {"ariel.search_modules.keyword.settings.fuzzy_threshold"}
+    if "control_system.target_switch.probe_timeout_s" in config:
+        expected_gain = expected_gain | {"control_system.target_switch.probe_timeout_s"}
     if "simulation.models" in config:
         expected_gain = expected_gain | {"simulation.models"}
     assert missing == expected_gain, (

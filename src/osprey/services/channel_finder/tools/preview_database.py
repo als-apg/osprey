@@ -10,6 +10,7 @@ file to render, so it is answered with the graph guidance panel instead.
 import json
 import random
 from pathlib import Path
+from typing import Any
 
 from rich import box
 from rich.console import Console
@@ -126,8 +127,8 @@ def preview_middle_layer(
     db_path: str,
     depth: int = 3,
     max_items: int = 3,
-    sections: list = None,
-    focus: str = None,
+    sections: list[str] | None = None,
+    focus: str | None = None,
     show_full: bool = False,
     console: Console | None = None,
 ) -> None:
@@ -232,7 +233,7 @@ def _render_middle_layer_tree(
     if focus:
         focus_parts = focus.split(":")
         tree_root, tree_title = _navigate_middle_layer_focus(tree_data, focus_parts)
-        if tree_root is None:
+        if tree_root is None or tree_title is None:
             console.print(f"[error]\u2717 Focus path '{focus}' not found in database[/error]\n")
             return
     else:
@@ -387,8 +388,8 @@ def preview_hierarchical(
     db_path: str,
     depth: int = 3,
     max_items: int = 3,
-    sections: list = None,
-    focus: str = None,
+    sections: list[str] | None = None,
+    focus: str | None = None,
     console: Console | None = None,
 ) -> None:
     """Preview hierarchical database with tree structure."""
@@ -874,9 +875,9 @@ def preview_database(
     depth: int = 3,
     max_items: int = 3,
     sections: str = "tree",
-    focus: str = None,
+    focus: str | None = None,
     show_full: bool = False,
-    db_path: str = None,
+    db_path: str | None = None,
     console: Console | None = None,
 ) -> None:
     """Preview database based on configured pipeline type.
@@ -896,6 +897,8 @@ def preview_database(
     """
     console = console or _default_console
 
+    pipeline_type: str | None
+    db_config: dict[str, Any]
     if db_path:
         resolved_path = _resolve_path(db_path)
 
@@ -919,13 +922,13 @@ def preview_database(
         from osprey.utils.config import load_config as get_config
 
         config = get_config()
-        pipeline_type, db_config = detect_pipeline_config(config)
+        pipeline_type, detected = detect_pipeline_config(config)
 
         if pipeline_type == "graph":
             print_graph_paradigm_guidance(console)
             return
 
-        if not pipeline_type:
+        if not pipeline_type or detected is None:
             console.print()
             console.print(
                 Panel(
@@ -941,7 +944,8 @@ def preview_database(
             )
             return
 
-        db_path = db_config.get("path")
+        db_config = detected
+        db_path = detected["path"]
 
     # Handle --full flag (backwards compatibility)
     if show_full:

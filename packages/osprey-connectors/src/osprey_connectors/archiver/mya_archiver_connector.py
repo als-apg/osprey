@@ -69,6 +69,7 @@ from osprey_connectors.archiver._timerange import (
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("mya_archiver_connector")
@@ -135,7 +136,7 @@ class MYAArchiverConnector(ArchiverConnector):
         # is no symbol to name here on a machine without it.
         self._client: Any = None
         self._urls: dict[str, str] = {}
-        self._timeout = _DEFAULT_TIMEOUT_S
+        self._timeout: float = _DEFAULT_TIMEOUT_S
         self._deployment = _DEFAULT_DEPLOYMENT
         self._timezone: ZoneInfo | None = None
 
@@ -149,7 +150,11 @@ class MYAArchiverConnector(ArchiverConnector):
                   library's own (``epicsweb.jlab.org``).
                 - ``protocol``: ``http`` or ``https``. Default: the library's.
                 - ``deployment``: MYA deployment to query. Default ``ops``.
-                - ``timeout``: Default request timeout in seconds. Default 60.
+                - ``timeout_s``: Default request timeout in seconds. Default 60.
+                - ``auth`` and ``tls`` are refused: the client library sends
+                  every request itself, with no login and no per-connection CA.
+                  A site CA reaches it through the process trust store, which
+                  ``images.site_ca`` extends.
                 - ``timezone``: IANA zone the myquery server reads query bounds
                   in. Returned samples carry their own instant and need no zone;
                   this is only how a UTC window is spelled for the server, whose
@@ -158,9 +163,20 @@ class MYAArchiverConnector(ArchiverConnector):
                   share a site.
 
         Raises:
+            ValueError: If the block names ``auth``, ``tls`` or a flat ``timeout``.
             ImportError: If ``jlab_archiver_client`` is not installed.
             ConnectionError: If the client cannot be initialized.
         """
+        connection = read_connection_settings(
+            config,
+            where="archiver.settings",
+            logins=frozenset(),
+            tls=False,
+            unsupported_because=(
+                "the MYA client (jlab-archiver-client) sends every request itself, "
+                "with no login and no per-connection CA"
+            ),
+        )
         try:
             import jlab_archiver_client as jac
         except ImportError:
@@ -196,7 +212,7 @@ class MYAArchiverConnector(ArchiverConnector):
             raise ConnectionError(f"MYA archiver client initialization failed: {e}") from e
 
         self._deployment = config.get("deployment") or _DEFAULT_DEPLOYMENT
-        self._timeout = config.get("timeout") or _DEFAULT_TIMEOUT_S
+        self._timeout = connection.timeout_or(_DEFAULT_TIMEOUT_S)
         zone = config.get("timezone")
         self._timezone = ZoneInfo(zone) if zone else get_facility_timezone()
         self._connected = True
@@ -220,7 +236,7 @@ class MYAArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
+        timeout: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """Retrieve historical data for one or more channels.

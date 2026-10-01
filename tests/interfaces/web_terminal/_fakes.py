@@ -7,10 +7,11 @@ hand-off door's collaborators that its phase tests drive.
 
 ``PoolChatSession`` is the ``OperatorSession`` double the *real*
 ``ChatSessionPool`` drives, and ``created_first`` waits for a pool's factory
-to build and start its first one. The ``Fake*Block`` and ``Fake*Message``
-classes stand in for the Claude SDK's message types, and ``sdk_seam`` patches
-the whole SDK boundary of ``operator_session`` so ``OperatorSession.start``
-connects a test's client and nothing else.
+to build and start its first one. ``assistant_message``, ``user_message``,
+``result_message`` and ``system_message`` build the real Claude SDK messages a
+fake client yields, and ``sdk_seam`` patches the SDK boundary under
+``operator_session`` so ``OperatorSession.start`` connects a test's client
+through the agent runner and nothing else.
 """
 
 from __future__ import annotations
@@ -21,7 +22,15 @@ import inspect
 import time
 from collections.abc import Iterator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
+
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    SystemMessage,
+    UserMessage,
+)
 
 
 class FakePtySession:
@@ -211,121 +220,80 @@ async def created_first(created: list, timeout: float = 1.0) -> None:
     await asyncio.wait_for(created[0].started.wait(), timeout=timeout)
 
 
-class FakeTextBlock:
-    def __init__(self, text: str):
-        self.text = text
+#: The system prompt ``sdk_seam`` has ``operator_session`` build.
+PRESET_SYSTEM_PROMPT = {"type": "preset", "preset": "claude_code"}
 
 
-class FakeThinkingBlock:
-    def __init__(self, thinking: str, signature: str = "sig"):
-        self.thinking = thinking
-        self.signature = signature
+def assistant_message(blocks, *, error=None) -> AssistantMessage:
+    return AssistantMessage(content=list(blocks), model="claude-test", error=error)
 
 
-class FakeToolUseBlock:
-    def __init__(self, name: str, id: str, input: dict):
-        self.name = name
-        self.id = id
-        self.input = input
+def user_message(blocks) -> UserMessage:
+    return UserMessage(content=list(blocks))
 
 
-class FakeToolResultBlock:
-    def __init__(self, tool_use_id: str, content: str, is_error: bool = False):
-        self.tool_use_id = tool_use_id
-        self.content = content
-        self.is_error = is_error
+def result_message(
+    *,
+    is_error: bool = False,
+    total_cost_usd: float = 0.01,
+    duration_ms: int = 1200,
+    num_turns: int = 1,
+) -> ResultMessage:
+    return ResultMessage(
+        subtype="error_during_execution" if is_error else "success",
+        duration_ms=duration_ms,
+        duration_api_ms=duration_ms,
+        is_error=is_error,
+        num_turns=num_turns,
+        session_id="sdk-session",
+        total_cost_usd=total_cost_usd,
+    )
 
 
-class FakeAssistantMessage:
-    """Mimics ``claude_agent_sdk.AssistantMessage``."""
-
-    def __init__(self, content: list, error=None):
-        self.content = content
-        self.error = error
+def system_message(subtype: str = "init", data: dict | None = None) -> SystemMessage:
+    return SystemMessage(subtype=subtype, data=data or {})
 
 
-class FakeResultMessage:
-    """Mimics ``claude_agent_sdk.ResultMessage``."""
-
-    def __init__(
-        self,
-        is_error: bool = False,
-        total_cost_usd: float = 0.01,
-        duration_ms: int = 1200,
-        num_turns: int = 1,
-    ):
-        self.is_error = is_error
-        self.total_cost_usd = total_cost_usd
-        self.duration_ms = duration_ms
-        self.num_turns = num_turns
-
-
-class FakeSystemMessage:
-    """Mimics ``claude_agent_sdk.SystemMessage``."""
-
-    def __init__(self, subtype: str = "init", data: dict | None = None):
-        self.subtype = subtype
-        self.data = data or {}
-
-
-#: The SDK names ``operator_session`` binds at import, and the double for each.
-_SDK_TYPES = {
-    "AssistantMessage": FakeAssistantMessage,
-    "ResultMessage": FakeResultMessage,
-    "SystemMessage": FakeSystemMessage,
-    "TextBlock": FakeTextBlock,
-    "ThinkingBlock": FakeThinkingBlock,
-    "ToolUseBlock": FakeToolUseBlock,
-    "ToolResultBlock": FakeToolResultBlock,
-}
+def mock_sdk_client() -> AsyncMock:
+    """An ``AsyncMock`` client whose context manager enters and exits cleanly."""
+    client = AsyncMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    return client
 
 
 @contextlib.contextmanager
-def sdk_seam(client_or_factory: Any = None) -> Iterator[dict[str, Any]]:
-    """Patch ``operator_session``'s SDK boundary; yield the captured options kwargs.
+def sdk_seam(client_or_factory: Any = None) -> Iterator[list[ClaudeAgentOptions]]:
+    """Patch the SDK boundary under ``operator_session``; yield the captured options.
 
-    Inside the block the SDK reads as available, ``ClaudeSDKClient`` answers
-    the test's client, the seven SDK message and block types are the ``Fake*``
-    doubles above (so ``isinstance`` inside ``_message_to_events`` matches what
-    a fake client yields), and the project check, system prompt and facility
-    timezone are fixed. The yielded dict fills with the keyword arguments of
-    every ``ClaudeAgentOptions`` built inside the block.
+    Inside the block the SDK reads as available, the ``ClaudeSDKClient`` the
+    agent runner constructs answers the test's client, and the project check,
+    system prompt (``PRESET_SYSTEM_PROMPT``) and facility timezone are fixed.
+    The yielded list fills with the ``ClaudeAgentOptions`` of every client
+    constructed inside the block.
 
     Args:
         client_or_factory: A class or plain function is a factory, called with
             what ``ClaudeSDKClient`` is called with; anything else is the client
-            itself. ``None`` is an ``AsyncMock`` client whose context manager
-            enters and exits cleanly.
+            itself. ``None`` is a ``mock_sdk_client()``.
     """
     seam = "osprey.interfaces.web_terminal.operator_session."
-    captured: dict[str, Any] = {}
-
-    def capture_options(**kwargs: Any) -> MagicMock:
-        captured.update(kwargs)
-        return MagicMock()
+    captured: list[ClaudeAgentOptions] = []
 
     if client_or_factory is None:
-        client = AsyncMock()
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=False)
-        client_patch = patch(seam + "ClaudeSDKClient", return_value=client)
-    elif inspect.isclass(client_or_factory) or inspect.isfunction(client_or_factory):
-        client_patch = patch(seam + "ClaudeSDKClient", side_effect=client_or_factory)
-    else:
-        client_patch = patch(seam + "ClaudeSDKClient", return_value=client_or_factory)
+        client_or_factory = mock_sdk_client()
+    is_factory = inspect.isclass(client_or_factory) or inspect.isfunction(client_or_factory)
+
+    def construct(**kwargs: Any) -> Any:
+        captured.append(kwargs["options"])
+        return client_or_factory(**kwargs) if is_factory else client_or_factory
 
     with contextlib.ExitStack() as stack:
-        stack.enter_context(patch(seam + "CLAUDE_SDK_AVAILABLE", True))
-        stack.enter_context(patch(seam + "ClaudeAgentOptions", side_effect=capture_options))
-        stack.enter_context(client_patch)
-        for name, double in _SDK_TYPES.items():
-            stack.enter_context(patch(seam + name, double))
-        stack.enter_context(patch(seam + "validate_project_directory", return_value=[]))
+        stack.enter_context(patch(seam + "HAS_SDK", True))
         stack.enter_context(
-            patch(
-                seam + "build_system_prompt",
-                return_value={"type": "preset", "preset": "claude_code"},
-            )
+            patch("osprey.agent_runner.session.ClaudeSDKClient", side_effect=construct)
         )
+        stack.enter_context(patch(seam + "validate_project_directory", return_value=[]))
+        stack.enter_context(patch(seam + "build_system_prompt", return_value=PRESET_SYSTEM_PROMPT))
         stack.enter_context(patch(seam + "get_facility_timezone", return_value=None))
         yield captured

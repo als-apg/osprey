@@ -97,6 +97,7 @@ class _Sandbox:
             self.execution_folder,
             self.workspace_root,
             self.project_root,
+            secret_roots=(self.project_root.resolve(),),
         )
         script = self.execution_folder / "wrapped_script.py"
         script.write_text(wrapper, encoding="utf-8")

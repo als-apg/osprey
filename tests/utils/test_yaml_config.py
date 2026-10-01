@@ -447,6 +447,11 @@ class TestConfigRead:
         serialized = json.dumps(data)
         assert isinstance(serialized, str)
 
+    def test_a_non_mapping_document_reads_as_empty(self, tmp_path):
+        p = tmp_path / "list.yml"
+        p.write_text("- a\n- b\n", encoding="utf-8")
+        assert config_read(p) == {}
+
 
 # ---------------------------------------------------------------------------
 # Edge Cases

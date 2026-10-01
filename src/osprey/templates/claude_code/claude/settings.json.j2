@@ -79,12 +79,12 @@
 {%- endfor -%}
 {%- endfor -%}
 {#- NotebookEdit is scoped to the agent's own notebook trees. Claude Code
-    checks every file-editing tool (Write, MultiEdit, NotebookEdit) against
+    checks every file-editing tool (Edit, Write, NotebookEdit) against
     `Edit(path)` rules only, so the rule is spelled `Edit(...)`; a
     `NotebookEdit(path)` rule grants nothing and is reported as a
     misconfiguration at every agent start. The bare `Edit` in the deny floor
     outranks these, so the Edit tool itself stays denied, and the memory-guard
-    hook still refuses Write/MultiEdit under these trees. -#}
+    hook still refuses Write under these trees. -#}
 {%- set _ = allow_entries.append('"Edit(' ~ agent_data_root ~ '/artifacts/**)"') -%}
 {%- set _ = allow_entries.append('"Edit(' ~ agent_data_root ~ '/notebooks/**)"') -%}
 {#- Per-agent Task() permissions -#}
@@ -96,7 +96,7 @@
 {%- endfor -%}
 {% for entry in allow_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ],
-{#- The deny floor is DENY_DEFAULTS in osprey/cli/templates/claude_code.py,
+{#- The deny floor is DENY_DEFAULTS in osprey/agent_runner/tool_names.py,
     handed over as `deny_defaults` by config_derived_context (which both render
     paths call). Deliberately NOT re-declared here: the build lint and the
     headless read-only-floor drift test read that same constant, and a second

@@ -36,7 +36,7 @@ from osprey.deployment.web_terminals.ports import (
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import resolve_port_base
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.model_free]
 
 # The generator's full family set — web plus one family per registry companion
 # server, derived exactly the way the render derives it (a newly registered
@@ -65,8 +65,8 @@ def _sample_config() -> dict:
         "facility": {
             "name": "Demo Light Source",
             "prefix": "dls",
-            "timezone": "America/Los_Angeles",
         },
+        "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         # This facility runs its whole block one thousand above the framework

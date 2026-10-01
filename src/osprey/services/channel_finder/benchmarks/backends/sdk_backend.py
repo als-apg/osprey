@@ -1,19 +1,19 @@
-"""SDK backend — wraps the Claude Agent SDK ``query()`` runner."""
+"""SDK backend — runs each query through the agent runner as the channel-finder agent."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from osprey.services.channel_finder.benchmarks.sdk import (
-    combined_text,
-    run_sdk_query,
-)
+from osprey.services.channel_finder.benchmarks.sdk import run_sdk_query
 
 from .base import Backend, WorkflowOutput
 
 
 class SdkBackend(Backend):
-    """Run queries via ``claude_agent_sdk.query()`` with Anthropic-native tool-use."""
+    """Run each query through ``osprey.agent_runner.run_query`` as the channel-finder agent.
+
+    The agent drives the Anthropic-native tool-use loop.
+    """
 
     name = "sdk"
 
@@ -44,8 +44,10 @@ class SdkBackend(Backend):
             max_turns=self.max_turns,
             max_budget_usd=self.max_budget_usd,
         )
+        # The score reads the agent's own answer; each tool call's output is
+        # kept in ``tool_traces`` and not graded.
         return WorkflowOutput(
-            response_text=combined_text(result),
+            response_text=" ".join(result.text_blocks).lower(),
             tool_traces=result.tool_traces,
             cost_usd=result.cost_usd or 0.0,
             num_turns=result.num_turns or 1,

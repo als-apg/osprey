@@ -40,7 +40,7 @@ hooks:
   - approval          # Gate logbook entry creation on user approval prompt
   - error-guidance    # Post-error hook that surfaces remediation hints
   - notebook-update   # Sync CLAUDE.md notebook after each session
-  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
   - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
   - panels-context    # Inject the web terminal panel inventory into agent context
@@ -250,10 +250,18 @@ config:
   # authenticated.
   # ariel.ingestion.ca_bundle: /etc/ssl/certs/site-ca.pem
   # ariel.ingestion.verify_ssl: false
+  # Links from the agent's answers to each entry's page in your logbook: one
+  # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
+  # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
   # Which module answers a search that names no mode: the web interface's
   # opening tab, `osprey ariel search` without `--mode`, and the service API.
   # Naming a module that is off below is refused at startup.
   ariel.default_search_mode: hybrid
+  # How much of each entry's text the agent sees: search and browse results
+  # carry the first `listing_chars`, `entries_by_ids` the first `read_chars`,
+  # and `entry_get` the whole entry. A cut entry says so and gives its length.
+  # ariel.entry_text.listing_chars: 500
+  # ariel.entry_text.read_chars: 1000
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains. Off here because a vocabulary is
   # facility content and this preset ships none: write a vocabulary.yml (the
@@ -289,6 +297,10 @@ config:
   # use the index scans the whole logbook; this returns a timeout diagnostic
   # instead of holding the caller open.
   ariel.search_modules.keyword.settings.pattern_timeout_seconds: 10.0
+  # Lowest trigram similarity, 0 to 1, a row needs to come back from the
+  # fallback a keyword search runs when nothing matches exactly. Lower accepts
+  # looser spellings.
+  ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3
   # Semantic search over pgvector embeddings. Degrades to keyword-only when
   # Ollama or pgvector is unavailable, and says so.
   ariel.search_modules.semantic.enabled: true
@@ -328,10 +340,13 @@ config:
   # pgvector is unavailable.
   ariel.enhancement_modules.text_embedding.enabled: true
   ariel.enhancement_modules.text_embedding.provider: ollama
-  # Embedding models and their vector dimension.
+  # Embedding models, their vector dimension, and the input window the server
+  # applies to each, in tokens. Ollama serves nomic-embed-text with a 2048-token
+  # window; a longer entry is cut so its start is embedded.
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
+      max_input_tokens: 2048
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.
@@ -486,6 +501,13 @@ config:
   # web.panels.<id>.hidden: true          # launch a panel but keep its tab hidden
   # web.allow_runtime_panels: true        # let the agent register ad-hoc URL panels
   # web.runtime_panel_allowlist: ["dashboard.local:3000"]   # restrict those targets
+
+  # ── Health checks ──────────────────────────────────────────────────────────
+  # `osprey health` warns when the disk holding this deployment has less than
+  # min_free_gb free or is at least max_used_percent full. Raise both on a
+  # large shared volume that runs full by design.
+  # health.disk.min_free_gb: 1.0
+  # health.disk.max_used_percent: 90
 
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.

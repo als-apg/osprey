@@ -1,7 +1,7 @@
 """OTEL / Claude Code telemetry env-block construction.
 
 Builds the ``OTEL_*`` / ``CLAUDE_CODE_ENABLE_TELEMETRY`` environment block that
-:class:`osprey.build.claude_code_resolver.ClaudeCodeModelResolver` injects into a
+:class:`osprey.agent_runner.provider_env.ClaudeCodeModelResolver` injects into a
 launch when ``claude_code.telemetry`` is enabled. Kept separate from the
 resolver's provider/model logic because telemetry is a distinct observability
 concern: :func:`_build_telemetry_env` does no I/O and reads no env (all
@@ -113,6 +113,49 @@ def _content_max_length(telemetry_cfg: dict) -> str | None:
     return str(value)
 
 
+#: Each signal ``claude_code.telemetry.signals`` may name -> the variable that
+#: selects its exporter. Ordered as the refusal message lists them.
+_SIGNAL_EXPORTERS: dict[str, str] = {
+    "metrics": "OTEL_METRICS_EXPORTER",
+    "logs": "OTEL_LOGS_EXPORTER",
+    "traces": "OTEL_TRACES_EXPORTER",
+}
+
+
+def _exported_signals(telemetry_cfg: dict) -> frozenset[str]:
+    """The signals the agent exports, from ``claude_code.telemetry.signals``.
+
+    Absent (or ``None``) means every signal. Otherwise the value is a non-empty
+    list drawn from ``metrics``, ``logs`` and ``traces``; a repeated member
+    counts once. An empty list is refused rather than read as "export nothing",
+    because ``enabled: false`` already says that and says it for the whole
+    block.
+
+    Raises:
+        TelemetryConfigError: When the value is not a list, is empty, or names
+            anything other than the three signals.
+    """
+    raw = telemetry_cfg.get("signals")
+    if raw is None:
+        return frozenset(_SIGNAL_EXPORTERS)
+    allowed = ", ".join(_SIGNAL_EXPORTERS)
+    if not isinstance(raw, list):
+        raise TelemetryConfigError(
+            f"claude_code.telemetry.signals must be a list drawn from {allowed}, got {raw!r}"
+        )
+    if not raw:
+        raise TelemetryConfigError(
+            "claude_code.telemetry.signals is empty; set claude_code.telemetry.enabled: "
+            "false to export nothing"
+        )
+    unknown = sorted({str(member) for member in raw} - set(_SIGNAL_EXPORTERS))
+    if unknown:
+        raise TelemetryConfigError(
+            f"claude_code.telemetry.signals names {', '.join(unknown)}; the signals are {allowed}"
+        )
+    return frozenset(raw)
+
+
 class TelemetryConfigError(ValueError):
     """A ``claude_code.telemetry`` block is enabled but misconfigured.
 
@@ -201,6 +244,15 @@ def telemetry_creds_are_store_issued(exc: ObservabilityCredentialError) -> bool:
 #: names it yields are exactly the ones the config asked for.
 _CREDENTIAL_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}")
 
+#: The spelling ``claude_code.telemetry.auth.token_env`` must have: the NAME of
+#: the variable holding the collector's bearer token, never a value.
+_ENV_VAR_NAME_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
+
+#: Characters a bearer token may not carry: each would split or corrupt the
+#: comma-joined ``OTEL_EXPORTER_OTLP_HEADERS`` list the exporter and the
+#: tool-call record poster both parse.
+_HEADER_LIST_BREAKERS = frozenset(",\r\n")
+
 
 def _running_in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
@@ -263,13 +315,21 @@ OPENOBSERVE_LISTEN_PORT = 5080
 #: convention as the host variable: topology is declared, never sniffed.
 OPENOBSERVE_PORT_ENV_VAR = "OSPREY_OTEL_OPENOBSERVE_PORT"
 
+#: The remedy every reader of the store's address gives when
+#: :func:`openobserve_published_port` cannot read the configured port.
+OPENOBSERVE_PORT_REMEDY = "Set services.openobserve.port to an integer port and run `osprey build`."
+
 
 def openobserve_published_port(config: Mapping[str, Any] | None) -> int:
     """The port this deployment publishes the telemetry store on.
 
-    Read from ``services.openobserve.port`` — the one key that moves it, and the
-    same key the service template, the deploy preflight and ``osprey health``
-    read. With no such key the port is the layout's ``openobserve`` slot at the
+    Read from ``services.openobserve.port`` — the one key that moves it, the
+    same key the service template renders into the published port, and the one
+    every reader of the store's address calls: the agent's exporter,
+    ``osprey health``, and the ingest-account provisioner. A start refuses a
+    compose file that publishes the store anywhere else
+    (:func:`osprey.deployment.container_lifecycle._preflight_store_address`).
+    With no such key the port is the layout's ``openobserve`` slot at the
     base *this config* resolved, which is the number the service template
     publishes when nothing overrides it. A persona render carries both: profile
     inheritance copies the hosting profile's ``config:`` overlay into every
@@ -382,12 +442,95 @@ def resolve_runtime_telemetry_endpoint(config: Mapping[str, Any] | None) -> str 
         return None
 
 
-def _parse_header_map(value: dict | str) -> dict[str, str]:
-    """Parse OTLP headers config into a ``{key: value}`` dict.
+def telemetry_auth_token_env(telemetry_cfg: Mapping[str, Any]) -> str | None:
+    """The variable ``claude_code.telemetry.auth.token_env`` names, or ``None``.
 
-    Accepts either a mapping (used directly) or a comma-separated ``k=v`` string
-    (as OTLP expects on the wire). Only the first ``=`` in each pair is treated
-    as the separator, so header values may themselves contain ``=``.
+    The one reader of the key: the launch builder, the web-terminal render and
+    the deploy gate all ask it, so they agree on which variable carries the
+    collector's bearer token. The value is a variable NAME, like
+    ``archiver.settings.password_env``; a refusal never echoes what was written
+    there, because a ``${VAR}`` in this key has already been expanded by the
+    config loader into the secret itself.
+
+    Args:
+        telemetry_cfg: The ``claude_code.telemetry`` config section.
+
+    Returns:
+        The variable name, or ``None`` when the block has no ``auth``.
+
+    Raises:
+        TelemetryConfigError: When ``auth`` is set on the ``openobserve``
+            backend (the bundled store authenticates with
+            ``openobserve.user`` / ``openobserve.password``), is not a mapping
+            whose only member is ``token_env``, or ``token_env`` is not a
+            variable name.
+    """
+    auth = telemetry_cfg.get("auth")
+    if auth is None:
+        return None
+    if telemetry_cfg.get("backend") == "openobserve":
+        raise TelemetryConfigError(
+            "claude_code.telemetry.auth is set on the openobserve backend, which "
+            "authenticates with claude_code.telemetry.openobserve.user and "
+            "openobserve.password. Remove claude_code.telemetry.auth."
+        )
+    if not isinstance(auth, Mapping) or set(auth) != {"token_env"}:
+        raise TelemetryConfigError(
+            "claude_code.telemetry.auth takes one member: the collector takes a "
+            "bearer token named by claude_code.telemetry.auth.token_env."
+        )
+    token_env = auth["token_env"]
+    if not isinstance(token_env, str) or not _ENV_VAR_NAME_RE.match(token_env):
+        raise TelemetryConfigError(
+            "claude_code.telemetry.auth.token_env names the environment variable "
+            "that holds the collector's bearer token; it holds a name, not a "
+            "value or a ${VAR} reference."
+        )
+    return token_env
+
+
+def _bearer_header(
+    token_env: str, auth_token: str | None, *, defer_unresolved: bool
+) -> tuple[str, str] | None:
+    """``("Authorization", "Bearer <token>")`` for a collector's token.
+
+    Args:
+        token_env: The variable :func:`telemetry_auth_token_env` read.
+        auth_token: That variable's value from the launch environment, handed
+            in by the caller.
+        defer_unresolved: When True, an absent token returns ``None`` without a
+            warning: a build never carries the secret, so its absence there is
+            the correct state, not a fault.
+
+    Raises:
+        ObservabilityCredentialError: When the token is unset or blank and
+            ``defer_unresolved`` is False (compose's ``${VAR:-}`` makes an
+            unset host variable a blank one, so the two are one fault), or when
+            it carries a comma or a line break.
+    """
+    if auth_token is None or not auth_token.strip():
+        if defer_unresolved:
+            return None
+        raise ObservabilityCredentialError(
+            f"claude_code.telemetry.auth.token_env names {token_env}, which is "
+            "unset or blank; set it in the deployment's .env.",
+            (token_env,),
+        )
+    if _HEADER_LIST_BREAKERS & set(auth_token):
+        raise ObservabilityCredentialError(
+            f"{token_env} (claude_code.telemetry.auth.token_env) contains a comma "
+            "or a line break, which a bearer token in the OTLP header list "
+            "cannot carry."
+        )
+    return "Authorization", f"Bearer {auth_token}"
+
+
+def _parse_header_map(value: dict | str) -> dict[str, str]:
+    """Parse an ``OTEL_EXPORTER_OTLP_HEADERS`` wire string into a ``{key: value}`` dict.
+
+    The wire string is comma-separated ``k=v`` pairs; a mapping is returned as
+    strings unchanged. Only the first ``=`` in each pair is the separator, so a
+    header value may itself contain ``=``.
     """
     if isinstance(value, dict):
         return {str(k): str(v) for k, v in value.items()}
@@ -570,6 +713,7 @@ def _build_telemetry_env(
     openobserve_host: str | None = None,
     openobserve_port: int | None = None,
     defer_unresolved_creds: bool = False,
+    auth_token: str | None = None,
 ) -> dict[str, str]:
     """Build the OTEL/telemetry env block from the ``claude_code.telemetry`` config.
 
@@ -589,6 +733,11 @@ def _build_telemetry_env(
             knows the network topology).
         openobserve_port: The port the store is reached on from where this
             launch runs (see :func:`_resolve_telemetry_endpoint`).
+        defer_unresolved_creds: When True, a credential that is not resolvable
+            yet is omitted instead of refused (build-time renders).
+        auth_token: The value of the variable
+            ``claude_code.telemetry.auth.token_env`` names, read by the caller
+            from the launch environment it was handed.
 
     Returns:
         A ``{VAR: "value"}`` dict; every value is a string (never bool). Keys
@@ -598,21 +747,33 @@ def _build_telemetry_env(
         TelemetryConfigError: On an unresolvable endpoint, ``protocol: grpc``
             against an auto-derived (HTTP-only) OpenObserve endpoint, or a
             leaked ``${VAR}`` in the endpoint, or a ``content_max_length``
-            that is not a positive integer.
+            that is not a positive integer, or a ``signals`` value that is
+            empty, not a list, or names anything but ``metrics``, ``logs`` and
+            ``traces``.
+            Also on an ``auth`` block the collector cannot use (see
+            :func:`telemetry_auth_token_env`), and on a ``headers`` key.
         ObservabilityCredentialError: On an ``openobserve`` backend whose
-            credentials are missing, blank, or an unresolved ``${VAR}``.
+            credentials are missing, blank, or an unresolved ``${VAR}``, or on
+            a collector token that is unset, blank, or carries a comma or a
+            line break.
     """
     if not telemetry_cfg or not telemetry_cfg.get("enabled"):
         return {}
 
     # The exporter appends ``/v1/<signal>`` to the base endpoint, so one
     # endpoint serves logs, metrics and traces.
+    signals = _exported_signals(telemetry_cfg)
     env: dict[str, str] = {
         "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
-        "OTEL_METRICS_EXPORTER": "otlp",
-        "OTEL_LOGS_EXPORTER": "otlp",
-        "OTEL_TRACES_EXPORTER": "otlp",
+        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1" if "traces" in signals else "0",
+        # A signal left out is written as ``none``, never omitted: an omitted
+        # exporter keeps whatever the launching shell or the project's ``.env``
+        # holds, because the block is overlaid key by key. The tracing switch is
+        # written either way for the same reason.
+        **{
+            exporter: "otlp" if signal in signals else "none"
+            for signal, exporter in _SIGNAL_EXPORTERS.items()
+        },
         "OTEL_EXPORTER_OTLP_PROTOCOL": str(telemetry_cfg.get("protocol", "http/protobuf")),
         "OTEL_EXPORTER_OTLP_ENDPOINT": _resolve_telemetry_endpoint(
             telemetry_cfg,
@@ -622,12 +783,20 @@ def _build_telemetry_env(
         ),
     }
 
-    # Headers: config headers first, then the computed OpenObserve Basic auth,
-    # which wins on key collision. OTLP wire format is comma-separated k=v.
+    # The header map holds the one Authorization value: the collector's bearer
+    # token or the computed OpenObserve Basic auth, never both. OTLP wire
+    # format is comma-separated k=v.
+    if "headers" in telemetry_cfg:
+        raise TelemetryConfigError(
+            "claude_code.telemetry.headers is not a setting; name the variable that "
+            "holds the collector's bearer token in claude_code.telemetry.auth.token_env"
+        )
     headers: dict[str, str] = {}
-    configured = telemetry_cfg.get("headers")
-    if configured:
-        headers.update(_parse_header_map(configured))
+    token_env = telemetry_auth_token_env(telemetry_cfg)
+    if token_env is not None:
+        bearer = _bearer_header(token_env, auth_token, defer_unresolved=defer_unresolved_creds)
+        if bearer is not None:
+            headers[bearer[0]] = bearer[1]
     if telemetry_cfg.get("backend") == "openobserve":
         auth = _openobserve_auth_header(telemetry_cfg, defer_unresolved=defer_unresolved_creds)
         if auth is not None:

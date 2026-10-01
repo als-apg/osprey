@@ -83,6 +83,11 @@ family's first port plus *i*, so the user index reads off the port. With the
 default base, the second user's terminal is on ``10101`` and their artifact
 gallery on ``10201``.
 
+A deployment therefore holds at most 100 users. An index past 99 is refused
+whatever the family base ports are set to, because a family's override key
+moves where its band starts, not how wide it is. More users need a second
+deployment on its own ``port_base``; see :ref:`perimeter-limits`.
+
 Single-user mode is user index 0, which is the same slot the first user of a
 multi-user deployment takes. Two deployments at the same base therefore collide
 on those ports whichever mode they are in -- give the second one its own

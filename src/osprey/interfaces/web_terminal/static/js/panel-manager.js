@@ -37,7 +37,7 @@ import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
-import { applyConfigTabGate } from './config-tab.js';
+import { applyConfigTabGate, applyConfigUnreadableNotice } from './config-tab.js';
 import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
 import { applyTourConfig } from './tour.js';
 import { setFacts } from './first-contact.js';
@@ -59,7 +59,7 @@ import { initMenuPolicy, openTileContextMenu } from './panel-menu-policy.js';
 import { removeEntry, setActive } from './panel-rail.js';
 import {
   initPanelLifecycle, freshPanelState, renderRail, ensureRailMembership,
-  initPanel, assumeHealthy, startHealthPolling,
+  initPanel, assumeHealthy, startHealthPolling, retryPanelStart,
 } from './panel-lifecycle.js';
 import { initAgentAttention, flashAgentTile, clearBadge } from './panel-agent-attention.js';
 import { subscribePanelEvents } from './panel-sse.js';
@@ -77,6 +77,8 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {boolean} polling
  * @property {boolean} configLoaded
  * @property {string | null} [pendingUrl]
+ * @property {string | null} [failedMessage] - the server's sentence while a sidecar's start has failed
+ * @property {boolean} [activateOnHealthy] - surface the panel on its first healthy settle (an operator retry)
  * @property {number} misses - consecutive unanswered polls since the panel last answered
  * @property {number | null} missSince - epoch ms of the first of those misses, or null
  */
@@ -257,6 +259,7 @@ export async function initPanelManager(panelId) {
     getRailEl,
     getActive: getActiveTabId,
     ensureActive: ensureActivePanel,
+    activate: activateTab,
   });
 
   initAgentAttention(railEl);
@@ -305,6 +308,10 @@ export async function initPanelManager(panelId) {
     isMember: isRailMember,
     getActiveTabId,
     activateTab, showPanel, retireTile, labelOf, getPanelStandaloneUrl, popoutPanel,
+    retryStart: (id) => {
+      const panel = PANELS.find((p) => p.id === id);
+      if (panel) retryPanelStart(panel);
+    },
   });
 
   // Rail drag-and-drop: a rail entry dropped on a tile edge opens (or moves)
@@ -395,8 +402,10 @@ export async function initPanelManager(panelId) {
   // — it is static drawer markup — but the flag rides the payload this module
   // already reads, and applying it here keeps the page to ONE /api/panels
   // round trip. config-tab.js owns the rule; a failed fetch (null) leaves the
-  // tab alone, matching every other server-config read above.
+  // tab alone, matching every other server-config read above. When an
+  // unreadable config file closed the panel, a drawer notice names that file.
   applyConfigTabGate(panelConfig);
+  applyConfigUnreadableNotice(panelConfig);
 
   // Record whether this deployment's Scaffold gallery may write
   // (web.scaffold_gallery.write_enabled). The gallery renders its controls

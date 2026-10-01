@@ -15,7 +15,7 @@ callers' own ``os.environ`` writes depending on import order.
 Applications load ``.env`` explicitly at startup: the CLI in
 ``osprey.cli.main``, MCP servers via :func:`osprey.mcp_env.load_dotenv_from_project`,
 and the Claude Code launch paths via
-:func:`osprey.build.claude_code_resolver.inject_provider_env`.
+:func:`osprey.agent_runner.provider_env.inject_provider_env`.
 """
 
 import copy
@@ -465,7 +465,7 @@ class ConfigBuilder:
                 return default
         return value
 
-    def __init__(self, config_path: str | None = None, *, load_env: bool = True):
+    def __init__(self, config_path: str | Path | None = None, *, load_env: bool = True):
         """
         Initialize configuration builder.
 
@@ -632,31 +632,30 @@ class ConfigBuilder:
         Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an
         older config still carries them, so already-deployed projects keep
         loading unchanged instead of failing on keys nothing honours any more.
+        An empty section reads as no settings, and a non-mapping is refused by name.
 
         Returns:
             dict: Execution configuration including the execution method.
         """
         # Try to get execution config from file
-        execution_config = self.get("execution", None)
+        execution_config = self._section("execution")
 
         # If execution section exists and has content, use it
         if execution_config:
-            if isinstance(execution_config, dict):
-                for key in self._RETIRED_EXECUTION_KEYS:
-                    if key in execution_config:
-                        logger.debug(
-                            "Ignoring retired 'execution.%s' (%s) in %s; the key has "
-                            "no effect on the subprocess execution backend.",
-                            key,
-                            execution_config[key],
-                            self.config_path,
-                        )
-                execution_config = {
-                    key: value
-                    for key, value in execution_config.items()
-                    if key not in self._RETIRED_EXECUTION_KEYS
-                }
-            return execution_config
+            for key in self._RETIRED_EXECUTION_KEYS:
+                if key in execution_config:
+                    logger.debug(
+                        "Ignoring retired 'execution.%s' (%s) in %s; the key has "
+                        "no effect on the subprocess execution backend.",
+                        key,
+                        execution_config[key],
+                        self.config_path,
+                    )
+            return {
+                key: value
+                for key, value in execution_config.items()
+                if key not in self._RETIRED_EXECUTION_KEYS
+            }
 
         logger.debug(
             "'execution' section missing from config.yml; defaulting to subprocess Python execution"
@@ -674,7 +673,7 @@ class ConfigBuilder:
             dict: Python executor configuration with timeout settings
         """
         # Try to get python_executor config from file
-        python_executor_config = self.get("python_executor", None)
+        python_executor_config = self._section("python_executor")
 
         # If python_executor section exists and has content, use it
         if python_executor_config:
@@ -704,15 +703,19 @@ class ConfigBuilder:
 
     def _build_model_configs(self) -> dict[str, Any]:
         """Get model configs from flat structure."""
-        return self.get("models", {})
+        return self._section("models")
 
     def _build_provider_configs(self) -> dict[str, Any]:
         """Build provider configs."""
-        return self.get("api.providers", {})
+        return self._section("api.providers")
 
     def _build_service_configs(self) -> dict[str, Any]:
         """Get service configs from flat structure."""
-        return self.get("services", {})
+        return self._section("services")
+
+    def _section(self, path: str) -> dict[str, Any]:
+        """Read the section at ``path`` as a mapping; empty reads as ``{}``."""
+        return mapping_or_empty(self.get(path), path, self.config_path)
 
     def get(self, path: str, default: Any = None) -> Any:
         """Get configuration value using dot notation path."""
@@ -725,6 +728,15 @@ class ConfigBuilder:
             return value
         except (KeyError, TypeError):
             return default
+
+
+def mapping_or_empty(value: Any, path: str, source: object) -> dict[str, Any]:
+    """Return a config section as a mapping: ``None`` reads as ``{}``, a non-mapping is refused."""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    raise ValueError(f"'{path}' in {source} must be a mapping, got {type(value).__name__}")
 
 
 def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -> dict[str, Any]:
@@ -1012,8 +1024,10 @@ def get_framework_service_config(
         Dictionary with service configuration
     """
     configurable = _get_configurable(config_path)
-    service_configs = configurable.get("service_configs", {})
-    return service_configs.get(service_name, {})
+    service_configs: dict[str, Any] = configurable.get("service_configs", {})
+    return mapping_or_empty(
+        service_configs.get(service_name), f"services.{service_name}", config_path
+    )
 
 
 def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:

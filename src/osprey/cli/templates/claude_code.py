@@ -14,6 +14,12 @@ from typing import Any
 
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import (
+    DEFAULT_CLAUDE_MD_TEMPLATE,
+    BuildArtifactCatalog,
+)
+from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
+from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
@@ -21,42 +27,12 @@ from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
 from osprey.errors import BuildProfileError
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader
 
 logger = logging.getLogger("osprey.cli.templates")
-
-#: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
-#:
-#: This is the interactive permission layer's hard floor: entries land in
-#: ``permissions.deny``, which Claude Code refuses without ever offering an
-#: approval prompt. ``Bash`` and ``Edit`` are the two that matter most — they
-#: are the unmediated shell-out and unmediated file-patch escape hatches around
-#: every other control the profile installs.
-#:
-#: Three consumers share this one definition, and they must not fork:
-#:
-#: * ``settings.json.j2`` renders it, in this order, into ``permissions.deny``
-#:   (minus anything a facility lists under ``permissions.remove_deny``). It
-#:   arrives there as the ``deny_defaults`` context key, written by
-#:   :func:`config_derived_context` so BOTH render paths carry it.
-#: * The build lint checks that every write-capable built-in is either denied
-#:   here or gated by a ``PreToolUse`` hook rule.
-#: * ``tests/agent_runner/test_write_tools.py`` guards that the headless
-#:   read-only floor is never more permissive than this interactive one.
-#:
-#: Order is load-bearing only in that it fixes the rendered array's order;
-#: appending is always safe, reordering churns every built project's diff.
-DENY_DEFAULTS: tuple[str, ...] = (
-    "Bash",
-    "Edit",
-    "WebFetch",
-    "WebSearch",
-    "mcp__plugin_playwright_playwright__*",
-    "mcp__plugin_context7_context7__*",
-)
 
 
 def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
@@ -405,8 +381,13 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # entry, derived from the same phoebus.host/phoebus.port the backend is
         # deployed on. One spelling with the runtime resolution (the shared
         # helper in osprey.mcp_server.http), so the rendered client and the
-        # deployed bridge cannot drift onto different ports (#829).
+        # deployed bridge cannot drift onto different ports.
         "phoebus_bridge_default": phoebus_bridge_default(config),
+        # `phoebus.agent_access`, the key resolve_servers reads to decide
+        # whether phoebus_drive is offered. It must be merged before
+        # resolve_servers runs, which both render paths do, so both refuse an
+        # unknown value.
+        "phoebus_agent_access": _phoebus_agent_access(config),
         # The device vocabulary the channel-finder terminology partials render
         # their rows from, out of the deployment's own compiled ontology
         # (`facility.ontology`). None when no ontology is declared — the
@@ -441,6 +422,22 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
         "transcripts_retention_days": _transcripts_retention_days(config),
     }
+
+
+def _phoebus_agent_access(config: dict) -> str:
+    """The ``phoebus.agent_access`` value: ``"read"`` (default) or ``"read_write"``.
+
+    The refusal happens at build, not at launch: a typo that fell back to
+    ``read`` would silently withhold a tool the profile asked for, and one that
+    fell back to ``read_write`` would offer a tool the profile never granted.
+
+    Raises:
+        BuildProfileError: If the value is neither ``read`` nor ``read_write``.
+    """
+    try:
+        return phoebus_agent_access(config)
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
 
 
 def _transcripts_retention_days(config: dict) -> int | None:
@@ -608,7 +605,7 @@ def build_claude_code_context(
     # `None` for a project built from a profile that records no preset.
     manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
     preset = None
-    claude_md_template = "CLAUDE.md.j2"
+    claude_md_template = DEFAULT_CLAUDE_MD_TEMPLATE
     artifacts: dict[str, list[str]] = {}
     if manifest_path.exists():
         try:
@@ -616,7 +613,7 @@ def build_claude_code_context(
             creation = manifest_data.get("creation", {})
             manifest_mod.note_retired_creation_keys(creation)
             preset = creation.get("template")
-            claude_md_template = creation.get("claude_md_template", "CLAUDE.md.j2")
+            claude_md_template = manifest_mod.recorded_claude_md_template(manifest_data)
             artifacts = manifest_data.get("artifacts", {})
         except (json.JSONDecodeError, OSError):
             pass
@@ -776,7 +773,7 @@ def build_claude_code_context(
                     )
 
     # Model provider resolution for Claude Code
-    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
     from osprey.build.claude_code_telemetry import openobserve_published_port
 
     api_providers = config.get("api", {}).get("providers", {})
@@ -1071,14 +1068,21 @@ def is_user_owned(rel_path: str, ctx: dict) -> bool:
     write would not raise: it would quietly hand a user-owned artifact back to
     regen.
 
+    ``CLAUDE.md`` is owned under the canonical name of the persona the
+    deployment renders, never under another persona's name.
+
     Args:
         rel_path: Relative path from project root (e.g. ".claude/rules/safety.md")
-        ctx: Template context (must contain "user_owned" key)
+        ctx: Template context. Must contain ``user_owned``; ``claude_md_template``
+            picks which persona's name owns ``CLAUDE.md`` (default persona when
+            absent).
     """
     user_owned = ctx.get("user_owned", [])
     if not user_owned:
         return False
-    registry = BuildArtifactCatalog.default()
+    registry = BuildArtifactCatalog.default(
+        claude_md_template=ctx.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE
+    )
     art = registry.get_by_output(rel_path)
     if art is not None and art.canonical_name in user_owned:
         return True
@@ -1752,40 +1756,14 @@ def _declared_hook_rule(entry: dict, event: str, name: str) -> dict:
     }
 
 
-#: Built-in Claude Code tools that can write — to the filesystem, or (``Bash``)
-#: to anything the shell reaches. Every generated profile must gate each of
-#: these — either by hard-denying it in ``permissions.deny`` or by matching it
-#: with a ``PreToolUse`` hook rule — so a profile can never ship able to write
-#: with no gate at all.
-#:
-#: ``Bash`` and ``Edit`` are here for the reason :data:`DENY_DEFAULTS` names
-#: them first: they are the unmediated shell-out and unmediated file-patch
-#: escape hatches around every other control the profile installs. Their only
-#: gate in a shipped preset is that :data:`DENY_DEFAULTS` denies them — and
-#: ``claude_code.permissions.remove_deny`` lets a facility take that away, which
-#: before this entry did so with no lint and no warning. Listing them here is
-#: what makes ``remove_deny: ["Bash"]`` a build failure unless something else
-#: actually gates the tool.
-#:
-#: The memory-guard hook's ``Write|MultiEdit|NotebookEdit`` matcher is what
-#: gates the other three in the shipped presets; see
-#: :func:`_lint_write_tools_are_gated`.
-_WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
-    "Bash",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
-)
-
-
 def _rendered_deny_list(ctx: dict) -> list[str]:
     """Reproduce the ``permissions.deny`` array ``settings.json.j2`` will render.
 
     Mirrors the template's own three-part construction exactly:
 
-    1. the ``deny_defaults`` floor (the hoisted :data:`DENY_DEFAULTS` constant),
-       minus anything a facility lists under ``permissions.remove_deny``;
+    1. the ``deny_defaults`` floor (the hoisted
+       :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS` constant), minus
+       anything a facility lists under ``permissions.remove_deny``;
     2. the profile-authored ``permissions.deny`` entries, minus ``remove_deny``
        as well — a profile may subtract what a profile added;
     3. the ``killswitch_deny`` entries, appended last and NEVER filtered.
@@ -1895,7 +1873,7 @@ def _matcher_covers(matcher: str | None, tool: str) -> bool:
     * **Regex** — any matcher containing a regex metacharacter
       (:data:`_REGEX_METACHARACTERS`) is compiled and matched **unanchored**,
       the way Claude Code matches it. So ``"Write.*"``, ``"^(Write|Edit)$"`` and
-      ``"Write|MultiEdit|NotebookEdit"`` (the memory-guard hook's own matcher)
+      ``"Write|NotebookEdit"`` (the memory-guard hook's own matcher)
       all cover ``Write``, and ``"Edit.*"`` also covers ``NotebookEdit`` —
       unanchored is what Claude Code does, so it is what this reports.
     * **Exact alternation** — otherwise, and as the fallback when a matcher
@@ -1930,20 +1908,21 @@ def _matcher_covers(matcher: str | None, tool: str) -> bool:
 def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     """Refuse to build a profile that can write with no gate.
 
-    Every write-capable built-in (:data:`_WRITE_CAPABLE_BUILTINS`) must be
+    Every write-capable built-in (:data:`WRITE_CAPABLE_BUILTINS`) must be
     gated in one of two ways: hard-denied in the rendered ``permissions.deny``
     floor, OR matched by a ``PreToolUse`` hook rule. Either is accepted, and the
     distinction is load-bearing: Claude Code resolves permissions ``deny`` > ``ask``
     > ``allow``, so a hook ``allow`` can never override a ``deny``. Denying
-    ``Write``/``MultiEdit``/``NotebookEdit`` outright would therefore permanently
-    block legitimate memory writes (Write/MultiEdit to the Claude memory files)
-    and artifact notebook edits (NotebookEdit to the agent-data tree). The
+    ``Write``/``NotebookEdit`` outright would therefore permanently block
+    legitimate memory writes (Write to the Claude memory files) and artifact
+    notebook edits (NotebookEdit to the agent-data tree). The
     memory-guard ``PreToolUse`` rule is what legitimately gates them instead —
     allowing the good paths and denying the rest — so the lint takes a matcher as
     sufficient. ``Bash`` and ``Edit`` have no such legitimate path and are gated
-    by :data:`DENY_DEFAULTS`; the lint is what makes removing them from that
-    floor via ``claude_code.permissions.remove_deny`` a build failure rather than
-    a silent widening.
+    by :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`; the lint is what
+    makes removing them from that floor via
+    ``claude_code.permissions.remove_deny`` a build failure rather than a silent
+    widening.
 
     An empty rendered deny floor is itself the hazard this guards against: a
     context missing ``deny_defaults`` renders an EMPTY ``permissions.deny`` array
@@ -1983,8 +1962,9 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     Raises:
         BuildProfileError: Naming the first write-capable built-in that is
             neither hard-denied nor matched by any ``PreToolUse`` rule — or
-            reporting that the setup tool has moved into :data:`DENY_DEFAULTS`,
-            where the container's capability check cannot see it.
+            reporting that the setup tool has moved into
+            :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`, where the
+            container's capability check cannot see it.
     """
     # The container's chown of `build/config.yml` is decided one step earlier,
     # from the PROFILE's own deny/remove_deny alone (build_cmd.
@@ -2006,7 +1986,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
 
     deny = _rendered_deny_list(ctx)
     matchers = _pretooluse_matchers(ctx, fw_pre_rules)
-    for tool in _WRITE_CAPABLE_BUILTINS:
+    for tool in WRITE_CAPABLE_BUILTINS:
         if tool in deny:
             continue
         covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
@@ -2048,8 +2028,8 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
             f"The generated profile would ship able to run {tool!r} with no gate: "
             f"{tool!r} is neither in permissions.deny nor matched by any PreToolUse "
             "hook rule. A profile must not be able to write with no gate. "
-            "Wire the memory-guard hook (its 'Write|MultiEdit|NotebookEdit' matcher "
-            f"gates the three file-writing built-ins), or add {tool!r} to "
+            "Wire the memory-guard hook (its 'Write|NotebookEdit' matcher gates "
+            f"Write and NotebookEdit), or add {tool!r} to "
             "permissions.deny — if it is missing because "
             f"claude_code.permissions.remove_deny lists {tool!r}, drop that entry. "
             "A PreToolUse matcher satisfies this check by existing; the build "
@@ -2114,8 +2094,8 @@ def create_claude_code_integration(
     ctx["approval_outcome_hooks"] = _approval_outcome_rules(ctx["wired_servers"])
 
     # Build-time safety lint: refuse to render a profile in which any
-    # write-capable built-in (Write/MultiEdit/NotebookEdit) is neither hard-denied
-    # nor gated by a PreToolUse hook. Runs on both render paths (create + regen)
+    # write-capable built-in (WRITE_CAPABLE_BUILTINS) is neither hard-denied nor
+    # gated by a PreToolUse hook. Runs on both render paths (create + regen)
     # because both funnel through here, and before any file is written so a
     # failing profile never lands a half-rendered .claude/ tree.
     _lint_write_tools_are_gated(ctx, fw_pre)
@@ -2129,22 +2109,19 @@ def create_claude_code_integration(
         files_created += 1
 
     # 2. Render CLAUDE.md template -> CLAUDE.md
-    # The template filename is selected by the build profile via the
-    # `claude_md_template` field (default "CLAUDE.md.j2"). Presets that want
-    # a different persona override it to e.g. "CLAUDE.ariel.md.j2".
-    claude_md_template_name = ctx.get("claude_md_template", "CLAUDE.md.j2")
-    claude_md_j2 = claude_code_dir / claude_md_template_name
-    claude_md_static = claude_code_dir / "CLAUDE.md"
+    # The catalog resolves CLAUDE.md to the profile's `claude_md_template:`
+    # persona, and an unknown one is refused there by name.
+    instructions = BuildArtifactCatalog.default(
+        claude_md_template=ctx.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE
+    ).get_by_output("CLAUDE.md")
+    assert instructions is not None, "the default catalog always carries a CLAUDE.md persona"
     if not is_user_owned("CLAUDE.md", ctx):
-        if claude_md_j2.exists():
-            render_template(
-                jinja_env,
-                f"claude_code/{claude_md_template_name}",
-                ctx,
-                project_dir / "CLAUDE.md",
-            )
-        elif claude_md_static.exists():
-            shutil.copy2(claude_md_static, project_dir / "CLAUDE.md")
+        render_template(
+            jinja_env,
+            f"claude_code/{instructions.template_path}",
+            ctx,
+            project_dir / "CLAUDE.md",
+        )
         files_created += 1
 
     # 2b. Create facility.md -- user-owned artifact
@@ -2258,8 +2235,9 @@ def check_user_owned_drift(
 ) -> list[str]:
     """Check if framework templates changed since user claimed ownership.
 
-    Compares the current rendered framework hash against the hash stored
-    in the manifest at claim time.
+    Compares the framework's current hash of each claimed artifact (a rendered
+    file or a service directory) against the hash stored in the manifest at
+    claim time.
 
     Args:
         template_root: Path to osprey's bundled templates directory
@@ -2284,7 +2262,6 @@ def check_user_owned_drift(
         return []
 
     registry = BuildArtifactCatalog.default()
-    claude_code_dir = template_root / "claude_code"
     drift: list[str] = []
 
     for canonical_name, meta in user_owned_meta.items():
@@ -2298,9 +2275,7 @@ def check_user_owned_drift(
 
         # Computed exactly as the claim-time hash was — same function — so a
         # difference here is the framework template changing and nothing else.
-        current_hash = manifest_mod.framework_template_hash(
-            claude_code_dir, artifact.template_path, jinja_env, ctx
-        )
+        current_hash = framework_template_hash(template_root, artifact, jinja_env, ctx)
 
         if current_hash and current_hash != stored_hash:
             drift.append(canonical_name)

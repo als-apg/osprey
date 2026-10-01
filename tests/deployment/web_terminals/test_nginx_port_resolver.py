@@ -35,6 +35,7 @@ from osprey.port_layout import DEFAULT_PORT_BASE, default_port
 _NO_PORTS_CONFIG: dict[str, Any] = {
     "facility": {"name": "Demo Light Source", "prefix": "dls"},
     "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
+    "registry": {"url": "registry.example.org/demo"},
     "modules": {
         "web_terminals": {
             "enabled": True,

@@ -32,9 +32,6 @@ engine-injected values:
    services:
      postgresql:
        container_name: {{services.postgresql.container_name | default('osprey-postgres')}}
-       labels:
-         osprey.project.name: "{{osprey_labels.project_name}}"
-         osprey.project.root: "{{osprey_labels.project_root}}"
        ports:
          - "{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432"
        environment:
@@ -47,6 +44,15 @@ Common access patterns: ``{{services.<name>.<key>}}``,
 ``{{deployment.bind_address}}``, and ``{{osprey_labels.project_name}}`` /
 ``project_root`` (injected by the deploy engine).
 
+The build writes ``build/osprey-labels.override.yml`` and passes it to every
+compose invocation. It gives every service ``osprey.project.name``,
+``com.osprey.repo-id``, ``osprey.project.root`` and ``osprey.config.digest``, so
+a template never writes them, and one that does is harmless. A template still
+writes two labels itself: ``com.osprey.repo-id: "{{ osprey_labels.repo_id }}"``
+on each named volume it declares, because the override labels services, not
+volumes, and ``osprey reset`` only removes volumes that carry it; and
+``osprey.env.digest`` on a service that reads the env chain.
+
 The engine deliberately injects no deploy timestamp. Everything a template
 renders comes from the project's configuration, so building the same project
 twice produces the same files — which is what lets you diff a rebuilt
@@ -58,22 +64,24 @@ container was started, ask the runtime: ``docker inspect`` reports it as
 ``osprey.deployed.at`` label; a template you have customized that still sets it
 keeps building, and the label just renders empty, but you should drop the line.
 
-What that timestamp was doing by accident, two labels now do on purpose::
-
-      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
-
-Your service reads its settings from files — the env chain, and the
+What that timestamp was doing by accident, two content-hash labels now do on
+purpose. Your service reads its settings from files — the env chain, and the
 ``config.yml`` mounted into the container — and the container runtime decides
 whether to restart a container by comparing the compose document, which names
 neither file's *contents*. So editing ``.env`` or running ``osprey set`` would
 leave the running container on the values it started with. Each label carries a
 hash of one of those files, which turns such an edit into a document change and
 restarts exactly the containers that read it. ``osprey up`` sets both variables
-for you; they interpolate to empty if you run ``docker compose`` by hand. **A
-service template you wrote yourself should carry both lines** — without them
-your service keeps serving its old settings after a change, with nothing to say
-so.
+for you; they interpolate to empty if you run ``docker compose`` by hand.
+
+The build adds the config digest, ``osprey.config.digest``, to every service
+through the labels override. The env digest is the template's own::
+
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+
+**A service template you wrote yourself should carry the env digest line if the
+service reads the env chain** — without it your service keeps serving its old
+env values after a change, with nothing to say so.
 
 Service Template Ownership
 ==========================
@@ -91,6 +99,60 @@ environment variable wins, then a ``config.yml`` key, then the packaged
 default — and the two stack-wide axes assemble the default name of an
 OSPREY-built image. The thirteen images, the two axes and their precedence are
 catalogued in :ref:`config-deployment`.
+
+.. _deployment-image-builds:
+
+When a deploy builds an image
+-----------------------------
+
+A service is built on the deploy host only when its rendered compose document
+carries a ``build:`` block. Upstream pins never do. The OSPREY-built services
+(the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
+Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
+accelerator) each do, with one exception: a virtual-accelerator instance whose
+``services.virtual_accelerator.image`` or ``services.live_standin.image`` names
+an image other than the one OSPREY builds renders without ``build:``, and that
+image is pulled and run as named.
+
+Which start builds what:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Start
+     - What is built
+   * - ``osprey up --dev``, with or without ``-d``
+     - A build step rebuilds every service with ``build:``, then
+       ``up --no-build``.
+   * - ``osprey up`` or ``osprey restart`` without ``-d``
+     - The same build step, because the ``up`` replaces the ``osprey``
+       process.
+   * - ``osprey up -d`` without ``--dev``
+     - No build step. Compose builds a service's image on ``up`` only when
+       that image is not on the host.
+   * - A deployment with ``modules.web_terminals.enabled``
+     - Starts detached whatever the flag, so only ``--dev`` gives it a build
+       step.
+   * - ``prebuilt_images: true`` or ``OSPREY_PREBUILT_IMAGES=1``
+     - Nothing, on any start (:ref:`deployment-prebuilt-images`).
+
+An ``OSPREY_<SERVICE>_IMAGE`` naming an image other than the one the
+``build:`` block produces keeps that service out of every build. The start
+reports ``<service> runs <image> (<variable>); not built``, builds the others
+in a step of its own even under ``-d``, and starts everything with
+``up --no-build``, so an image that is neither on the host nor pullable fails
+with compose's own error naming it.
+
+For the services other than the virtual accelerator, ``services.<name>.image``
+does not remove the ``build:`` block, so a start that builds rebuilds OSPREY's
+recipe under the name given. Use the variable or ``prebuilt_images`` to run
+your own image for those.
+
+The project image (dispatch worker, ARIEL sync, record archive) has no
+``build:`` block. The deploy builds it itself on every start unless the host
+is prebuilt or every one of those services it deploys names another image
+(``OSPREY_WORKER_IMAGE`` or ``services.<name>.image``).
 
 The web tier names its registry separately
 ------------------------------------------
@@ -118,7 +180,9 @@ Neither pair reaches the other's images. ``images.registry`` does not move the
 web images, and ``registry.url`` does not move the service images. A
 deployment that mirrors everything sets both pairs, and sets them to the same
 place — that is the one case where the divergence costs you a line of config
-rather than nothing.
+rather than nothing. A profile with a ``deploy:`` block in registry mode does
+not write ``registry.url`` itself, because the build fills it from
+``deploy.registry.url`` (see :ref:`multi-user-registry-images`).
 
 Whether the web tier pulls those images or builds them on the deploy host is a
 third, separate setting: ``modules.web_terminals.image_source``
@@ -221,16 +285,17 @@ the config key in both directions, so ``OSPREY_PREBUILT_IMAGES=0`` forces a
 build for one shell even on a host whose ``config.yml`` pins the key. With
 neither set, deploys build as they always have.
 
-The switch covers both ways a build can start:
+The switch covers both ways a build can start
+(:ref:`deployment-image-builds`):
 
-* In :ref:`dev mode <development-mode>` it skips the wheel-and-image build
-  step, and the deploy reports ``skipped image build (prebuilt images)`` where
-  it would otherwise have built.
-* In ordinary (non-dev) mode there is no build step to skip — but compose
-  would still build any service whose compose document carries a ``build:``
-  block the first time it brings it up. The switch passes ``--no-build``, so
-  compose starts what is there instead. Nothing is reported as skipped,
-  because nothing was scheduled.
+* A start with a build step of its own (any :ref:`dev mode
+  <development-mode>` start, any start without ``-d``) skips it, and a
+  ``--dev`` start reports ``skipped image build (prebuilt images)`` where it
+  would otherwise have built.
+* A detached non-dev start has no build step, but compose would still build a
+  service whose compose document carries a ``build:`` block when its image is
+  not on the host. The switch passes ``--no-build``, so compose starts what is
+  there instead.
 
 **What the switch does not reach.** It governs compose's implicit builds only.
 The persona images and the auth sidecar are built explicitly, by a different

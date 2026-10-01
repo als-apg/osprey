@@ -307,3 +307,102 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     expect(cellsInOrder).toEqual(savedOrder);
   });
 });
+
+describe('on a multi-user mount (storage scope)', () => {
+  const SCOPE_ATTR = 'data-osprey-storage-scope';
+
+  /** The same drag sequence as above, reduced to what the order save needs.
+   * @param {HTMLElement} fromCell @param {HTMLElement} toCell */
+  function drag(fromCell, toCell) {
+    /** @type {Map<string, string>} */
+    const data = new Map();
+    const dataTransfer = {
+      effectAllowed: '',
+      dropEffect: '',
+      /** @param {string} t @param {string} v */
+      setData(t, v) { data.set(t, v); },
+      /** @param {string} t */
+      getData(t) { return data.get(t) ?? ''; },
+    };
+    for (const [type, target] of [['dragstart', qs(fromCell, '.figure-header')], ['drop', toCell]]) {
+      const event = new Event(/** @type {string} */ (type), { bubbles: true });
+      /** @type {Event & {dataTransfer: unknown}} */ (event).dataTransfer = dataTransfer;
+      /** @type {HTMLElement} */ (target).dispatchEvent(event);
+    }
+  }
+
+  const figureOrder = () =>
+    Array.from(document.querySelectorAll('.figure-cell')).map(
+      c => /** @type {HTMLElement} */ (c).dataset.figure
+    );
+
+  beforeEach(() => {
+    document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
+  });
+
+  afterEach(() => {
+    document.documentElement.removeAttribute(SCOPE_ATTR);
+  });
+
+  test('the layout mode is read and written under the scope', () => {
+    window.localStorage.setItem('lattice-layout-mode', 'grid');
+    const ui = createUI(FIGURE_NAMES);
+    ui.initLayout();
+
+    expect(byId('figure-area').classList.contains('layout-stacked')).toBe(true);
+    expect(window.localStorage.getItem('lattice-layout-mode--bob')).toBe('stacked');
+    expect(window.localStorage.getItem('lattice-layout-mode')).toBe('grid');
+  });
+
+  test('the sidebar tab is read and written under the scope', () => {
+    window.localStorage.setItem('lattice-sidebar-tab', 'settings');
+    const ui = createUI(FIGURE_NAMES);
+    ui.initSidebarTabs();
+    expect(byId('tab-magnets').classList.contains('sidebar-tab-content--active')).toBe(true);
+
+    qs(document, '.sidebar-tab[data-tab="settings"]', HTMLElement).click();
+    expect(window.localStorage.getItem('lattice-sidebar-tab--bob')).toBe('settings');
+
+    window.localStorage.setItem('lattice-sidebar-tab', 'magnets');
+    mountFixture();
+    createUI(FIGURE_NAMES).initSidebarTabs();
+    expect(byId('tab-settings').classList.contains('sidebar-tab-content--active')).toBe(true);
+  });
+
+  test('the figure order is saved and restored under the scope', () => {
+    window.localStorage.setItem('lattice-panel-order', JSON.stringify(['optics', 'da']));
+    const ui1 = createUI(FIGURE_NAMES);
+    ui1.setupDragAndDrop();
+    drag(byId('cell-optics'), byId('cell-da'));
+    const saved = JSON.parse(String(window.localStorage.getItem('lattice-panel-order--bob')));
+    expect(saved).toEqual(['da', 'optics']);
+    expect(window.localStorage.getItem('lattice-panel-order')).toBe(
+      JSON.stringify(['optics', 'da'])
+    );
+
+    mountFixture();
+    createUI(FIGURE_NAMES).restorePanelOrder();
+    expect(figureOrder()).toEqual(['da', 'optics']);
+
+    // A stale order is discarded from the person's own slot, never the shared one.
+    window.localStorage.setItem('lattice-panel-order--bob', JSON.stringify(['optics', 'fma']));
+    mountFixture();
+    createUI(FIGURE_NAMES).restorePanelOrder();
+    expect(window.localStorage.getItem('lattice-panel-order--bob')).toBeNull();
+    expect(window.localStorage.getItem('lattice-panel-order')).not.toBeNull();
+    expect(figureOrder()).toEqual(['optics', 'da']);
+  });
+
+  test('the sidebar collapse is persisted under the scope', () => {
+    window.localStorage.setItem('lattice-sidebar-collapsed', 'false');
+    const ui = createUI(FIGURE_NAMES);
+    ui.initSidebar();
+    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
+
+    ui.toggleSidebar();
+    expect(
+      JSON.parse(String(window.localStorage.getItem('lattice-sidebar-collapsed--bob'))).collapsed
+    ).toBe(false);
+    expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('false');
+  });
+});

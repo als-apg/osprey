@@ -56,6 +56,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     derive_endpoints,
     endpoint_is_live_standin,
 )
+from osprey_connectors.connection import read_connection_settings
 
 # Whose past the store holds, decided in one place for the recorder's compose
 # entry, this enablement gate and the deploy-time archive seed alike. A guard
@@ -72,6 +73,9 @@ DEFAULT_DATA_DIR = "/data/simulation"
 #: Rendered-config subtree holding the connection keys (mirrors
 #: ``build_profile_archiver.CONNECTION_CONFIG_PREFIX``).
 _CONNECTION_PREFIX = ("archiver", "mongodb_archiver")
+
+#: The login under the connection block.
+_AUTH_PREFIX = (*_CONNECTION_PREFIX, "auth")
 
 #: Rendered-config subtree holding the archive-shape knobs (mirrors
 #: ``build_profile_archiver.KNOBS_CONFIG_PREFIX``).
@@ -102,15 +106,17 @@ class RecorderSettings:
     port: int
     database: str
     collection: str
-    auth_database: str
+    auth_source: str
     username: str
     password_env: str
-    timeout_sec: int
+    timeout_s: int
     cadence_sec: int
     tail_cadence_sec: int
     poll_sec: int
     hot_span_hours: int
     retention_days: int
+    #: A CA file to trust for the store (``tls.ca_bundle``); ``None`` keeps TLS off.
+    ca_bundle: str | None = None
 
 
 def load_settings(config_path: Path) -> RecorderSettings:
@@ -120,11 +126,19 @@ def load_settings(config_path: Path) -> RecorderSettings:
         RecorderConfigError: if the file is unreadable, is not a mapping, or is
             missing a key the recorder has no honest default for. The message
             names the key and the block it belongs to, because the fix is
-            always a profile edit and a rebuild.
+            always a profile edit and a rebuild. Also raised when the block
+            names its store by ``url``: that store is one this deployment reads,
+            never one it writes.
     """
     config = _load_mapping(config_path)
     connection = _subtree(config, _CONNECTION_PREFIX, config_path)
     knobs = _subtree(config, _KNOBS_PREFIX, config_path)
+    if connection.get("url"):
+        raise RecorderConfigError(
+            f"{config_path}: `{'.'.join((*_CONNECTION_PREFIX, 'url'))}` is set. The recorder "
+            "writes only to the store this deployment runs, addressed by host and port."
+        )
+    auth, ca_bundle = _login_block(connection, config_path)
 
     # The in-network address override, read through the connector's own helper
     # so this service and the agent's connector cannot come to differ on what an
@@ -148,10 +162,11 @@ def load_settings(config_path: Path) -> RecorderSettings:
         port=port,
         database=str(_require(connection, "name", _CONNECTION_PREFIX, config_path)),
         collection=str(_require(connection, "collection", _CONNECTION_PREFIX, config_path)),
-        auth_database=str(_require(connection, "auth", _CONNECTION_PREFIX, config_path)),
-        username=str(_require(connection, "username", _CONNECTION_PREFIX, config_path)),
-        password_env=str(_require(connection, "password_env", _CONNECTION_PREFIX, config_path)),
-        timeout_sec=_int_key(connection, "timeout", _CONNECTION_PREFIX, config_path),
+        auth_source=str(_require(auth, "source", _AUTH_PREFIX, config_path)),
+        username=str(_require(auth, "username", _AUTH_PREFIX, config_path)),
+        password_env=str(_require(auth, "password_env", _AUTH_PREFIX, config_path)),
+        timeout_s=_int_key(connection, "timeout_s", _CONNECTION_PREFIX, config_path),
+        ca_bundle=ca_bundle,
         cadence_sec=_int_key(knobs, "recorder_cadence_sec", _KNOBS_PREFIX, config_path),
         tail_cadence_sec=_int_key(knobs, "recorder_tail_cadence_sec", _KNOBS_PREFIX, config_path),
         poll_sec=_int_key(knobs, "recorder_poll_sec", _KNOBS_PREFIX, config_path),
@@ -405,6 +420,33 @@ def _subtree(config: dict[str, Any], prefix: tuple[str, ...], config_path: Path)
     if not isinstance(node, dict):
         raise RecorderConfigError(f"{config_path}: `{'.'.join(prefix)}` is not a mapping")
     return node
+
+
+def _login_block(
+    connection: dict[str, Any], config_path: Path
+) -> tuple[dict[str, Any], str | None]:
+    """The block's ``auth:`` mapping and ``tls.ca_bundle``, checked by the shared reader.
+
+    Each of ``source``, ``username`` and ``password_env`` stays required and is
+    checked by the caller, so a missing one is named before the reader's own
+    rules apply.
+    """
+    raw = connection.get("auth")
+    auth = raw if isinstance(raw, dict) else {}
+    for leaf in ("source", "username", "password_env"):
+        _require(auth, leaf, _AUTH_PREFIX, config_path)
+    try:
+        settings = read_connection_settings(
+            connection,
+            where=".".join(_CONNECTION_PREFIX),
+            logins=frozenset({"password"}),
+            unsupported_because="the archive store takes a username and auth.password_env",
+            extra_auth_keys=frozenset({"source"}),
+        )
+    except ValueError as exc:
+        raise RecorderConfigError(f"{config_path}: {exc}") from exc
+    ca_bundle = str(settings.ca_bundle) if settings.ca_bundle is not None else None
+    return auth, ca_bundle
 
 
 def _require(block: dict[str, Any], key: str, prefix: tuple[str, ...], config_path: Path) -> Any:

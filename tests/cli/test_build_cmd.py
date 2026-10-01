@@ -1798,7 +1798,7 @@ def _build_for_web_panels(
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         # Ship the memory-guard hook the real control_assistant preset ships:
-        # without it the built profile leaves Write/MultiEdit/NotebookEdit
+        # without it the built profile leaves Write/NotebookEdit
         # ungated and the build-time write-tool lint (correctly) refuses it.
         "hooks": ["memory-guard"],
     }
@@ -2330,6 +2330,8 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
     cc = config.setdefault("claude_code", {})
     cc.setdefault("servers", {})["phoebus2"] = {"extends": "phoebus"}
     cc["permissions"] = {"remove_ask": ["mcp__phoebus2__phoebus_drive"]}
+    # The warning exists only while the drive is offered.
+    config["phoebus"] = {"agent_access": "read_write"}
 
     with caplog.at_level(logging.WARNING):
         claude_code.build_claude_code_context(
@@ -2343,7 +2345,7 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
 
 
 # ---------------------------------------------------------------------------
-# Build lint: no ungated write-capable built-in (Write/MultiEdit/NotebookEdit)
+# Build lint: no ungated write-capable built-in (WRITE_CAPABLE_BUILTINS)
 # ---------------------------------------------------------------------------
 
 
@@ -2351,7 +2353,7 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
     """A profile whose PreToolUse layer no longer gates the write-capable
     built-ins — e.g. the memory-guard hook dropped, leaving ``selected_hooks``
     empty — must be refused at build time with a BuildProfileError naming the
-    ungated tool. Write/MultiEdit/NotebookEdit are not in DENY_DEFAULTS (denying
+    ungated tool. Write/NotebookEdit are not in DENY_DEFAULTS (denying
     them outright would block legitimate memory writes), so with no memory-guard
     PreToolUse rule they are gated by nothing at all: exactly the ship-able
     ungated-writer the lint exists to stop."""
@@ -2372,7 +2374,7 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
         manager.template_root, manager.jinja_env, project, config
     )
     # Drop every framework hook, so the widened memory-guard's
-    # 'Write|MultiEdit|NotebookEdit' PreToolUse matcher is no longer rendered.
+    # 'Write|NotebookEdit' PreToolUse matcher is no longer rendered.
     ctx["selected_hooks"] = []
 
     with pytest.raises(claude_code.BuildProfileError) as excinfo:
@@ -2387,8 +2389,8 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
 
 def test_lint_passes_for_normal_build_with_memory_guard(tmp_path: Path) -> None:
     """A normally-built profile ships the widened memory-guard hook, whose single
-    'Write|MultiEdit|NotebookEdit' PreToolUse matcher gates all three
-    write-capable built-ins — so the build lint passes and the rendered
+    'Write|NotebookEdit' PreToolUse matcher gates both file-writing built-ins the
+    deny floor leaves reachable — so the build lint passes and the rendered
     settings.json actually carries that gate. Guards that the shipped presets do
     not trip the lint."""
     from osprey.cli.templates.manager import TemplateManager
@@ -2407,8 +2409,8 @@ def test_lint_passes_for_normal_build_with_memory_guard(tmp_path: Path) -> None:
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     pre_matchers = [rule["matcher"] for rule in settings["hooks"]["PreToolUse"]]
     # The widened memory-guard matcher that satisfies the lint is present.
-    assert any({"Write", "MultiEdit", "NotebookEdit"} <= set(m.split("|")) for m in pre_matchers), (
-        f"expected a Write|MultiEdit|NotebookEdit PreToolUse matcher; got: {pre_matchers}"
+    assert any({"Write", "NotebookEdit"} <= set(m.split("|")) for m in pre_matchers), (
+        f"expected a Write|NotebookEdit PreToolUse matcher; got: {pre_matchers}"
     )
 
 
@@ -2432,9 +2434,10 @@ def test_matcher_covers_every_match_all_spelling(matcher) -> None:
     path. A lint that recognised only the literal ``"*"`` would refuse builds
     whose hooks genuinely do gate the tool.
     """
-    from osprey.cli.templates.claude_code import _WRITE_CAPABLE_BUILTINS, _matcher_covers
+    from osprey.agent_runner.tool_names import WRITE_CAPABLE_BUILTINS
+    from osprey.cli.templates.claude_code import _matcher_covers
 
-    for tool in _WRITE_CAPABLE_BUILTINS:
+    for tool in WRITE_CAPABLE_BUILTINS:
         assert _matcher_covers(matcher, tool), f"{matcher!r} should cover {tool}"
 
 
@@ -2444,8 +2447,8 @@ def test_matcher_covers_every_match_all_spelling(matcher) -> None:
         # Exact single name, and the pipe alternation the memory-guard ships.
         ("Bash", "Bash", True),
         ("Bash", "Edit", False),
-        ("Write|MultiEdit|NotebookEdit", "NotebookEdit", True),
-        ("Write|MultiEdit|NotebookEdit", "Bash", False),
+        ("Write|NotebookEdit", "NotebookEdit", True),
+        ("Write|NotebookEdit", "Bash", False),
         # Regex spellings a facility may reasonably write.
         ("Write.*", "Write", True),
         ("^(Write|Edit)$", "Edit", True),
@@ -2480,9 +2483,9 @@ def test_write_capable_builtins_cover_the_shell_and_patch_escape_hatches() -> No
     They belong to the linted set so removing them from the floor has to be
     replaced by some other gate.
     """
-    from osprey.cli.templates.claude_code import _WRITE_CAPABLE_BUILTINS, DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 
-    assert {"Bash", "Edit"} <= set(_WRITE_CAPABLE_BUILTINS)
+    assert {"Bash", "Edit"} <= set(WRITE_CAPABLE_BUILTINS)
     # And they are still what the deny floor gates them with today.
     assert {"Bash", "Edit"} <= set(DENY_DEFAULTS)
 
@@ -2625,7 +2628,7 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
 
 
 def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -> None:
-    """The memory-guard hook is framework-wired, so the three file-writing
+    """The memory-guard hook is framework-wired, so the two file-writing
     built-ins it covers pass the lint quietly — the warning is reserved for gates
     the build cannot vouch for."""
     import logging
@@ -3131,12 +3134,15 @@ class TestVAArchiverConfigDerivation:
         assert mongo["name"] and mongo["collection"]
         # The store mints its root user, and a root user's credentials live in
         # `admin` — authenticating against the data database would fail.
-        assert mongo["auth"] == "admin"
-        assert mongo["username"] == "osprey"
-        assert mongo["password_env"] == "MONGO_ROOT_PASSWORD"
+        assert mongo["auth"] == {
+            "source": "admin",
+            "username": "osprey",
+            "password_env": "MONGO_ROOT_PASSWORD",
+        }
         # Short by design: the common failure is a project built but never
         # deployed, and a fast explanatory error beats a minute of silence.
-        assert mongo["timeout"] == 5
+        assert mongo["timeout_s"] == 5
+        assert "timeout" not in mongo
 
     def test_the_password_is_never_written_into_the_project(self, tmp_path: Path) -> None:
         """It reaches the store, the recorder and the agent as one minted .env

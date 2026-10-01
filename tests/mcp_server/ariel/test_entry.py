@@ -22,11 +22,12 @@ def _get_entry_create():
     return get_tool_fn(entry_create)
 
 
-def _setup_registry(tmp_path, monkeypatch):
+def _setup_registry(tmp_path, monkeypatch, entry_text=None):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        '{"ariel": {"database": {"uri": "postgresql://localhost/test"}}}'
-    )
+    ariel: dict = {"database": {"uri": "postgresql://localhost/test"}}
+    if entry_text is not None:
+        ariel["entry_text"] = entry_text
+    (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
     initialize_ariel_context()
 
 
@@ -801,3 +802,43 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
             await fn(entry_ids=["e1"])
 
     _exc_ctx["envelope"]
+
+
+async def test_entries_by_ids_carries_the_read_budget(tmp_path, monkeypatch):
+    """A batch read cuts at read_chars, not at the listing budget."""
+    _setup_registry(tmp_path, monkeypatch, entry_text={"listing_chars": 10, "read_chars": 20})
+
+    mock_service = AsyncMock()
+    mock_service.repository.get_entries_by_ids.return_value = [
+        make_mock_entry(entry_id="e1", raw_text="x" * 50)
+    ]
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        result = await _get_entries_by_ids()(entry_ids=["e1"])
+
+    [entry] = extract_response_dict(result)["entries"]
+    assert entry["raw_text"] == "x" * 20
+    assert entry["raw_text_truncated"] is True
+    assert entry["raw_text_length"] == 50
+
+
+async def test_entry_get_returns_the_whole_text(tmp_path, monkeypatch):
+    """entry_get is never cut: a long entry comes back whole and unmarked."""
+    _setup_registry(tmp_path, monkeypatch)
+    text = "x" * 5000
+
+    mock_service = AsyncMock()
+    mock_service.repository.get_entry.return_value = make_mock_entry(entry_id="e1", raw_text=text)
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        result = await _get_entry_get()(entry_id="e1")
+
+    data = extract_response_dict(result)
+    assert data["raw_text"] == text
+    assert "raw_text_truncated" not in data

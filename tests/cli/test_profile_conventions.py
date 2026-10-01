@@ -30,6 +30,7 @@ from osprey.cli.profile_conventions import (
     PROJECT_MIRROR_DIR,
     PROTECTED_CONFIG_KEYS,
     PROTECTED_KEY_EXEMPTIONS,
+    REPO_CLAUDE_CODE_ENTRIES,
     RESERVED_EXACT_PATHS,
     RESERVED_MIRROR_PATTERNS,
     RESERVED_PATH_CHANNELS,
@@ -925,7 +926,19 @@ def test_zone_remedy_names_the_channel_to_move_an_entry_into(
     assert f"{PROJECT_MIRROR_DIR}/" in caplog.text
     assert "channel that carries it" in caplog.text
     assert "repo-local material" in caplog.text
-    assert "leaving it here costs nothing" in caplog.text
+    assert "container image" in caplog.text
+    assert "Nothing copies" not in caplog.text
+
+
+def test_the_repos_own_claude_code_files_are_not_unknown_root_entries(zone_repo: Path):
+    """A developer's ``CLAUDE.md`` beside the profile is deliberate, not a typo."""
+    _write(zone_repo / "CLAUDE.md")
+    _write(zone_repo / "CLAUDE.local.md")
+    _write(zone_repo / ".mcp.json", "{}\n")
+    _write(zone_repo / ".claude" / "settings.json", "{}\n")
+
+    assert unknown_root_entries(zone_repo) == []
+    assert REPO_CLAUDE_CODE_ENTRIES <= KNOWN_ROOT_ENTRIES
 
 
 def test_zone_remedy_keeps_the_typo_answer(profile_dir: Path, caplog: pytest.LogCaptureFixture):

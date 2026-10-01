@@ -118,6 +118,12 @@ class TestValidBlocks:
         layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
         assert layout["status"] == [{"type": "clock", "options": {"zone": "utc"}}]
 
+    def test_the_facility_zone_is_a_clock_option(self, tmp_path):
+        entry = {"type": "clock", "options": {"zone": "facility"}}
+        path = _write_config(tmp_path, {"status": [entry]})
+        layout = _load_bar_items(path, context=_OFFERS_EVERYTHING)
+        assert layout["status"] == [entry]
+
     def test_an_unconfigured_host_keeps_the_shipped_order(self, tmp_path):
         """Configuring one bar must not silently empty the other."""
         path = _write_config(tmp_path, {"header": ["logo"]})

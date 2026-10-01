@@ -2,8 +2,8 @@
 
 Companion to ``test_ingestion.py``, which pins the happy paths. This file pins
 the branches that only run when a logbook misbehaves: HTTP failures, retries,
-unparseable payloads, missing files, and the tolerance fallbacks that let a
-malformed entry through instead of stopping the ingest.
+unparseable payloads, missing files, and the tolerance a malformed entry gets,
+and where it stops.
 
 Two conventions carry through the file:
 
@@ -39,12 +39,19 @@ from osprey.services.ariel_search.exceptions import (
 )
 from osprey.services.ariel_search.ingestion.adapters import als as als_module
 from osprey.services.ariel_search.ingestion.adapters import generic as generic_module
-from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
+from osprey.services.ariel_search.ingestion.adapters.als import (
+    ALSLogbookAdapter,
+    clean_als_text,
+)
 from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
 from osprey.services.ariel_search.ingestion.adapters.jlab import JLabLogbookAdapter
 from osprey.services.ariel_search.ingestion.adapters.ornl import ORNLLogbookAdapter
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+ENCODED_OLOG_ENTRIES = (
+    pathlib.Path(__file__).parents[2] / "fixtures" / "ariel" / "als_olog_encoded_entries.jsonl"
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -355,6 +362,7 @@ class TestALSFileSource:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Invalid JSON at line 1" in caplog.text
+        assert adapter.unreadable_entries == 1
 
     @pytest.mark.asyncio
     async def test_unconvertible_line_is_logged_and_skipped(self, tmp_path, caplog):
@@ -372,6 +380,7 @@ class TestALSFileSource:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Failed to convert entry at line 1" in caplog.text
+        assert adapter.unreadable_entries == 1
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +631,7 @@ class TestALSCreateEntryCredentials:
 
 
 class TestALSFetchEntriesHTTP:
-    """Window generation, TLS mode, and per-window error handling."""
+    """Window generation, TLS mode, per-window errors and per-entry skips."""
 
     @pytest.mark.asyncio
     async def test_naive_bounds_are_interpreted_as_utc(self):
@@ -698,32 +707,46 @@ class TestALSFetchEntriesHTTP:
 
     @pytest.mark.asyncio
     async def test_unconvertible_entry_is_logged_and_skipped(self, caplog):
-        """One entry the converter chokes on does not lose the rest of the window."""
+        """A rejected entry is logged, counted and skipped; the rest of the window is kept."""
         adapter = _als_adapter()
         payload = [
-            {"id": "bad", "timestamp": "1704067200", "subject": "Bad"},
+            {"id": "bad", "timestamp": "not-an-epoch", "subject": "Bad"},
             {"id": "good", "timestamp": "1704067200", "subject": "Good"},
         ]
         session = _http_session(get=_http_response(text=json.dumps(payload)))
-        real_convert = adapter._convert_entry
-
-        def convert(data):
-            if data["id"] == "bad":
-                raise ValueError("unconvertible")
-            return real_convert(data)
 
         with _patched_session(adapter, session):
-            with patch.object(adapter, "_convert_entry", side_effect=convert):
-                with caplog.at_level(logging.WARNING, logger="ariel"):
-                    entries = await _collect(
-                        adapter._fetch_entries_http(
-                            since=datetime(2024, 1, 1, tzinfo=UTC),
-                            until=datetime(2024, 1, 2, tzinfo=UTC),
-                        )
+            with caplog.at_level(logging.WARNING, logger="ariel"):
+                entries = await _collect(
+                    adapter.fetch_entries(
+                        since=datetime(2024, 1, 1, tzinfo=UTC),
+                        until=datetime(2024, 1, 2, tzinfo=UTC),
                     )
+                )
 
         assert [e["entry_id"] for e in entries] == ["good"]
         assert "Failed to convert entry bad" in caplog.text
+        assert adapter.unreadable_entries == 1
+
+    @pytest.mark.asyncio
+    async def test_each_pass_starts_the_count_at_zero(self):
+        """A second fetch pass counts its own unreadable entries, not the sum."""
+        adapter = _als_adapter()
+        payload = [
+            {"id": "bad", "timestamp": "not-an-epoch", "subject": "Bad"},
+            {"id": "good", "timestamp": "1704067200", "subject": "Good"},
+        ]
+        session = _http_session(get=_http_response(text=json.dumps(payload)))
+        since = datetime(2024, 1, 1, tzinfo=UTC)
+        until = datetime(2024, 1, 2, tzinfo=UTC)
+
+        with _patched_session(adapter, session):
+            first = await _collect(adapter.fetch_entries(since=since, until=until))
+            second = await _collect(adapter.fetch_entries(since=since, until=until))
+
+        assert [e["entry_id"] for e in first] == ["good"]
+        assert [e["entry_id"] for e in second] == ["good"]
+        assert adapter.unreadable_entries == 1
 
 
 class TestALSFetchWindowResponses:
@@ -1012,31 +1035,55 @@ class TestJSONAdapterTransport:
         assert "pip install --force-reinstall aiohttp-socks" in str(exc_info.value)
 
 
+def _encoded_rows() -> dict[str, dict[str, Any]]:
+    """The encoded olog fixture's rows keyed by id."""
+    rows = [json.loads(line) for line in ENCODED_OLOG_ENTRIES.read_text().splitlines() if line]
+    return {row["id"]: row for row in rows}
+
+
+#: ``raw_text`` and cleaned subject each encoded fixture row is stored as.
+_ENCODED_ROW_TEXT: dict[str, tuple[str, str]] = {
+    "20001": (
+        "Booster injection retuned\n\nInjection retuned\nComplete\nBeam back at 500 mA",
+        "Booster injection retuned",
+    ),
+    "20002": (
+        "Shift Turnover Checklist\n\nST-24-104  -  Checklist has been completed.\n\n"
+        "Please see the tracker for details - "
+        "ST-24-104 (https://tracker.example.org/#/redirect/ST-24-104)",
+        "Shift Turnover Checklist",
+    ),
+    "20003": (
+        "Vacuum & RF checks\n\nSteps:\n\n- Open valve V3\n- Confirm pressure < 1e-9 Torr"
+        "\n\nDone at 09:00",
+        "Vacuum & RF checks",
+    ),
+    "20004": (
+        "Checklist test\n\n-- This is a test, please disregard --\n\n"
+        "ST-24-103 Checklist has been completed.",
+        "Checklist test",
+    ),
+    "20005": (
+        "Orbit check\n\nOrbit within 5 um.\r\n     Horizontal x<y in sector 3, R&D tune 5 < 6",
+        "Orbit check",
+    ),
+}
+
+
 class TestALSConvertEntry:
     """Field-level tolerance in the ALS converter."""
 
-    def test_malformed_timestamp_falls_back_to_now(self):
-        """HAZARD: an unparseable timestamp silently becomes ingest time.
-
-        The entry is kept rather than dropped, so a facility export with broken
-        timestamps lands as a block of entries all dated at the moment of the
-        ingest run — searchable, but chronologically wrong.
-        """
+    @pytest.mark.parametrize(
+        "payload",
+        [{"timestamp": "not-an-epoch"}, {"timestamp": None}, {}],
+        ids=["malformed", "null", "missing"],
+    )
+    def test_an_unreadable_timestamp_fails_the_entry(self, payload):
+        """A time that cannot be read fails the entry instead of becoming ingest time."""
         adapter = _als_adapter()
 
-        entry = adapter._convert_entry(
-            {"id": "1", "timestamp": "not-an-epoch", "subject": "Subject"}
-        )
-
-        assert entry["timestamp"] == entry["created_at"]
-
-    def test_null_timestamp_falls_back_to_now(self):
-        """A null timestamp takes the same ingest-time fallback as a malformed one."""
-        adapter = _als_adapter()
-
-        entry = adapter._convert_entry({"id": "1", "timestamp": None, "subject": "Subject"})
-
-        assert entry["timestamp"] == entry["created_at"]
+        with pytest.raises(ValueError, match="Cannot parse timestamp"):
+            adapter._convert_entry({"id": "1", "subject": "Subject", **payload})
 
     def test_missing_id_yields_empty_entry_id(self):
         """HAZARD: an entry with no id becomes entry_id '' — and '' is a single row.
@@ -1082,6 +1129,103 @@ class TestALSConvertEntry:
         assert "loto_tag" not in entry["metadata"]
         assert "linked_to" not in entry["metadata"]
 
+    @pytest.mark.parametrize(
+        ("entry_id", "raw_text", "subject"),
+        [
+            pytest.param(entry_id, raw_text, subject, id=entry_id)
+            for entry_id, (raw_text, subject) in _ENCODED_ROW_TEXT.items()
+        ],
+    )
+    def test_encoded_entry_is_stored_as_plain_text(self, entry_id, raw_text, subject):
+        """Entities are decoded and markup becomes line breaks before the row is built."""
+        adapter = _als_adapter()
+
+        entry = adapter._convert_entry(_encoded_rows()[entry_id])
+
+        assert entry["raw_text"] == raw_text
+        assert entry["metadata"]["subject"] == subject
+
+    @pytest.mark.asyncio
+    async def test_entry_that_is_only_markup_is_skipped(self):
+        """An entry with no text once its markup is gone is skipped, not counted unreadable."""
+        adapter = _als_adapter(source_url=str(ENCODED_OLOG_ENTRIES))
+
+        entries = await _collect(adapter.fetch_entries())
+
+        assert [e["entry_id"] for e in entries] == ["20001", "20002", "20003", "20004", "20005"]
+        assert adapter.unreadable_entries == 0
+
+
+class TestCleanAlsText:
+    """The olog's entity-encoded HTML becomes plain text; plain text stays as sent."""
+
+    @pytest.mark.parametrize(
+        "entry_id", ["20001", "20002", "20003", "20004"], ids=lambda entry_id: entry_id
+    )
+    def test_entities_and_markup_become_plain_text(self, entry_id):
+        """Each encoded body cleans to the details part of its stored text."""
+        raw_text, subject = _ENCODED_ROW_TEXT[entry_id]
+
+        cleaned = clean_als_text(_encoded_rows()[entry_id]["details"])
+
+        assert cleaned == raw_text.removeprefix(subject + "\n\n")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Orbit within 5 um.\r\n     Horizontal x<y in sector 3, R&D tune 5 < 6",
+            "5 < 6 and 7 > 3",
+            "x<y I<5A",
+            "late entry\r\n     indented",
+        ],
+        ids=["fixture-plain", "comparison", "bare-lt", "crlf-indent"],
+    )
+    def test_text_without_markup_is_returned_unchanged(self, text):
+        """A plain ``<`` or ``&`` is text; line endings and indentation are kept."""
+        assert clean_als_text(text) == text
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [("&amp;#956;-metal", "\u03bc-metal"), ("&amp;lt; 5 A", "< 5 A")],
+        ids=["numeric", "named"],
+    )
+    def test_nested_entities_decode_to_a_fixpoint(self, text, expected):
+        """Text encoded twice decodes fully."""
+        assert clean_als_text(text) == expected
+
+    def test_link_text_equal_to_its_address_is_not_repeated(self):
+        """A link whose text is its address yields the address once."""
+        url = "https://tracker.example.org/item/7"
+
+        cleaned = clean_als_text(f"See &lt;a href=&quot;{url}&quot;&gt;{url}&lt;/a&gt;")
+
+        assert cleaned == f"See {url}"
+
+    def test_script_and_style_content_is_dropped(self):
+        """What a script or style block holds never reaches the stored text."""
+        text = (
+            "&lt;style&gt;p {color: red}&lt;/style&gt;Before"
+            "&lt;script&gt;alert(1)&lt;/script&gt;&lt;br&gt;After"
+        )
+
+        assert clean_als_text(text) == "Before\nAfter"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            row[field]
+            for row in (
+                json.loads(line) for line in ENCODED_OLOG_ENTRIES.read_text().splitlines() if line
+            )
+            for field in ("subject", "details")
+        ],
+    )
+    def test_cleaning_is_idempotent(self, text):
+        """Cleaning cleaned text changes nothing."""
+        once = clean_als_text(text)
+
+        assert clean_als_text(once) == once
+
 
 # ---------------------------------------------------------------------------
 # Generic JSON adapter
@@ -1099,6 +1243,68 @@ def facility_tz(monkeypatch) -> ZoneInfo:
     zone = ZoneInfo("America/Los_Angeles")
     monkeypatch.setattr(generic_module, "get_facility_timezone", lambda: zone)
     return zone
+
+
+@pytest.fixture
+def facility_berlin(monkeypatch) -> ZoneInfo:
+    """Pin the facility zone a time without an offset is read in.
+
+    Patched on the config module, because ``localize_facility`` resolves the
+    zone there.
+    """
+    zone = ZoneInfo("Europe/Berlin")
+    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: zone)
+    return zone
+
+
+@pytest.mark.usefixtures("facility_berlin")
+class TestParseEntryTime:
+    """The one rule every adapter reads a logbook time through."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            1704412800,
+            1704412800.0,
+            "1704412800",
+            "2024-01-05T00:00:00Z",
+            "2024-01-05T01:00:00+01:00",
+        ],
+        ids=["epoch-int", "epoch-float", "epoch-string", "iso-z", "iso-offset"],
+    )
+    def test_accepted_formats(self, value):
+        """An epoch, a ``Z`` or an offset keeps its instant, returned in UTC."""
+        parsed = parse_entry_time(value)
+
+        assert parsed == datetime(2024, 1, 5, tzinfo=UTC)
+        assert parsed.tzinfo is UTC
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2026-03-04T02:15:00", datetime(2026, 3, 4, 1, 15, tzinfo=UTC)),
+            ("2026-07-04T02:15:00", datetime(2026, 7, 4, 0, 15, tzinfo=UTC)),
+        ],
+        ids=["winter", "summer"],
+    )
+    def test_a_time_without_an_offset_is_facility_local(self, value, expected):
+        """No offset means the facility's wall clock, whichever offset is in force."""
+        assert parse_entry_time(value) == expected
+
+    def test_wall_times_around_a_clock_change(self):
+        """A skipped wall time reads with the old offset; a repeated one as its first."""
+        assert parse_entry_time("2026-03-29T02:30:00") == datetime(2026, 3, 29, 1, 30, tzinfo=UTC)
+        assert parse_entry_time("2026-10-25T02:30:00") == datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+
+    @pytest.mark.parametrize(
+        "value",
+        [None, "", "   ", True, "yesterday", "nan", "inf", 1e20, []],
+        ids=["none", "empty", "blank", "bool", "prose", "nan", "inf", "overflow", "list"],
+    )
+    def test_rejects_unreadable_values(self, value):
+        """Anything that is not a readable time raises instead of being guessed."""
+        with pytest.raises(ValueError, match="Cannot parse timestamp"):
+            parse_entry_time(value)
 
 
 class TestGenericAdapterGuards:
@@ -1162,9 +1368,9 @@ class TestGenericAdapterGuards:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("facility_tz")
     async def test_unparseable_timestamp_drops_the_entry(self, tmp_path, caplog):
-        """The generic adapter drops an entry with a bad timestamp, unlike ALS/ORNL.
+        """An entry with a bad timestamp is dropped, as every adapter drops one.
 
-        ``_parse_timestamp`` raises rather than defaulting to now, and
+        ``parse_entry_time`` raises rather than defaulting to now, and
         ``fetch_entries`` turns that into a warning plus a skipped entry — so a
         malformed export loses rows instead of misdating them.
         """
@@ -1186,6 +1392,44 @@ class TestGenericAdapterGuards:
 
         assert [e["entry_id"] for e in entries] == ["good"]
         assert "Failed to convert entry" in caplog.text
+        assert adapter.unreadable_entries == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("facility_tz")
+    async def test_each_pass_starts_the_count_at_zero(self, tmp_path):
+        """A second fetch pass counts its own unreadable entries, not the sum."""
+        path = tmp_path / "entries.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "entries": [
+                        {"id": "bad", "timestamp": "yesterday-ish", "title": "Bad"},
+                        {"id": "good", "timestamp": "2024-01-05T00:00:00Z", "title": "Good"},
+                    ]
+                }
+            )
+        )
+        adapter = _generic_adapter(str(path))
+
+        await _collect(adapter.fetch_entries())
+        await _collect(adapter.fetch_entries())
+
+        assert adapter.unreadable_entries == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("facility_berlin")
+    async def test_a_naive_time_passes_an_aware_since_bound(self, tmp_path):
+        """A time without an offset compares against an aware bound as an instant."""
+        path = tmp_path / "entries.json"
+        path.write_text(
+            json.dumps({"entries": [{"id": "n", "timestamp": "2026-03-04T02:15:00", "title": "N"}]})
+        )
+        adapter = _generic_adapter(str(path))
+
+        entries = await _collect(adapter.fetch_entries(since=datetime(2026, 1, 1, tzinfo=UTC)))
+
+        assert [e["entry_id"] for e in entries] == ["n"]
+        assert entries[0]["timestamp"] == datetime(2026, 3, 4, 1, 15, tzinfo=UTC)
 
 
 class TestGenericLoadData:
@@ -1461,29 +1705,16 @@ class TestGenericConvertEntry:
 
         assert entry["timestamp"] == datetime(2024, 1, 5, 6, 0, tzinfo=UTC)
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (1704412800, datetime(2024, 1, 5, tzinfo=UTC)),
-            ("1704412800", datetime(2024, 1, 5, tzinfo=UTC)),
-            ("2024-01-05T00:00:00Z", datetime(2024, 1, 5, tzinfo=UTC)),
-            ("2024-01-05T00:00:00+00:00", datetime(2024, 1, 5, tzinfo=UTC)),
-        ],
-        ids=["epoch-int", "epoch-string", "iso-z", "iso-offset"],
-    )
-    def test_parse_timestamp_accepted_formats(self, value, expected):
-        """Epoch numbers, epoch strings, and ISO 8601 (Z or offset) all parse."""
+    @pytest.mark.usefixtures("facility_berlin")
+    def test_a_timestamp_without_an_offset_is_facility_local(self):
+        """A naive absolute timestamp is read as facility-local wall clock."""
         adapter = _generic_adapter("/tmp/entries.json")
 
-        assert adapter._parse_timestamp(value) == expected
+        entry = adapter._convert_entry(
+            {"id": "1", "title": "T", "timestamp": "2026-03-04T02:15:00"}
+        )
 
-    @pytest.mark.parametrize("value", ["yesterday", "", None], ids=["prose", "empty", "none"])
-    def test_parse_timestamp_rejects_unparseable(self, value):
-        """Unparseable values raise rather than defaulting, so the entry is dropped."""
-        adapter = _generic_adapter("/tmp/entries.json")
-
-        with pytest.raises(ValueError, match="Cannot parse timestamp"):
-            adapter._parse_timestamp(value)
+        assert entry["timestamp"] == datetime(2026, 3, 4, 1, 15, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -1505,9 +1736,15 @@ class TestJLabAdapter:
     @pytest.mark.parametrize(
         "payload",
         [
-            {"data": {"entries": [{"lognumber": "1", "title": "T"}]}},
-            {"entries": [{"lognumber": "1", "title": "T"}]},
-            [{"lognumber": "1", "title": "T"}],
+            {
+                "data": {
+                    "entries": [
+                        {"lognumber": "1", "title": "T", "created": {"timestamp": "1704412800"}}
+                    ]
+                }
+            },
+            {"entries": [{"lognumber": "1", "title": "T", "created": {"timestamp": "1704412800"}}]},
+            [{"lognumber": "1", "title": "T", "created": {"timestamp": "1704412800"}}],
         ],
         ids=["nested-data", "top-level-entries", "bare-list"],
     )
@@ -1537,9 +1774,19 @@ class TestJLabAdapter:
         path.write_text(
             json.dumps(
                 [
-                    {"lognumber": "1", "title": "Ops", "books": ["Operations"]},
-                    {"lognumber": "2", "title": "RF", "books": ["RF"]},
-                    {"lognumber": "3", "title": "Unfiled"},
+                    {
+                        "lognumber": "1",
+                        "title": "Ops",
+                        "books": ["Operations"],
+                        "created": {"timestamp": "1704412800"},
+                    },
+                    {
+                        "lognumber": "2",
+                        "title": "RF",
+                        "books": ["RF"],
+                        "created": {"timestamp": "1704412800"},
+                    },
+                    {"lognumber": "3", "title": "Unfiled", "created": {"timestamp": "1704412800"}},
                 ]
             )
         )
@@ -1578,7 +1825,14 @@ class TestJLabAdapter:
     async def test_limit_stops_reading(self, tmp_path):
         """limit truncates the yielded entries."""
         path = tmp_path / "entries.json"
-        path.write_text(json.dumps([{"lognumber": str(i), "title": f"e{i}"} for i in range(4)]))
+        path.write_text(
+            json.dumps(
+                [
+                    {"lognumber": str(i), "title": f"e{i}", "created": {"timestamp": "1704412800"}}
+                    for i in range(4)
+                ]
+            )
+        )
         adapter = _jlab_adapter(str(path))
 
         entries = await _collect(adapter.fetch_entries(limit=2))
@@ -1589,7 +1843,14 @@ class TestJLabAdapter:
     async def test_unconvertible_entry_is_logged_and_skipped(self, tmp_path, caplog):
         """A malformed entry is skipped with a warning; the rest still ingest."""
         path = tmp_path / "entries.json"
-        path.write_text(json.dumps(["not-a-dict", {"lognumber": "ok", "title": "Fine"}]))
+        path.write_text(
+            json.dumps(
+                [
+                    "not-a-dict",
+                    {"lognumber": "ok", "title": "Fine", "created": {"timestamp": "1704412800"}},
+                ]
+            )
+        )
         adapter = _jlab_adapter(str(path))
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
@@ -1597,6 +1858,7 @@ class TestJLabAdapter:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Failed to convert entry" in caplog.text
+        assert adapter.unreadable_entries == 1
 
     @pytest.mark.asyncio
     async def test_missing_file_raises(self, tmp_path):
@@ -1640,23 +1902,17 @@ class TestJLabAdapter:
 
         assert "aiohttp is required" in str(exc_info.value)
 
-    def test_malformed_created_timestamp_falls_back_to_now(self):
-        """HAZARD: an unparseable created.timestamp silently becomes ingest time."""
+    @pytest.mark.parametrize(
+        "created",
+        [{"created": {"timestamp": "not-an-epoch"}}, {"created": "2024-01-05"}, {}],
+        ids=["malformed", "non-dict-block", "missing"],
+    )
+    def test_an_unreadable_created_time_fails_the_entry(self, created):
+        """A created time that cannot be read fails the entry instead of being guessed."""
         adapter = _jlab_adapter("/tmp/entries.json")
 
-        entry = adapter._convert_entry(
-            {"lognumber": "1", "created": {"timestamp": "not-an-epoch"}, "title": "T"}
-        )
-
-        assert entry["timestamp"] == entry["created_at"]
-
-    def test_non_dict_created_block_falls_back_to_epoch_zero(self):
-        """A ``created`` block of the wrong type reads as epoch 0, not as an error."""
-        adapter = _jlab_adapter("/tmp/entries.json")
-
-        entry = adapter._convert_entry({"lognumber": "1", "created": "2024-01-05", "title": "T"})
-
-        assert entry["timestamp"] == datetime(1970, 1, 1, tzinfo=UTC)
+        with pytest.raises(ValueError, match="Cannot parse timestamp"):
+            adapter._convert_entry({"lognumber": "1", "title": "T", **created})
 
     def test_missing_lognumber_and_id_yields_empty_entry_id(self):
         """HAZARD: with neither lognumber nor id the entry_id is '' — one shared row.
@@ -1666,14 +1922,26 @@ class TestJLabAdapter:
         """
         adapter = _jlab_adapter("/tmp/entries.json")
 
-        assert adapter._convert_entry({"title": "T"})["entry_id"] == ""
-        assert adapter._convert_entry({"id": "99", "title": "T"})["entry_id"] == "99"
+        assert (
+            adapter._convert_entry({"title": "T", "created": {"timestamp": "1704412800"}})[
+                "entry_id"
+            ]
+            == ""
+        )
+        assert (
+            adapter._convert_entry(
+                {"id": "99", "title": "T", "created": {"timestamp": "1704412800"}}
+            )["entry_id"]
+            == "99"
+        )
 
     def test_title_only_entry_keeps_its_title(self):
         """With no body content the title alone becomes the searchable text."""
         adapter = _jlab_adapter("/tmp/entries.json")
 
-        entry = adapter._convert_entry({"lognumber": "1", "title": "Title only"})
+        entry = adapter._convert_entry(
+            {"lognumber": "1", "title": "Title only", "created": {"timestamp": "1704412800"}}
+        )
 
         assert entry["raw_text"] == "Title only"
 
@@ -1685,6 +1953,7 @@ class TestJLabAdapter:
             {
                 "lognumber": "1",
                 "title": "Title",
+                "created": {"timestamp": "1704412800"},
                 "body": {"content": "Body", "format": "html"},
                 "books": ["Operations"],
                 "tags": ["rf"],
@@ -1765,7 +2034,10 @@ class TestORNLAdapter:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "payload",
-        [{"entries": [{"ID": "1", "title": "T"}]}, [{"ID": "1", "title": "T"}]],
+        [
+            {"entries": [{"ID": "1", "title": "T", "entry_time": "2024-01-05T00:00:00Z"}]},
+            [{"ID": "1", "title": "T", "entry_time": "2024-01-05T00:00:00Z"}],
+        ],
         ids=["entries-envelope", "bare-list"],
     )
     async def test_accepted_payload_shapes(self, tmp_path, payload):
@@ -1794,9 +2066,19 @@ class TestORNLAdapter:
         path.write_text(
             json.dumps(
                 [
-                    {"ID": "1", "title": "Ops", "logbook": "Operations"},
-                    {"ID": "2", "title": "RF", "logbook": "RF"},
-                    {"ID": "3", "title": "Unfiled"},
+                    {
+                        "ID": "1",
+                        "title": "Ops",
+                        "logbook": "Operations",
+                        "entry_time": "2024-01-05T00:00:00Z",
+                    },
+                    {
+                        "ID": "2",
+                        "title": "RF",
+                        "logbook": "RF",
+                        "entry_time": "2024-01-05T00:00:00Z",
+                    },
+                    {"ID": "3", "title": "Unfiled", "entry_time": "2024-01-05T00:00:00Z"},
                 ]
             )
         )
@@ -1835,7 +2117,14 @@ class TestORNLAdapter:
     async def test_limit_stops_reading(self, tmp_path):
         """limit truncates the yielded entries."""
         path = tmp_path / "entries.json"
-        path.write_text(json.dumps([{"ID": str(i), "title": f"e{i}"} for i in range(4)]))
+        path.write_text(
+            json.dumps(
+                [
+                    {"ID": str(i), "title": f"e{i}", "entry_time": "2024-01-05T00:00:00Z"}
+                    for i in range(4)
+                ]
+            )
+        )
         adapter = _ornl_adapter(str(path))
 
         entries = await _collect(adapter.fetch_entries(limit=2))
@@ -1846,7 +2135,11 @@ class TestORNLAdapter:
     async def test_unconvertible_entry_is_logged_and_skipped(self, tmp_path, caplog):
         """A malformed entry is skipped with a warning; the rest still ingest."""
         path = tmp_path / "entries.json"
-        path.write_text(json.dumps(["not-a-dict", {"ID": "ok", "title": "Fine"}]))
+        path.write_text(
+            json.dumps(
+                ["not-a-dict", {"ID": "ok", "title": "Fine", "entry_time": "2024-01-05T00:00:00Z"}]
+            )
+        )
         adapter = _ornl_adapter(str(path))
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
@@ -1854,6 +2147,7 @@ class TestORNLAdapter:
 
         assert [e["entry_id"] for e in entries] == ["ok"]
         assert "Failed to convert entry" in caplog.text
+        assert adapter.unreadable_entries == 1
 
     @pytest.mark.asyncio
     async def test_missing_file_raises(self, tmp_path):
@@ -1897,13 +2191,72 @@ class TestORNLAdapter:
 
         assert "aiohttp is required" in str(exc_info.value)
 
-    def test_missing_entry_time_falls_back_to_now(self):
-        """An entry with no entry_time is dated at ingest time."""
+    def test_a_missing_entry_time_fails_the_entry(self):
+        """An entry with no entry_time fails instead of being dated at ingest time."""
         adapter = _ornl_adapter("/tmp/entries.json")
 
-        entry = adapter._convert_entry({"ID": "1", "title": "T"})
+        with pytest.raises(ValueError, match="Cannot parse timestamp"):
+            adapter._convert_entry({"ID": "1", "title": "T"})
 
-        assert entry["timestamp"] == entry["created_at"]
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("facility_berlin")
+    async def test_unreadable_entry_times_are_skipped_with_a_warning(self, tmp_path, caplog):
+        """Missing and unreadable times are skipped and logged; a naive one is kept."""
+        path = tmp_path / "entries.json"
+        path.write_text(
+            json.dumps(
+                [
+                    {"ID": "a", "title": "No time"},
+                    {"ID": "b", "title": "Garbage", "entry_time": "garbage"},
+                    {"ID": "c", "title": "Naive", "entry_time": "2026-03-04T02:15:00"},
+                ]
+            )
+        )
+        adapter = _ornl_adapter(str(path))
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            entries = await _collect(adapter.fetch_entries(since=datetime(2026, 1, 1, tzinfo=UTC)))
+
+        assert [e["entry_id"] for e in entries] == ["c"]
+        assert entries[0]["timestamp"] == datetime(2026, 3, 4, 1, 15, tzinfo=UTC)
+        assert "Cannot parse timestamp: None" in caplog.text
+        assert "Cannot parse timestamp: 'garbage'" in caplog.text
+        assert adapter.unreadable_entries == 2
+
+    @pytest.mark.usefixtures("facility_berlin")
+    def test_naive_times_are_facility_local(self):
+        """entry_time and event_time without offsets are read in the facility zone."""
+        adapter = _ornl_adapter("/tmp/entries.json")
+
+        entry = adapter._convert_entry(
+            {
+                "ID": "1",
+                "title": "T",
+                "entry_time": "2026-03-04T02:15:00",
+                "event_time": "2026-03-04T02:00:00",
+            }
+        )
+
+        assert entry["timestamp"] == datetime(2026, 3, 4, 1, 15, tzinfo=UTC)
+        assert entry["metadata"]["event_time"] == "2026-03-04T01:00:00+00:00"
+
+    def test_an_unreadable_event_time_is_left_out(self, caplog):
+        """An unreadable event_time leaves the metadata and keeps the entry."""
+        adapter = _ornl_adapter("/tmp/entries.json")
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            entry = adapter._convert_entry(
+                {
+                    "ID": "1",
+                    "title": "T",
+                    "entry_time": "2024-01-05T00:00:00Z",
+                    "event_time": "soon",
+                }
+            )
+
+        assert entry["entry_id"] == "1"
+        assert "event_time" not in entry["metadata"]
+        assert "'soon'" in caplog.text
 
     def test_missing_id_yields_empty_entry_id(self):
         """HAZARD: with neither ID nor id the entry_id is '' — one shared row.
@@ -1913,16 +2266,24 @@ class TestORNLAdapter:
         """
         adapter = _ornl_adapter("/tmp/entries.json")
 
-        assert adapter._convert_entry({"title": "T"})["entry_id"] == ""
-        assert adapter._convert_entry({"id": "99", "title": "T"})["entry_id"] == "99"
+        assert (
+            adapter._convert_entry({"title": "T", "entry_time": "2024-01-05T00:00:00Z"})["entry_id"]
+            == ""
+        )
+        assert (
+            adapter._convert_entry(
+                {"id": "99", "title": "T", "entry_time": "2024-01-05T00:00:00Z"}
+            )["entry_id"]
+            == "99"
+        )
 
     def test_title_only_entry_keeps_its_title(self):
         """With no content the title alone becomes the searchable text."""
         adapter = _ornl_adapter("/tmp/entries.json")
 
-        assert adapter._convert_entry({"ID": "1", "title": "Title only"})["raw_text"] == (
-            "Title only"
-        )
+        assert adapter._convert_entry(
+            {"ID": "1", "title": "Title only", "entry_time": "2024-01-05T00:00:00Z"}
+        )["raw_text"] == ("Title only")
 
     def test_optional_metadata_fields_are_carried(self):
         """Area, reference, attachment headers, and explicit metadata all survive."""
@@ -1961,6 +2322,7 @@ class TestORNLAdapter:
             {
                 "ID": "1",
                 "title": "T",
+                "entry_time": "2024-01-05T00:00:00Z",
                 "logbook": ["Operations", "RF"],
                 "attachment_header": "only.png",
             }
@@ -1968,36 +2330,6 @@ class TestORNLAdapter:
 
         assert entry["metadata"]["books"] == ["Operations", "RF"]
         assert entry["metadata"]["attachment_headers"] == ["only.png"]
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (1704412800, datetime(2024, 1, 5, tzinfo=UTC)),
-            ("1704412800", datetime(2024, 1, 5, tzinfo=UTC)),
-            ("2024-01-05T00:00:00Z", datetime(2024, 1, 5, tzinfo=UTC)),
-            ("2024-01-05T00:00:00+00:00", datetime(2024, 1, 5, tzinfo=UTC)),
-        ],
-        ids=["epoch-int", "epoch-string", "iso-z", "iso-offset"],
-    )
-    def test_parse_timestamp_accepted_formats(self, value, expected):
-        """Epoch numbers, epoch strings, and ISO 8601 (Z or offset) all parse."""
-        adapter = _ornl_adapter("/tmp/entries.json")
-
-        assert adapter._parse_timestamp(value) == expected
-
-    @pytest.mark.parametrize("value", ["yesterday", None], ids=["prose", "none"])
-    def test_parse_timestamp_falls_back_to_now(self, value):
-        """HAZARD: ORNL defaults an unparseable timestamp to now instead of raising.
-
-        Unlike the generic adapter — which raises and loses the entry — ORNL keeps
-        the entry and misdates it to the moment of the ingest run.
-        """
-        adapter = _ornl_adapter("/tmp/entries.json")
-
-        before = datetime.now(UTC)
-        parsed = adapter._parse_timestamp(value)
-
-        assert before <= parsed <= datetime.now(UTC)
 
     def test_attachment_flag_without_urls_uses_headers(self):
         """``attachment: "Y"`` with no attachment list yields url-less placeholders.

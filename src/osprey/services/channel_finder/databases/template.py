@@ -8,6 +8,7 @@ Extends the flat ChannelDatabase to support:
 """
 
 import json
+from typing import Any
 
 from ..core.base_database import DatabaseWriteError
 from .flat import ChannelDatabase as FlatChannelDatabase
@@ -15,6 +16,10 @@ from .flat import ChannelDatabase as FlatChannelDatabase
 
 class ChannelDatabase(FlatChannelDatabase):
     """Database with template support and dual presentation modes."""
+
+    # Populated by load_database().
+    metadata: dict[str, Any]
+    _original_entries: list[dict[str, Any]]
 
     def __init__(self, db_path: str, presentation_mode: str = "explicit"):
         """
@@ -184,7 +189,7 @@ class ChannelDatabase(FlatChannelDatabase):
         to avoid repeating descriptions.
         """
         # Group channels by template source
-        grouped = {}
+        grouped: dict[str, list[dict]] = {}
         standalone = []
 
         for ch in chunk:
@@ -264,7 +269,7 @@ class ChannelDatabase(FlatChannelDatabase):
         Uses range syntax and patterns to minimize tokens.
         """
         # Group channels by template source
-        grouped = {}
+        grouped: dict[str, list[dict]] = {}
         standalone = []
 
         for ch in chunk:
@@ -332,9 +337,10 @@ class ChannelDatabase(FlatChannelDatabase):
         import re
 
         # Try pattern with optional suffix: Base + Number + OptionalSuffix
-        matches = [re.match(r"([A-Za-z]+)(\d+)([A-Za-z]*)", ch["channel"]) for ch in channels]
+        found = [re.match(r"([A-Za-z]+)(\d+)([A-Za-z]*)", ch["channel"]) for ch in channels]
+        matches = [m for m in found if m is not None]
 
-        if all(matches):
+        if len(matches) == len(found):
             base = matches[0].group(1)
             numbers = [int(m.group(2)) for m in matches]
             suffixes = [m.group(3) for m in matches if m.group(3)]  # Only non-empty suffixes

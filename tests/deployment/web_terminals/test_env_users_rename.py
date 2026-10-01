@@ -34,7 +34,8 @@ from osprey.deployment.web_terminals.env_production import (
 # A local-mode web-terminals config with one credential to carry, so the
 # generator has something to write and the refusals have something to name.
 _LOCAL_CONFIG = {
-    "facility": {"name": "Test Facility", "prefix": "test", "timezone": "UTC"},
+    "facility": {"name": "Test Facility", "prefix": "test"},
+    "system": {"timezone": "UTC"},
     "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }

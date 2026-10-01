@@ -1,7 +1,8 @@
-"""SDK runner for headless dispatch via claude_agent_sdk.
+"""Headless dispatch runs.
 
-Wraps claude_agent_sdk.query() to execute agent prompts and return
-structured results for use by the dispatch API endpoint.
+Runs one trigger's prompt through the agent runner
+(``osprey.agent_runner.stream_query``) and turns its event records into the run
+record and the live event stream the dispatch API serves.
 """
 
 from __future__ import annotations
@@ -18,17 +19,24 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner import (
+    HAS_SDK,
+    MCP_READY_TIMEOUT_S,
+    ApiErrorEvent,
+    McpNotReadyError,
+    ResultEvent,
+    SystemEvent,
+    TextEvent,
+    ThinkingEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+    mcp_snapshot_summary,
+    stream_query,
+)
 from osprey.agent_runner.artifact_resolve import (
     deployed_config_path,
     deployed_render_dir,
     dispatch_claude_config_dir,
-)
-from osprey.agent_runner.primitives import (
-    MCP_READY_TIMEOUT_S,
-    await_mcp_ready,
-    expected_mcp_servers,
-    mcp_servers_connected,
-    mcp_snapshot_summary,
 )
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
@@ -67,26 +75,6 @@ class _Base64RedactingFilter(logging.Filter):
 
 logger.addFilter(_Base64RedactingFilter())
 
-# SDK imports -- guard so module loads even when SDK is not installed
-# (SDK is only available inside the worker container).
-try:
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ClaudeSDKClient,
-        HookMatcher,
-        ResultMessage,
-        SystemMessage,
-        TextBlock,
-        ToolResultBlock,
-        ToolUseBlock,
-        UserMessage,
-    )
-
-    HAS_SDK = True
-except ImportError:
-    HAS_SDK = False
-
 # Bounds on per-run captured output. A run's text/tool output is held in memory,
 # persisted to JSON, and proxied to the dashboard, so an adversarial or runaway
 # trigger could otherwise balloon RAM and disk. Oversized payloads are truncated
@@ -100,10 +88,10 @@ _MAX_TOOL_CALLS = 200  # number of tool calls retained
 _SECRET_ENV_NAME_HINTS = ("TOKEN", "SECRET", "PASSWORD", "API_KEY")
 _MIN_SECRET_LEN = 12
 
-# Inactivity watchdog: max seconds to wait for the *next* SDK message before
-# treating the run as silently hung. A healthy run emits an init SystemMessage
+# Inactivity watchdog: max seconds to wait for the next event record before
+# treating the run as silently hung. A healthy run emits an init system event
 # within seconds of CLI startup and then streams text/tool events continuously,
-# so each message resets this clock — only a true stall trips it. The classic
+# so each record resets this clock — only a true stall trips it. The classic
 # trigger is a bad/expired provider credential or an unreachable base URL: the
 # bundled CLI does not fast-fail on those, it simply produces no output. Without
 # this guard such a run stalls all the way to the dispatch worker's outer
@@ -259,11 +247,6 @@ def _assemble_user_content(
     return [*image_blocks, {"type": "text", "text": text}]
 
 
-class McpNotReadyError(RuntimeError):
-    """A server the run's allow-list names was not connected before the first
-    turn, so the run was refused rather than started without its tools."""
-
-
 _MCP_TOOL_PREFIX = "mcp__"
 
 
@@ -286,97 +269,6 @@ def required_mcp_servers(allowed_tools: Iterable[str]) -> set[str]:
     return servers
 
 
-async def _stream_with_ready_mcp(
-    options: Any,
-    render_dir: str,
-    prompt_stream: Any,
-    *,
-    required_servers: Iterable[str] = (),
-    mcp_snapshot: list[dict[str, Any]] | None = None,
-) -> Any:
-    """Yield the run's messages, holding the first turn until MCP is registered.
-
-    The streaming ``ClaudeSDKClient`` rather than the one-shot ``query()``,
-    because only the client exposes ``get_mcp_status()``. MCP servers register
-    asynchronously — one after another, CPU-bound, so a full deployment's last
-    server lands seconds after the CLI launches on an idle machine and far
-    later on a loaded one — and the CLI fixes the session's toolset at the
-    first turn: a server that connects after that never contributes its tools
-    to this run. Polling the status until the project's declared servers are
-    terminal gives every dispatch the toolset it can get, matching what
-    ``osprey.agent_runner.runner`` already does for interactive runs.
-
-    The barrier is bounded (see ``await_mcp_ready``). What happens at its exit
-    depends on which servers are still not connected:
-
-    * one the run's allow-list names (``required_servers``) — the run is
-      REFUSED with :class:`McpNotReadyError` before the prompt is sent. Started
-      anyway, the agent would run its whole session without the tool it was
-      dispatched to use, improvise, and report "completed" — a hollow run that
-      nothing downstream can tell from a real one. The refusal is an
-      infrastructure failure (retryable once the host catches up), and it names
-      each server with the status and error the CLI reported;
-    * any other declared server — logged and the run proceeds: the main thread
-      cannot call its tools anyway, so its absence changes nothing the trigger
-      asked for.
-
-    ``mcp_snapshot``, when given, receives the compact snapshot summary (see
-    ``mcp_snapshot_summary``) on both paths so the run record can carry it.
-
-    Written as an async generator so the caller keeps driving one object with
-    ``__anext__``/``aclose()``: the inactivity watchdog and the cancellation
-    path are unchanged, and ``aclose()`` unwinds the client's context manager.
-    """
-    required = set(required_servers)
-    async with ClaudeSDKClient(options=options) as client:
-        # No declared servers — nothing to wait for. Skipped explicitly because
-        # ``await_mcp_ready`` polls an empty expectation to its full deadline,
-        # which would add that delay to every run of a project whose .mcp.json
-        # declares nothing (or could not be read).
-        expected = expected_mcp_servers(Path(render_dir))
-        if expected:
-            servers = await await_mcp_ready(client, expected)
-            if mcp_snapshot is not None:
-                mcp_snapshot[:] = mcp_snapshot_summary(servers)
-            connected = mcp_servers_connected(servers)
-            missing = sorted(expected - connected)
-            missing_required = sorted(required & set(missing))
-            if missing_required:
-                by_name = {s.get("name"): s for s in servers}
-                detail = ", ".join(
-                    f"{name} ({(by_name.get(name) or {}).get('status') or 'not reported'}"
-                    + (
-                        f": {(by_name.get(name) or {}).get('error')}"
-                        if (by_name.get(name) or {}).get("error")
-                        else ""
-                    )
-                    + ")"
-                    for name in missing_required
-                )
-                raise McpNotReadyError(
-                    f"MCP server(s) this trigger's allowed_tools depend on were not "
-                    f"connected within {MCP_READY_TIMEOUT_S:.0f}s of agent start: {detail}. "
-                    "The agent's toolset is fixed at its first turn, so the run was "
-                    "refused rather than started without them."
-                )
-            if missing:
-                logger.warning(
-                    "MCP servers not connected before first turn: %s (expected %s) — "
-                    "their tools will be absent for this run; none is named by the "
-                    "trigger's allowed_tools",
-                    missing,
-                    sorted(expected),
-                )
-            else:
-                logger.info("MCP ready before first turn: %s", sorted(connected))
-        else:
-            logger.debug("No MCP servers declared for %s; skipping readiness barrier", render_dir)
-
-        await client.query(prompt_stream)
-        async for message in client.receive_response():
-            yield message
-
-
 async def run_dispatch(
     prompt: str,
     allowed_tools: list[str],
@@ -389,7 +281,7 @@ async def run_dispatch(
     owner: str | None = None,
     prior_answer_runs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run a prompt headlessly via the Claude Agent SDK.
+    """Run a prompt headlessly through the agent runner.
 
     Args:
         prompt: The prompt to send to the agent.
@@ -397,7 +289,7 @@ async def run_dispatch(
         max_turns: Maximum number of agentic turns (default 25).
         denied_tools: Hard denylist enforced at the permission layer regardless
             of ``allowed_tools`` (defense-in-depth; the worker threads its
-            ``DENIED_TOOLS`` here). Entries ending in ``*`` match by prefix.
+            ``DISPATCH_DENIED_TOOLS`` here). Entries ending in ``*`` match by prefix.
         run_id: Dispatch run id. Exported to the agent (and the MCP tool
             subprocesses it spawns) as ``OSPREY_DISPATCH_RUN_ID`` so every
             artifact saved during the run is attributed to it.
@@ -411,9 +303,9 @@ async def run_dispatch(
             run. When ``None`` (default), the system prompt is unchanged.
         surface_tools: Optional keep-list narrowing ``allowed_tools`` down to
             the subset a specific surface may use (via
-            ``tool_policy.narrow_allowed_tools``). Can only remove tools from
-            the trigger's allow set, never add one, and never touches
-            ``denied_tools`` — the deny floor is enforced independently.
+            ``osprey.agent_runner.tool_policy.narrow_allowed_tools``). Can only
+            remove tools from the trigger's allow set, never add one, and never
+            touches ``denied_tools`` — the deny floor is enforced independently.
             ``None`` or empty is a no-op (``allowed_tools`` used as-is).
         owner: The person the fire is attributed to, as the dispatcher put it
             on the wire. Exported to the agent (and every process it spawns) as
@@ -430,8 +322,8 @@ async def run_dispatch(
             tool_calls: list of {name, input, result} dicts
             error: error message string or None
             duration_sec: wall-clock seconds
-            cost_usd: API cost (from ResultMessage, if available)
-            num_turns: agentic turn count (from ResultMessage, if available)
+            cost_usd: the run's cost in USD as the agent reported it (None when it reported none)
+            num_turns: agentic turn count (from the result record, if available)
             session_id: the forced telemetry session UUID for this run — the
                 value the OTEL emitter tags records with as session.id, so a
                 consumer can locate this run's full provenance in the telemetry
@@ -476,12 +368,12 @@ async def run_dispatch(
     # injected into os.environ by _inject_provider_env_once() at worker startup.
     from osprey.agent_runner.clean_env import build_clean_env
     from osprey.agent_runner.sdk_context import build_system_prompt
-    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
-    from osprey.mcp_server.dispatch_worker.tool_policy import (
+    from osprey.agent_runner.tool_policy import (
         make_backstop,
         make_pretooluse_hook,
         narrow_allowed_tools,
     )
+    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
     from osprey.utils.config import get_facility_timezone
 
     sdk_env = build_clean_env(project_cwd=render_dir)
@@ -513,7 +405,7 @@ async def run_dispatch(
     # ``deployed_config_path`` reads that same variable, so this normally just
     # restates the compose service's value — it is set unconditionally because a
     # worker started without it would otherwise leave the spawned agent and its
-    # hook subprocesses (which ``ClaudeAgentOptions(cwd=...)`` does not relocate)
+    # hook subprocesses (which the agent's working directory does not relocate)
     # falling back to ``CWD/config.yml`` and failing with "No config.yml found in
     # current directory" on every dispatch.
     sdk_env["CONFIG_FILE"] = str(deployed_config_path())
@@ -608,7 +500,7 @@ async def run_dispatch(
     # run's telemetry. build_clean_env() strips CLAUDE_CODE_* (so the harness's
     # own session id never reaches the MCP subprocess headless); instead OSPREY
     # owns the id: the same value is forced onto the SDK session below
-    # (ClaudeAgentOptions.session_id) so the OTEL emitter tags records with it,
+    # (the ``session_id`` option) so the OTEL emitter tags records with it,
     # making the returned locator resolve. Race-free — fixed per run at spawn,
     # never a shared-directory mtime pick.
     telemetry_session_id = str(uuid.uuid4())
@@ -620,8 +512,8 @@ async def run_dispatch(
     # without the trigger having to enumerate them. Read from the RENDER, which
     # is where the build writes ``.claude/`` and where the CLI itself loads the
     # agents from; reading the repo root instead found nothing, and an empty
-    # surface map denies every delegation (see ``tool_policy``) — fail-closed,
-    # but it silently costs dispatch its subagents.
+    # surface map denies every delegation (see ``osprey.agent_runner.tool_policy``)
+    # — fail-closed, but it silently costs dispatch its subagents.
     agent_surfaces = parse_project_agents(render_dir)
 
     # Narrow the main thread's allow set to this surface's keep-list, if any.
@@ -635,11 +527,11 @@ async def run_dispatch(
         {name: (len(s) if s is not None else None) for name, s in agent_surfaces.items()},
     )
 
-    # NOTE: do NOT use permission_mode="bypassPermissions" — the CLI short-circuits
-    # can_use_tool under bypass, so the allowlist would not be enforced. With the
-    # default mode and can_use_tool set, the SDK auto-configures
-    # permission_prompt_tool_name="stdio" (see client.py:122) which routes
-    # unresolved permission checks to our backstop callback.
+    # ``permission_mode=None`` leaves the mode out of the options. The runner's
+    # default is ``bypassPermissions``, under which the agent CLI never consults
+    # ``can_use_tool``, so the allowlist would go unenforced. With the mode left
+    # out and ``can_use_tool`` set, the agent SDK routes unresolved permission
+    # checks to the backstop callback.
     #
     # The PreToolUse hook is the single authority: unlike can_use_tool — which
     # the CLI never consults for calls already permitted by settings.json
@@ -648,48 +540,29 @@ async def run_dispatch(
     # Exact-name denied tools additionally go to disallowed_tools, which strips
     # them from the model's context entirely; prefix entries (``server__*``)
     # become server-level rules (``server``).
+    #
+    # ``max_budget_usd=None``: a dispatch run is bounded by ``max_turns``, the
+    # inactivity watchdog and the worker's own timeout, never by a spend ceiling.
     disallowed = [t for t in denied_tools if not t.endswith("*")] + [
         t[: -len("__*")] for t in denied_tools if t.endswith("__*")
     ]
-    # Any-typed so the SDK's HookCallback union (typed against its own
-    # TypedDict inputs) accepts our dict-based callback.
+    # Any-typed: the runner's hook parameter is typed against the agent SDK's
+    # own hook signature, which the dict-based callback does not declare.
     policy_hook: Any = make_pretooluse_hook(effective_tools, agent_surfaces, denied_tools)
-    options = ClaudeAgentOptions(
-        allowed_tools=effective_tools,
-        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
-        can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
-        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[policy_hook])]},
-        disallowed_tools=sorted(disallowed),
-        # The render, not the repo root: the agent CLI takes its working
-        # directory as its project root, which is how it finds this deployment's
-        # ``.mcp.json``, ``.claude/`` tree (settings, hooks, skills, agents) and
-        # ``CLAUDE.md``. Same choice ``osprey chat`` makes when it chdirs into
-        # the render before launching, so headless dispatch and an interactive
-        # session see one project.
-        cwd=render_dir,
-        env=sdk_env,
-        max_turns=max_turns,
-        stderr=lambda line: stderr_lines.append(line),
-        setting_sources=["project"],
-        # Force the session id = the value injected above so the OTEL emitter's
-        # session.id matches what provenance_locator returns for this run.
-        session_id=telemetry_session_id,
-    )
-
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     # Map tool_use_id -> index in tool_calls for matching results to calls
     pending_tools: dict[str, int] = {}
     cost_usd: float | None = None
     num_turns: int | None = None
-    # Terminal error state read off the ResultMessage. Captured in the handler
+    # Terminal error state read off the result record. Captured in the handler
     # below and consulted once the generator drains, so the completed branch can
     # flip a failed run to status "error" from a single decision point (poll
     # body, SSE stream, persisted record, and counters all follow from it).
     result_is_error = False
     result_subtype: str | None = None
     result_error_text: str | None = None
-    result_api_error_status: Any = None
+    result_api_error_status: int | None = None
     # Snapshot secret values once so we can scrub them from anything we persist
     # or return (the SDK env carries provider/auth tokens).
     secret_values = _secret_values()
@@ -725,31 +598,52 @@ async def run_dispatch(
     # rides only an image block's source.data, never the prompt text or a log.
     user_content = _assemble_user_content(prompt, _take_seam(run_id))
 
-    # can_use_tool requires streaming-mode input (AsyncIterable), not str.
-    async def _prompt_stream():
-        yield {"type": "user", "message": {"role": "user", "content": user_content}}
-
     # Filled by the readiness barrier before the first turn; persisted with the
     # run on every outcome (see the ``mcp_servers`` result key).
     mcp_snapshot: list[dict[str, Any]] = []
 
+    def _record_mcp_status(servers: list[dict[str, Any]]) -> None:
+        mcp_snapshot[:] = mcp_snapshot_summary(servers)
+
     t0 = time.monotonic()
-    agen = _stream_with_ready_mcp(
-        options,
-        render_dir,
-        _prompt_stream(),
-        required_servers=required_mcp_servers(effective_tools),
-        mcp_snapshot=mcp_snapshot,
+    agen = stream_query(
+        # The render, not the repo root: the agent CLI takes its working
+        # directory as its project root, which is how it finds this deployment's
+        # ``.mcp.json``, ``.claude/`` tree (settings, hooks, skills, agents) and
+        # ``CLAUDE.md``. Same choice ``osprey chat`` makes when it chdirs into
+        # the render before launching, so headless dispatch and an interactive
+        # session see one project.
+        Path(render_dir),
+        user_content,
+        allowed_tools=effective_tools,
+        disallowed_tools=sorted(disallowed),
+        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
+        can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
+        pre_tool_use_hooks=[policy_hook],
+        permission_mode=None,
+        max_turns=max_turns,
+        max_budget_usd=None,
+        setting_sources=["project"],
+        env=sdk_env,
+        # Force the session id = the value injected above so the OTEL emitter's
+        # session.id matches what provenance_locator returns for this run.
+        session_id=telemetry_session_id,
+        stderr=stderr_lines.append,
+        # The barrier waits for the render's declared ``.mcp.json`` servers and
+        # refuses the run before the prompt when one the allow-list names is
+        # not connected.
+        require_mcp_servers=required_mcp_servers(effective_tools),
+        on_mcp_status=_record_mcp_status,
     )
     try:
         # Drive the generator manually (rather than ``async for``) so each
         # ``__anext__`` is bounded by the inactivity watchdog. A full-window
         # silence means the provider never responded — fail fast with a clear
         # message instead of stalling to the worker's outer DISPATCH_TIMEOUT_SEC.
-        first_message_seen = False
+        first_event_seen = False
         while True:
             try:
-                message = await asyncio.wait_for(agen.__anext__(), timeout=_INACTIVITY_TIMEOUT_SEC)
+                event = await asyncio.wait_for(agen.__anext__(), timeout=_INACTIVITY_TIMEOUT_SEC)
             except StopAsyncIteration:
                 break
             except TimeoutError:
@@ -758,7 +652,7 @@ async def run_dispatch(
                 except Exception:
                     logger.debug("agen.aclose() raised after inactivity timeout", exc_info=True)
                 duration_sec = time.monotonic() - t0
-                if first_message_seen:
+                if first_event_seen:
                     msg = (
                         f"No response from the model provider for "
                         f"{_INACTIVITY_TIMEOUT_SEC:.0f}s — dispatch aborted. This usually "
@@ -805,81 +699,58 @@ async def run_dispatch(
                     _num_calls(),
                 )
 
-            first_message_seen = True
+            first_event_seen = True
 
-            # Tool RESULTS arrive as ToolResultBlock inside UserMessage (the
-            # SDK's message_parser wraps tool_result content that way), while
-            # text and ToolUseBlock arrive in AssistantMessage — handle both so
-            # per-call results (including permission denials) are captured.
-            if isinstance(message, AssistantMessage | UserMessage):
-                msg_content = message.content
-                blocks = msg_content if isinstance(msg_content, list) else []
-                for block in blocks:
-                    if isinstance(block, TextBlock) and isinstance(message, AssistantMessage):
-                        text_parts.append(block.text)
-                        await _push({"type": "text", "content": block.text})
-                    elif isinstance(block, ToolUseBlock):
-                        # Count every tool call for a truthful total, even beyond
-                        # the retained-list cap below, so the stamp sites can
-                        # report the real number rather than len(tool_calls).
-                        if run_id:
-                            run_stats.increment_tool_calls(run_id)
-                        # Bound the retained tool-call list; excess calls still
-                        # stream as events but are not accumulated in memory.
-                        if len(tool_calls) < _MAX_TOOL_CALLS:
-                            entry: dict[str, Any] = {
-                                "name": block.name,
-                                "input": block.input,
-                                "result": None,
-                            }
-                            idx = len(tool_calls)
-                            tool_calls.append(entry)
-                            pending_tools[block.id] = idx
-                        await _push(
-                            {"type": "tool_start", "name": block.name, "input": block.input}
+            if isinstance(event, TextEvent):
+                text_parts.append(event.text)
+                await _push({"type": "text", "content": event.text})
+            elif isinstance(event, ToolUseEvent):
+                # Count every tool call for a truthful total, even beyond the
+                # retained-list cap below, so the stamp sites can report the
+                # real number rather than len(tool_calls).
+                if run_id:
+                    run_stats.increment_tool_calls(run_id)
+                # Bound the retained tool-call list; excess calls still stream
+                # as events but are not accumulated in memory.
+                if len(tool_calls) < _MAX_TOOL_CALLS:
+                    pending_tools[event.tool_use_id] = len(tool_calls)
+                    tool_calls.append({"name": event.name, "input": event.input, "result": None})
+                await _push({"type": "tool_start", "name": event.name, "input": event.input})
+            elif isinstance(event, ToolResultEvent):
+                # Results include permission denials, so every call's outcome is
+                # captured.
+                slot = pending_tools.get(event.tool_use_id)
+                result_text: str | None = None
+                if slot is not None:
+                    # No content is an empty result, not an absent one: the call returned.
+                    result_text = event.text if event.text is not None else ""
+                    if len(result_text) > _MAX_TOOL_RESULT:
+                        dropped = len(result_text) - _MAX_TOOL_RESULT
+                        result_text = (
+                            result_text[:_MAX_TOOL_RESULT] + f"\n…[truncated {dropped} chars]"
                         )
-                    elif isinstance(block, ToolResultBlock):
-                        idx = pending_tools.get(block.tool_use_id)
-                        result_text: str | None = None
-                        if idx is not None:
-                            content = block.content
-                            if isinstance(content, str):
-                                result_text = content
-                            elif isinstance(content, list):
-                                texts = [
-                                    item.get("text", "")
-                                    for item in content
-                                    if isinstance(item, dict) and item.get("type") == "text"
-                                ]
-                                result_text = "\n".join(texts) if texts else str(content)
-                            else:
-                                result_text = str(content)
-                            if result_text is not None and len(result_text) > _MAX_TOOL_RESULT:
-                                dropped = len(result_text) - _MAX_TOOL_RESULT
-                                result_text = (
-                                    result_text[:_MAX_TOOL_RESULT]
-                                    + f"\n…[truncated {dropped} chars]"
-                                )
-                            tool_calls[idx]["result"] = result_text
-                        await _push(
-                            {
-                                "type": "tool_result",
-                                "name": tool_calls[idx]["name"] if idx is not None else None,
-                                "result": result_text,
-                            }
-                        )
-
-            elif isinstance(message, ResultMessage):
-                cost_usd = getattr(message, "cost_usd", None)
-                num_turns = getattr(message, "num_turns", None)
-                result_is_error = bool(getattr(message, "is_error", False))
-                result_subtype = getattr(message, "subtype", None)
-                result_error_text = getattr(message, "result", None)
-                result_api_error_status = getattr(message, "api_error_status", None)
+                    tool_calls[slot]["result"] = result_text
+                await _push(
+                    {
+                        "type": "tool_result",
+                        "name": tool_calls[slot]["name"] if slot is not None else None,
+                        "result": result_text,
+                    }
+                )
+            elif isinstance(event, ResultEvent):
+                cost_usd = event.total_cost_usd
+                num_turns = event.num_turns
+                result_is_error = event.is_error
+                result_subtype = event.subtype
+                result_error_text = event.result
+                result_api_error_status = event.api_error_status
                 await _push({"type": "result", "cost_usd": cost_usd, "num_turns": num_turns})
-
-            elif isinstance(message, SystemMessage):
-                logger.debug("SystemMessage: %s", message)
+            elif isinstance(event, SystemEvent):
+                logger.debug("System event %s: %s", event.subtype, event.data)
+            elif isinstance(event, ThinkingEvent | ApiErrorEvent):
+                # Neither is part of the run record: the result record carries
+                # the run's terminal error.
+                pass
 
         duration_sec = time.monotonic() - t0
 
@@ -945,7 +816,7 @@ async def run_dispatch(
         )
 
     except asyncio.CancelledError:
-        # Close the SDK async generator so the CLI subprocess exits via its own
+        # Close the event stream so the CLI subprocess exits via its own
         # stdin-close path. Measured end-to-end cancel latency: ~0.6s; a few
         # seconds if a tool call is mid-flight and needs to unwind.
         try:

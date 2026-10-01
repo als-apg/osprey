@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.claude_launcher import build_claude_launch_argv
+from osprey.agent_runner.launcher import build_claude_launch_argv, build_session_argv
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -36,12 +36,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # the argv builder itself, the deployment renderers that materialise a project,
 # the templates they render from, and the two callers that hand the argv to a PTY.
 LAUNCH_PATH = (
-    "src/osprey/utils/claude_launcher.py",
+    "src/osprey/agent_runner/launcher.py",
     "src/osprey/deployment/web_terminals",
     "src/osprey/templates/modules/web_terminals",
     "src/osprey/templates/claude_code",
     "src/osprey/interfaces/web_terminal/app.py",
     "src/osprey/cli/web_cmd.py",
+    "src/osprey/interfaces/web_terminal/routes/websocket.py",
 )
 
 # Restricted to surfaces that can actually launch or configure a process.
@@ -115,6 +116,27 @@ class TestLaunchArgvCarriesNoPermissionBypass:
         assert "--permission-mode" not in argv
         assert "--permissionMode" not in argv
 
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"resume_id": "abc123"},
+            {"session_id": "key-1"},
+            {"print_mode": True, "prompt": "hello"},
+            {"session_id": "key-1", "effort": "high"},
+        ],
+        ids=["resume", "new-session", "print", "effort"],
+    )
+    def test_session_argv_contains_no_bypass_token_or_permission_mode(self, kwargs):
+        argv = build_session_argv(build_claude_launch_argv({}), **kwargs)
+        joined = " ".join(argv)
+        for token in BYPASS_TOKENS:
+            assert token not in joined, (
+                f"build_session_argv(..., **{kwargs!r}) emitted {token!r}. The web "
+                f"terminal's permissions.deny array stops being authoritative the "
+                f"moment the agent launches in a bypassing mode."
+            )
+        assert "--permission-mode" not in argv
+
 
 class TestLaunchPathSourcesCarryNoPermissionBypass:
     """No file on the launch path may introduce a bypass by another route.
@@ -169,7 +191,7 @@ class TestDenyArrayIsTheThingBeingProtected:
         ``deny_defaults`` from the render context, sourced from DENY_DEFAULTS —
         so scraping the Jinja file would now guard a copy nothing ships.
         """
-        from osprey.cli.templates.claude_code import DENY_DEFAULTS
+        from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
         assert DENY_DEFAULTS, (
             "DENY_DEFAULTS is empty — the web terminal's tool restrictions are "

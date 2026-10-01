@@ -55,7 +55,7 @@ services:
     depends_on:
       bluesky-bridge:
         condition: service_healthy
-{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
+{%- for lane_key in bluesky_second_lane_keys %}
 {%- if lane_key in deployed_services %}
       # The second plan lane's own bridge, for the same reason: the sidecar
       # relays this lane's reads, draft and queue too, and must not race its
@@ -80,34 +80,25 @@ services:
         "--port",
         "{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}",
       ]
-    labels:
-      osprey.project.name: "{{ osprey_labels.project_name }}"
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-      osprey.project.root: "{{ osprey_labels.project_root }}"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}"
     environment:
-      # Not a config-loader input here: the sidecar's own config read goes
-      # through OSPREY_CONFIG and the working directory and ignores this
-      # variable by design (osprey_connectors.workspace.resolve_config_path),
-      # tolerating a config it does not find. What this names is the mounted
-      # config whose DIRECTORY the /channels route reads the build-time
-      # channels.json out of. Without it that route resolves ./channels.json
-      # against the image WORKDIR (/app) rather than the mount under
-      # /app/project, so the sidecar still starts and every panel still
-      # serves — the channel catalog alone answers 404, and the plan form's
-      # channel fields offer no autocomplete.
+      # The mounted config, named twice for its two kinds of reader. The
+      # /channels route reads the build-time channels.json out of
+      # CONFIG_FILE's DIRECTORY; without it that route resolves
+      # ./channels.json against the image WORKDIR (/app) and the channel
+      # catalog answers 404.
       CONFIG_FILE: /app/project/config.yml
+      # The framework's own config loader
+      # (osprey_connectors.workspace.resolve_config_path) reads this and never
+      # CONFIG_FILE. It is how the sidecar learns which plan lanes the
+      # deployment renders and which target each serves (the `services.<lane>`
+      # blocks), and where its audit zone is: the project this names, which is
+      # the directory the audit bind below targets. Without it the sidecar
+      # reports one lane on a two-lane deployment and its records land in the
+      # container's writable layer.
+      OSPREY_CONFIG: /app/project/config.yml
       TZ: {{ system.timezone }}
       # Reach the co-deployed bluesky bridge by its in-network compose service
       # key `bluesky-bridge` — never the host-published port.
@@ -123,7 +114,7 @@ services:
       # project .env when unset (see container_lifecycle.py's per-service
       # token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
-{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
+{%- for lane_key in bluesky_second_lane_keys %}
 {%- if lane_key in deployed_services %}
       # The SECOND plan lane, when this deployment renders one: its own
       # bridge by its own in-network service key, and its own launch token —
@@ -222,11 +213,12 @@ services:
       # `_ensure_agent_data_structure` on the build path): left to the container
       # runtime, a missing bind source is created by the daemon instead.
       #
-      # The container side is `/app/var/audit/...`, NOT this project's
-      # `/app/<project>/var/audit/...`: the image runs no OSPREY project, so its
-      # writer anchors the audit zone on the working directory (WORKDIR /app),
-      # and mounting the project-rooted path would bind a directory nothing ever
-      # writes to while the records piled up in the writable layer.
+      # The container side is `/app/project/var/audit/...`: the writer anchors
+      # the audit zone on the project OSPREY_CONFIG above names, the directory
+      # the config is mounted into — not on the working directory (WORKDIR
+      # /app), and not on the project image's `/app/<project>`. A bind anywhere
+      # else would be a directory nothing writes to while the records piled up
+      # in the writable layer.
       - {{ osprey_audit_mount_source }}/bluesky-web:{{ osprey_service_container_audit_dir }}/bluesky-web
 {% if channel_snapshot | default(false) %}
       # Only when the build emitted a channel snapshot (channel_snapshot is

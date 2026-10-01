@@ -17,11 +17,12 @@ Two of those files are the machine's starting state:
   model does not drive still seeds its channels, marked
   ``nominal_seed_only`` so a reader can tell a value the model maintains from
   one that only starts a channel off somewhere plausible.
-* ``data/machine_state_channels.json`` -- the machine-state view's channel
-  list: the monitor-only families with a single device, which is what a
-  machine-wide reading looks like in the Middle Layer grain (beam current,
-  tunes, lifetime), as opposed to a per-device monitor family like the beam
-  position monitors, whose thousand addresses are not a machine-state view.
+* ``data/machine_state_channels.json`` -- the machine-state address list
+  the build reconciles against the channel manifest: the monitor-only
+  families with a single device, which is what a machine-wide reading looks
+  like in the Middle Layer grain (beam current, tunes, lifetime), as opposed
+  to a per-device monitor family like the beam position monitors, whose
+  thousand addresses are not a machine-wide reading.
 
 A third says what the model does when one of those channels is written:
 
@@ -39,8 +40,8 @@ holding ``ctx.provenance_string``, and so does the bindings document. That stamp
 tells a file this lane wrote from one a person hand-authored: an unstamped
 file at either path is refused with the ``rm`` line that names it, rather than
 overwritten. Both readers already tolerate it -- ``load_machine_json_channels``
-reads only ``channels``, and the machine-state loader keys off each entry's
-``label`` member, so a top-level string is not mistaken for a channel.
+reads only ``channels``, and the machine-state loader skips every
+underscore-prefixed key, so the stamp is not mistaken for an address.
 
 Rules the two emitters share:
 
@@ -128,9 +129,10 @@ SEED_ONLY_KEY = "nominal_seed_only"
 
 #: What the machine-state document says about itself, above its entries.
 _STATE_COMMENT = (
-    "The machine-state view's channels: every monitor-only single-device family "
-    "of the Middle Layer export. Written by `osprey mml emit`; edit the export "
-    "or the mapping rather than this file."
+    "The machine-state addresses: every monitor-only single-device family of the "
+    "Middle Layer export. The build reconciles every key against the channel "
+    "manifest; only the keys are read. Written by `osprey mml emit`; edit the "
+    "export or the mapping rather than this file."
 )
 
 #: Top-level key of the machine document's prose.
@@ -336,7 +338,7 @@ def emit_machine(
 
 
 def emit_state_channels(views: Iterable[FamilyView], mapping: Mapping, ctx: EmitContext) -> str:
-    """Build ``machine_state_channels.json``: the machine-state view's channels.
+    """Build ``machine_state_channels.json``: the machine-state address list.
 
     A family is listed when it has exactly one device and none of its fields is
     written -- the Middle Layer grain of a machine-wide reading. Direction comes
@@ -562,13 +564,13 @@ def _is_monitor_only(view: FamilyView, mapping: Mapping) -> bool:
 
 
 def _group(view: FamilyView, mapping: Mapping) -> str:
-    """Return the machine-state group a family's channels are shown under."""
+    """Return the group label a family's machine-state entries carry."""
     system = mapping.systems.get(view.system)
     return (system.name if system is not None else view.system).lower()
 
 
 def _state_label(view: FamilyView, field_name: str, mapping: Mapping) -> str:
-    """Return the label the machine-state view shows one field's channel under."""
+    """Return the label a field's machine-state entry carries."""
     family = mapping.families.get(view.raw_name)
     prose = _word(None if family is None else family.description)
     name = view.raw_name if family is None else mapping.mapped(view.raw_name)

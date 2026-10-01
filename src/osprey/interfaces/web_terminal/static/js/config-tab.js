@@ -26,10 +26,19 @@
  * there is a brief window in which the tab is still painted. That window is
  * cosmetic only — the routes behind it answer 403 from the first request — and
  * closing it would mean blocking the drawer's wiring on a network read.
+ *
+ * When the panel is closed because the deployment's config file exists but
+ * could not be read, the payload names that file (`config_unreadable_path`)
+ * and a notice under the drawer header says so. The tab still goes away — the
+ * notice sits beside it rather than in a tab kept alive to hold it — and the
+ * path is written as text, because it comes from the server.
  */
 
 /** Drawer-tab id of the Config surface (index.html: the tab button + panel). */
 export const CONFIG_TAB_ID = 'tab-config';
+
+/** Id of the notice naming a config file the server could not read. */
+export const CONFIG_UNREADABLE_NOTICE_ID = 'config-unreadable-notice';
 
 /**
  * Remove the Config drawer tab when the deployment has gated it off.
@@ -46,6 +55,32 @@ export const CONFIG_TAB_ID = 'tab-config';
 export function applyConfigTabGate(panelsPayload) {
   if (!panelsPayload || panelsPayload.config_panel_enabled !== false) return false;
   return removeConfigTab(document);
+}
+
+/**
+ * Name the unreadable config file in a notice under the drawer header.
+ *
+ * Only a non-empty `config_unreadable_path` adds the notice; a null payload,
+ * a missing key or an empty string leave the drawer as it is. Applying twice
+ * keeps one notice.
+ *
+ * @param {any} panelsPayload - the `GET /api/panels` response, or null.
+ * @returns {boolean} true when a notice is present afterwards.
+ */
+export function applyConfigUnreadableNotice(panelsPayload) {
+  const path = panelsPayload?.config_unreadable_path;
+  if (typeof path !== 'string' || !path) return false;
+  if (document.querySelector(`#${CONFIG_UNREADABLE_NOTICE_ID}`)) return true;
+  const header = document.querySelector('#settings-drawer .drawer-header');
+  if (!header) return false;
+  const notice = document.createElement('p');
+  notice.className = 'drawer-notice';
+  notice.id = CONFIG_UNREADABLE_NOTICE_ID;
+  notice.setAttribute('role', 'status');
+  notice.textContent =
+    `Config editing is off: ${path} could not be read. Fix the file and restart the web terminal.`;
+  header.after(notice);
+  return true;
 }
 
 /**

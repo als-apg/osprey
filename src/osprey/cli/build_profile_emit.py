@@ -362,14 +362,16 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #
 # default_panel: artifacts
 """,
-    "dispatch": """
+    "dispatch": f"""
 # --- Event dispatch ----------------------------------------------------------
 # Runs the agent unattended against a trigger file (facility events in, agent
-# runs out). worker_count sets parallelism; workspace_mode isolated gives each
-# run its own copy of the project.
+# runs out). triggers names that file: one beside this profile, or a bundled
+# trigger set by name. worker_count sets parallelism; workspace_mode isolated
+# gives each run its own copy of the project. The dashboard shows
+# `config: facility.name`; facility_name overrides it there alone.
 #
 # dispatch:
-#   triggers: triggers/my-facility.yml
+#   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
 #   facility_name: Example Research Facility
@@ -485,7 +487,8 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # The Azure credentials and destinations are runtime env, not profile keys:
 # declare TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID,
 # TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE under
-# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud).
+# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud, and
+# TEAMS_FILES_DRIVE_ID / TEAMS_FILES_FOLDER to share files).
 #
 # teams_bridge:
 #   trigger: teams-question
@@ -568,10 +571,10 @@ def artifact_menu_catalog() -> dict[str, list[tuple[str, str]]]:
     panels — so this menu can never disagree with what a profile may name.
     Universal panels (always served) are excluded: they are not opt-ins.
     """
+    from osprey.agent_runner.build_artifacts import BuildArtifactCatalog
     from osprey.cli.templates.artifact_library import _TYPE_TO_SUBDIR, list_artifacts
     from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS, UNIVERSAL_PANELS
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
-    from osprey.services.build_artifacts import BuildArtifactCatalog
 
     catalog = BuildArtifactCatalog.default()
     menu: dict[str, list[tuple[str, str]]] = {}

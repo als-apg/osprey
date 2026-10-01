@@ -35,9 +35,8 @@ def _pending_items(tmp_path):
 
     The store lives under the agent-data root — it is written while the agent
     runs, and a project's ``data/`` tree is build-owned while ``build/`` is
-    re-rendered by every build. The root is taken from the same constant the
-    hook resolves, so a relocated ``agent_data.base_dir`` moves both together
-    instead of leaving this reading an empty directory and reporting no items.
+    re-rendered by every build. No config names a ``base_dir`` in these runs,
+    so the hook resolves the framework default the helper reads.
     """
     store = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
     if not store.exists():

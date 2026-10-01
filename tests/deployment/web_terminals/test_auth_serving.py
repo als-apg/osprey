@@ -96,7 +96,10 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
-from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
+from osprey.deployment.web_terminals.artifacts import (
+    proxy_env_names_with_a_value,
+    web_artifacts_dir,
+)
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     ensure_auth_session_secrets,
@@ -106,7 +109,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     terminal_secret_var,
 )
 from osprey.deployment.web_terminals.personas import env_var_suffix
-from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES, render_web_terminals
 from osprey.interfaces._serving import free_port
 from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_ID_ENV,
@@ -170,6 +173,7 @@ _PACKAGES = (
     "pyyaml",
     "click",
     "rich",
+    "questionary",
 )
 """The sidecar's import closure, by distribution name.
 
@@ -506,7 +510,8 @@ def _config(nginx_port: int, *, oidc_issuer: str | None = None) -> dict[str, Any
             for index, user in enumerate(_USERS)
         ]
     return {
-        "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "127.0.0.1"},
         "modules": {
@@ -707,6 +712,14 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     # This deployment's env chain as compose would read it: `.env.shared` under
     # `.env`, the local file winning on any key both set.
     chain_env = merge_chain(deployment_root)
+    # Which proxy settings the deploy writes into the rendered stack, read by the
+    # deploy's own resolver with this process's exports cleared, for the same
+    # reason the replay below ignores them: the answer is a property of the
+    # deployment's files, and a proxy exported on the CI host cannot move it.
+    with pytest.MonkeyPatch.context() as patch:
+        for name in PROXY_ENV_NAMES:
+            patch.delenv(name, raising=False)
+        proxy_env_names = proxy_env_names_with_a_value(deployment_root)
 
     env_auth = parse_dotenv_file(deployment_root / AUTH_ENV_FILENAME)
     session_secret = env_auth["OSPREY_AUTH_SESSION_SECRET"]
@@ -738,7 +751,9 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
                 idp_port = free_port()
                 idp_issuer = f"http://127.0.0.1:{idp_port}"
             artifacts = render_web_terminals(
-                _config(nginx_port, oidc_issuer=idp_issuer), terminal_secrets=terminal_secrets
+                _config(nginx_port, oidc_issuer=idp_issuer),
+                terminal_secrets=terminal_secrets,
+                proxy_env_names=proxy_env_names,
             )
             # Lay the rendered artifacts out the way the real writer does —
             # under the repo's build/ zone — while `project` below plays the
@@ -1087,6 +1102,48 @@ def test_bookmark_redirect_is_relative_and_drops_no_port(stack: Stack) -> None:
     # Assert
     assert response.status_code == 301
     assert response.headers["location"] == "/u/alice/"
+
+
+def test_another_name_for_this_host_is_sent_to_the_origin(stack: Stack) -> None:
+    """A browser on another name for this host is redirected to the origin.
+
+    The terminals accept actions only from the one origin, so a page served
+    under ``localhost`` would load and then refuse every write. The redirect
+    keeps the path and the query.
+    """
+    # Arrange
+    other_name = {"Host": f"localhost:{stack.port}"}
+
+    # Act
+    with stack.client() as client:
+        deep = client.get("/u/alice/?x=1", headers=other_name)
+        root = client.get("/", headers=other_name)
+
+    # Assert
+    assert deep.status_code == 301
+    assert deep.headers["location"] == f"{stack.origin}/u/alice/?x=1"
+    assert root.status_code == 301
+    assert root.headers["location"] == f"{stack.origin}/"
+
+
+def test_a_signed_in_browser_on_another_name_reaches_no_upstream(stack: Stack) -> None:
+    """A session does not carry a request past the redirect: a write sent under
+    another name is answered by nginx and never reaches the terminal."""
+    # Arrange
+    with stack.client() as client:
+        _login(stack, client, "alice")
+
+        # Act
+        response = client.post(
+            "/u/alice/api/chat",
+            content=b'{"content": "hello"}',
+            headers={"Content-Type": "application/json", "Host": f"localhost:{stack.port}"},
+        )
+
+    # Assert
+    assert response.status_code == 301
+    assert response.headers["location"] == f"{stack.origin}/u/alice/api/chat"
+    assert '"method"' not in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -1542,16 +1599,17 @@ def test_sidecar_environment_carries_the_proxy_resolved_from_the_env_chain(stack
     rather than `docker inspect` is deliberate: inspect shows what was
     requested, `os.environ` is what httpx will read.
 
-    The empty pair matters as much as the set one. `${HTTP_PROXY:-}` with
-    nothing in the chain must arrive as a variable that is SET and empty, which
-    is how a proxy-less scheme is spelled — not as the literal `${HTTP_PROXY:-}`,
-    which httpx would read as a proxy URL and fail every fetch against.
+    Under both spellings, the lowercase twin carrying the same value; and the
+    two settings the chain leaves unset are not in the container at all, under
+    either spelling: an empty lowercase name would turn the proxy off for that
+    scheme in every stdlib caller.
     """
     # Arrange
     probe = (
         "import json, os; "
         "print(json.dumps({name: os.environ.get(name) "
-        "for name in ('HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY')}))"
+        "for name in ('HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', "
+        "'NO_PROXY', 'no_proxy')}))"
     )
 
     # Act
@@ -1565,9 +1623,14 @@ def test_sidecar_environment_carries_the_proxy_resolved_from_the_env_chain(stack
     # Assert
     assert result.returncode == 0, result.stderr
     seen = json.loads(result.stdout)
-    assert seen["HTTPS_PROXY"] == _SHARED_PROXY, seen
-    assert seen["HTTP_PROXY"] == "", seen
-    assert seen["NO_PROXY"] == "", seen
+    assert seen == {
+        "HTTPS_PROXY": _SHARED_PROXY,
+        "https_proxy": _SHARED_PROXY,
+        "HTTP_PROXY": None,
+        "http_proxy": None,
+        "NO_PROXY": None,
+        "no_proxy": None,
+    }, seen
     # And the resolution happened in the replay rather than by accident: the
     # argv the container was created from carries the value, not the reference.
     assert f"HTTPS_PROXY={_SHARED_PROXY}" in stack.auth_run_argv, stack.auth_run_argv

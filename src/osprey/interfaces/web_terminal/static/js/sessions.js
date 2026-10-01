@@ -3,6 +3,7 @@
 import { fetchJSON } from './api.js';
 import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, notifySessionChange, switchSession, setSessionLabel } from './terminal.js';
 import { escapeHtml } from '/design-system/js/dom.js';
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
 
 /**
  * A session summary as returned by the (prefix-aware) `/api/sessions` endpoint.
@@ -250,5 +251,5 @@ function relativeTime(isoString) {
   if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
-  return date.toLocaleDateString();
+  return formatFacilityTime(date, { year: 'numeric', month: 'numeric', day: 'numeric' });
 }

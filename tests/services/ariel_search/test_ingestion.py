@@ -227,7 +227,9 @@ class TestALSLogbookAdapter:
         config = self._make_config("/fake/path.jsonl")
         adapter = ALSLogbookAdapter(config)
 
-        entry = adapter._convert_entry({"subject": "no id here", "author": "nobody"})
+        entry = adapter._convert_entry(
+            {"subject": "no id here", "author": "nobody", "timestamp": "1704067200"}
+        )
 
         assert entry["entry_id"] == ""
         assert entry["author"] == "nobody"
@@ -508,66 +510,6 @@ class TestGenericJSONAdapter:
 
         for entry in entries:
             assert entry["timestamp"] < until
-
-
-class TestGenericJSONAdapterParseTimestamp:
-    """Tests for GenericJSONAdapter timestamp parsing."""
-
-    def _make_config(self, source_url: str) -> ARIELConfig:
-        """Create config with generic ingestion settings."""
-        return ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://test"},
-                "ingestion": {"adapter": "generic_json", "source_url": source_url},
-            }
-        )
-
-    def test_parse_unix_timestamp(self):
-        """Parse Unix timestamp (int)."""
-        config = self._make_config("/fake/path.json")
-        adapter = GenericJSONAdapter(config)
-        result = adapter._parse_timestamp(1704067200)
-        assert result.year == 2024
-        assert result.month == 1
-
-    def test_parse_unix_timestamp_float(self):
-        """Parse Unix timestamp (float)."""
-        config = self._make_config("/fake/path.json")
-        adapter = GenericJSONAdapter(config)
-        result = adapter._parse_timestamp(1704067200.5)
-        assert result.year == 2024
-
-    def test_parse_iso8601(self):
-        """Parse ISO 8601 timestamp."""
-        config = self._make_config("/fake/path.json")
-        adapter = GenericJSONAdapter(config)
-        result = adapter._parse_timestamp("2024-01-15T10:30:00+00:00")
-        assert result.year == 2024
-        assert result.month == 1
-        assert result.day == 15
-
-    def test_parse_iso8601_with_z(self):
-        """Parse ISO 8601 timestamp with Z suffix."""
-        config = self._make_config("/fake/path.json")
-        adapter = GenericJSONAdapter(config)
-        result = adapter._parse_timestamp("2024-01-15T10:30:00Z")
-        assert result.year == 2024
-        assert result.month == 1
-        assert result.day == 15
-
-    def test_parse_unix_string(self):
-        """Parse Unix timestamp as string."""
-        config = self._make_config("/fake/path.json")
-        adapter = GenericJSONAdapter(config)
-        result = adapter._parse_timestamp("1704067200")
-        assert result.year == 2024
-
-    def test_parse_invalid_raises(self):
-        """Invalid timestamp raises ValueError."""
-        config = self._make_config("/fake/path.json")
-        adapter = GenericJSONAdapter(config)
-        with pytest.raises(ValueError):
-            adapter._parse_timestamp("not-a-date")
 
 
 class TestGenericJSONAdapterConvertEntry:

@@ -580,7 +580,7 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
             "container_runtime": RUNTIME,
             "facility.name": f"E2E Multiuser Fixture ({lane.posture})",
             "facility.prefix": lane.prefix,
-            "facility.timezone": "UTC",
+            "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],
             "claude_code.telemetry.enabled": False,

@@ -39,7 +39,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from bluesky.protocols import Hints
+from bluesky.protocols import DataKey, Hints, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
 
 from ._connect import connect_all
@@ -262,7 +262,7 @@ class ConnectorSettable(StandardReadable):
         """
         return f"{self.name}{SETPOINT_KEY_SUFFIX}"
 
-    async def read(self) -> dict[str, dict[str, Any]]:
+    async def read(self) -> dict[str, Reading[Any]]:
         """Return the live readback value, read fresh through the connector.
 
         Never returns a cached/soft value: every call issues a new
@@ -272,16 +272,18 @@ class ConnectorSettable(StandardReadable):
         demand under :attr:`setpoint_key`.
         """
         reading = await self._osprey_connector.read_channel(self._readback_pv)
-        document = {self.name: {"value": reading.value, "timestamp": time.time()}}
+        document: dict[str, Reading[Any]] = {
+            self.name: {"value": reading.value, "timestamp": time.time()}
+        }
         if self.has_distinct_readback:
             demand = await self._osprey_connector.read_channel(self._setpoint_pv)
             document[self.setpoint_key] = {"value": demand.value, "timestamp": time.time()}
         return document
 
-    async def describe(self) -> dict[str, dict[str, Any]]:
+    async def describe(self) -> dict[str, DataKey]:
         """Describe the live readback channel as a scalar numeric data key,
         and the setpoint channel beside it when the two differ."""
-        described = {
+        described: dict[str, DataKey] = {
             self.name: {
                 "source": f"connector:{self._readback_pv}",
                 "dtype": "number",
@@ -336,12 +338,12 @@ class ConnectorReadable(StandardReadable):
         self._read_pv = read_pv
         super().__init__(name=name)
 
-    async def read(self) -> dict[str, dict[str, Any]]:
+    async def read(self) -> dict[str, Reading[Any]]:
         """Return the live value, read fresh through the connector."""
         reading = await self._osprey_connector.read_channel(self._read_pv)
         return {self.name: {"value": reading.value, "timestamp": time.time()}}
 
-    async def describe(self) -> dict[str, dict[str, Any]]:
+    async def describe(self) -> dict[str, DataKey]:
         """Describe the live channel as a scalar numeric data key."""
         return {
             self.name: {

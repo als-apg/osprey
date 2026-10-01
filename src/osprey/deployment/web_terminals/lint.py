@@ -32,18 +32,22 @@ from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
 from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
     ALL_PRIVILEGES,
+    REGISTRY_MODE_MISSING_URL,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     _is_shared_entry,
     as_dict,
     auth_is_enforced,
+    configured_registry_url,
     control_identity_collision_warnings,
     control_identity_problems,
     deployment_wide_privileged_exposure_problems,
     effective_image_source,
     effective_persona,
     entry_is_shared,
+    env_var_suffix,
     env_var_suffix_collisions,
+    normalize_users,
     persona_privileges,
     privilege_phrase,
     privileged_default_persona_problem,
@@ -66,6 +70,7 @@ from osprey.deployment.web_terminals.render import (
     AUTH_SIDECAR_AUDIT_IDENTITY,
     SUPPORTED_AUTH_METHODS,
     TLS_LISTEN_PORT,
+    _auth_throttle_problems,
     _auth_tls_context,
     _authorization_context,
     _blank_scope_index,
@@ -73,10 +78,15 @@ from osprey.deployment.web_terminals.render import (
     _external_origin,
     _port_int,
     _scope_list,
+    _tls_enabled,
+    deployment_origin,
 )
+from osprey.docs_links import INSTALL_DOCS_URL
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
+from osprey.services.auth_sidecar.passwords import stored_hash_problem
+from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
     TYPE_WRITES_ENABLED_LEAF,
@@ -101,12 +111,13 @@ from osprey_connectors.types import (
 # scopes never reach the sidecar.
 
 # The credential env-var stem a roster username is keyed into
-# (`OSPREY_AUTH_PW_HASH_<SUFFIX>`), quoted only inside this module's collision
-# message. It is deliberately NOT imported from `auth_credentials`, which owns
-# the constant: this module is pure static validation of a config file, and
-# importing the credential provisioner to quote one string in a message would
-# pull the whole deploy-time secret-minting path in behind it.
+# (`OSPREY_AUTH_PW_HASH_<SUFFIX>`) and the deployment-repo file those entries
+# live in, both quoted here rather than imported. Neither is imported from
+# `auth_credentials`, which owns them: this module is pure static validation,
+# and importing the credential provisioner to quote two strings would pull the
+# whole deploy-time secret-minting path in behind it.
 _PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
+_AUTH_ENV_FILENAME = ".env.auth"
 
 
 @dataclass(frozen=True)
@@ -257,6 +268,10 @@ def lint_web_terminals(
         # answered anyway would be guessing at the one file the deploy gate
         # refuses on.
         findings.extend(_check_open_mode_egress(root, project_root=project_root))
+        # Both read the deployment's `.env` or `.env.auth`, so they ride the
+        # same gate: at profile altitude neither file exists yet.
+        findings.extend(_check_seeded_passwords(root, web_terminals, project_root=project_root))
+        findings.extend(_check_auth_stored_hashes(web_terminals, users, project_root=project_root))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
@@ -264,9 +279,11 @@ def lint_web_terminals(
     findings.extend(_check_external_origin(web_terminals))
     findings.extend(_check_auth_method(web_terminals))
     findings.extend(_check_auth_session_lifetime(web_terminals))
+    findings.extend(_check_auth_throttle(web_terminals))
     findings.extend(_check_listener_ports(root, web_terminals))
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
+    findings.extend(_check_landing_names(web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
     findings.extend(_check_shared_card_duplicate_subject(web_terminals, users))
     findings.extend(_check_shared_card_subject(web_terminals, users))
@@ -878,14 +895,15 @@ def _check_port_overlap(
     # sidecar) must not reserve the TLS listener or the sidecar port against
     # ordinary configs.
     #
-    # The TLS listener is read straight off the raw stanza rather than through
-    # `_auth_context`: that context is None for a config whose `auth.method`
-    # names no method, and a port this deployment's nginx will bind belongs in
-    # the collision set whether or not the auth stanza parses. `_port_int`
-    # resolves it the way render does, so an unusable `tls.port` reserves the
-    # default nginx will actually listen on rather than a port nothing binds.
-    tls = as_dict(web_terminals.get("tls"))
-    if bool(tls.get("enabled", False)):
+    # `tls.enabled` is read through render's `_tls_enabled`, the same reader
+    # `_auth_tls_context` uses, rather than through `_auth_context`: that context
+    # is None for a config whose `auth.method` names no method, and a port this
+    # deployment's nginx will bind belongs in the collision set whether or not
+    # the auth stanza parses. `_port_int` resolves it the way render does, so an
+    # unusable `tls.port` reserves the default nginx will actually listen on
+    # rather than a port nothing binds.
+    if _tls_enabled(web_terminals):
+        tls = as_dict(web_terminals.get("tls"))
         entries.append((_port_int(tls.get("port"), TLS_LISTEN_PORT), "web_terminals.tls.port"))
     # The deployment's own base, the same one the port families above were
     # allocated at: a sidecar port resolved at the layout default would land in
@@ -2102,27 +2120,20 @@ def _check_registry_url_coherence(
 ) -> list[Finding]:
     """``image_source`` and ``registry.url`` must agree.
 
-    Only evaluated once a persona catalog is actually configured. A config
-    with no ``personas:`` block at all resolves every user through
-    :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
-    zero-migration path — this check never demands a ``registry.url`` from a
-    deployment that has not opted into the persona system.
+    Registry mode names every web-terminal image under ``registry.url``, the
+    no-catalog default image included, so the check runs whether or not a
+    persona catalog is configured. Local mode builds its images, so a URL set
+    there only draws a warning.
     """
-    if not _persona_catalog(web_terminals):
-        return []
-    registry_url = as_dict(root.get("registry")).get("url")
-    has_url = isinstance(registry_url, str) and bool(registry_url)
+    registry_url = configured_registry_url(root.get("registry"))
+    has_url = bool(registry_url)
     image_source = effective_image_source(web_terminals)
     if image_source == "registry" and not has_url:
         return [
             Finding(
                 severity="error",
                 code="web_terminals.registry_mode_missing_url",
-                message=(
-                    "modules.web_terminals.image_source is 'registry' (the "
-                    "default) but registry.url is not set; registry mode needs "
-                    "it to pull every persona's image"
-                ),
+                message=REGISTRY_MODE_MISSING_URL,
             )
         ]
     if image_source == "local" and has_url:
@@ -2588,7 +2599,8 @@ def _check_one_persona_project_path(
                         "delta `osprey init` writes in this repo's personas/ directory, "
                         "which is what `osprey build` renders the persona project from. "
                         "A variant build that predates the delta layout has no such file "
-                        "to point at yet; run /osprey:install to convert it into one"
+                        "to point at yet; follow the installer guide at "
+                        f"{INSTALL_DOCS_URL} to convert it into one"
                     ),
                 )
             ]
@@ -2866,14 +2878,13 @@ def _check_external_origin(web_terminals: dict[str, Any]) -> list[Finding]:
 
 # --- auth seam checks --------------------------------------------------------
 #
-# These are scaffold-time feedback only. The authoritative deploy-path gates
-# live elsewhere and fail closed on their own: render.py raises on an unknown
-# `auth.method` and on auth-without-TLS, and `auth_credentials.py` raises on a
-# roster it cannot key credentials for. `osprey up` never runs this module,
-# so nothing here may be the only thing standing between a bad config and a
-# deployment — every check below mirrors a gate that also exists downstream,
-# except where the downstream path *cannot* see the mistake (see
-# :func:`_check_auth_method` and :func:`_check_auth_session_lifetime`).
+# The authoritative deploy-path gates live elsewhere and fail closed on their
+# own: render.py raises on an unknown `auth.method` and on auth-without-TLS, and
+# `auth_credentials.py` raises on a roster it cannot key credentials for.
+# `osprey up` runs this module but refuses only on the codes in
+# `provision._UP_BLOCKING_LINT_CODES`, so every other check below mirrors a gate
+# that also exists downstream, except where the downstream path *cannot* see the
+# mistake (see :func:`_check_auth_method` and :func:`_check_auth_session_lifetime`).
 
 
 def _auth_context(
@@ -2953,8 +2964,8 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
     Returns:
         One finding naming every offender and what each is missing, or none.
     """
+    from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
     from osprey.deployment.web_terminals.artifacts import (
-        OPEN_MODE_EGRESS_TOOLS,
         ZERO_MIGRATION_OFFENDER,
         open_mode_missing_by_persona,
     )
@@ -3061,6 +3072,21 @@ def _check_auth_method(web_terminals: dict[str, Any]) -> list[Finding]:
                 f"authentication method; expected one of {', '.join(SUPPORTED_AUTH_METHODS)}"
             ),
         )
+    ]
+
+
+def _check_auth_throttle(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``modules.web_terminals.auth.throttle`` must build the login throttle.
+
+    One error per problem :func:`_auth_throttle_problems` names: a non-mapping
+    block, a key outside the four, or a value the throttle's own predicate
+    refuses. render refuses the same config, so this rule is the early report
+    at scaffold time rather than the only gate. A non-mapping ``auth`` stanza is
+    :func:`_check_auth_method`'s finding and is passed over here.
+    """
+    return [
+        Finding(severity="error", code="web_terminals.invalid_auth_throttle", message=problem)
+        for problem in _auth_throttle_problems(web_terminals)
     ]
 
 
@@ -3188,11 +3214,12 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
     risk is restated at every lint rather than only in the commit that took it.
 
     With TLS on, ``allow_insecure_http`` is inert and nothing is reported. The
-    WARN is also withheld when ``deploy.fqdn`` names loopback: the deployment
-    advertises itself as same-host-only, so its cookies cross no network path —
-    the exact case the escape hatch exists for, and the posture the
-    control-assistant preset ships in. Pointing ``fqdn`` at a real host brings
-    the WARN back with the config change that creates the exposure.
+    WARN is withheld when the origin browsers use (``external_origin`` when set,
+    else the one derived from ``deploy.fqdn``) is on a loopback host, because no
+    cookie crosses a network path. It is also withheld when that origin is
+    ``https``, because a terminator in front carries the browser's leg over TLS,
+    which is the topology the escape hatch is documented for. An origin that
+    cannot be derived keeps the WARN.
     """
     context = _auth_context(web_terminals)
     if context is None or not context["sidecar_active"]:
@@ -3200,9 +3227,13 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
     if context["tls_enabled"]:
         return []
     if context["auth_allow_insecure_http"]:
-        fqdn = str(as_dict(root.get("deploy")).get("fqdn") or "").strip()
-        if fqdn in ("127.0.0.1", "localhost", "::1"):
-            return []
+        try:
+            origin = deployment_origin(root)
+        except ValueError:
+            pass
+        else:
+            if origin.is_loopback or origin.scheme == "https":
+                return []
         return [
             Finding(
                 severity="warn",
@@ -3226,6 +3257,81 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
                 "HTTP. Enable modules.web_terminals.tls, or set "
                 "auth.allow_insecure_http: true to accept that risk (only sensible on "
                 "a trusted network)"
+            ),
+        )
+    ]
+
+
+def _check_seeded_passwords(
+    root: dict[str, Any], web_terminals: dict[str, Any], *, project_root: Path | None
+) -> list[Finding]:
+    """A login that still accepts a published password, on an origin off this machine.
+
+    ``profile.yml`` publishes demo passwords under ``env.defaults``, and anyone
+    who can read that file can sign in with them. That is harmless while the
+    origin browsers use is on a loopback host, and an open login once it is not.
+    HTTPS does not change this: it keeps a password from being sniffed, not a
+    published one secret. An origin that cannot be derived is not read as
+    loopback.
+
+    Keyed on what the login wall accepts
+    (:func:`~osprey.deployment.web_terminals.auth_credentials.seeded_password_users`),
+    so a stored hash of the published value counts after its ``.env`` line is
+    gone. A shared card's password cannot be changed while it is shared, so its
+    remedy is deleting the card's stored hash from ``.env.auth`` and running
+    ``osprey up``, which mints no password for a shared card.
+
+    Imported at call time, for the reason :func:`_check_open_mode_egress` gives.
+
+    Args:
+        root: The whole parsed config, which the origin is derived from.
+        web_terminals: The ``modules.web_terminals`` block being linted.
+        project_root: The deployment repo holding ``profile.yml``, ``.env`` and
+            ``.env.auth``. ``None`` falls back to the working directory.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "password":
+        return []
+    # The lenient normalizer drops an entry whose `access` is unreadable, so
+    # `entry_is_shared` never refuses one of these.
+    roster = normalize_users(web_terminals.get("users"), strict=False)
+    shared = frozenset(entry["name"] for entry in roster if entry_is_shared(entry))
+
+    from osprey.deployment.web_terminals.auth_credentials import seeded_password_users
+
+    seeded = seeded_password_users(
+        project_root or Path("."),
+        [entry["name"] for entry in roster],
+        shared=shared,
+    )
+    if not seeded:
+        return []
+    try:
+        origin = deployment_origin(root)
+    except ValueError as exc:
+        where = f"this deployment's origin cannot be derived ({exc})"
+    else:
+        if origin.is_loopback:
+            return []
+        where = f"browsers reach this deployment at {origin.origin}"
+    names = ", ".join(repr(name) for name in seeded)
+    steps: list[str] = []
+    own = [name for name in seeded if name not in shared]
+    cards = [name for name in seeded if name in shared]
+    if own:
+        steps.append("run " + ", ".join(f"`osprey users passwd {name}`" for name in own))
+    if cards:
+        hashes = ", ".join(f"`{_PW_HASH_VAR_PREFIX}{env_var_suffix(name)}`" for name in cards)
+        steps.append(f"delete {hashes} from `{_AUTH_ENV_FILENAME}`, then run `osprey up`")
+    remedy = " and ".join(steps)
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.auth_seeded_password",
+            message=(
+                f"{where}, and these logins still accept the password profile.yml "
+                "publishes under env.defaults, so anyone who can read that file can sign "
+                f"in: {names}. {remedy[0].upper()}{remedy[1:]}"
             ),
         )
     ]
@@ -3435,6 +3541,62 @@ def _check_auth_credential_collisions(
         )
         for suffix, colliding in env_var_suffix_collisions(names).items()
     ]
+
+
+def _check_auth_stored_hashes(
+    web_terminals: dict[str, Any], users: list[Any], *, project_root: Path | None
+) -> list[Finding]:
+    """Password mode: every stored hash in ``.env.auth`` must be one the login service can evaluate.
+
+    A truncated paste or another tool's hash format leaves a user whom no
+    password will log in, and the login page cannot say so. The shape test is
+    :func:`~osprey.services.auth_sidecar.passwords.stored_hash_problem`, the same
+    parse the sidecar runs, so this finding predicts the sidecar without deriving
+    a key. The message names the user and the variable, never the value.
+
+    WARN, not ERROR: the deployment still serves every other user, so this is
+    work the operator has to do rather than a config to reject (see
+    :class:`Finding`). Rendered-project only: the file lives in the deployment
+    repo, which a profile does not have. Shared entries are included, because
+    the sidecar loads a hash for every roster name. A blank entry is skipped,
+    since ``osprey up`` provisions it; a missing or unreadable file is the deploy
+    path's to report, and a lint that crashed on it would hide every other
+    finding.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "password":
+        return []
+    env_auth = (project_root or Path(".")) / _AUTH_ENV_FILENAME
+    if not env_auth.is_file():
+        return []
+    try:
+        parsed = parse_dotenv_file(env_auth)
+    except (OSError, UnicodeDecodeError):
+        return []
+    findings: list[Finding] = []
+    for name in (_user_name(user) for user in users):
+        if name is None:
+            continue
+        suffix = env_var_suffix(name)
+        value = parsed.get(f"{_PW_HASH_VAR_PREFIX}{suffix}", "").strip()
+        if not value:
+            continue
+        problem = stored_hash_problem(value)
+        if problem is None:
+            continue
+        findings.append(
+            Finding(
+                severity="warn",
+                code="web_terminals.auth_credential_unevaluable",
+                message=(
+                    f"{_AUTH_ENV_FILENAME} holds a {_PW_HASH_VAR_PREFIX}{suffix} entry for "
+                    f"{name!r} that the login service cannot evaluate ({problem}), so no "
+                    f"password will log {name!r} in. Run `osprey users passwd {name}` to "
+                    "replace it"
+                ),
+            )
+        )
+    return findings
 
 
 def _check_shared_card_duplicate_subject(
@@ -3878,6 +4040,83 @@ def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> l
                     ),
                 )
             )
+    return findings
+
+
+def _check_landing_names(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A hidden roster needs a sign-in in front of it.
+
+    ``names: hidden`` on a ``type: users`` section of ``landing.groups``
+    replaces that section's name cards with one button that opens the card-less
+    sign-in. That route exists only behind a login wall. Under ``token`` the
+    name card is the way in, because each person enters through their own
+    ``?token=`` URL and returns through the card; under ``none`` nobody signs
+    in at all. Both are refused. The refusal is decided on the derived
+    ``walled`` boolean, so any method that puts no login in front of the
+    roster is refused; the message text is picked off ``auth_method``.
+
+    The render reads the switch as a literal ``== "hidden"``, so any value other
+    than ``shown`` or ``hidden`` (and ``names`` on a section that is not
+    ``users``) is refused too: it would publish the names the operator meant to
+    hide.
+    """
+    groups = as_dict(web_terminals.get("landing")).get("groups")
+    if not isinstance(groups, list):
+        return []
+
+    findings: list[Finding] = []
+    for i, entry in enumerate(groups):
+        if not isinstance(entry, dict) or "names" not in entry:
+            continue
+        where = f"modules.web_terminals.landing.groups[{i}]"
+        value = entry["names"]
+        if entry.get("type") != "users":
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_landing_names",
+                    message=(
+                        f"{where} sets names, which only a `type: users` section reads; remove it."
+                    ),
+                )
+            )
+            continue
+        if value not in ("shown", "hidden"):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_landing_names",
+                    message=f"{where}.names is {value!r}; expected shown or hidden.",
+                )
+            )
+            continue
+        if value != "hidden":
+            continue
+        ctx = _auth_context(web_terminals)
+        if ctx is None or ctx["walled"]:
+            continue
+        method = ctx["auth_method"]
+        if method == "token":
+            reason = (
+                "under auth.method: token the name card is the way in: each person "
+                "opens their terminal once from `osprey users login-url <name>` and "
+                "comes back through their card."
+            )
+        else:
+            reason = (
+                f"under auth.method: {method} nobody signs in, so the button has "
+                "nowhere to send them and the name card is the only way in."
+            )
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.landing_names_hidden_without_sign_in",
+                message=(
+                    f"{where} sets names: hidden, but {reason} Set names: shown, or put "
+                    "a login in front of the roster with auth.method: password or oidc."
+                ),
+            )
+        )
     return findings
 
 

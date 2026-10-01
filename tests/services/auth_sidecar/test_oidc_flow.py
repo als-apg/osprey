@@ -23,6 +23,7 @@ would simply not arrive.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from base64 import b64decode
@@ -48,13 +49,24 @@ from osprey.services.auth_sidecar.identity_headers import ACCOUNT_HEADER, SUBJEC
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
     CLIENT_NAME,
+    ENTRY_PATH,
     LOGIN_PATH,
     PENDING_FLOW_SESSION_KEY,
+    PENDING_OWN_TERMINAL,
     RoleBinding,
 )
-from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, ROLE_SOURCE_ROSTER
+from osprey.services.auth_sidecar.routes.recheck import (
+    ENV_ROSTER_ROLE_PREFIX,
+    ROLE_SOURCE_CLAIM,
+    ROLE_SOURCE_ROSTER,
+)
 from osprey.services.auth_sidecar.routes.verify import VERIFY_PATH
-from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
+from osprey.services.auth_sidecar.sessions import (
+    SESSION_COOKIE_NAME,
+    SessionCodec,
+    SessionState,
+    UnlockedUser,
+)
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests.services.auth_sidecar.mock_idp import (
     DISCOVERY_AS_HTML,
@@ -1015,6 +1027,50 @@ def test_the_claims_binding_is_not_consulted_on_a_shared_card(
     ]
 
 
+def test_a_person_in_two_mapped_groups_opens_their_own_card(
+    idp: MockIdP, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card names the role, and the signed token proves it is one of hers."""
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
+    monkeypatch.setenv(
+        "OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator","als-experts":"expert"}'
+    )
+    _bind_roster_role(monkeypatch, "alice", "operator")
+    idp.extra_claims = {"groups": ["als-operators", "als-experts"]}
+
+    with _browser(_sidecar(idp)) as client:
+        response = _log_in(client, "alice")
+
+    assert response.status_code == 303
+    entry = _session_from(response).entry("alice")
+    assert entry is not None
+    assert entry.role == "operator"
+    assert entry.role_source == ROLE_SOURCE_CLAIM
+
+
+def test_a_shared_card_ignores_several_mapped_groups(
+    idp: MockIdP, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The binding is not asked on a shared card, so several mapped groups do not
+    change what the card carries."""
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
+    monkeypatch.setenv(
+        "OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator","als-experts":"expert"}'
+    )
+    _bind_roster_role(monkeypatch, "bob", "observer")
+    idp.extra_claims = {"groups": ["als-operators", "als-experts"]}
+
+    with _browser(_sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_BOB="any")) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 303
+    entry = _session_from(response).entry("bob")
+    assert entry is not None
+    assert entry.opener == "alice"
+    assert entry.role == "observer"
+    assert entry.role_source == ROLE_SOURCE_ROSTER
+
+
 # --- shared cards: admission by a `user:` or `domain:` principal -------------
 #
 # `OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>` also carries a JSON array of principals,
@@ -1337,3 +1393,209 @@ def test_withdrawing_the_domain_closes_the_terminal_on_the_next_request(
     assert still_authorized.headers[SUBJECT_HEADER] == DANA_EMAIL
     assert denied.status_code == 401
     assert SUBJECT_HEADER not in denied.headers
+
+
+# --- the card-less entry -----------------------------------------------------
+#
+# A handshake started at `/auth/oidc/enter` names no card. The callback asks
+# every card the question the card login asks of the one card it names, and
+# unlocks each that admits the identity — so every test here holds the
+# card-less result to what the card logins produce for the same token.
+
+
+def _enter(client: TestClient) -> httpx.Response:
+    """Walk a whole card-less handshake; returns the callback's response."""
+    start = client.get(ENTRY_PATH, follow_redirects=False)
+    assert start.status_code == 302, start.text
+    handoff = _visit_identity_provider(start.headers["location"])
+    assert handoff.status_code == 302, handoff.text
+    return _return_to_sidecar(client, handoff.headers["location"])
+
+
+def _card_entries(app_factory: Any, cards: tuple[str, ...]) -> dict[str, UnlockedUser]:
+    """The entry each card login mints for the provider's current identity.
+
+    One fresh browser per card, and a card whose login does not reach the
+    provider or does not succeed contributes nothing.
+    """
+    minted: dict[str, UnlockedUser] = {}
+    for card in cards:
+        with _browser(app_factory()) as client:
+            start = _start_login(client, card)
+            if start.status_code != 302:
+                continue
+            handoff = _visit_identity_provider(start.headers["location"])
+            response = _return_to_sidecar(client, handoff.headers["location"])
+            if response.status_code == 303:
+                entry = _session_from(response).entry(card)
+                assert entry is not None
+                minted[card] = entry
+    return minted
+
+
+def _minted(response: httpx.Response) -> dict[str, UnlockedUser]:
+    """Every entry the response's session cookie carries, keyed by card."""
+    if SESSION_COOKIE_NAME not in response.cookies:
+        return {}
+    return {entry.username: entry for entry in _session_from(response).users}
+
+
+def _without_expiry(entries: dict[str, UnlockedUser]) -> dict[str, UnlockedUser]:
+    return {name: dataclasses.replace(entry, expires_at=0.0) for name, entry in entries.items()}
+
+
+def test_the_card_less_handshake_names_no_card_in_its_pending_flow(idp: MockIdP) -> None:
+    with _browser(_sidecar(idp)) as client:
+        start = client.get(ENTRY_PATH, follow_redirects=False)
+        pending = _state_payload(client)[PENDING_FLOW_SESSION_KEY]
+
+    assert start.status_code == 302
+    assert set(pending) == {"state", PENDING_OWN_TERMINAL}
+    assert pending[PENDING_OWN_TERMINAL] is True
+
+
+def test_a_mapped_identity_is_sent_to_its_own_terminal(idp: MockIdP) -> None:
+    with _browser(_sidecar(idp)) as client:
+        response = _enter(client)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/u/alice/"
+    assert _without_expiry(_minted(response)) == _without_expiry(
+        _card_entries(lambda: _sidecar(idp), ("alice",))
+    )
+
+
+def test_an_own_and_a_shared_card_are_listed(idp: MockIdP) -> None:
+    with _browser(_sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_CAROL="any")) as client:
+        response = _enter(client)
+        alice_verified = _verify(client, "alice")
+        carol_verified = _verify(client, "carol")
+
+    assert response.status_code == 200
+    assert '<a href="/u/alice/">' in response.text
+    assert '<a href="/u/carol/">' in response.text
+    assert response.text.index("/u/alice/") < response.text.index("/u/carol/")
+    minted = _minted(response)
+    assert minted["alice"].opener == ""
+    assert minted["alice"].admitted_identity == ""
+    assert minted["carol"].opener == "alice"
+    assert alice_verified.status_code == 200
+    assert carol_verified.status_code == 200
+
+
+def test_a_domain_rule_admits_an_identity_the_roster_does_not_name(idp: MockIdP) -> None:
+    _asserts(idp, DANA_EMAIL)
+    with _browser(_rule_sidecar(idp, DOMAIN_RULE)) as client:
+        response = _enter(client)
+        verified = _verify(client, "bob")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/u/bob/"
+    entry = _minted(response)["bob"]
+    assert entry.admitted_identity == DANA_EMAIL
+    assert verified.status_code == 200
+
+
+EQUIVALENCE_RULES = {
+    "own": "own",
+    "any": "any",
+    "self-and-roster": access_wire_value(frozenset({"self", "roster"})),
+    "domain": DOMAIN_RULE,
+}
+
+
+@pytest.mark.parametrize("card", ["alice", "carol"])
+@pytest.mark.parametrize("rule", list(EQUIVALENCE_RULES), ids=list(EQUIVALENCE_RULES))
+def test_the_single_sign_on_entry_opens_exactly_the_cards_the_card_login_opens(
+    idp: MockIdP, card: str, rule: str
+) -> None:
+    _asserts(idp, ALICE_EMAIL)
+    overrides = {
+        "OSPREY_AUTH_OIDC_CLAIM": "email",
+        "OSPREY_AUTH_OIDC_SUBJECT_ALICE": ALICE_EMAIL,
+        "OSPREY_AUTH_OIDC_SUBJECT_CAROL": CAROL_EMAIL,
+        f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix(card)}": EQUIVALENCE_RULES[rule],
+    }
+
+    by_card = _card_entries(lambda: _sidecar(idp, **overrides), ("alice", "bob", "carol"))
+    with _browser(_sidecar(idp, **overrides)) as client:
+        card_less = _minted(_enter(client))
+
+    assert set(card_less) == set(by_card)
+    assert _without_expiry(card_less) == _without_expiry(by_card)
+
+
+def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: Path) -> None:
+    idp.subject = "idp|stranger"
+    with _browser(_sidecar(idp)) as client:
+        response = _enter(client)
+
+    assert response.status_code == 403
+    assert "No terminal for this account" in response.text
+    assert SESSION_COOKIE_NAME not in response.cookies
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        (audit.SIGN_IN_SUBJECT, audit.REASON_NO_CARD)
+    ]
+
+
+def test_a_card_refused_for_its_role_is_left_out_and_filed(
+    idp: MockIdP, zone: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator"}')
+    idp.extra_claims = {"groups": ["als-visitors"]}
+
+    with _browser(_sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_CAROL="any")) as client:
+        response = _enter(client)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/u/carol/"
+    assert list(_minted(response)) == ["carol"]
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
+        ("carol", audit.REASON_OIDC_LOGIN),
+    ]
+
+
+def test_an_ambiguous_shared_card_is_left_out_not_fatal(idp: MockIdP, zone: Path) -> None:
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
+        OSPREY_AUTH_OIDC_SUBJECT_CAROL=ALICE_SUBJECT,
+    )
+    with _browser(app) as client:
+        response = _enter(client)
+
+    minted = _minted(response)
+    assert "alice" in minted
+    assert "bob" not in minted
+    assert ("bob", audit.REASON_AMBIGUOUS_IDENTITY) in [
+        (r["subject"], r["reason"]) for r in _records(zone)
+    ]
+
+
+def test_a_card_less_callback_cannot_be_replayed(idp: MockIdP) -> None:
+    with _browser(_sidecar(idp)) as client:
+        start = client.get(ENTRY_PATH, follow_redirects=False)
+        handoff = _visit_identity_provider(start.headers["location"])
+        callback_url = handoff.headers["location"]
+
+        first = _return_to_sidecar(client, callback_url)
+        replay = _return_to_sidecar(client, callback_url)
+
+    assert first.status_code == 303
+    assert replay.status_code == 400
+    assert SESSION_COOKIE_NAME not in replay.cookies
+
+
+def test_a_token_without_an_id_token_is_filed_under_the_sign_in_subject(
+    idp: MockIdP, zone: Path
+) -> None:
+    idp.omit_id_token = True
+    with _browser(_sidecar(idp)) as client:
+        response = _enter(client)
+
+    assert response.status_code == 502
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        (audit.SIGN_IN_SUBJECT, audit.REASON_UNVALIDATED_TOKEN)
+    ]

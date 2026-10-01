@@ -9,8 +9,8 @@ and returns Anthropic-format responses.
 
 from osprey.infrastructure.proxy.lifecycle import (
     is_proxy_needed,
-    start_proxy,
+    start_proxy_for,
     stop_proxy,
 )
 
-__all__ = ["is_proxy_needed", "start_proxy", "stop_proxy"]
+__all__ = ["is_proxy_needed", "start_proxy_for", "stop_proxy"]

@@ -1,7 +1,8 @@
-"""SDK helpers for running benchmark queries via the Claude Agent SDK.
+"""Run a benchmark query as the channel-finder agent.
 
-Extracted from ``tests/e2e/sdk_helpers.py`` so that production code
-(``BenchmarkRunner``) can use them without importing from the test tree.
+``run_sdk_query`` runs the agent through :func:`osprey.agent_runner.run_query`
+so that provider routing, the MCP readiness barrier and the response drain are
+the ones every other launch path uses.
 
 ``ToolTrace``, ``SDKWorkflowResult``, ``sdk_env``, and ``combined_text`` are
 re-exported from :mod:`osprey.agent_runner` — that module is the single source
@@ -15,59 +16,12 @@ the ``osprey init`` + ``osprey build`` surface.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-# SDK imports — skip if not installed
-try:
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ResultMessage,
-        SystemMessage,
-        TextBlock,
-        ToolResultBlock,
-        ToolUseBlock,
-        query,
-    )
-
-    HAS_SDK = True
-except ImportError:
-    HAS_SDK = False
-
-from osprey.agent_runner import SDKWorkflowResult, ToolTrace, sdk_env
-from osprey.agent_runner import combined_text as combined_text  # re-exported for backends
-from osprey.agent_runner.primitives import _ingest_tool_result
-
-
-def _resolve_default_sdk_model(project_dir: Path) -> str:
-    """Resolve the bare wire id of the project's default Claude Code model.
-
-    Reads ``config.yml`` and returns the spec's main model
-    (``default_model_id``) — the same wire id the production CLI uses. Raises ``ValueError`` when no
-    provider is configured so callers fail loudly instead of silently sending
-    a bogus default to the upstream API.
-    """
-    import yaml  # type: ignore[import-untyped]
-
-    from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
-
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
-        raise ValueError(f"config.yml not found in {project_dir}; cannot resolve default SDK model")
-
-    config = yaml.safe_load(config_path.read_text()) or {}
-    spec = ClaudeCodeModelResolver.resolve(
-        config.get("claude_code", {}),
-        config.get("api", {}).get("providers", {}),
-        # Model-id reader only: never let a telemetry misconfig abort a benchmark.
-        include_telemetry=False,
-    )
-    if spec is None:
-        raise ValueError(
-            f"No claude_code.provider configured in {config_path}; "
-            "pass model= explicitly to run_sdk_query"
-        )
-    return spec.default_model_id
-
+from osprey.agent_runner import SDKWorkflowResult, run_query
+from osprey.agent_runner import ToolTrace as ToolTrace
+from osprey.agent_runner import combined_text as combined_text
+from osprey.agent_runner import sdk_env as sdk_env
 
 # ---------------------------------------------------------------------------
 # Reading a built project's rendered agent surface
@@ -95,11 +49,11 @@ def _read_agent_prompt(project_dir: Path) -> str | None:
     return text.strip()
 
 
-def _read_channel_finder_mcp(project_dir: Path) -> dict | None:
+def _read_channel_finder_mcp(project_dir: Path) -> dict[str, Any] | None:
     """Extract the channel-finder MCP server config from ``.mcp.json``.
 
-    Returns a dict suitable for ``ClaudeAgentOptions.mcp_servers``,
-    containing only the channel-finder server entry, or ``None``.
+    Returns ``run_query``'s ``mcp_servers`` mapping, containing only the
+    channel-finder server entry, or ``None``.
     """
     import json
 
@@ -129,13 +83,14 @@ async def run_sdk_query(
 ) -> SDKWorkflowResult:
     """Run a benchmark query as the channel-finder sub-agent.
 
-    Launches the Claude Agent SDK configured to act as the channel-finder
-    sub-agent directly:
+    Runs the agent through ``osprey.agent_runner.run_query`` configured to act
+    as the channel-finder sub-agent directly:
 
     - **system_prompt**: The rendered channel-finder agent prompt with
       paradigm-specific navigation instructions.
     - **mcp_servers**: Only the channel-finder MCP server (no control
-      system, python executor, workspace, or other servers).
+      system, python executor, workspace, or other servers). The first turn
+      waits for that server to connect.
     - **allowed_tools**: Restricted to ``mcp__channel-finder__*`` tools
       only — no Bash, Read, Glob, Task, Skill, or other built-ins.
 
@@ -153,72 +108,37 @@ async def run_sdk_query(
             a LiteLLM-style ``provider/<wire>`` slug — the SDK CLI forwards
             ``--model`` verbatim to the upstream Anthropic API and gateways
             like als-apg reject prefixed slugs with ``key_model_access_denied``.
-            When ``None``, resolves the project's ``claude_code.provider``
-            default tier from ``config.yml``.
+            When ``None``, the runner resolves the project's main model for
+            *provider*.
+        provider: Overrides the project's ``claude_code.provider`` for this
+            query; ``None`` keeps the configured one.
 
     Returns:
         SDKWorkflowResult with all collected tool traces, text, and metadata.
+
+    Raises:
+        RuntimeError: When the query fails; the message ends with the CLI's
+            captured stderr.
     """
-    if model is None:
-        model = _resolve_default_sdk_model(project_dir)
-
-    # Read the channel-finder agent's dedicated prompt
-    agent_prompt = _read_agent_prompt(project_dir)
-
-    # Extract only the channel-finder MCP server definition
     cf_servers = _read_channel_finder_mcp(project_dir)
-
-    # Collect stderr lines for debugging CLI failures
     stderr_lines: list[str] = []
 
-    options = ClaudeAgentOptions(
-        model=model,
-        cwd=str(project_dir),
-        permission_mode="bypassPermissions",
-        max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
-        env=sdk_env(project_dir, provider=provider),
-        stderr=lambda line: stderr_lines.append(line),
-        # Use the channel-finder agent prompt as the system prompt
-        system_prompt=agent_prompt,
-        # Provide only the channel-finder MCP server
-        mcp_servers=cf_servers or str(project_dir / ".mcp.json"),
-        # Restrict to channel-finder MCP tools only
-        allowed_tools=["mcp__channel-finder__*"],
-        # Don't load project settings (agents, hooks, skills, etc.)
-        setting_sources=[],
-    )
-
-    workflow = SDKWorkflowResult()
-
-    # Map tool_use_id → ToolTrace for matching results to calls
-    pending_tools: dict[str, ToolTrace] = {}
-
     try:
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        workflow.text_blocks.append(block.text)
-                    elif isinstance(block, ToolUseBlock):
-                        trace = ToolTrace(
-                            name=block.name,
-                            input=block.input,
-                            tool_use_id=block.id,
-                            parent_tool_use_id=message.parent_tool_use_id,
-                        )
-                        workflow.tool_traces.append(trace)
-                        pending_tools[block.id] = trace
-                    elif isinstance(block, ToolResultBlock):
-                        _ingest_tool_result(block, pending_tools)
-
-            elif isinstance(message, SystemMessage):
-                workflow.system_messages.append(message)
-
-            elif isinstance(message, ResultMessage):
-                workflow.result = message
-    except Exception as exc:
+        return await run_query(
+            project_dir,
+            prompt,
+            disallowed_tools=[],
+            allowed_tools=["mcp__channel-finder__*"],
+            system_prompt=_read_agent_prompt(project_dir),
+            mcp_servers=cf_servers or project_dir / ".mcp.json",
+            await_mcp_servers=set(cf_servers) if cf_servers else None,
+            setting_sources=[],
+            max_turns=max_turns,
+            max_budget_usd=max_budget_usd,
+            model=model,
+            provider=provider,
+            stderr=stderr_lines.append,
+        )
+    except RuntimeError as exc:
         stderr_output = "\n".join(stderr_lines) if stderr_lines else "(no stderr captured)"
-        raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
-
-    return workflow
+        raise RuntimeError(f"{exc}\n\nCLI stderr:\n{stderr_output}") from (exc.__cause__ or exc)

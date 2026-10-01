@@ -21,7 +21,9 @@ from osprey.simulation.machine import (
     _require_event_number,
     _validate_at_time,
     _validate_position_keys,
+    load_scenario_bundles,
     parse_machine,
+    read_machine_json,
 )
 
 _PATH = Path("machine.json")
@@ -562,18 +564,63 @@ class TestSeededDiscoveryScenarioBundles:
         assert [e.entry_id for e in scenario.logbook] == ["DEMO-031"]
 
 
+_EVENT_SUBJECT = "event key 'at_time'"
+
+
 class TestValidateAtTime:
     def test_valid(self):
-        _validate_at_time(_PREFIX, "08:30:00")  # no raise
+        _validate_at_time(_PREFIX, "08:30:00", subject=_EVENT_SUBJECT)  # no raise
 
     def test_non_string(self):
         with pytest.raises(ValueError, match="must be an 'HH:MM:SS' time string"):
-            _validate_at_time(_PREFIX, 830)
+            _validate_at_time(_PREFIX, 830, subject=_EVENT_SUBJECT)
 
     def test_bad_format(self):
         with pytest.raises(ValueError, match="must be a valid 'HH:MM:SS' time of day"):
-            _validate_at_time(_PREFIX, "25:99:99")
+            _validate_at_time(_PREFIX, "25:99:99", subject=_EVENT_SUBJECT)
 
     def test_timezone_offset_rejected(self):
         with pytest.raises(ValueError, match="must not carry a"):
-            _validate_at_time(_PREFIX, "08:30:00+02:00")
+            _validate_at_time(_PREFIX, "08:30:00+02:00", subject=_EVENT_SUBJECT)
+
+    def test_subject_names_the_key(self):
+        with pytest.raises(ValueError) as info:
+            _validate_at_time(_PREFIX, 830, subject="'when.time'")
+        assert "'when.time' must be an 'HH:MM:SS' time string" in str(info.value)
+        assert "at_time" not in str(info.value)
+
+
+class TestLogbookTimeRefusal:
+    @pytest.mark.parametrize("raw", [830, "25:99:99", "08:30:00+02:00"])
+    def test_refusal_names_when_time(self, tmp_path, raw):
+        bundle = tmp_path / "scenarios" / "fault"
+        bundle.mkdir(parents=True)
+        (bundle / "scenario.json").write_text("{}")
+        entry = {
+            "entry_id": "E1",
+            "when": {"days_ago": 1, "time": raw},
+            "author": "a",
+            "title": "t",
+            "text": "x",
+        }
+        (bundle / "logbook.json").write_text(json.dumps([entry]))
+        with pytest.raises(ValueError) as info:
+            load_scenario_bundles(tmp_path / "scenarios", {})
+        assert "Scenario 'fault' logbook entry 'E1': 'when.time'" in str(info.value)
+        assert "at_time" not in str(info.value)
+
+
+class TestReadMachineJson:
+    def test_syntax_error_names_the_file_and_position(self, tmp_path):
+        path = tmp_path / "machine.json"
+        path.write_text('{"channels": {"A": {"value": 1},}}')
+        with pytest.raises(ValueError, match=r"is not valid JSON: .*line 1 column 32") as info:
+            read_machine_json(path)
+        assert str(path) in str(info.value)
+        assert isinstance(info.value.__cause__, json.JSONDecodeError)
+
+    def test_valid_file_decodes(self, tmp_path):
+        path = tmp_path / "machine.json"
+        machine = {"channels": {"A": {"value": 1}}}
+        path.write_text(json.dumps(machine))
+        assert read_machine_json(path) == machine

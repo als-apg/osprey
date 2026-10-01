@@ -5,9 +5,12 @@ Writes targeting ``~/.claude/projects/<encoded>/memory/*.md`` are allowed;
 everything else is denied. Non-Write tools pass through without opinion.
 """
 
+from pathlib import Path
+
 import pytest
 
 from osprey.agent_runner.project_paths import encode_claude_project_path
+from osprey.cli.templates.artifact_library import parse_hook_frontmatter
 
 
 @pytest.fixture
@@ -372,3 +375,15 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
     assert returncode == 0
     assert stdout.strip() == ""
     assert "Traceback" not in stderr
+
+
+def test_guarded_tools_are_exactly_the_frontmatter_matcher(memory_guard):
+    """The tools the hook judges are the tools its ``tools:`` matcher routes to it.
+
+    The build copies the frontmatter matcher verbatim into ``PreToolUse``, so a
+    tool listed there and missing from ``_GUARDED_TOOLS`` would reach the hook and
+    be waved through, and a tool guarded here but absent there never arrives.
+    """
+    meta = parse_hook_frontmatter(Path(memory_guard.__file__))
+
+    assert memory_guard._GUARDED_TOOLS == frozenset(meta["tools"].split("|"))

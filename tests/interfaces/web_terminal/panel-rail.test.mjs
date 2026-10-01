@@ -31,8 +31,10 @@ import {
   setActive,
   setEntryEnabled,
   setEntryAttention,
+  setEntryStatus,
   setEntryReachable,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
+import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 const PANELS = [
   { id: 'artifacts', label: 'WORKSPACE' },
@@ -618,18 +620,39 @@ describe('setEntryAttention tooltip time', () => {
   let rail;
 
   // Two fixed server timestamps an hour apart. Rendering is asserted against
-  // the same computation rather than a literal so the suite is not hostage to
-  // the runner's timezone or locale; the FORMAT is pinned separately.
+  // an Intl computation in the stamped facility zone rather than a literal so
+  // the suite is not hostage to the runner's timezone or locale; the FORMAT is
+  // pinned separately. FACILITY_ZONE reads a different clock from the runner,
+  // so the time names its zone.
   const TS = 1_755_000_000;
   const TS_LATER = TS + 3600;
 
   /** @param {number} ts @returns {string} */
   const expectedTime = (ts) =>
-    new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: FACILITY_ZONE,
+      timeZoneName: 'short',
+    }).format(ts * 1000);
 
   beforeEach(() => {
+    stampFacilityZone(FACILITY_ZONE);
     rail = freshRail();
     createRail(rail, PANELS);
+  });
+
+  afterEach(() => stampFacilityZone(null));
+
+  test('a viewer already on the facility clock reads the time without a zone name', () => {
+    stampFacilityZone(VIEWER_ZONE);
+    setEntryAttention(rail, 'ariel', true, TS);
+    const plain = new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: VIEWER_ZONE,
+    }).format(TS * 1000);
+    expect(getEntry(rail, 'ariel')?.title).toBe(`ARIEL · agent touched ${plain}`);
   });
 
   test('a badge with a server ts appends the touch time to the tooltip', () => {
@@ -712,12 +735,22 @@ describe('setEntryReachable', () => {
   /** @type {HTMLElement} */
   let rail;
   const SINCE = new Date(2026, 0, 5, 9, 12).getTime();
-  const since = new Date(SINCE).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // On the facility clock, which reads differently from the runner's, so the
+  // time names its zone.
+  const since = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: FACILITY_ZONE,
+    timeZoneName: 'short',
+  }).format(SINCE);
 
   beforeEach(() => {
+    stampFacilityZone(FACILITY_ZONE);
     rail = freshRail();
     createRail(rail, [{ id: 'ariel', label: 'ARIEL', hint: 'right-click for actions' }]);
   });
+
+  afterEach(() => stampFacilityZone(null));
 
   test('unreachable dims without disabling, and the tooltip says since when', () => {
     expect(setEntryReachable(rail, 'ariel', false, SINCE)).toBe(true);
@@ -749,5 +782,64 @@ describe('setEntryReachable', () => {
 
   test('returns false for an unknown id', () => {
     expect(setEntryReachable(rail, 'nope', false, SINCE)).toBe(false);
+  });
+});
+
+/**
+ * A sidecar that failed to start is the one status the rail names: its entry
+ * is dimmed but clickable (the click is the retry), and its tooltip is the
+ * server's sentence, verbatim.
+ */
+describe('setEntryStatus', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  const MESSAGE = 'JUPYTER failed to start: boom';
+  const JUPYTER = { id: 'jupyter', label: 'JUPYTER', hint: 'right-click for actions' };
+
+  beforeEach(() => {
+    rail = freshRail();
+  });
+
+  test("a failed entry is clickable and carries the server's message as its tooltip", () => {
+    const onActivate = vi.fn();
+    createRail(rail, [JUPYTER], { onActivate });
+
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.classList.contains('failed')).toBe(true);
+    expect(entry.classList.contains('disabled')).toBe(false);
+    expect(entry.title).toBe(MESSAGE);
+    expect(entry.getAttribute('aria-description')).toBe(MESSAGE);
+    entry.click();
+    expect(onActivate).toHaveBeenCalledWith('jupyter');
+  });
+
+  test('clearing the status restores the base tooltip', () => {
+    createRail(rail, [JUPYTER]);
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+
+    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
+
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.classList.contains('failed')).toBe(false);
+    expect(entry.title).toBe('JUPYTER · right-click for actions');
+    expect(entry.hasAttribute('aria-description')).toBe(false);
+    expect(entry.hasAttribute('data-status-base')).toBe(false);
+  });
+
+  test('a message set under an attention badge survives the badge clearing', () => {
+    createRail(rail, [JUPYTER]);
+    setEntryAttention(rail, 'jupyter', true, 1_755_000_000);
+
+    setEntryStatus(rail, 'jupyter', { failed: true, message: MESSAGE });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'jupyter'));
+    expect(entry.title.startsWith(`${MESSAGE} · agent touched `)).toBe(true);
+
+    setEntryAttention(rail, 'jupyter', false);
+    expect(entry.title).toBe(MESSAGE);
+
+    setEntryStatus(rail, 'jupyter', { failed: false, message: null });
+    expect(entry.title).toBe('JUPYTER · right-click for actions');
   });
 });

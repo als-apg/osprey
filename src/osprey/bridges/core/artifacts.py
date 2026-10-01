@@ -178,10 +178,9 @@ filename can strip the extensions it might itself append, rather than re-derivin
 the set and drifting from it. Strip in a LOOP, not once: ``report.v2.pdf`` has to
 lose ``.pdf`` before it can be compared against ``report.v2``, and a name can carry
 more than one — how many passes are possible depends on the stripping set, so a
-multi-pass example belongs with whichever set is in play, not here. A channel that
-appends an extension of its own unions it in on its side — the Talk bridge adds
-``.png``, which is deliberately absent here (see the ``ext_for_mime`` fallback in
-``nextcloud_talk.ops._deliver_one``)."""
+multi-pass example belongs with whichever set is in play, not here. The ``.png`` a
+bridge appends on its image path is deliberately absent here; the naming pass unions it
+in at :data:`osprey.bridges.core.filenames.DELIVERED_EXTENSIONS`."""
 
 
 def ext_for_mime(mime: str | None) -> str:

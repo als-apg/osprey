@@ -428,16 +428,21 @@ describe('createScaffoldGalleryView', () => {
 // ---------------------------------------------------------------------------
 
 describe('initScaffoldGallery tab routing', () => {
-  /** One artifact per category the service reports, and the tab each belongs on. */
+  /**
+   * One artifact per category the service reports, the tab each belongs on,
+   * and its output path. The project instructions route by output path, so a
+   * deployment's own persona (`claude-md-ariel`) lands where `claude-md` does.
+   */
   const ROUTED = [
-    ['agents/a', 'agents', 'behavior'],
-    ['skills/s/SKILL', 'skills', 'behavior'],
-    ['rules/r', 'rules', 'behavior'],
-    ['output-styles/o', 'output-styles', 'behavior'],
-    ['claude-md', 'config', 'behavior'],
-    ['hooks/h', 'hooks', 'safety'],
-    ['mcp-json', 'config', 'config'],
-    ['settings-json', 'config', 'config'],
+    ['agents/a', 'agents', 'behavior', '.claude/agents/a.md'],
+    ['skills/s/SKILL', 'skills', 'behavior', '.claude/skills/s/SKILL.md'],
+    ['rules/r', 'rules', 'behavior', '.claude/rules/r.md'],
+    ['output-styles/o', 'output-styles', 'behavior', '.claude/output-styles/o.md'],
+    ['claude-md', 'config', 'behavior', 'CLAUDE.md'],
+    ['claude-md-ariel', 'config', 'behavior', 'CLAUDE.md'],
+    ['hooks/h', 'hooks', 'safety', '.claude/hooks/h.py'],
+    ['mcp-json', 'config', 'config', '.mcp.json'],
+    ['settings-json', 'config', 'config', '.claude/settings.json'],
   ];
 
   afterEach(() => {
@@ -457,7 +462,9 @@ describe('initScaffoldGallery tab routing', () => {
       </div>`;
     /** @type {any} */ (document.getElementById('settings-drawer')).registerUnsavedGuard = vi.fn();
 
-    const artifacts = ROUTED.map(([name, category]) => ({ name, category, status: 'framework' }));
+    const artifacts = ROUTED.map(([name, category, , output_path]) => ({
+      name, category, output_path, status: 'framework',
+    }));
     vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => ({
       ok: true,
       status: 200,

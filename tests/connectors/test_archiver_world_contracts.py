@@ -432,10 +432,12 @@ class World:
                 "port": self._store["port"],
                 "name": self._store["database"],
                 "collection": self._store["collection"],
-                "auth": self._store["auth_db"],
-                "username": self._store["username"],
-                "password_env": self._password_env,
-                "timeout": 20,
+                "auth": {
+                    "source": self._store["auth_db"],
+                    "username": self._store["username"],
+                    "password_env": self._password_env,
+                },
+                "timeout_s": 20,
             }
         )
         try:
@@ -524,10 +526,12 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
                 "port": mongo["port"],
                 "name": mongo["database"],
                 "collection": mongo["collection"],
-                "auth": mongo["auth_db"],
-                "username": mongo["username"],
-                "password_env": password_env,
-                "timeout": 20,
+                "auth": {
+                    "source": mongo["auth_db"],
+                    "username": mongo["username"],
+                    "password_env": password_env,
+                },
+                "timeout_s": 20,
             },
         },
         "services": {"mongodb": {"compression": COMPRESSION}},

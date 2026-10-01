@@ -150,10 +150,11 @@ default ``container_runtime: auto`` the build takes Docker when its daemon
 answers and Podman otherwise; an explicit ``docker`` or ``podman`` in the
 profile's ``config:`` block is taken as written. Every later verb — ``up``,
 ``down``, ``restart``, ``reset``, the port preflight — reads the recorded
-runtime and talks only to it. If that runtime is not running, the verb refuses
-and says so; it never switches to the other runtime, because a stack started
-under Docker is invisible from Podman and a ``down`` served there would report
-it stopped while it keeps running.
+runtime and talks only to it. If that runtime says it is not running, or does
+not answer within two minutes, the verb refuses and says which; it never
+switches to the other runtime, because a stack started under Docker is invisible
+from Podman and a ``down`` served there would report it stopped while it keeps
+running.
 
 To move a deployment to the other runtime, stop it where it runs, then build
 again on the new runtime. ``CONTAINER_RUNTIME=docker|podman`` in the
@@ -207,7 +208,13 @@ Docker Compose v2 is handed the rendered files where they sit:
 
    docker compose --project-directory <repo>
        -f <repo>/build/services/<service>/docker-compose.yml   (one -f per rendered file)
+       -f <repo>/build/osprey-labels.override.yml
        --env-file <repo>/.env.shared --env-file <repo>/.env
+
+The render writes ``build/osprey-labels.override.yml`` with the project,
+checkout, project-path and config-digest labels for every service it rendered.
+It comes last, so its values win. A service template therefore does not have to
+spell those labels.
 
 podman-compose is handed one document and one env file:
 
@@ -218,8 +225,8 @@ podman-compose is handed one document and one env file:
        --env-file <repo>/build/.env.merged
    # plus COMPOSE_PROJECT_DIR=<repo> in the command's environment
 
-``.osprey-compose.yml`` is every rendered compose file merged into a single
-document at the repository root, and ``build/.env.merged`` is the env chain
+``.osprey-compose.yml`` is every rendered compose file and the labels override
+merged into a single document at the repository root, and ``build/.env.merged`` is the env chain
 merged the same way (see :ref:`deployment-env-chain`). Both are machine
 artifacts: rewritten from scratch by every command that needs them, kept out of
 version control and out of every container build context, and removed by
@@ -453,6 +460,11 @@ inspect rendered files under ``build/services/<name>/``.
 
 **Daemon not running:** Both Docker and Podman print platform-specific
 hints; on macOS, start Docker Desktop or run ``podman machine start``.
+
+**Runtime did not answer:** each verb waits for ``docker ps`` (or ``podman
+ps``) to answer, says it is still waiting after 5 seconds, and stops after 2
+minutes. Run the same command yourself; if it hangs there too, restart the
+runtime.
 
 **"Unsupported compose provider":** the host's compose implementation is not
 one OSPREY can drive correctly, and it stopped before starting anything. The

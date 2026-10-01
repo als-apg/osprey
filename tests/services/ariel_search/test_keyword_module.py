@@ -22,6 +22,7 @@ from osprey.services.ariel_search.search.base import (
     QueryExpansion,
 )
 from osprey.services.ariel_search.search.keyword import (
+    ALLOWED_FIELD_PREFIXES,
     get_tool_descriptor,
     keyword_search,
     parse_keyword_query,
@@ -390,6 +391,65 @@ class TestFuzzyFallback:
         await keyword_search("trip SR01C___BPM*", mock_repository, mock_config)
 
         mock_repository.fuzzy_search.assert_not_called()
+
+
+class TestFuzzyThreshold:
+    """Both fuzzy-fallback probes use the configured similarity floor."""
+
+    @staticmethod
+    def thresholds(repo: MagicMock) -> list[float]:
+        """Return the ``threshold`` kwarg of every ``fuzzy_search`` call on `repo`."""
+        return [call.kwargs["threshold"] for call in repo.fuzzy_search.call_args_list]
+
+    @pytest.mark.asyncio
+    async def test_default_floor_reaches_both_probes(self, mock_repository, mock_config):
+        """No key: both probes use the default floor."""
+        await keyword_search(
+            "ts bpm",
+            mock_repository,
+            mock_config,
+            parsed=parse_keyword_query("ts bpm"),
+            query_expansion=TS_BPM_EXPANSION,
+        )
+
+        assert self.thresholds(mock_repository) == [0.3, 0.3]
+
+    @pytest.mark.asyncio
+    async def test_configured_floor_reaches_both_probes(self, mock_repository):
+        """A configured floor reaches both probes."""
+        await keyword_search(
+            "ts bpm",
+            mock_repository,
+            make_config(fuzzy_threshold=0.55),
+            parsed=parse_keyword_query("ts bpm"),
+            query_expansion=TS_BPM_EXPANSION,
+        )
+
+        assert self.thresholds(mock_repository) == [0.55, 0.55]
+
+    @pytest.mark.asyncio
+    async def test_malformed_floor_is_refused_before_any_query(self, mock_repository):
+        """A bad floor refuses the search before any statement runs."""
+        with pytest.raises(ValueError, match=r"fuzzy_threshold must be a number in \[0, 1\]"):
+            await keyword_search("beaam", mock_repository, make_config(fuzzy_threshold=2))
+
+        mock_repository.keyword_search.assert_not_called()
+        mock_repository.fuzzy_search.assert_not_called()
+
+
+class TestFieldFilters:
+    """Every field prefix the parser lifts is applied as a predicate."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("prefix", sorted(ALLOWED_FIELD_PREFIXES))
+    async def test_every_prefix_reaches_a_predicate(self, prefix, mock_repository, mock_config):
+        """A prefix with no predicate would drop its token from the search unapplied."""
+        await keyword_search(f"beam {prefix}2024-01-15", mock_repository, mock_config)
+
+        kwargs = repo_call(mock_repository)
+        assert len(kwargs["where_clauses"]) == 2
+        assert kwargs["params"][0] == "beam"
+        assert any("2024-01-15" in str(param) for param in kwargs["params"][1:])
 
 
 class TestErrorPropagation:

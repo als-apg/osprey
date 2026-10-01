@@ -32,9 +32,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.cli.templates import manifest
 from osprey.cli.templates.manager import TemplateManager
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:

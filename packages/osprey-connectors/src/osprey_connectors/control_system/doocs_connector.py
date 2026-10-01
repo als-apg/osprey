@@ -8,6 +8,7 @@ Date: 2026-07-01
 """
 
 import asyncio
+import math
 import secrets
 from collections.abc import Callable
 from datetime import datetime
@@ -27,6 +28,12 @@ from osprey_connectors.logger import get_logger
 
 logger = get_logger("doocs_connector")
 
+#: Seconds an ENS lookup, a property read or a property set is given by default.
+DEFAULT_TIMEOUT_S = 5.0
+
+#: The doocs block's key for that bound.
+TIMEOUT_KEY = "timeout_s"
+
 
 class DOOCSConnector(ControlSystemConnector):
     """
@@ -38,16 +45,22 @@ class DOOCSConnector(ControlSystemConnector):
     def __init__(self):
         self._connected: bool = False
         self._subscriptions: dict[str, Any] = {}
+        self._timeout_s: float = DEFAULT_TIMEOUT_S
 
-    async def connect(self, config: dict[str, Any]) -> None:  # noqa: ARG002 - ControlSystemConnector.connect signature; DOOCS reads its endpoint from the environment
+    async def connect(self, config: dict[str, Any]) -> None:
         """
         Configure DOOCS environment and test connection.
 
         Args:
-            config: No config needed for DOOCS
+            config: The doocs block. Its one connector-specific key is
+                ``timeout_s``: the seconds an ENS lookup, a property read or a
+                property set is given (default 5.0). The ENS itself still comes
+                from the DOOCS environment.
 
         Raises:
             ImportError: If doocs4py is not installed
+            ValueError: If ``timeout_s`` is not a positive, finite number
+            ConnectionError: If the ENS does not answer
         """
         # Import doocs4py here and give clear error if not installed
         try:
@@ -58,20 +71,40 @@ class DOOCSConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
+        timeout_s = config.get(TIMEOUT_KEY, DEFAULT_TIMEOUT_S)
+        if (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, int | float)
+            or not math.isfinite(timeout_s)
+            or timeout_s <= 0
+        ):
+            raise ValueError(
+                f"control_system.connector.doocs.{TIMEOUT_KEY} must be a positive number "
+                f"of seconds, got {timeout_s!r}"
+            )
+        self._timeout_s = float(timeout_s)
+
         # Initialize limits validator for automatic validation and confirm policy
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:
             logger.debug("DOOCS connector: limits validator initialized")
 
-        # Test connection using a doocs4py.names call, listing all FACILITYs
+        # Test connection using a doocs4py.names call, listing all FACILITYs,
+        # off the event loop and within the bound.
         try:
-            facilities = [f[1] for f in self._doocs4py.names("*")]
-            logger.debug(
-                "DOOCS connector: ENS connection successful."
-                f"Available FACILITIEs: {len(facilities)}"
+            names = await asyncio.wait_for(
+                asyncio.to_thread(self._doocs4py.names, "*"), self._timeout_s
             )
-        except Exception:
-            raise Exception("DOOCS connector failed to connect to the ENS.") from None
+        except TimeoutError:
+            raise ConnectionError(
+                f"DOOCS connector: the ENS did not answer within {self._timeout_s}s"
+            ) from None
+        except Exception as exc:
+            raise ConnectionError(f"DOOCS connector failed to connect to the ENS: {exc}") from exc
+        facilities = [f[1] for f in names]
+        logger.debug(
+            f"DOOCS connector: ENS connection successful. Available FACILITIEs: {len(facilities)}"
+        )
 
         self._connected = True
         logger.debug("DOOCS connector initialized")
@@ -85,17 +118,21 @@ class DOOCSConnector(ControlSystemConnector):
         self._connected = False
         logger.info("DOOCS connector disconnected")
 
+    def _bound(self, timeout: float | None) -> float:
+        """The per-call ``timeout`` when one is given, else the block's ``timeout_s``."""
+        return timeout if timeout is not None else self._timeout_s
+
     async def read_channel(
         self,
         channel_address: str,
-        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_channel signature; doocs4py exposes no read timeout
+        timeout: float | None = None,
     ) -> ChannelValue:
         """
         Read current value from a DOOCS property.
 
         Args:
             channel_address: DOOCS address (e.g., 'FACILITY/DEVICE/LOCATION/PROPERTY')
-            timeout: Not supported by doocs4py
+            timeout: Seconds the read is given; the block's ``timeout_s`` when omitted
 
         Returns:
             ChannelValue with current value, timestamp, and metadata
@@ -105,10 +142,15 @@ class DOOCSConnector(ControlSystemConnector):
             TimeoutError: If operation times out
         """
 
-        # Use asyncio.to_thread for blocking DOOCS operations
-        read_result = await asyncio.to_thread(self._read_channel_sync, channel_address)
-
-        return read_result
+        bound = self._bound(timeout)
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._read_channel_sync, channel_address), bound
+            )
+        except TimeoutError:
+            raise TimeoutError(
+                f"DOOCS property '{channel_address}' did not answer within {bound}s"
+            ) from None
 
     def _read_channel_sync(self, address: str) -> ChannelValue:
         """Synchronous DOOCS read (runs in thread pool).
@@ -142,7 +184,7 @@ class DOOCSConnector(ControlSystemConnector):
             timestamp=timestamp,
             raw_metadata={
                 "macropulse": macropulse,
-                "type": type(value),
+                "type": type(value).__name__,
             },
         )
 
@@ -181,7 +223,9 @@ class DOOCSConnector(ControlSystemConnector):
         Args:
             channel_address: DOOCS address
             value: Value to write
-            timeout: Optional timeout for the confirming read
+            timeout: Seconds the send (limits check included) is given, and
+                then the confirming read; the block's ``timeout_s`` when
+                omitted. A confirmed write can therefore take up to twice it.
             confirm: Whether to re-read the property and compare, or ``None``
                 to resolve the policy for this channel from the limits database
 
@@ -205,6 +249,10 @@ class DOOCSConnector(ControlSystemConnector):
         # permission to write — the closure hands that case back as a sentinel
         # and the refusal itself is built on the loop, by the base class's one
         # helper, so all four connectors word it identically.
+        #
+        # The offload is bounded, and a send that outlives its bound is
+        # unconfirmed: the worker thread cannot be stopped, so the set may
+        # still arrive.
         def _validate_and_set():
             if self._limits_validator:
                 try:
@@ -222,7 +270,23 @@ class DOOCSConnector(ControlSystemConnector):
                 return ("send_failed", e)
             return ("ok", None)
 
-        send_result, payload = await asyncio.to_thread(_validate_and_set)
+        bound = self._bound(timeout)
+        try:
+            send_result, payload = await asyncio.wait_for(
+                asyncio.to_thread(_validate_and_set), bound
+            )
+        except TimeoutError:
+            logger.warning(f"DOOCS set of {channel_address} did not return within {bound}s")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message=(
+                    f"Write to '{channel_address}' could not be confirmed — "
+                    f"DOOCS did not return from the set within {bound}s"
+                ),
+                notes="The value may still arrive; what the property holds is unknown",
+            )
 
         if send_result == "refused":
             return self._validation_refusal(channel_address, value, payload)
@@ -289,14 +353,7 @@ class DOOCSConnector(ControlSystemConnector):
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        tasks = [self.read_channel(ch_addr, timeout) for ch_addr in channel_addresses]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        return {
-            ch_addr: result
-            for ch_addr, result in zip(channel_addresses, results, strict=False)
-            if not isinstance(result, Exception)
-        }
+        return await self._read_concurrently(channel_addresses, timeout)
 
     async def subscribe(
         self, channel_address: str, callback: Callable[[ChannelValue], None]
@@ -330,7 +387,7 @@ class DOOCSConnector(ControlSystemConnector):
                 timestamp=timestamp,
                 raw_metadata={
                     "macropulse": macropulse,
-                    "type": type(value),
+                    "type": type(value).__name__,
                 },
             )
 

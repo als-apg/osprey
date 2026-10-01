@@ -34,7 +34,12 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    SECOND_LANE_KEYS,
+    lane_control_identity,
+    lane_env_prefix,
+)
 from osprey.deployment.compose_generator import repo_relative_mount_source
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
@@ -215,7 +220,9 @@ def _context(
         # Both halves of a queueserver's audit bind, injected unconditionally
         # for the same reason.
         "osprey_audit_mount_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
-        "osprey_lane_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
+        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
+        # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
+        "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
         # The control-identity module's container path and each lane's
         # identity, injected unconditionally because the generator injects
         # them unconditionally.
@@ -1502,8 +1509,10 @@ def _web_context(
         },
         "osprey_images": _image_defaults("proj"),
         "osprey_audit_mount_source": "./var/audit",
-        "osprey_service_container_audit_dir": "/app/var/audit",
+        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
+        "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
     }
 
 
@@ -1513,10 +1522,12 @@ def _render_web(context: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("lane_key", "port"), [("bluesky_va", SECOND_LANE_PORT), ("bluesky_live", SECOND_LANE_PORT)]
+    ("target", "lane_key", "port"),
+    [(target, key, SECOND_LANE_PORT) for target, key in SECOND_LANE_KEYS.items()],
+    ids=list(SECOND_LANE_KEYS.values()),
 )
 def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
-    lane_key: str, port: int
+    target: str, lane_key: str, port: int
 ) -> None:
     """The gap the panel path had: the sidecar could neither reach the second
     bridge nor present its token. The pair is spelled under the lane's env
@@ -1527,12 +1538,12 @@ def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
             deployed_services=["bluesky", lane_key, "bluesky_web"],
             lanes={
                 "bluesky": _lane_block(BLUESKY_PORT, target="live"),
-                lane_key: _lane_block(port, target="va"),
+                lane_key: _lane_block(port, target=target),
             },
         )
     )
     environment = rendered["services"]["bluesky-web"]["environment"]
-    prefix = lane_key.upper()
+    prefix = lane_env_prefix(lane_key)
     lane_service = lane_key.replace("_", "-")
 
     assert environment["BLUESKY_BRIDGE_URL"] == f"http://bluesky-bridge:{BLUESKY_PORT}"
@@ -1540,21 +1551,24 @@ def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
     assert environment[f"{prefix}_LAUNCH_TOKEN"] == f"${{{prefix}_LAUNCH_TOKEN}}"
 
 
-def test_a_two_lane_sidecar_waits_on_both_bridges() -> None:
+@pytest.mark.parametrize(
+    ("target", "lane_key"), list(SECOND_LANE_KEYS.items()), ids=list(SECOND_LANE_KEYS.values())
+)
+def test_a_two_lane_sidecar_waits_on_both_bridges(target: str, lane_key: str) -> None:
     """`depends_on: service_healthy` covered lane 1 only; a sidecar racing the
     second bridge's startup would 502 that lane's panel reads."""
     rendered = _render_web(
         _web_context(
-            deployed_services=["bluesky", "bluesky_va", "bluesky_web"],
+            deployed_services=["bluesky", lane_key, "bluesky_web"],
             lanes={
                 "bluesky": _lane_block(BLUESKY_PORT, target="live"),
-                "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
+                lane_key: _lane_block(SECOND_LANE_PORT, target=target),
             },
         )
     )
     depends = rendered["services"]["bluesky-web"]["depends_on"]
     assert depends["bluesky-bridge"] == {"condition": "service_healthy"}
-    assert depends["bluesky-va-bridge"] == {"condition": "service_healthy"}
+    assert depends[f"{lane_key.replace('_', '-')}-bridge"] == {"condition": "service_healthy"}
 
 
 def test_a_single_lane_sidecar_render_carries_no_second_lane_names() -> None:
@@ -1569,8 +1583,9 @@ def test_a_single_lane_sidecar_render_carries_no_second_lane_names() -> None:
     )
     service = rendered["services"]["bluesky-web"]
     assert list(service["depends_on"]) == ["bluesky-bridge"]
+    second_lane_prefixes = tuple(f"{lane_env_prefix(key)}_" for key in SECOND_LANE_KEYS.values())
     for name in service["environment"]:
-        assert not name.startswith(("BLUESKY_VA_", "BLUESKY_LIVE_"))
+        assert not name.startswith(second_lane_prefixes)
 
 
 # ---------------------------------------------------------------------------

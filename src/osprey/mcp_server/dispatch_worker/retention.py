@@ -110,11 +110,13 @@ def record_is_deletable(
     if older_than_days <= 0:
         return True
 
-    ts = record.get("completed_at")
-    if ts is None:
-        ts = record.get("created_at")
+    raw = record.get("completed_at")
+    if raw is None:
+        raw = record.get("created_at")
+    if raw is None:
+        return False
     try:
-        ts = float(ts)
+        ts = float(raw)
     except (TypeError, ValueError):
         return False
 

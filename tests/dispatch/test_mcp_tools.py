@@ -19,6 +19,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -95,6 +96,47 @@ async def test_trigger_history_unknown_trigger_errors():
     result = json.loads(await tools["trigger_history"]("nope"))
 
     assert "error" in result
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+async def test_trigger_history_shows_times_in_the_facility_zone():
+    stamp = datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
+    registry = await _registry_with(_trigger("a", source="cron"))
+    await registry.record_event(
+        "a",
+        {"source": "cron", "timestamp": stamp, "note": "2026-01-15T20:00:00+00:00"},
+        "dispatched",
+    )
+    tools = await _get_tools(registry, DispatchPool(max_concurrent=1, max_queue_depth=1))
+
+    result = json.loads(await tools["trigger_history"]("a"))
+    stored = await registry.get_history("a")
+
+    entry = result[0]
+    assert entry["event_data"]["timestamp"] == "2026-01-16T05:00:00+09:00"
+    assert entry["event_data"]["note"] == "2026-01-15T20:00:00+00:00"
+    assert entry["timestamp"].endswith("+09:00")
+    assert datetime.fromisoformat(entry["timestamp"]) == datetime.fromisoformat(
+        stored[0]["timestamp"]
+    )
+    assert stored[0]["timestamp"].endswith("+00:00")
+    assert stored[0]["event_data"]["timestamp"] is stamp
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+async def test_list_triggers_and_trigger_status_show_last_fired_in_the_facility_zone():
+    registry = await _registry_with(_trigger("a", source="cron"))
+    await registry.record_event("a", {}, "dispatched")
+    tools = await _get_tools(registry, DispatchPool(max_concurrent=1, max_queue_depth=1))
+
+    listed = json.loads(await tools["list_triggers"]())[0]["last_fired"]
+    status = json.loads(await tools["trigger_status"]("a"))["last_fired"]
+    stored = (await registry.get_status("a"))["last_fired"]
+
+    assert stored.endswith("+00:00")
+    for shown in (listed, status):
+        assert shown.endswith("+09:00")
+        assert datetime.fromisoformat(shown) == datetime.fromisoformat(stored)
 
 
 # ---------------------------------------------------------------------------

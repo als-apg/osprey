@@ -52,6 +52,7 @@
 
 import { onItemDetach, registerItemBuilder } from './bar-host.js';
 import { defaultOptions } from './bar-catalog.js';
+import { facilityZone, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 
 /** @typedef {import('./bar-host.js').BarBuildContext} BarBuildContext */
 /** @typedef {import('./bar-catalog.js').BarItemOptions} BarItemOptions */
@@ -196,6 +197,7 @@ const CLOCK_TICK_MS = 1000;
 const CLOCK_TITLE = Object.freeze({
   none: 'Local time',
   local: 'Local time',
+  facility: 'Facility time',
   utc: 'UTC',
   both: 'Local · UTC',
 });
@@ -204,12 +206,16 @@ const CLOCK_TITLE = Object.freeze({
  * The zone option, narrowed. An unknown or absent value is the plain local
  * clock — the catalog default, and the only answer that is never actively
  * wrong. `none` and `local` show the same time; `local` adds the zone's name.
+ * Every value the catalog offers has to be known here, or a saved `facility`
+ * clock would silently read as the plain local one.
  * @param {BarItemOptions} options
- * @returns {'none' | 'local' | 'utc' | 'both'}
+ * @returns {'none' | 'local' | 'facility' | 'utc' | 'both'}
  */
 function clockZone(options) {
   const zone = options.zone;
-  return zone === 'local' || zone === 'utc' || zone === 'both' ? zone : 'none';
+  return zone === 'local' || zone === 'facility' || zone === 'utc' || zone === 'both'
+    ? zone
+    : 'none';
 }
 
 /**
@@ -222,38 +228,122 @@ function clockHour12(options) {
 }
 
 /**
- * The local zone, shortened for a bar: `Europe/Berlin` reads as `Berlin`. An
- * empty string where `Intl` refuses — an unlabelled local clock is still a
- * correct clock, and a label reading `undefined` is not.
+ * A zone id, shortened for a bar: `Europe/Berlin` reads as `Berlin`,
+ * `America/New_York` as `New York`. An empty id gives an empty label.
+ * @param {string} id
  * @returns {string}
  */
-function localZoneLabel() {
+function zoneLabel(id) {
+  if (!id) return '';
+  return (id.split('/').at(-1) ?? id).replace(/_/g, ' ');
+}
+
+/**
+ * The viewer's zone id, or an empty string where `Intl` refuses — an
+ * unlabelled local clock is still a correct clock, and a label reading
+ * `undefined` is not.
+ * @returns {string}
+ */
+function viewerZoneId() {
   try {
-    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (!zone) return '';
-    return (zone.split('/').at(-1) ?? zone).replace(/_/g, ' ');
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
   } catch {
     return '';
   }
 }
 
 /**
+ * The wall-clock fields of one instant.
+ * @typedef {object} ClockFields
+ * @property {number} hours  0–23
+ * @property {number} minutes
+ * @property {number} seconds
+ */
+
+/** Field extractors by zone id. @type {Map<string, Intl.DateTimeFormat>} */
+const zoneFieldFormatters = new Map();
+
+/**
+ * The wall-clock fields of *now* in *zone*: the viewer's own for `null`, UTC
+ * for `'UTC'`, any other IANA id through Intl. The result is three integers,
+ * not display text, so the extractor's locale is fixed to `en-US`: the clock's
+ * face (24h or 12h, padding, seconds) is {@link formatClock}'s, and a viewer's
+ * locale cannot turn `12h` into `午後2:32`. `h23` keeps midnight at `00`
+ * rather than `24`.
+ * @param {Date} now
+ * @param {string | null} zone
+ * @returns {ClockFields}
+ */
+function clockFields(now, zone) {
+  if (zone === null) {
+    return { hours: now.getHours(), minutes: now.getMinutes(), seconds: now.getSeconds() };
+  }
+  if (zone === 'UTC') {
+    return {
+      hours: now.getUTCHours(),
+      minutes: now.getUTCMinutes(),
+      seconds: now.getUTCSeconds(),
+    };
+  }
+  let fmt = zoneFieldFormatters.get(zone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hourCycle: 'h23',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    });
+    zoneFieldFormatters.set(zone, fmt);
+  }
+  const parts = fmt.formatToParts(now);
+  /** @param {string} type */
+  const field = (type) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { hours: field('hour'), minutes: field('minute'), seconds: field('second') };
+}
+
+/**
  * `HH:MM`, or `HH:MM:SS` with the seconds option on; `H:MM AM` on the
  * 12-hour cycle, where the hour drops its leading zero the way a wall clock
  * does and the meridiem carries what the missing 13–23 would have said.
- * @param {Date} now
- * @param {boolean} utc
+ * @param {ClockFields} fields
  * @param {boolean} seconds
  * @param {boolean} hour12
  * @returns {string}
  */
-function formatClock(now, utc, seconds, hour12) {
-  const hours = utc ? now.getUTCHours() : now.getHours();
-  const minutes = utc ? now.getUTCMinutes() : now.getMinutes();
-  const secs = utc ? now.getUTCSeconds() : now.getSeconds();
+function formatClock(fields, seconds, hour12) {
+  const hours = fields.hours;
   const hour = hour12 ? String(hours % 12 || 12) : pad2(hours);
   const meridiem = hour12 ? (hours < 12 ? ' AM' : ' PM') : '';
-  return `${hour}:${pad2(minutes)}${seconds ? `:${pad2(secs)}` : ''}${meridiem}`;
+  return `${hour}:${pad2(fields.minutes)}${seconds ? `:${pad2(fields.seconds)}` : ''}${meridiem}`;
+}
+
+/**
+ * The name beside the time, or `''` for none, at this instant and density.
+ * @param {'none' | 'local' | 'facility' | 'utc' | 'both'} zone
+ * @param {string} density
+ * @param {Date} now
+ * @returns {string}
+ */
+function clockSuffix(zone, density, now) {
+  const comfortable = density === 'comfortable';
+  const elsewhere = !viewerSharesFacilityClock(now);
+  const viewer = zoneLabel(viewerZoneId());
+  switch (zone) {
+    case 'local':
+      return comfortable || elsewhere ? viewer : '';
+    case 'utc':
+      return 'UTC';
+    case 'both':
+      return elsewhere && viewer ? `${viewer} · UTC` : 'UTC';
+    case 'facility': {
+      const facility = facilityZone();
+      if (!facility.facility) return viewer;
+      return comfortable || elsewhere ? zoneLabel(facility.id) : '';
+    }
+    default:
+      return elsewhere ? viewer : '';
+  }
 }
 
 /**
@@ -268,11 +358,10 @@ function formatClock(now, utc, seconds, hour12) {
  * so the accessible name is the readout itself (`14:32 UTC`) rather than a
  * description of it.
  *
- * The suffix follows the zone option. `none`, the default, is the plain
- * clock and never carries one. `local` names the zone, but only at
- * comfortable density: in the 20 px status bar a local clock is just "the
- * time" and the name is noise. A UTC or dual clock keeps its label at both
- * densities, because an unmarked UTC readout is not terse, it is wrong.
+ * The suffix is decided on every tick, beside the time. A clock names the
+ * zone it shows wherever an unnamed readout could be taken for the facility's
+ * time. A facility clock is named in the header, and in the status bar when
+ * the viewer's clock differs. A UTC readout is always named.
  * @param {BarBuildContext} ctx
  * @returns {BarItemInstance}
  */
@@ -290,21 +379,46 @@ function buildClock(ctx) {
   time.className = 'bar-clock-time';
   body.appendChild(time);
 
-  const zoneLabel = zone === 'none' ? '' : zone === 'local' ? localZoneLabel() : 'UTC';
-  if (zoneLabel && (zone !== 'local' || ctx.density === 'comfortable')) {
-    const label = doc.createElement('span');
-    label.className = 'bar-clock-zone';
-    label.textContent = zoneLabel;
-    body.appendChild(label);
-  }
+  /** @type {HTMLElement | null} */
+  let label = null;
+  /** @param {string} text */
+  const setSuffix = (text) => {
+    if (!text) {
+      label?.remove();
+      label = null;
+      return;
+    }
+    if (!label) {
+      label = doc.createElement('span');
+      label.className = 'bar-clock-zone';
+      time.after(label);
+    }
+    if (label.textContent !== text) label.textContent = text;
+  };
+
+  /** @param {Date} now */
+  const readout = (now) => {
+    switch (zone) {
+      case 'utc':
+        return formatClock(clockFields(now, 'UTC'), seconds, hour12);
+      case 'facility':
+        return formatClock(clockFields(now, facilityZone().id), seconds, hour12);
+      case 'both':
+        return `${formatClock(clockFields(now, null), seconds, hour12)} · ${formatClock(
+          clockFields(now, 'UTC'),
+          seconds,
+          hour12
+        )}`;
+      default:
+        return formatClock(clockFields(now, null), seconds, hour12);
+    }
+  };
 
   const render = () => {
     const now = new Date();
-    const text =
-      zone === 'both'
-        ? `${formatClock(now, false, seconds, hour12)} · ${formatClock(now, true, seconds, hour12)}`
-        : formatClock(now, zone === 'utc', seconds, hour12);
+    const text = readout(now);
     if (time.textContent !== text) time.textContent = text;
+    setSuffix(clockSuffix(zone, ctx.density, now));
   };
 
   render();

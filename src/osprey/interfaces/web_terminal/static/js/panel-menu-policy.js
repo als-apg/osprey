@@ -77,6 +77,7 @@ import { barVisible, setBarVisible } from './bar-customize.js';
  * @property {(id: string) => string} labelOf - the panel's catalog label
  * @property {(id: string) => string | null} getPanelStandaloneUrl - null until the config fetch resolves
  * @property {(id: string) => void} popoutPanel - open the standalone url in a new browser tab
+ * @property {(id: string) => void} retryStart - start a failed sidecar panel again
  */
 
 /** @type {MenuPolicyDeps | null} */
@@ -120,6 +121,8 @@ export function railOptions() {
   return {
     onActivate: (/** @type {string} */ id) => {
       if (id === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
+      // A failed sidecar's entry has one verb: start it again.
+      if (isFailed(id)) { ctx().retryStart(id); return; }
       // Clicking the entry whose tile is ALREADY surfaced retires that tile —
       // a toggle shortcut equivalent to the tile header's own "×". It stays a
       // LOCAL layout change: rail membership survives, so a second click
@@ -145,9 +148,18 @@ export function railOptions() {
     // own header bar); everything else defers to rail-drag's policy (fallback
     // mode cancels there).
     onDragStart: (/** @type {string} */ id, /** @type {DataTransfer | null} */ dt) =>
-      id === TERMINAL_RAIL_ID ? false : railDragStart(id, dt),
+      id === TERMINAL_RAIL_ID || isFailed(id) ? false : railDragStart(id, dt),
     onDragEnd: () => railDragEnd(),
   };
+}
+
+/**
+ * Whether a panel's rail entry shows a sidecar that failed to start.
+ * @param {string} id
+ * @returns {boolean}
+ */
+function isFailed(id) {
+  return getEntry(ctx().getRailEl(), id)?.classList.contains('failed') ?? false;
 }
 
 // Tooltip suffix advertising the context menu on every service entry. The
@@ -175,14 +187,17 @@ function isSimpleMode() {
  * but it does not stop a menu request fired from the KEYBOARD on that focused
  * button, and it does not cover the offline entry's still-live "×" corner,
  * which stays interactive by design. Both routes would otherwise reach a menu
- * whose verbs act on a panel that has never answered.
+ * whose verbs act on a panel that has never answered. A `.failed` entry is
+ * declined the same way: its verbs would act on a panel that is not up.
  *
  * @param {string} id  @param {number} x  @param {number} y
  * @returns {boolean} true when a menu was opened
  */
 export function openRailContextMenu(id, x, y) {
   const entry = getEntry(ctx().getRailEl(), id);
-  if (!entry || entry.classList.contains('disabled')) return false;
+  if (!entry || entry.classList.contains('disabled') || entry.classList.contains('failed')) {
+    return false;
+  }
   // The entry is the anchor: it scopes the menu's scroll dismissal, so the
   // menu survives a panel scrolling its own content underneath it.
   return openSurfaceMenu(id, x, y, entry);

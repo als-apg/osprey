@@ -74,6 +74,7 @@ from .build_environment import (
 )
 from .build_injectors import (
     _copy_service_templates,
+    _declare_bundled_host_bindings,
     _inject_bluesky,
     _inject_bluesky_web,
     _inject_dispatch,
@@ -108,6 +109,8 @@ from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
     from osprey.facility.build import FacilityDocument
+
+    from .build_profile_model import BuildProfile
 
 logger = get_logger("build")
 
@@ -1946,8 +1949,8 @@ def _render_project(
     Returns:
         The rendered project directory.
     """
+    from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.build.build_tiers import tier_mode_conflict
-    from osprey.build.claude_code_resolver import load_provider_spec
     from osprey.deployment.reach import reach_errors
     from osprey.services.virtual_accelerator.manifest.build import (
         prepare_project_manifest,
@@ -2030,12 +2033,13 @@ def _render_project(
     # so a repo whose only copy is that render has its text rescued rather than
     # re-rendered. Gated on the selection: a profile that does not select the
     # facility rule has no description to keep.
-    if FACILITY_RULE_NAME in effective_artifacts.get("rules", []):
+    selected = effective_artifacts or {}
+    if FACILITY_RULE_NAME in selected.get("rules", []):
         if repair:
             moved = ensure_profile_facility_rule(
                 repo_root,
                 build_dir=shared.build_dir,
-                enabled_agents=effective_artifacts.get("agents", []),
+                enabled_agents=selected.get("agents", []),
             )
             if moved:
                 _report_fact(moved)
@@ -2134,17 +2138,20 @@ def _render_project(
 
         # What the deploy, va_archiver, virtual_accelerator and layout blocks
         # contribute to the rendered config, applied with the profile's own
-        # `config:` entries in one pass. Derived keys the profile also spells are
-        # rejected at validation, so winning here can never silently overwrite a
-        # facility's own value.
+        # `config:` entries in one pass.
         #
-        # `layout` is the one exception, and it is the opposite rule: it is
-        # FILL-IF-ABSENT, not refuse-if-spelled. A host port is the facility's to
-        # move — `services.<name>.port` is the documented override — so the fill
-        # only supplies the layout's number for a service block the profile
-        # deploys and left without one, and a spelled port is skipped rather than
-        # refused. It is listed first so that a block below, which does own its
-        # keys, still wins if the two ever name one key.
+        # Two entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
+        # `layout`'s host ports: a host port is the facility's to move —
+        # `services.<name>.port` is the documented override — so the fill only
+        # supplies the layout's number for a service block the profile deploys
+        # and left without one, and a spelled port is skipped rather than
+        # refused. The other is the deploy block's `registry.url`, filled only
+        # when `config:` names none, because a facility may point the web tier
+        # at a registry other than the one CI pushes to. Every other derived key
+        # the profile also spells is rejected at validation, so winning here can
+        # never silently overwrite a facility's own value. `layout` is listed
+        # first so that a block below, which does own its keys, still wins if
+        # the two ever name one key.
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
@@ -2462,9 +2469,10 @@ def _render_project(
 def _warn_model_facts(spec: Any, reported: set[str]) -> None:
     """Warn, once per build, where the models the render names differ from the served list.
 
-    Two facts, each promoted through :func:`osprey.cli.output.warn_fact`
+    Three facts, each promoted through :func:`osprey.cli.output.warn_fact`
     because the altitude gate keeps raw warnings off the terminal while the
-    build draws its phases: Claude Code aliases that run the main model because
+    build draws its phases: alias-map keys that are not Claude Code alias
+    names and are ignored, Claude Code aliases that run the main model because
     the provider serves no model of their family, and configured ids the
     provider's served list does not carry, which are used as written.
 
@@ -2474,15 +2482,19 @@ def _warn_model_facts(spec: Any, reported: set[str]) -> None:
             (:attr:`_SharedRenderInputs.model_facts_reported`). A fact in it is
             logged at DEBUG instead of repeated by every render pass.
     """
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         ALIAS_SUBSTITUTION_REMEDY,
+        DROPPED_ALIAS_KEY_REMEDY,
         alias_substitution,
+        dropped_alias_key_facts,
         unserved_model_ids,
     )
 
     from . import output
 
-    facts: list[tuple[str, str | None, str | None]] = []
+    facts: list[tuple[str, str | None, str | None]] = [
+        (sentence, None, DROPPED_ALIAS_KEY_REMEDY) for sentence in dropped_alias_key_facts(spec)
+    ]
     substitution = alias_substitution(spec)
     if substitution:
         facts.append((substitution, None, ALIAS_SUBSTITUTION_REMEDY))
@@ -2648,27 +2660,44 @@ def _stage_source_zone(repo_root: Path, image_root: Path) -> None:
       untouched build as DRIFTED, naming files nobody edited.
 
     Copied by EXCLUSION rather than by naming what to take: everything at the
-    repo root that is not a derived zone, git's own directory, or a secret. A
-    list of wanted names would be a second enumeration of the fold's inputs, and
-    the day the two disagreed a container would report false drift — the exact
-    failure this exists to prevent. Excluding is a superset by construction, so
-    it cannot drift from the fold; it is also just the truth, since the source
-    zone is what a fresh clone of this repo holds.
+    repo root that is not a derived zone, git's own directory, a secret, or the
+    repo's own Claude Code files. A list of wanted names would be a second
+    enumeration of the fold's inputs, and the day the two disagreed a container
+    would report false drift — the exact failure this exists to prevent.
+    Excluding is a superset by construction, so it cannot drift from the fold;
+    it is also just the truth, since the source zone is what a fresh clone of
+    this repo holds, less the files that are for the person editing it.
 
     ``.env`` is excluded HERE, not left to the image's ``.dockerignore``: this
     copy decides what the build context contains at all, and a secret that never
     enters the context cannot be baked in by a later pattern that fails to match
     it at the depth it landed.
 
+    The repo's own Claude Code files
+    (:data:`~osprey.cli.profile_conventions.REPO_CLAUDE_CODE_ENTRIES`) are left
+    out at the root and only at the root. The image's agent runs in ``build/``,
+    one level down, and would otherwise load the repo's developer ``CLAUDE.md``
+    as an ancestor in every session. It is done here rather than by a
+    ``.dockerignore`` pattern because those patterns match at every depth in
+    this context and would also delete the render's own ``build/CLAUDE.md`` and
+    ``build/.claude/``. None of the four is a fold input, so the copy is still a
+    superset of what the fingerprint folds.
+
     :param repo_root: The deployment repo whose source zone this is.
     :param image_root: The container repo root being assembled.
     """
+
+    from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES
 
     def _ignore_env_files(_directory: str, names: list[str]) -> set[str]:
         return {name for name in names if name.startswith(".env")}
 
     for entry in sorted(repo_root.iterdir()):
-        if entry.name in _NON_SOURCE_ROOT_ENTRIES or entry.name.startswith(".env"):
+        if (
+            entry.name in _NON_SOURCE_ROOT_ENTRIES
+            or entry.name in REPO_CLAUDE_CODE_ENTRIES
+            or entry.name.startswith(".env")
+        ):
             continue
         target = image_root / entry.name
         if entry.is_dir():
@@ -3367,6 +3396,7 @@ def _build_repo(
         deploy_aware_config_warnings,
         limits_block_errors,
     )
+    from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
     from .profile_conventions import PROJECT_MIRROR_DIR, facility_mirror_violation
@@ -3435,8 +3465,14 @@ def _build_repo(
         # A sibling call, exactly as `osprey validate` makes it — see the note
         # beside the same line in `validate_cmd.py`. Raising here, profile-side,
         # is what keeps the render-side `_incomplete_limits_errors` from
-        # reporting the same half-written block a second time.
-        web_errors = [*web_errors, *limits_block_errors(build_profile.config)]
+        # reporting the same half-written block a second time. The zone is
+        # judged here, profile-side, because the render bakes it into the
+        # agent's rules and every container's `TZ`.
+        web_errors = [
+            *web_errors,
+            *limits_block_errors(build_profile.config),
+            *system_timezone_errors(build_profile.config),
+        ]
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
         web_warnings = deploy_aware_config_warnings(
@@ -3451,6 +3487,9 @@ def _build_repo(
         web_warnings = [
             *web_warnings,
             *bar_items_selection_warnings(build_profile.config, build_profile.web_panels),
+            # Advisory: UTC is a legal, reproducible choice, and `config.yml`
+            # carries it whether chosen or defaulted, so the build reminds.
+            *system_timezone_reminders(build_profile.config),
         ]
         # The catalog is what `provider:` may name: the build renders its
         # entries into `api.providers`, so a name absent from it reaches a
@@ -3895,7 +3934,7 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     return is_setup_patch_capable(persona_capability_document(overrides))
 
 
-def _profile_preset(build_profile: Any) -> str | None:
+def _profile_preset(build_profile: BuildProfile) -> str | None:
     """The preset this profile records, or ``None`` for a hand-written one.
 
     Two records can name that preset, and they are asked in this order:
@@ -3905,9 +3944,8 @@ def _profile_preset(build_profile: Any) -> str | None:
     2. ``inherited_preset`` — the bundled preset the profile's ``extends:``
        chain reached, stamped on by resolution. This is what answers for a
        hand-written profile that says ``extends: hello-world`` and records no
-       ``provenance:`` block: the deep merge used to hand it the preset's
-       ``app_template:`` directly, and without this it would silently build on
-       the framework default instead of the preset it inherited.
+       ``provenance:`` block; without it that profile would build on the
+       framework default instead of the preset it inherited.
 
     One rule, asked in one place: the packaged trees the build copies and the
     preset the project's manifest is stamped with must name the same preset, or
@@ -3920,14 +3958,12 @@ def _profile_preset(build_profile: Any) -> str | None:
     Returns:
         The recorded preset's name, or ``None`` when the profile records none.
     """
-    provenance = getattr(build_profile, "provenance", None)
-    recorded = getattr(provenance, "preset", None)
-    if recorded is not None:
-        return recorded
-    return getattr(build_profile, "inherited_preset", None)
+    if build_profile.provenance is not None:
+        return build_profile.provenance.preset
+    return build_profile.inherited_preset
 
 
-def _profile_data_bundle(build_profile: Any) -> str:
+def _profile_data_bundle(build_profile: BuildProfile) -> str:
     """The packaged app bundle whose non-config trees this build copies.
 
     The bundle names a directory under ``templates/apps/`` holding a ``data/``
@@ -3949,7 +3985,8 @@ def _profile_data_bundle(build_profile: Any) -> str:
     """
     from .build_profile_presets import _preset_exists, preset_data_bundle
 
-    named = getattr(getattr(build_profile, "provenance", None), "preset", None)
+    provenance = build_profile.provenance
+    named = provenance.preset if provenance is not None else None
     if named is not None and _preset_exists(named) is None:
         # The profile names a preset this installation does not ship — renamed,
         # removed, or from another OSPREY. The `extends:` chain still resolved,
@@ -3958,7 +3995,7 @@ def _profile_data_bundle(build_profile: Any) -> str:
         # the bundle it actually inherits rather than on the framework default.
         # Either way, name the bundle the build ends up copying — it decides
         # which packaged `services/` and `machine_data/` trees it takes.
-        bundle = preset_data_bundle(getattr(build_profile, "inherited_preset", None))
+        bundle = preset_data_bundle(build_profile.inherited_preset)
         logger.warning(
             "Profile provenance names preset %r, which this OSPREY does not ship. "
             "Falling back to the %r data bundle for the packaged trees this build "
@@ -4273,7 +4310,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     their in-network dispatcher URLs on ``event_dispatcher``/``dispatch_worker``
     already being in ``deployed_services``, which is what the dispatch injector
     writes there; the bluesky-web sidecar read-proxies the bluesky bridge and
-    follows it for the same reason.
+    follows it for the same reason. OSPREY's own host-binding declarations are
+    written last, once every injector (the dispatch pair's ``network`` among
+    them) has settled which blocks are on the host network.
 
     Returns:
         The name of each component injected, in injection order — what the
@@ -4347,6 +4386,7 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
 
+    _declare_bundled_host_bindings(project_path, profile_dir, build_profile.services)
     return injected
 
 

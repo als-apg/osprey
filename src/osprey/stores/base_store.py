@@ -20,13 +20,20 @@ from collections.abc import Callable
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 logger = logging.getLogger("osprey.stores.base_store")
 
 INDEX_VERSION = 1
 
-T = TypeVar("T")
+
+class _Entry(Protocol):
+    """What the store needs of an entry: a stable identifier."""
+
+    id: str
+
+
+T = TypeVar("T", bound=_Entry)
 
 
 def _sanitize_for_json(obj: Any) -> Any:

@@ -136,6 +136,39 @@ class TestArchiverConnect:
 # --------------------------------------------------------------------------------------
 
 
+class TestConnectionSettings:
+    """The shared connection keys: a login or CA doocs4py cannot send is refused."""
+
+    @pytest.mark.parametrize(
+        ("block", "key"),
+        [
+            ({"auth": {"token_env": "ARCHIVER_TOKEN"}}, "auth"),
+            ({"tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}}, "tls"),
+        ],
+        ids=["auth", "tls"],
+    )
+    async def test_a_login_or_ca_is_refused_by_name(self, block, key):
+        with patch.dict(sys.modules, {"doocs4py": _make_doocs4py()}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            with pytest.raises(ValueError, match=rf"`archiver\.settings\.{key}`.*doocs4py"):
+                await conn.connect(block)
+            assert conn._connected is False
+
+    async def test_a_flat_timeout_is_refused_naming_timeout_s(self):
+        with patch.dict(sys.modules, {"doocs4py": _make_doocs4py()}):
+            from osprey.connectors.archiver.doocs_archiver_connector import (
+                DOOCSArchiverConnector,
+            )
+
+            conn = DOOCSArchiverConnector()
+            with pytest.raises(ValueError, match=r"`archiver\.settings\.timeout_s`"):
+                await conn.connect({"timeout": 7})
+
+
 class TestGetDataValidation:
     async def test_raises_when_not_connected(self):
         mock_d4py = _make_doocs4py()
@@ -228,9 +261,9 @@ class TestGetDataTimeout:
         assert seen["timeout"] == 60
 
     async def test_configured_default_is_honored(self, archiver, monkeypatch):
-        """A ``timeout`` in the connector config reaches ``wait_for``."""
+        """A ``timeout_s`` in the connector config reaches ``wait_for``."""
         conn, _ = archiver
-        await conn.connect({"timeout": 7})
+        await conn.connect({"timeout_s": 7})
         seen = self._spy_wait_for(monkeypatch)
 
         await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)

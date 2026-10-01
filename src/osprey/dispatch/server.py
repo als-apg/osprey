@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import json
 import logging
 import os
 import time
@@ -28,6 +27,8 @@ from fastmcp.server.auth import AccessToken, TokenVerifier
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
+from osprey.dispatch.agent_time import agent_json
+from osprey.dispatch.clock_schedule import next_fire
 from osprey.dispatch.dashboard import render_dashboard_html
 from osprey.dispatch.mcp_tools import register_tools
 from osprey.dispatch.pool import DispatchPool, QueueFullError
@@ -152,14 +153,14 @@ async def _dispatch_with_policy(
     # source default -> trigger override. No trigger source currently supplies
     # a default (see SourceRegistry) — the two locals below are the seam a
     # future source-level default would extend without moving this read site.
-    # ``trigger.surface_prompt`` is already the parsed ``action.surface_prompt``
-    # (TriggerConfig); ``surface_tools`` has no typed field yet, so it is read
-    # straight off the free-form ``action`` mapping like ``allowed_tools`` above.
+    # ``trigger.surface_prompt`` and ``trigger.surface_tools`` are the parsed,
+    # type-checked ``action.surface_prompt`` / ``action.surface_tools``
+    # (TriggerConfig).
     source_default_surface_prompt: str | None = None
     surface_prompt = trigger.surface_prompt or source_default_surface_prompt
 
     source_default_surface_tools: list[str] | None = None
-    surface_tools = action.get("surface_tools") or source_default_surface_tools
+    surface_tools = trigger.surface_tools or source_default_surface_tools
 
     # An optional per-trigger turn ceiling, already parsed and type-checked off
     # ``action.max_turns`` when the trigger file was loaded (TriggerConfig).
@@ -170,9 +171,11 @@ async def _dispatch_with_policy(
     # Fold the event payload into the prompt so payload-driven triggers can act
     # on it. The payload is UNTRUSTED input (a webhook body); the per-trigger
     # tool allowlist and the worker's denylist — not the prompt — are the
-    # security controls. Empty payloads (e.g. a bare ping) add nothing.
+    # security controls. Empty payloads (e.g. a bare ping) add nothing. An
+    # instant a trigger source stamped is shown in the facility zone, and a
+    # value the payload carried as text is shown as it came.
     if payload:
-        prompt = f"{prompt}\n\nEvent payload (JSON):\n{json.dumps(payload, indent=2, default=str)}"
+        prompt = f"{prompt}\n\nEvent payload (JSON):\n{agent_json(payload)}"
 
     try:
         result = await dispatch_to_worker(
@@ -187,7 +190,7 @@ async def _dispatch_with_policy(
             owner=owner,
             prior_answer_runs=prior_answer_runs,
         )
-        await registry.record_event(trigger.name, payload, "dispatched")
+        await registry.record_event(trigger.name, payload, "dispatched", owner=owner)
         return result
 
     except WorkerRequestError as exc:
@@ -207,7 +210,9 @@ async def _dispatch_with_policy(
             logger.warning(
                 "Worker rejected dispatch for trigger '%s': %s", trigger.name, code or "4xx"
             )
-            await registry.record_event(trigger.name, payload, f"rejected: {code or '4xx'}")
+            await registry.record_event(
+                trigger.name, payload, f"rejected: {code or '4xx'}", owner=owner
+            )
             return {"status": "error", "error_code": code, "error": str(exc)}
 
         error_str = str(exc)
@@ -216,7 +221,7 @@ async def _dispatch_with_policy(
         max_retries = on_error.get("max_retries", 0)
         backoff_sec = float(on_error.get("backoff_sec", 0.0))
 
-        await registry.record_event(trigger.name, payload, f"error: {error_str}")
+        await registry.record_event(trigger.name, payload, f"error: {error_str}", owner=owner)
 
         if policy == "alert":
             logger.error(
@@ -288,6 +293,16 @@ def _report_token_unset(gate: str) -> None:
         return
     _token_unset_reported.add(gate)
     logger.warning("EVENT_DISPATCHER_TOKEN is not configured; rejecting every %s request", gate)
+
+
+def _request_owner(request: Request) -> str | None:
+    """Return the owner the request's ``X-Osprey-Owner`` header names, or ``None``.
+
+    The header is read by its canonical spelling; Starlette's header mapping is
+    case-insensitive. A value the guard refuses degrades to owner-less through
+    ``owner_from_header`` rather than failing the request.
+    """
+    return owner_from_header(request.headers.get(OWNER_HEADER))
 
 
 def _check_auth(request: Request) -> JSONResponse | None:
@@ -583,7 +598,7 @@ def create_server() -> FastMCP:
         asked for carries their name.
         """
         if registry._status.get(trigger.name) == "disabled":
-            await registry.record_event(trigger.name, payload, "ignored: disabled")
+            await registry.record_event(trigger.name, payload, "ignored: disabled", owner=owner)
             return None
 
         async def fn() -> dict | None:
@@ -598,9 +613,9 @@ def create_server() -> FastMCP:
         return await pool.submit(trigger.name, fn)
 
     # Trigger sources: discover from the ``osprey.trigger_sources`` entry-point
-    # group (built-ins: webhook, cron — see pyproject.toml), then register their
-    # routes at factory time. A source type with no registered class is skipped
-    # gracefully (logged in SourceRegistry.setup).
+    # group (built-ins: webhook, cron, epics_ca — see pyproject.toml), then
+    # register their routes at factory time. A source type with no registered
+    # class is skipped gracefully (logged in SourceRegistry.setup).
     source_reg = SourceRegistry()
     source_reg.discover()
     source_reg.setup(trigger_list, mcp)  # FACTORY: registers webhook routes
@@ -630,11 +645,13 @@ def create_server() -> FastMCP:
     #     NOT accept a ``?token=`` query that would leak the bearer into access
     #     logs); polled state still renders.
     # WRITE endpoints (/retry, /dashboard/cancel, /dashboard/clear-history and
-    # /trigger/.../status) are gated the same way. The /dashboard HTML SHELL itself
-    # stays ungated on purpose: it carries no agent data, and the standalone token
-    # handoff requires the page to load so its JS can read the fragment. Secret-like
-    # source_config keys are still redacted in /dashboard/state. Production
-    # deployments should still network-isolate the port.
+    # /trigger/.../status) are gated the same way. The write routes log the owner
+    # header they were given; that header is attribution, not authorization.
+    # The /dashboard HTML SHELL itself stays ungated on purpose: it carries no
+    # agent data, and the standalone token handoff requires the page to load so
+    # its JS can read the fragment. Secret-like source_config keys are still
+    # redacted in /dashboard/state. Production deployments should still
+    # network-isolate the port.
     # -----------------------------------------------------------------------
 
     @mcp.custom_route("/dashboard", methods=["GET"])
@@ -649,11 +666,13 @@ def create_server() -> FastMCP:
             render_dashboard_html(
                 facility_name=os.environ.get("OSPREY_FACILITY_NAME", ""),
                 channel_strip_prefix=os.environ.get("CHANNEL_STRIP_PREFIX", ""),
-                # Set by the compose template only when the telemetry store is
-                # deployed AND agent telemetry is on, so an unset var is the
-                # honest "no telemetry to link to" signal (the dashboard then
-                # hides the per-run link rather than offering a dead one).
+                # Both set together by the compose template, under one gate, only
+                # when the telemetry store is deployed AND agent telemetry is on,
+                # so unset vars are the honest "no telemetry to link to" signal
+                # (the dashboard then hides the per-run link rather than offering
+                # a dead one).
                 telemetry_url=os.environ.get("OSPREY_TELEMETRY_URL", ""),
+                telemetry_org=os.environ.get("OSPREY_TELEMETRY_ORG", ""),
             )
         )
 
@@ -729,8 +748,9 @@ def create_server() -> FastMCP:
     async def dashboard_state(request: Request) -> JSONResponse:
         """Unified aggregation endpoint.
 
-        Returns {pool, triggers, runs, timeline, server_time_iso} in one shot so
-        the dashboard can render a consistent snapshot with a single poll.
+        Returns {pool, triggers, runs, timeline, server_time_iso, facility_timezone}
+        in one shot so the dashboard can render a consistent snapshot with a
+        single poll.
 
         Query params:
             timeline_hours (float, default 24): how far back to include timeline events.
@@ -744,11 +764,21 @@ def create_server() -> FastMCP:
             timeline_hours = 24.0
         since_seconds = max(0.0, timeline_hours) * 3600.0
 
-        # Triggers (enrich with config detail)
+        from osprey.utils.config import get_facility_timezone
+
+        zone = get_facility_timezone()
+
+        # Triggers (enrich with config detail). A clock schedule carries no
+        # state and a missed slot is never made up, so the next slot after now
+        # is exactly the one the source is waiting for.
         triggers = await registry.list_triggers()
+        now = datetime.now(tz=UTC)
         for t in triggers:
             cfg = registry._triggers.get(t["name"])
+            t["next_fire"] = None
             if cfg:
+                if cfg.schedule is not None:
+                    t["next_fire"] = next_fire(cfg.schedule, now, zone).isoformat()
                 t["on_error"] = cfg.on_error.get("action", "drop")
                 t["allowed_tools"] = cfg.action.get("allowed_tools", [])
                 t["prompt"] = cfg.action.get("prompt", "")
@@ -818,6 +848,7 @@ def create_server() -> FastMCP:
                 "timeline": timeline,
                 "worker_error": worker_error,
                 "server_time_iso": datetime.now(tz=UTC).isoformat(),
+                "facility_timezone": zone.key,
             }
         )
 
@@ -857,11 +888,10 @@ def create_server() -> FastMCP:
         if not isinstance(payload, dict):
             return JSONResponse({"detail": "payload must be an object"}, status_code=400)
 
-        # Starlette's header mapping is case-insensitive, so the header is read
-        # by its canonical spelling. A value that names nobody costs the run its
-        # owner — and with it the narrowing its writes would be checked against
-        # — but never the re-fire itself; see ``owner_from_header``.
-        owner = owner_from_header(request.headers.get(OWNER_HEADER))
+        # A value that names nobody costs the run its owner — and with it the
+        # narrowing its writes would be checked against — but never the re-fire
+        # itself; see ``owner_from_header``.
+        owner = _request_owner(request)
 
         async def fn() -> dict | None:
             return await _dispatch_with_policy(
@@ -885,10 +915,14 @@ def create_server() -> FastMCP:
 
         Bearer-auth against the dispatcher's own token; the dispatcher holds
         the worker token itself so the browser never sees it.
+
+        The request's ``X-Osprey-Owner`` names who asked, and that name is
+        logged, never checked.
         """
         unauth = _check_auth(request)
         if unauth is not None:
             return unauth
+        owner = _request_owner(request)
         run_id = request.path_params["run_id"]
         try:
             result = await cancel_worker_run(dispatch_target, dispatch_token, run_id)
@@ -896,6 +930,12 @@ def create_server() -> FastMCP:
             return JSONResponse({"detail": "worker auth failed"}, status_code=502)
         except WorkerRequestError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=502)
+        logger.info(
+            "Cancel of run %r asked by %s: %s",
+            run_id,
+            owner or "no owner",
+            "cancelled" if result.get("cancelled") else result.get("reason", "not cancelled"),
+        )
         return JSONResponse(result)
 
     @mcp.custom_route("/dashboard/clear-history", methods=["POST"])
@@ -909,10 +949,14 @@ def create_server() -> FastMCP:
 
         Body is optional: ``{"older_than_days": N}`` keeps runs younger than N
         days, and anything else (absent, empty, ``0``) clears every finished run.
+
+        The request's ``X-Osprey-Owner`` names who asked, and that name is
+        logged, never checked.
         """
         unauth = _check_auth(request)
         if unauth is not None:
             return unauth
+        owner = _request_owner(request)
 
         try:
             body = await request.json()
@@ -935,6 +979,12 @@ def create_server() -> FastMCP:
             return JSONResponse({"detail": "worker auth failed"}, status_code=502)
         except WorkerRequestError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=502)
+        logger.info(
+            "Run history cleared by %s: %s run(s), older_than_days=%d",
+            owner or "no owner",
+            result.get("cleared"),
+            older_than_days,
+        )
         return JSONResponse(result)
 
     @mcp.custom_route("/trigger/{trigger_name}/status", methods=["PUT"])
@@ -942,10 +992,14 @@ def create_server() -> FastMCP:
         """Enable or disable a trigger at runtime.
 
         Body: {"status": "active" | "disabled"}
+
+        The request's ``X-Osprey-Owner`` names who asked, and that name is
+        logged, never checked.
         """
         unauth = _check_auth(request)
         if unauth is not None:
             return unauth
+        owner = _request_owner(request)
 
         trigger_name = request.path_params["trigger_name"]
         if trigger_name not in registry._triggers:
@@ -967,6 +1021,7 @@ def create_server() -> FastMCP:
         except (KeyError, ValueError) as exc:
             return JSONResponse({"detail": str(exc)}, status_code=400)
 
+        logger.info("Trigger '%s' set %s by %s", trigger_name, new_status, owner or "no owner")
         return JSONResponse({"name": trigger_name, "status": new_status})
 
     # Register MCP tools. NOTE: do NOT register /webhook here — WebhookSource

@@ -20,6 +20,8 @@ from osprey.cli.registry_cmd import (
     display_registry_contents,
 )
 from osprey.cli.styles import Styles
+from osprey.models.provider_registry import get_provider_registry
+from osprey.registry.manager import RegistryManager
 
 
 @pytest.fixture
@@ -161,6 +163,35 @@ class TestDisplayRegistryContents:
 
                 # Should succeed
                 assert result is True
+
+    def test_an_excluded_provider_is_not_listed(self, tmp_path, capsys):
+        """The command and the runtime agree that an excluded provider is gone."""
+        registry_file = tmp_path / "app" / "registry.py"
+        registry_file.parent.mkdir(parents=True)
+        registry_file.write_text(
+            """
+from osprey.registry import RegistryConfigProvider, extend_framework_registry
+
+class AppProvider(RegistryConfigProvider):
+    def get_registry_config(self):
+        return extend_framework_registry(exclude_providers=["openai"])
+"""
+        )
+        registry = RegistryManager(registry_path=str(registry_file))
+
+        with (
+            patch("osprey.cli.registry_cmd.get_registry", return_value=registry),
+            patch(
+                "osprey.registry.initializers._get_configured_provider_names",
+                return_value={"openai", "anthropic"},
+            ),
+        ):
+            assert display_registry_contents() is True
+
+        out = capsys.readouterr().out
+        assert "anthropic" in out
+        assert "openai" not in out
+        assert get_provider_registry().get_provider("openai") is None
 
 
 class TestDisplayServicesTable:

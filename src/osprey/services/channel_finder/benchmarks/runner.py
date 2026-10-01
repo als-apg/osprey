@@ -25,13 +25,16 @@ from typing import Any
 
 from osprey.services.channel_finder.benchmarks.backends import create_backend
 from osprey.services.channel_finder.benchmarks.evaluation import (
+    JudgeRoute,
     compute_f1,
     evaluate_response,
+    resolve_judge,
 )
 from osprey.services.channel_finder.benchmarks.models import (
     BenchmarkRun,
     QueryResult,
 )
+from osprey.services.channel_finder.benchmarks.project_env import project_config
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from osprey.services.channel_finder.graph_queries import GRAPH_CHANNEL_COUNT_CYPHER
 
@@ -89,15 +92,11 @@ def read_db_path_from_config(project_dir: Path, paradigm: str) -> Path:
             reaching here.
         KeyError: If the config key path is missing.
         FileNotFoundError: If config.yml does not exist.
+        ConfigurationError: If config.yml does not read as a mapping.
     """
-    import yaml
-
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
+    config = project_config(project_dir)
+    if config is None:
         raise FileNotFoundError(f"config.yml not found in {project_dir}")
-
-    with open(config_path) as f:
-        config = yaml.safe_load(f) or {}
 
     try:
         keys = PARADIGM_CONFIG_KEYS[paradigm]
@@ -140,6 +139,12 @@ class BenchmarkRunner:
     Saved ``BenchmarkRun.model`` records the exact slash-form string,
     making cells reproducible regardless of the project's ``claude_code``
     configuration at the time of the run.
+
+    The coverage judge (``use_llm_judge=True``) runs on the benchmarked
+    model's provider unless ``judge_provider`` names another, both configured
+    under the project's ``api.providers``. Its model is ``judge_model`` or that
+    provider's main model. A judge the project cannot run is refused here,
+    before any backend is built.
     """
 
     def __init__(
@@ -155,6 +160,7 @@ class BenchmarkRunner:
         backend: str = "auto",
         repeat_idx: int = 0,
         use_llm_judge: bool = False,
+        judge_provider: str | None = None,
         judge_model: str | None = None,
     ) -> None:
         if "/" not in model:
@@ -162,14 +168,24 @@ class BenchmarkRunner:
         self.project_dir = Path(project_dir)
         self.model = model
         self.provider, self.wire_id = model.split("/", 1)
+        self.judge: JudgeRoute | None
+        if use_llm_judge:
+            self.judge = resolve_judge(
+                self.project_dir, judge_provider or self.provider, judge_model=judge_model
+            )
+        elif judge_provider or judge_model:
+            raise ValueError(
+                "judge_provider and judge_model choose the coverage judge; "
+                "pass use_llm_judge=True to run it."
+            )
+        else:
+            self.judge = None
         self.max_turns = max_turns
         self.max_budget_per_query = max_budget_per_query
         self.max_concurrent = max_concurrent
         self.verbose = verbose
         self.queries_override = queries_override
         self.repeat_idx = repeat_idx
-        self.use_llm_judge = use_llm_judge
-        self.judge_model = judge_model
         self._backend = create_backend(
             backend,
             self.project_dir,
@@ -181,13 +197,10 @@ class BenchmarkRunner:
 
     def _read_config(self) -> dict[str, Any]:
         """Read and return the project's config.yml as a dict."""
-        import yaml
-
-        config_path = self.project_dir / "config.yml"
-        if not config_path.exists():
+        config = project_config(self.project_dir)
+        if config is None:
             raise FileNotFoundError(f"config.yml not found in {self.project_dir}")
-        with open(config_path) as f:
-            return yaml.safe_load(f) or {}
+        return config
 
     def _count_channels(self) -> int:
         """Count the channels the active pipeline can retrieve.
@@ -402,10 +415,7 @@ class BenchmarkRunner:
                     latency = time.monotonic() - t0
 
                 predicted, eval_meta = evaluate_response(
-                    output.response_text,
-                    expected,
-                    use_llm_judge=self.use_llm_judge,
-                    judge_model=self.judge_model,
+                    output.response_text, expected, judge=self.judge
                 )
                 precision, recall, f1 = compute_f1(predicted, expected)
 

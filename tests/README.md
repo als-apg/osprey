@@ -34,6 +34,10 @@ just run one of them:
 | `scripts/premerge_check.sh` | Quiet pass/fail before opening a PR |
 | `scripts/ci_check.sh` | Full CI mirror, with coverage |
 
+Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
+124 when a run passes its bound. A run that outlives its last test prints the
+non-daemon threads keeping it alive (`tests/_live_threads.py`).
+
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
 

@@ -61,6 +61,14 @@ class VLLMProviderAdapter(BaseProvider):
     ]
     api_key_note = "API key optional - set VLLM_API_KEY or use 'EMPTY' as placeholder"
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = None
+    api_protocol = "openai"
+    supports_interactive_login = False
+    # Image input depends on the model each site serves, so none is assumed.
+    supports_images = False
+    supports_thinking = False
+
     # LiteLLM integration - vLLM is an OpenAI-compatible server
     is_openai_compatible = True
     supports_native_structured_output = (

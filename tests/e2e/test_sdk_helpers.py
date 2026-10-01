@@ -24,6 +24,8 @@ from tests.e2e.sdk_helpers import (
     hook_attachments,
 )
 
+pytestmark = pytest.mark.model_free
+
 # ---------------------------------------------------------------------------
 # The agent-transcript dump. Its whole reason to exist is that the judge sees
 # tool results previewed at 300 characters, so the property worth pinning is

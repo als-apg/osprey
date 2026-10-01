@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebS
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import (
     HTTP_MUTATION_POSTURE,
@@ -350,8 +351,10 @@ def _control_system_section(config_path: Path | None) -> Any:
 
 def _pid_or_none(value: object) -> int | None:
     """Coerce a record field to ``int``, or ``None`` when it is not a number."""
+    if not isinstance(value, (int, float, str)):
+        return None
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)
     except (TypeError, ValueError):
         return None
 
@@ -378,22 +381,15 @@ def _read_effort_level(config_path: Path | None) -> str | None:
         return None
     try:
         config = yaml.safe_load(Path(config_path).read_text()) or {}
-        return config.get("claude_code", {}).get("effort")
+        if not isinstance(config, dict):
+            return None
+        section = config.get("claude_code", {})
+        if not isinstance(section, dict):
+            return None
+        effort = section.get("effort")
+        return effort if isinstance(effort, str) else None
     except Exception:
         return None
-
-
-#: What ``claude --resume <id>`` prints before exiting 1 when no transcript
-#: for that id exists. The pre-spawn check in :func:`_transcript_missing` is
-#: meant to keep such a child from ever being spawned; this is the second net,
-#: for a transcript that vanished after the check or one the CLI refuses to
-#: load.
-NO_CONVERSATION_MARKER = b"No conversation found with session ID"
-
-#: How much of a ``--resume`` child's output is searched for the marker. The
-#: verdict is the first thing the CLI prints, so anything beyond the first
-#: few kilobytes is a session that resumed and is now doing real work.
-_NO_CONVERSATION_SCAN_LIMIT = 16 * 1024
 
 
 def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: str) -> bool:
@@ -408,7 +404,7 @@ def _transcript_missing(app, registry, discovery: SessionDiscovery, session_id: 
     windows onto one key, and the conversation the operator started in Simple
     is the one they are asking for here. Only with none of those is the
     transcript directory the authority: ``--resume`` on an id with no file
-    there prints :data:`NO_CONVERSATION_MARKER` and exits, which is the dead
+    there prints :data:`~osprey.agent_runner.launcher.NO_CONVERSATION_MARKER` and exits, which is the dead
     PTY the caller refuses to hand the operator.
     """
     existing = registry.get_session(session_id)
@@ -437,28 +433,25 @@ async def _run_output_loop(
 
     ``resume_id`` names the id a ``--resume`` child spawned by this handler
     was asked for. Its early output is then watched for
-    :data:`NO_CONVERSATION_MARKER`: a child that prints it and exits is
+    :data:`~osprey.agent_runner.launcher.NO_CONVERSATION_MARKER`: a child that prints it and exits is
     reported as ``transcript_missing`` rather than a bare ``exit``, so the
     client renders the same state the pre-spawn refusal produces instead of
     a process-exited line the operator cannot act on.
     """
-    no_conversation = False
-    scanned = bytearray()
+    watch = NoConversationWatch() if resume_id is not None else None
     try:
         async for data in session.read_output():
             if stop_event.is_set():
                 return
-            if resume_id is not None and not no_conversation:
-                if len(scanned) < _NO_CONVERSATION_SCAN_LIMIT:
-                    scanned.extend(data)
-                    no_conversation = NO_CONVERSATION_MARKER in scanned
+            if watch is not None:
+                watch.feed(data)
             await websocket.send_bytes(data)
     except Exception:
         pass
     finally:
         if not stop_event.is_set():
             code = session.exit_code
-            if no_conversation and resume_id is not None:
+            if watch is not None and watch.found and resume_id is not None:
                 frame = _transcript_missing_frame(resume_id, code)
             else:
                 frame = json.dumps({"type": "exit", "code": code})
@@ -878,16 +871,16 @@ async def terminal_ws(websocket: WebSocket):
         return
 
     async def spawn(request: SpawnRequest) -> PtySession:
-        # base_shell_command is list[str] (set by app.lifespan), so unpack
-        # with [*base, ...] — nesting would break PtySession's exec (issue
-        # #218). The door decided what to resume: the key's current
-        # transcript when one is on disk, else a fresh session under the key.
+        # base_shell_command is list[str] (set by app.lifespan) and is
+        # extended, never nested — a nested list would break PtySession's
+        # exec. The door decided what to resume: the key's current transcript
+        # when one is on disk, else a fresh session under the key.
         if request.resume_id:
-            command: list[str] = [*base_shell_command, "--resume", request.resume_id]
+            command = build_session_argv(
+                base_shell_command, resume_id=request.resume_id, effort=effort
+            )
         else:
-            command = [*base_shell_command, "--session-id", request.key]
-        if effort:
-            command.extend(["--effort", effort])
+            command = build_session_argv(base_shell_command, session_id=request.key, effort=effort)
         extra_env = _build_extra_env(websocket, request.key, request.key)
         # A full pool evicts its oldest background session first, and the
         # registry's own eviction kills it on the calling thread. This runs
@@ -2743,7 +2736,7 @@ def _fleet_realign(reports: Sequence[Any]) -> dict[str, Any] | None:
     server finished realigning afterwards. Ordering by time alone would let that
     newer ``done`` hide the toggle that has not taken effect.
     """
-    blocks = [
+    blocks: list[dict[str, Any]] = [
         block
         for block in (report.last_posture_realign for report in reports)
         if isinstance(block, dict)
@@ -2751,7 +2744,8 @@ def _fleet_realign(reports: Sequence[Any]) -> dict[str, Any] | None:
     if not blocks:
         return None
     pending = [block for block in blocks if block.get("state") == REALIGN_PENDING]
-    return dict(max(pending or blocks, key=lambda block: _stamp_epoch(block.get("at"))))
+    latest = max(pending or blocks, key=lambda block: _stamp_epoch(block.get("at")))
+    return dict(latest)
 
 
 def _execution_rows() -> list[dict[str, Any]]:

@@ -21,6 +21,7 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("doocs_archiver_connector")
@@ -63,11 +64,22 @@ class DOOCSArchiverConnector(ArchiverConnector):
             config: Configuration with optional keys:
                 - avg_window: Centered moving-average window in seconds
                   (default: None, no smoothing)
-                - timeout: Default request timeout in seconds (default: 60)
+                - timeout_s: Default request timeout in seconds (default: 60)
 
         Raises:
+            ValueError: If the block names ``auth``, ``tls`` or a flat ``timeout``
             ImportError: If doocs4py is not installed
         """
+        connection = read_connection_settings(
+            config,
+            where="archiver.settings",
+            logins=frozenset(),
+            tls=False,
+            unsupported_because=(
+                "the DOOCS archiver reaches the ENS through doocs4py, which takes no "
+                "login and no CA"
+            ),
+        )
         # Import doocs4py here and give clear error if not installed
         try:
             import doocs4py
@@ -90,7 +102,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             raise Exception("DOOCS archiver connector failed to connect to the ENS.") from None
 
         self._avg_window = config.get("avg_window", None)
-        self._timeout = config.get("timeout", 60)
+        self._timeout = connection.timeout_or(60)
 
         self._connected = True
         logger.debug("DOOCS archiver connector initialized")
@@ -159,7 +171,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 if hist_data_dict is None:
                     raise RuntimeError(f"DOOCS archiver connector: Cannot read history for {add}")
                 timestamps = pd.to_datetime(hist_data_dict.get("time", []), unit="s", utc=True)
-                values = hist_data_dict.get("data", [])
+                values: np.ndarray | list[float] = hist_data_dict.get("data", [])
                 data[add] = pd.Series(values, index=timestamps, name=add)
             return data
 

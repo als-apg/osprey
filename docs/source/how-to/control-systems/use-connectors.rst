@@ -188,13 +188,20 @@ Pick a control system
       :sync: doocs
 
       DOOCS (DESY, European XFEL). Channel addresses are DOOCS properties
-      (``FACILITY/DEVICE/LOCATION/PROPERTY``), and the connector needs no
-      options -- it reads its environment from the DOOCS installation:
+      (``FACILITY/DEVICE/LOCATION/PROPERTY``). The ENS comes from the DOOCS
+      installation's environment, and the block takes one option:
 
       .. code-block:: yaml
 
          control_system:
            type: doocs
+           connector:
+             doocs:
+               timeout_s: 5.0   # optional; seconds per ENS lookup, read or set
+
+      A read that does not answer within ``timeout_s`` (or the call's own
+      timeout) raises ``TimeoutError``. A set that does not return within it
+      is reported ``unconfirmed``, because the value may still arrive.
 
       The connector requires ``doocs4py``, which the DOOCS environment
       provides rather than PyPI. The import is deferred to ``connect()``, so
@@ -229,6 +236,10 @@ Pick a control system
              tango:
                tango_host: db.facility.edu:10000   # optional; default TANGO_HOST
                timeout: 5.0                        # seconds per device call
+
+      A read or write given no timeout of its own is bounded by ``timeout``
+      too, with the same answers as DOOCS: a read that runs out raises
+      ``TimeoutError``, and a write that runs out is reported ``unconfirmed``.
 
       Only **attributes** are exposed. TANGO *commands* (``command_inout``)
       carry arbitrary payloads the limits database cannot bound, so they have
@@ -310,13 +321,32 @@ independently of the control system:
            type: epics_archiver
            settings:
              url: https://archiver.facility.edu:8443   # required
-             timeout: 60                                # seconds, default 60
+             timeout_s: 60                              # seconds, default 60
              retrieval_path: /retrieval                 # default; a reverse proxy may rename it
+             # auth:                                    # only when a proxy asks for a login
+             #   token_env: OSPREY_ARCHIVER_TOKEN       # the variable that holds the token
+             # tls:                                     # only for a CA the image does not trust
+             #   ca_bundle: /etc/ssl/certs/site-ca.pem  # absolute path of the CA file
 
       ``url`` is the appliance's root (or the reverse proxy's). The connector
       reads through the appliance's retrieval servlet, mounted at ``/retrieval``
       on a bare appliance; when a proxy in front of the appliance publishes that
       servlet under a different prefix, name the prefix with ``retrieval_path``.
+
+      ``auth:`` takes ``token_env`` (sent as a bearer token), or ``username``
+      and ``password_env`` (sent as HTTP Basic). Each ``*_env`` names an
+      environment variable that is read when the connector connects; the
+      connector refuses to start while it is unset. The login goes only to the
+      host ``url`` names, never to a host a redirect names. ``tls.ca_bundle`` is
+      an absolute path to the CA file the appliance's certificate is checked
+      against; a ``~`` path is refused, because each process would expand it
+      against its own home. It replaces the trust store for this appliance. When
+      it is unset the image's trust store, which ``images.site_ca`` extends,
+      applies. No setting turns certificate checking off. The build mounts the
+      named file read-only at the same path into every web terminal and dispatch
+      worker, so the same key works in a container; the file must be on the
+      deploy host when ``osprey build`` runs. ``images.site_ca`` remains the way
+      to add a CA to every image.
 
    .. tab-item:: DOOCS
       :sync: doocs
@@ -329,7 +359,7 @@ independently of the control system:
          archiver:
            type: doocs_archiver
            settings:
-             avg_window: 20    # optional moving average, in samples
+             avg_window: 20    # optional centered moving average, in seconds
 
    .. tab-item:: MongoDB
       :sync: mongodb
@@ -346,9 +376,51 @@ independently of the control system:
              port: 27017
              name: archiver_db
              collection: pv_data
-             auth: admin
-             username: readonly
-             password_env: MONGODB_READONLY_PASSWORD
+             auth:
+               source: admin
+               username: readonly
+               password_env: MONGODB_READONLY_PASSWORD
+             timeout_s: 60     # seconds, default 60
+
+      The password is only ever named, never written: ``auth.password_env`` is
+      the environment variable that holds it. ``auth.source`` is the database
+      the user is defined in.
+
+      A store behind TLS, in a replica set or behind x509 is named by ``url``, a
+      MongoDB connection string, in place of ``host`` and ``port``:
+
+      .. code-block:: yaml
+
+         archiver:
+           type: mongodb_archiver
+           settings:
+             url: mongodb+srv://your-cluster.example.com/?tls=true
+             name: archiver_db
+             collection: pv_data
+             auth:                # optional with a url
+               source: admin
+               username: readonly
+               password_env: MONGODB_READONLY_PASSWORD
+             tls:                 # only for a CA the image does not trust
+               ca_bundle: /etc/ssl/certs/site-ca.pem
+
+      The url wins over ``host``, ``port`` and the ``OSPREY_ARCHIVER_MONGODB_*``
+      address overrides. It may not carry a user, a password or a key-file
+      password, nor an option the block has its own key for (``authSource``,
+      ``tlsCAFile``, ``serverSelectionTimeoutMS``), nor one that turns
+      certificate verification off (``tlsInsecure``,
+      ``tlsAllowInvalidCertificates``, ``tlsAllowInvalidHostnames``). The
+      recorder and the archive rewrite never write to a store named by url.
+
+      ``tls.ca_bundle`` is an absolute path to the CA file the store's
+      certificate is checked against; a ``~`` path is refused, because each
+      process would expand it against its own home. Without it, a ``tls=true``
+      url uses the image's trust store. No setting turns certificate checking
+      off. The build mounts the named file read-only at the same path into every
+      web terminal and dispatch worker, and into the archive recorder, so the
+      same key works in a container; the file must be on the deploy host when
+      ``osprey build`` runs. ``images.site_ca`` remains the way to add a CA to
+      every image.
 
       Documents in the collection are expected to have a ``date`` field
       (``ISODate``) and one or more PV names as top-level fields:
@@ -384,8 +456,12 @@ independently of the control system:
            settings:
              myquery_server: myquery.facility.edu
              deployment: ops        # MYA deployment to query
-             timeout: 60            # seconds per request
+             timeout_s: 60          # seconds per request
              timezone: America/New_York   # default: system.timezone
+
+      MYA takes no ``auth:`` or ``tls:``: its client sends every request
+      itself, so the connector refuses both rather than ignore them. A site CA
+      reaches it through ``images.site_ca``.
 
       ``timezone`` spells a UTC query window in the server's own local time,
       which is the one place myquery has no offset to read. It does not affect
@@ -435,6 +511,11 @@ In a profile's ``config:`` block that is ``archiver.settings.server:
 history.facility.edu``. The block is handed to the connector's ``connect()``
 whole. Any other block under ``archiver:`` is one no archiver reads, and
 ``osprey build`` stops and names it.
+
+Every archiver that reaches a service by address spells its request bound
+``timeout_s``, and a login and a CA as ``auth:`` and ``tls:`` above. A flat
+``timeout``, ``token_env``, ``username``, ``password_env`` or ``ca_bundle`` is
+refused with the nested key it moved to.
 
 Contracts and Custom Connectors
 -------------------------------

@@ -199,15 +199,75 @@ async def test_connect_keeps_the_library_defaults_when_nothing_is_named():
 
 @pytest.mark.asyncio
 async def test_an_explicitly_empty_timeout_still_bounds_the_wait():
-    """`timeout:` left blank in YAML is None, which wait_for treats as forever."""
+    """`timeout_s:` left blank in YAML is None, which wait_for treats as forever."""
     settings = _FakeLibraryConfig()
     connector = MYAArchiverConnector()
 
     with patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(settings)}):
-        await connector.connect({"timeout": None, "deployment": None})
+        await connector.connect({"timeout_s": None, "deployment": None})
 
     assert connector._timeout == 60
     assert connector._deployment == "ops"
+
+
+@pytest.mark.asyncio
+async def test_timeout_s_sets_the_wait():
+    connector = MYAArchiverConnector()
+
+    with patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}):
+        await connector.connect({"timeout_s": 15})
+
+    assert connector._timeout == 15
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "auth",
+    [{"token_env": "ARCHIVER_TOKEN"}, {"username": "u", "password_env": "ARCHIVER_PASSWORD"}],
+    ids=["token", "password"],
+)
+async def test_a_login_is_refused_by_name(auth):
+    connector = MYAArchiverConnector()
+
+    with (
+        patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}),
+        pytest.raises(ValueError, match=r"`archiver\.settings\.auth`.*jlab-archiver-client"),
+    ):
+        await connector.connect({"auth": auth})
+    assert connector._connected is False
+
+
+@pytest.mark.asyncio
+async def test_a_ca_bundle_is_refused_by_name():
+    connector = MYAArchiverConnector()
+
+    with (
+        patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}),
+        pytest.raises(ValueError, match=r"`archiver\.settings\.tls`.*jlab-archiver-client"),
+    ):
+        await connector.connect({"tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}})
+
+
+@pytest.mark.asyncio
+async def test_the_refusal_needs_no_client_library():
+    connector = MYAArchiverConnector()
+
+    with (
+        patch.dict(sys.modules, {"jlab_archiver_client": None}),
+        pytest.raises(ValueError, match=r"`archiver\.settings\.auth`"),
+    ):
+        await connector.connect({"auth": {"token_env": "ARCHIVER_TOKEN"}})
+
+
+@pytest.mark.asyncio
+async def test_a_flat_timeout_is_refused_naming_timeout_s():
+    connector = MYAArchiverConnector()
+
+    with (
+        patch.dict(sys.modules, {"jlab_archiver_client": _fake_module(_FakeLibraryConfig())}),
+        pytest.raises(ValueError, match=r"`archiver\.settings\.timeout_s`"),
+    ):
+        await connector.connect({"timeout": 60})
 
 
 # --------------------------------------------------------------------------------------

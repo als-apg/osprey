@@ -146,7 +146,7 @@ class _HierarchicalPreviewMixin(_HierarchicalQueryMixin):
         level_config = self.hierarchy_config["levels"].get(level_name, {}) if level_name else {}
         level_type = level_config.get("type", "tree")
 
-        if level_type == "instances":
+        if level_type == "instances" and level_name is not None:
             # Find the instance container
             for key, value in node.items():
                 if key.upper() == level_name.upper() and isinstance(value, dict):

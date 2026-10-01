@@ -13,6 +13,7 @@ import pytest
 
 from osprey.mcp_server.ariel import server
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
+from osprey.services.ariel_search.models import DEFAULT_LISTING_TEXT_CHARS
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 
 # A generic template; each deployment supplies its own in configuration.
@@ -130,21 +131,25 @@ def _entry(entry_id="e1", source_system="Facility eLog"):
 def test_serialize_entry_includes_entry_url_when_configured():
     """FR2: serialize_entry carries entry_url for a facility entry."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        result = server.serialize_entry(_entry(entry_id="175353"))
+        result = server.serialize_entry(
+            _entry(entry_id="175353"), text_limit=DEFAULT_LISTING_TEXT_CHARS
+        )
     assert result["entry_url"] == "https://logbook.example/olog.php?id=175353"
 
 
 def test_serialize_entry_omits_entry_url_when_unset():
     """FR3: no template -> no entry_url key at all."""
     with patch("osprey.utils.config.get_config_value", _fake_config(None)):
-        result = server.serialize_entry(_entry())
+        result = server.serialize_entry(_entry(), text_limit=DEFAULT_LISTING_TEXT_CHARS)
     assert "entry_url" not in result
 
 
 def test_serialize_entry_omits_entry_url_for_native():
     """FR7: an ARIEL-native entry carries no entry_url even when configured."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
-        result = server.serialize_entry(_entry(source_system="ARIEL MCP"))
+        result = server.serialize_entry(
+            _entry(source_system="ARIEL MCP"), text_limit=DEFAULT_LISTING_TEXT_CHARS
+        )
     assert "entry_url" not in result
 
 

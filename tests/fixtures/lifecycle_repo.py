@@ -178,7 +178,7 @@ hooks:
   - writes-check      # Kill switch: refuse every write while writes_enabled is false
   - limits            # Enforce per-channel min/max limits before writes
   - error-guidance    # Post-error hook that surfaces remediation hints
-  - memory-guard      # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
   - config-drift      # Warn at session start when the build is out of date
@@ -367,9 +367,9 @@ config:
   # saying those gateways really are this facility's — and it still refuses
   # while this deployment records its own archive from the stand-in, because
   # that store's history is the stand-in's (see `va_archiver:` above).
-  # `osprey set connector=epics` makes your facility's machine the session
-  # baseline, in place of the simulator — together with
-  # `osprey set config.archiver.type=epics_archiver` and
+  # `osprey set connector=<type>` ("epics", "doocs" or "tango") makes your
+  # facility's machine the session baseline in place of the simulator, with
+  # `osprey set config.archiver.type=<the archiver that records it>` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: virtual_accelerator
   # Master write switch, the FIRST guard in the write-safety chain: while
@@ -507,8 +507,10 @@ config:
   # control_system.connector.epics.pva_gateway.use_name_server: false
   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
   # facility's own DOOCS environment already names, so the empty coordinate set
-  # is the point of this block rather than an omission — what is left is the
-  # four leaves every connector type answers.
+  # is the point of this block rather than an omission — what is left is how
+  # long a call is given and the four leaves every connector type answers.
+  # Seconds an ENS lookup, a property read or a property set is given.
+  # control_system.connector.doocs.timeout_s: 5.0
   # Write posture for the DOOCS machine. Same tri-state as the epics leaf
   # above: stating it pins it, and only a literal true arms writes.
   # control_system.connector.doocs.writes_enabled: false
@@ -536,6 +538,9 @@ config:
   # Seconds in-flight operations get to finish on the old target before it is
   # torn down regardless.
   control_system.target_switch.drain_timeout_s: 5
+  # Seconds a newly started connection gets to read the target's probe_channel
+  # before the switch is refused and the old target kept.
+  control_system.target_switch.probe_timeout_s: 5
   # Seconds between background reachability probes of every target's gateways.
   control_system.target_switch.probe_interval_s: 30
   # Operator acknowledgment for the live machine: set it to your own live
@@ -565,10 +570,19 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.type: epics_archiver
   # archiver.settings.url: https://your-archiver.example.com:8443
-  # archiver.settings.timeout: 60
+  # archiver.settings.timeout_s: 60
   # Only when a reverse proxy in front of the appliance publishes its
   # `/retrieval` servlet under another prefix; the bare appliance needs no line.
   # archiver.settings.retrieval_path: /retrieval
+  # Only when a proxy in front of the appliance asks for a login: a bearer
+  # token, OR a user and password. Each names the environment variable that
+  # holds the secret; the secret itself never goes in this file.
+  # archiver.settings.auth.token_env: OSPREY_ARCHIVER_TOKEN
+  # archiver.settings.auth.username: your-archiver-user
+  # archiver.settings.auth.password_env: OSPREY_ARCHIVER_PASSWORD
+  # Only when the appliance's certificate is signed by a CA the image does
+  # not trust. An absolute path; it replaces the trust store for this host.
+  # archiver.settings.tls.ca_bundle: /etc/ssl/certs/your-site-ca.pem
   # MongoDB archiver pointed at a store this deployment does NOT run. The
   # coordinates above are derived from `va_archiver:`; spell them here instead
   # to read an archive someone else keeps, and drop the `va_archiver:` block so
@@ -576,28 +590,32 @@ config:
   # archiver.type: mongodb_archiver
   # archiver.settings.host: your-mongo.example.com
   # archiver.settings.port: 27017
+  # Or name the store by a connection string instead of host and port:
+  # archiver.settings.url: mongodb+srv://your-cluster.example.com/?tls=true
   # archiver.settings.name: your-archive-database
   # archiver.settings.collection: your-archive-collection
-  # archiver.settings.auth: your-auth-database
-  # archiver.settings.username: your-readonly-user
-  # archiver.settings.password_env: OSPREY_ARCHIVER_PASSWORD
-  # archiver.settings.timeout: 60
+  # archiver.settings.auth.source: your-auth-database
+  # archiver.settings.auth.username: your-readonly-user
+  # archiver.settings.auth.password_env: OSPREY_ARCHIVER_PASSWORD
+  # archiver.settings.timeout_s: 60
+  # archiver.settings.tls.ca_bundle: /etc/ssl/certs/your-site-ca.pem
   # DOOCS local history: like the DOOCS connector it takes no coordinates and
   # reaches the ENS the environment names. Both knobs are optional — a centered
   # moving average over this many seconds, and the read budget.
   # archiver.type: doocs_archiver
   # archiver.settings.avg_window: 20
-  # archiver.settings.timeout: 60
+  # archiver.settings.timeout_s: 60
 
   # MYA, read over the myquery HTTP service: every key is optional, because the
   # client library carries its own server and protocol. A deployment inside the
   # facility's network needs only `archiver.type: mya_archiver`, plus
   # `jlab-archiver-client>=4.0.1` in its top-level `dependencies:`.
+  # Its client sends no login and no per-connection CA, so auth/tls are refused.
   # archiver.type: mya_archiver
   # archiver.settings.myquery_server: your-myquery.example.com
   # archiver.settings.protocol: https
   # archiver.settings.deployment: ops
-  # archiver.settings.timeout: 60
+  # archiver.settings.timeout_s: 60
   # The zone myquery reads query bounds in -- samples carry their own instant.
   # archiver.settings.timezone: America/New_York
 
@@ -707,6 +725,9 @@ config:
   # `ariel.ingestion.ca_bundle` when it is not in the image trust store, and
   # keep `ariel.ingestion.verify_ssl: false` for a certificate that cannot be
   # verified at all.
+  # Links from the agent's answers to each entry's page in your logbook: one
+  # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
+  # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -722,6 +743,11 @@ config:
   # the same Postgres the logbook lives in, so this number is a storage
   # decision in both directions.
   # ariel.attachments.max_file_mb: 10
+  # How much of each entry's text the agent sees: search and browse results
+  # carry the first `listing_chars`, `entries_by_ids` the first `read_chars`,
+  # and `entry_get` the whole entry. A cut entry says so and gives its length.
+  # ariel.entry_text.listing_chars: 500
+  # ariel.entry_text.read_chars: 1000
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
@@ -766,6 +792,10 @@ config:
   # use the index scans the whole logbook; this returns a timeout diagnostic
   # instead of holding the panel open.
   ariel.search_modules.keyword.settings.pattern_timeout_seconds: 10.0
+  # Lowest trigram similarity, 0 to 1, a row needs to come back from the
+  # fallback a keyword search runs when nothing matches exactly. Lower accepts
+  # looser spellings.
+  ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3
   # Semantic search over pgvector embeddings. Degrades to keyword-only when
   # Ollama or pgvector is unavailable, and says so.
   ariel.search_modules.semantic.enabled: true
@@ -805,10 +835,13 @@ config:
   # pgvector is unavailable.
   ariel.enhancement_modules.text_embedding.enabled: true
   ariel.enhancement_modules.text_embedding.provider: ollama
-  # Embedding models and their vector dimension.
+  # Embedding models, their vector dimension, and the input window the server
+  # applies to each, in tokens. Ollama serves nomic-embed-text with a 2048-token
+  # window; a longer entry is cut so its start is embedded.
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
+      max_input_tokens: 2048
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.
@@ -889,10 +922,18 @@ config:
   # http/protobuf | grpc. grpc needs an explicit `claude_code.telemetry.endpoint`
   # and is refused against the auto-derived openobserve endpoint (HTTP only).
   claude_code.telemetry.protocol: http/protobuf
+  # Signals to export, all three unless listed. Drop traces for a collector
+  # that takes no traces; built-in tool output rides traces and goes with them.
+  # claude_code.telemetry.signals: [metrics, logs]
   # No endpoint key: with backend openobserve it is derived per network
   # context (the host's OpenObserve slot, or the store's own listen port
   # inside the deploy network), so the in-container dispatch worker does not
   # emit to its own loopback.
+  # For a collector this deployment does not run, name it and the variable
+  # holding its bearer token; the variable goes in this repo's .env.
+  # claude_code.telemetry.backend: generic
+  # claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
+  # claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
   # The store's INGEST account: `osprey up` creates a service account named by
   # ZO_INGEST_USER_EMAIL and writes the token it issues to this repo's .env as
   # ZO_INGEST_SA_TOKEN. No default for the token on purpose: a literal default
@@ -1167,6 +1208,11 @@ config:
   # applies from the "+" popover are the `panel_presets:` field, not a key.
   # web.allow_runtime_panels: true
   # web.runtime_panel_allowlist: ["grafana.local:3000"]
+  # How long the terminal waits, at startup, for a panel that runs its own
+  # server (the JUPYTER tab) to answer before it greys that tab. The terminal
+  # starts serving once the panel answers or the wait passes. Raise it on a
+  # host where the first start is slow.
+  # web.sidecar_ready_timeout_s: 60
 
   # ── Multi-user web terminals ───────────────────────────────────────────────
   # `osprey up` runs a landing page and one terminal per user listed below.
@@ -1198,7 +1244,7 @@ config:
     # Browsers reach the landing page's nginx directly here, so the address
     # they open is deploy.fqdn plus that port — and that is the address every
     # terminal checks an action against. Put something in front of this nginx
-    # (a load balancer terminating TLS, a reverse proxy, a DNS alias) and add
+    # (a load balancer terminating TLS, a reverse proxy) and add
     # `external_origin: https://<what browsers open>` here, or every action
     # inside a terminal is refused while every page still loads.
     # To override one port rather than move the block, name it here:
@@ -1212,6 +1258,12 @@ config:
       # How long a browser stays signed in, in whole seconds. Applies to every
       # terminal here and to `osprey web`; 43200 is twelve hours.
       session_lifetime: 43200
+      # Failed password logins are slowed per user, never locked out (defaults):
+      # throttle:
+      #   initial_delay_s: 1.0     # first wait after a wrong password
+      #   multiplier: 2.0          # each further failure multiplies it
+      #   max_delay_s: 30.0        # the wait never exceeds this
+      #   forget_after_s: 300.0    # quiet this long and it starts over
       # Accepts login over plain HTTP, which fits 127.0.0.1 and nothing else.
       # For any reachable host, delete this line and configure tls instead.
       allow_insecure_http: true
@@ -1257,6 +1309,10 @@ config:
         # So the page reads people first, services after.
         - type: users
           label: Users
+          # `names: hidden` swaps the name cards in this section for one "Log in
+          # to your terminal" button, so the page lists nobody. It needs the
+          # login wall above (auth.method password or oidc).
+          # names: shown
     users:
       # One web terminal per entry. `index` pins that user's ports, `persona`
       # picks their permissions from the list below, and `display_name` becomes
@@ -1326,6 +1382,13 @@ config:
         project_path: build/als-exemplar-knowledge
         build_profile: personas/knowledge.yml
         landing_group: Standalone deployments
+
+  # ── Health checks ──────────────────────────────────────────────────────────
+  # `osprey health` warns when the disk holding this deployment has less than
+  # min_free_gb free or is at least max_used_percent full. Raise both on a
+  # large shared volume that runs full by design.
+  # health.disk.min_free_gb: 1.0
+  # health.disk.max_used_percent: 90
 
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.
@@ -1516,7 +1579,8 @@ panel_presets: {}
 # The Azure credentials and destinations are runtime env, not profile keys:
 # declare TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID,
 # TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE under
-# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud).
+# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud, and
+# TEAMS_FILES_DRIVE_ID / TEAMS_FILES_FOLDER to share files).
 #
 # teams_bridge:
 #   trigger: teams-question
@@ -2589,14 +2653,20 @@ VERIFY_SH = """\
 # osprey-version: @OSPREY_VERSION@
 #
 # Emitted by `osprey scaffold ci` into the repo's scripts/ directory. `osprey
-# up` runs it automatically once the containers are up; you can also run it by
-# hand from anywhere in the repo:
+# up` runs it automatically, without --strict, once the containers are up; you
+# can also run it by hand from anywhere in the repo:
 #
-#   ./scripts/verify.sh                    # every probe
-#   ./scripts/verify.sh services           # one group
+#   ./scripts/verify.sh                    # every group
+#   ./scripts/verify.sh containers         # one group
+#   ./scripts/verify.sh --strict           # exit 1 if anything is flagged
 #
-# ALWAYS exits 0. Verification is advisory: a failed probe tells an operator
-# where to look, and must never be the reason a deploy is reported as failed.
+# Exits 0 unless run with --strict. A container that is not running or not
+# healthy, and a probe that gets no answer, is flagged: it tells an operator
+# where to look, and is never by itself the reason a deploy is reported as
+# failed. --strict exits 1 when anything is flagged, for a job that should fail
+# on it. A group or option the script does not have exits 2.
+#
+# Needs curl, and python3 to read the container runtime's JSON.
 #
 # No `set -e`: one probe timing out must not skip the ones after it.
 # =============================================================================
@@ -2604,9 +2674,26 @@ set -uo pipefail
 
 GREEN=$'\\033[32m'; RED=$'\\033[31m'; DIM=$'\\033[90m'; BOLD=$'\\033[1m'; RESET=$'\\033[0m'
 
-# Probe groups, selectable as arguments. Default is all of them. Not named
-# GROUPS: bash owns that name, and assigning to it silently does nothing.
-PROBE_GROUPS="${*:-services web dispatch}"
+# Arguments: group names select groups (default: all of them), and --strict
+# turns anything flagged into exit 1. The selection is not named GROUPS: bash
+# owns that name, and assigning to it silently does nothing.
+STRICT=0
+SELECTED=""
+for arg in "$@"; do
+  case "$arg" in
+    --strict) STRICT=1 ;;
+    containers|services|web|dispatch) SELECTED="${SELECTED:+$SELECTED }$arg" ;;
+    *)
+      printf '%s: no group or option %s (groups: %s; option: --strict)\\n' \\
+        "$0" "$arg" "containers services web dispatch" >&2
+      exit 2
+      ;;
+  esac
+done
+PROBE_GROUPS="${SELECTED:-containers services web dispatch}"
+
+# Everything flagged below, counted for the summary and for --strict.
+FLAGGED=0
 
 # An HTTP endpoint that answers. Used for anything speaking HTTP.
 probe_http() {
@@ -2615,6 +2702,7 @@ probe_http() {
     printf '  %s✓%s %s\\n' "$GREEN" "$RESET" "$label"
   else
     printf '  %s✗%s %s — no response from %s\\n' "$RED" "$RESET" "$label" "$url"
+    FLAGGED=$((FLAGGED + 1))
   fi
 }
 
@@ -2627,10 +2715,132 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
     printf '  %s✓%s %s\\n' "$GREEN" "$RESET" "$label"
   else
     printf '  %s✗%s %s — nothing listening on %s:%s\\n' "$RED" "$RESET" "$label" "$host" "$port"
+    FLAGGED=$((FLAGGED + 1))
   fi
 }
 
+# The repo root: this script sits in scripts/ directly under it.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# This deployment's compose project, named the way `osprey up` names it:
+# COMPOSE_PROJECT_NAME when the caller pins it, else the repo directory's name
+# in compose's alphabet — lower case, [a-z0-9_-], no leading or trailing _ or -.
+compose_project() {
+  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    printf '%s' "$COMPOSE_PROJECT_NAME"
+    return
+  fi
+  local name
+  name="$(basename "$REPO_ROOT" | LC_ALL=C tr '[:upper:]' '[:lower:]' \\
+    | LC_ALL=C tr -cd 'a-z0-9_-' | sed -e 's/^[-_]*//' -e 's/[-_]*$//')"
+  printf '%s' "${name:-unnamed-project}"
+}
+
+# The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
+# build/config.yml, then docker before podman — the first whose compose
+# and daemon both answer.
+container_runtime() {
+  local pinned="${CONTAINER_RUNTIME:-}" runtime
+  if [ -z "$pinned" ] && [ -f "$REPO_ROOT/build/config.yml" ]; then
+    pinned="$(sed -n "s/^container_runtime:[[:space:]]*[\\"']\\{0,1\\}\\([A-Za-z]*\\).*/\\1/p" \\
+      "$REPO_ROOT/build/config.yml")"
+  fi
+  case "$(printf '%s' "$pinned" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in
+    docker) printf docker; return ;;
+    podman) printf podman; return ;;
+  esac
+  for runtime in docker podman; do
+    if command -v "$runtime" >/dev/null 2>&1 \\
+      && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
+      printf '%s' "$runtime"
+      return
+    fi
+  done
+}
+
+# Every container of the project as JSON, stopped ones included. podman-compose's
+# own `ps` prints no JSON; it lists by the same compose project label.
+list_containers() {
+  local runtime="$1" project="$2"
+  if [ "$runtime" = podman ]; then
+    podman ps -a --filter "label=com.docker.compose.project=$project" --format json
+  else
+    docker compose -p "$project" ps -a --format json
+  fi
+}
+
+# `ps --format json` on stdin, as one array or one object per line, out as one
+# "name<TAB>state<TAB>health" line per container, sorted by name. Health is
+# the healthcheck's verdict, from the Health field or else the status text,
+# and empty for a container that declares none.
+PS_ROWS='
+import json, sys
+text = sys.stdin.read().strip()
+try:
+    data = json.loads(text) if text else []
+except ValueError:
+    data = [json.loads(line) for line in text.splitlines() if line.strip()]
+rows = []
+for row in data if isinstance(data, list) else [data]:
+    names = row.get("Name") or row.get("Names") or "?"
+    name = names[0] if isinstance(names, list) else str(names).split(",")[0]
+    state = str(row.get("State") or "unknown").lower()
+    if state == "exited" and row.get("ExitCode") is not None:
+        state = "exited (%s)" % row["ExitCode"]
+    health = str(row.get("Health") or "").lower()
+    if not health:
+        status = str(row.get("Status") or "").lower()
+        health = next((t for t in ("unhealthy", "healthy", "starting") if t in status), "")
+    rows.append((name, state, health))
+for row in sorted(rows):
+    print("\\t".join(row))
+'
+
+# One line per container; a container not running, or running unhealthy, is
+# flagged. The loop reads a here-string, not a pipe, so the count survives it.
+check_containers() {
+  local runtime project listing rows name state health
+  runtime="$(container_runtime)"
+  if [ -z "$runtime" ]; then
+    printf '  %s✗%s no container runtime answers (docker, podman)\\n' "$RED" "$RESET"
+    FLAGGED=$((FLAGGED + 1))
+    return
+  fi
+  project="$(compose_project)"
+  if ! listing="$(list_containers "$runtime" "$project")" \\
+    || ! rows="$(printf '%s' "$listing" | python3 -c "$PS_ROWS")"; then
+    printf '  %s✗%s could not list project %s with %s\\n' "$RED" "$RESET" "$project" "$runtime"
+    FLAGGED=$((FLAGGED + 1))
+    return
+  fi
+  if [ -z "$rows" ]; then
+    printf '  %s✗%s project %s has no containers\\n' "$RED" "$RESET" "$project"
+    FLAGGED=$((FLAGGED + 1))
+    return
+  fi
+  while IFS=$'\\t' read -r name state health; do
+    if [ "$state" != running ]; then
+      printf '  %s✗%s %s — %s\\n' "$RED" "$RESET" "$name" "$state"
+      FLAGGED=$((FLAGGED + 1))
+    elif [ "$health" = unhealthy ]; then
+      printf '  %s✗%s %s — running but unhealthy\\n' "$RED" "$RESET" "$name"
+      FLAGGED=$((FLAGGED + 1))
+    elif [ "$health" = starting ]; then
+      printf '  %s…%s %s — healthcheck still starting\\n' "$DIM" "$RESET" "$name"
+    else
+      printf '  %s✓%s %s\\n' "$GREEN" "$RESET" "$name"
+    fi
+  done <<< "$rows"
+}
+
 wants() { case " $PROBE_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# ── Containers ───────────────────────────────────────────────────────────────
+# Every container of this deployment's compose project, stopped ones included.
+if wants containers; then
+  printf '\\n%s── Containers ──%s\\n\\n' "$BOLD" "$RESET"
+  check_containers
+fi
 
 # ── Deployed services ────────────────────────────────────────────────────────
 if wants services; then
@@ -2660,8 +2870,15 @@ if wants dispatch; then
   probe_http 'dispatcher health' http://localhost:10010/health
 fi
 
-printf '\\n%sProbes are advisory — a failure here does not mean the deploy failed.%s\\n\\n' \\
-  "$DIM" "$RESET"
+if [ "$FLAGGED" -eq 0 ]; then
+  printf '\\n%sNothing flagged.%s\\n\\n' "$DIM" "$RESET"
+elif [ "$STRICT" -eq 1 ]; then
+  printf '\\n%s%s flagged. Exit 1: --strict.%s\\n\\n' "$RED" "$FLAGGED" "$RESET"
+  exit 1
+else
+  printf '\\n%s%s flagged. Advisory: the deploy did not fail on it.%s\\n\\n' \\
+    "$DIM" "$FLAGGED" "$RESET"
+fi
 exit 0
 """
 
@@ -2690,7 +2907,7 @@ data/
 ├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
 ├── channel_limits.json                   # per-channel write limits
 ├── facility_ontology.json                # device vocabulary (facility.ontology)
-├── machine_state_channels.json           # channels in the machine-state view
+├── machine_state_channels.json           # address list reconciled against the VA manifest
 ├── facility_knowledge/                   # markdown knowledge bundle
 └── simulation/                           # mock-connector scenarios
 ```
@@ -2848,7 +3065,7 @@ CHANNEL_LIMITS_JSON = """\
 
 MACHINE_STATE_CHANNELS_JSON = """\
 {
-  "_comment": "Channels shown in the machine-state view. One canonical list regardless of channel-finder mode.",
+  "_comment": "Machine-state addresses, reconciled against the VA manifest at build time; only the keys are read. One canonical list regardless of channel-finder mode.",
   "_version": "2.0",
 
   "SR:DIAG:DCCT:01:CURRENT:RB": { "label": "Beam current (DCCT)", "group": "beam" },

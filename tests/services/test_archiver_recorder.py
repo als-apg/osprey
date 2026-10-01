@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -55,10 +56,10 @@ def _settings(**overrides) -> RecorderSettings:
         "port": 27017,
         "database": "osprey_archiver",
         "collection": "pv_history",
-        "auth_database": "admin",
+        "auth_source": "admin",
         "username": "osprey",
         "password_env": "MONGO_ROOT_PASSWORD",
-        "timeout_sec": 5,
+        "timeout_s": 5,
         "cadence_sec": 10,
         "tail_cadence_sec": 60,
         "poll_sec": 30,
@@ -106,10 +107,12 @@ def _write_config(
                 "port": 27017,
                 "name": "osprey_archiver",
                 "collection": "pv_history",
-                "auth": "admin",
-                "username": "osprey",
-                "password_env": "MONGO_ROOT_PASSWORD",
-                "timeout": 5,
+                "auth": {
+                    "source": "admin",
+                    "username": "osprey",
+                    "password_env": "MONGO_ROOT_PASSWORD",
+                },
+                "timeout_s": 5,
             }
         },
         "va_archiver": {
@@ -185,6 +188,39 @@ def test_in_network_host_and_port_override_the_file(
     settings = load_settings(_write_config(tmp_path / "config.yml"))
 
     assert (settings.host, settings.port) == ("archiver-mongodb", 27017)
+
+
+def test_settings_read_the_login_under_auth(tmp_path: Path) -> None:
+    settings = load_settings(_write_config(tmp_path / "config.yml"))
+
+    assert (settings.auth_source, settings.username, settings.password_env) == (
+        "admin",
+        "osprey",
+        "MONGO_ROOT_PASSWORD",
+    )
+
+
+@pytest.mark.parametrize("leaf", ["source", "username", "password_env"])
+def test_a_missing_login_key_is_an_error_naming_it(tmp_path: Path, leaf: str) -> None:
+    path = _write_config(tmp_path / "config.yml")
+    config = yaml.safe_load(path.read_text())
+    del config["archiver"]["mongodb_archiver"]["auth"][leaf]
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match=rf"archiver\.mongodb_archiver\.auth\.{leaf}"):
+        load_settings(path)
+
+
+def test_load_settings_refuses_a_url(tmp_path: Path) -> None:
+    """The recorder writes only to the store this deployment runs."""
+    path = _write_config(tmp_path / "config.yml")
+    config = yaml.safe_load(path.read_text())
+    del config["archiver"]["mongodb_archiver"]["host"]
+    config["archiver"]["mongodb_archiver"]["url"] = "mongodb://archive.example.org/"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match=r"archiver\.mongodb_archiver\.url"):
+        load_settings(path)
 
 
 @pytest.mark.parametrize(
@@ -750,13 +786,78 @@ def archive_collection(mongodb_container):  # noqa: F811
         database=mongodb_container["db_name"],
         collection="recorder_shape",
         username=mongodb_container["username"],
-        auth_database=mongodb_container["auth_db"],
+        auth_source=mongodb_container["auth_db"],
     )
     try:
         yield settings, collection, mongodb_container["password"]
     finally:
         collection.delete_many({})
         client.close()
+
+
+def test_archive_writer_builds_its_client_from_the_shared_function() -> None:
+    """A bundled store gets the same six-keyword client the agent's connector builds."""
+    from unittest.mock import patch
+
+    from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS
+
+    with patch("pymongo.MongoClient") as mock_client_cls:
+        ArchiveWriter(_settings(host="localhost", port=27100), "pw").connect()
+
+    assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
+
+def test_the_writer_passes_the_ca_bundle(tmp_path: Path) -> None:
+    """A site CA named under `tls:` reaches the recorder's client as its trust anchor."""
+    from unittest.mock import patch
+
+    from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS
+
+    path = _write_config(tmp_path / "config.yml")
+    config = yaml.safe_load(path.read_text())
+    config["archiver"]["mongodb_archiver"]["tls"] = {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    settings = load_settings(path)
+    assert settings.ca_bundle == "/etc/ssl/certs/site-ca.pem"
+
+    with patch("pymongo.MongoClient") as mock_client_cls:
+        ArchiveWriter(
+            _settings(host="localhost", port=27100, ca_bundle=settings.ca_bundle), "pw"
+        ).connect()
+
+    assert mock_client_cls.call_args.kwargs == {
+        **BUNDLED_CLIENT_KWARGS,
+        "tlsCAFile": "/etc/ssl/certs/site-ca.pem",
+    }
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        ssl.SSLError("no certificate"),
+        FileNotFoundError(2, "No such file or directory"),
+    ],
+)
+def test_an_unreadable_ca_bundle_is_a_connection_error_naming_it(raised) -> None:
+    """The CA file is read while the client is built, before any ping."""
+    from unittest.mock import patch
+
+    settings = _settings(host="localhost", port=27100, ca_bundle="/etc/ssl/certs/missing.pem")
+    with patch("pymongo.MongoClient", side_effect=raised):
+        with pytest.raises(ConnectionError, match=r"tls\.ca_bundle") as exc_info:
+            ArchiveWriter(settings, "pw").connect()
+
+    assert exc_info.value.__cause__ is raised
+
+
+def test_a_socket_failure_without_a_ca_bundle_is_a_connection_error() -> None:
+    from unittest.mock import patch
+
+    with patch("pymongo.MongoClient", side_effect=OSError("unreachable")):
+        with pytest.raises(ConnectionError, match="archive store") as exc_info:
+            ArchiveWriter(_settings(host="localhost", port=27100), "pw").connect()
+
+    assert "tls.ca_bundle" not in str(exc_info.value)
 
 
 def test_stored_documents_carry_the_shape_the_connector_reads(archive_collection) -> None:

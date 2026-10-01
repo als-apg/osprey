@@ -175,11 +175,11 @@ def _invoke_audit(
     with (
         patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True),
         patch("osprey.cli.audit_cmd.asyncio") as mock_asyncio,
-        # The fixture project names no provider, so the real builder refuses it;
-        # these contracts pin the streams, not the reviewer's wiring.
+        # The fixture project names no provider, so the real provider check
+        # refuses it; these contracts pin the streams, not the reviewer's wiring.
         patch(
-            "osprey.cli.audit_cmd._reviewer_options",
-            new=lambda project_dir, model, budget: object(),
+            "osprey.cli.audit_cmd._check_reviewer_provider",
+            new=lambda project_dir: None,
         ),
     ):
         mock_asyncio.run.side_effect = _run
@@ -417,48 +417,41 @@ def test_audit_verbose_keeps_the_reviewer_transcript_off_the_document(
 
     The one path that used to break the document rather than merely risk it:
     ``-v`` makes ``_run_audit`` echo every block the reviewer says, from inside
-    the agent loop where no ``if not json_output:`` guard reaches. The SDK
-    boundary is faked at ``query`` -- one assistant turn, then a result -- so
-    the real ``_run_audit`` does the echoing.
+    the agent loop where no ``if not json_output:`` guard reaches. The runner
+    boundary is faked at ``stream_query`` -- one text event, then a result --
+    so the real ``_run_audit`` does the echoing.
     """
-    # Imported here, not at module scope: the SDK is optional to ``audit_cmd``,
-    # and a missing one should cost this test alone rather than the whole file.
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ResultMessage,
-        TextBlock,
-    )
+    from osprey.agent_runner import ResultEvent, TextEvent
 
     project = _audit_project(tmp_path)
     transcript = "reading the permission block"
     answer = f"{transcript}\n{_audit_report().model_dump_json()}"
 
-    async def _query(**kwargs: Any):
-        yield AssistantMessage(content=[TextBlock(text=answer)], model="stub-model")
-        yield ResultMessage(
+    async def _stream(*args: Any, **kwargs: Any):
+        yield TextEvent(text=answer, parent_tool_use_id=None)
+        yield ResultEvent(
             subtype="success",
-            duration_ms=1,
-            duration_api_ms=1,
             is_error=False,
             num_turns=1,
-            session_id="stub-session",
+            duration_ms=1,
+            session_id="stub",
             total_cost_usd=0.01,
+            usage=None,
+            result=None,
+            api_error_status=None,
         )
 
     from osprey.cli.audit_cmd import audit
 
     with (
         patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True),
-        patch("osprey.cli.audit_cmd.query", new=_query),
-        # The real builder resolves the audited project's provider and refuses
-        # this fixture, which sets none; that wiring is TestReviewerProvider's,
-        # this test pins the streams.
+        patch("osprey.cli.audit_cmd.stream_query", new=_stream),
+        # The real provider check refuses this fixture, which names no
+        # provider; that wiring is TestReviewerProvider's, this test pins the
+        # streams.
         patch(
-            "osprey.cli.audit_cmd._reviewer_options",
-            new=lambda project_dir, model, budget: ClaudeAgentOptions(
-                model=model, cwd=str(project_dir)
-            ),
+            "osprey.cli.audit_cmd._check_reviewer_provider",
+            new=lambda project_dir: None,
         ),
     ):
         result = runner.invoke(audit, [str(project), "--json", "-v"])

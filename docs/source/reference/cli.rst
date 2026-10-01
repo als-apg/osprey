@@ -868,8 +868,11 @@ Options: ``--project PATH``, ``-v, --verbose``
    device numbering does not start at one.
 
 ``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
-   Validate a channel database JSON file. The paradigm is auto-detected from the
-   project's config; ``--pipeline`` overrides that.
+   Validate a channel database JSON file. ``--pipeline`` names the paradigm: the
+   file is read as that paradigm, and without ``--database`` it is the one at
+   ``channel_finder.pipelines.<pipeline>.database.path`` --- the command refuses,
+   naming that key, when it is unset. Without ``--pipeline`` the paradigm is
+   auto-detected from the project's config.
 
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
@@ -887,8 +890,10 @@ Options: ``--project PATH``, ``-v, --verbose``
    LiteLLM-form model id (e.g. ``anthropic/claude-haiku-4-5``). Saves per-run
    JSON results for accuracy/cost analysis.
 
-``osprey channel-finder web``
-   Launch the Channel Finder web interface.
+``osprey channel-finder web [--host ADDR] [--port N]``
+   Launch the Channel Finder web interface on the host and port
+   ``channel_finder.web`` names (default ``127.0.0.1`` and the layout's Channel
+   Finder port); ``--host`` and ``--port`` override them.
 
 A graph-mode project has no channel database file: ``validate`` and ``preview``
 say so and point at ``osprey knowledge seed-graph`` and the ``read_cypher`` tool,
@@ -919,7 +924,8 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    the second run changes nothing.
 
 ``osprey knowledge validate [BUNDLE]``
-   Check every document in a bundle against the OKF format.
+   Check every document in a bundle against the OKF format, including each
+   ``index.md`` against its directory.
 
 ``osprey knowledge seed-from-ttl TTL BUNDLE [--force]``
    Write stub concept documents into a bundle from a TTL corpus, one per class,
@@ -1351,7 +1357,10 @@ Safe to run on every build; on a fresh database, runs a full ingest.
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.
 
-``web [--port N] [--host ADDR] [--reload]`` -- Launch web interface.
+``web [--port N] [--host ADDR] [--reload]``
+   Launch the web interface on the host and port ``ariel.web`` names (default
+   ``127.0.0.1`` and the layout's ARIEL port); ``--host`` and ``--port`` override
+   them.
 
 ``purge [--yes] [--embeddings-only]`` -- Delete all ARIEL data.
 
@@ -1522,7 +1531,8 @@ All subcommands accept a common flag:
    untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
    file the scaffolder did not write is reported and left alone unless
    ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
-   pipeline includes it.
+   pipeline includes it. The health check exits 0 unless run with ``--strict``,
+   which exits 1 when a container or a probe is flagged.
 
 ``osprey scaffold systemd [--force]``
    Emit the files that start this deployment at boot: a systemd user unit,

@@ -4,13 +4,13 @@ Every unit test of ``osprey.bridges.teams`` drives one seam at a time against a
 mock or a transport stub, so each asserts OSPREY's half of a two-party contract
 against OSPREY's own idea of the wire format. These fakes are the other half: a
 real Service Bus queue stand-in the serve loop pulls from, a real HTTP server the
-token exchange authenticates against, and a real HTTP server the Bot Connector
-posts land on — so the e2e lane can boot the whole bridge (``build_wiring``, the
-runtime, the dispatcher and worker) and assert what *arrived*, not what a mock
-was called with.
+token exchange authenticates against, a real HTTP server the Bot Connector posts
+land on, and a real HTTP server standing in for Microsoft Graph's file library —
+so the e2e lane can boot the whole bridge (``build_wiring``, the runtime, the
+dispatcher and worker) and assert what *arrived*, not what a mock was called with.
 
-Three fakes, one rule each
---------------------------
+Four fakes, one rule each
+-------------------------
 :class:`FakeQueueReceiver`
     Implements the :class:`~osprey.bridges.teams.receiver.QueueReceiver`
     Protocol in-process over a :class:`queue.Queue`. It records the **order** of
@@ -41,6 +41,15 @@ Three fakes, one rule each
     (``GET /v3/conversations/{id}/pagedmembers``) from members a test seeds with
     :meth:`FakeConnectorServer.add_member`, paged by ``pageSize`` /
     ``continuationToken``; with none seeded it answers ``{"members": []}``.
+    A seeded member carries a directory id and a tenant id only when given.
+
+:class:`FakeGraphServer`
+    Answers Graph's upload route (``PUT /v1.0/drives/{drive}/root:/{path}:/content``)
+    and invite route (``POST /v1.0/drives/{drive}/items/{id}/invite``) and records
+    both. Like the login host, Graph's host comes from the closed cloud table, so
+    :meth:`FakeGraphServer.http_client` is the ``graph_http`` seam: it rewrites the
+    real Graph URL onto this server. :meth:`FakeGraphServer.fail_invite` makes the
+    next invite answer ``207`` with an ``error`` entry, Graph's partial success.
 
 No skips, no Azure
 ------------------
@@ -70,7 +79,7 @@ import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol
 
 import httpx
 
@@ -90,9 +99,12 @@ __all__ = [
     "TENANT_ID",
     "TOKEN_EXPIRES_IN",
     "FakeConnectorServer",
+    "FakeGraphServer",
     "FakeQueueMessage",
     "FakeQueueReceiver",
     "FakeTokenServer",
+    "GraphInvite",
+    "GraphUpload",
     "PostedActivity",
     "TokenRequest",
     "activity",
@@ -142,6 +154,11 @@ _ACTIVITY_ROUTE = re.compile(
     r"^/v3/conversations/(?P<conversation>[^/]+)/activities(?:/(?P<reply_to>[^/]*))?$"
 )
 _MEMBERS_ROUTE = re.compile(r"^/v3/conversations/(?P<conversation>[^/]+)/pagedmembers$")
+_UPLOAD_ROUTE = re.compile(r"^/v1\.0/drives/(?P<drive>[^/]+)/root:/(?P<path>.+):/content$")
+_INVITE_ROUTE = re.compile(r"^/v1\.0/drives/(?P<drive>[^/]+)/items/(?P<item>[^/]+)/invite$")
+
+FILES_WEB_ROOT = "https://files.example.org"
+"""Where :class:`FakeGraphServer` says an uploaded file can be opened."""
 
 
 # ---------------------------------------------------------------------------
@@ -273,16 +290,21 @@ class FakeTokenServer(FakeHttpService):
             self._attempted.append(url)
 
 
+class _AttemptRecorder(Protocol):
+    def _note_attempt(self, url: str) -> None: ...
+
+
 class _RedirectTransport(httpx.BaseTransport):
     """Sends every request to one loopback origin, keeping path, body and headers.
 
     The alternative — an :class:`httpx.MockTransport` answering in-process — would
     never exercise a socket, a ``Content-Length`` or a form encoding, and the
     token leg is exactly where those have gone wrong before. This keeps the real
-    HTTP round trip and changes only where it lands.
+    HTTP round trip and changes only where it lands. ``recorder`` is any fake that
+    notes the URL the product aimed at.
     """
 
-    def __init__(self, base_url: str, recorder: FakeTokenServer) -> None:
+    def __init__(self, base_url: str, recorder: _AttemptRecorder) -> None:
         self._target = httpx.URL(base_url)
         self._recorder = recorder
         self._inner = httpx.HTTPTransport()
@@ -442,10 +464,27 @@ class FakeConnectorServer(FakeHttpService):
 
     # -- seeding surface ----------------------------------------------------
 
-    def add_member(self, conversation: str, member_id: str, name: str) -> None:
-        """Seed one member of ``conversation`` for the paged member listing."""
+    def add_member(
+        self,
+        conversation: str,
+        member_id: str,
+        name: str,
+        *,
+        aad_object_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> None:
+        """Seed one member of ``conversation`` for the paged member listing.
+
+        ``aad_object_id`` and ``tenant_id`` are stored on the member as
+        ``aadObjectId`` and ``tenantId`` only when given.
+        """
+        member = {"id": member_id, "name": name}
+        if aad_object_id is not None:
+            member["aadObjectId"] = aad_object_id
+        if tenant_id is not None:
+            member["tenantId"] = tenant_id
         with self._lock:
-            self._members.setdefault(conversation, []).append({"id": member_id, "name": name})
+            self._members.setdefault(conversation, []).append(member)
 
     # -- failure injection --------------------------------------------------
 
@@ -499,6 +538,169 @@ class FakeConnectorServer(FakeHttpService):
             )
             self._attempts.append(posted)
             return posted
+
+
+# ---------------------------------------------------------------------------
+# The fake Microsoft Graph file library
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GraphUpload:
+    """One file PUT into the library, as Graph received it."""
+
+    drive: str
+    path: str
+    """The path under the drive root, percent-decoding undone."""
+
+    data: bytes
+    content_type: str
+    auth: str
+    """The ``Authorization`` header verbatim."""
+
+
+@dataclass(frozen=True)
+class GraphInvite:
+    """One invite POSTed on a drive item, as Graph received it."""
+
+    drive: str
+    item_id: str
+    body: dict[str, Any]
+    auth: str
+
+
+class _GraphHandler(_FakeHandler):
+    fake: ClassVar[FakeGraphServer]
+
+    def do_PUT(self) -> None:  # http.server API
+        path, _ = self.split_path()
+        match = _UPLOAD_ROUTE.match(path)
+        if match is None:
+            self._graph_error(404, "itemNotFound", f"no such route: PUT {path}")
+            return
+        decoded = "/".join(urllib.parse.unquote(seg) for seg in match.group("path").split("/"))
+        item = self.fake._record_upload(
+            GraphUpload(
+                drive=urllib.parse.unquote(match.group("drive")),
+                path=decoded,
+                data=self.read_body(),
+                content_type=self.headers.get("Content-Type", ""),
+                auth=self.headers.get("Authorization", ""),
+            )
+        )
+        self.respond_json(201, item)
+
+    def do_POST(self) -> None:  # http.server API
+        path, _ = self.split_path()
+        match = _INVITE_ROUTE.match(path)
+        if match is None:
+            self._graph_error(404, "itemNotFound", f"no such route: POST {path}")
+            return
+        body = self.read_json()
+        status, answer = self.fake._record_invite(
+            GraphInvite(
+                drive=urllib.parse.unquote(match.group("drive")),
+                item_id=urllib.parse.unquote(match.group("item")),
+                body=body,
+                auth=self.headers.get("Authorization", ""),
+            )
+        )
+        self.respond_json(status, answer)
+
+    def _graph_error(self, status: int, code: str, message: str) -> None:
+        """Graph's error envelope: ``{"error": {"code", "message"}}``."""
+        self.respond_json(status, {"error": {"code": code, "message": message}})
+
+
+class FakeGraphServer(FakeHttpService):
+    """Microsoft Graph's file library: records every upload and invite.
+
+    Point the bridge at it with :meth:`http_client`, the ``graph_http`` seam. Each
+    folder path answers one stable folder id, so every file of a run reports the
+    same ``parentReference.id``.
+    """
+
+    handler_class: ClassVar[type[_FakeHandler]] = _GraphHandler
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._uploads: list[GraphUpload] = []
+        self._invites: list[GraphInvite] = []
+        self._attempted: list[str] = []
+        self._folders: dict[str, str] = {}
+        self._fail_next_invite = False
+        super().__init__()
+
+    # -- recording surface --------------------------------------------------
+
+    @property
+    def uploads(self) -> list[GraphUpload]:
+        with self._lock:
+            return list(self._uploads)
+
+    @property
+    def invites(self) -> list[GraphInvite]:
+        with self._lock:
+            return list(self._invites)
+
+    @property
+    def attempted_urls(self) -> list[str]:
+        """The URLs the client aimed at, before the transport rewrote them."""
+        with self._lock:
+            return list(self._attempted)
+
+    def folder_id(self, folder_path: str) -> str:
+        """The id this server answers for ``folder_path``."""
+        with self._lock:
+            return self._folders.setdefault(folder_path, f"folder-{len(self._folders) + 1}")
+
+    # -- failure injection --------------------------------------------------
+
+    def fail_invite(self) -> None:
+        """Answer the next invite with ``207`` and an ``error`` for its recipient."""
+        with self._lock:
+            self._fail_next_invite = True
+
+    # -- the seam -----------------------------------------------------------
+
+    def http_client(self, *, timeout: float = HTTP_TIMEOUT) -> httpx.Client:
+        """An :class:`httpx.Client` for the ``graph_http`` seam, aimed here."""
+        return httpx.Client(transport=_RedirectTransport(self.base_url, self), timeout=timeout)
+
+    # -- internals ----------------------------------------------------------
+
+    def _note_attempt(self, url: str) -> None:
+        with self._lock:
+            self._attempted.append(url)
+
+    def _record_upload(self, upload: GraphUpload) -> dict[str, Any]:
+        folder_path, _, name = upload.path.rpartition("/")
+        folder_id = self.folder_id(folder_path)
+        with self._lock:
+            self._uploads.append(upload)
+            number = len(self._uploads)
+        return {
+            "id": f"item-{number}",
+            "name": name,
+            "parentReference": {"id": folder_id, "driveId": upload.drive},
+            "webUrl": f"{FILES_WEB_ROOT}/{upload.path}",
+        }
+
+    def _record_invite(self, invite: GraphInvite) -> tuple[int, dict[str, Any]]:
+        with self._lock:
+            self._invites.append(invite)
+            fail, self._fail_next_invite = self._fail_next_invite, False
+        recipients = invite.body.get("recipients") or []
+        if fail:
+            return 207, {
+                "value": [
+                    {"error": {"code": "notAllowed", "message": "recipient refused"}}
+                    for _ in recipients
+                ]
+            }
+        return 200, {
+            "value": [{"id": f"perm-{n}", "roles": ["read"]} for n, _ in enumerate(recipients, 1)]
+        }
 
 
 # ---------------------------------------------------------------------------

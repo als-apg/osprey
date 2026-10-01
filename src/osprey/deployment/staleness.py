@@ -74,8 +74,9 @@ KEY_DIGESTS_MANIFEST_KEY = "profile_key_digests"
 MATERIAL_PREFIX = "material:"
 
 #: Digest over *all* the material at once — the ``data:`` tree, the convention
-#: directories, ``triggers.yml`` and the ``personas/`` deltas — folded by the
-#: build's own :func:`~osprey.cli.build_profile_merge._fold_profile_material`.
+#: directories, the trigger file the dispatch block names and the ``personas/``
+#: deltas — folded by the build's own
+#: :func:`~osprey.cli.build_profile_merge._fold_profile_material`.
 #: Stamped alongside the per-input digests as the backstop that keeps material
 #: the per-input split does not enumerate from going unreported (see
 #: :func:`_material_input_digests`).
@@ -288,10 +289,10 @@ class DriftReport:
             suggest.
         changed_keys: What moved, named as the operator would spell it: the
             top-level profile keys, and the paths of the file inputs the profile
-            points at (``data/``, a convention directory, ``triggers.yml``, a
-            ``personas/`` delta). Empty on a ``DRIFT`` whose build stamped no
-            per-key digests — the verdict still stands, only the detail is
-            missing.
+            points at (``data/``, a convention directory, the trigger file
+            the dispatch block names, a ``personas/`` delta). Empty on a
+            ``DRIFT`` whose build stamped no per-key digests — the verdict
+            still stands, only the detail is missing.
         version_skew: Present whenever installed and stamped versions differ,
             independent of :attr:`state`.
         profile_path: The profile the comparison used, when there was one.
@@ -376,7 +377,7 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     """
     import hashlib
 
-    from osprey.cli.build_profile_merge import _fold_source_tree
+    from osprey.cli.build_profile_merge import _fold_source_tree, profile_triggers_material
     from osprey.cli.build_profile_model import BuildProfile
     from osprey.cli.profile_conventions import CONVENTION_SOURCES
     from osprey.cli.profile_root import PERSONA_DIRNAME
@@ -401,9 +402,9 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
         if candidate.exists():
             fold(f"{source}/", f"convention:{source}", candidate)
 
-    triggers = profile_dir / "triggers.yml"
-    if triggers.is_file():
-        fold("triggers.yml", "triggers", triggers)
+    triggers = profile_triggers_material(resolved, profile_dir)
+    if triggers is not None:
+        fold(triggers[0], "triggers", triggers[1])
 
     # The host variant this repo builds, keyed by the overlay's own path so a
     # switch between two variants reads as one key gone and another arrived —

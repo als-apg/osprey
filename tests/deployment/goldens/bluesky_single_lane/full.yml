@@ -68,19 +68,6 @@ services:
         "--port",
         "10080",
       ]
-    labels:
-      osprey.project.name: "proj"
-      com.osprey.repo-id: "abc123def456"
-      osprey.project.root: "/tmp/proj"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
       - "127.0.0.1:10080:10080"
@@ -99,6 +86,14 @@ services:
       # directory: /app" — mirrors dispatch_worker's identical CONFIG_FILE
       # convention.
       CONFIG_FILE: /app/project/config.yml
+      # The same file for the framework's own config loader
+      # (osprey_connectors.workspace.resolve_config_path), which reads this
+      # variable and never CONFIG_FILE. Without it the loader looks in the
+      # working directory, finds nothing, and every key this container reads
+      # through it (bluesky.plan_module, bluesky.plan_dirs,
+      # bluesky.excluded_plans, python_executor.child_env_passthrough) reads
+      # as unset.
+      OSPREY_CONFIG: /app/project/config.yml
       TZ: UTC
       # ── queue control plane (client side) ────────────────────────────────
       # The bridge is the ONLY authenticated route to the RE Manager: panels
@@ -370,19 +365,6 @@ services:
         --redis-addr bluesky-redis:6379
         --zmq-control-addr 'tcp://*:60615'
         --update-existing-plans-devices NEVER
-    labels:
-      osprey.project.name: "proj"
-      com.osprey.repo-id: "abc123def456"
-      osprey.project.root: "/tmp/proj"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     # No `ports:` — deliberately. Publishing the control socket would put a
     # second route to plan execution next to the bridge's launch-token gate,
@@ -394,6 +376,11 @@ services:
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
+      # The same file for the framework's own config loader, as on the bridge.
+      # The RunEngine worker loads plans through it, and the pre-flight
+      # verdicts below anchor their audit zone on the project it names — the
+      # directory the audit bind targets.
+      OSPREY_CONFIG: /app/project/config.yml
       OSPREY_AUDIT_IDENTITY: queueserver
       TZ: UTC
 
@@ -576,8 +563,6 @@ services:
     image: ${OSPREY_BLUESKY_REDIS_IMAGE:-redis:7.4-alpine}
     container_name: proj-bluesky-redis
     restart: unless-stopped
-    labels:
-      com.osprey.repo-id: "abc123def456"
     # Append-only persistence: a queue that survives a bridge restart but not
     # a Redis restart would be a half-kept promise.
     command: ["redis-server", "--appendonly", "yes"]
@@ -619,8 +604,6 @@ services:
     # needs no network alias.
     container_name: proj-bluesky-tiled
     restart: unless-stopped
-    labels:
-      com.osprey.repo-id: "abc123def456"
     # `serve catalog` aborts without a catalog DB argument and defaults to
     # 127.0.0.1 (unreachable from the bridge container) without --host. The
     # duckdb:// writable target is required alongside the filesystem one:

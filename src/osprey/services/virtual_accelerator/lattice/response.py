@@ -27,8 +27,13 @@ bends, and the span the beam actually saw is the one the two arms define.
 **Nothing accumulates.** The setpoint is written back to the value it was
 found at before the call returns, whether the sweep finished or a read of it
 raised, so consecutive responses are independent and a caller is never left
-mid-sweep. That restore is a write like any other, so it costs the model's
-third and last solve of the call.
+mid-sweep. That write-back is one write. :func:`orbit_responses` sweeps many
+actuators in turn and makes each one's write-back in the same write as the next
+actuator's first arm, so the two share one solve and a pass over ``n``
+actuators costs ``2n + 1`` solves; a write the solver refuses is made again as
+the two writes a sweep per actuator would have made, so every result, and the
+state the model is left in, is the one :func:`orbit_response` gives actuator by
+actuator.
 
 **The monitor bindings are passed in.** A served monitor variable carries the
 facility's physics-to-hardware inverse alone, because publishing a reading is
@@ -50,9 +55,11 @@ for, are reported beside a comparison rather than folded into it.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from osprey.services.virtual_accelerator.lattice.calibration import to_physics
+from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
@@ -60,7 +67,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.services.virtual_accelerator.bindings import Binding, Calibration
     from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 
-__all__ = ["orbit_response"]
+__all__ = ["orbit_response", "orbit_responses"]
+
+#: One actuator's response: each monitor element's ``(x, y)`` entry.
+Response = dict[str, tuple[float, float]]
 
 #: The two transverse planes, in the order a response entry pairs them.
 _PLANES: tuple[str, str] = ("x", "y")
@@ -104,29 +114,163 @@ def orbit_response(
             stable closed orbit. The model has restored the lattice itself,
             and the setpoint is written back before the error propagates.
     """
-    address = _actuator_address(model, binding)
-    delta = _sweep_width(delta_hw)
+    (result,) = orbit_responses(model, [(binding, delta_hw)], monitors=monitors)
+    if isinstance(result, OrbitSolveError):
+        raise result
+    return result
+
+
+def orbit_responses(
+    model: PyATRingModel,
+    sweeps: Iterable[tuple[Binding, float]],
+    *,
+    monitors: Iterable[Binding],
+) -> list[Response | OrbitSolveError]:
+    """Sweep several actuators in turn and return each one's orbit response.
+
+    Each result is the one :func:`orbit_response` returns for that actuator
+    on its own, and the model is left as a sweep per actuator leaves it. An
+    actuator whose sweep or write-back the solver refuses has that refusal as
+    its result, and the actuators after it are still swept.
+
+    Args:
+        model: The model to drive, built on the tree whose document these
+            bindings come from. It is written to and left where it was found.
+        sweeps: Each actuator's binding and the full width of its sweep in
+            hardware units, in the order they are swept.
+        monitors: The monitor bindings to read, as :func:`orbit_response`
+            takes them.
+
+    Returns:
+        One entry per sweep, in order: the actuator's response, or the
+        ``OrbitSolveError`` the solver raised on one of its writes.
+
+    Raises:
+        ValueError: Any refusal :func:`orbit_response` makes, for any sweep,
+            or one actuator swept twice -- each raised before anything is
+            written.
+    """
     planes = _planes_to_read(model, monitors)
-
-    held = float(model.get([address])[address])
-    span = _actuator_span(binding, held, delta)
-
-    arms: list[dict[str, float]] = []
+    planned = _planned(model, sweeps)
+    results: list[Response | OrbitSolveError] = []
+    pending: list[_Owed] = []
     try:
-        for arm in (0.5 * delta, -0.5 * delta):
-            model.set({address: held + arm})
-            arms.append(_physics_readings(model, planes))
-    finally:
-        model.set({address: held})
+        for plan in planned:
+            current = _Owed(plan.address, plan.held)
+            pending.append(current)
+            arms: list[dict[str, float]] = []
+            try:
+                for arm in (0.5 * plan.delta, -0.5 * plan.delta):
+                    _write(model, {plan.address: plan.held + arm}, pending, results)
+                    arms.append(_physics_readings(model, planes))
+            except OrbitSolveError as exc:
+                current.result = exc
+            else:
+                high, low = arms
+                current.result = {
+                    element: (
+                        _entry(monitors_by_plane.get("x"), high, low, plan.span),
+                        _entry(monitors_by_plane.get("y"), high, low, plan.span),
+                    )
+                    for element, monitors_by_plane in planes.items()
+                }
+        for owed in list(pending):
+            results.append(_settle(model, owed))
+            pending.remove(owed)
+    except BaseException:
+        if pending:
+            model.set({owed.address: owed.held for owed in pending})
+        raise
+    return results
 
-    high, low = arms
-    return {
-        element: (
-            _entry(monitors_by_plane.get("x"), high, low, span),
-            _entry(monitors_by_plane.get("y"), high, low, span),
-        )
-        for element, monitors_by_plane in planes.items()
-    }
+
+@dataclass(frozen=True)
+class _Planned:
+    """One actuator's sweep, checked before anything is written."""
+
+    address: str
+    held: float
+    delta: float
+    span: float
+
+
+@dataclass
+class _Owed:
+    """An actuator whose setpoint is still to be written back, and its result."""
+
+    address: str
+    held: float
+    result: Response | OrbitSolveError | None = None
+
+
+def _planned(model: PyATRingModel, sweeps: Iterable[tuple[Binding, float]]) -> list[_Planned]:
+    """Check every sweep and read the setpoint each one is held at.
+
+    Raises:
+        ValueError: any refusal of one actuator's sweep, or an actuator named
+            by two sweeps.
+    """
+    planned: list[_Planned] = []
+    seen: set[str] = set()
+    for binding, delta_hw in sweeps:
+        address = _actuator_address(model, binding)
+        delta = _sweep_width(delta_hw)
+        if address in seen:
+            raise ValueError(
+                f"actuator {address!r} is swept twice: each actuator of a sweep is one column "
+                "of the response"
+            )
+        seen.add(address)
+        held = float(model.get([address])[address])
+        planned.append(_Planned(address, held, delta, _actuator_span(binding, held, delta)))
+    return planned
+
+
+def _write(
+    model: PyATRingModel,
+    write: dict[str, float],
+    pending: list[_Owed],
+    results: list[Response | OrbitSolveError],
+) -> None:
+    """Write one arm, together with the write-back the previous actuator owes.
+
+    A refused batch is made again as the two writes a sweep per actuator
+    makes: the write-back alone, whose refusal is that actuator's result, then
+    the arm alone, whose refusal propagates to the actuator being swept.
+    """
+    if len(pending) < 2:
+        model.set(write)
+        return
+    previous = pending[0]
+    try:
+        model.set({previous.address: previous.held, **write})
+    except Exception:
+        results.append(_settle(model, previous))
+        pending.remove(previous)
+        model.set(write)
+    else:
+        results.append(_settled(previous))
+        pending.remove(previous)
+
+
+def _settle(model: PyATRingModel, owed: _Owed) -> Response | OrbitSolveError:
+    """Write one actuator back alone; its refusal, or else its result."""
+    try:
+        model.set({owed.address: owed.held})
+    except OrbitSolveError as exc:
+        return exc
+    return _settled(owed)
+
+
+def _settled(owed: _Owed) -> Response | OrbitSolveError:
+    """The result of an actuator whose sweep has finished.
+
+    Raises:
+        RuntimeError: the actuator is written back before its sweep finished.
+    """
+    if owed.result is None:
+        raise RuntimeError(f"actuator {owed.address!r} is written back before it was swept")
+    return owed.result
 
 
 def _actuator_address(model: PyATRingModel, binding: Binding) -> str:

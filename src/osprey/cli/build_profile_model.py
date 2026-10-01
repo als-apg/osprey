@@ -44,7 +44,7 @@ from .build_profile_archiver import (
     va_mock_archiver_errors,
 )
 from .build_profile_deploy import DeployConfig
-from .build_profile_presets import _triggers_dir, is_bundled_preset_dir
+from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
 from .build_profile_schema import (
     _ENV_VAR_RE,
     SECOND_LANE_PORT_STRIDE,
@@ -61,9 +61,12 @@ from .build_profile_schema import (
     ServiceDef,
     TeamsBridgeProfileConfig,
     VAConfig,
+    bind_env_errors,
     env_names_errors,
     http_errors,
+    listens_errors,
     network_mode_errors,
+    osprey_declares_binding,
 )
 from .build_profile_va_faults import (
     live_standin_errors,
@@ -554,21 +557,12 @@ class BuildProfile:
                 f"{key} block."
             )
         elif trigger and self.dispatch.triggers:
-            # Check the trigger against the SOURCE triggers file, resolved the
-            # same way the dispatch block resolves it (profile-relative first,
-            # then bundled). A bridge pointed at an undeclared trigger builds
-            # and deploys cleanly and then 404s on every message.
-            triggers_file = next(
-                (
-                    candidate
-                    for candidate in (
-                        profile_dir / self.dispatch.triggers,
-                        _triggers_dir() / self.dispatch.triggers,
-                    )
-                    if candidate.is_file()
-                ),
-                None,
-            )
+            # Check the trigger against the SOURCE triggers file, resolved by
+            # resolve_triggers_path as the dispatch block resolves it. A bridge
+            # pointed at an undeclared trigger builds and deploys cleanly and
+            # then 404s on every message.
+            source = resolve_triggers_path(profile_dir, self.dispatch.triggers)
+            triggers_file = source.path if source is not None else None
             # An unresolvable path is already reported by the dispatch block.
             if triggers_file is not None:
                 # Deferred import: keeps osprey.dispatch out of this module's
@@ -701,6 +695,57 @@ class BuildProfile:
         errors: list[str] = []
         for _name, value, key in self._service_axis_declarations("http"):
             errors.extend(http_errors(value, key))
+        return errors
+
+    def _validate_bind_axis(self, profile_dir: Path) -> list[str]:
+        """Return validation errors for every ``listens:`` / ``bind_env:`` declaration.
+
+        Same two authoring surfaces and the same as-authored timing as the
+        network axis. ``listens: true`` is valid with or without a
+        ``bind_env``, and a declaration on a service that is not on the host
+        network is valid and inert: readers consult it only under
+        ``network: host``, so changing a service's network must not force the
+        author to delete it.
+
+        A declaration on a service OSPREY declares itself
+        (:func:`~osprey.deployment.host_binding.osprey_owns_binding`) is
+        refused: the build writes OSPREY's value, and an authored one could
+        only disagree with the template it describes. Claiming the service
+        (a directory under ``<profile>/services/<name>``) hands the
+        declaration to the author.
+
+        Args:
+            profile_dir: Directory holding the profile, where a claimed service
+                lives.
+
+        Returns:
+            Human-readable error messages; empty when every value has the right
+            type, no service both opens no socket and names a bind address, and
+            no declaration sits on a service OSPREY declares.
+        """
+        errors: list[str] = []
+        silent: set[str] = set()
+        bound: set[str] = set()
+        for axis in ("listens", "bind_env"):
+            for name, _value, key in self._service_axis_declarations(axis):
+                if osprey_declares_binding(name, self.services, profile_dir):
+                    errors.append(
+                        f"`{key}` is declared by OSPREY for its bundled {name} service. "
+                        "Remove it. To declare your own, claim the service: "
+                        f"`osprey scaffold claim services/{name}`."
+                    )
+        for name, value, key in self._service_axis_declarations("listens"):
+            errors.extend(listens_errors(value, key))
+            if value is False:
+                silent.add(name)
+        for name, value, key in self._service_axis_declarations("bind_env"):
+            errors.extend(bind_env_errors(value, key))
+            bound.add(name)
+        for name in sorted(silent & bound):
+            errors.append(
+                f"services.{name} declares both `listens: false` and `bind_env:`; a "
+                "service that opens no socket has no bind address. Remove one."
+            )
         return errors
 
     def _validate_env_axis(self) -> list[str]:
@@ -1167,7 +1212,7 @@ class BuildProfile:
         # dropped entry seeds no ports, which is what an entry that cannot be
         # built deserves.
         for user in normalize_users(users_raw if isinstance(users_raw, list) else [], strict=False):
-            index = user.get("index")
+            index = user["index"]
             try:
                 allocation = allocate_ports(base_ports, index)
             except ValueError:
@@ -1440,6 +1485,7 @@ class BuildProfile:
         errors.extend(self._validate_network_axis())
         errors.extend(self._validate_env_axis())
         errors.extend(self._validate_http_axis())
+        errors.extend(self._validate_bind_axis(profile_dir))
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):
@@ -1674,10 +1720,7 @@ class BuildProfile:
                 errors.append(
                     "dispatch.triggers is required (bundled name or profile-relative path)"
                 )
-            elif (
-                not (profile_dir / d.triggers).is_file()
-                and not (_triggers_dir() / d.triggers).is_file()
-            ):
+            elif resolve_triggers_path(profile_dir, d.triggers) is None:
                 errors.append(
                     f"dispatch.triggers file not found: {d.triggers!r} "
                     f"(looked in profile dir {profile_dir} and bundled triggers)"

@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from ruamel.yaml import YAML
 
-from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
 from osprey.deployment.compose_generator import find_service_config
@@ -186,6 +186,8 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
         # here, so the default one. The template's ports read as
         # ``<key> | default(osprey_ports.<slot>, true)``.
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
+        "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
         **_control_identity_context(),
     }
     return pyyaml.safe_load(tmpl.render(ctx))

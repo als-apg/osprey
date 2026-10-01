@@ -29,7 +29,6 @@ from urllib.parse import urljoin
 
 import httpx
 import pytest
-import websockets
 from fastapi.testclient import TestClient
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
@@ -41,6 +40,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     JupyterSidecar,
     kernel_notebook_path,
 )
+from osprey.interfaces.web_terminal.routes import proxy as proxy_module
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
 pytestmark = pytest.mark.slow
@@ -383,10 +383,10 @@ def _run_cell(socket: Any, code: str, session_id: str) -> str:
 
 
 class _RecordingConnect:
-    """``websockets.connect``, wrapped to record the handshake it then performs."""
+    """A websocket connect type, wrapped to record the handshake it then performs."""
 
-    def __init__(self) -> None:
-        self._connect = websockets.connect
+    def __init__(self, connect: Any) -> None:
+        self._connect = connect
         self.target: str | None = None
         self.headers: dict[str, str] = {}
 
@@ -477,9 +477,11 @@ def test_a_kernel_answers_over_the_proxied_socket(
 ) -> None:
     """A kernel_info round trip, and the upstream handshake that carried it."""
     session_id = uuid.uuid4().hex
-    recorded = _RecordingConnect()
+    # The handshake carries the sidecar's credential, so the proxy opens it
+    # through its redirect-refusing connect type; that is the one recorded.
+    recorded = _RecordingConnect(proxy_module._RedirectRefusingConnect)
 
-    with patch("websockets.connect", recorded):
+    with patch.object(proxy_module, "_RedirectRefusingConnect", recorded):
         with proxied.websocket_connect(
             f"{PANEL}/api/kernels/{kernel_id}/channels?session_id={session_id}"
         ) as socket:

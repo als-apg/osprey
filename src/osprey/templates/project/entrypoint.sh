@@ -182,7 +182,7 @@ except Exception as exc:  # noqa: BLE001 — never block the container on restor
 #     hand-back below covers var/, not $CLAUDE_CONFIG_DIR, so the seed hands
 #     back its own writes).
 try:
-    from osprey.deployment.claude_state_seed import seed_claude_state
+    from osprey.agent_runner.claude_state import seed_claude_state
 
     seeded = seed_claude_state(render_dir, owner_user="osprey")
     if seeded:

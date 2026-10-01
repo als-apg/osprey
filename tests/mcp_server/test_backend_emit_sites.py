@@ -632,6 +632,18 @@ def _phoebus_active_display_allowed(monkeypatch):
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "0")
 
 
+@pytest.fixture
+def _phoebus_drive_offered(tmp_path, monkeypatch):
+    """Point OSPREY_CONFIG at a config whose ``phoebus.agent_access`` is ``read_write``.
+
+    Without this the drive is refused before any emit path runs, because the
+    default access is ``read``; the switch itself is tested elsewhere.
+    """
+    config_file = tmp_path / "phoebus_drive_offered.yml"
+    config_file.write_text(yaml.dump({"phoebus": {"agent_access": "read_write"}}))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+
+
 def _get_phoebus_drive():
     from osprey.mcp_server.phoebus.tools.bridge_tools import phoebus_drive
 
@@ -643,6 +655,7 @@ def _phoebus_bridge(status: int, body: dict):
     return patch(f"{_PHOEBUS_MOD}._http_post_drive", return_value=(status, body))
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 async def test_phoebus_drive_click_fired_emits(_phoebus_active_display_allowed):
     """A click that fired a control wrote to the machine — emit once, kind channel."""
     with (
@@ -655,6 +668,7 @@ async def test_phoebus_drive_click_fired_emits(_phoebus_active_display_allowed):
     notify.assert_called_once_with("phoebus_drive", "channel", detail="click SetButton on active")
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 async def test_phoebus_drive_synthetic_type_fired_emits():
     """A synthetic type that fired echoes the normalized verb and the display ref."""
     with (
@@ -666,6 +680,7 @@ async def test_phoebus_drive_synthetic_type_fired_emits():
     notify.assert_called_once_with("phoebus_drive", "channel", detail="type Setpoint on handle:d-3")
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 async def test_phoebus_drive_synthetic_200_not_fired_no_emit(_phoebus_active_display_allowed):
     """Bridge contract: a synthetic 200 with fired=false resolved no control — no write."""
     with (
@@ -678,6 +693,7 @@ async def test_phoebus_drive_synthetic_200_not_fired_no_emit(_phoebus_active_dis
     notify.assert_not_called()
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 @pytest.mark.parametrize("verb,mode", [("type", "semantic"), ("TYPE", "SEMANTIC")])
 async def test_phoebus_drive_semantic_type_not_fired_emits(
     verb, mode, _phoebus_active_display_allowed
@@ -697,6 +713,7 @@ async def test_phoebus_drive_semantic_type_not_fired_emits(
     notify.assert_called_once_with("phoebus_drive", "channel", detail="type Setpoint on active")
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 async def test_phoebus_drive_semantic_click_bypass_no_emit(_phoebus_active_display_allowed):
     """Semantic mode bypasses click entirely — nothing was driven, so emit nothing."""
     with (
@@ -708,6 +725,7 @@ async def test_phoebus_drive_semantic_click_bypass_no_emit(_phoebus_active_displ
     notify.assert_not_called()
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -729,6 +747,7 @@ async def test_phoebus_drive_validation_refusal_no_emit(kwargs, _phoebus_active_
     notify.assert_not_called()
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 async def test_phoebus_drive_handle_required_refusal_no_emit(monkeypatch):
     """Require-handle mode refuses implicit 'active' before any drive — emit nothing."""
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "1")
@@ -744,6 +763,7 @@ async def test_phoebus_drive_handle_required_refusal_no_emit(monkeypatch):
     notify.assert_not_called()
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 async def test_phoebus_drive_bridge_rejected_no_emit(_phoebus_active_display_allowed):
     """A non-200 from the bridge means no widget was driven — emit nothing."""
     with (
@@ -756,6 +776,7 @@ async def test_phoebus_drive_bridge_rejected_no_emit(_phoebus_active_display_all
     notify.assert_not_called()
 
 
+@pytest.mark.usefixtures("_phoebus_drive_offered")
 async def test_phoebus_drive_unreachable_no_emit(_phoebus_active_display_allowed):
     """An unreachable bridge never drove anything — emit nothing."""
     import urllib.error

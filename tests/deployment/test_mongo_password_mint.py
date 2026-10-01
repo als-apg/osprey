@@ -5,7 +5,7 @@ deployed-service entry in ``_SERVICE_TOKEN_VARS`` (container_lifecycle.py):
 ``osprey up`` mints a strong ``MONGO_ROOT_PASSWORD`` into the project
 ``.env``, which the mongodb compose template reads as
 MONGO_INITDB_ROOT_PASSWORD and the agent's archiver connector block names
-(``archiver.mongodb_archiver.password_env``) rather than carrying a value.
+(``archiver.mongodb_archiver.auth.password_env``) rather than carrying a value.
 
 What makes this store different from the ARIEL one is the *number* of readers
 the single value has to satisfy: the container that initializes the volume, the

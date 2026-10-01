@@ -1,0 +1,1 @@
+`osprey build` reads `data/machine_state_channels.json` as JSON, so every address in it is reconciled against the virtual-accelerator channel manifest whatever order its entries' members are written in, and a list that is not a readable JSON object stops the build naming the file instead of reporting 0 channels checked.

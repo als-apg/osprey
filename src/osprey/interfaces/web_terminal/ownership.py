@@ -516,13 +516,14 @@ class OwnershipStore:
             return None  # no body kept for this record; not an escape
 
         if not resolved.is_relative_to(root_resolved):
-            return self._refuse_body(
+            self._refuse_body(
                 output_path,
                 resolved,
                 channel="a file outside the ownership store's own content directory",
                 reason="ownership store body escapes the store",
                 detail="it resolves outside the store's content directory",
             )
+            return None
 
         try:
             st = resolved.stat()
@@ -530,29 +531,31 @@ class OwnershipStore:
             return None
 
         if not stat.S_ISREG(st.st_mode):
-            return self._refuse_body(
+            self._refuse_body(
                 output_path,
                 resolved,
                 channel="something in the ownership store that is not a file",
                 reason="ownership store body is not a regular file",
                 detail="it is not a regular file",
             )
+            return None
 
         if st.st_nlink > 1:
-            return self._refuse_body(
+            self._refuse_body(
                 output_path,
                 resolved,
                 channel="a file the ownership store did not create",
                 reason="ownership store body is a hard link",
                 detail=f"it has {st.st_nlink} links, so the same inode is reachable elsewhere",
             )
+            return None
 
         return resolved
 
     def _refuse_body(
         self, output_path: str, resolved: Path, *, channel: str, reason: str, detail: str
     ) -> None:
-        """Audit one refused store body and return ``None``.
+        """Audit one refused store body.
 
         Shared by every branch of :meth:`_contained_content_path` so the three
         refusals differ only in what they say, never in whether they are
@@ -562,7 +565,6 @@ class OwnershipStore:
         _audit_restore_refusal(
             output_path, channel=channel, reason=reason, because=f"{detail} ({resolved})"
         )
-        return None
 
     def _read_document(self) -> tuple[dict[str, Any], bool]:
         """Return ``(document, was_corrupt)`` — an unreadable store reads empty."""

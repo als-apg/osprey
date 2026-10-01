@@ -1,0 +1,1 @@
+The build-artifact catalog and its ownership helpers now live in `osprey.agent_runner.build_artifacts`, and importing `osprey.agent_runner` no longer loads the agent SDK until an agent-facing name is used.

@@ -220,7 +220,9 @@ class ConnectorFactory:
         return connector
 
     @classmethod
-    async def create_archiver_connector(cls, config: dict[str, Any] = None) -> ArchiverConnector:
+    async def create_archiver_connector(
+        cls, config: dict[str, Any] | None = None
+    ) -> ArchiverConnector:
         """
         Create and configure an archiver connector.
 
@@ -245,7 +247,7 @@ class ConnectorFactory:
             >>> config = {
             >>>     'type': 'epics_archiver',
             >>>     'settings': {
-            >>>         'url': 'https://archiver.als.lbl.gov:8443',
+            >>>         'url': 'https://archiver.example.org:8443',
             >>>         'timeout': 60
             >>>     }
             >>> }

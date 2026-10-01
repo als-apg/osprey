@@ -21,10 +21,13 @@ from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import engine_serves
+from osprey_connectors.simulation.engine import resolve_simulation_file
 from osprey_connectors.simulation.procedural import generate_series
 from osprey_connectors.simulation.series import epoch_seconds_array
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from osprey_connectors.simulation import SimulationEngine
 
 logger = get_logger("mock_archiver_connector")
@@ -45,11 +48,6 @@ def _control_system_simulation_file() -> tuple[Path | None, Path | None]:
     Returns ``(machine_path, project_root)``; both are None when no project
     config is reachable (a bare connector constructed in tests, for instance).
     """
-    # Framework reach-back: resolve_simulation_file lives in osprey's
-    # simulation.apply (framework-only, not part of the lean distribution).
-    # Lazy on purpose — this fallback only runs in simulation/mock contexts
-    # where the full osprey framework is installed.
-    from osprey.simulation.apply import resolve_simulation_file
     from osprey_connectors.config import get_config_value, load_config
 
     try:
@@ -236,6 +234,7 @@ class MockArchiverConnector(ArchiverConnector):
         resolved = resolve_processing(processing, precision_ms, start_date)
         series = {}
         for channel in channels:
+            values: list[Any] | np.ndarray
             if engine_serves(self._sim_engine, channel):
                 values = self._sim_engine.synthesize_series(channel, index)
             else:

@@ -1,7 +1,28 @@
 """Pipeline configuration detection utilities."""
 
+from typing import Any
+
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+
+def configured_database(config: dict, paradigm: str) -> dict[str, Any]:
+    """Return ``channel_finder.pipelines.<paradigm>.database`` from *config*.
+
+    The named paradigm's block is read whatever ``channel_finder.pipeline_mode``
+    says.
+
+    Args:
+        config: Full application configuration dictionary.
+        paradigm: A file-backed paradigm name.
+
+    Returns:
+        The paradigm's ``database`` block, or ``{}`` when the config sets none.
+    """
+    database: dict[str, Any] = (
+        config.get("channel_finder", {}).get("pipelines", {}).get(paradigm, {}).get("database", {})
+    )
+    return database
 
 
 def detect_pipeline_config(config: dict) -> tuple[str | None, dict | None]:
@@ -35,7 +56,6 @@ def detect_pipeline_config(config: dict) -> tuple[str | None, dict | None]:
             that is not a known channel-finder paradigm.
     """
     cf_config = config.get("channel_finder", {})
-    pipelines = cf_config.get("pipelines", {})
 
     pipeline_mode = cf_config.get("pipeline_mode")
 
@@ -49,24 +69,15 @@ def detect_pipeline_config(config: dict) -> tuple[str | None, dict | None]:
             f"Valid modes are: {', '.join(VALID_CHANNEL_FINDER_MODES)}."
         )
 
-    hierarchical_config = pipelines.get("hierarchical", {})
-    in_context_config = pipelines.get("in_context", {})
-    middle_layer_config = pipelines.get("middle_layer", {})
-
     # Explicit pipeline_mode takes priority
-    if pipeline_mode == "in_context" and in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    elif pipeline_mode == "hierarchical" and hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif pipeline_mode == "middle_layer" and middle_layer_config.get("database", {}).get("path"):
-        return "middle_layer", middle_layer_config.get("database", {})
+    if pipeline_mode is not None:
+        database = configured_database(config, pipeline_mode)
+        if database.get("path"):
+            return pipeline_mode, database
 
     # Auto-detect from available pipeline configs
-    if middle_layer_config.get("database", {}).get("path"):
-        return "middle_layer", middle_layer_config.get("database", {})
-    elif hierarchical_config.get("database", {}).get("path"):
-        return "hierarchical", hierarchical_config.get("database", {})
-    elif in_context_config.get("database", {}).get("path"):
-        return "in_context", in_context_config.get("database", {})
-    else:
-        return None, None
+    for paradigm in ("middle_layer", "hierarchical", "in_context"):
+        database = configured_database(config, paradigm)
+        if database.get("path"):
+            return paradigm, database
+    return None, None

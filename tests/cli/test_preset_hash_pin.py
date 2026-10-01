@@ -142,31 +142,53 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The seventeenth move, and control-assistant's family alone: the root
     # preset turns on the full tool-call record (`audit.tool_call.*`), which
     # the five `extends` children inherit; the other three stand still.
-    # The eighteenth move, and every preset: each states
+    # The eighteenth move, and the two presets that carry a keyword block:
+    # ariel-standalone and control-assistant gained
+    # `ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3`, the
+    # fuzzy-fallback similarity floor that was a literal in the keyword module.
+    # The value is the one the module already applied, so a rebuilt project
+    # behaves identically; the digest moves because the preset now states it.
+    # The five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    # The nineteenth move, and control-assistant's family alone: the root
+    # preset states `control_system.target_switch.probe_timeout_s: 5` beside
+    # the drain timeout, and the five `extends` children inherit it; the other
+    # three stand still. 5 is the reader's default, so a rebuilt project
+    # behaves as before.
+    # The twentieth move, and the two presets that carry a text-embedding block:
+    # ariel-standalone and control-assistant gained `max_input_tokens: 2048` on
+    # the `nomic-embed-text` entry under
+    # `ariel.enhancement_modules.text_embedding.models`, the input window the
+    # embedding server applies. A rebuilt project cuts a longer entry to that
+    # window where it used the 512-token default before, so the staleness
+    # advisory firing on already-deployed projects is the correct signal. The
+    # five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    # The twenty-first move, and every preset: each states
     # `simulation.models: null`, the served-model list, whose null serves every
     # model in the facility file as the absent key does, so a rebuilt project
     # behaves identically; the digest moves because the preset now states it.
-    "ariel-standalone": ("sha256:9fbc997534efda793cd7812ff4eb5b66e8269c493375b37cd0c7dc06a6638206"),
+    "ariel-standalone": ("sha256:cda6b1a4fce5d0c8d29dce418bee0e3c89b9af06ac9a944c3d2af152a8e75f5a"),
     "channel-finder-standalone": (
         "sha256:e7ad4d3ebc1edd2eb8f1ed48862e7c8048b23f49d475ba71f7e82c3989bb984b"
     ),
     "control-assistant": (
-        "sha256:66edca767dd862765c594ec53d0d205124bcb3a9ccecd97a8df3312f3a5ef997"
+        "sha256:72374e15ba9dcf9cc2bb1cc1ca0bc0f0b28bbcaa64e6483555fbf2c7db0fdd94"
     ),
     "control-assistant-admin": (
-        "sha256:6c776b08508ac382b4f0f521e7bcf4a895f385793fe183a7f7b39fdb66478628"
+        "sha256:b6bfa62b21f8bb3f72144413de064d3f020d4a406e3d1f0b4802933543c27e6f"
     ),
     "control-assistant-knowledge": (
-        "sha256:cd8b3b2c5e04795c61155a0bd531427c28fcd3589b44193608d7cc853645c6e5"
+        "sha256:d0e0cd51975fe40eb180ee156206b319d05d1272cd90086491292dbff6df8dad"
     ),
     "control-assistant-logbook": (
-        "sha256:067b0f8e3db7c181d60a343fda488d5b8747d5173596849a982c1a97418de912"
+        "sha256:c9bf8516ed12d3f69b1ce5f0b7b556626fefd973de95bb0898dd397c353f5124"
     ),
     "control-assistant-readonly": (
-        "sha256:d57a63a12676a7e332abbec09f63580966e4a87ae7ca8a68003734ebc2afbdba"
+        "sha256:6eac318fc25fb9289fc9ae99d342138c0f4b24ebfd6b9d9ad365a78af72f00fc"
     ),
     "control-assistant-readwrite": (
-        "sha256:4ab0beb9c0dc4e13828a4e0b0be3ee935eac0ae9546b3deb57848c19f3259d84"
+        "sha256:54ee7afb70fa1d6baa7a2afe0d83a88baffb838e5ccae65064a0c5399e4ffed7"
     ),
     "hello-world": ("sha256:b0778bfa09e22de1c9504d57f214e36cb58b4923402627b617ecb8e26d720d44"),
 }
