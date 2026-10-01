@@ -5,8 +5,8 @@ bluesky_web sidecar's ``channels.json`` behind ``channel_snapshot``, and the
 queueserver worker's ``bluesky_devices.yml`` behind ``bluesky_devices``. Each
 is one decision reaching three consumers: a render-context boolean, a file in
 the service's build context, and the compose fragment's conditional mount —
-and for the snapshot that decision reads either the project's channel database
-or, on the graph paradigm, the Turtle corpus at ``services.graphdb.ttl_path``.
+and for the snapshot that decision reads the facility file at the root of the
+render, whatever channel-finder mode the project configures.
 
 Both are pinned across BOTH render paths — the full :func:`setup_build_dir` and
 the incremental :func:`_incremental_setup_build_dir` — because a project's
@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests._graph_index import build_index_from_ttl
+from tests._facility_file import channel_tree, write_facility_file
 
 BLUESKY_WEB_TEMPLATE = "services/bluesky_web/docker-compose.yml.j2"
 OUT_DIR = Path("build") / "services" / "bluesky_web"
@@ -76,28 +76,26 @@ def rendered_contexts(monkeypatch):
     return contexts
 
 
-def _database(repo: Path) -> Path:
-    """Write a small flat channel database into the repo."""
-    path = repo / "channels_db.json"
-    path.write_text(
-        json.dumps(
-            [
-                {"channel": "StorageRing_BPM_02_X", "address": "SR:BPM:02:X"},
-                {"channel": "StorageRing_BPM_01_X", "address": "SR:BPM:01:X"},
-            ]
-        )
-    )
-    return path
+def _facility_file(render: Path) -> Path:
+    """Write a small facility file at the root of ``render``.
+
+    Two channels, deliberately out of order, so a sorted snapshot is visible
+    as a reordering rather than as a copy of the tree's own sequence.
+    """
+    return write_facility_file(render, channel_tree(readbacks=["SR:BPM:02:X", "SR:BPM:01:X"]))
 
 
-def _config(repo: Path, db_path: Path | None = None) -> dict:
-    """The slice of project config the render paths and the decision read."""
+def _config(repo: Path, facility_file: Path | None = None) -> dict:
+    """The slice of project config the render paths and the decision read.
+
+    ``facility_file`` is the file :func:`_facility_file` wrote for a project
+    that runs a channel finder; ``None`` is a project with neither.
+    """
     config: dict = {
         "project_name": "demo",
         "project_root": str(repo),
-        # What prepare_compose_files records before either render helper runs;
-        # the repo IS the working directory here, so it changes nothing the
-        # database paradigms see and gives the graph corpus its real anchor.
+        # What prepare_compose_files records before either render helper runs:
+        # the render root, which is where the facility file sits.
         "config_dir": str(repo),
         "build_dir": "./build",
         "services": {"bluesky_web": {}, "bluesky": {}},
@@ -105,55 +103,20 @@ def _config(repo: Path, db_path: Path | None = None) -> dict:
         "system": {"timezone": "UTC"},
         "deployed_services": [],
     }
-    if db_path is not None:
-        config["channel_finder"] = {
-            "pipelines": {"in_context": {"database": {"path": str(db_path), "type": "flat"}}}
-        }
+    if facility_file is not None:
+        config["channel_finder"] = {"pipeline_mode": "in_context"}
     return config
 
 
-#: Two bindings, deliberately out of order, so a sorted snapshot is visible as
-#: a reordering rather than as a copy of the file's own sequence.
-CORPUS = """\
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
-
-<https://narad.example.org/binding/sr-bpm-02-x> a narad_sem:ChannelBinding ;
-    narad_p:fullPv "SR:BPM:02:X" .
-
-<https://narad.example.org/binding/sr-bpm-01-x> a narad_sem:ChannelBinding ;
-    narad_p:fullPv "SR:BPM:01:X" .
-"""
-
-
-def _corpus(directory: Path) -> Path:
-    """Write a small Turtle corpus of channel bindings into ``directory``."""
-    path = directory / "corpus.ttl"
-    path.write_text(CORPUS, encoding="utf-8")
-    return path
-
-
-def _graph_source(directory: Path, config: dict) -> Path:
-    """Stage what a graph-mode render reads: the corpus, and its search index.
-
-    The roster reads the index, so a corpus alone leaves the panel with
-    nothing to suggest. The index goes where ``config`` says it does, which on
-    these projects is the default path under ``config_dir``.
-    """
-    return build_index_from_ttl(_corpus(directory), config)
-
-
-def _graph_config(repo: Path, *, ttl: bool = True) -> dict:
+def _graph_config(repo: Path) -> dict:
     """The config slice a graph-paradigm project renders with.
 
-    ``ttl_path`` is kept RELATIVE on purpose: the only thing that makes the
-    corpus findable is the ``config_dir`` anchor, so a resolution that quietly
-    fell back to something else would show up here as a missing snapshot.
+    The only thing that makes the facility file findable is the ``config_dir``
+    anchor, so a resolution that quietly fell back to something else would
+    show up here as a missing snapshot.
     """
     config = _config(repo)
     config["channel_finder"] = {"pipeline_mode": "graph"}
-    if ttl:
-        config["services"]["graphdb"] = {"ttl_path": "./corpus.ttl"}
     return config
 
 
@@ -169,9 +132,9 @@ def _run_incremental(config: dict) -> None:
     _incremental_setup_build_dir(BLUESKY_WEB_TEMPLATE, config, {}, str(OUT_DIR))
 
 
-def test_paths_agree_when_the_database_emits(repo, rendered_contexts):
+def test_paths_agree_when_the_facility_file_emits(repo, rendered_contexts):
     """Full and incremental renders inject the same flag and identical bytes."""
-    config = _config(repo, _database(repo))
+    config = _config(repo, _facility_file(repo))
 
     _run_full(config)
     assert rendered_contexts[0]["channel_snapshot"] is True
@@ -187,15 +150,14 @@ def test_paths_agree_when_the_database_emits(repo, rendered_contexts):
     assert json.loads(full_bytes) == ["SR:BPM:01:X", "SR:BPM:02:X"]
 
 
-def test_paths_agree_when_the_graph_corpus_emits(repo, rendered_contexts):
+def test_paths_agree_when_a_graph_mode_project_emits(repo, rendered_contexts):
     """A graph-mode project gets the same snapshot from either renderer.
 
-    The corpus reaches the panel exactly as a database file does — the graph
-    paradigm differs only in where the addresses are read from, never in what
-    the build writes or which render path wrote it.
+    The channel-finder mode changes neither what the build writes nor which
+    render path wrote it.
     """
     config = _graph_config(repo)
-    _graph_source(repo, config)
+    _facility_file(repo)
 
     _run_full(config)
     assert rendered_contexts[0]["channel_snapshot"] is True
@@ -206,13 +168,12 @@ def test_paths_agree_when_the_graph_corpus_emits(repo, rendered_contexts):
     assert rendered_contexts[1]["channel_snapshot"] is True
     assert SNAPSHOT.read_bytes() == full_bytes
 
-    # The bindings' fullPv literals, sorted — the same artifact shape the
-    # database paradigms produce, not the corpus's own ordering.
+    # The channel addresses, sorted — not the tree's own ordering.
     assert json.loads(full_bytes) == ["SR:BPM:01:X", "SR:BPM:02:X"]
 
 
-def test_paths_agree_when_no_database_is_configured(repo, rendered_contexts):
-    """Without a channel database, both paths render exactly as today."""
+def test_paths_agree_when_no_facility_file_is_built(repo, rendered_contexts):
+    """Without a facility file, both paths render no snapshot."""
     config = _config(repo)
 
     _run_full(config)
@@ -237,7 +198,7 @@ def test_incremental_rebuild_drops_a_stale_snapshot(repo, rendered_contexts):
 
 
 def test_other_services_never_compute_the_snapshot(repo, rendered_contexts, monkeypatch):
-    """Only the bluesky_web render pays for the database load."""
+    """Only the bluesky_web render pays for the roster read."""
     from osprey.deployment import compose_generator
 
     def unexpected(_config):
@@ -251,7 +212,7 @@ def test_other_services_never_compute_the_snapshot(repo, rendered_contexts, monk
 
     from osprey.deployment.compose_generator import setup_build_dir
 
-    setup_build_dir("services/other/docker-compose.yml.j2", _config(repo, _database(repo)), {})
+    setup_build_dir("services/other/docker-compose.yml.j2", _config(repo, _facility_file(repo)), {})
 
     assert rendered_contexts[0]["channel_snapshot"] is False
     assert not (Path("build") / "services" / "other" / "channels.json").exists()
@@ -270,7 +231,7 @@ def _rendered_volumes() -> list[str]:
 
 def test_mount_present_when_the_snapshot_emits(repo):
     """An emitted snapshot gets its read-only bind mount beside config.yml."""
-    _run_full(_config(repo, _database(repo)))
+    _run_full(_config(repo, _facility_file(repo)))
 
     volumes = _rendered_volumes()
     assert SNAPSHOT_MOUNT in volumes
@@ -278,16 +239,16 @@ def test_mount_present_when_the_snapshot_emits(repo):
 
 
 @pytest.mark.parametrize(
-    ("web_block", "with_database"),
+    ("web_block", "with_facility_file"),
     [
         pytest.param({"channel_suggestions": {"enabled": False}}, True, id="disabled"),
         pytest.param({"channel_suggestions": {"max_channels": 1}}, True, id="over-guard"),
-        pytest.param(None, False, id="no-database"),
+        pytest.param(None, False, id="no-facility-file"),
     ],
 )
-def test_mount_absent_when_the_decision_is_false(repo, web_block, with_database):
+def test_mount_absent_when_the_decision_is_false(repo, web_block, with_facility_file):
     """Every non-emitting branch renders valid YAML without the snapshot mount."""
-    config = _config(repo, _database(repo) if with_database else None)
+    config = _config(repo, _facility_file(repo) if with_facility_file else None)
     if web_block is not None:
         config["web"] = web_block
 
@@ -299,9 +260,9 @@ def test_mount_absent_when_the_decision_is_false(repo, web_block, with_database)
 
 
 def test_mount_present_when_the_graph_snapshot_emits(repo):
-    """A corpus-derived snapshot is mounted like any other."""
+    """A graph-mode project's snapshot is mounted like any other."""
     config = _graph_config(repo)
-    _graph_source(repo, config)
+    _facility_file(repo)
 
     _run_full(config)
 
@@ -311,25 +272,23 @@ def test_mount_present_when_the_graph_snapshot_emits(repo):
 
 
 @pytest.mark.parametrize(
-    ("web_block", "with_corpus", "ttl"),
+    ("web_block", "with_facility_file"),
     [
-        pytest.param({"channel_suggestions": {"enabled": False}}, True, True, id="graph-disabled"),
-        pytest.param(
-            {"channel_suggestions": {"max_channels": 1}}, True, True, id="graph-over-guard"
-        ),
-        pytest.param(None, True, False, id="graph-no-ttl-path"),
+        pytest.param({"channel_suggestions": {"enabled": False}}, True, id="graph-disabled"),
+        pytest.param({"channel_suggestions": {"max_channels": 1}}, True, id="graph-over-guard"),
+        pytest.param(None, False, id="graph-no-facility-file"),
     ],
 )
-def test_graph_mount_absent_when_the_decision_is_false(repo, web_block, with_corpus, ttl):
+def test_graph_mount_absent_when_the_decision_is_false(repo, web_block, with_facility_file):
     """Graph mode degrades the panel the same way the file paradigms do.
 
-    A corpus sitting right there is not enough on its own: the switch, the size
-    guard and an unconfigured ``ttl_path`` each end in a build that renders and
-    a sidecar with nothing to suggest.
+    A facility file sitting right there is not enough on its own: the switch
+    and the size guard each end in a build that renders and a sidecar with
+    nothing to suggest, as does a render no facility file was written into.
     """
-    config = _graph_config(repo, ttl=ttl)
-    if with_corpus:
-        _graph_source(repo, config)
+    config = _graph_config(repo)
+    if with_facility_file:
+        _facility_file(repo)
     if web_block is not None:
         config["web"] = web_block
 
@@ -341,52 +300,54 @@ def test_graph_mount_absent_when_the_decision_is_false(repo, web_block, with_cor
 
 
 def test_a_rebuild_drops_a_stale_graph_snapshot(repo, rendered_contexts):
-    """A corpus that stops being configured takes its mount with it.
+    """A facility file that is no longer there takes its mount with it.
 
     Fail-soft is by design, but it must be fail-soft all the way through: the
     rebuild has to drop the file the previous build wrote AND the mount that
     named it, or the deployment comes up binding a path nothing produces.
     """
     config = _graph_config(repo)
-    _graph_source(repo, config)
+    _facility_file(repo)
     _run_full(config)
     assert SNAPSHOT.exists()
 
-    _run_incremental(_graph_config(repo, ttl=False))
+    _facility_file(repo).unlink()
+    _run_incremental(_graph_config(repo))
 
     assert rendered_contexts[-1]["channel_snapshot"] is False
     assert not SNAPSHOT.exists()
     assert not any("channels.json" in volume for volume in _rendered_volumes())
 
 
-def test_the_graph_corpus_resolves_through_config_dir(repo, tmp_path, rendered_contexts):
-    """``config_dir`` is the anchor for a relative ``ttl_path``, not the cwd.
+def test_the_facility_file_resolves_through_config_dir(repo, tmp_path, rendered_contexts):
+    """``config_dir`` is the anchor for the facility file, not the cwd.
 
-    The two directories coincide on a real build, which is exactly why the test
-    pulls them apart: a corpus reachable only from ``config_dir`` must be found,
-    and one reachable only from the working directory must not be.
+    The test pulls the two directories apart: a facility file reachable only
+    from ``config_dir`` must be found, and one reachable only from the working
+    directory must not be.
     """
     render_dir = tmp_path / "render"
     render_dir.mkdir()
 
     config = _graph_config(repo)
     config["config_dir"] = str(render_dir)
-    _graph_source(render_dir, config)
-    assert not (repo / "corpus.ttl").exists()
+    _facility_file(render_dir)
+    assert not (repo / "facility.json").exists()
 
     _run_full(config)
     assert rendered_contexts[0]["channel_snapshot"] is True
     assert json.loads(SNAPSHOT.read_bytes()) == ["SR:BPM:01:X", "SR:BPM:02:X"]
 
-    # And the inverse: the corpus in the working directory, the anchor pointing
-    # somewhere without one. Nothing is found, and the build still renders.
+    # And the inverse: the facility file in the working directory, the anchor
+    # pointing somewhere without one. Nothing is found, and the build still
+    # renders.
     shutil.rmtree("build")
-    _corpus(repo)
+    _facility_file(repo)
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     config["config_dir"] = str(elsewhere)
-    # Deliberately no index under the new anchor: the corpus in the working
-    # directory is not what the roster reads, and must not be found.
+    # Deliberately no facility file under the new anchor: the one in the
+    # working directory is not what the roster reads, and must not be found.
 
     _run_full(config)
     assert rendered_contexts[1]["channel_snapshot"] is False
