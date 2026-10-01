@@ -372,7 +372,7 @@ def test_the_shipped_bundle_validates() -> None:
     import osprey
 
     bundle = (
-        Path(osprey.__file__).parent / "templates/apps/control_assistant/data/facility_knowledge"
+        Path(osprey.__file__).parent / "templates/apps/control_assistant/data/facility/knowledge"
     )
 
     result = CliRunner().invoke(knowledge, ["validate", str(bundle)])

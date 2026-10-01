@@ -351,8 +351,8 @@ core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · i
 ## Ledger
 | path or block | provenance | content | note |
 | --- | --- | --- | --- |
-| data/facility_knowledge/ | pulled | skeleton | indexes only |
-| data/facility_knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
+| data/facility/knowledge/ | pulled | skeleton | indexes only |
+| data/facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
 | data/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
 | services.postgresql | ported | LCLS | ARIEL store |
 ## Decided

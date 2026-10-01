@@ -115,7 +115,7 @@
 
     facility_bundle_source: str, required (may be "")
       The deployment's facility-knowledge bundle on the HOST, spelled as a compose
-      bind source (`./data/facility_knowledge`, or an absolute path verbatim).
+      bind source (`./data/facility/knowledge`, or an absolute path verbatim).
       ONE directory for every user — the corpus is shared, not copied per user —
       paired with each service's own `container_bundle_dir` target. `""` when the
       deployment configures no `facility_knowledge.bundle_path`, which emits no
@@ -1444,7 +1444,7 @@ services:
 
          If you are here because a concept you baked into a persona image is not
          showing up: this line is why. The persona image may ship its own
-         `data/facility_knowledge/` — `osprey build` renders one into the project
+         `data/facility/knowledge/` — `osprey build` renders one into the project
          — and this bind mount covers that directory entirely. The container sees
          the DEPLOYMENT's bundle at that path and nothing of the image's own.
 

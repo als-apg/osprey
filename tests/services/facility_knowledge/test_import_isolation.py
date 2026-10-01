@@ -597,7 +597,7 @@ class TestChannelFinderAppImportIsolation:
             "services:\n"
             "  graphdb:\n"
             "    uri: bolt://localhost:7687\n"
-            "    ttl_path: ./data/facility_knowledge/facility.ttl\n",
+            "    ttl_path: ./data/facility/knowledge/facility.ttl\n",
             encoding="utf-8",
         )
         return {"CONFIG_FILE": str(config), "OSPREY_CONFIG": str(config)}

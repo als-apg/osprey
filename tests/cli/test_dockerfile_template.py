@@ -905,9 +905,8 @@ class TestPrivilegeSplit:
         """The blanket `chown -R` of the whole project is gone.
 
         That single line is what used to hand the agent its own render. What
-        replaces it is `var/` plus the knowledge bundle — and the bundle chown
-        is guarded, because `osprey build` renders that directory only for a
-        deployment that names a bundle path.
+        replaces it is `var/` plus the knowledge bundle — and hello-world names
+        no bundle path, so its image chowns `var/` alone.
         """
         text = (hello_project / "Dockerfile").read_text()
         bodies = [b for _, b in _instructions(text) if "chown" in b]
@@ -918,8 +917,59 @@ class TestPrivilegeSplit:
             )
         joined = "\n".join(bodies)
         assert "chown -R osprey:osprey /app/hello-docker/var" in joined
-        assert "if [ -d /app/hello-docker/build/data/facility_knowledge ]" in joined
-        assert "chown -R osprey:osprey /app/hello-docker/build/data/facility_knowledge" in joined
+        assert "build/data" not in joined
+
+    def test_bundle_chown_follows_the_configured_path(self):
+        """The bundle chown names the directory the profile's bundle path says,
+        guarded on the directory because a chown of a missing path fails."""
+        text = _render_template(knowledge_bundle_dir="data/facility/knowledge")
+        assert "if [ -d /app/synthetic/build/data/facility/knowledge ]; then" in text
+        assert "chown -R osprey:osprey /app/synthetic/build/data/facility/knowledge;" in text
+
+        moved = _render_template(knowledge_bundle_dir="docs/pages")
+        assert "chown -R osprey:osprey /app/synthetic/build/docs/pages;" in moved
+        assert "facility/knowledge" not in moved
+
+    def test_no_bundle_chown_without_a_bundle_path(self):
+        for context in ({}, {"knowledge_bundle_dir": ""}):
+            bodies = [b for _, b in _instructions(_render_template(**context)) if "chown" in b]
+            assert bodies
+            assert all("/build/" not in body.replace("/build/config.yml", "") for body in bodies)
+
+    @pytest.mark.parametrize(
+        ("config", "expected"),
+        [
+            (
+                {"facility_knowledge.bundle_path": "data/facility/knowledge"},
+                "data/facility/knowledge",
+            ),
+            ({"facility_knowledge": {"bundle_path": "./docs//pages/"}}, "docs/pages"),
+            ({}, ""),
+            ({"facility_knowledge.bundle_path": ""}, ""),
+            ({"facility_knowledge.bundle_path": "/srv/bundle"}, ""),
+            ({"facility_knowledge.bundle_path": "../bundle"}, ""),
+            ({"facility_knowledge.bundle_path": "data/$(id)"}, ""),
+        ],
+    )
+    def test_the_profile_names_the_bundle_directory(self, config, expected):
+        """Only a bundle path inside the render reaches the image's chown."""
+        from osprey.cli.build_cmd import _profile_knowledge_bundle_dir
+
+        class _Profile:
+            def __init__(self, config):
+                self.config = config
+
+        assert _profile_knowledge_bundle_dir(_Profile(config)) == expected
+
+    def test_a_bundle_path_the_chown_cannot_carry_is_named(self, capsys):
+        """A bundle path the shell line cannot carry is left out with a warning."""
+        from osprey.cli.build_cmd import _profile_knowledge_bundle_dir
+
+        class _Profile:
+            config = {"facility_knowledge.bundle_path": "data/my pages"}
+
+        assert _profile_knowledge_bundle_dir(_Profile()) == ""
+        assert "data/my pages" in " ".join(capsys.readouterr().err.split())
 
     def test_render_zone_is_not_chowned(self, hello_project):
         """Nothing in the render is handed to the agent's user — the shipped
@@ -1183,6 +1233,17 @@ class TestTieredPresetConfigChown:
         assert "/build/config.yml" not in "\n".join(
             b for _, b in _instructions(text) if "chown" in b
         )
+
+    @pytest.mark.parametrize("persona", [None, "admin", "knowledge", "readonly"])
+    def test_every_tier_hands_over_the_knowledge_bundle(self, tiered_render, persona):
+        """The preset names its bundle in the facility tree, and each image
+        chowns that directory to the agent's user."""
+        name = tiered_render.parent.name
+        project = name if persona is None else f"{name}-{persona}"
+        text = self._dockerfile(tiered_render, project)
+        bundle = f"/app/{project}/build/data/facility/knowledge"
+        assert f"if [ -d {bundle} ]; then" in text
+        assert f"chown -R osprey:osprey {bundle};" in text
 
 
 class TestLayerOrder:

@@ -240,7 +240,7 @@ checked mapping:
 
 That is the middle-layer database at
 ``data/channel_databases/middle_layer.json``, the facility ontology, the
-knowledge pages under ``data/facility_knowledge/``, and a Turtle corpus named
+knowledge pages under ``data/facility/knowledge/``, and a Turtle corpus named
 for your facility. ``--duckdb`` also writes the DuckDB copy that the
 ``run_sql`` tool reads. That copy holds one row per process variable, so two
 slots naming the same PV --- a shared setpoint, or one row broadcast to every

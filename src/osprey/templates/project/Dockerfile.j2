@@ -270,10 +270,10 @@ RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
 # there — the drift regen and the scaffold restore — run as root in the
 # entrypoint, once, before the server that serves requests exists.
 #
-# The bundle chown is conditional because the directory is: `osprey build`
-# renders `build/data/facility_knowledge/` only for a deployment that names a
-# `facility_knowledge.bundle_path`, and a chown of a path that is not there
-# fails the build.
+# The bundle chown names the directory `facility_knowledge.bundle_path` says,
+# under the render: it is rendered only for a deployment that names a
+# project-relative bundle path, and guarded on the directory because a chown of
+# a path that is not there fails the build.
 #
 # uid/gid are PINNED rather than left to useradd's next-free, so they are a
 # fact of this image instead of an accident of whichever Debian release the
@@ -283,10 +283,11 @@ RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
 # uid 1000 fails this line loudly, which is the right way to find out.
 RUN groupadd --gid 1000 osprey \
  && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash osprey \
- && chown -R osprey:osprey /app/{{ project_name }}/var \
- && if [ -d /app/{{ project_name }}/build/data/facility_knowledge ]; then \
-        chown -R osprey:osprey /app/{{ project_name }}/build/data/facility_knowledge; \
-    fi
+ && chown -R osprey:osprey /app/{{ project_name }}/var{% if knowledge_bundle_dir | default("") %} \
+ && if [ -d /app/{{ project_name }}/build/{{ knowledge_bundle_dir }} ]; then \
+        chown -R osprey:osprey /app/{{ project_name }}/build/{{ knowledge_bundle_dir }}; \
+    fi{% endif %}
+
 {% if is_setup_patch_capable %}
 # This persona keeps the setup capability — its permission render leaves
 # `mcp__osprey_workspace__setup_patch` outside the deny list — so the one file

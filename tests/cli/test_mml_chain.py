@@ -171,7 +171,7 @@ class Chain:
 
     @property
     def bundle(self) -> Path:
-        return self.root / "data" / "facility_knowledge"
+        return self.root / "data" / "facility" / "knowledge"
 
     @property
     def database(self) -> MiddleLayerDatabase:
@@ -706,13 +706,13 @@ class TestTheChainRuns:
             data / "channel_databases" / "middle_layer.duckdb",
             data / "ontology" / f"{chain.token}.yaml",
             data / "facility_ontology.json",
-            data / "facility_knowledge" / "facility.md",
-            data / "facility_knowledge" / "index.md",
+            data / "facility" / "knowledge" / "facility.md",
+            data / "facility" / "knowledge" / "index.md",
             chain.ttl,
         )
         for path in expected:
             assert path.is_file(), f"{path} was not written"
-        assert list((data / "facility_knowledge" / "families").glob("*.md"))
+        assert list((data / "facility" / "knowledge" / "families").glob("*.md"))
 
     def test_a_one_zero_export_says_the_va_lane_is_skipped_and_writes_none_of_it(
         self, chain: Chain

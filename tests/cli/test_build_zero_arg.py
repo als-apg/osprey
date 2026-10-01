@@ -149,7 +149,7 @@ class TestRepoIdentity:
         assert _rendered_config(lifecycle_repo)["project_root"] == "/app/als-exemplar"
 
     def test_runs_from_any_subdirectory(self, runner, lifecycle_repo):
-        result = _build(runner, lifecycle_repo / "data" / "facility_knowledge")
+        result = _build(runner, lifecycle_repo / "data" / "facility" / "knowledge")
 
         assert result.exit_code == 0, result.output
         assert (lifecycle_repo / "build" / "config.yml").is_file()

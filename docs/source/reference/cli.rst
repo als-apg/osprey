@@ -1163,7 +1163,7 @@ to end.
 ``osprey mml emit [--duckdb [PATH]]``
    Write the deployment's files under ``data/`` from the export and the checked
    mapping: the middle-layer channel database, the facility ontology as schema
-   and compiled table, the knowledge pages under ``data/facility_knowledge/``,
+   and compiled table, the knowledge pages under ``data/facility/knowledge/``,
    and the Turtle corpus named for the facility token. ``--duckdb`` also
    imports the database into DuckDB, at ``PATH`` or
    ``data/channel_databases/middle_layer.duckdb``; that copy holds one row per

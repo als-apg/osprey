@@ -1029,7 +1029,7 @@ class TestDeployServicesKnob:
         # profile and the deploy binds into every entitled container. A bare
         # profile without it is refused by the Reach Contract (the bind source
         # would be an empty directory), and this class is about the knob.
-        (profile.parent / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+        (profile.parent / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
         result = _render_from(runner, str(profile))
         assert result.exit_code == 0, result.output
         return _project(tmp_path, "smoke")
@@ -1292,7 +1292,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     _facility_data(root, "control_assistant")
-    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "data: data\n"
@@ -1349,7 +1349,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     _facility_data(root, "control_assistant")
-    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "data: data\n"

@@ -348,7 +348,7 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
         repo / "data",
         dirs_exist_ok=True,
     )
-    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 

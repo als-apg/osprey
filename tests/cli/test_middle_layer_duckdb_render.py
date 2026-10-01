@@ -48,7 +48,7 @@ def _middle_layer_repo(tmp_path: Path, *, with_duckdb: bool, data_dir: str = "da
     (repo / "profile.yml").write_text(yaml.dump(profile, default_flow_style=False))
     data_root = repo / data_dir
     shutil.copytree(_packaged_data_root(), data_root, dirs_exist_ok=True)
-    (data_root / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (data_root / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     duckdb = data_root / _DUCKDB_RELATIVE
     if with_duckdb:
         duckdb.parent.mkdir(parents=True, exist_ok=True)

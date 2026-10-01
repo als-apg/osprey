@@ -87,7 +87,7 @@ PANEL_PRUNED_PERSONAS = ("readwrite", "admin")
 HOST_WEB_PANELS = ["okf"]
 
 #: Where the pulled knowledge bundle lands, relative to the repo root.
-BUNDLE_PATH = "data/facility_knowledge"
+BUNDLE_PATH = "data/facility/knowledge"
 
 #: The prefix the web container names are built from.
 FACILITY_PREFIX = "demo"

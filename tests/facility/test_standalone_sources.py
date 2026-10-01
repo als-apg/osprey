@@ -31,8 +31,9 @@ HELLO_WORLD = APPS / "hello_world/data/facility"
 VA_BINDINGS = APPS / "control_assistant/data/simulation/va_bindings.json"
 CF_STANDALONE_ADDRESSES = REPO_ROOT / "tests/facility/golden/cf_standalone_addresses.json"
 
-#: The directories only the control-assistant tree carries.
-OMITTED = ("measurement/",)
+#: The directories only the control-assistant tree carries: its hand-authored
+#: knowledge pages and the measurement file.
+OMITTED = ("knowledge/", "measurement/")
 
 #: The addresses the hello-world tutorial names.
 HELLO_WORLD_ADDRESSES = [
@@ -68,7 +69,9 @@ def test_control_assistant_tree_is_the_generator_output() -> None:
     committed = tree(CONTROL_ASSISTANT)
     generated = {rel: text.encode("utf-8") for rel, text in generated_files().items()}
     assert {rel: committed[rel] for rel in generated if rel in committed} == generated
-    assert set(committed) - set(generated) == {"decks/SR.json"}
+    assert {rel for rel in set(committed) - set(generated) if not rel.startswith("knowledge/")} == {
+        "decks/SR.json"
+    }
 
 
 @pytest.mark.parametrize("name", sorted(STANDALONES))

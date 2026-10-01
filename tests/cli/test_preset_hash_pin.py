@@ -184,27 +184,35 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The build writes it into the render, naming the limits database it
     # renders from `data/facility/limits.yaml`, so a rebuilt project carries
     # the same path and reads its limits from the records of that file.
+    # The twenty-fourth move, and control-assistant's family alone: the root
+    # preset authors its knowledge pages inside the facility tree, so
+    # `facility_knowledge.bundle_path` reads `data/facility/knowledge` where it
+    # read `data/facility_knowledge`. A rebuilt project mounts and serves the
+    # bundle from the new directory, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. The five `extends`
+    # children inherit it; ariel-standalone, channel-finder-standalone and
+    # hello-world carry no bundle and stand still.
     "ariel-standalone": ("sha256:cda6b1a4fce5d0c8d29dce418bee0e3c89b9af06ac9a944c3d2af152a8e75f5a"),
     "channel-finder-standalone": (
         "sha256:e7ad4d3ebc1edd2eb8f1ed48862e7c8048b23f49d475ba71f7e82c3989bb984b"
     ),
     "control-assistant": (
-        "sha256:088f454fe33bab1bc434e0fd3a4ac77e2dfd2491cda212142283f57613b78c55"
+        "sha256:c35d2fbb067dc634421e3f07914b5d18a3eca91d05357c19505d01383a2e2261"
     ),
     "control-assistant-admin": (
-        "sha256:cc1030d2fbca153896aa56e8a871a3007fe0bebec80a43f6d2e64ad4cb9cfc5a"
+        "sha256:668f2c12b1e3b6b145406fa9a97bf524df422b2db9e2b03edf71638be208b21c"
     ),
     "control-assistant-knowledge": (
-        "sha256:25a653ad6e2f69fb8941c76ef71f9fc8c6c879d49d9c6e27d40e95593d98fc34"
+        "sha256:680d4e225cf1036cf8ca7064147a58ac309c36deee9fa7dd837e03d1f73fa2a4"
     ),
     "control-assistant-logbook": (
-        "sha256:7a5efdc2336bc4b4e690079f405e0feda5c71c16de60801272643e312274ee0d"
+        "sha256:288f78c1b4d4bdfe516fe215791b3b31bbeb2525f206849189336a26fe843b30"
     ),
     "control-assistant-readonly": (
-        "sha256:91f29562a7daa8d7340a3afa875768b86a0ba19c32c75a99b6cec8ed0770ea89"
+        "sha256:68b39100bfe2808d065d87acfddb2d39557bef93a10ef9345b028aec5185c19c"
     ),
     "control-assistant-readwrite": (
-        "sha256:7b7b2abfed6a3bcc2d2ed823cbf5e602f0c940d2dc8fdbc601e55383382bf650"
+        "sha256:63676de1335bf341c812aebec516785a94230767bd3fb7594ec679b0e974164b"
     ),
     "hello-world": ("sha256:79ec0599628ed246440d6796191262c6ea844ce92ad2bb2e006b356f3a9a9ee7"),
 }
