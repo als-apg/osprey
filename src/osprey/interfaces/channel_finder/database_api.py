@@ -37,7 +37,7 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.mcp_server.graph.server_context import GraphStoreError
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-from osprey.services.channel_finder.core.base_database import BaseDatabase
+from osprey.services.channel_finder.core.base_database import BaseDatabase, DatabaseWriteError
 from osprey.services.channel_finder.databases import (
     FlatChannelDatabase,
     HierarchicalChannelDatabase,
@@ -1479,8 +1479,6 @@ async def add_tree_node(request: Request, body: AddNodeRequest):
     """Add a new node at a hierarchy level."""
     db = _get_hierarchical_database(request)
 
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
     try:
         return db.add_node(
             level=body.level,
@@ -1499,8 +1497,6 @@ async def add_tree_node(request: Request, body: AddNodeRequest):
 async def edit_tree_node(request: Request, body: EditNodeRequest):
     """Edit a node's name and/or description at a hierarchy level."""
     db = _get_hierarchical_database(request)
-
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         return db.edit_node(
@@ -1522,8 +1518,6 @@ async def delete_tree_node(request: Request, body: DeleteNodeRequest):
     """Delete a node (and all descendants) at a hierarchy level."""
     db = _get_hierarchical_database(request)
 
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
     try:
         return db.delete_node(
             level=body.level,
@@ -1541,8 +1535,6 @@ async def delete_tree_node(request: Request, body: DeleteNodeRequest):
 async def tree_impact(request: Request, body: DeleteNodeRequest):
     """Preview the impact of deleting a hierarchy node."""
     db = _get_hierarchical_database(request)
-
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         impact = db.count_descendants(
@@ -1566,8 +1558,6 @@ async def get_tree_expansion(request: Request, level: str, selections: str | Non
     """Get the current expansion config for an instance-type level."""
     db = _get_hierarchical_database(request)
 
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
     try:
         parsed_selections = json.loads(selections) if selections else {}
         return db.get_expansion(
@@ -1587,8 +1577,6 @@ async def get_tree_expansion(request: Request, level: str, selections: str | Non
 async def edit_tree_expansion(request: Request, body: EditExpansionRequest):
     """Edit the expansion config for an instance-type level."""
     db = _get_hierarchical_database(request)
-
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         return db.edit_expansion(
@@ -1615,8 +1603,6 @@ async def add_family(request: Request, body: AddFamilyRequest):
     """Add a new family to a system."""
     db = _get_middle_layer_database(request)
 
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
     try:
         return db.add_family(
             system=body.system,
@@ -1635,8 +1621,6 @@ async def delete_family(request: Request, body: DeleteFamilyRequest):
     """Delete a family and all its channels."""
     db = _get_middle_layer_database(request)
 
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
     try:
         return db.delete_family(
             system=body.system,
@@ -1653,8 +1637,6 @@ async def delete_family(request: Request, body: DeleteFamilyRequest):
 async def add_ml_channel(request: Request, body: AddMLChannelRequest):
     """Add a channel to a family's field."""
     db = _get_middle_layer_database(request)
-
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         return db.add_channel(
@@ -1676,8 +1658,6 @@ async def delete_ml_channel(request: Request, body: DeleteMLChannelRequest):
     """Delete a channel from a family's field."""
     db = _get_middle_layer_database(request)
 
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
     try:
         return db.delete_channel(
             system=body.system,
@@ -1697,8 +1677,6 @@ async def delete_ml_channel(request: Request, body: DeleteMLChannelRequest):
 async def structure_impact(request: Request, body: DeleteFamilyRequest):
     """Preview the impact of deleting a middle-layer family."""
     db = _get_middle_layer_database(request)
-
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         count = db.count_family_channels(
@@ -1722,8 +1700,6 @@ async def structure_impact(request: Request, body: DeleteFamilyRequest):
 async def create_channel(request: Request, body: AddICChannelRequest):
     """Add a new channel to the in-context database."""
     db = _get_in_context_database(request)
-
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         return db.add_channel(
@@ -1749,8 +1725,6 @@ async def update_channel(channel_id: str, request: Request, body: UpdateICChanne
     """
     db = _get_in_context_database(request)
 
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
     try:
         return db.update_channel(
             channel=channel_id,
@@ -1773,8 +1747,6 @@ async def delete_channel(channel_id: str, request: Request):
         request: FastAPI request.
     """
     db = _get_in_context_database(request)
-
-    from osprey.services.channel_finder.core.base_database import DatabaseWriteError
 
     try:
         return db.delete_channel(
