@@ -12,8 +12,9 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   ``writable: true`` beside a band with both edges; every other setpoint
   carries its band only. The band is never widened to reach a nominal: a
   nominal outside it is the build's ``seed-invalid`` stop. A wired setpoint
-  whose ``Range`` states no finite band on both edges is not made writable,
-  and the import names it.
+  whose ``Range`` lacks a finite edge carries ``writable: false`` beside
+  whichever edge is stated, and the import names it: the channel is refused
+  until a person bands it.
 * ``seeds.yaml``: the nominal the export states for each channel no model
   wires. A wired channel starts from its deck, so its nominal is not written
   and the import says how many it skipped.
@@ -295,11 +296,11 @@ def band(declared: Any, indices: Sequence[int], devices: int) -> tuple[float | N
 def _limit_records(
     claims: dict[str, _Claim], wired: set[str]
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """One record per setpoint its field bands, and one line per wired one it does not.
+    """One record per setpoint its field bands or a model wires, and one line per locked one.
 
     Returns:
         The records, sorted by address, and a line for each wired setpoint
-        whose band lacks an edge, which is therefore not made writable.
+        whose band lacks an edge, whose record is locked.
     """
     records: list[dict[str, Any]] = []
     unbanded: list[str] = []
@@ -308,17 +309,18 @@ def _limit_records(
         if claim.role != _SETPOINT:
             continue
         low, high = band(claim.fld.body.get(_RANGE_KEY), claim.indices, claim.view.n_devices)
-        if address in wired and (low is None or high is None):
+        banded = low is not None and high is not None
+        if address in wired and not banded:
             unbanded.append(f"limits unbanded: {address} export [{_edge(low)},{_edge(high)}]")
-        if low is None and high is None:
+        elif low is None and high is None:
             continue
         record: dict[str, Any] = {"address": address}
         if low is not None:
             record["min_value"] = low
         if high is not None:
             record["max_value"] = high
-        if address in wired and low is not None and high is not None:
-            record["writable"] = True
+        if address in wired:
+            record["writable"] = banded
         records.append(record)
     return records, unbanded
 
