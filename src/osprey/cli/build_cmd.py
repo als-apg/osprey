@@ -1194,12 +1194,10 @@ class _SharedRenderInputs(NamedTuple):
     re-derive a manifest byte-for-byte identical to the first. Keyed on the two
     inputs that decide it, so a delta that *does* move either still gets its own.
 
-    A graph-deferred entry is stored under the same key but is per build
-    profile in truth: the deferred prepare reads the profile's mode and its
-    rendered ``services.graphdb.ttl_path``, so a persona that overrode the
-    corpus while keeping the tree would be served its host's answer. Every
-    render of one build shares one profile chain today, which is why the key
-    has not grown a third input.
+    A tree that stages no channel database gets its entry from the facility
+    file of the first render that asks. Every render of one build is written
+    the same facility file, built once from the data tree the key names, so
+    the answer is the same whichever render asks first.
     """
 
     va_reported: set[tuple[str, int]]
@@ -1955,6 +1953,7 @@ def _render_project(
         prepare_project_manifest,
         write_project_manifest,
     )
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 
     from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
@@ -2057,27 +2056,24 @@ def _render_project(
     data_root = build_profile.resolved_data_root(repo_root)
     assert data_root is not None  # `data:` required; narrows for type-checkers
     va_key = (str(data_root), build_profile.resolved_tier())
-    if va_key not in shared.va_manifests:
-        shared.va_manifests[va_key] = prepare_project_manifest(data_root, va_key[1])
-    prepared_va_manifest = shared.va_manifests[va_key]
-    # A graph-mode tree that stages no paradigm database is not yet a verdict:
-    # its channels live in the knowledge-graph corpus, and the corpus is a
-    # render-relative config value (`services.graphdb.ttl_path`) that only the
-    # rendered config can resolve. The manifest question is re-asked after the
-    # render, with that config in hand -- see below, before the manifest write.
-    va_graph_deferred = (
-        prepared_va_manifest is None and build_profile.channel_finder_mode == "graph"
-    )
-    # Prepared unconditionally above (the memoization is the build's, not the
-    # virtual accelerator's); only what is SAID about it is gated on the
-    # virtual accelerator actually being deployed.
-    if not va_graph_deferred:
+    # A tree that stages no paradigm database has nothing to prepare yet: its
+    # channels are the records of the facility file this render is about to be
+    # given, and the outgoing build/ holds the previous build's or none. Its
+    # manifest is prepared once that file is written -- see below, before the
+    # manifest write.
+    va_from_databases = bool(ManifestPaths(data_root=data_root, tier=va_key[1]).staged_paradigms)
+    if va_from_databases:
+        if va_key not in shared.va_manifests:
+            shared.va_manifests[va_key] = prepare_project_manifest(data_root, va_key[1])
+        # Prepared unconditionally (the memoization is the build's, not the
+        # virtual accelerator's); only what is SAID about it is gated on the
+        # virtual accelerator actually being deployed.
         _report_va_manifest_outcome(
             shared,
             build_profile,
             data_root=data_root,
             tier=va_key[1],
-            prepared=prepared_va_manifest,
+            prepared=shared.va_manifests[va_key],
         )
 
     # ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
@@ -2312,8 +2308,8 @@ def _render_project(
 
         # The render is on disk, so its config can resolve the two paths that are
         # relative to it: the corpus this render staged and the index derived
-        # from it. Loaded once here and handed to the deferred manifest step
-        # below, which asks the same config the same question.
+        # from it. Loaded once here and handed to the manifest step below, whose
+        # roster resolves this render's facility file from it.
         rendered = _rendered_config(render_dir)
         rendered["config_dir"] = str(render_dir)
 
@@ -2335,23 +2331,25 @@ def _render_project(
             if graph_target is not None:
                 _build_graph_index(shared, graph_target, progress)
 
-        if va_graph_deferred:
-            # The deferred half of the manifest step above: the render is on disk,
-            # so the rendered config can resolve the corpus the roster reads --
-            # the same resolution every other roster consumer applies. The refusal
-            # (a virtual accelerator with an unreadable or empty corpus) fires
+        if not va_from_databases:
+            # This render now holds its facility file, so the roster the manifest
+            # step asks answers for the render being built. The refusal (a
+            # virtual accelerator whose facility file names no channel) fires
             # here, still before anything is published outside the render zone.
-            prepared_va_manifest = prepare_project_manifest(data_root, va_key[1], config=rendered)
-            shared.va_manifests[va_key] = prepared_va_manifest
+            if va_key not in shared.va_manifests:
+                shared.va_manifests[va_key] = prepare_project_manifest(
+                    data_root, va_key[1], config=rendered
+                )
             _report_va_manifest_outcome(
                 shared,
                 build_profile,
                 data_root=data_root,
                 tier=va_key[1],
-                prepared=prepared_va_manifest,
+                prepared=shared.va_manifests[va_key],
                 config=rendered,
             )
 
+        prepared_va_manifest = shared.va_manifests[va_key]
         if prepared_va_manifest is not None:
             write_project_manifest(prepared_va_manifest, render_dir / "data")
             progress(
