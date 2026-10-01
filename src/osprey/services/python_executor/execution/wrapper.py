@@ -24,6 +24,8 @@ from osprey.services.python_executor.execution.net_guard import render_net_guard
 # patched when the script imports their module, not before it runs.
 from osprey.services.python_executor.write_surface import (
     _ARMED_BLOCKED,
+    _ARMED_CA_PROVIDER,
+    _ARMED_CHECKED,
     _ARMED_RPC,
     _FRAMEWORK_WRITE_TARGETS,
     _READONLY_WRITE_TARGETS,
@@ -89,10 +91,11 @@ _RAW_PUT_BLOCK_SOURCE = Path(__file__).resolve().parents[3] / "runtime" / "raw_p
 #: names the module it came from.
 _RAW_PUT_BLOCK_FILENAME = "osprey/runtime/raw_put_block.py"
 
-#: Refusal a PVAccess ``rpc`` raises in a limits-checked readwrite run. An rpc
-#: carries an arbitrary payload and no channel value, so no connector write can
-#: stand in for it and no limit can bound it.
-P4P_RPC_REFUSAL = "rpc is not mediated and cannot be approved — use the supervised write path"
+#: Refusal a PVAccess rpc — p4p's ``Context.rpc`` or pvaPy's ``RpcClient.invoke``
+#: — raises in a limits-checked readwrite run. An rpc carries an arbitrary
+#: payload and no channel value, so no connector write can stand in for it and
+#: no limit can bound it.
+PVA_RPC_REFUSAL = "rpc is not mediated and cannot be approved — use the supervised write path"
 
 #: Refusal a Tango command raises in a limits-checked readwrite run: a command
 #: is an action on the device, not a channel value a limit could bound.
@@ -102,10 +105,11 @@ TANGO_COMMAND_REFUSAL = (
 
 #: The rpc refusal texts the armed block receives, keyed by dotted prefix. The
 #: block picks the text keyed by the longest prefix of ``dotted.attr``, so these
-#: three keys cover every row of :data:`_ARMED_RPC`; a row they did not cover
+#: four keys cover every row of :data:`_ARMED_RPC`; a row they did not cover
 #: would make the install raise rather than refuse with nothing to say.
 ARMED_RPC_REFUSALS: dict[str, str] = {
-    "p4p": P4P_RPC_REFUSAL,
+    "p4p": PVA_RPC_REFUSAL,
+    "pvaccess": PVA_RPC_REFUSAL,
     "tango": TANGO_COMMAND_REFUSAL,
     "PyTango": TANGO_COMMAND_REFUSAL,
 }
@@ -136,6 +140,9 @@ def armed_contract(*, refuse_rpc: bool) -> dict:
         "refuse_rpc": bool(refuse_rpc),
         "marker": RAW_CLIENT_WRITE_MARKER,
         "rpc_refusals": dict(ARMED_RPC_REFUSALS),
+        "ca_provider_targets": _armed_rows(
+            {row: reason for row, reason in _ARMED_CHECKED.items() if row[0] in _ARMED_CA_PROVIDER}
+        ),
     }
 
 
@@ -510,7 +517,9 @@ if not _execution_dir.exists():
         The connector reads PVAccess but does not write it yet, so a raw
         ``p4p`` or ``pvaccess`` put is the one PVAccess write route a readwrite
         run has, and the armed raw-put block lets it through
-        (:data:`_ARMED_CHECKED`) instead of refusing it. It keeps the check it
+        (:data:`_ARMED_CHECKED`) instead of refusing it — on a PVAccess channel.
+        A pvaPy channel opened on Channel Access is refused by that block before
+        this check is reached. It keeps the check it
         had before that block existed: every put is validated against the
         run's limits before it reaches the network. With no limits validator
         there is nothing to check against, and a readonly run refuses these
@@ -1014,7 +1023,10 @@ if not _execution_dir.exists():
         ``PV.write``, a Tango ``write_attribute`` — is a route around that,
         so every entry point in :data:`_ARMED_BLOCKED` is replaced with one that
         calls through only while a connector holds the write door open and
-        otherwise refuses with :data:`RAW_CLIENT_WRITE_MARKER`. With a limits
+        otherwise refuses with :data:`RAW_CLIENT_WRITE_MARKER`. A pvaPy channel
+        opened on Channel Access is refused the same way, since its put is a raw
+        Channel Access write (:data:`_ARMED_CA_PROVIDER`); one opened on
+        PVAccess is left to :meth:`_get_pva_limits_guard`. With a limits
         validator the rpc rows of :data:`_ARMED_RPC` refuse as well: an rpc or a
         Tango command carries no value a limit could bound.
 

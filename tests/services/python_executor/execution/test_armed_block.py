@@ -31,7 +31,12 @@ from osprey.services.python_executor.execution.wrapper import (
     ExecutionWrapper,
     armed_contract,
 )
-from osprey.services.python_executor.write_surface import _ARMED_BLOCKED, _ARMED_RPC
+from osprey.services.python_executor.write_surface import (
+    _ARMED_BLOCKED,
+    _ARMED_CA_PROVIDER,
+    _ARMED_CHECKED,
+    _ARMED_RPC,
+)
 from osprey_connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
@@ -188,8 +193,23 @@ def test_every_rpc_row_resolves_to_its_refusal_text():
     texts = kwargs["rpc_refusals"]
     assert texts == ARMED_RPC_REFUSALS
     for dotted, attr in _ARMED_RPC:
-        expected = P4P_RPC_TEXT if dotted.startswith("p4p.") else TANGO_COMMAND_TEXT
+        expected = P4P_RPC_TEXT if dotted.startswith(("p4p.", "pvaccess.")) else TANGO_COMMAND_TEXT
         assert _refusal_text(texts, dotted, attr) == expected, (dotted, attr)
+
+
+def test_ca_provider_targets_are_the_checked_rows_of_the_provider_classes():
+    """The per-channel split is emitted for the checked rows of each provider
+    class, so a CA channel's puts are refused and a PVA channel's are not."""
+    _args, kwargs = _install_literals(
+        ExecutionWrapper(execution_mode="readwrite")._get_armed_block()
+    )
+    provider_rows = {
+        row: reason for row, reason in _ARMED_CHECKED.items() if row[0] in _ARMED_CA_PROVIDER
+    }
+    assert provider_rows
+    assert {d: list(a) for d, a in kwargs["ca_provider_targets"]} == _grouped(provider_rows)
+    blocked = {(d, a) for d, attrs in kwargs["blocked_targets"] for a in attrs}
+    assert blocked.isdisjoint(provider_rows)
 
 
 def test_emitted_contract_is_the_shared_contract():
@@ -381,3 +401,255 @@ def test_whole_readwrite_wrapper_runs_clean_with_the_block(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert json.loads((tmp_path / "results.json").read_text()) == {"value": 41}
+
+
+# --------------------------------------------------------------------------
+# pvaPy: the provider decides, per channel
+# --------------------------------------------------------------------------
+
+_FAKE_PVACCESS = textwrap.dedent(
+    """
+    import sys
+    import types
+
+    pvaccess = types.ModuleType("pvaccess")
+    pvaccess.__file__ = "<fake pvaccess>"
+    exec(
+        "class ProviderType(int):\\n"
+        "    pass\\n"
+        "PVA = ProviderType(0)\\n"
+        "CA = ProviderType(1)\\n"
+        "class Channel:\\n"
+        "    def __init__(self, name, provider=PVA):\\n"
+        "        self.name = name\\n"
+        "    def getName(self):\\n"
+        "        return self.name\\n"
+        "    def put(self, value):\\n"
+        "        return 'wrote'\\n"
+        "    def putDouble(self, value):\\n"
+        "        return 'wrote'\\n"
+        "    def asyncPut(self, value, callback, error):\\n"
+        "        return 'wrote'\\n"
+        "    def get(self):\\n"
+        "        return 1.0\\n"
+        "class MultiChannel:\\n"
+        "    def __init__(self, names, provider=PVA):\\n"
+        "        pass\\n"
+        "    def put(self, values):\\n"
+        "        return 'wrote'\\n"
+        "    def putAsDoubleArray(self, values):\\n"
+        "        return 'wrote'\\n"
+        "class RpcClient:\\n"
+        "    def __init__(self, name):\\n"
+        "        pass\\n"
+        "    def invoke(self, request):\\n"
+        "        return 'ran'\\n"
+        "class PvaServer:\\n"
+        "    def update(self, *args):\\n"
+        "        return 'served'\\n"
+        "class CaIoc:\\n"
+        "    def putField(self, name, value):\\n"
+        "        return 'set'\\n"
+        "    def iocInit(self):\\n"
+        "        return 'started'\\n",
+        pvaccess.__dict__,
+    )
+    sys.modules["pvaccess"] = pvaccess
+    """
+)
+
+_PVACCESS_PROBE = textwrap.dedent(
+    """
+    import json
+
+    from osprey_connectors.control_system.write_door import open_door
+
+    def attempt(call):
+        try:
+            return {"ok": call()}
+        except Exception as error:
+            return {"type": type(error).__name__, "reason": getattr(error, "reason", None),
+                    "address": getattr(error, "channel_address", None), "text": str(error)}
+
+    ca = pvaccess.Channel("SR:CA", pvaccess.CA)
+    pva = pvaccess.Channel("SR:PVA")
+    out = {
+        "ca_put": attempt(lambda: ca.put(1.0)),
+        "ca_put_double": attempt(lambda: ca.putDouble(1.0)),
+        "ca_async_put": attempt(lambda: ca.asyncPut(1.0, None, None)),
+        "ca_get": attempt(lambda: ca.get()),
+        "pva_put": attempt(lambda: pva.putDouble(1.0)),
+        "explicit_pva_put": attempt(lambda: pvaccess.Channel("SR:P2", pvaccess.PVA).put(1.0)),
+        "multi_put": attempt(lambda: pvaccess.MultiChannel(["A"]).putAsDoubleArray([1.0])),
+        "multi_plain_put": attempt(lambda: pvaccess.MultiChannel(["A"]).put([1.0])),
+        "ioc_put": attempt(lambda: pvaccess.CaIoc().putField("SR:REC", 1.0)),
+        "ioc_init": attempt(lambda: pvaccess.CaIoc().iocInit()),
+        "rpc": attempt(lambda: pvaccess.RpcClient("SVC").invoke({})),
+        "server": attempt(lambda: pvaccess.PvaServer().update(1.0)),
+    }
+    with open_door():
+        out["ca_put_in_door"] = attempt(lambda: ca.put(1.0))
+        out["multi_put_in_door"] = attempt(
+            lambda: pvaccess.MultiChannel(["A"]).putAsDoubleArray([1.0])
+        )
+    print("RESULT " + json.dumps(out))
+    """
+)
+
+
+def _run_pvaccess_block(block: str) -> dict:
+    script = "\n".join((_FAKE_PVACCESS, block, _PVACCESS_PROBE))
+    proc = subprocess.run(  # fixed argv, generated script
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env=_env(),
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    line = next(line for line in proc.stdout.splitlines() if line.startswith("RESULT "))
+    return json.loads(line.removeprefix("RESULT "))
+
+
+@pytest.mark.parametrize("validator", [None, "real"])
+def test_a_ca_channel_put_is_refused_and_a_pva_channel_put_is_not(validator):
+    """A pvaPy channel opened on Channel Access is a raw CA write and refused
+    like ``caput``; one opened on PVAccess keeps the limits-checked exception."""
+    limits = _validator() if validator else None
+    out = _run_pvaccess_block(
+        ExecutionWrapper(limits_validator=limits, execution_mode="readwrite")._get_armed_block()
+    )
+
+    for name in ("ca_put", "ca_put_double", "ca_async_put"):
+        assert out[name]["type"] == "ChannelWriteBlockedError", out[name]
+        assert out[name]["reason"] == "RAW_CLIENT_WRITE"
+        assert out[name]["address"] == "SR:CA"
+    assert out["ca_put_in_door"] == {"ok": "wrote"}
+    assert out["multi_put_in_door"] == {"ok": "wrote"}
+    for name, address in (
+        ("multi_plain_put", "<unknown>"),
+        ("ioc_put", "SR:REC"),
+        ("ioc_init", "<unknown>"),
+    ):
+        assert out[name]["reason"] == "RAW_CLIENT_WRITE", out[name]
+        assert out[name]["address"] == address
+    assert out["ca_get"] == {"ok": 1.0}
+    assert out["pva_put"] == {"ok": "wrote"}
+    assert out["explicit_pva_put"] == {"ok": "wrote"}
+    assert out["multi_put"]["reason"] == "RAW_CLIENT_WRITE"
+    assert out["multi_put"]["address"] == "<unknown>"
+    assert out["server"] == {"ok": "served"}
+    if limits is None:
+        assert out["rpc"] == {"ok": "ran"}
+    else:
+        assert out["rpc"] == {
+            "type": "RuntimeError",
+            "reason": None,
+            "address": None,
+            "text": P4P_RPC_TEXT,
+        }
+
+
+_REAL_PVACCESS_USER_CODE = textwrap.dedent(
+    """
+    import pvaccess
+
+    def attempt(call):
+        try:
+            call()
+            return "passed"
+        except Exception as error:
+            return f"{type(error).__name__}|{getattr(error, 'reason', '')}|{error}"
+
+    def channel(*args):
+        ch = pvaccess.Channel(*args)
+        ch.setTimeout(0.2)
+        return ch
+
+    results = {
+        "ca_in_range": attempt(lambda: channel("TEST:PV", pvaccess.CA).putDouble(50.0)),
+        "ca_put": attempt(lambda: channel("TEST:PV", pvaccess.CA).put(50.0)),
+        "ca_async_put": attempt(
+            lambda: channel("TEST:PV", pvaccess.CA).asyncPut(
+                pvaccess.PvDouble(50.0), print, print
+            )
+        ),
+        "ca_parse_put": attempt(lambda: channel("TEST:PV", pvaccess.CA).parsePut(["50"])),
+        "ca_put_get": attempt(lambda: channel("TEST:PV", pvaccess.CA).putGetDouble(50.0)),
+        "ioc_dbpf": attempt(lambda: pvaccess.CaIoc.dbpf(None, "TEST:REC", "1")),
+        "pva_in_range": attempt(lambda: channel("TEST:PV").putDouble(50.0)),
+        "pva_out_of_range": attempt(lambda: channel("TEST:PV").putDouble(150.0)),
+        "multi": attempt(
+            lambda: pvaccess.MultiChannel(["TEST:PV"]).putAsDoubleArray([50.0])
+        ),
+        "rpc": attempt(lambda: pvaccess.RpcClient("TEST:SVC").invoke(pvaccess.PvObject({}))),
+    }
+    """
+)
+
+
+def test_real_pvaccess_split_under_the_readwrite_guards(tmp_path):
+    """The installed pvaPy under a limits-checked readwrite run's guards, in
+    the order the wrapper emits them: a CA channel's put is refused, a PVA
+    channel's put is limits-checked and, in range, reaches the network (and
+    times out: nothing serves the channel)."""
+    pytest.importorskip("pvaccess", reason="pvaccess is not installed in this environment")
+    wrapper = ExecutionWrapper(limits_validator=_validator(), execution_mode="readwrite")
+    script = tmp_path / "guarded.py"
+    script.write_text(
+        "\n".join(
+            (
+                # pvaPy bundles an EPICS base of its own, and a process that
+                # already loaded another one (p4p, or libca through aioca and
+                # epicscorelibs) aborts in libca the first time pvaPy drops a
+                # Channel Access channel. So those are made unimportable here;
+                # the PVA guard skips p4p and still sweeps pvaPy.
+                "import sys",
+                "for _name in ('p4p', 'aioca', 'epicscorelibs'):",
+                "    sys.modules[_name] = None",
+                wrapper._get_limits_checking_monkeypatch(),
+                wrapper._get_pva_limits_guard(),
+                wrapper._get_armed_block(),
+                _REAL_PVACCESS_USER_CODE,
+                "import json",
+                'print("RESULT " + json.dumps(results))',
+            )
+        ),
+        encoding="utf-8",
+    )
+    env = _env()
+    # Keep both protocols' searches on this host.
+    env.update(
+        EPICS_PVA_ADDR_LIST="127.0.0.1",
+        EPICS_PVA_AUTO_ADDR_LIST="NO",
+        EPICS_CA_ADDR_LIST="127.0.0.1",
+        EPICS_CA_AUTO_ADDR_LIST="NO",
+    )
+    proc = subprocess.run(  # fixed argv, generated script
+        [sys.executable, str(script)],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+        env=env,
+        timeout=300,
+    )
+    line = next((line for line in proc.stdout.splitlines() if line.startswith("RESULT ")), None)
+    assert line is not None, proc.stdout + proc.stderr
+    out = json.loads(line.removeprefix("RESULT "))
+
+    for name in (
+        "ca_in_range",
+        "ca_put",
+        "ca_async_put",
+        "ca_parse_put",
+        "ca_put_get",
+        "multi",
+        "ioc_dbpf",
+    ):
+        assert out[name].startswith("ChannelWriteBlockedError|RAW_CLIENT_WRITE|"), out[name]
+    assert out["pva_in_range"].startswith("PvaException|"), out["pva_in_range"]
+    assert "timed out" in out["pva_in_range"]
+    assert out["pva_out_of_range"].startswith("ChannelLimitsViolationError|"), out[
+        "pva_out_of_range"
+    ]
+    assert out["rpc"] == f"RuntimeError||{P4P_RPC_TEXT}"

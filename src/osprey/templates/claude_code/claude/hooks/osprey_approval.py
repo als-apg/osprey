@@ -163,7 +163,7 @@ except Exception:  # pragma: no cover - older render without the reader
 _HOOK_ENTERED_AT = time.monotonic()
 
 # Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
-# Must stay in sync with get_framework_standard_patterns()["write"] (20 patterns).
+# Must stay in sync with get_framework_standard_patterns()["write"] (26 patterns).
 # The parity test in test_approval_hook.py enforces this.
 _FALLBACK_WRITE_PATTERNS = [
     # osprey.runtime unified API
@@ -182,6 +182,16 @@ _FALLBACK_WRITE_PATTERNS = [
     r"\bp4p\b[\s\S]*?\.post\s*\(",
     r"\.rpc\s*\(",
     r"\bSharedPV\b",
+    # PVAccess / Channel Access (pvaPy) - the generic r"\.put\s*\(" misses the
+    # typed setters, asyncPut and parsePut; unanchored, for an import that
+    # never writes the token pvaccess, and named, so OpenCV's putText is not one
+    r"\.put(?:Get|Boolean|Byte|Double|Float|Int|Long|Short|String|ScalarArray"
+    r"|UByte|UInt|ULong|UShort|AsDoubleArray)\w*\s*\(",
+    r"\.asyncPut\s*\(",
+    r"\.parsePut\w*\s*\(",
+    r"\bRpcClient\s*\(",
+    r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
+    r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
     # Tango (PyTango)
     r"DeviceProxy\([^)]*\)\.write_attribute\(",
     r"\.write_attribute\s*\(",
@@ -197,7 +207,7 @@ _FALLBACK_WRITE_PATTERNS = [
     r"connector\.write_channel\(",
 ]
 
-# Pattern detection: prefer framework module (regex-based, config-driven, 20 patterns)
+# Pattern detection: prefer framework module (regex-based, config-driven, 26 patterns)
 # with graceful fallback to regex matching against _FALLBACK_WRITE_PATTERNS
 try:
     from osprey.services.python_executor.analysis.pattern_detection import (
@@ -2722,7 +2732,9 @@ def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
 #: path; a bare ``.put(``, which also names ``queue.put`` and every other
 #: container in ordinary analysis code; and the PVAccess puts (a p4p
 #: ``ctxt.put(``, a pvaPy ``Channel.put``), which the connector cannot carry
-#: yet, so the runtime limits-checks them instead of refusing them. All keep
+#: yet, so the runtime limits-checks them instead of refusing them. A pvaPy
+#: channel opened on ``pvaccess.CA`` is refused at runtime, but which provider
+#: a channel was opened on is not something its put's spelling says. All keep
 #: the ask.
 _RAW_CLIENT_WRITE_SPELLINGS = (
     ("epics.caput(", re.compile(r"\bepics\s*\.\s*caput\s*\(")),

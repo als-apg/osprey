@@ -19,6 +19,7 @@ each row a guard patches carries its own answer.
 
 from osprey.services.python_executor.write_surface import (
     _ARMED_BLOCKED,
+    _ARMED_CA_PROVIDER,
     _ARMED_CHECKED,
     _ARMED_PASSED,
     _ARMED_RPC,
@@ -87,7 +88,8 @@ def test_synchronous_group_put_is_in_the_table_and_blocked():
 
 
 def test_rpc_bucket_holds_the_actions_only():
-    """The rpc split covers p4p rpc and the Tango command spellings, nothing else."""
+    """The rpc split covers p4p rpc, pvaPy's ``RpcClient.invoke`` and the Tango
+    command spellings, nothing else."""
     assert set(_ARMED_RPC) == {
         *((f"p4p.client.{f}.Context", "rpc") for f in ("raw", "thread", "asyncio", "cothread")),
         *(
@@ -96,11 +98,13 @@ def test_rpc_bucket_holds_the_actions_only():
             for attr in ("command_inout", "command_inout_asynch")
         ),
         ("PyTango.DeviceProxy", "command_inout"),
+        ("pvaccess.RpcClient", "invoke"),
     }
 
 
 def test_passed_bucket_holds_the_non_device_writes_only():
-    """Only server-side SharedPV calls and the Tango database write pass an armed run."""
+    """Only the server-side calls (p4p's SharedPV, pvaPy's servers) and the
+    Tango database write pass an armed run."""
     assert set(_ARMED_PASSED) == {
         *(
             (f"p4p.server.{f}.SharedPV", attr)
@@ -108,6 +112,11 @@ def test_passed_bucket_holds_the_non_device_writes_only():
             for attr in ("post", "open")
         ),
         ("tango.DeviceProxy", "put_property"),
+        *(
+            (cls, attr)
+            for cls in ("pvaccess.PvaServer", "pvaccess.PvaMirrorServer")
+            for attr in ("update", "updateUnchecked")
+        ),
     }
 
 
@@ -117,3 +126,28 @@ def test_checked_bucket_holds_the_pvaccess_puts_only():
     assert {dotted.split(".")[0] for dotted, _attr in _ARMED_CHECKED} == {"p4p", "pvaccess"}
     assert all(attr.startswith(("put", "asyncPut", "parsePut")) for _dotted, attr in _ARMED_CHECKED)
     assert not any(dotted.startswith("p4p.server") for dotted, _attr in _ARMED_CHECKED)
+
+
+def test_multichannel_and_the_in_process_ioc_are_blocked():
+    """A MultiChannel write and an in-process IOC, whose records can link out to
+    real channels, are refused on either provider, not limits-checked."""
+    for attr in ("put", "putAsDoubleArray"):
+        assert ("pvaccess.MultiChannel", attr) in _ARMED_BLOCKED
+    for attr in ("putField", "dbpf", "iocInit", "start"):
+        assert ("pvaccess.CaIoc", attr) in _ARMED_BLOCKED
+
+
+def test_the_ca_provider_classes_are_checked_classes_of_the_table():
+    """A provider class answers per channel, so it needs both halves: every one
+    of its rows limits-checked for a PVAccess channel, and the class named in the
+    table so the readonly guard refuses it whatever the provider."""
+    assert set(_ARMED_CA_PROVIDER) == {"pvaccess.Channel"}
+    table_owners = {dotted for dotted, _attrs in _CLIENT_WRITE_TARGETS}
+    for owner, reason in _ARMED_CA_PROVIDER.items():
+        assert owner in table_owners, f"{owner} is not a write-surface class"
+        assert isinstance(reason, str) and reason.strip(), f"{owner} carries no reason"
+        rows = [(dotted, attr) for dotted, attrs in _CLIENT_WRITE_TARGETS for attr in attrs]
+        own = [row for row in rows if row[0] == owner]
+        assert own and all(row in _ARMED_CHECKED for row in own), (
+            f"every {owner} row must be limits-checked for a PVAccess channel"
+        )
