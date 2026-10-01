@@ -216,7 +216,7 @@ This is the first of **three guards** that every write must pass:
    and the ``writes-check`` hook enforces the same switch again as defense in
    depth.
 2. **Limits** (``limits`` hook) — the value is checked against per-channel
-   bounds and writable flags in ``data/channel_limits.json``.
+   bounds and writable flags in ``data/facility/limits.yaml``.
 3. **Approval** (``approval`` hook) — a write that passes both still pauses
    for your explicit yes/no before anything is executed.
 
@@ -251,10 +251,11 @@ where the change belongs, and the rebuild carries it into the render.
 Step 8: Write with the Guards Watching
 ---------------------------------------
 
-The limits database that ships with this preset, ``data/channel_limits.json``,
-declares three channels: two writable quadrupole setpoints with bounds, and one
-read-only measurement. With writes enabled, all three remaining behaviors are
-now observable.
+The limits file that ships with this preset, ``data/facility/limits.yaml``,
+holds three records: two writable quadrupole setpoints with bounds, and one
+read-only measurement. ``osprey build`` writes them into the render's limits
+database, ``build/data/channel_limits.json``, which is what the guards read.
+With writes enabled, all three remaining behaviors are now observable.
 
 **A write inside its limits** — pauses for your approval:
 
@@ -285,39 +286,58 @@ limits allow; it is not a way around them.
 
    You: Set SR:BEAM:CURRENT to 1.0
 
-``SR:BEAM:CURRENT`` is a measurement, marked ``"writable": false`` in the
-limits database, so the write is refused whatever the value.
+``SR:BEAM:CURRENT`` is a measurement, marked ``writable: false`` in the
+limits file, so the write is refused whatever the value.
 
-Step 9: Edit the Limits Database
----------------------------------
+Step 9: Edit the Limits File
+-----------------------------
 
-``data/channel_limits.json`` is your first editable safety artifact. The
+``data/facility/limits.yaml`` is your first editable safety artifact. The
 shipped file looks like this (comments abridged):
+
+.. code-block:: yaml
+
+   records:
+   - address: SR:MAG:QF:01:CURRENT:SP
+     min_value: 0.0
+     max_value: 300.0
+     writable: true
+   - address: SR:MAG:QD:01:CURRENT:SP
+     min_value: 0.0
+     max_value: 250.0
+     writable: true
+   - address: SR:BEAM:CURRENT
+     writable: false
+
+``osprey build`` writes one entry per record into
+``build/data/channel_limits.json``, each stating ``writable`` and ``confirm``:
 
 .. code-block:: json
 
    {
-     "defaults": {
-       "writable": true,
-       "confirm": true
-     },
-     "SR:MAG:QF:01:CURRENT:SP": {"min_value": 0.0, "max_value": 300.0},
-     "SR:MAG:QD:01:CURRENT:SP": {"min_value": 0.0, "max_value": 250.0},
-     "SR:BEAM:CURRENT": {"writable": false}
+     "_version": "4.0",
+     "SR:BEAM:CURRENT": {"writable": false, "confirm": true},
+     "SR:MAG:QD:01:CURRENT:SP": {"min_value": 0.0, "max_value": 250.0, "writable": true, "confirm": true},
+     "SR:MAG:QF:01:CURRENT:SP": {"min_value": 0.0, "max_value": 300.0, "writable": true, "confirm": true}
    }
 
-``confirm: true`` means every write is checked: the connector reads the
-channel back once and compares what it finds with the value that was sent, so a
-write that did not land is reported rather than assumed.
+That file is generated output: edit ``limits.yaml`` and rebuild. A setpoint
+record with both bounds is writable within them, so ``writable: true`` may be
+left out. ``confirm: true``, the value a record gets when it does not state
+one, means every write is checked: the connector reads the channel back once
+and compares what it finds with the value that was sent, so a write that did
+not land is reported rather than assumed.
 
 Channels not listed here are written with no limits — the preset sets
 ``control_system.limits_checking.mode: optional``. Under ``mode: exclusive``
 only channels in the limits file can be written. Listing a channel is how you
-put bounds on it. Add one:
+put bounds on it. Add one record:
 
-.. code-block:: json
+.. code-block:: yaml
 
-   "SR:MAG:CORR:01:CURRENT:SP": {"min_value": -5.0, "max_value": 5.0}
+   - address: SR:MAG:CORR:01:CURRENT:SP
+     min_value: -5.0
+     max_value: 5.0
 
 Then ``osprey build`` to carry the change into the render, and try writes on
 either side of the new bounds. This edit-rebuild-observe loop — in ``data/``

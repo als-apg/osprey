@@ -111,6 +111,13 @@ class TestHelloWorldBuildOutput:
             },
         }
 
+    def test_hello_world_ships_no_hand_written_limits_file(self, hello_world_project: Path):
+        """The repo authors limits in data/facility/limits.yaml and nowhere else."""
+        repo = hello_world_project.parent
+
+        assert (repo / "data" / "facility" / "limits.yaml").is_file()
+        assert not (repo / "data" / "channel_limits.json").exists()
+
     def test_hello_world_hooks_present(self, hello_world_project: Path):
         """Check .claude/hooks/ directory exists with expected hook files."""
         hooks_dir = hello_world_project / ".claude" / "hooks"
