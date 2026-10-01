@@ -104,6 +104,12 @@ def _write_limits(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_limits_view(root, inputs)
 
 
+def _write_facts(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.facts import write_facts_view
+
+    return write_facts_view(root, inputs)
+
+
 #: Every view, in the order a render writes them.
 VIEWS: tuple[View, ...] = (
     View(
@@ -119,5 +125,12 @@ VIEWS: tuple[View, ...] = (
         written_when=_always,
         reason="always written",
         write=_write_limits,
+    ),
+    View(
+        name="facts",
+        path=".",
+        written_when=_always,
+        reason="always written",
+        write=_write_facts,
     ),
 )

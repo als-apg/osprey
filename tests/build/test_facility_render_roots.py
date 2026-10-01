@@ -69,6 +69,9 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
     assert len(outputs) == len(_render_roots(built_control_assistant.repo))
     for render in outputs:
         assert list(render.files) == [
+            "data/channel_limits.json",
+            "data/facility_facts.json",
+            "data/facility_facts.md",
             "data/simulator/addresses.json",
             "data/simulator/decks/SR.json",
             "data/simulator/served_models.json",
