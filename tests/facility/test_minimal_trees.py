@@ -9,6 +9,7 @@ identity folded from the project name.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -58,3 +59,11 @@ def test_a_missing_facility_directory_is_zero_sources(build_project: Build) -> N
     assert (empty_result.exit_code, missing_result.exit_code) == (0, 0)
     assert missing.facility["identity"] == {"code": "second", "name": "second"}
     assert {**missing.facility, "identity": None} == {**empty.facility, "identity": None}
+
+
+def test_two_authored_addresses_have_an_empty_limits_view(build_project: Build) -> None:
+    project, result = build_project(TWO_CHANNELS)
+
+    assert result.exit_code == 0, result.output
+    limits = json.loads((project.build_dir / "data" / "channel_limits.json").read_bytes())
+    assert limits == {"_version": "4.0"}

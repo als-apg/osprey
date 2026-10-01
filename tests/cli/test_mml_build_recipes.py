@@ -1206,23 +1206,29 @@ class TestTheBuildFactsOfAHarvestedTree:
         assert checked
         assert f"{checked} checked, {checked} valid, 0 invalid" in printed
 
-    def test_the_facility_bands_survive_the_lane_and_the_build(self, served_repo: dict) -> None:
-        """A band the facility authored is still its own after the whole chain.
+    def test_the_served_bands_are_the_facility_limits_records(self, served_repo: dict) -> None:
+        """What the container reads is the limits view of the facility description.
 
-        ``channel_limits.json`` is the one document of the served tree that is
-        shared: the deployment's own bands are in it before the harvest runs, and
-        the virtual-accelerator lane states the bands of the channels it bound by
-        merging into that file rather than replacing it. The build then copies the
-        merged file beside the manifest. So the invariant is asked of the end of
-        the chain, where it can actually fail: every entry the project carried
-        before the harvest is still there, unchanged, in what the container will
-        read -- and the lane's own bands are an addition to it.
+        The build writes ``channel_limits.json`` from ``data/facility/limits.yaml``
+        and copies it beside the manifest, so the bands the container clamps to
+        are the records the import seeded and the remedy widened: one entry per
+        record, with that record's bounds, and no entry the records do not hold.
         """
-        before = json.loads((PACKAGED_DATA / LIMITS_FILE).read_text(encoding="utf-8"))
-        bands = json.loads((served_repo["repo"] / SERVED / LIMITS_FILE).read_text(encoding="utf-8"))
+        from osprey.facility.views.limits import limits_document
 
-        assert {key: bands.get(key) for key in before} == before
-        assert bands.keys() > before.keys()
+        repo = served_repo["repo"]
+        records = yaml.safe_load((repo / FACILITY_LIMITS).read_text(encoding="utf-8"))["records"]
+        facility = json.loads((repo / "build" / "facility.json").read_text(encoding="utf-8"))
+        bands = json.loads((repo / SERVED / LIMITS_FILE).read_text(encoding="utf-8"))
+
+        assert records
+        assert bands == limits_document(facility)
+        assert sorted(key for key in bands if not key.startswith("_")) == sorted(
+            record["address"] for record in records
+        )
+        for record in records:
+            for bound in ("min_value", "max_value"):
+                assert bands[record["address"]].get(bound) == record.get(bound)
 
     def test_the_published_bands_sit_at_the_root_and_beside_the_manifest(
         self, served_repo: dict

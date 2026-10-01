@@ -14,6 +14,7 @@ replacement, not a layer, and the tree is content rather than templates:
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -136,7 +137,10 @@ class TestFullReplacement:
         assert (project_dir / "data" / "facility_marker.txt").exists(), (
             "profile-only file did not land — the profile tree was not the source"
         )
-        assert not (project_dir / "data" / "channel_limits.json").exists(), (
+        # The build writes the limits database itself, from the profile tree's
+        # `facility/limits.yaml`; the bundle's hand-written file is not its source.
+        limits = json.loads((project_dir / "data" / "channel_limits.json").read_text())
+        assert "defaults" not in limits, (
             "bundle channel_limits.json leaked into a full-replacement build"
         )
         assert not (project_dir / "data" / "lattice").exists(), (
