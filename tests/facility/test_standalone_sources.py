@@ -82,7 +82,7 @@ def test_standalone_tree_equals_the_control_assistant_tree_but_identity(name: st
         if rel != "identity.yaml" and not _omitted(rel)
     }
     assert {rel: data for rel, data in standalone.items() if rel != "identity.yaml"} == expected
-    assert len(expected) == 9
+    assert len(expected) == 8
 
 
 @pytest.mark.parametrize("name", sorted(STANDALONES))
