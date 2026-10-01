@@ -20,10 +20,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
+from osprey.mcp_server.channel_finder_common import (
+    _config_path,
+    load_cf_config,
+    resolve_cf_path,
+)
 from osprey.services.channel_finder.core.base_database import BaseDatabase
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_identity
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.server_context")
 
@@ -91,7 +95,9 @@ class ChannelFinderICContext:
                 "channel finder tools will fail until config is provided"
             )
 
-        self._facility_name = resolve_facility_name(self._raw_config, "control system")
+        identity = facility_identity(_config_path().parent, self._raw_config.get("project_name"))
+        if identity is not None:
+            self._facility_name = identity["name"]
 
         # Resolve subagent model and provider.
         #
@@ -212,7 +218,7 @@ class ChannelFinderICContext:
 
     @property
     def facility_name(self) -> str:
-        """Name of the facility from config."""
+        """The facility's display name: the facility file's, else the project name."""
         return self._facility_name
 
     @property
