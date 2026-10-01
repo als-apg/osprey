@@ -147,14 +147,14 @@ async def _dispatch_with_policy(
 
     action = trigger.action
     prompt = action.get("prompt", "")
-    allowed_tools = action.get("allowed_tools", [])
+    allowed_tools = trigger.allowed_tools
 
     # Per-surface prompt fragment and tool scope, resolved as
     # source default -> trigger override. No trigger source currently supplies
     # a default (see SourceRegistry) — the two locals below are the seam a
     # future source-level default would extend without moving this read site.
-    # ``trigger.surface_prompt`` and ``trigger.surface_tools`` are the parsed,
-    # type-checked ``action.surface_prompt`` / ``action.surface_tools``
+    # ``trigger.allowed_tools``, ``trigger.surface_prompt`` and
+    # ``trigger.surface_tools`` are the parsed, type-checked ``action`` fields
     # (TriggerConfig).
     source_default_surface_prompt: str | None = None
     surface_prompt = trigger.surface_prompt or source_default_surface_prompt
@@ -687,7 +687,7 @@ def create_server() -> FastMCP:
             cfg = registry._triggers.get(t["name"])
             if cfg:
                 t["on_error"] = cfg.on_error.get("action", "drop")
-                t["allowed_tools"] = cfg.action.get("allowed_tools", [])
+                t["allowed_tools"] = cfg.allowed_tools
                 t["prompt"] = cfg.action.get("prompt", "")
         return JSONResponse(triggers)
 
@@ -780,7 +780,7 @@ def create_server() -> FastMCP:
                 if cfg.schedule is not None:
                     t["next_fire"] = next_fire(cfg.schedule, now, zone).isoformat()
                 t["on_error"] = cfg.on_error.get("action", "drop")
-                t["allowed_tools"] = cfg.action.get("allowed_tools", [])
+                t["allowed_tools"] = cfg.allowed_tools
                 t["prompt"] = cfg.action.get("prompt", "")
                 t["source_config"] = _sanitize_source_config(cfg.source_config or {})
 

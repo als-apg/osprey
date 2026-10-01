@@ -333,6 +333,11 @@ Authoring Triggers
    holds fifty events waiting for a slot. A build writes both keys from the
    profile's ``dispatch:`` block, which starts at the same pair.
 
+   **Allowed tools.** ``action.allowed_tools`` is the list of tool names the run
+   may use, written as a list even for one tool (``[get_pv]``). Left out or
+   blank, it is empty. The dispatcher refuses the triggers file at load if it is
+   anything else.
+
    **Turn ceiling.** How many agentic turns one dispatched run may take is
    ``dispatch.max_turns`` in the build profile (default 25) — the third budget
    beside ``dispatch.timeout_sec`` and ``dispatch.inactivity_sec``, and the one

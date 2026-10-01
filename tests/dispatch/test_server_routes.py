@@ -291,6 +291,39 @@ def test_an_interval_or_webhook_trigger_has_no_next_fire(app):
     assert trigger["next_fire"] is None
 
 
+_BLANK_ALLOWED_TOOLS_YML = (
+    "dispatcher:\n"
+    "  dispatch_target: http://localhost:9999\n"
+    "triggers:\n"
+    "  - name: blank-tools\n"
+    "    source: webhook\n"
+    "    action:\n"
+    "      prompt: handle it\n"
+    "      allowed_tools:\n"
+)
+
+
+@pytest.mark.parametrize("route", ["/dashboard/triggers", "/dashboard/state"])
+def test_dashboard_reports_a_blank_allowed_tools_as_empty(tmp_path, monkeypatch, route):
+    path = tmp_path / "triggers.yml"
+    path.write_text(_BLANK_ALLOWED_TOOLS_YML)
+    monkeypatch.setenv("TRIGGERS_YML", str(path))
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret")
+
+    def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
+        return [_FakeEntryPoint("webhook", WebhookSource)]
+
+    monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
+    app = server.create_server().http_app()
+
+    with TestClient(app) as client:
+        resp = client.get(route, headers={"Authorization": "Bearer secret"})
+    assert resp.status_code == 200
+    body = resp.json()
+    (trigger,) = body if route == "/dashboard/triggers" else body["triggers"]
+    assert trigger["allowed_tools"] == []
+
+
 # ---------------------------------------------------------------------------
 # Dashboard READ endpoints are bearer-gated (they surface agent output).
 # ---------------------------------------------------------------------------
@@ -590,6 +623,7 @@ async def test_dispatch_with_policy_absent_surface_fields_forward_as_none(monkey
         name="t",
         source="webhook",
         action={"prompt": "base prompt", "allowed_tools": ["read_pv"]},
+        allowed_tools=["read_pv"],
     )
     await reg.register(trig)
     await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
@@ -598,6 +632,31 @@ async def test_dispatch_with_policy_absent_surface_fields_forward_as_none(monkey
     assert captured["allowed_tools"] == ["read_pv"]
     assert captured["surface_prompt"] is None
     assert captured["surface_tools"] is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_forwards_a_blank_allowed_tools_as_empty(tmp_path, monkeypatch):
+    """A blank ``allowed_tools:`` in the triggers file reaches the worker as ``[]``."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import load_triggers
+
+    path = tmp_path / "triggers.yml"
+    path.write_text(_BLANK_ALLOWED_TOOLS_YML)
+    _, (trig,) = load_triggers(str(path))
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["allowed_tools"] = allowed_tools
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    await reg.register(trig)
+    await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
+
+    assert captured["allowed_tools"] == []
 
 
 @pytest.mark.asyncio
