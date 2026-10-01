@@ -247,7 +247,7 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     repo_root = find_repo_root(repo)
     try:
         facility_dir = _facility_dir(repo_root)
-    except (BuildProfileError, ValueError) as error:
+    except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
 
