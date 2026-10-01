@@ -1,44 +1,41 @@
-"""The file-backed paradigms' terminology tables are rendered, not written.
+"""The file-backed paradigms' terminology tables are rendered from the build's facts.
 
 Three partials — ``_terminology/{hierarchical,in_context,middle_layer}.md.j2``
-— used to tell the channel-finder subagent what a facility's devices are
-called, in hard-coded rows: ``DCCT``, ``BCM``, ``HCM``, ``VCM``, ``QF``, ``QD``,
-``TC``, ``VGC``, ``CCG``. Four of those tokens existed in no shipped channel
-database, which is the whole problem in one sentence: a framework prompt cannot
-know a facility's vocabulary, and a wrong device token returns no rows and no
-error, so nothing ever reported the drift.
+— tell the channel-finder subagent what a facility's devices are called. A
+framework prompt cannot know a facility's vocabulary, and a wrong device token
+returns no rows and no error, so the rows have one source: the device classes
+the build writes into ``data/facility_facts.json``, read into the render context
+as ``facility_facts``. This file holds the three file-backed paradigms to that:
 
-Under the 2026-08-27 ruling those rows have exactly one source — the
-deployment's own compiled ontology, named by ``facility.ontology`` and read
-into the render context as ``facility_vocabulary``. This file holds the ruling
-to the three file-backed paradigms:
-
-* the rows a project renders are the ones its ontology declares, and they are
-  derived here the same way the render derives them rather than spelled out;
-* a project that declares no ontology gets an honest sentence saying so, and no
-  device token at all — never a quiet fallback to the demo machine's words;
-* the ``.j2`` sources carry none of the tokens, so the only route into a
-  rendered prompt is the render context; and
-* a declared ontology that will not load stops the build and names the key,
-  because a vocabulary that was promised and then dropped is the one outcome
-  worse than having none.
+* every alias and every family of every class the facts carry reaches the
+  table, read from the same file the render reads rather than spelled out;
+* a build that holds no device class gets the one-line statement saying so, and
+  no device token at all — never a quiet fallback to the demo machine's words;
+* the ``.j2`` sources carry none of the tokens and name no config key, so the
+  only route into a rendered prompt is the facts; and
+* no partial under ``_terminology/`` names a protocol word, with the demo facts
+  or with none.
 
 The guards run against the terminology section alone. The rest of
-``channel-finder.md.j2`` carries its own paradigm prose, which is a separate
-arm of the same epic; slicing keeps this file's failures about this file's
-subject.
+``channel-finder.md.j2`` carries its own paradigm prose; slicing keeps this
+file's failures about this file's subject.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 
-from osprey.cli.templates.claude_code import _facility_vocabulary
+from osprey.cli.templates.claude_code import _facility_vocabulary, build_claude_code_context
 from osprey.cli.templates.manager import TemplateManager
-from osprey.errors import BuildProfileError
+from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
+from tests._vocabulary import PROTOCOL_WORDS
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -47,24 +44,21 @@ def _bundle_data_root(bundle: str = "control_assistant") -> Path:
     A build copies the tree its profile's ``data:`` key names, and that key is
     required — nothing falls back to a packaged tree any more. These fixtures
     render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
+    tree that bundle packages.
     """
     return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
+def _create_project(manager: TemplateManager, facts: Path | None, **kwargs) -> Path:
+    """``create_project`` plus the steps a real build takes next.
 
     A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, writes
+    the facility's facts and regenerates ``.claude/`` from the finished project.
+    These fixtures render from a bundle rather than from a profile, so they
+    overlay the preset ``osprey init`` pairs with that bundle and copy in the
+    facts file *facts* (none: the project holds no facts file, which the render
+    reads as a facility with no sources).
     """
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
@@ -78,8 +72,11 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     manager.generate_manifest(
         project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
     )
+    if facts is not None:
+        (project / "data").mkdir(exist_ok=True)
+        shutil.copyfile(facts, project / "data" / FACTS_FILE)
     # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    # `.claude/` before the preset's block and the facts landed.
     manager.regenerate_claude_code(project)
     return project
 
@@ -94,23 +91,40 @@ _TEMPLATE_ROOT = (
     / "src/osprey/templates/claude_code/claude/agents/_terminology"
 )
 
-#: Every device token the three partials used to spell for themselves. None may
-#: appear as literal template text, and none may reach a render that declares no
-#: ontology.
-FORBIDDEN_TOKENS = ("DCCT", "BCM", "BPM", "HCM", "VCM", "QF", "QD", "TC", "VGC", "CCG")
-
-#: The sentence a render with no declared ontology must carry instead of rows.
-#: Pinned past the key name, because the half that matters is the promise about
-#: what the reader is looking at: routing guidance, and no device vocabulary.
-NO_ONTOLOGY_LINE = (
-    "No facility ontology is declared (`facility.ontology`), so the table below\n"
-    "carries only navigation guidance and no device vocabulary"
+#: Every partial under ``_terminology/``, as the Jinja environment names it.
+PARTIALS = tuple(
+    f"claude_code/claude/agents/_terminology/{path.name}"
+    for path in sorted(_TEMPLATE_ROOT.glob("*.md.j2"))
 )
 
-#: The key the preset declares, as it is written in the rendered ``config.yml``.
-DECLARED_KEY_LINE = "  ontology: data/facility_ontology.json"
+#: Device tokens of the demo machine. None may appear as literal template text,
+#: and none may reach a render whose build holds no device class.
+FORBIDDEN_TOKENS = ("DCCT", "BCM", "BPM", "HCM", "VCM", "QF", "QD", "TC", "VGC", "CCG")
+
+#: The statement a render whose build holds no device class carries instead of rows.
+ZERO_CLASS_LINE = "This facility's build holds no device class."
+
+#: What the table says about where its rows come from.
+FROM_THE_BUILD = "read from this facility's build"
 
 _SECTION_HEADING = "## Channel Database Terminology"
+
+# The real-build cases read the session's one control-assistant build, so they
+# share its worker and the build runs once per run.
+_SHARES_THE_BUILD = pytest.mark.xdist_group("built_control_assistant")
+
+
+def _demo_facts_path(built: Any) -> Path:
+    """The facts file of the session's control-assistant build."""
+    return built.build_dir / "data" / FACTS_FILE
+
+
+def _device_classes(project_dir: Path) -> dict[str, dict[str, Any]]:
+    """The device classes the render read, from the project's own facts file."""
+    facts = json.loads((project_dir / "data" / FACTS_FILE).read_text(encoding="utf-8"))
+    classes: dict[str, dict[str, Any]] = facts["device_classes"]
+    assert classes, "the demo build's facts carry no device class"
+    return classes
 
 
 def _terminology_section(project_dir: Path) -> str:
@@ -125,7 +139,7 @@ def _terminology_section(project_dir: Path) -> str:
 
 
 def _forbidden_hits(text: str) -> list[str]:
-    """Which of the retired device tokens appear in *text*, word-bounded.
+    """Which of the demo device tokens appear in *text*, word-bounded.
 
     Word boundaries keep ``TC`` from matching inside ``MATCH`` and ``QF`` from
     matching inside a longer family token, so a hit is a real device token
@@ -134,11 +148,14 @@ def _forbidden_hits(text: str) -> list[str]:
     return [token for token in FORBIDDEN_TOKENS if re.search(rf"\b{token}\b", text)]
 
 
-def _project(tmp_path: Path, name: str, mode: str) -> tuple[TemplateManager, Path]:
+def _project(
+    tmp_path: Path, name: str, mode: str, facts: Path | None
+) -> tuple[TemplateManager, Path]:
     """A control-assistant project in *mode*, rendered the way the CLI renders one."""
     manager = TemplateManager()
     project_dir = _create_project(
         manager,
+        facts,
         project_name=name,
         output_dir=tmp_path,
         data_bundle="control_assistant",
@@ -147,19 +164,8 @@ def _project(tmp_path: Path, name: str, mode: str) -> tuple[TemplateManager, Pat
     return manager, project_dir
 
 
-def _rewrite_config(project_dir: Path, replacement: str) -> None:
-    """Replace the preset's ``facility.ontology`` line, asserting it was there."""
-    config = project_dir / "config.yml"
-    text = config.read_text(encoding="utf-8")
-    assert DECLARED_KEY_LINE in text, (
-        "the control_assistant preset no longer declares facility.ontology; "
-        "this file's without-a-key cases have nothing to remove"
-    )
-    config.write_text(text.replace(DECLARED_KEY_LINE, replacement), encoding="utf-8")
-
-
 def _declared_vocabulary(project_dir: Path) -> list[dict]:
-    """The rows the render itself would derive from this project's ontology."""
+    """The rows ``_facility_vocabulary`` derives from this project's ontology."""
     rows = _facility_vocabulary(
         {"facility": {"ontology": "data/facility_ontology.json"}}, project_dir
     )
@@ -168,122 +174,110 @@ def _declared_vocabulary(project_dir: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# With an ontology: the rows are the ontology's
+# With device classes: the rows are the facts'
 # ---------------------------------------------------------------------------
 
 
+@_SHARES_THE_BUILD
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_every_declared_synonym_and_family_reaches_the_table(tmp_path, mode):
-    """The table's content is the deployment's ontology, class by class.
+def test_every_alias_and_family_reaches_the_table(tmp_path, built_control_assistant, mode):
+    """The table's content is the build's facts, class by class.
 
-    Derived rather than spelled: the expectation is read from the same loader
-    the render reads, so an ontology that gains a class gains a row here too
-    and this test cannot drift from the table it guards.
+    Derived rather than spelled: the expectation is read from the facts file the
+    render reads, so a facility that gains a class gains a row here too and this
+    test cannot drift from the table it guards.
     """
-    _manager, project_dir = _project(tmp_path, f"cf-vocab-{mode}", mode)
+    _manager, project_dir = _project(
+        tmp_path, f"cf-vocab-{mode}", mode, _demo_facts_path(built_control_assistant)
+    )
     section = _terminology_section(project_dir)
 
-    for row in _declared_vocabulary(project_dir):
-        # in_context has no token to search for when a class maps to no family,
-        # so those classes are deliberately left out of that paradigm's table.
-        if mode == "in_context" and not row["families"]:
-            continue
-        for synonym in row["synonyms"]:
-            assert f'"{synonym}"' in section, (
-                f"{mode}: synonym {synonym!r} of class {row['class_name']} is missing"
-            )
-        for family in row["families"]:
-            assert f"`{family}`" in section, (
-                f"{mode}: family token {family} of class {row['class_name']} is missing"
-            )
-
-
-@pytest.mark.parametrize("mode", ("hierarchical", "middle_layer"))
-def test_a_class_with_no_family_is_marked_non_navigable(tmp_path, mode):
-    """An umbrella class is not styled as somewhere the agent can navigate to.
-
-    Five classes in the demo ontology carry synonyms but no family token
-    (Corrector, Instrumentation, Magnet, RadioFrequency, Vacuum). Rendering
-    them into the navigation column as if they were a device or family name
-    invites a lookup the database cannot answer, so the row says what they are
-    instead. in_context is excluded: it has no token to search for, so those
-    classes get no row at all there.
-    """
-    _manager, project_dir = _project(tmp_path, f"cf-umbrella-{mode}", mode)
-    section = _terminology_section(project_dir)
-
-    umbrellas = [row for row in _declared_vocabulary(project_dir) if not row["families"]]
-    assert umbrellas, "the preset's ontology no longer has a class without a family"
-    for row in umbrellas:
-        assert f"Umbrella class {row['class_name']}" in section
-        assert "narrow to a specific" in section
-    assert f"Family: class {umbrellas[0]['class_name']}" not in section
-    assert f"Device: class {umbrellas[0]['class_name']}" not in section
+    for name, entry in _device_classes(project_dir).items():
+        assert f"(class {name})" in section or f"Class {name}:" in section, (
+            f"{mode}: class {name} has no row"
+        )
+        for alias in entry["aliases"]:
+            assert f'"{alias}"' in section, f"{mode}: alias {alias!r} of class {name} is missing"
+        for family in entry["families"]:
+            assert f"`{family}`" in section, f"{mode}: family {family} of class {name} is missing"
 
 
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_the_table_names_the_key_it_was_rendered_from(tmp_path, mode):
+def test_a_class_with_no_family_or_alias_still_has_a_row(tmp_path, mode):
+    """A class no family holds is a row that says so, not a navigation target.
+
+    A facility-added class can carry no device yet, and a class's devices can
+    sit in no group; either way the row names the class and sends the agent to
+    names and descriptions instead of to a family that does not exist.
+    """
+    facts = zero_source_facts({"code": "lab", "name": "lab", "description": None})
+    facts["device_classes"] = {"Spare": {"count": 0, "aliases": [], "families": []}}
+    facts_path = tmp_path / FACTS_FILE
+    facts_path.write_text(json.dumps(facts), encoding="utf-8")
+
+    _manager, project_dir = _project(tmp_path, f"cf-spare-{mode}", mode, facts_path)
+    section = _terminology_section(project_dir)
+
+    assert "| Spare | Class Spare: no family holds its devices;" in section
+    assert ZERO_CLASS_LINE not in section
+
+
+@_SHARES_THE_BUILD
+@pytest.mark.parametrize("mode", FILE_BACKED_MODES)
+def test_the_table_says_it_was_read_from_the_build(tmp_path, built_control_assistant, mode):
     """An operator reading the prompt is told where the vocabulary came from."""
-    _manager, project_dir = _project(tmp_path, f"cf-provenance-{mode}", mode)
+    _manager, project_dir = _project(
+        tmp_path, f"cf-provenance-{mode}", mode, _demo_facts_path(built_control_assistant)
+    )
     section = _terminology_section(project_dir)
 
-    assert "`facility.ontology`" in section
-    assert NO_ONTOLOGY_LINE not in section
-
-
-@pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_the_paradigm_routing_rows_survive(tmp_path, mode):
-    """Deleting the device rows did not take the paradigm's own guidance with it."""
-    _manager, project_dir = _project(tmp_path, f"cf-routing-{mode}", mode)
-    section = _terminology_section(project_dir)
-
+    assert FROM_THE_BUILD in section
+    assert ZERO_CLASS_LINE not in section
+    # The routing rows are the paradigm's own guidance, not vocabulary.
     assert '| "readback" / "monitor" |' in section
     assert '| "setpoint" / "control" |' in section
 
 
 # ---------------------------------------------------------------------------
-# Without an ontology: an honest sentence, and no borrowed vocabulary
+# With no device class: one honest line, and no borrowed vocabulary
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_no_declared_ontology_renders_the_honest_line(tmp_path, mode):
-    """With the key gone the table says so, and names no device at all."""
-    manager, project_dir = _project(tmp_path, f"cf-silent-{mode}", mode)
-    _rewrite_config(project_dir, "  # ontology: data/facility_ontology.json")
-    manager.regenerate_claude_code(project_dir)
+def test_a_build_with_no_device_class_renders_the_zero_class_line(tmp_path, mode):
+    """With no class in the facts the table says so, and names no device at all."""
+    _manager, project_dir = _project(tmp_path, f"cf-silent-{mode}", mode, None)
 
     section = _terminology_section(project_dir)
-    assert NO_ONTOLOGY_LINE in section
-    assert "`facility.ontology`" in section, "the honest line names the key to set"
+    assert ZERO_CLASS_LINE in section
     assert _forbidden_hits(section) == [], (
-        f"{mode}: a render with no declared ontology still names device tokens — "
-        "the demo machine's vocabulary has leaked back into the prompt"
+        f"{mode}: a render whose build holds no device class still names device "
+        "tokens — the demo machine's vocabulary has leaked into the prompt"
     )
     # The paradigm's own routing guidance is not vocabulary, and stays.
     assert '| "readback" / "monitor" |' in section
 
 
-def test_no_declared_ontology_leaves_no_device_token_anywhere_in_the_prompt(tmp_path):
+def test_no_device_class_leaves_no_device_token_anywhere_in_the_prompt(tmp_path):
     """The guard covers the whole agent file, not only its terminology table.
 
-    The partial was cleaned first, but the paradigm prose around it kept its own
-    glossary — a systems legend, a device-family cheat sheet, and worked examples
-    built from one machine's tokens. A subagent reads the file top to bottom, so
-    a token the table no longer claims is still a token the agent will try, and a
-    family that does not exist here returns no rows and no error.
+    A subagent reads the file top to bottom, so a token the table no longer
+    claims is still a token the agent will try, and a family that does not
+    exist here returns no rows and no error.
     """
-    manager, project_dir = _project(tmp_path, "cf-whole-file", "middle_layer")
-    _rewrite_config(project_dir, "  # ontology: data/facility_ontology.json")
-    manager.regenerate_claude_code(project_dir)
+    _manager, project_dir = _project(tmp_path, "cf-whole-file", "middle_layer", None)
 
     rendered = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text(
         encoding="utf-8"
     )
     assert _forbidden_hits(rendered) == [], (
-        "the rendered channel-finder prompt names device tokens no declared "
-        "ontology put there; the vocabulary has one source, facility.ontology"
+        "the rendered channel-finder prompt names device tokens the build's facts did not put there"
     )
+
+
+# ---------------------------------------------------------------------------
+# The sources
+# ---------------------------------------------------------------------------
 
 
 def test_the_agent_source_spells_no_device_token():
@@ -291,48 +285,63 @@ def test_the_agent_source_spells_no_device_token():
     source = (_TEMPLATE_ROOT.parent / "channel-finder.md.j2").read_text(encoding="utf-8")
     assert _forbidden_hits(source) == [], (
         "channel-finder.md.j2 spells a device token itself. The vocabulary has "
-        "one source — facility.ontology, through `facility_vocabulary`."
+        "one source — the build's facts, through `facility_facts`."
     )
 
 
-# ---------------------------------------------------------------------------
-# The sources, and the failure mode
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_the_partial_source_spells_no_device_token(mode):
-    """Tokens may only arrive through the render context, never as template text.
-
-    This is the ruling's enforcement point for the file-backed paradigms: as
-    long as the sources are clean, every device word in a rendered prompt is one
-    the deployment's own ontology put there.
-    """
+def test_the_partial_source_spells_no_device_token_and_no_config_key(mode):
+    """Tokens may only arrive through the facts, never as template text."""
     source = (_TEMPLATE_ROOT / f"{mode}.md.j2").read_text(encoding="utf-8")
     assert _forbidden_hits(source) == [], (
         f"_terminology/{mode}.md.j2 spells a device token itself. The vocabulary "
-        "has one source — facility.ontology, through `facility_vocabulary`."
+        "has one source — the build's facts, through `facility_facts`."
+    )
+    assert "`facility." not in source, f"_terminology/{mode}.md.j2 names a config key"
+
+
+@_SHARES_THE_BUILD
+@pytest.mark.parametrize("partial", PARTIALS)
+@pytest.mark.parametrize("facts_of", ("demo", "zero classes"))
+def test_no_partial_names_a_protocol_word(built_control_assistant, partial, facts_of):
+    """The rendered partial says "channel" and "channel address", whatever the facts."""
+    facts = zero_source_facts({"code": "lab", "name": "lab", "description": None})
+    if facts_of == "demo":
+        facts = json.loads(_demo_facts_path(built_control_assistant).read_text(encoding="utf-8"))
+
+    rendered = TemplateManager().jinja_env.get_template(partial).render(facility_facts=facts)
+
+    assert PROTOCOL_WORDS.search(rendered) is None, (
+        f"{partial} with the {facts_of} facts names {PROTOCOL_WORDS.search(rendered).group(0)!r}"
     )
 
 
+@_SHARES_THE_BUILD
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_a_declared_ontology_that_is_not_there_stops_the_build(tmp_path, mode):
-    """A broken path is a named error, never a silent skip or a demo fallback."""
-    manager, project_dir = _project(tmp_path, f"cf-broken-{mode}", mode)
-    _rewrite_config(project_dir, "  ontology: data/no_such_ontology.json")
+def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_control_assistant, mode):
+    """``osprey scaffold diff agents/channel-finder`` finds nothing to report.
 
-    with pytest.raises(BuildProfileError) as caught:
-        manager.regenerate_claude_code(project_dir)
-
-    message = str(caught.value)
-    assert "facility.ontology" in message, "the error must name the key to fix"
-    assert "no_such_ontology.json" in message, "the error must name the path it tried"
-    # The population this stops hardest is a build profile with its own `data:`
-    # tree: the key is rendered from the app template, so "remove it" is not
-    # actionable unless the message names the overlay that can.
-    assert "`config:`" in message and "bare `facility.ontology:`" in message, (
-        "the refusal must name the profile overlay that removes a template-rendered key"
+    The scaffold command renders the agent template from
+    ``build_claude_code_context`` and diffs it against the file on disk, so the
+    two renders must agree byte for byte, terminology table included.
+    """
+    manager, project_dir = _project(
+        tmp_path, f"cf-scaffold-{mode}", mode, _demo_facts_path(built_control_assistant)
     )
+    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+
+    ctx = build_claude_code_context(manager.template_root, manager.jinja_env, project_dir, config)
+    rendered = manager.jinja_env.get_template("claude_code/claude/agents/channel-finder.md.j2")
+
+    assert (
+        rendered.render(**ctx).encode("utf-8")
+        == (project_dir / ".claude" / "agents" / "channel-finder.md").read_bytes()
+    )
+
+
+# ---------------------------------------------------------------------------
+# The ontology reader
+# ---------------------------------------------------------------------------
 
 
 def test_a_scalar_facility_block_is_not_a_traceback(tmp_path):
@@ -358,7 +367,7 @@ def test_a_home_relative_ontology_path_is_expanded(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
-    _, project_dir = _project(tmp_path, "cf-home", FILE_BACKED_MODES[0])
+    _, project_dir = _project(tmp_path, "cf-home", FILE_BACKED_MODES[0], None)
     (home / "x.json").write_bytes((project_dir / "data" / "facility_ontology.json").read_bytes())
 
     rows = _facility_vocabulary({"facility": {"ontology": "~/x.json"}}, tmp_path / "elsewhere")

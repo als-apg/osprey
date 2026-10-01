@@ -10,20 +10,18 @@ navigate; instead you search, filter, and match against channel names directly.
 ### Terminology Mapping
 
 Operators use domain language.
-{% if facility_vocabulary %}
-The device rows below are this deployment's own vocabulary, read from the
-compiled ontology it declares (`facility.ontology`) — the same table the
-channel database was generated from, so the tokens are the ones that really
-appear in these channel names:
+{% if facility_facts.device_classes %}
+The device rows below are read from this facility's build: each device class it
+holds, the words operators use for it and the families its devices belong to.
 {% else %}
-No facility ontology is declared (`facility.ontology`), so the table below
-carries only navigation guidance and no device vocabulary — match on names and
+This facility's build holds no device class.
+The table below carries only navigation guidance: match on names and
 descriptions in the database and verify with a lookup rather than guessing.
 {% endif %}
 | Operator Language | Channel Name Patterns |
 |---|---|
-{%- for entry in facility_vocabulary | default(none) or [] if entry.families %}
-| {{ '"' ~ (entry.synonyms | join('", "')) ~ '"' }} | Channels containing {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} |
+{%- for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) %}
+| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | {% if entry.families %}Channels of {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} (class {{ name }}){% else %}Class {{ name }}: no family holds its devices; match on names and descriptions{% endif %} |
 {%- endfor %}
 | "readback" / "monitor" | Channels with `RB`, `ReadBack`, `Monitor` in name |
 | "setpoint" / "control" | Channels with `SP`, `Set`, `Setpoint`, `Control` in name |
@@ -32,7 +30,7 @@ descriptions in the database and verify with a lookup rather than guessing.
 
 - Channel names in flat databases are often **descriptive identifiers**
   (e.g., `StorageRing_BeamCurrent_ReadBack`)
-- The actual PV address may differ from the descriptive name — the one subagent
+- The actual channel address may differ from the descriptive name — the one subagent
   tool (`ask_channels`) resolves addresses and returns the final answer
 - When descriptions are available, prefer matching on description content over name
   patterns — descriptions use more natural language

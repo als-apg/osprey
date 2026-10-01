@@ -303,7 +303,7 @@ def _facility_vocabulary(config: dict, project_dir: Path) -> list[dict[str, Any]
 
 
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
-    """The template-context keys read straight out of a project's ``config.yml``.
+    """The template-context keys read out of a project's ``config.yml`` and facts file.
 
     Two paths render the Claude Code artifacts — the build's
     :func:`build_claude_code_context` and the first render inside
@@ -318,14 +318,20 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         config: Parsed ``config.yml`` mapping (``{}`` when the bundle renders
             none — every value below then falls back to its own empty default).
         project_dir: Root of the project being rendered; declared hooks are
-            resolved against the files it ships.
+            resolved against the files it ships, and the facts are read from
+            its ``data/facility_facts.json``.
     """
     from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
+    from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey.utils.workspace import agent_data_base_dir
 
     control_system = config.get("control_system", {}) or {}
     declared_hooks = _build_declared_hook_rules(config, project_dir)
+    # What the build wrote about this render's facility. A render with no facts
+    # file is read as a facility with no sources, so the facts and the
+    # measurement block always come from the one reader.
+    facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -387,11 +393,11 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # resolve_servers runs, which both render paths do, so both refuse an
         # unknown value.
         "phoebus_agent_access": _phoebus_agent_access(config),
-        # The device vocabulary the channel-finder terminology partials render
-        # their rows from, out of the deployment's own compiled ontology
-        # (`facility.ontology`). None when no ontology is declared — the
-        # partials then say so instead of falling back to demo tokens.
-        "facility_vocabulary": _facility_vocabulary(config, project_dir),
+        # The agent facts the build wrote: the facts page and the channel-finder
+        # terminology tables render from them.
+        "facility_facts": facility_facts,
+        "pyaml_view_present": bool(facility_facts["measurement_models"]),
+        "measurement": hook_measurement(facility_facts),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -627,12 +633,9 @@ def build_claude_code_context(
     # Derive feature flags from artifact selections
     selected_hooks = artifacts.get("hooks", [])
 
-    # What the build wrote about this render's facility. A render with no facts
-    # file is read as a facility with no sources, so the name, the facts and
-    # the measurement block always come from the one reader.
-    from osprey.facility.views.facts import hook_measurement, read_facts
-
-    facility_facts = read_facts(project_dir, project_name)
+    # Everything the templates read straight out of config.yml and the build's
+    # facts file, read once per render (see config_derived_context).
+    derived = config_derived_context(config, project_dir)
 
     ctx = {
         "project_name": project_name,
@@ -660,16 +663,14 @@ def build_claude_code_context(
         ),
         "preset": preset,
         "claude_md_template": claude_md_template,
-        "facility_name": facility_facts["identity"]["name"],
-        "facility_facts": facility_facts,
-        "pyaml_view_present": bool(facility_facts["measurement_models"]),
-        "measurement": hook_measurement(facility_facts),
+        "facility_name": derived["facility_facts"]["identity"]["name"],
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
         "selected_hooks": selected_hooks,
     }
 
-    # Everything the templates read straight out of config.yml, in the one
-    # spelling the create_project render path shares (see config_derived_context).
+    # Everything the templates read out of config.yml and the facts file, in the
+    # one spelling the create_project render path shares (see
+    # config_derived_context).
     #
     # Merged HERE, before the registry resolves servers and agents, because a
     # `condition=` on a ServerDefinition is a plain truthiness test on a ctx key:
@@ -677,7 +678,7 @@ def build_claude_code_context(
     # silently disabled with no warning. create_project merges the same helper
     # before its own resolve_servers call, so this is also what keeps the two
     # paths from forking on any server gated by a config-derived key.
-    ctx.update(config_derived_context(config, project_dir))
+    ctx.update(derived)
 
     # Derive channel finder configuration
     channel_finder = config.get("channel_finder")

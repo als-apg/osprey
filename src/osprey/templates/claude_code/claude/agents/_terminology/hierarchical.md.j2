@@ -10,20 +10,18 @@ level-by-level, selecting options at each level to narrow down to specific chann
 ### Terminology Mapping
 
 Operators use domain language.
-{% if facility_vocabulary %}
-The device rows below are this deployment's own vocabulary, read from the
-compiled ontology it declares (`facility.ontology`) — the same table the
-channel database was generated from, so the words and tokens are the ones this
-facility actually uses:
+{% if facility_facts.device_classes %}
+The device rows below are read from this facility's build: each device class it
+holds, the words operators use for it and the families its devices belong to.
 {% else %}
-No facility ontology is declared (`facility.ontology`), so the table below
-carries only navigation guidance and no device vocabulary — match on names and
+This facility's build holds no device class.
+The table below carries only navigation guidance: match on names and
 descriptions in the database and verify with a lookup rather than guessing.
 {% endif %}
 | Operator Language | Hierarchy Navigation |
 |---|---|
-{%- for entry in facility_vocabulary | default(none) or [] %}
-| {{ '"' ~ (entry.synonyms | join('", "')) ~ '"' }} | {% if entry.families %}System/section → Device: {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} (class {{ entry.class_name }}){% else %}Umbrella class {{ entry.class_name }} — no device of its own; narrow to a specific device first{% endif %} |
+{%- for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) %}
+| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | {% if entry.families %}System/section → Device: {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} (class {{ name }}){% else %}Class {{ name }}: no family holds its devices; match on names and descriptions{% endif %} |
 {%- endfor %}
 | "readback" / "monitor" | Navigate to device first, then select readback/monitor signal level |
 | "setpoint" / "control" | Navigate to device first, then select setpoint/control signal level |
@@ -38,5 +36,5 @@ descriptions in the database and verify with a lookup rather than guessing.
 - When the user specifies a location, map it to the correct hierarchy level
   (different facilities name location levels differently: "sector", "cell", "section", etc.)
 - If an operator says "all" for a level, you may need to enumerate or use a wildcard
-- The **naming_pattern** above shows how levels combine into PV names
+- The **naming_pattern** above shows how levels combine into channel addresses
   (e.g., `{system}:{device}:{signal}`)
