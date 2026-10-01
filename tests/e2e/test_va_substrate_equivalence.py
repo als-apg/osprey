@@ -767,10 +767,8 @@ def _host_ca_op_spec(
     that is set and against ``project_root`` otherwise, and this subprocess sets
     neither anchor to the render.
 
-    The permissive half of the posture is spelled PER CONNECTOR TYPE, on
-    ``virtual_accelerator`` -- the type this proof drives -- so the
-    deployment-wide block keeps the strict posture a live machine deserves and
-    this lane exercises the per-type override rather than relaxing everything.
+    The mode is spelled PER CONNECTOR TYPE, on ``virtual_accelerator`` -- the
+    type this proof drives -- so this lane exercises the per-type override.
 
     ``CONNECTOR_CONFIG`` is passed verbatim so the subprocess builds a REAL
     production ``VirtualAcceleratorConnector`` via ``ConnectorFactory`` under
@@ -793,8 +791,7 @@ def _host_ca_op_spec(
         # and dotted like the rest of this map; the subprocess shim assembles
         # the nested ``control_system`` section the resolver reads.
         "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
-        "control_system.connector.virtual_accelerator.limits_checking"
-        ".allow_unlisted_channels": True,
+        "control_system.connector.virtual_accelerator.limits_checking.mode": "optional",
         "project_root": str(repo),
     }
     return {

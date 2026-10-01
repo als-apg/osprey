@@ -175,9 +175,10 @@ def standin_config(
     *baseline_type* is ``control_system.type`` — ``live_standin`` for a
     deployment baselined on its own stand-in — *va_gateways* gives the simulator
     a gateway pair so it is a destination and not merely a description, and
-    *strict_limits*, *acknowledged* and *recorder* set the three FR-8 facts the
-    live family is gated on (the limits posture, the operator acknowledgment,
-    and whether an ``archiver_recorder`` makes the store the stand-in's).
+    *acknowledged* and *recorder* set the two FR-8 facts the live machine is
+    gated on (the operator acknowledgment, and whether an ``archiver_recorder``
+    makes the store the stand-in's); *strict_limits* sets the limits block the
+    ``limits_strict`` field reports.
     """
     gateway = {"address": gateway_host, "port": gateway_port, "use_name_server": True}
     write_gateway = dict(gateway)
@@ -213,7 +214,7 @@ def standin_config(
         },
     }
     if strict_limits:
-        control_system["limits_checking"] = {"enabled": True, "allow_unlisted_channels": False}
+        control_system["limits_checking"] = {"enabled": True, "mode": "exclusive"}
     if acknowledged:
         control_system["target_switch"] = {ACK_LEAF: REAL_GATEWAY_HOST}
     raw = {"control_system": control_system, "archiver": {"type": archiver_type}}
@@ -694,8 +695,7 @@ class TestThreeTargetRoster:
     ):
         """The stand-in's equivalent was said at build time; live's is not.
 
-        Both machines are behind the strict limits posture, which this
-        deployment has. What separates them is the acknowledgment — the
+        What separates the two machines is the acknowledgment — the
         operator saying the configured gateways really are this facility's —
         and it is the live machine's alone, so an unacknowledged deployment
         reports the stand-in usable and the facility's machine not.
@@ -713,8 +713,7 @@ class TestThreeTargetRoster:
 
         assert rows["live"]["available_now"] is False
         assert rows["live"]["reason"] == REASON_OPERATOR_ACK_MISSING
-        # The stand-in met the same limits posture and is not asked for an
-        # acknowledgment at all.
+        # The stand-in is not asked for an acknowledgment at all.
         assert rows["standin"]["eligible"] is True
 
     @pytest.mark.usefixtures("no_prober")
@@ -1195,8 +1194,8 @@ class TestEndpointFollowsThePosture:
 class TestLimitsPostureRows:
     """``limits_strict``: per target, for the same reason ``writes_permitted`` is.
 
-    Limits checking is per connector type, so a deployment can relax unlisted
-    channels on its simulator while its live machine refuses them. A single
+    Limits checking is per connector type, so a deployment can run its
+    simulator ``optional`` while its live machine runs ``exclusive``. A single
     flag for the deployment would tell an operator standing on hardware what is
     true of the sandbox next to it.
     """
@@ -1218,7 +1217,7 @@ class TestLimitsPostureRows:
         )
         raw["control_system"]["connector"]["virtual_accelerator"]["limits_checking"] = {
             "enabled": True,
-            "allow_unlisted_channels": True,
+            "mode": "optional",
         }
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
@@ -1257,12 +1256,12 @@ class TestLimitsPostureRows:
         raw = {
             "control_system": {
                 "type": "mock",
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": True, "mode": "exclusive"},
                 "connector": {
                     "mock": {"probe_channel": LIVE_PROBE},
                     "virtual_accelerator": {
                         "probe_channel": VA_PROBE,
-                        "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+                        "limits_checking": {"enabled": True, "mode": "optional"},
                     },
                 },
             },

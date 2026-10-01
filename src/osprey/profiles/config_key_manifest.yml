@@ -91,9 +91,9 @@
 #                  key yet (the forward-declared ones), or the value is
 #                  deliberately three-state and "unstated" is not "false".
 #                  The nine limits_checking keys are the last kind, and the
-#                  distinction is load-bearing: an unstated leaf makes every
-#                  write path refuse unlisted channels, so recording `false`
-#                  there would misdescribe a safety gate.
+#                  distinction is load-bearing: an unstated leaf is not a
+#                  stated one, so recording `false` there would misdescribe a
+#                  safety gate.
 #
 # `derived` and `no-fallback` say nothing on their own, so each carries a
 # `default_note:` naming the derivation or the consequence. That is what stops
@@ -908,7 +908,7 @@ keys:
       `WRITES_ENABLED_KEY` and every refusal quotes back to the operator.
       Escaped, so the vacuity cap does not apply.
     default: false
-  control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and every write path then refuses unlisted channels"}
+  control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and limits checking is off"}
   control_system.limits_checking.enabled:
     evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
     note: >-
@@ -939,19 +939,21 @@ keys:
       is spelled once, as `LIMITS_DATABASE_CONFIG_KEY` beside it in
       `limits_validator.py`, and that call is the anchor.
     default: null
-  control_system.limits_checking.allow_unlisted_channels:
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+  control_system.limits_checking.mode:
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      Anchored on the leaf read in `_block_limits_posture` rather than on the
-      bare word: `allow_unlisted_channels` now travels as a policy field and as
-      an answering key through the validator, the tool layer and the roster, so
-      a bare match no longer proves a config reader exists. That one reader
-      serves the per-type entries below too. Same absent/unreadable reading as
-      `enabled` above, and only literal `true` lets a write reach a channel the
-      limits database does not list.
+      The limits mode, one of `exclusive` or `optional`. `exclusive`: only
+      channels in the limits database can be written. `optional`: a channel in
+      the database is held to its limits and every other channel is written
+      with no limits. Anchored on the leaf read in `_block_limits_posture`
+      rather than on the bare word: `mode` travels as a policy field and as an
+      answering key through the validator, the tool layer and the roster, so a
+      bare match would not prove a config reader exists. That one reader
+      serves the per-type entries below too. A leaf absent here is unset; one
+      PRESENT but not one of the two values makes the block incomplete, the
+      same reading `enabled` above gets.
     default: no-fallback
-    default_note: >-
-      an unstated leaf is not False — the write paths fail closed and refuse unlisted channels
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.write_tools:
     rendered: false
     evidence: 'control_system\.get\("write_tools", \[\]\)'
@@ -1231,6 +1233,7 @@ keys:
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.virtual_accelerator.limits_checking:
+    rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       Per-connector-type override of the deployment-wide
@@ -1238,14 +1241,11 @@ keys:
       grew a per-type shape at all: a deployment running a live machine beside
       a virtual accelerator holds one limits posture per machine, not one per
       deployment. It overrides WHOLE -- a block that is present states both
-      leaves below and then answers alone, inheriting nothing -- so a global
-      relaxation meant for a simulator can never complete a half-written block
-      into permission on hardware. Only the two leaves below: `database_path`
+      leaves below and then answers alone, inheriting nothing -- so a
+      deployment-wide `optional` meant for a simulator can never complete a
+      half-written block into permission on hardware. Only the two leaves below: `database_path`
       stays deployment-wide because a deployment mounts one limits database.
-      `control-assistant` is the one shipped preset that writes this block, and
-      it writes both leaves LIVE, so the path is in the rendered union and an
-      audit of a built deployment finds them. The permissive pair it ships is
-      about the simulator only, which is why the per-type shape exists.
+      No shipped preset writes this block.
       The reader is `type_limits_posture` in `osprey_connectors.types`, and the
       evidence is the line in it that takes this block out of the resolved
       connector block -- disjoint from the deployment-wide read in
@@ -1257,6 +1257,7 @@ keys:
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.virtual_accelerator.limits_checking.enabled:
+    rendered: false
     evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
     note: >-
       Whether limits checking runs for this connector type. Literal `true` or
@@ -1270,34 +1271,25 @@ keys:
       configured" and wave every write through. The evidence is the shared leaf
       read in `_block_limits_posture`, which answers for the deployment-wide
       entry above too; the per-type branch is pinned by the parent entry's
-      block lookup. `control-assistant` ships this leaf live as `true`, so it
-      is in the rendered union; the epics and live_standin siblings below stay
-      commented and keep `rendered: false`.
+      block lookup.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels:
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+  control_system.connector.virtual_accelerator.limits_checking.mode:
+    rendered: false
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      Whether channels the limits database does not list may be written for
-      this connector type. Same reading and the same shared reader as
-      `enabled` above, and write paths allow only on literal `true`.
-      This is the leaf the per-type block was added for: a facility running a
-      live machine beside a simulator could not hold `false` for the machine
-      and `true` for the simulator, and carried the relaxation deployment-wide
-      as a marked deviation instead. `control-assistant` ships it live as
-      `true` — the simulator-only relaxation the block exists for — so it is in
-      the rendered union.
+      The limits mode for this connector type alone, with the same two values
+      and the same shared reader as the deployment-wide leaf above. A per-type
+      block states both leaves and then answers alone.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.epics.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       Same block, same whole-block override semantics and the same single
-      type-keyed reader for the epics block, written commented in
-      `control-assistant` so no preset's resolved config carries it.
-      Relaxing limits against a live machine is a facility decision that cannot
-      ship pre-made, so no shipped preset writes this one.
+      type-keyed reader for the epics block. No shipped preset writes it: a
+      live machine's limits posture is the facility's to state.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.epics.limits_checking.enabled:
@@ -1308,22 +1300,20 @@ keys:
       for the epics block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.epics.limits_checking.allow_unlisted_channels:
+  control_system.connector.epics.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      Same leaf, same absent/unreadable reading and the same shared reader
-      for the epics block. Setting it `true` is what makes a live target stop
-      counting
-      as strict, which the target-switch gate refuses by naming this key.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the epics block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.doocs.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       The same block reached through the doocs block, overriding whole the way
-      every per-type block does. Commented in `control-assistant`: a DOOCS
+      every per-type block does. No shipped preset writes it: a DOOCS
       machine's limits posture is the facility's to state.
     default: derived
     default_note: falls through to control_system.limits_checking
@@ -1335,21 +1325,21 @@ keys:
       for the doocs block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.doocs.limits_checking.allow_unlisted_channels:
+  control_system.connector.doocs.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      The same leaf and the same shared reader for the doocs block; the write
-      paths allow only on a literal `true`.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the doocs block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.tango.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       The same block reached through the tango block, with the same
-      whole-block override semantics. Commented in `control-assistant` for the
-      same reason the doocs one is.
+      whole-block override semantics. No shipped preset writes it, for the
+      same reason as the doocs one.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.tango.limits_checking.enabled:
@@ -1360,14 +1350,14 @@ keys:
       for the tango block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.tango.limits_checking.allow_unlisted_channels:
+  control_system.connector.tango.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      The same leaf and the same shared reader for the tango block; the write
-      paths allow only on a literal `true`.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the tango block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.live_standin.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
@@ -1379,7 +1369,7 @@ keys:
       one inside any other `control_system.connector.<type>` block. The
       stand-in is a connector type of its own, so it does NOT inherit the
       virtual_accelerator block a deployment wrote -- a rehearsal target that
-      silently took the simulator's relaxation would be the one deployment
+      silently took the simulator's mode would be the one deployment
       where the posture an operator reads is not the posture that runs.
     default: derived
     default_note: falls through to control_system.limits_checking
@@ -1392,16 +1382,15 @@ keys:
       types.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.live_standin.limits_checking.allow_unlisted_channels:
+  control_system.connector.live_standin.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
       The other leaf of the derived block. Same absent/unreadable reading and
-      the same shared reader; the shipped `control-assistant` preset writes no
-      live_standin block, so a stand-in target there answers the
-      deployment-wide posture and stays strict where the deployment is.
+      the same shared reader; a deployment that writes no live_standin block
+      has its stand-in target answer the deployment-wide posture.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
 
   # ── Control-system target switch ────────────────────────────────────
   control_system.target_switch:
@@ -3035,6 +3024,13 @@ deleted:
 - archiver.mongodb_archiver.username
 - archiver.mongodb_archiver.password_env
 - archiver.mongodb_archiver.timeout
+  # The boolean became `limits_checking.mode: exclusive | optional`, at both scopes.
+- control_system.limits_checking.allow_unlisted_channels
+- control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels
+- control_system.connector.epics.limits_checking.allow_unlisted_channels
+- control_system.connector.doocs.limits_checking.allow_unlisted_channels
+- control_system.connector.tango.limits_checking.allow_unlisted_channels
+- control_system.connector.live_standin.limits_checking.allow_unlisted_channels
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3188,6 +3184,14 @@ orphan_sites:
       `facility:` block in every template. The READER fallback in
       utils/facility.py is deliberate and must NOT be removed — this regex is
       scoped to templates only for exactly that reason.
+  control_system.limits_checking.allow_unlisted_channels:
+  - root: src/osprey
+    regex: 'allow_unlisted_channels'
+    why: >-
+      the retired boolean leaf, at either scope: a reader, a preset line, a
+      template comment or a tool reply still spelling it. The bare token,
+      because `limits_checking.mode` replaced it on every surface and nothing
+      under src/osprey has a reason to name it.
 
 # ---------------------------------------------------------------------------
 # render_contexts — the matrix the guard renders every template under, then
@@ -3271,7 +3275,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 351
+  expected_union_size: 348
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

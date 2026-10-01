@@ -351,10 +351,10 @@ def target_rows(
             # gateway those writes would leave by is `selected_role`.
             "writes_permitted": writes_permitted,
             # This target's own limits posture, per connector type for the same
-            # reason the write posture is: a deployment may relax unlisted
-            # channels on its simulator while its live machine refuses them.
-            # Strict means limits checking on and unlisted channels explicitly
-            # refused; a target whose config states neither is not strict,
+            # reason the write posture is: a deployment may run its simulator
+            # in the optional mode while its live machine runs exclusive.
+            # Strict means limits checking on and the mode explicitly
+            # exclusive; a target whose config states neither is not strict,
             # because a deployment that stated nothing has refused nothing.
             # Unlike `writes_permitted`, this is a deployment fact, not a
             # session one: the store narrows what a session may write, never
@@ -414,7 +414,7 @@ async def control_target() -> str:
     reachability observation where it has one (``endpoint_tcp``, ``probed_at``,
     and ``stale`` once an observation is too old to stand); whether writes are
     permitted on that target, which is a per-target answer and not one flag for
-    the deployment; whether that target's limits posture is strict
+    the deployment; whether that target's limits are exclusive
     (``limits_strict`` — limits checking on and channels the limits database
     does not list refused), which is per-target for the same reason; whether
     the target is the real machine; and the channel a switch would read to

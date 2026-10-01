@@ -421,7 +421,7 @@ class TestRuntimeLimitsValidation:
                 channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
         }
-        validator = LimitsValidator(test_db, {"allow_unlisted_pvs": False})
+        validator = LimitsValidator(test_db, {"mode": "exclusive"})
         runtime._limits_validator = validator
 
         mock_connector = MockConnector()
@@ -460,7 +460,7 @@ class TestRuntimeStepCheckReader:
                     channel_address="OTHER:PV", min_value=0.0, max_value=100.0, writable=True
                 ),
             },
-            {"allow_unlisted_channels": False},
+            {"mode": "exclusive"},
         )
 
     @staticmethod
@@ -559,7 +559,7 @@ class TestRuntimeStepCheckReader:
                 channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             ),
         }
-        validator = LimitsValidator(test_db, {"allow_unlisted_pvs": False})
+        validator = LimitsValidator(test_db, {"mode": "exclusive"})
         runtime._limits_validator = validator
 
         mock_connector = MockConnector()
@@ -674,7 +674,7 @@ def test_write_observer_not_called_when_limits_net_refuses():
                 channel_address="TEST:PV", min_value=0.0, max_value=10.0, writable=True
             )
         },
-        {"allow_unlisted_pvs": False},
+        {"mode": "exclusive"},
     )
     events = _record_observer()
     connector = MockConnector()

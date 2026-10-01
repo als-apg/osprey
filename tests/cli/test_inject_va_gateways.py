@@ -337,8 +337,8 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 # ``control_system.target_switch.live_gateway_acknowledged``. ``live`` means the
 # machine the facility authored under ``epics:`` — on a stand-in deployment
 # exactly as on one without — so reaching it is ``control_target_set live``,
-# which asks the profile for its own acknowledgment and strict limits. The
-# stand-in is reached as ``control_target_set standin`` and needs neither. A
+# which asks the profile for its own acknowledgment. The
+# stand-in is reached as ``control_target_set standin`` and needs none. A
 # build that wrote the acknowledgment would be answering, on the operator's
 # behalf, a question about a machine it never addressed.
 #

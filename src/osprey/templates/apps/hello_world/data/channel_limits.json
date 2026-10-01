@@ -1,5 +1,5 @@
 {
-  "_comment": "Your first editable safety artifact: the limits hook checks every write against this file. Channels not listed here are still allowed (control_system.limits_checking.allow_unlisted_channels), so listing a channel is how you put bounds on it.",
+  "_comment": "Your first editable safety artifact: the limits hook checks every write against this file. Channels not listed here are written with no limits (control_system.limits_checking.mode: optional), so listing a channel is how you put bounds on it.",
   "_version": "1.0",
 
   "defaults": {

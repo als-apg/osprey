@@ -1190,7 +1190,6 @@ describe('switching', () => {
   test('every published refusal code has an operator phrase', async () => {
     const phrases = {
       target_unresolvable: 'unavailable',
-      limits_posture: 'needs strict limits',
       operator_ack_missing: 'needs gateway ack',
       archive_belongs_to_standin: 'archive conflict',
       invented_history: 'no archive',

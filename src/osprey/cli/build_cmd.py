@@ -1422,12 +1422,14 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
 
     Both scopes are read: the deployment-wide block and every per-type block.
     A per-type block overrides the deployment-wide pair whole, so a block that
-    states one leaf answers no posture at all; a leaf that is present but not
-    a literal ``true``/``false`` (``"true"``, ``1``, an unexpanded ``${VAR}``)
-    answers nothing either, in either scope; and a ``limits_checking`` value
-    that is not a mapping at all answers neither leaf. Each of those makes
-    every write path fall back to refusing unlisted channels — a deployment
-    whose limits posture quietly stopped doing what its author wrote.
+    states one leaf answers no posture at all; a leaf that is present but
+    unreadable (``enabled`` as ``"true"``, ``1`` or an unexpanded ``${VAR}``;
+    ``mode`` as anything but ``exclusive`` or ``optional``) answers nothing
+    either, in either scope; and a ``limits_checking`` value that is not a
+    mapping at all answers neither leaf. Each of those makes every write path
+    fall back to blocking every write — a deployment whose limits posture
+    quietly stopped doing what its author wrote. A leaf the block does not
+    define is refused too: no reader consults it.
     ``osprey validate`` catches the ones a ``config:`` block spelled; this
     reads the config a deployment actually runs, so a block an injector
     assembled or a preset's ``config:`` wrote is caught too.
@@ -1436,8 +1438,8 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
         render_dir: The rendered project directory, read after the injectors.
 
     Returns:
-        One line per missing or unreadable leaf, naming the key an operator
-        has to add or rewrite as a literal boolean; one line naming the block
+        One line per missing, unreadable or undefined leaf, naming the key an
+        operator has to add, rewrite or remove; one line naming the block
         and its value when ``limits_checking`` is not a mapping; nothing for a
         render whose blocks are complete or absent.
     """

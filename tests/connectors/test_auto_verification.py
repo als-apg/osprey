@@ -40,7 +40,7 @@ def _limits_config(limits_file, **extra):
     config_map = {
         "control_system.limits_checking.enabled": True,
         "control_system.limits_checking.database_path": str(limits_file),
-        "control_system.limits_checking.allow_unlisted_channels": False,
+        "control_system.limits_checking.mode": "exclusive",
         "control_system.limits_checking.on_violation": "skip",
         "control_system.writes_enabled": True,
     }

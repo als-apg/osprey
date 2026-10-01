@@ -54,7 +54,7 @@ class TestLimitsValidator:
                 channel_address="TEST:PV:NO_LIMITS", writable=True
             ),
         }
-        policy = {"allow_unlisted_pvs": False}
+        policy = {"mode": "exclusive"}
         return LimitsValidator(test_db, policy)
 
     @pytest.fixture
@@ -65,7 +65,7 @@ class TestLimitsValidator:
                 channel_address="TEST:PV", min_value=0.0, max_value=100.0, writable=True
             )
         }
-        policy = {"allow_unlisted_channels": True}
+        policy = {"mode": "optional"}
         return LimitsValidator(test_db, policy)
 
     @pytest.fixture
@@ -80,7 +80,7 @@ class TestLimitsValidator:
                 writable=True,
             )
         }
-        policy = {"allow_unlisted_pvs": False}
+        policy = {"mode": "exclusive"}
         return LimitsValidator(test_db, policy)
 
     # =========================================================================
@@ -302,7 +302,7 @@ class TestLimitsValidator:
         """One bad entry fails the whole load, naming the channel.
 
         Skipping the entry used to drop the channel from the database, which
-        with ``allow_unlisted_channels`` then waved its writes through with no
+        under ``mode: optional`` then waved its writes through with no
         limits at all. The load now raises instead.
         """
         db_file = tmp_path / "test_boundaries.json"
@@ -347,8 +347,8 @@ class TestLimitsValidator:
                 return True
             elif key == "control_system.limits_checking.database_path":
                 return None
-            elif key == "control_system.limits_checking.allow_unlisted_pvs":
-                return False
+            elif key == "control_system.limits_checking.mode":
+                return "exclusive"
             return default
 
         mock_get_config.side_effect = config_side_effect
@@ -371,15 +371,15 @@ class TestLimitsValidator:
                     "limits_checking": {
                         "enabled": True,
                         "database_path": str(db_file),
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                     }
                 }
             elif key == "control_system.limits_checking.enabled":
                 return True
             elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == "control_system.limits_checking.allow_unlisted_channels":
-                return False
+            elif key == "control_system.limits_checking.mode":
+                return "exclusive"
             return default
 
         mock_get_config.side_effect = config_side_effect
@@ -389,7 +389,7 @@ class TestLimitsValidator:
         assert validator is not None
         assert len(validator.limits) == 1
         assert "TEST:PV" in validator.limits
-        assert validator.policy["allow_unlisted_channels"] is False
+        assert validator.policy["mode"] == "exclusive"
 
     @patch("osprey.utils.config.get_config_value")
     def test_from_config_invalid_json_blocks_all_writes(self, mock_get_config, tmp_path):
@@ -408,15 +408,15 @@ class TestLimitsValidator:
                     "limits_checking": {
                         "enabled": True,
                         "database_path": str(db_file),
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                     }
                 }
             elif key == "control_system.limits_checking.enabled":
                 return True
             elif key == "control_system.limits_checking.database_path":
                 return str(db_file)
-            elif key == "control_system.limits_checking.allow_unlisted_channels":
-                return False
+            elif key == "control_system.limits_checking.mode":
+                return "exclusive"
             return default
 
         mock_get_config.side_effect = config_side_effect
@@ -443,8 +443,8 @@ class TestLimitsValidator:
                 return True
             elif key == "control_system.limits_checking.database_path":
                 return "/nonexistent/path/to/limits.json"
-            elif key == "control_system.limits_checking.allow_unlisted_pvs":
-                return False
+            elif key == "control_system.limits_checking.mode":
+                return "exclusive"
             return default
 
         mock_get_config.side_effect = config_side_effect
@@ -487,15 +487,15 @@ class TestLimitsValidator:
                     "limits_checking": {
                         "enabled": True,
                         "database_path": "data/channel_limits.json",
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                     }
                 }
             elif key == "control_system.limits_checking.enabled":
                 return True
             elif key == "control_system.limits_checking.database_path":
                 return "data/channel_limits.json"
-            elif key == "control_system.limits_checking.allow_unlisted_channels":
-                return False
+            elif key == "control_system.limits_checking.mode":
+                return "exclusive"
             elif key == "project_root":
                 return str(bogus_project_root)
             return default
@@ -527,15 +527,15 @@ class TestLimitsValidator:
                     "limits_checking": {
                         "enabled": True,
                         "database_path": "data/channel_limits.json",
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                     }
                 }
             elif key == "control_system.limits_checking.enabled":
                 return True
             elif key == "control_system.limits_checking.database_path":
                 return "data/channel_limits.json"
-            elif key == "control_system.limits_checking.allow_unlisted_channels":
-                return False
+            elif key == "control_system.limits_checking.mode":
+                return "exclusive"
             elif key == "project_root":
                 return str(project_root)
             return default

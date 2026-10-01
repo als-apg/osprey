@@ -130,7 +130,7 @@ virtual_accelerator:
   # this key alone the build derives the target's connector block,
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
-  # meets there is a real machine's behaviour — approval prompts, strict-limit
+  # meets there is a real machine's behaviour — approval prompts, limit
   # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot
   # move a magnet.
   # Delete the line on a laptop: the simulator image is amd64-only, so a
@@ -218,8 +218,8 @@ config:
   # lists them too.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
-  # `gateways` and `probe_channel` first — then the switch probes that target,
-  # requires the strict limits pair below, then your own
+  # `gateways` and `probe_channel` first — then the switch probes that target
+  # and requires your own
   # `control_system.target_switch.live_gateway_acknowledged` — the operator
   # saying those gateways really are this facility's — and it still refuses
   # while this deployment records its own archive from the stand-in, because
@@ -245,30 +245,17 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # Every write checked against data/channel_limits.json, and a channel that
-  # file does not list refused rather than waved through. Both hardware-shaped
-  # targets — `standin` and `live` — require this pair before a session may
-  # switch onto them, so a rehearsal runs the posture the real machine gets.
+  # Limits are optional. `enabled: false` = no limits at all. `mode:
+  # exclusive` = only channels in the limits file can be written. `mode:
+  # optional` = channels in the file are held to their limits, every other
+  # channel is written with no limits. A
+  # `control_system.connector.<type>.limits_checking` block stating both
+  # leaves overrides this pair for that connector type.
   control_system.limits_checking.enabled: true
-  control_system.limits_checking.allow_unlisted_channels: false
+  control_system.limits_checking.mode: optional
   # The limits file, relative to the build directory. It is a build copy: edit
   # the one in data/ beside this file and rebuild.
   control_system.limits_checking.database_path: data/channel_limits.json
-  # The sandbox simulator is the exception, and the machine a session starts
-  # on, so this block is the posture a session opens under. It states the
-  # exception as a whole block: a per-type posture REPLACES the pair above for
-  # that connector type rather than merging with it, so both leaves are written
-  # out here.
-  # Writes to the simulator are still checked against the same file; what
-  # changes is that a channel the file does not list is allowed through
-  # instead of refused, because on a scratch machine an unlisted channel is a
-  # gap in the file rather than a hazard. `live_standin` deliberately gets NO
-  # block of its own: it is hardware-shaped, so it keeps the strict pair the
-  # real machine gets, and a permissive block here would make
-  # `control_target_set standin` refuse the very switch this preset exists to
-  # rehearse.
-  control_system.connector.virtual_accelerator.limits_checking.enabled: true
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read;
@@ -338,9 +325,6 @@ config:
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false
-  # Limits posture for the live machine alone, both leaves required.
-  # control_system.connector.epics.limits_checking.enabled: true
-  # control_system.connector.epics.limits_checking.allow_unlisted_channels: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -365,15 +349,12 @@ config:
   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
   # facility's own DOOCS environment already names, so the empty coordinate set
   # is the point of this block rather than an omission — what is left is how
-  # long a call is given and the four leaves every connector type answers.
+  # long a call is given and the two leaves every connector type answers.
   # Seconds an ENS lookup, a property read or a property set is given.
   # control_system.connector.doocs.timeout_s: 5.0
   # Write posture for the DOOCS machine. Same tri-state as the epics leaf
   # above: stating it pins it, and only a literal true arms writes.
   # control_system.connector.doocs.writes_enabled: false
-  # Limits posture for the DOOCS machine alone, both leaves required.
-  # control_system.connector.doocs.limits_checking.enabled: true
-  # control_system.connector.doocs.limits_checking.allow_unlisted_channels: false
   # Property the target switch reads to prove this machine is reachable.
   # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
   # TANGO connector: one coordinate of its own, the device database, spelled
@@ -385,10 +366,8 @@ config:
   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout: 5.0
-  # The same four leaves as every other connector type, for the TANGO machine.
+  # The same two leaves as every other connector type, for the TANGO machine.
   # control_system.connector.tango.writes_enabled: false
-  # control_system.connector.tango.limits_checking.enabled: true
-  # control_system.connector.tango.limits_checking.allow_unlisted_channels: false
   # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
   # Target switch: how a running session moves between the connectors above.
   #

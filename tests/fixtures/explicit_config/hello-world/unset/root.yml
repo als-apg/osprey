@@ -72,9 +72,9 @@ container_runtime: docker
 control_system:
   channel_read_artifact_retention: 20
   limits_checking:
-    allow_unlisted_channels: true
     database_path: data/channel_limits.json
     enabled: true
+    mode: optional
   read_inline_max_elements: 2000
   type: mock
   writes_enabled: false

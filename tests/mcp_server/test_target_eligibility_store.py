@@ -102,7 +102,7 @@ def _config(
         "control_system": {
             "type": EPICS_TYPE,
             "writes_enabled": False,
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            "limits_checking": {"enabled": True, "mode": "exclusive"},
             "target_switch": {te.ACK_LEAF: "gw.example.org"},
             "connector": {
                 EPICS_TYPE: {

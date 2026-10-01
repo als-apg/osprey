@@ -40,13 +40,10 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     is absolute, so it bypasses the relative-path resolution against
     ``CONFIG_FILE``'s directory entirely.
 
-    ``allow_unlisted_channels`` is pinned permissive alongside it. The preset
-    ships strict (an unlisted channel is refused), because the stand-in it
-    baselines on carries a real machine's posture; the safety scenarios here
-    were written against the permissive posture and one of them (scenario 5)
-    exists to prove an unlisted channel goes through under it. The pin selects
-    the posture the scenarios describe rather than inheriting whichever one the
-    preset ships.
+    ``mode`` is pinned ``optional`` alongside it. The safety scenarios here
+    describe the optional mode and one of them (scenario 5) exists to prove a
+    channel with no record goes through under it. The pin selects the mode the
+    scenarios describe rather than inheriting whichever one the preset ships.
 
     The pin stays DEPLOYMENT-WIDE on purpose, not spelled per connector type:
     this lane baselines on the live stand-in and its scenarios reach whichever
@@ -59,7 +56,7 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     config = yaml.safe_load(config_path.read_text())
     limits = config["control_system"]["limits_checking"]
     limits["database_path"] = str(SAFETY_LIMITS_DB)
-    limits["allow_unlisted_channels"] = True
+    limits["mode"] = "optional"
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
@@ -180,12 +177,12 @@ def safety_project_mixed_render(tmp_path_factory):
     PreToolUse hook chain — ``osprey_writes_check`` denying for the session's
     target and ``osprey_approval`` deferring.
 
-    The limits posture is pinned permissive like the other safety renders.
+    The limits mode is pinned ``optional`` like the other safety renders.
     Scenario 11 asserts that the refusal it gets back is ``osprey_writes_check``'s
-    — the one naming the live target. Under the preset's strict posture the
-    limits hook refuses the same unlisted channel in the same PreToolUse chain,
-    and which of two denies surfaces as the reason is not something the test
-    controls; the pin leaves the writes gate as the only hook with a say.
+    — the one naming the live target. Under ``exclusive`` the limits hook
+    refuses the same unlisted channel in the same PreToolUse chain, and which
+    of two denies surfaces as the reason is not something the test controls;
+    the pin leaves the writes gate as the only hook with a say.
     """
     tmp = tmp_path_factory.mktemp("safety-mixed-render")
     repo = init_project(tmp, "safety-mixed-render", provider="als-apg")

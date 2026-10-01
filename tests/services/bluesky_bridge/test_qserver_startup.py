@@ -452,10 +452,10 @@ def test_other_types_are_forwarded_through_untouched() -> None:
 # Degraded-lane posture
 # ---------------------------------------------------------------------------
 
-_DEPLOYMENT_WIDE_UNLISTED_KEY = "control_system.limits_checking.allow_unlisted_channels"
+_DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
 """The deployment-wide limits key a degraded lane must be answered by."""
 
-_PER_TYPE_UNLISTED_KEY = "control_system.connector.mock.limits_checking.allow_unlisted_channels"
+_PER_TYPE_MODE_KEY = "control_system.connector.mock.limits_checking.mode"
 """The per-type key a lane that resolved its own target is answered by."""
 
 
@@ -477,13 +477,13 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "writes_enabled": False,
         "limits_checking": {
             "enabled": True,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "database_path": str(database),
         },
         "connector": {
             "mock": {
                 "writes_enabled": True,
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+                "limits_checking": {"enabled": True, "mode": "optional"},
             }
         },
     }
@@ -532,10 +532,8 @@ def test_a_degraded_lane_is_built_unstamped_before_its_validator_is_loaded(
     connector = asyncio.run(qserver_startup.create_connector())
 
     assert connector._connector_type is None
-    assert connector._limits_validator.policy["allow_unlisted_key"] == (
-        _DEPLOYMENT_WIDE_UNLISTED_KEY
-    )
-    assert connector._limits_validator.policy["allow_unlisted_channels"] is False
+    assert connector._limits_validator.policy["mode_key"] == (_DEPLOYMENT_WIDE_MODE_KEY)
+    assert connector._limits_validator.policy["mode"] == "exclusive"
     assert connector._writes_enabled is False
     assert qserver_startup.worker_writes_enabled() is False
 
@@ -550,8 +548,8 @@ def test_a_resolved_lane_keeps_its_own_types_posture(
     connector = asyncio.run(qserver_startup.create_connector())
 
     assert connector._connector_type == "mock"
-    assert connector._limits_validator.policy["allow_unlisted_key"] == _PER_TYPE_UNLISTED_KEY
-    assert connector._limits_validator.policy["allow_unlisted_channels"] is True
+    assert connector._limits_validator.policy["mode_key"] == _PER_TYPE_MODE_KEY
+    assert connector._limits_validator.policy["mode"] == "optional"
     assert connector._writes_enabled is True
     assert qserver_startup.worker_writes_enabled() is True
 
