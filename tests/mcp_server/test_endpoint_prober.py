@@ -282,6 +282,19 @@ async def test_missing_or_unusable_interval_falls_back_to_the_default():
     )
 
 
+@pytest.mark.parametrize(
+    "value",
+    [-1, True, float("nan"), float("inf"), pytest.param(10**400, id="10**400")],
+)
+async def test_an_interval_that_is_not_a_positive_number_of_seconds_falls_back(value):
+    assert (
+        EndpointProber(
+            {"control_system": {"target_switch": {"probe_interval_s": value}}}
+        ).probe_interval_s
+        == ep.DEFAULT_PROBE_INTERVAL_S
+    )
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
