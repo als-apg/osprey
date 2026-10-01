@@ -1639,7 +1639,7 @@ function renderTriggerDetail() {
   grid.appendChild(statusCell);
 
   field('On error', t.on_error || 'drop');
-  field('Tools', (t.allowed_tools && t.allowed_tools.length) ? t.allowed_tools.join(', ') : 'all allowed', true);
+  field('Tools', (t.allowed_tools && t.allowed_tools.length) ? t.allowed_tools.join(', ') : 'none', true);
   host.appendChild(grid);
 
   if (t.prompt) {
