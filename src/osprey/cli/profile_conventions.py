@@ -284,6 +284,15 @@ _SECRETS_ZONE_ENTRIES: frozenset[str] = frozenset({".env", ".env.example"})
 #: convention directory — a build would otherwise flag its own output.
 _GENERATED_ZONE_ENTRIES: frozenset[str] = frozenset({BUILD_OUTPUT_DIR, STATE_DIR})
 
+#: The repo's own Claude Code files, for whoever edits the deployment repo:
+#: tracked or host-local, never rendered, and never in a container image. An
+#: image's agent runs one directory below the repo root, and Claude Code reads
+#: ``CLAUDE.md`` from every ancestor of its working directory; the render's own
+#: copies live under ``build/``.
+REPO_CLAUDE_CODE_ENTRIES: frozenset[str] = frozenset(
+    {"CLAUDE.md", "CLAUDE.local.md", ".claude", ".mcp.json"}
+)
+
 #: Repo-root entries that are neither convention directories nor typos — the
 #: four-zone layout in full, plus every convention source. The repo root *is*
 #: the profile root, so a deployment's own generated zones are entries this
