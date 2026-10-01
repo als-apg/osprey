@@ -1,12 +1,12 @@
-"""Browser tests: the control context is one deployment-wide fact, in every tab.
+"""Browser tests: the control context is one fact per login, in every tab.
 
 ``test_posture_toggle_browser.py`` pins what ONE tab's chip does. Three things
 survive only across tabs, across a surface hand-off and across the audit trail,
 and none of them is observable from a single page or from a route test:
 
   (1) **A switch made in one tab reaches the other on the pushed frame.** The
-      record is deployment-wide, so a second tab that made no gesture must
-      still name the machine the deployment moved to — and it must learn it
+      record is the login's, not the tab's, so a second tab that made no
+      gesture must still name the machine the login moved to — and it must learn it
       from the ``control_context`` frame the owning terminal pushes, not from
       its own 5 s fallback poll. "It changed eventually" would pass on the poll
       alone and prove nothing, so the proof here is a *phase* one: the change

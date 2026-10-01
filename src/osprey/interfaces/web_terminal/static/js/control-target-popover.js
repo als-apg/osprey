@@ -643,7 +643,7 @@ function renderFoot(state, rows) {
     void setPosture(ALL_TARGETS, 'sandbox', state);
   });
   foot.append(all);
-  foot.append(el('span', 'ctc-foot-note', 'Applies deployment-wide'));
+  foot.append(el('span', 'ctc-foot-note', 'Applies to every session of this login'));
   return foot;
 }
 
