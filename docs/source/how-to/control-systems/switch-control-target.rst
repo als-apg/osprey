@@ -364,7 +364,7 @@ the new connection gets to read the target's ``probe_channel`` before the
 switch is refused and the deployment stays where it was — raise it where a
 first read through your gateway takes longer; ``drain_timeout_s`` (default 5)
 is how long work already in flight gets to finish on the old target before it
-is torn down regardless; and ``probe_interval_s`` (default 30) is how often the
+is torn down regardless (``0`` tears it down at once); and ``probe_interval_s`` (default 30) is how often the
 background reachability check runs.
 
 .. note::

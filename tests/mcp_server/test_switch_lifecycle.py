@@ -1698,6 +1698,26 @@ class TestConfigDerivedFacts:
             == DEFAULT_DRAIN_TIMEOUT_S
         )
 
+    async def test_a_zero_drain_timeout_is_kept(self, make_manager):
+        assert (
+            make_manager(raw=raw_config(drain_timeout_s=0), drain_timeout_s=None)._drain_timeout()
+            == 0.0
+        )
+
+    @pytest.mark.parametrize(
+        "value",
+        ["soon", -1, True, float("nan"), float("inf"), pytest.param(10**400, id="10**400")],
+    )
+    async def test_a_drain_timeout_that_is_not_a_number_of_seconds_falls_back(
+        self, make_manager, caplog, value
+    ):
+        manager = make_manager(raw=raw_config(drain_timeout_s=value), drain_timeout_s=None)
+
+        with caplog.at_level(logging.WARNING, logger=connector_host_manager.logger.name):
+            assert manager._drain_timeout() == DEFAULT_DRAIN_TIMEOUT_S
+
+        assert "control_system.target_switch.drain_timeout_s" in caplog.text
+
     async def test_the_probe_timeout_comes_from_config_and_falls_back(self, make_manager):
         assert make_manager(probe_timeout_s=None)._probe_timeout() == DEFAULT_PROBE_TIMEOUT_S
         assert (
