@@ -220,7 +220,7 @@ def _context(
         # Both halves of a queueserver's audit bind, injected unconditionally
         # for the same reason.
         "osprey_audit_mount_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
-        "osprey_lane_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
+        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
         # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
         "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),
         # The control-identity module's container path and each lane's
@@ -1509,7 +1509,7 @@ def _web_context(
         },
         "osprey_images": _image_defaults("proj"),
         "osprey_audit_mount_source": "./var/audit",
-        "osprey_service_container_audit_dir": "/app/var/audit",
+        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
         # The registry's second-lane keys, injected unconditionally like `osprey_ports`.
         "bluesky_second_lane_keys": list(SECOND_LANE_KEYS.values()),

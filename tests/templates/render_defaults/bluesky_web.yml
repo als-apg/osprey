@@ -41,17 +41,21 @@ services:
     ports:
       - "127.0.0.1:10071:10071"
     environment:
-      # Not a config-loader input here: the sidecar's own config read goes
-      # through OSPREY_CONFIG and the working directory and ignores this
-      # variable by design (osprey_connectors.workspace.resolve_config_path),
-      # tolerating a config it does not find. What this names is the mounted
-      # config whose DIRECTORY the /channels route reads the build-time
-      # channels.json out of. Without it that route resolves ./channels.json
-      # against the image WORKDIR (/app) rather than the mount under
-      # /app/project, so the sidecar still starts and every panel still
-      # serves — the channel catalog alone answers 404, and the plan form's
-      # channel fields offer no autocomplete.
+      # The mounted config, named twice for its two kinds of reader. The
+      # /channels route reads the build-time channels.json out of
+      # CONFIG_FILE's DIRECTORY; without it that route resolves
+      # ./channels.json against the image WORKDIR (/app) and the channel
+      # catalog answers 404.
       CONFIG_FILE: /app/project/config.yml
+      # The framework's own config loader
+      # (osprey_connectors.workspace.resolve_config_path) reads this and never
+      # CONFIG_FILE. It is how the sidecar learns which plan lanes the
+      # deployment renders and which target each serves (the `services.<lane>`
+      # blocks), and where its audit zone is: the project this names, which is
+      # the directory the audit bind below targets. Without it the sidecar
+      # reports one lane on a two-lane deployment and its records land in the
+      # container's writable layer.
+      OSPREY_CONFIG: /app/project/config.yml
       TZ: UTC
       # Reach the co-deployed bluesky bridge by its in-network compose service
       # key `bluesky-bridge` — never the host-published port.
@@ -119,12 +123,13 @@ services:
       # `_ensure_agent_data_structure` on the build path): left to the container
       # runtime, a missing bind source is created by the daemon instead.
       #
-      # The container side is `/app/var/audit/...`, NOT this project's
-      # `/app/<project>/var/audit/...`: the image runs no OSPREY project, so its
-      # writer anchors the audit zone on the working directory (WORKDIR /app),
-      # and mounting the project-rooted path would bind a directory nothing ever
-      # writes to while the records piled up in the writable layer.
-      - ./var/audit/bluesky-web:/app/var/audit/bluesky-web
+      # The container side is `/app/project/var/audit/...`: the writer anchors
+      # the audit zone on the project OSPREY_CONFIG above names, the directory
+      # the config is mounted into — not on the working directory (WORKDIR
+      # /app), and not on the project image's `/app/<project>`. A bind anywhere
+      # else would be a directory nothing writes to while the records piled up
+      # in the writable layer.
+      - ./var/audit/bluesky-web:/app/project/var/audit/bluesky-web
 
     networks:
       - osprey-network
