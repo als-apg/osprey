@@ -203,14 +203,16 @@ the framework reads and what it falls back to when no line spells it.
      # itself. Only a literal `true` arms writes, at either level.
      control_system.writes_enabled: true
      # Limits checking. This pair is the deployment's, and every type
-     # inherits it ...
+     # inherits it: `exclusive` = only channels in the limits file can be
+     # written, `optional` = channels in the file are held to their limits and
+     # every other channel is written with no limits ...
      control_system.limits_checking.enabled: true
-     control_system.limits_checking.allow_unlisted_channels: false
+     control_system.limits_checking.mode: exclusive
      # ... while a per-type block replaces it whole for one type, and does not
      # fall back to the keys above. Both settings have to be stated: one alone
      # is refused by `osprey build` and `osprey validate`.
      control_system.connector.virtual_accelerator.limits_checking.enabled: true
-     control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+     control_system.connector.virtual_accelerator.limits_checking.mode: optional
 
      # Archiver: where history is read from. Required alongside a control
      # system.
@@ -226,7 +228,7 @@ the framework reads and what it falls back to when no line spells it.
      approval.default_policy: always
 
 That is the shape ``osprey init --preset control-assistant`` writes, with the
-timezone changed. Pointing the same deployment at a real machine
+timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (``control_system.type: epics``) is a larger edit than the one line, because
 two things the preset ships are scoped to the simulated baseline: the
 ``va_archiver:`` block records a machine the deployment would no longer be
@@ -255,7 +257,7 @@ build`` refuses each in turn rather than rendering it. See
           mypkg.MoatConnector:
             limits_checking:
               enabled: true
-              allow_unlisted_channels: false
+              mode: exclusive
 
    **That entry replaces the whole rendered connector section.** ``connector``
    is the last key of the dotted prefix, and a leaf is assigned verbatim — so
@@ -1059,22 +1061,18 @@ has no opinion about, and is yours to write.
 **What the block does not decide.** Write posture, limits checking and the
 operator acknowledgment are the profile's, on a stand-in deployment exactly as on
 any other: they describe how the *deployment* is run, not where one of its
-targets lives. In particular, a switch to ``standin`` (like one to ``live``)
-requires the strict limits posture, so a profile that stands a stand-in up
-normally writes the pair itself:
+targets lives. The limits pair is the deployment's, and the stand-in inherits
+it:
 
 .. code-block:: yaml
 
    config:
      control_system.limits_checking.enabled: true
-     control_system.limits_checking.allow_unlisted_channels: false
+     control_system.limits_checking.mode: optional
 
-That pair is the deployment's, and the stand-in inherits it: the build writes no
-``limits_checking`` block under ``control_system.connector.live_standin``, and a
-profile should not either, since a permissive block there would make
-``control_target_set standin`` refuse the very rehearsal the stand-in exists
-for. A simulator beside it is where a per-type block belongs — see
-:ref:`limits-checking-config`.
+The build writes no ``limits_checking`` block under
+``control_system.connector.live_standin``. See :ref:`limits-checking-config`
+for the two modes and the per-type block.
 
 ``control_system.target_switch.live_gateway_acknowledged`` stays the live
 machine's alone — the stand-in's equivalent is the ``live_standin`` line itself.

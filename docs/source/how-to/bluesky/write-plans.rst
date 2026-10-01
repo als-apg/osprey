@@ -303,8 +303,7 @@ normal deployment rather than a misconfiguration:
   direction too, from the binding's own ``writesSignal``/``readsSignal``.
 - The **limits database** answers permission, at the moment a write is
   attempted: what range the value has to be in, and whether a channel it does
-  not list may be written at all
-  (``control_system.limits_checking.allow_unlisted_channels``).
+  not list may be written at all (``control_system.limits_checking.mode``).
 
 So a graph corpus may mark a channel settable that the limits database refuses
 — a facility's structural description and its enforced write ranges are
