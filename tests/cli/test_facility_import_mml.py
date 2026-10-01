@@ -227,3 +227,34 @@ def test_a_mapping_that_fails_its_check_stops_before_any_record(cleared: Path) -
     assert sorted(path.name for path in (_facility(cleared) / LAYER_DIR).iterdir()) == [
         "mapping.yaml"
     ]
+
+
+def test_a_mapping_with_the_wrong_structure_stops_with_its_key(cleared: Path) -> None:
+    mapping = _facility(cleared) / MAPPING_FILE
+    mapping.write_text("models: 3\n", encoding="utf-8")
+
+    result = _import(cleared)
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.stderr.splitlines() == [
+        f"✗ data/facility/{MAPPING_FILE} is not a valid mapping document.",
+        "  directions: required key is missing",
+    ]
+    assert result.stdout == ""
+    assert sorted(path.name for path in (_facility(cleared) / LAYER_DIR).iterdir()) == [
+        "mapping.yaml"
+    ]
+
+
+def test_a_profile_that_does_not_resolve_stops_the_import(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    profile.write_text(profile.read_text(encoding="utf-8") + "no_such_key: 1\n", encoding="utf-8")
+    before = _snapshot(_facility(repo))
+
+    result = _import(repo)
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "The profile does not resolve." in result.stderr
+    assert _snapshot(_facility(repo)) == before
