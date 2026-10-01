@@ -817,7 +817,7 @@ def mock_repository() -> MagicMock:
     repo.count_entries = AsyncMock(return_value=0)
     repo.health_check = AsyncMock(return_value=(True, "OK"))
     repo.mark_enhancement_complete = AsyncMock()
-    repo.mark_enhancement_failed = AsyncMock()
+    repo.mark_enhancement_failed = AsyncMock(return_value=1)
     repo.start_ingestion_run = AsyncMock(return_value=1)
     repo.complete_ingestion_run = AsyncMock()
     repo.fail_ingestion_run = AsyncMock()
