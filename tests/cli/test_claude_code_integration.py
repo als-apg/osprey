@@ -1498,6 +1498,8 @@ class TestFacilityPermissions:
         "WebSearch",
         "mcp__plugin_*",
         "mcp__claude_ai_*",
+        "Monitor",
+        "EnterWorktree",
     ]
 
     def _settings(self, tmp_path, permissions_config):

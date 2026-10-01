@@ -36,6 +36,8 @@ def test_the_interactive_floor_renders_in_this_order():
         "WebSearch",
         "mcp__plugin_*",
         "mcp__claude_ai_*",
+        "Monitor",
+        "EnterWorktree",
     )
 
 

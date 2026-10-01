@@ -759,7 +759,7 @@ def open_mode_missing_by_persona(
     ``missing_by_persona`` so its message names the same entries the raising
     gate would have named. Asking :func:`open_mode_offenders` instead and
     phrasing the refusal against the whole set is supported, but sends the
-    operator through four entries to find the one that is lifted.
+    operator through every entry of the set to find the one that is lifted.
 
     Pure in the same sense as :func:`open_mode_offenders`, which is derived from
     this.
