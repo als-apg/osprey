@@ -551,13 +551,16 @@ class TestControlAssistantWebTier:
         assert "channel-finder" in base.web_panels
         assert "ariel" in base.web_panels
 
-    def test_notebook_tab_is_a_family_wide_default(self) -> None:
-        """The JUPYTER tab is declared once, in the base, and every tier gets it.
+    def test_notebook_tab_follows_the_control_surface(self) -> None:
+        """The JUPYTER tab is declared once, in the base, and reaches exactly
+        the children that keep the controls server.
 
-        Both groups are derived from the bundled presets on disk rather than
-        listed here, so a tier added later is covered without editing this
-        test: it fails if the tab is declared per tier instead of inherited,
-        and it fails if a tier subtracts it through ``exclude:``.
+        A notebook kernel reads and writes through the control target, so the
+        tab is machine reach. The children that switch the controls server off
+        (the logbook and knowledge personas) subtract it through ``exclude:``;
+        every other child inherits it. Both groups are derived from the bundled
+        presets on disk rather than listed here, so a child added later is
+        covered without editing this test.
 
         The standalone presets are the control group. They extend nothing and
         run no terminal session for a kernel to follow, so the tab must not
@@ -578,9 +581,17 @@ class TestControlAssistantWebTier:
         assert tiers, "no bundled preset extends control-assistant"
         assert standalone == ["ariel-standalone", "channel-finder-standalone", "hello-world"]
 
+        no_control_surface = sorted(
+            name
+            for name in tiers
+            if resolve_preset(name).config.get("claude_code.servers.controls.enabled") is False
+        )
+        assert no_control_surface == ["control-assistant-knowledge", "control-assistant-logbook"]
+
         assert "jupyter" in resolve_preset("control-assistant").web_panels
         for name in tiers:
-            assert "jupyter" in resolve_preset(name).web_panels, name
+            expected = name not in no_control_surface
+            assert ("jupyter" in resolve_preset(name).web_panels) is expected, name
         for name in standalone:
             assert "jupyter" not in resolve_preset(name).web_panels, name
 
@@ -1168,6 +1179,9 @@ class TestControlAssistantPersonas:
         )
         assert hits == [], f"the logbook tier configures no graph store but rendered {hits}"
         assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert "jupyter" not in config["web"]["panels"]
+        assert config["web"]["control_target_picker"] is False
 
     def test_knowledge_persona_renders_the_knowledge_surface_and_nothing_else(
         self, built_persona_stack: Path
@@ -1194,6 +1208,8 @@ class TestControlAssistantPersonas:
         assert config["channel_finder"]["pipeline_mode"] == "graph"
         assert config["web"]["default_panel"] == "okf"
         assert "ariel" not in config["web"]["panels"]
+        assert "jupyter" not in config["web"]["panels"]
+        assert config["web"]["control_target_picker"] is False
 
         agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
         assert agents == ["channel-finder", "facility-knowledge", "facility-knowledge-graph"]
@@ -1446,6 +1462,59 @@ class TestWritePostureMatrix:
         assert {key: delta.get(key) for key in posture_keys} == {
             key: shipped.get(key) for key in posture_keys
         }
+
+
+# ---------------------------------------------------------------------------
+# The title-bar control-target picker
+# ---------------------------------------------------------------------------
+
+#: preset name -> the ``web.control_target_picker`` it states, or None where it
+#: states nothing and the key's default (on) holds. Every shipped preset
+#: appears, so a new one has to state its answer here before it ships.
+PINNED_CONTROL_TARGET_PICKER: dict[str, bool | None] = {
+    "ariel-standalone": False,
+    "channel-finder-standalone": False,
+    "control-assistant": None,
+    "control-assistant-admin": None,
+    "control-assistant-knowledge": False,
+    "control-assistant-logbook": False,
+    "control-assistant-readonly": None,
+    "control-assistant-readwrite": None,
+    "hello-world": None,
+}
+
+
+class TestControlTargetPicker:
+    """Which shipped presets show the control-target picker, and why those
+    that do not may leave it out: nothing in them reaches the machine."""
+
+    @pytest.mark.parametrize("preset", sorted(PINNED_CONTROL_TARGET_PICKER))
+    def test_every_shipped_preset_states_the_picker_it_is_pinned_to(
+        self, tmp_path: Path, preset: str
+    ) -> None:
+        rendered = _render_config_overrides(tmp_path, {"system": {}}, preset=preset)
+
+        stated = (rendered.get("web") or {}).get("control_target_picker")
+
+        assert stated is PINNED_CONTROL_TARGET_PICKER[preset]
+
+    def test_the_shipped_preset_set_is_pinned(self) -> None:
+        assert list_presets() == sorted(PINNED_CONTROL_TARGET_PICKER)
+
+    @pytest.mark.parametrize(
+        "preset", sorted(name for name, on in PINNED_CONTROL_TARGET_PICKER.items() if on is False)
+    )
+    def test_a_preset_without_the_picker_reaches_no_machine(self, preset: str) -> None:
+        """The picker is off only where no tool server and no panel reaches the
+        control target: no controls, python or bluesky server, and no JUPYTER
+        tab, whose kernels read and write through the target."""
+        profile = resolve_preset(preset)
+
+        for server in ("controls", "python", "bluesky"):
+            stated = profile.config.get(f"claude_code.servers.{server}.enabled")
+            enabled = FRAMEWORK_SERVERS[server].default_enabled if stated is None else stated
+            assert enabled is False, server
+        assert "jupyter" not in profile.web_panels
 
 
 # ---------------------------------------------------------------------------

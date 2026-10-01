@@ -736,7 +736,9 @@ The control-target picker
 The title bar's control-target chip names the machine this terminal stands on
 and opens the popover that switches it. The default is ``true``. Set it to
 ``false`` only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel.
+server and no JUPYTER panel. The shipped ``ariel-standalone`` and
+``channel-finder-standalone`` presets and the ``control-assistant-logbook`` and
+``control-assistant-knowledge`` personas do.
 
 The setting changes what the page shows, not what the agent may do. With it
 off, the ``control-target`` item is left out of every arrangement this terminal

@@ -883,16 +883,37 @@ def _probe_timeout_deltas() -> tuple[Delta, ...]:
 
 
 def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
-    """The write keys the logbook persona now pins by name.
+    """The two standalone personas, now with nothing that reaches the machine.
 
-    The logbook persona pins the epics and virtual_accelerator write keys off,
-    as the knowledge persona already did. The fixtures were frozen with the
-    logbook persona stating the flat key alone.
+    ``logbook`` and ``knowledge`` drop the JUPYTER panel, whose kernels read and
+    write through the control target, and state
+    ``web.control_target_picker: false``; the logbook persona also pins the
+    epics and virtual_accelerator write keys off by name, as the knowledge
+    persona already did. The fixtures were frozen with the panel on, before the
+    picker key existed, and with the logbook persona stating the flat key alone.
 
     Returns:
-        Two deltas for the logbook persona.
+        Two deltas per standalone persona, and two more for the logbook one.
     """
     return (
+        *(
+            delta
+            for document in ("knowledge", "logbook")
+            for delta in (
+                Delta(
+                    document=document,
+                    path="web.panels.jupyter.enabled",
+                    fixture=True,
+                    live=ABSENT,
+                ),
+                Delta(
+                    document=document,
+                    path="web.control_target_picker",
+                    fixture=ABSENT,
+                    live=False,
+                ),
+            )
+        ),
         Delta(
             document="logbook",
             path="control_system.connector.epics.writes_enabled",
@@ -906,6 +927,15 @@ def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
             live=False,
         ),
     )
+
+
+def _standalone_picker_deltas() -> tuple[Delta, ...]:
+    """The picker setting a standalone preset that reaches no machine states.
+
+    Returns:
+        One delta for the root document.
+    """
+    return (Delta(document="root", path="web.control_target_picker", fixture=ABSENT, live=False),)
 
 
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
@@ -927,16 +957,20 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _rail_tool_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _fuzzy_threshold_deltas("root")
-    + _embedding_input_limit_deltas("root"),
+    + _embedding_input_limit_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _standalone_picker_deltas(),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)

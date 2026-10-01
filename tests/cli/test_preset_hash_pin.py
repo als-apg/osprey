@@ -168,9 +168,18 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # preset spells the EPICS and virtual-accelerator call bound `timeout_s`,
     # the one key every control-system connector reads, and the five `extends`
     # children inherit it; the other three stand still. The value is unchanged.
-    "ariel-standalone": ("sha256:49b0d114e4724353920115354c72b404e6e0bdc77789a9b426577aacc7e585cf"),
+    # The twenty-second move, and the four presets that reach no machine:
+    # control-assistant-logbook and control-assistant-knowledge drop the
+    # JUPYTER panel, whose kernels reach the control target, and they,
+    # ariel-standalone and channel-finder-standalone state
+    # `web.control_target_picker: false`; the logbook persona also pins the
+    # epics and virtual_accelerator write keys off, as the knowledge persona
+    # already did. A rebuilt project of any of the four has no picker, so the
+    # advisory firing is correct. control-assistant and hello-world gained a
+    # comment only, which moves no digest; the other five stand still.
+    "ariel-standalone": ("sha256:abb22faa5923ade1f2cf430fd8a95f376bedf0a89ede3c738433f8bd776513c2"),
     "channel-finder-standalone": (
-        "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
+        "sha256:7bec034ab9e5ae0c11d79df9cf294075e9c38c66bc7251ab9246a684165c9ee5"
     ),
     "control-assistant": (
         "sha256:284e5a0e2ba8b55a9adcfd4fb97859e43a5c8ad01ed66e830f312cc36c09b182"
@@ -179,10 +188,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:a1cde818cbb963b0eb9200b237f60e28a68431b3ac897bebf67873a595070bb5"
     ),
     "control-assistant-knowledge": (
-        "sha256:306f092f00cda95e4667a9a3dc555549b9267bbe2ace22f30dc3b2525a159aff"
+        "sha256:5d60857376ca6702cb371eaddce2a16c790bb372a2dacade4a5d4a227c0fc51d"
     ),
     "control-assistant-logbook": (
-        "sha256:af149254c0e56afea0fa4f9b02091b21fd008dd6e8573eba8f8087eef2948445"
+        "sha256:5be8777709428d65ef629693978e07dee4910fd665260c8b66003a8b2ffdbefb"
     ),
     "control-assistant-readonly": (
         "sha256:fc185914a127d56abbf0b9383012a7b2eb1dfbde54fe6573956de962a127e087"
