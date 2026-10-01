@@ -20,6 +20,7 @@ from osprey.facility.layers.mml.mapping import (
     ImportStop,
     MappingError,
     Problem,
+    SameAs,
     WiringFamily,
     check_mapping,
     draft_mapping,
@@ -142,6 +143,51 @@ class TestParse:
         document = _document()
         del document["models"]["SR"]["wiring"]
         assert parse_mapping(document).models["SR"].wiring == {}
+
+    @pytest.mark.parametrize(
+        ("written", "parsed"),
+        [
+            ("names", "names"),
+            ("address", "address"),
+            (["Q_A", "Q_B", "Q_C", "Q_D"], ("Q_A", "Q_B", "Q_C", "Q_D")),
+            ({"same_as": "BPMx"}, SameAs("BPMx")),
+        ],
+    )
+    def test_a_family_says_how_its_devices_are_identified(self, written: Any, parsed: Any) -> None:
+        document = _document()
+        document["families"]["QF"]["devices"] = written
+        families = parse_mapping(document).families
+        assert (families["QF"].devices, families["QF"].devices_present) == (parsed, True)
+        assert (families["BPMx"].devices, families["BPMx"].devices_present) == (None, False)
+
+    @pytest.mark.parametrize(
+        ("written", "key", "message"),
+        [
+            (
+                "ordinal",
+                "families.QF.devices",
+                "must be names, address, a list of names, a same_as: entry or null, got 'ordinal'",
+            ),
+            (
+                3,
+                "families.QF.devices",
+                "must be names, address, a list of names, a same_as: entry or null, got int",
+            ),
+            ([], "families.QF.devices", "must name at least one device"),
+            (["Q_A", 2], "families.QF.devices[1]", "must be a string, got int"),
+            (["Q_A", " "], "families.QF.devices[1]", "must name a device, got an empty string"),
+            ({"like": "BPMx"}, "families.QF.devices.like", "unknown key"),
+            ({"same_as": None}, "families.QF.devices.same_as", "must be a string, got null"),
+        ],
+    )
+    def test_a_devices_answer_of_another_shape_is_refused(
+        self, written: Any, key: str, message: str
+    ) -> None:
+        document = _document()
+        document["families"]["QF"]["devices"] = written
+        with pytest.raises(MappingError) as caught:
+            parse_mapping(document)
+        assert (caught.value.key, caught.value.message) == (key, message)
 
     def test_document_order_is_kept(self) -> None:
         mapping = parse_mapping(_document())
@@ -393,6 +439,16 @@ class TestUndecided:
         document["families"]["QF"]["class"] = None
         document["families"]["QF"]["channels"] = 0
         assert undecided_slots(parse_mapping(document)) == []
+
+    def test_a_null_devices_answer_is_undecided(self) -> None:
+        document = _document()
+        document["families"]["QF"]["devices"] = None
+        assert undecided_slots(parse_mapping(document)) == [
+            (
+                "families.QF.devices",
+                "write names, address, a list of names or {same_as: <family>}",
+            )
+        ]
 
     def test_the_stop_prints_one_line_per_slot(self) -> None:
         document = _document()
@@ -663,6 +719,21 @@ class TestCheckJudgments:
             "answer keep_all or name each group's owner",
             "import mml: mapping-undecided: judgments.BPMx.rows_beyond_devices.Monitor[BPM:SUM]: "
             "answer drop, device or {field: <name>}",
+        ]
+
+    def test_a_devices_answer_names_a_family_or_one_word_names(self) -> None:
+        document = _document()
+        document["families"]["QF"]["devices"] = {"same_as": "QF"}
+        document["families"]["BPMx"]["devices"] = {"same_as": "BPMz"}
+        assert _problems(document) == [
+            "families.QF.devices: QF cannot take its devices from itself",
+            "families.BPMx.devices: BPMz is no family",
+        ]
+        document["families"]["QF"]["devices"] = ["1Q", "Q-2", "Q_3", "Q 4"]
+        document["families"]["BPMx"]["devices"] = {"same_as": "QF"}
+        assert _problems(document) == [
+            "families.QF.devices[1]: 'Q-2' is not one word of letters, digits and _",
+            "families.QF.devices[3]: 'Q 4' is not one word of letters, digits and _",
         ]
 
     def test_an_answer_names_a_judgment_the_export_pends(self) -> None:

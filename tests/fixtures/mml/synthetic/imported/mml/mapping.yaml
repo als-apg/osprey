@@ -258,6 +258,7 @@ families:
   TUNE:
     branch: Instrumentation
     class: TuneMonitor
+    devices: address
     aliases:
     - TUNE
     description: The tune measurement, one fractional tune per plane.
