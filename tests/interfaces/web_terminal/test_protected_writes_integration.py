@@ -721,6 +721,29 @@ class TestTheGateIsDiscriminating:
         assert audit_records(audit_zone_path) == []
         assert recent_activity(client) == []
 
+    def test_a_knowledge_page_is_still_writable(self, project_dir):
+        """The knowledge bundle is the one directory of the facility tree left open."""
+        from osprey.interfaces.web_terminal.ownership import reserved_write_channel
+
+        assert reserved_write_channel(project_dir, "data/facility/knowledge/x.md") is None
+        assert reserved_write_channel(project_dir, "data/facility/knowledge") is None
+
+        for authored in ("data/facility/limits.yaml", "data/facility"):
+            channel = reserved_write_channel(project_dir, authored)
+            assert channel is not None and "`data/facility/`" in channel
+
+    def test_a_knowledge_page_linked_into_the_facility_tree_is_refused(self, project_dir):
+        """The opening is for the file the bytes land in, not the name spelled."""
+        from osprey.interfaces.web_terminal.ownership import reserved_write_channel
+
+        knowledge = project_dir / "data" / "facility" / "knowledge"
+        knowledge.mkdir(parents=True, exist_ok=True)
+        (knowledge / "alias.md").symlink_to("../limits.yaml")
+
+        channel = reserved_write_channel(project_dir, "data/facility/knowledge/alias.md")
+
+        assert channel is not None and "`data/facility/`" in channel
+
 
 # ── setup_patch: the one surface that publishes out-of-process ───────
 

@@ -261,13 +261,14 @@ def _reserved_subtree_channel(project_rel: str) -> str | None:
     for FILE paths and an entry that matched the bare directory would also have
     to keep matching everything under it — two jobs, one string. The channel
     returned is the subtree's own, so the refusal reads identically whether the
-    writer named the directory or a file inside it.
+    writer named the directory or a file inside it. A directory the pattern
+    leaves agent-writable is open here too, bare or not.
     """
     from osprey.cli.profile_conventions import RESERVED_PATH_PATTERNS
 
     normalized = posixpath.normpath(PurePosixPath(project_rel).as_posix()).casefold()
     for reserved in RESERVED_PATH_PATTERNS:
-        if not reserved.pattern.endswith("/**"):
+        if not reserved.pattern.endswith("/**") or reserved.leaves_open(normalized):
             continue
         root = reserved.pattern[:-3].casefold()
         if normalized == root or normalized.startswith(root + "/"):

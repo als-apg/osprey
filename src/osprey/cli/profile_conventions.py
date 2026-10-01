@@ -410,11 +410,30 @@ class ReservedPattern:
         channel: The channel that *does* write it, phrased for a refusal.
         mirror: Whether the facility build writes the path, which also puts it
             in :data:`RESERVED_MIRROR_PATTERNS`.
+        agent_writable: Directories under the pattern, project-relative and in
+            lower case, that an agent-side writer may still write. They open
+            the agent-side answer only: the pattern, and with it
+            :data:`RESERVED_MIRROR_PATTERNS`, is unchanged.
     """
 
     pattern: str
     channel: str
     mirror: bool = False
+    agent_writable: tuple[str, ...] = ()
+
+    def leaves_open(self, folded: str) -> bool:
+        """Whether a casefolded, normalized path is in an agent-writable directory.
+
+        Args:
+            folded: The project-relative posix path, normalized and casefolded.
+
+        Returns:
+            ``True`` for one of :attr:`agent_writable` or anything below it.
+        """
+        return any(
+            folded == directory or folded.startswith(directory + "/")
+            for directory in self.agent_writable
+        )
 
 
 #: Project paths no agent-side writer may touch, matched by shape. These are
@@ -474,6 +493,9 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         "the profile's `data/facility/` tree — the facility is authored there and the "
         "build derives the facility file from it",
         mirror=True,
+        # The knowledge bundle is prose the agent drafts; no view is derived
+        # from it.
+        agent_writable=("data/facility/knowledge",),
     ),
     ReservedPattern(
         "data/simulator/**",
@@ -763,7 +785,7 @@ def is_reserved_write(project_rel: str) -> str | None:
         return exact
 
     for reserved in RESERVED_PATH_PATTERNS:
-        if fnmatchcase(folded, reserved.pattern.casefold()):
+        if fnmatchcase(folded, reserved.pattern.casefold()) and not reserved.leaves_open(folded):
             return reserved.channel
 
     return None
