@@ -721,18 +721,3 @@ def flatten_aliases(
         for scope, term, target, source in sorted(records)
         if term
     ]
-
-
-def _section_code(place_id: str | None) -> str | None:
-    """The short code of a place: its last path segment, upper-cased.
-
-    Args:
-        place_id: A ``/``-separated place id.
-
-    Returns:
-        The code, or ``None`` for no id or an empty last segment.
-    """
-    if not place_id:
-        return None
-    token = place_id.rsplit("/", 1)[-1].strip()
-    return token.upper() if token else None

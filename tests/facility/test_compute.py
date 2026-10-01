@@ -603,9 +603,3 @@ class TestPortedHelpers:
             {"term": "skew", "scope": "device_class", "target": "SkewQuad", "source": "facility"},
             {"term": "pos", "scope": "signal_role", "target": "position", "source": "vocabulary"},
         ]
-
-    @pytest.mark.parametrize(
-        ("place", "code"), [("SR/sect1", "SECT1"), ("LINE", "LINE"), ("", None), (None, None)]
-    )
-    def test_section_code(self, place, code):
-        assert compute._section_code(place) == code
