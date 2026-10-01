@@ -166,7 +166,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/templates/claude_code/claude/agents/channel-finder.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/facility-knowledge-graph.md.j2": "rename:12",
     "src/osprey/templates/claude_code/claude/agents/pyat-specialist.md.j2": "rename:12",
-    "src/osprey/templates/claude_code/claude/hooks/osprey_limits.py": "rename:12",
     "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py": "rename:12",
     "src/osprey/templates/claude_code/claude/hooks/osprey_writes_check.py": "rename:12",
     "src/osprey/templates/claude_code/claude/output-styles/control-operator.md.j2": "rename:12",
