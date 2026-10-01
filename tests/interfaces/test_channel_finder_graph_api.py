@@ -279,7 +279,9 @@ class TestARosterThatCannotSayWhichChannelsAreSettable:
             records=(ChannelRecord(address="FAC:PS:01:CURRENT", source=source),),
             source=source,
             absence=RosterAbsence(
-                reason=RosterAbsenceReason.DIRECTION_UNDERIVABLE, path=source.path
+                reason=RosterAbsenceReason.CORRUPT_SOURCE,
+                path=source.path,
+                detail="one channel record states no role",
             ),
         )
         state.channel_addresses = ("FAC:PS:01:CURRENT",)

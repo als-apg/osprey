@@ -258,11 +258,11 @@ class TestWriteDevicesFile:
         assert _SOURCE.describe() in text
         assert "bluesky.devices_file" in text
 
-    def test_header_names_a_database_source_as_the_database(self, tmp_path) -> None:
+    def test_header_names_a_facility_source_as_the_facility_file(self, tmp_path) -> None:
         """Provenance is the source's own phrasing, so the staged file and the
         build's fact line call the same file the same thing."""
         path = tmp_path / "bluesky_devices.yml"
-        source = RosterSource(kind=RosterSourceKind.DATABASE, path=tmp_path / "channels.json")
+        source = RosterSource(kind=RosterSourceKind.FACILITY, path=tmp_path / "facility.json")
 
         write_devices_file(path, _RECORDS, source=source)
 
