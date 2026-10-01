@@ -1081,6 +1081,40 @@ class TestRunEnhance:
         )
         mock_repository.mark_enhancement_complete.assert_awaited_once_with("E1", "text_embedding")
 
+    async def test_completion_line_counts_the_pass(self, monkeypatch, mock_repository):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding", fails_on={"E0"})])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return(_entries(2))
+        mock_repository.mark_enhancement_failed = AsyncMock(return_value=3)
+
+        messages: list[str] = []
+        out = await ops.run_enhance(
+            dict(_DB), module=None, force=False, limit=10, progress=messages.append
+        )
+
+        assert messages[-1] == (
+            "Enhancement complete: 2 entries, 1 succeeded, 1 failed, "
+            "1 set aside after 3 failed attempts"
+        )
+        assert (out.succeeded, out.failed, out.set_aside) == (1, 1, 1)
+
+    async def test_completion_line_is_reported_when_nothing_is_incomplete(
+        self, monkeypatch, mock_repository
+    ):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding")])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return([])
+
+        messages: list[str] = []
+        await ops.run_enhance(
+            dict(_DB), module=None, force=False, limit=10, progress=messages.append
+        )
+
+        assert messages[-1] == (
+            "Enhancement complete: 0 entries, 0 succeeded, 0 failed, "
+            "0 set aside after 3 failed attempts"
+        )
+
     async def test_progress_reports_the_batch_and_every_tenth_entry(
         self, monkeypatch, mock_repository
     ):

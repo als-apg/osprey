@@ -526,10 +526,7 @@ def enhance_command(module: str | None, force: bool, limit: int) -> None:
     from osprey.services.ariel_search.cli_operations import run_enhance
 
     config_dict = _load_ariel_config()
-    result = asyncio.run(run_enhance(config_dict, module, force, limit, progress=output.report))
-    if result.entries_processed > 0:
-        output.report("")
-        output.report(f"Enhancement complete: {result.entries_processed} entries processed")
+    asyncio.run(run_enhance(config_dict, module, force, limit, progress=output.report))
 
 
 @ariel_group.command("models")

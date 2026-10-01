@@ -49,8 +49,18 @@ class WatchOnceResult:
 
 @dataclass
 class EnhanceResult:
+    """Outcome of one enhancement pass.
+
+    ``succeeded``, ``failed`` and ``set_aside`` count enhancements, meaning
+    (entry, module) pairs, in this pass; ``set_aside`` counts the failures that
+    reached the attempt cap.
+    """
+
     entries_processed: int
     module_names: list[str]
+    succeeded: int = 0
+    failed: int = 0
+    set_aside: int = 0
 
 
 @dataclass
@@ -1380,6 +1390,7 @@ async def run_enhance(
         if progress:
             progress(f"Processing {len(entries)} entries...")
 
+        succeeded = failed = set_aside = 0
         async with service.pool.connection() as conn:
             for i, entry in enumerate(entries):
                 for enhancer in enhancers:
@@ -1391,13 +1402,16 @@ async def run_enhance(
                             entry["entry_id"],
                             enhancer.name,
                         )
+                        succeeded += 1
                     except Exception as e:
+                        failed += 1
                         attempts = await service.repository.mark_enhancement_failed(
                             entry["entry_id"],
                             enhancer.name,
                             str(e),
                         )
                         if attempts >= MAX_ENHANCEMENT_ATTEMPTS:
+                            set_aside += 1
                             logger.warning(
                                 f"Entry {entry['entry_id']}: {enhancer.name} failed {attempts} "
                                 f"times; it is left out of later passes ({str(e)[:200]})"
@@ -1406,7 +1420,19 @@ async def run_enhance(
                 if (i + 1) % 10 == 0 and progress:
                     progress(f"  Processed {i + 1} entries...")
 
-    return EnhanceResult(entries_processed=len(entries), module_names=module_names)
+    if progress:
+        progress(
+            f"Enhancement complete: {len(entries)} entries, {succeeded} succeeded, "
+            f"{failed} failed, {set_aside} set aside after {MAX_ENHANCEMENT_ATTEMPTS} "
+            "failed attempts"
+        )
+    return EnhanceResult(
+        entries_processed=len(entries),
+        module_names=module_names,
+        succeeded=succeeded,
+        failed=failed,
+        set_aside=set_aside,
+    )
 
 
 async def list_models(config_dict: dict) -> list[dict]:
