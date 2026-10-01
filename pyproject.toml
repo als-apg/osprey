@@ -604,6 +604,11 @@ python_files = [
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+# A passing test's tmp_path is deleted at its teardown, and a passing session deletes its base
+# directory, so a run leaves only what failed. pytest deletes older runs' directories in the shared
+# temporary root when the next process exits, and a whole suite's tree left there would cost that
+# process minutes of silent exit.
+tmp_path_retention_policy = "failed"
 # WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
 # See tests/e2e/README.md for details
 markers = [
