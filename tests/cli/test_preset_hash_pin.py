@@ -179,29 +179,34 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the hardware-shaped ones, so the staleness advisory firing on
     # already-deployed projects is the correct signal. ariel-standalone and
     # channel-finder-standalone carry no limits block and stand still.
+    # The twenty-third move, and the same seven: control-assistant and
+    # hello-world no longer state `control_system.limits_checking.database_path`.
+    # The build writes it into the render, naming the limits database it
+    # renders from `data/facility/limits.yaml`, so a rebuilt project carries
+    # the same path and reads its limits from the records of that file.
     "ariel-standalone": ("sha256:cda6b1a4fce5d0c8d29dce418bee0e3c89b9af06ac9a944c3d2af152a8e75f5a"),
     "channel-finder-standalone": (
         "sha256:e7ad4d3ebc1edd2eb8f1ed48862e7c8048b23f49d475ba71f7e82c3989bb984b"
     ),
     "control-assistant": (
-        "sha256:e8c1585dbdc5c85ee4be383113940c87ab55343bfe3493aeaa7fcd72b2073864"
+        "sha256:088f454fe33bab1bc434e0fd3a4ac77e2dfd2491cda212142283f57613b78c55"
     ),
     "control-assistant-admin": (
-        "sha256:034267faeded326a5311729557e35bd8a0239f5ce9ab87f632855810ea3bc664"
+        "sha256:cc1030d2fbca153896aa56e8a871a3007fe0bebec80a43f6d2e64ad4cb9cfc5a"
     ),
     "control-assistant-knowledge": (
-        "sha256:46e10a715f93eb718d73c56fd0834f0671728d7374f81cbaab80ea51f9dcc5a6"
+        "sha256:25a653ad6e2f69fb8941c76ef71f9fc8c6c879d49d9c6e27d40e95593d98fc34"
     ),
     "control-assistant-logbook": (
-        "sha256:4e35dccee6c2dc4e1008fa8d290991e50d5185da7d984e52c34b44e2ed174a7c"
+        "sha256:7a5efdc2336bc4b4e690079f405e0feda5c71c16de60801272643e312274ee0d"
     ),
     "control-assistant-readonly": (
-        "sha256:723292c08fd93d022071fd7d4e386eff140c034c9cb3fa07431ef87f43693a86"
+        "sha256:91f29562a7daa8d7340a3afa875768b86a0ba19c32c75a99b6cec8ed0770ea89"
     ),
     "control-assistant-readwrite": (
-        "sha256:649c49f03e3ddf6a6f2282ea5af06637e26067a2f9c1ed99e2a57c1370488022"
+        "sha256:7b7b2abfed6a3bcc2d2ed823cbf5e602f0c940d2dc8fdbc601e55383382bf650"
     ),
-    "hello-world": ("sha256:7154579c3523e8ff5801236b02aee662fcc006e150b7b2d0f9d3f55e8dc41d24"),
+    "hello-world": ("sha256:79ec0599628ed246440d6796191262c6ea844ce92ad2bb2e006b356f3a9a9ee7"),
 }
 
 

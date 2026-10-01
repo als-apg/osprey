@@ -318,9 +318,6 @@ config:
   # leaves overrides this pair for that connector type.
   control_system.limits_checking.enabled: true
   control_system.limits_checking.mode: optional
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read;

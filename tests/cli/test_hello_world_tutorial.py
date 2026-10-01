@@ -1,20 +1,15 @@
-"""Smoke tests: build hello-world tutorial profile end-to-end.
+"""Smoke tests: build the hello-world tutorial preset end-to-end.
 
-These tests verify that the hello-world example profile builds correctly
-through the profile-driven build system, producing a project with the
-expected config, channel limits file, hooks, and mock connector integration.
-
-The tests use TemplateManager.create_project() directly, skipping:
-  - venv creation (--skip-deps equivalent)
-  - overlay file copying
-  - lifecycle phases (pre_build / post_build / validate)
+These tests run ``osprey init --preset hello-world`` and ``osprey build
+--skip-deps`` once, and read the render the tutorial walks through.
 
 What IS verified:
-  - Profile parses and passes artifact validation
+  - Preset parses and passes artifact validation
   - data_bundle is correctly resolved to "hello_world"
   - Key structural files are generated (CLAUDE.md, .mcp.json, config.yml)
-  - config.yml has mock control system with limits checking enabled
-  - channel_limits.json is copied with correct channel entries
+  - config.yml has mock control system with limits checking enabled, in
+    ``optional`` mode, reading the limits database the build writes
+  - channel_limits.json holds the three records of data/facility/limits.yaml
   - Hook files are present in .claude/hooks/
   - MockConnector reads tutorial channels successfully
 """
@@ -28,129 +23,20 @@ import pytest
 import yaml
 
 from osprey.cli.build_cmd import _profile_data_bundle
-from osprey.cli.templates.manager import TemplateManager
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-
-def _resolve_preset_profile(name: str) -> Path:
-    """Resolve a bundled preset profile name to its filesystem path."""
-    from importlib.resources import files
-
-    presets_dir = Path(str(files("osprey").joinpath("profiles/presets")))
-    profile_path = presets_dir / f"{name}.yml"
-    if not profile_path.exists():
-        raise FileNotFoundError(f"Preset profile '{name}' not found at {profile_path}")
-    return profile_path
-
-
-def _build_from_profile(profile_name: str, project_name: str, tmp_path: Path) -> Path:
-    """Build a project from a bundled example profile using TemplateManager directly.
-
-    Equivalent to ``osprey init`` followed by a zero-argument
-    ``osprey build --skip-deps``, driving TemplateManager directly and without
-    overlay file copying.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.cli.templates.artifact_library import validate_artifacts
-    from osprey.cli.templates.manager import TemplateManager
-
-    # Resolved as a preset rather than read as a file: `app_template:` is a
-    # preset-side key consumed at the single read point, and a preset read
-    # straight off disk still carries it.
-    build_profile, _preset_dir = resolve_build_profile(None, profile_name)
-
-    # Collect and validate artifact selections (mirrors build_cmd.py step 1b)
-    artifacts: dict[str, list[str]] = {}
-    for artifact_type in ("hooks", "rules", "skills", "agents", "output_styles"):
-        names = getattr(build_profile, artifact_type, [])
-        if names:
-            artifacts[artifact_type] = list(names)
-
-    if artifacts:
-        validate_artifacts(artifacts)
-
-    # Build context from profile fields (mirrors build_cmd.py step 6)
-    context: dict[str, str] = {}
-    if build_profile.provider:
-        context["default_provider"] = build_profile.provider
-    if build_profile.model:
-        context["default_model"] = build_profile.model
-
-    manager = TemplateManager()
-    project_dir = _create_project(
-        manager,
-        project_name=project_name,
-        output_dir=tmp_path,
-        data_bundle=_profile_data_bundle(build_profile),
-        context=context,
-        force=False,
-        artifacts=artifacts or None,
-    )
-
-    # Apply config overrides (mirrors build_cmd.py step 8)
-    if build_profile.config:
-        from osprey.cli.build_cmd import _apply_config_overrides
-
-        _apply_config_overrides(project_dir, build_profile.config)
-
-    return project_dir
-
+from tests._builds import BuiltProject, init_project, run_build
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def hello_world_project(tmp_path: Path) -> Path:
-    return _build_from_profile("hello-world", "hello-tutorial", tmp_path)
+@pytest.fixture(scope="module")
+def hello_world_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The render of a freshly initialised and built hello-world repo."""
+    repo = init_project(tmp_path_factory.mktemp("hello-tutorial"), "hello-world", "hello-tutorial")
+    result = run_build(repo)
+    assert result.exit_code == 0, result.output
+    return BuiltProject(repo).build_dir
 
 
 # ---------------------------------------------------------------------------
@@ -198,26 +84,32 @@ class TestHelloWorldBuildOutput:
         # Parse and verify config.yml
         config = yaml.safe_load((hello_world_project / "config.yml").read_text())
         assert config["control_system"]["type"] == "mock"
-        assert config["control_system"]["limits_checking"]["enabled"] is True
-        assert (
-            config["control_system"]["limits_checking"]["database_path"]
-            == "data/channel_limits.json"
-        )
+        assert config["control_system"]["limits_checking"] == {
+            "enabled": True,
+            "mode": "optional",
+            "database_path": "data/channel_limits.json",
+        }
 
-    def test_hello_world_limits_file_copied(self, hello_world_project: Path):
-        """Verify channel_limits.json is copied with correct channel entries."""
-        limits_path = hello_world_project / "data" / "channel_limits.json"
-        assert limits_path.exists()
+    def test_hello_world_limits_file_holds_the_three_records(self, hello_world_project: Path):
+        """Verify channel_limits.json is the three records of limits.yaml, resolved."""
+        limits = json.loads((hello_world_project / "data" / "channel_limits.json").read_text())
 
-        limits = json.loads(limits_path.read_text())
-
-        # Filter to actual channel entries (exclude metadata keys)
-        channels = {k: v for k, v in limits.items() if not k.startswith("_") and k != "defaults"}
-        assert len(channels) == 3
-
-        # Verify specific channel properties
-        assert limits["SR:MAG:QF:01:CURRENT:SP"]["max_value"] == 300.0
-        assert limits["SR:BEAM:CURRENT"]["writable"] is False
+        assert limits == {
+            "_version": "4.0",
+            "SR:BEAM:CURRENT": {"writable": False, "confirm": True},
+            "SR:MAG:QD:01:CURRENT:SP": {
+                "min_value": 0.0,
+                "max_value": 250.0,
+                "writable": True,
+                "confirm": True,
+            },
+            "SR:MAG:QF:01:CURRENT:SP": {
+                "min_value": 0.0,
+                "max_value": 300.0,
+                "writable": True,
+                "confirm": True,
+            },
+        }
 
     def test_hello_world_hooks_present(self, hello_world_project: Path):
         """Check .claude/hooks/ directory exists with expected hook files."""

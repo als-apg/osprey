@@ -79,6 +79,7 @@ from .build_injectors import (
     _inject_bluesky_web,
     _inject_dispatch,
     _inject_gchat_bridge,
+    _inject_limits_database,
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_teams_bridge,
@@ -140,6 +141,7 @@ __all__ = [
     "_inject_bluesky_web",
     "_inject_dispatch",
     "_inject_gchat_bridge",
+    "_inject_limits_database",
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_teams_bridge",
@@ -2314,6 +2316,10 @@ def _render_project(
             reg_count = _register_convention_artifacts(render_dir, applied)
             if reg_count:
                 progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
+
+        # The limits database is the limits view, written below with the other
+        # facility outputs; the render names it before anything reads the config.
+        _inject_limits_database(render_dir)
 
         # The render is on disk, so its config can resolve the two paths that are
         # relative to it: the corpus this render staged and the index derived

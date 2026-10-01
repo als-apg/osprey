@@ -265,7 +265,6 @@ Limits Checking
    control_system:
      limits_checking:
        enabled: true                     # Enable limits validation
-       database_path: ./limits_db.json   # Path to the channel limits JSON
        mode: exclusive                   # Only channels in the database can be written
      connector:
        virtual_accelerator:
@@ -302,7 +301,9 @@ block:
   every write until it is completed.
 - **The database stays deployment-wide.** ``database_path`` is not a per-type
   setting: the deployment mounts one limits file, and every target is checked
-  against it.
+  against it. A profile does not state it either: ``osprey build`` writes
+  ``data/channel_limits.json`` from ``data/facility/limits.yaml`` and sets
+  ``control_system.limits_checking.database_path`` to it in the rendered config.
 - **Only explicit values decide.** ``mode`` is ``exclusive``, ``optional``, or
   unstated. With limits checking enabled, a ``mode`` that no key states refuses
   a channel with no record — permission needs an explicit ``optional``. Any

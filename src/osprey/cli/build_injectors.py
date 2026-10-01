@@ -33,6 +33,7 @@ from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
+    config_update_fields,
     load_config_document,
     save_config_document,
 )
@@ -2167,4 +2168,41 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
         "    Recording:  the recorder writes only while control_system.type is "
         "'virtual_accelerator'. On any other control system it idles. It "
         "re-reads that setting on an interval, so the flip needs no restart."
+    )
+
+
+#: The limits view's file, relative to the render root.
+LIMITS_DATABASE_PATH = "data/channel_limits.json"
+
+
+def _inject_limits_database(project_path: Path) -> None:
+    """Name the limits view as the render's limits database.
+
+    A render that states a limits block, deployment-wide or for one connector
+    type, reads its limits from the file the limits view writes. The path is
+    written deployment-wide: a deployment mounts one limits database. A path
+    the config already states is kept, and a config stating no limits block
+    gains nothing.
+
+    Args:
+        project_path: Root of the render.
+    """
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return
+    section = load_config_document(config_path).get("control_system")
+    if not isinstance(section, Mapping):
+        return
+    leaf = connector_types.LIMITS_CHECKING_LEAF
+    block = section.get(leaf)
+    connector = section.get("connector")
+    per_type = isinstance(connector, Mapping) and any(
+        isinstance(entry, Mapping) and leaf in entry for entry in connector.values()
+    )
+    if block is None and not per_type:
+        return
+    if block is not None and (not isinstance(block, Mapping) or "database_path" in block):
+        return
+    config_update_fields(
+        config_path, {f"control_system.{leaf}.database_path": LIMITS_DATABASE_PATH}
     )

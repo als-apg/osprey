@@ -172,7 +172,10 @@ deployment-wide `control_system.limits_checking` block whole -- a per-type
 block states both `enabled` and `mode` and then answers
 alone. `database_path` has no per-type spelling: a
 deployment mounts one limits database, so that leaf stays deployment-wide, and a
-per-type block omitting it is complete rather than half-written.
+per-type block omitting it is complete rather than half-written. No preset
+states `database_path` either: the build derives it, writing
+`data/channel_limits.json` from `data/facility/limits.yaml` and naming that file
+in every render that states a limits block.
 
 No preset writes a per-type limits block, so none is in the union and every
 per-type entry carries `rendered: false`.
