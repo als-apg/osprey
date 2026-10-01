@@ -370,10 +370,11 @@ def test_a_wired_setpoint_without_a_band_on_both_edges_is_reported(
         + [f"limits unbanded: {address} export [0,-]" for address in sexts]
     )
     limits = _limits(facility)
-    assert not set(quads) & set(limits)
+    for address in quads:
+        assert limits[address] == {"address": address, "writable": False}
     assert "QK:IDGAP:1:CUR:SP" not in limits
     for address in sexts:
-        assert limits[address] == {"address": address, "min_value": 0.0}
+        assert limits[address] == {"address": address, "min_value": 0.0, "writable": False}
 
 
 def test_an_import_beside_a_limits_file_reports_no_unbanded_setpoint(
