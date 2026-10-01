@@ -5,7 +5,8 @@ with a problem prints one `<key>: <message>` line per problem and
 `<n> problems in <path>; fix each and check again.`, writes nothing and exits 1.
 The verb takes every export the mapping names: a system the mapping names and
 no given export carries is one such problem, `models.<system>: <system> is no
-exported system`.
+exported system`. A mapping with the wrong structure, or a profile that does
+not resolve, prints a one-line failure with its cause and exits 1.
 While `data/facility/` holds an authored record source that would merge
 against the layer — a file of `records/` or `decks/`, `models.yaml`, or a
 `seeds.yaml`, `limits.yaml`, `identity.yaml` or `measurement/` file that does

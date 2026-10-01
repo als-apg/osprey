@@ -233,16 +233,23 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 
     EXPORT is an export's <stem>.ao.json file; its sibling files are read from
     beside it. Exits 1 and writes no record while the mapping is a draft, has
-    an undecided slot or fails its check, or while an authored record source
-    is present.
+    an undecided slot, has the wrong structure or fails its check, while
+    an authored record source is present, or while the profile does not
+    resolve.
     """
     import shlex
 
+    from osprey.errors import BuildProfileError
     from osprey.facility.layers.mml.importer import MappingProblems
     from osprey.facility.layers.mml.importer import import_mml as run_import
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
 
     repo_root = find_repo_root(repo)
-    facility_dir = _facility_dir(repo_root)
+    try:
+        facility_dir = _facility_dir(repo_root)
+    except (BuildProfileError, ValueError) as error:
+        fail("The profile does not resolve.", str(error))
+        ctx.exit(1)
 
     present = _authored_record_sources(facility_dir)
     if present:
@@ -257,3 +264,7 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
             report(f"wrote {_shown(path, repo_root)}")
     except MappingProblems as stop:
         raise MappingProblems(Path(_shown(stop.path, repo_root)), stop.problems) from None
+    except MappingError as error:
+        mapping = _shown(facility_dir / MAPPING_FILE, repo_root)
+        fail(f"{mapping} is not a valid mapping document.", str(error))
+        ctx.exit(1)
