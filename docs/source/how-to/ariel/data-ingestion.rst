@@ -331,11 +331,14 @@ Watch-mode settings live under the ``ingestion.watch`` key in your ARIEL config 
      - ``2.0``
      - Multiply the poll interval by this factor on each consecutive failure
    * - ``max_interval_seconds``
-     - ``int``
+     - ``number``
      - ``3600``
      - Maximum poll interval after backoff (seconds)
 
 The base poll interval is set by the parent ``poll_interval_seconds`` key (default ``3600``).
+Both intervals are positive, finite numbers of seconds; any other value stops ARIEL from loading
+its config, with an error naming the key, and ``osprey health`` reports it on the
+``ariel_last_ingestion`` row.
 
 Backoff Behavior
 ~~~~~~~~~~~~~~~~
