@@ -51,6 +51,8 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
 
 **Entry times.** A time with a UTC offset, a ``Z`` or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (``system.timezone``). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time; it counts as failed in the run's totals (``osprey ariel watch``, ``osprey ariel sync``), and ``osprey ariel ingest`` reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.
 
+**Entry text.** The ALS eLog adapter stores entry text as plain text. It decodes HTML entities, turns the logbook's markup into line breaks, paragraphs and list items, and writes a link as its text followed by its address in parentheses. Text without markup is stored exactly as the logbook sends it.
+
 **Using a custom adapter:**
 
 An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``, or pass it as ``--adapter`` --- both accept every registered name, the framework's and your own.

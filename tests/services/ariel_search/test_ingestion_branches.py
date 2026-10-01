@@ -39,12 +39,19 @@ from osprey.services.ariel_search.exceptions import (
 )
 from osprey.services.ariel_search.ingestion.adapters import als as als_module
 from osprey.services.ariel_search.ingestion.adapters import generic as generic_module
-from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
+from osprey.services.ariel_search.ingestion.adapters.als import (
+    ALSLogbookAdapter,
+    clean_als_text,
+)
 from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
 from osprey.services.ariel_search.ingestion.adapters.jlab import JLabLogbookAdapter
 from osprey.services.ariel_search.ingestion.adapters.ornl import ORNLLogbookAdapter
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+ENCODED_OLOG_ENTRIES = (
+    pathlib.Path(__file__).parents[2] / "fixtures" / "ariel" / "als_olog_encoded_entries.jsonl"
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -1028,6 +1035,41 @@ class TestJSONAdapterTransport:
         assert "pip install --force-reinstall aiohttp-socks" in str(exc_info.value)
 
 
+def _encoded_rows() -> dict[str, dict[str, Any]]:
+    """The encoded olog fixture's rows keyed by id."""
+    rows = [json.loads(line) for line in ENCODED_OLOG_ENTRIES.read_text().splitlines() if line]
+    return {row["id"]: row for row in rows}
+
+
+#: ``raw_text`` and cleaned subject each encoded fixture row is stored as.
+_ENCODED_ROW_TEXT: dict[str, tuple[str, str]] = {
+    "20001": (
+        "Booster injection retuned\n\nInjection retuned\nComplete\nBeam back at 500 mA",
+        "Booster injection retuned",
+    ),
+    "20002": (
+        "Shift Turnover Checklist\n\nST-24-104  -  Checklist has been completed.\n\n"
+        "Please see the tracker for details - "
+        "ST-24-104 (https://tracker.example.org/#/redirect/ST-24-104)",
+        "Shift Turnover Checklist",
+    ),
+    "20003": (
+        "Vacuum & RF checks\n\nSteps:\n\n- Open valve V3\n- Confirm pressure < 1e-9 Torr"
+        "\n\nDone at 09:00",
+        "Vacuum & RF checks",
+    ),
+    "20004": (
+        "Checklist test\n\n-- This is a test, please disregard --\n\n"
+        "ST-24-103 Checklist has been completed.",
+        "Checklist test",
+    ),
+    "20005": (
+        "Orbit check\n\nOrbit within 5 um.\r\n     Horizontal x<y in sector 3, R&D tune 5 < 6",
+        "Orbit check",
+    ),
+}
+
+
 class TestALSConvertEntry:
     """Field-level tolerance in the ALS converter."""
 
@@ -1086,6 +1128,103 @@ class TestALSConvertEntry:
 
         assert "loto_tag" not in entry["metadata"]
         assert "linked_to" not in entry["metadata"]
+
+    @pytest.mark.parametrize(
+        ("entry_id", "raw_text", "subject"),
+        [
+            pytest.param(entry_id, raw_text, subject, id=entry_id)
+            for entry_id, (raw_text, subject) in _ENCODED_ROW_TEXT.items()
+        ],
+    )
+    def test_encoded_entry_is_stored_as_plain_text(self, entry_id, raw_text, subject):
+        """Entities are decoded and markup becomes line breaks before the row is built."""
+        adapter = _als_adapter()
+
+        entry = adapter._convert_entry(_encoded_rows()[entry_id])
+
+        assert entry["raw_text"] == raw_text
+        assert entry["metadata"]["subject"] == subject
+
+    @pytest.mark.asyncio
+    async def test_entry_that_is_only_markup_is_skipped(self):
+        """An entry with no text once its markup is gone is skipped, not counted unreadable."""
+        adapter = _als_adapter(source_url=str(ENCODED_OLOG_ENTRIES))
+
+        entries = await _collect(adapter.fetch_entries())
+
+        assert [e["entry_id"] for e in entries] == ["20001", "20002", "20003", "20004", "20005"]
+        assert adapter.unreadable_entries == 0
+
+
+class TestCleanAlsText:
+    """The olog's entity-encoded HTML becomes plain text; plain text stays as sent."""
+
+    @pytest.mark.parametrize(
+        "entry_id", ["20001", "20002", "20003", "20004"], ids=lambda entry_id: entry_id
+    )
+    def test_entities_and_markup_become_plain_text(self, entry_id):
+        """Each encoded body cleans to the details part of its stored text."""
+        raw_text, subject = _ENCODED_ROW_TEXT[entry_id]
+
+        cleaned = clean_als_text(_encoded_rows()[entry_id]["details"])
+
+        assert cleaned == raw_text.removeprefix(subject + "\n\n")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Orbit within 5 um.\r\n     Horizontal x<y in sector 3, R&D tune 5 < 6",
+            "5 < 6 and 7 > 3",
+            "x<y I<5A",
+            "late entry\r\n     indented",
+        ],
+        ids=["fixture-plain", "comparison", "bare-lt", "crlf-indent"],
+    )
+    def test_text_without_markup_is_returned_unchanged(self, text):
+        """A plain ``<`` or ``&`` is text; line endings and indentation are kept."""
+        assert clean_als_text(text) == text
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [("&amp;#956;-metal", "\u03bc-metal"), ("&amp;lt; 5 A", "< 5 A")],
+        ids=["numeric", "named"],
+    )
+    def test_nested_entities_decode_to_a_fixpoint(self, text, expected):
+        """Text encoded twice decodes fully."""
+        assert clean_als_text(text) == expected
+
+    def test_link_text_equal_to_its_address_is_not_repeated(self):
+        """A link whose text is its address yields the address once."""
+        url = "https://tracker.example.org/item/7"
+
+        cleaned = clean_als_text(f"See &lt;a href=&quot;{url}&quot;&gt;{url}&lt;/a&gt;")
+
+        assert cleaned == f"See {url}"
+
+    def test_script_and_style_content_is_dropped(self):
+        """What a script or style block holds never reaches the stored text."""
+        text = (
+            "&lt;style&gt;p {color: red}&lt;/style&gt;Before"
+            "&lt;script&gt;alert(1)&lt;/script&gt;&lt;br&gt;After"
+        )
+
+        assert clean_als_text(text) == "Before\nAfter"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            row[field]
+            for row in (
+                json.loads(line) for line in ENCODED_OLOG_ENTRIES.read_text().splitlines() if line
+            )
+            for field in ("subject", "details")
+        ],
+    )
+    def test_cleaning_is_idempotent(self, text):
+        """Cleaning cleaned text changes nothing."""
+        once = clean_als_text(text)
+
+        assert clean_als_text(once) == once
 
 
 # ---------------------------------------------------------------------------
