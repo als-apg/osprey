@@ -14,6 +14,11 @@ carefully-built allow list is inert until the operator clicks through a dialog
 they have no context to evaluate. Every key this module writes is Claude
 Code's own state, which is why it lives in the harness adapter.
 
+The seed is for the interactive terminals only. An unattended agent run uses
+a config dir this module never seeds, so its project allow rules stay off by
+design; :func:`is_untrusted_allow_rules_notice` names the line the CLI prints
+about it.
+
 This module writes the state Claude Code would have recorded had the operator
 answered, once, from the container entrypoint's root phase — the same phase
 that regenerates drifted artifacts and restores scaffold bodies, and for the
@@ -38,6 +43,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -62,6 +68,17 @@ _PROMPTED_AUTH_ENV_VAR = "ANTHROPIC_API_KEY"
 #: key's last 20 characters. Observed in the pinned CLI, not documented — the
 #: reason this particular seed stays best-effort.
 _API_KEY_DIGEST_CHARS = 20
+
+#: Claude Code's stderr notice that it left the project's ``permissions.allow``
+#: rules off because the state file does not mark the working directory
+#: trusted. Observed in the pinned CLI, not documented;
+#: ``tests/agent_runner/test_claude_state.py`` runs the bundled CLI to prove it
+#: still matches. Only ``settings.json`` is named because the agent launches
+#: load the project layer alone, so ``settings.local.json`` never reaches it.
+_UNTRUSTED_ALLOW_RULES_NOTICE = re.compile(
+    r"Ignoring \d+ permissions\.allow entr(?:y|ies) from \.claude/settings\.json: "
+    r"this workspace has not been trusted\."
+)
 
 
 def seed_claude_state(
@@ -149,6 +166,23 @@ def seed_claude_state(
 
     _hand_ownership(target, base_dir, owner_user)
     return seeded
+
+
+def is_untrusted_allow_rules_notice(line: str) -> bool:
+    """Tell whether a CLI stderr line is the untrusted allow-rules notice.
+
+    The notice means Claude Code left the project's ``permissions.allow``
+    rules off because the working directory is not trusted; the rest of the
+    project layer (deny rules, hooks, agents, skills) still loads. A caller
+    that keeps those rules off on purpose may drop the line.
+
+    Args:
+        line: One stderr line from the Claude Code CLI.
+
+    Returns:
+        ``True`` when the line is that notice.
+    """
+    return _UNTRUSTED_ALLOW_RULES_NOTICE.match(line) is not None
 
 
 def _load_state(target: Path) -> tuple[dict, bool]:
