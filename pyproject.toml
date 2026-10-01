@@ -29,6 +29,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -252,11 +253,11 @@ dev = [
     "pytest-rerunfailures",  # Absorb rare LLM nondeterminism in agentic e2e via @pytest.mark.flaky
     "pytest-timeout",  # Per-test hang-breaker: the model-matrix benchmark runner and the
                        # CI unit lane both pass --timeout (see .github/workflows/ci.yml)
-    "pytest-xdist",
+    "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
     # The soft IOC (`python -m epicscorelibs.ioc`) the live Channel Access tests
-    # serve records from. It used to arrive with p4p; the connector no longer
-    # depends on p4p, so the tests declare it themselves.
-    "epicscorelibs",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
+    # serve records from. It also arrives transitively (ophyd-async[ca] -> aioca),
+    # but the tests use it directly, so they declare it rather than lean on that.
+    "epicscorelibs",
     # Pinned to the minor the checked-in baseline beside the gate was measured
     # with. The baseline is a measurement; a checker free to move minors reports
     # errors the diff did not introduce, so the pin is what makes a red gate mean

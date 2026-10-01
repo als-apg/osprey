@@ -56,9 +56,12 @@ directly.
 `osprey-connectors` supports CPython 3.11, 3.12 and 3.13. The EPICS connector's
 client, `pvapy` (imported as `pvaccess`), serves both Channel Access and
 PVAccess and is a declared dependency; its wheels carry their own EPICS
-libraries for macOS (x86_64, arm64), Linux (x86_64, aarch64) and Windows, so
-there is no separate `libca` to install. Python 3.14 is not supported until
-pvapy publishes wheels for it.
+libraries for Linux (x86_64, aarch64), Windows, macOS x86_64 and macOS arm64,
+so there is no separate `libca` to install. pvapy publishes wheels only (no
+sdist), and its macOS arm64 wheels need macOS 15 or newer, so an Apple Silicon
+Mac on macOS 14 or older cannot install `osprey-connectors`. Python 3.14 is not
+supported until pvapy publishes wheels for it; a downstream uv project with an
+open-ended `requires-python` must narrow it to `<3.14`.
 
 Only the connectors you actually use need the remaining backing libraries
 installed:

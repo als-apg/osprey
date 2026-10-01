@@ -1029,6 +1029,10 @@ def test_fallback_covers_pvaccess_write_idioms(hook_module):
         r"\bRpcClient\s*\(",
         r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
         r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
+        r"\.put[A-Z]\w*\s*\(",
+        r"\.asyncPut\s*\(",
+        r"\.parsePut\w*\s*\(",
+        r"\.putAsDoubleArray\s*\(",
     ):
         assert pattern in fallback_patterns
 
@@ -1073,6 +1077,15 @@ def test_fallback_covers_the_doocs_write_idiom(hook_module):
         pytest.param(
             "from pvaccess import RpcClient\nRpcClient('SR:C').invoke(request)\n",
             id="pvaccess-rpc",
+        ),
+        pytest.param(
+            "import importlib\n"
+            "importlib.import_module('pva' + 'ccess').Channel('SR:A:SP').putDouble(1.0)\n",
+            id="pvaccess-typed-put-built-import",
+        ),
+        pytest.param(
+            "m = __import__('pva' + 'ccess')\nm.Channel('SR:A:SP').asyncPut(pv, cb, err)\n",
+            id="pvaccess-async-put-built-import",
         ),
     ],
 )

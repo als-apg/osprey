@@ -438,9 +438,12 @@ def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
 def test_readonly_refuses_pvaccess_multichannel_rpc_and_servers(monkeypatch):
     """pvaPy's writes beyond ``Channel``: MultiChannel, RpcClient and its servers.
 
-    ``RpcClient.invoke`` is pvaPy's ``Context.rpc``, and ``PvaServer`` and
-    ``CaIoc`` are its counterparts of p4p's ``SharedPV``. Each is refused;
-    the MultiChannel read on the same object is not.
+    ``RpcClient.invoke`` is pvaPy's ``Context.rpc``, and ``PvaServer``,
+    ``PvaMirrorServer`` and ``CaIoc`` are its counterparts of p4p's
+    ``SharedPV``. Each is refused; the MultiChannel read on the same object is
+    not. The fake ``PvaMirrorServer`` overrides both methods rather than
+    inheriting them, so it is refused through its own row, not through
+    ``PvaServer``'s.
     """
     mod = ModuleType("pvaccess")
     writes: list = []
@@ -472,6 +475,13 @@ def test_readonly_refuses_pvaccess_multichannel_rpc_and_servers(monkeypatch):
         def updateUnchecked(self, name, value):  # pvaPy's own spelling
             writes.append(("updateUnchecked", name, value))
 
+    class PvaMirrorServer(PvaServer):
+        def update(self, name, value):
+            writes.append(("mirror.update", name, value))
+
+        def updateUnchecked(self, name, value):
+            writes.append(("mirror.updateUnchecked", name, value))
+
     class CaIoc:
         def putField(self, name, value):  # pvaPy's own spelling
             writes.append(("putField", name, value))
@@ -482,6 +492,7 @@ def test_readonly_refuses_pvaccess_multichannel_rpc_and_servers(monkeypatch):
     mod.MultiChannel = MultiChannel
     mod.RpcClient = RpcClient
     mod.PvaServer = PvaServer
+    mod.PvaMirrorServer = PvaMirrorServer
     mod.CaIoc = CaIoc
     monkeypatch.setitem(sys.modules, "pvaccess", mod)
     _run_guard("readonly")
@@ -496,6 +507,8 @@ def test_readonly_refuses_pvaccess_multichannel_rpc_and_servers(monkeypatch):
     for method in ("update", "updateUnchecked"):
         with pytest.raises(RuntimeError, match=_REFUSAL):
             getattr(mod.PvaServer(), method)("SR:A", 1.0)
+        with pytest.raises(RuntimeError, match=_REFUSAL):
+            getattr(mod.PvaMirrorServer(), method)("SR:A", 1.0)
     for method in ("putField", "dbpf"):
         with pytest.raises(RuntimeError, match=_REFUSAL):
             getattr(mod.CaIoc(), method)("SR:A", 1.0)

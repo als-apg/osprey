@@ -368,6 +368,20 @@ Troubleshooting
       ``python3 --version``. The ``uv`` tool can install the right version
       automatically.
 
+   **"No solution found" / no matching distribution for pvapy**
+      OSPREY's EPICS client, pvapy, publishes wheels only — there is no source
+      distribution to build from — for CPython 3.11–3.13 on Linux x86_64 and
+      aarch64, Windows, macOS x86_64, and macOS arm64 **on macOS 15 or newer
+      only**. Outside that set OSPREY cannot be installed:
+
+      * An Apple Silicon Mac on macOS 14 or older has no pvapy wheel; upgrade
+        to macOS 15, or run OSPREY in a Linux container or VM.
+      * Python 3.14 is unsupported until pvapy ships wheels for it; use 3.13.
+      * A downstream ``uv`` project that depends on OSPREY with an open-ended
+        ``requires-python`` (for example ``">=3.11"``) fails to resolve,
+        because uv solves for every Python version the range admits. Narrow
+        it: ``requires-python = ">=3.11,<3.14"``.
+
    **Verification checklist:**
 
    .. code-block:: bash

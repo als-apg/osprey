@@ -100,6 +100,16 @@ def get_framework_standard_patterns() -> dict[str, list[str]]:
             # putScalarArray, ...), putGet, asyncPut, parsePut/parsePutGet and
             # MultiChannel.putAsDoubleArray, none of which it matches.
             r"\bpvaccess\b[\s\S]*?\.(?:put|asyncPut|parsePut)\w*\s*\(",  # Channel.put*()
+            # The same spellings unanchored, as RpcClient below is. The anchor
+            # needs the literal token pvaccess, which an import built at
+            # runtime - importlib.import_module("pva" + "ccess") - never
+            # writes. A camelCase put/asyncPut/parsePut is pvaPy's spelling and
+            # rare in ordinary analysis code; the runtime guard refuses these
+            # whatever the regex sees.
+            r"\.put[A-Z]\w*\s*\(",  # ch.putDouble(1.0), ch.putGet(...), mc.putAsDoubleArray(...)
+            r"\.asyncPut\s*\(",  # ch.asyncPut(pv, cb, err)
+            r"\.parsePut\w*\s*\(",  # ch.parsePut([...]), ch.parsePutGet([...])
+            r"\.putAsDoubleArray\s*\(",  # MultiChannel.putAsDoubleArray([...])
             r"\bRpcClient\s*\(",  # pvaccess.RpcClient('SVC') - a PVA RPC call can write
             r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",  # RpcClient(...).invoke(request)
             r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",  # serving PVs, like SharedPV

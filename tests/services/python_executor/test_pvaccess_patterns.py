@@ -25,6 +25,10 @@ from osprey.services.python_executor.analysis.pattern_detection import (
 
 PVACCESS_WRITE_PATTERNS = [
     r"\bpvaccess\b[\s\S]*?\.(?:put|asyncPut|parsePut)\w*\s*\(",
+    r"\.put[A-Z]\w*\s*\(",
+    r"\.asyncPut\s*\(",
+    r"\.parsePut\w*\s*\(",
+    r"\.putAsDoubleArray\s*\(",
     r"\bRpcClient\s*\(",
     r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
     r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
@@ -166,11 +170,43 @@ def test_pvaccess_writes_the_generic_put_misses_are_caught(code):
     assert detect(code)["has_writes"] is True
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param(
+            "import importlib\n"
+            "importlib.import_module('pva' + 'ccess').Channel('SR:A:SP').putDouble(1.0)\n",
+            id="typed-setter",
+        ),
+        pytest.param(
+            "m = __import__('pva' + 'ccess')\nm.Channel('SR:A:SP').asyncPut(pv, cb, err)\n",
+            id="async-put",
+        ),
+        pytest.param(
+            "m = __import__('pva' + 'ccess')\nm.Channel('SR:A:SP').parsePutGet(['value=1'])\n",
+            id="parse-put-get",
+        ),
+        pytest.param(
+            "m = __import__('pva' + 'ccess')\n"
+            "m.MultiChannel(['SR:A', 'SR:B']).putAsDoubleArray([1.0, 2.0])\n",
+            id="multichannel-put",
+        ),
+    ],
+)
+def test_pvaccess_writes_through_a_built_import_are_caught(code):
+    """An import assembled at runtime never writes the token ``pvaccess``, so
+    the anchored entry misses it; the unanchored spellings catch it."""
+    assert re.search(r"\bpvaccess\b", code) is None
+    assert re.search(r"\.put\s*\(", code) is None
+    assert detect(code)["has_writes"] is True
+
+
 @pytest.mark.parametrize("pattern", PVACCESS_WRITE_PATTERNS)
 def test_each_new_write_pattern_fires_on_some_snippet(pattern):
     """No dead entries: every new write regex earns its place."""
     snippets = [
         "import pvaccess\npvaccess.Channel('SR:A:SP').putDouble(1)\n",
+        "ch.asyncPut(pv, cb, err)\nch.parsePut(['value=1'])\nmc.putAsDoubleArray([1.0])\n",
         "import pvaccess\nreply = pvaccess.RpcClient('SR:CALC').invoke(request)\n",
         "import pvaccess\nioc = pvaccess.CaIoc()\n",
     ]
@@ -277,6 +313,14 @@ def test_each_new_read_pattern_fires_on_some_snippet(pattern):
         pytest.param(
             "from slack_sdk import WebClient\nchannel = client.conversations_open(users=u)\n",
             id="unrelated-channel",
+        ),
+        pytest.param(
+            "import pandas as pd\ndf = pd.read_csv(path)\nout = df.pivot_table(index='t')\n",
+            id="pandas-pivot",
+        ),
+        pytest.param(
+            "cache.put_many(items)\noutput = compute(input_data)\nthroughput = n / dt\n",
+            id="snake-case-put-and-put-substrings",
         ),
     ],
 )

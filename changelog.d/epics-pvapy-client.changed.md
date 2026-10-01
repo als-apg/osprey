@@ -7,3 +7,19 @@ monitor cache to go stale and no `fresh_reads` option to bypass one; write
 confirmation still waits for the IOC's put-callback. Python 3.14 is not
 supported until pvapy publishes wheels for it: OSPREY now requires Python 3.11,
 3.12 or 3.13.
+What else changes for callers:
+
+- `raw_metadata`: `nt_id` is replaced by `nt_type` (`NTEnum`, `NTNDArray` or
+  `None`); a new `provider` key names the protocol the read went over (`ca` or
+  `pva`); a Channel Access `status` is now the normative alarm status rather
+  than the CA status code; and Channel Access reads no longer report `type` or
+  `count`.
+- A timeout on an unreachable channel surfaces as `ConnectionError`, since
+  pvapy reports a channel that never connects and one that times out the same
+  way.
+- Numeric writes are exact and typed to the channel: a fractional value
+  written to an integer channel is refused rather than rounded.
+- A write to an unreachable channel returns `FAILED` with "nothing was sent".
+- Only one confirming write per channel is in flight at a time; a retry waits
+  for the earlier one within its own deadline.
+- A char waveform takes text on write and reads back as unsigned bytes.

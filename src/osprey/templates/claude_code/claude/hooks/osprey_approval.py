@@ -160,7 +160,7 @@ except Exception:  # pragma: no cover - older render without the reader
 _HOOK_ENTERED_AT = time.monotonic()
 
 # Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
-# Must stay in sync with get_framework_standard_patterns()["write"] (24 patterns).
+# Must stay in sync with get_framework_standard_patterns()["write"] (28 patterns).
 # The parity test in test_approval_hook.py enforces this.
 _FALLBACK_WRITE_PATTERNS = [
     # osprey.runtime unified API
@@ -182,6 +182,11 @@ _FALLBACK_WRITE_PATTERNS = [
     # PVAccess / Channel Access (pvaPy) - anchored to pvaccess; the generic
     # r"\.put\s*\(" misses the typed setters, asyncPut and parsePut
     r"\bpvaccess\b[\s\S]*?\.(?:put|asyncPut|parsePut)\w*\s*\(",
+    # ...and unanchored, for an import that never writes the token pvaccess
+    r"\.put[A-Z]\w*\s*\(",
+    r"\.asyncPut\s*\(",
+    r"\.parsePut\w*\s*\(",
+    r"\.putAsDoubleArray\s*\(",
     r"\bRpcClient\s*\(",
     r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
     r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
@@ -200,7 +205,7 @@ _FALLBACK_WRITE_PATTERNS = [
     r"connector\.write_channel\(",
 ]
 
-# Pattern detection: prefer framework module (regex-based, config-driven, 24 patterns)
+# Pattern detection: prefer framework module (regex-based, config-driven, 28 patterns)
 # with graceful fallback to regex matching against _FALLBACK_WRITE_PATTERNS
 try:
     from osprey.services.python_executor.analysis.pattern_detection import (

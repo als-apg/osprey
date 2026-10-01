@@ -2153,10 +2153,12 @@ if not _execution_dir.exists():
         The process then leaves with :func:`os._exit`, the way
         ``osprey_connectors.ipc.host`` does, rather than through interpreter
         shutdown. A control-system client holds native state whose shutdown
-        hooks can block or crash the process — pyepics' ``finalize_libca``
-        wedges once Channel Access was used from a worker thread, which the
-        EPICS connector always does — and a child that will not exit is
-        reported by the executor as a timeout long after its script finished.
+        hooks can block or crash the process — the EPICS connector's pvaPy
+        keeps native client contexts and threads alive, and a client user code
+        loads itself, such as pyepics, whose ``finalize_libca`` wedges once
+        Channel Access was used from a worker thread, does the same — and a
+        child that will not exit is reported by the executor as a timeout long
+        after its script finished.
         Everything the executor reads is on disk or already flushed to the
         pipes by then, so the abrupt exit costs nothing; the exit code stays 0
         because the outcome is read from the record, not from the status.

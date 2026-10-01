@@ -138,6 +138,10 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # in-process PVA server and an in-process Channel Access IOC. Each serves
     # PVs rather than writing a device, but what it publishes goes on the wire.
     ("pvaccess.PvaServer", ("update", "updateUnchecked")),
+    # ``PvaMirrorServer`` subclasses ``PvaServer`` and today inherits both
+    # methods, so the row above already reaches it. Named on its own so the
+    # refusal does not hang on pvaPy never overriding them.
+    ("pvaccess.PvaMirrorServer", ("update", "updateUnchecked")),
     ("pvaccess.CaIoc", ("putField", "dbpf")),
     # --- DOOCS (doocs4py). The client the shipped DOOCS connector writes
     # through (``osprey_connectors.control_system.doocs_connector``), so a
@@ -453,6 +457,10 @@ _LIMITS_UNWRAPPABLE: dict[tuple[str, str], str] = {
     ("p4p.server.asyncio.SharedPV", "open"): "server side — serves a PV, writes no device",
     ("pvaccess.PvaServer", "update"): "server side — serves a PV, writes no device",
     ("pvaccess.PvaServer", "updateUnchecked"): "server side — serves a PV, writes no device",
+    ("pvaccess.PvaMirrorServer", "update"): "server side — serves a PV, writes no device",
+    ("pvaccess.PvaMirrorServer", "updateUnchecked"): (
+        "server side — serves a PV, writes no device"
+    ),
     ("pvaccess.CaIoc", "putField"): "server side — writes a record of an in-process IOC",
     ("pvaccess.CaIoc", "dbpf"): "server side — writes a record of an in-process IOC",
     ("tango.DeviceProxy", "put_property"): "writes the Tango database, not a channel",

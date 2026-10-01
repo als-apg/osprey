@@ -17,9 +17,10 @@ dependencies = [
     "pandas>=2.2.3",
     "python-dateutil>=2.9.0",
     # EPICS client for the EPICS connector, over both Channel Access and
-    # PVAccess (the `pvaccess` module). Wheels ship for CPython 3.9-3.13 on
-    # macOS (x86_64, arm64), linux (x86_64, aarch64) and windows, which is why
-    # requires-python stops below 3.14. Capped below the next major because the
+    # PVAccess (the `pvaccess` module). It ships wheels only (no sdist), for
+    # CPython 3.9-3.13 on linux (x86_64, aarch64), windows, macOS x86_64 and
+    # macOS arm64 on macOS 15 or newer, which is why requires-python stops
+    # below 3.14. Capped below the next major because the
     # connector classifies pvapy's single exception type by its message text,
     # which tests/connectors/test_epics_soft_ioc.py pins against a live IOC.
     "pvapy>=5.6,<6",
