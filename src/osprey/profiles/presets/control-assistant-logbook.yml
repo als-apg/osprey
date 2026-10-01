@@ -103,10 +103,13 @@ config:
   # `services.graphdb` block is what makes the graph server render. Only a
   # server switched off is told nothing about the store.
   claude_code.servers.graph.enabled: false
-  # Pinned even though the server that would honour it is gone, for the same
-  # reason the other two tiers pin it: this key is the write boundary, and it
-  # must not drift if the base's default ever changes.
+  # Pinned even though every server that would honour it is gone, for the
+  # same reason the read-only tier pins it: this key is the write boundary,
+  # and it must not drift if the base's default ever changes. Three keys, not
+  # one — see the read-only preset for why.
   control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
   # Creating a logbook entry is this agent's only write of any kind, and it is
   # approval-gated like every other write in OSPREY. Publishing it is the half
   # that actually reaches the facility's logbook, so it is gated too.

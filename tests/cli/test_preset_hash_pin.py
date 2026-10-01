@@ -182,7 +182,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:306f092f00cda95e4667a9a3dc555549b9267bbe2ace22f30dc3b2525a159aff"
     ),
     "control-assistant-logbook": (
-        "sha256:423c322246de6e1978efd59450bcbb956413e3a605bf6d34dfce120b60114762"
+        "sha256:af149254c0e56afea0fa4f9b02091b21fd008dd6e8573eba8f8087eef2948445"
     ),
     "control-assistant-readonly": (
         "sha256:fc185914a127d56abbf0b9383012a7b2eb1dfbde54fe6573956de962a127e087"

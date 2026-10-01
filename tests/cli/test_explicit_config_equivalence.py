@@ -882,6 +882,32 @@ def _probe_timeout_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
+    """The write keys the logbook persona now pins by name.
+
+    The logbook persona pins the epics and virtual_accelerator write keys off,
+    as the knowledge persona already did. The fixtures were frozen with the
+    logbook persona stating the flat key alone.
+
+    Returns:
+        Two deltas for the logbook persona.
+    """
+    return (
+        Delta(
+            document="logbook",
+            path="control_system.connector.epics.writes_enabled",
+            fixture=ABSENT,
+            live=False,
+        ),
+        Delta(
+            document="logbook",
+            path="control_system.connector.virtual_accelerator.writes_enabled",
+            fixture=ABSENT,
+            live=False,
+        ),
+    )
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -928,6 +954,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -946,6 +973,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -964,6 +992,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -982,6 +1011,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas(),
 }
 

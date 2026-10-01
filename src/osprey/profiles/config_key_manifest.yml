@@ -1194,8 +1194,9 @@ keys:
       presets that carry a virtual_accelerator block write it commented, so no
       preset's resolved config carries it and `rendered` stays false;
       the shipped presets `control-assistant-readwrite` and
-      `control-assistant-admin` (true) and `control-assistant-readonly` and
-      `control-assistant-knowledge` (false) DO write it into a project's real
+      `control-assistant-admin` (true) and `control-assistant-readonly`,
+      `control-assistant-knowledge` and `control-assistant-logbook` (false) DO
+      write it into a project's real
       config.yml when applied, so an audit of a built deployment will find it.
       Tri-state: absent inherits the global key, literally `true` arms writes
       for this type, and any other value leaves them unarmed without
