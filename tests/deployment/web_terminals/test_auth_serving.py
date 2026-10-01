@@ -173,15 +173,15 @@ _PACKAGES = (
     "pyyaml",
     "click",
     "rich",
-    "questionary",
 )
 """The sidecar's import closure, by distribution name.
 
-Found by running ``import osprey.services.auth_sidecar.app`` in a bare
-``python:3.11-slim`` and adding what it asked for: the app itself needs the
-first five, and ``osprey.deployment.web_terminals.personas`` drags the render
-and registry packages behind it. The *versions* are never named here — see
-:func:`_declared_specs`.
+The app itself needs ``fastapi``, ``uvicorn``, ``authlib``, ``itsdangerous`` and
+``python-multipart``; the route modules add ``httpx`` (the OIDC client) and
+``jinja2`` (the login page); ``pyyaml``, ``ruamel.yaml`` and ``rich`` arrive
+through :mod:`osprey.utils`, which :mod:`osprey.interfaces.web_auth` imports;
+``click`` through ``httpx``'s and uvicorn's command-line entries. The *versions*
+are never named here — see :func:`_declared_specs`.
 """
 
 
