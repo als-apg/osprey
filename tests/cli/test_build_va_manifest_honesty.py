@@ -887,8 +887,8 @@ def test_a_va_deploying_repo_with_no_channel_databases_fails_the_build(tmp_path_
     from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
     repo = build_exemplar_repo(tmp_path_factory.mktemp("dbless") / EXEMPLAR_DIRNAME, seed_env=True)
-    # The refusal under test is the database paradigms' — the graph paradigm
-    # the preset ships answers from its corpus and stages no database.
+    # A database paradigm whose databases are gone: with none staged the
+    # channel set is the facility file's, and this repo's names no channel.
     profile = repo / "profile.yml"
     profile.write_text(
         profile.read_text().replace(
@@ -908,9 +908,7 @@ def test_a_va_deploying_repo_with_no_channel_databases_fails_the_build(tmp_path_
     assert result.exit_code != 0
     # The refusal reaches an operator through the build logger, which is where
     # every other build error is spelled; stdout carries the phase card alone.
-    assert "no channel database is staged at tier 3" in caplog.text
-    for paradigm in ("hierarchical", "in_context", "middle_layer"):
-        assert paradigm in caplog.text
+    assert "facility.json declares no channels" in caplog.text
     # And it stopped BEFORE writing a deployment around a namespace it cannot serve.
     assert not (repo / "build" / "config.yml").is_file()
 
@@ -1025,7 +1023,7 @@ def _graph_repo(
 
 
 def _graph_config(root: Path) -> dict[str, Any]:
-    """The rendered-config shape the deferred manifest step consults."""
+    """The rendered-config shape the manifest step asks the roster with."""
     return {
         "channel_finder": {"pipeline_mode": "graph"},
         "services": {"graphdb": {"ttl_path": "./data/facility.ttl"}},
@@ -1182,7 +1180,7 @@ def test_a_graph_repo_with_an_empty_facility_file_refuses_naming_it(tmp_path):
 def test_a_graph_repo_with_no_channel_records_fails_a_real_build(tmp_path_factory, caplog):
     """The refusing path through the CLI itself, not just the reporting helper.
 
-    The deferred check runs after the render, so this pins that the refusal
+    The manifest step runs after the render, so this pins that the refusal
     still stops a real ``osprey build`` before anything is published: no
     ``build/`` tree, and no manifest env keys written into ``.env``.
 
