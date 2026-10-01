@@ -406,6 +406,10 @@ def _gev2bend(energy: float) -> float:
     return _round_significant(-RAMP_TAU * math.log(1.0 - field / RAMP_GAIN), 12)
 
 
+#: The current every defocusing quadrupole is set to.
+QD_NOMINAL_AMPS = 100.0
+
+
 def _quad_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
     """The quadrupole readback's own way back to amps.
 
@@ -418,9 +422,13 @@ def _quad_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
 
 
 def _qd_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
-    """A readback conversion with a curve in it, so the inverse is written as a table."""
-    strength = np.asarray(physics, dtype=float)
-    return -82.0 * strength + 3.0e3 * (strength * strength * strength)
+    """A readback conversion with a curve in it, so the inverse is written as a table.
+
+    The curve passes through the family's nominal: the deck's strength comes
+    back as the current the family is set to.
+    """
+    ratio = np.asarray(physics, dtype=float) / -QUAD_K
+    return QD_NOMINAL_AMPS * ratio * (0.8 + 0.2 * (ratio * ratio))
 
 
 def _identity_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
@@ -446,7 +454,7 @@ def _brho_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
 #: lattice and the document agree by construction.
 NOMINAL_AMPS: dict[str, list[float]] = {
     "QF": [120.0, 120.0, 120.0, 120.0],
-    "QD": [100.0, 100.0, 100.0, 100.0],
+    "QD": [QD_NOMINAL_AMPS] * 4,
     "SF": [50.0, 50.0, 50.0, 50.0],
     "SQ": [5.0, 5.0, 5.0, 5.0],
     "HC": [1.5, -0.8, 0.4, 0.0],
@@ -900,8 +908,8 @@ def build_ao(ring: at.Lattice) -> dict[str, Any]:
         "GAP",
         "Meter",
         2,
-        setpoint_range=[4.0, 60.0],
-        monitor_range=[4.0, 60.0],
+        setpoint_range=[0.0, 60.0],
+        monitor_range=[0.0, 60.0],
         hw_units="mm",
     )
     ao["IDGAP"]["AT"]["SpecialFunctionSet"] = Fn("qk_setidgap")
