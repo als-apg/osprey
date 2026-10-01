@@ -1388,7 +1388,7 @@ class TestPlainTextMigration:
         [(sql, params)] = ddl_conn.recorder.matching(_SELECT_STORED)
         assert params == [ALS_SOURCE_SYSTEM]
         assert "source_system = %s" in sql
-        assert "raw_text ~ '[&<]'" in sql
+        assert r"""raw_text ~ '[&<]|\\[''"\\]'""" in sql
 
     async def test_changed_row_is_rewritten_and_requeued(self, ddl_conn) -> None:
         """A changed row gets its plain text and an empty enhancement status."""
@@ -1413,6 +1413,19 @@ class TestPlainTextMigration:
         [(_sql, params)] = ddl_conn.recorder.matching("UPDATE enhanced_entries")
         assert params[0].startswith("Vacuum & RF checks\n\nSteps:")
         assert params[1] == "Vacuum & RF checks"
+
+    async def test_row_with_only_backslash_escapes_is_rewritten(self, ddl_conn) -> None:
+        """A row with no entity and no markup is rewritten when it holds backslash escaping."""
+        ddl_conn.recorder.rows_for = {_SELECT_STORED: [_stored_olog_row("20008")]}
+
+        await ALSPlainTextMigration().up(ddl_conn)
+
+        [(_sql, params)] = ddl_conn.recorder.matching("UPDATE enhanced_entries")
+        assert params == [
+            "Viewer won't start\n\nLog saved to Y:\\opstat\\run\\new.vi",
+            "Viewer won't start",
+            "20008",
+        ]
 
     async def test_row_that_does_not_change_is_not_updated(self, ddl_conn) -> None:
         """Plain text matched by the select stays as stored."""
