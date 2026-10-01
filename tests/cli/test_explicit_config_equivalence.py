@@ -856,6 +856,26 @@ def _probe_timeout_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _simulation_models_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The served-model list every preset states.
+
+    Each preset states ``simulation.models: null``, which serves every model
+    the facility file holds, so every document a cell renders carries the
+    leaf. The fixtures were frozen before the key existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="simulation.models", fixture=ABSENT, live=None)
+        for document in documents
+    )
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -869,22 +889,27 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         # all, so no delta declares it here.
         Delta(document="root", path="approval.tools.entry_create", fixture="always", live=ABSENT),
         *_rail_tool_deltas("root"),
+        *_simulation_models_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _fuzzy_threshold_deltas("root")
-    + _embedding_input_limit_deltas("root"),
+    + _embedding_input_limit_deltas("root")
+    + _simulation_models_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _simulation_models_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _simulation_models_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
-    + _query_max_rows_deltas("root"),
+    + _query_max_rows_deltas("root")
+    + _simulation_models_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -901,7 +926,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _probe_timeout_deltas(),
+    + _probe_timeout_deltas()
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -918,7 +944,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _probe_timeout_deltas(),
+    + _probe_timeout_deltas()
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -935,7 +962,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _probe_timeout_deltas(),
+    + _probe_timeout_deltas()
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -952,7 +980,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _probe_timeout_deltas(),
+    + _probe_timeout_deltas()
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
 
