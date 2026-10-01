@@ -2634,27 +2634,44 @@ def _stage_source_zone(repo_root: Path, image_root: Path) -> None:
       untouched build as DRIFTED, naming files nobody edited.
 
     Copied by EXCLUSION rather than by naming what to take: everything at the
-    repo root that is not a derived zone, git's own directory, or a secret. A
-    list of wanted names would be a second enumeration of the fold's inputs, and
-    the day the two disagreed a container would report false drift — the exact
-    failure this exists to prevent. Excluding is a superset by construction, so
-    it cannot drift from the fold; it is also just the truth, since the source
-    zone is what a fresh clone of this repo holds.
+    repo root that is not a derived zone, git's own directory, a secret, or the
+    repo's own Claude Code files. A list of wanted names would be a second
+    enumeration of the fold's inputs, and the day the two disagreed a container
+    would report false drift — the exact failure this exists to prevent.
+    Excluding is a superset by construction, so it cannot drift from the fold;
+    it is also just the truth, since the source zone is what a fresh clone of
+    this repo holds, less the files that are for the person editing it.
 
     ``.env`` is excluded HERE, not left to the image's ``.dockerignore``: this
     copy decides what the build context contains at all, and a secret that never
     enters the context cannot be baked in by a later pattern that fails to match
     it at the depth it landed.
 
+    The repo's own Claude Code files
+    (:data:`~osprey.cli.profile_conventions.REPO_CLAUDE_CODE_ENTRIES`) are left
+    out at the root and only at the root. The image's agent runs in ``build/``,
+    one level down, and would otherwise load the repo's developer ``CLAUDE.md``
+    as an ancestor in every session. It is done here rather than by a
+    ``.dockerignore`` pattern because those patterns match at every depth in
+    this context and would also delete the render's own ``build/CLAUDE.md`` and
+    ``build/.claude/``. None of the four is a fold input, so the copy is still a
+    superset of what the fingerprint folds.
+
     :param repo_root: The deployment repo whose source zone this is.
     :param image_root: The container repo root being assembled.
     """
+
+    from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES
 
     def _ignore_env_files(_directory: str, names: list[str]) -> set[str]:
         return {name for name in names if name.startswith(".env")}
 
     for entry in sorted(repo_root.iterdir()):
-        if entry.name in _NON_SOURCE_ROOT_ENTRIES or entry.name.startswith(".env"):
+        if (
+            entry.name in _NON_SOURCE_ROOT_ENTRIES
+            or entry.name in REPO_CLAUDE_CODE_ENTRIES
+            or entry.name.startswith(".env")
+        ):
             continue
         target = image_root / entry.name
         if entry.is_dir():

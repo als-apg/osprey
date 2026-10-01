@@ -45,8 +45,10 @@ from osprey.cli.build_cmd import (
     _write_image_context_dockerignore,
 )
 from osprey.cli.build_cmd import build as build_command
+from osprey.cli.profile_conventions import REPO_CLAUDE_CODE_ENTRIES
 from osprey.cli.profile_root import PERSONA_DIRNAME
 from osprey.cli.repo_resolver import PROFILE_FILENAME, RepoNotFoundError, find_repo_root
+from osprey.deployment.staleness import profile_fingerprint
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
 from osprey.utils.workspace import (
@@ -177,6 +179,106 @@ def test_the_container_context_carries_no_secret_and_no_host_state(tmp_path: Pat
     assert (image_root / "data" / "channels.yml").is_file()
 
 
+def _write_repo_claude_code_files(repo: Path) -> None:
+    """A developer's own Claude Code files at the repo root, the shape a real repo has."""
+    (repo / "CLAUDE.md").write_text("# deploy runbook for the repo\n", encoding="utf-8")
+    (repo / "CLAUDE.local.md").write_text("# this host only\n", encoding="utf-8")
+    (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
+    (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
+    (repo / ".claude" / "settings.json").write_text('{"dev": true}\n', encoding="utf-8")
+
+
+def test_the_container_context_leaves_out_the_repos_own_claude_code_files(
+    tmp_path: Path,
+) -> None:
+    """The repo's developer Claude Code files never enter a context; same-named source does.
+
+    The image's agent runs in ``build/``, one directory below the context root,
+    and Claude Code reads ``CLAUDE.md`` from every ancestor of its working
+    directory — so a root ``CLAUDE.md`` in the context is loaded into every
+    session of every image. The exclusion is at the root only: the render's own
+    files under ``build/`` are the agent's instructions and write-safety hooks,
+    and a nested file of the same name inside a source tree is deployment source.
+    """
+    assert REPO_CLAUDE_CODE_ENTRIES == {"CLAUDE.md", "CLAUDE.local.md", ".claude", ".mcp.json"}
+
+    repo = tmp_path / "facility"
+    repo.mkdir()
+    (repo / PROFILE_FILENAME).write_text("name: facility\n", encoding="utf-8")
+    _write_repo_claude_code_files(repo)
+    nested = {
+        Path("project") / "notes" / "CLAUDE.md": "# mirrored notes\n",
+        Path("project") / ".claude" / "commands" / "ops.md": "# ops command\n",
+        Path("data") / "notes" / "CLAUDE.md": "# data notes\n",
+    }
+    for relpath, text in nested.items():
+        (repo / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (repo / relpath).write_text(text, encoding="utf-8")
+
+    image_root = tmp_path / "image"
+    render = {
+        Path(BUILD_DIR_NAME) / "CLAUDE.md": "# the render's agent instructions\n",
+        Path(BUILD_DIR_NAME) / ".claude" / "settings.json": '{"render": true}\n',
+        Path(BUILD_DIR_NAME) / ".mcp.json": '{"mcpServers": {"render": {}}}\n',
+    }
+    for relpath, text in render.items():
+        (image_root / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (image_root / relpath).write_text(text, encoding="utf-8")
+
+    _stage_source_zone(repo, image_root)
+
+    carried = sorted(name for name in REPO_CLAUDE_CODE_ENTRIES if (image_root / name).exists())
+    assert not carried, f"the repo's own Claude Code files entered the context: {carried}"
+    for relpath, text in render.items():
+        assert (image_root / relpath).read_text(encoding="utf-8") == text, relpath
+    for relpath, text in nested.items():
+        assert (image_root / relpath).read_text(encoding="utf-8") == text, relpath
+    assert (image_root / PROFILE_FILENAME).is_file()
+
+
+def test_leaving_out_the_claude_code_files_moves_no_fingerprint(tmp_path: Path) -> None:
+    """The exclusion touches no fold input, so an untouched image reports no drift.
+
+    The container manifest is re-stamped from the image's own tree, so an
+    exclusion that removed a fold input would surface as drift on a build nobody
+    changed. The positive control rewrites a nested mirror file of the same name
+    and the hash moves: the fold reads that file, so the equality is not vacuous
+    and the exclusion demonstrably stops at the root.
+    """
+    repo = tmp_path / "facility"
+    (repo / BUILD_DIR_NAME).mkdir(parents=True)
+    (repo / PROFILE_FILENAME).write_text("name: fixture\n", encoding="utf-8")
+    sources = {
+        Path("data") / "channels.yml": "channels: []\n",
+        Path("rules") / "safety.md": "# safety\n",
+        Path(PERSONA_DIRNAME) / "readonly.yml": "name: readonly\n",
+        Path("project") / "notes" / "CLAUDE.md": "# mirrored notes\n",
+        Path("project") / ".claude" / "commands" / "ops.md": "# ops command\n",
+    }
+    for relpath, text in sources.items():
+        (repo / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (repo / relpath).write_text(text, encoding="utf-8")
+
+    fingerprint = profile_fingerprint(repo / PROFILE_FILENAME)
+    assert fingerprint is not None
+    before = fingerprint.profile_hash
+
+    _write_repo_claude_code_files(repo)
+    with_dev_files = profile_fingerprint(repo / PROFILE_FILENAME)
+    assert with_dev_files is not None and with_dev_files.profile_hash == before
+
+    image_root = tmp_path / "image"
+    (image_root / BUILD_DIR_NAME).mkdir(parents=True)
+    _stage_source_zone(repo, image_root)
+    staged = profile_fingerprint(image_root / PROFILE_FILENAME)
+    assert staged is not None and staged.profile_hash == before
+
+    (image_root / "project" / "notes" / "CLAUDE.md").write_text("# edited\n", encoding="utf-8")
+    edited = profile_fingerprint(image_root / PROFILE_FILENAME)
+    assert edited is not None and edited.profile_hash != before
+
+
 def test_a_render_without_a_repo_marker_is_not_a_deployment(tmp_path: Path) -> None:
     """Why the marker is load-bearing, stated as the failure it prevents.
 
@@ -302,7 +404,9 @@ def built_repo(tmp_path_factory) -> Path:
     """The exemplar, built for real, with secrets seeded.
 
     ``seed_env=True`` because a repo with no ``.env`` cannot show that the
-    contexts carry none: the secret has to exist to be kept out.
+    contexts carry none: the secret has to exist to be kept out. A developer's
+    own Claude Code files sit at the root for the same reason, so every context
+    below is read off a repo that has them.
     """
     from tests.fixtures.lifecycle_repo import (
         EXEMPLAR_DIRNAME,
@@ -311,6 +415,11 @@ def built_repo(tmp_path_factory) -> Path:
     )
 
     repo = build_exemplar_repo(tmp_path_factory.mktemp("layout") / EXEMPLAR_DIRNAME, seed_env=True)
+    (repo / "CLAUDE.md").write_text("# deploy runbook for the repo\n", encoding="utf-8")
+    (repo / "CLAUDE.local.md").write_text("# this host only\n", encoding="utf-8")
+    (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
+    (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
     previous = Path.cwd()
     os.chdir(repo)
     try:
@@ -452,6 +561,29 @@ def test_no_produced_context_carries_a_secret_or_a_host_path(built_repo: Path) -
         if path.is_file() and host in path.read_text(encoding="utf-8", errors="ignore")
     ]
     assert not offenders, f"the building host's path is recorded in: {offenders}"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("persona", [None, *PERSONA_WRITES])
+def test_no_produced_context_carries_the_repos_own_claude_code_files(
+    built_repo: Path, persona: str | None
+) -> None:
+    """The agent's ancestors hold no developer ``CLAUDE.md``; its own render is intact.
+
+    The agent runs in the context's ``build/``, so anything named ``CLAUDE.md``
+    at the context root is loaded into every session of this image. The render's
+    own instructions, hook settings and server list stay where the agent reads
+    them.
+    """
+    name = built_repo.name if persona is None else f"{built_repo.name}-{persona}"
+    context = _contexts(built_repo)[name]
+
+    carried = sorted(entry for entry in REPO_CLAUDE_CODE_ENTRIES if (context / entry).exists())
+    assert not carried, f"the repo's own Claude Code files reached {name}: {carried}"
+    render = context / BUILD_DIR_NAME
+    assert (render / "CLAUDE.md").is_file()
+    assert (render / ".claude" / "settings.json").is_file()
+    assert (render / ".mcp.json").is_file()
 
 
 @pytest.mark.slow
