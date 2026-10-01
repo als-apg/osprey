@@ -7630,7 +7630,7 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The type check is worth scoring: the stubs its imports need are declared
+# The type check's stubs are declared where CI installs them: the dev extra
 # ---------------------------------------------------------------------------
 #
 # An import in `src/` that ships no inline types needs its stub distribution in
