@@ -55,7 +55,7 @@ from osprey.cli.profile_conventions import (
 from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
-from osprey.docs_links import INSTALL_DOCS_URL
+from osprey.docs_links import installer_remedy
 from osprey.errors import ConfigurationError
 from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
@@ -1692,7 +1692,7 @@ def _reject_retired_config_option(config_path: str | None) -> None:
         "config.yml, emitted from the profile's `config:` block — run this verb "
         "with --repo DIR, or from inside the repo. Its deployment artifacts "
         "come from `osprey scaffold ci`, driven by the profile's `deploy:` "
-        f"block. Follow the installer guide at {INSTALL_DOCS_URL} to author both blocks."
+        "block. " + installer_remedy("the installer writes the profile both blocks live in")
     )
     logger.error("%s", message)
     raise SystemExit(1)

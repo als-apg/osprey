@@ -21,3 +21,17 @@ PERIMETER_LIMITS_URL: str = f"{DEPLOY_DOCS_URL}#perimeter-limits"
 #: The installer's page. A remedy whose fix is authoring or converting profile
 #: blocks sends the operator here.
 INSTALL_DOCS_URL: str = "https://als-apg.github.io/osprey/getting-started/osprey-install.html"
+
+
+def installer_remedy(fact: str) -> str:
+    """The sentence every remedy that needs the installer ends with.
+
+    One action with its link, then the one fact that makes the installer the
+    fix, so the surfaces that send an operator there cannot word the same
+    advice differently.
+
+    :param fact: A clause with no trailing period, stating what the installer
+        does for this operator.
+    :return: ``Follow the installer guide at <URL>: <fact>.``
+    """
+    return f"Follow the installer guide at {INSTALL_DOCS_URL}: {fact}."
