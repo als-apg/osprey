@@ -108,7 +108,6 @@ from osprey.deployment.web_terminals.auth_credentials import (
     set_auth_password,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES, render_web_terminals
 from osprey.interfaces._serving import free_port
 from osprey.services.auth_sidecar.app import (
@@ -116,6 +115,7 @@ from osprey.services.auth_sidecar.app import (
     DEFAULT_OIDC_CLIENT_SECRET_ENV,
 )
 from osprey.services.auth_sidecar.passwords import generation_tag, hash_password
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec
 from osprey.utils.dotenv import (
     ENV_LOCAL_FILENAME,

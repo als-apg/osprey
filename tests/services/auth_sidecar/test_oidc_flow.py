@@ -37,7 +37,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.deployment.web_terminals.personas import access_wire_value, env_var_suffix
+from osprey.deployment.web_terminals.personas import access_wire_value
 from osprey.interfaces._serving import run_app_server
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
@@ -46,6 +46,7 @@ from osprey.services.auth_sidecar.app import (
     create_app,
 )
 from osprey.services.auth_sidecar.identity_headers import ACCOUNT_HEADER, SUBJECT_HEADER
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
     CLIENT_NAME,

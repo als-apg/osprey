@@ -26,7 +26,7 @@ else shared across routes belongs here too, on the same pattern — built once i
 the factory, reached through an accessor.
 
 Per-user values are keyed by
-:func:`~osprey.deployment.web_terminals.personas.env_var_suffix` — the one
+:func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix` — the one
 definition of the username→env-var mapping, shared with credential
 provisioning and lint so a password can never be keyed one way at mint time and
 another at verify time.
@@ -66,7 +66,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from osprey.config_guards import is_positive_int
-from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suffix_collisions
 
 # The session-lifetime default is defined once, in the stdlib-only web_auth
 # module; the terminal cookie and this sidecar share it.
@@ -77,6 +76,7 @@ from .identity_headers import same_domain, same_identity
 from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from .passwords import stored_hash_problem
 from .revocation import RevocationStore
+from .roster_env import env_var_suffix, env_var_suffix_collisions
 from .sessions import SessionCodec
 from .throttle import (
     DEFAULT_FORGET_AFTER,
@@ -736,7 +736,7 @@ class AuthSettings:
         Returns:
             ``{suffix: [colliding usernames]}``, empty when the roster is
             unambiguous. Detection is
-            :func:`~osprey.deployment.web_terminals.personas.env_var_suffix_collisions`,
+            :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix_collisions`,
             shared with lint and credential provisioning.
         """
         return env_var_suffix_collisions(self.users)

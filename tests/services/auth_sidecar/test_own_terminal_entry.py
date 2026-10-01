@@ -25,10 +25,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.audit import writer
-from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import create_app
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes import entry
 from osprey.services.auth_sidecar.routes.login import DENIAL_MESSAGE, LOGIN_PATH
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX

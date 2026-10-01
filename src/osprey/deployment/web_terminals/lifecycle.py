@@ -115,13 +115,13 @@ from osprey.deployment.web_terminals.personas import (
     as_dict,
     effective_image_source,
     entry_is_shared,
-    env_var_suffix,
     freeze_user_indices,
     normalize_users,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.postup_hooks import reload_nginx_config
 from osprey.deployment.web_terminals.render import _auth_tls_context
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
 from osprey.utils.dotenv import parse_dotenv_file
@@ -948,7 +948,7 @@ def _warn_if_plaintext_password_survives(removed: list[str], project_root: Path)
     Warn rather than edit: ``.env`` is operator-owned and full of unrelated
     configuration, and silently deleting lines from it is a worse failure mode
     than the one being closed. The variable name is derived through
-    :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`, the same
+    :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`, the same
     mapping that keyed the credential in the first place, so the warning can
     never name a variable the provisioner would not read.
     """

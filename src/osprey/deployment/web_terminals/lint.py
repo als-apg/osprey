@@ -45,8 +45,6 @@ from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     effective_persona,
     entry_is_shared,
-    env_var_suffix,
-    env_var_suffix_collisions,
     normalize_users,
     persona_privileges,
     privilege_phrase,
@@ -86,6 +84,7 @@ from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.services.auth_sidecar.passwords import stored_hash_problem
+from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suffix_collisions
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
