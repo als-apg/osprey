@@ -138,6 +138,36 @@ class TestResolutionChain:
 
         assert get_running_version() == "2026.6.2"
 
+    @pytest.mark.usefixtures("git_is_the_only_answer")
+    def test_inherited_git_variables_do_not_redirect_the_probe(self, tmp_path, monkeypatch):
+        """The anchor must beat the environment too.
+
+        The cwd route is pinned above; this is the environment route a git hook
+        opens. A hook run from a linked worktree exports ``GIT_DIR``, ``GIT_WORK_TREE``
+        and ``GIT_INDEX_FILE`` naming its own repository, and ``GIT_DIR`` beats ``-C``.
+        """
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=1)
+        other = _make_repo(tmp_path / "other", "v9.9.9")
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(other))
+        monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+
+        running = Version(get_running_version())
+        assert (running.base_version, running.post) == ("2026.6.2", 1)
+        assert re.fullmatch(r"g[0-9a-f]{9}", running.local or "")
+
+    def test_the_probe_scrubs_every_variable_git_names_repository_local(self):
+        """The hard-coded scrub set covers everything the host's git calls local."""
+        printed = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        missing = set(printed) - version_module._GIT_REPOSITORY_ENV
+        assert not missing, f"git names repository-local variables the probe keeps: {missing}"
+
     def test_pyproject_declaring_another_project_is_rejected(self, tmp_path, monkeypatch):
         repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=1)
         (repo / "pyproject.toml").write_text('[project]\nname = "something-else"\n')
