@@ -199,11 +199,13 @@ Beyond the always-on framework checks, four built-in categories are
 **presence-gated on their config blocks**: they contribute rows only when the
 corresponding service is configured, so a minimal build shows no empty tiles.
 
-- ``ariel`` — appears when a top-level ``ariel:`` block is configured. Probes
-  the ARIEL interface's status endpoint and reports: reachability, logbook
-  entry count, last ingestion time, and the registered search and enhancement
-  modules. The interface sidecar runs with ``osprey web``, so a CLI-only run
-  on a stopped stack reports the interface as unreachable (a ``warning``).
+- ``ariel`` — appears when a top-level ``ariel:`` block is configured. Reads
+  the ARIEL interface's open ``/health`` page, which needs no credential, and
+  reports: reachability, logbook entry count, last ingestion time, and the
+  registered search and enhancement modules. When the interface runs without
+  its database, the reachability row is the only row. The interface sidecar
+  runs with ``osprey web``, so a CLI-only run on a stopped stack reports the
+  interface as unreachable (a ``warning``).
 - ``channel_finder`` — appears when a top-level ``channel_finder:`` block is
   configured. Reports the active pipeline mode, verifies the pipeline's
   channel-database file exists (a configured-but-missing database is an

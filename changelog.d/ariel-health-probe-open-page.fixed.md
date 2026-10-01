@@ -1,0 +1,1 @@
+`osprey health` reports ARIEL's entry count, last ingestion and enabled modules again on a gated panel. The probe reads the panel's open `/health` page instead of the signed-in `/api/status`, which refused it.
