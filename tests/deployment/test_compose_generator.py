@@ -7819,7 +7819,7 @@ def _unchecked_limits_config(database_path: object) -> dict:
         "writes_enabled": True,
         "limits_checking": {
             "enabled": False,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "database_path": database_path,
         },
     }
@@ -7888,11 +7888,11 @@ def test_limits_mount_refuses_when_only_the_armed_target_checks_limits(
         "connector": {
             "virtual_accelerator": {
                 "writes_enabled": True,
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": True, "mode": "exclusive"},
             },
             "epics": {
                 "writes_enabled": False,
-                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": False, "mode": "exclusive"},
             },
         },
         "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
@@ -7921,11 +7921,11 @@ def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_rea
         "connector": {
             "virtual_accelerator": {
                 "writes_enabled": True,
-                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": False, "mode": "exclusive"},
             },
             "epics": {
                 "writes_enabled": False,
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": True, "mode": "exclusive"},
             },
         },
         "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
@@ -9417,7 +9417,7 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
                     "writes_enabled": True,
                     "limits_checking": {
                         "enabled": False,
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                     },
                 },
             },

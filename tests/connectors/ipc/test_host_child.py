@@ -737,10 +737,8 @@ def _va_config(gateways):
 # config the child is pointed at, ``resolve_target``, the factory, ``connect()``.
 
 
-DEPLOYMENT_WIDE_ALLOW_KEY = "control_system.limits_checking.allow_unlisted_channels"
-VA_ALLOW_KEY = (
-    "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-)
+DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
+VA_MODE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 
 def _limits_control_system(database_path: Path) -> dict:
@@ -756,14 +754,12 @@ def _limits_control_system(database_path: Path) -> dict:
         "type": MOCK_TYPE,
         "limits_checking": {
             "enabled": True,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "database_path": str(database_path),
         },
         "connector": {
             MOCK_TYPE: {"response_delay_ms": 10, "noise_level": 0.0},
-            "virtual_accelerator": {
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
-            },
+            "virtual_accelerator": {"limits_checking": {"enabled": True, "mode": "optional"}},
         },
     }
 
@@ -957,8 +953,8 @@ def test_child_limits_posture_comes_from_the_block_for_the_target_it_serves(limi
     # The simulator's own block answered, and the refusal an operator would
     # eventually read names that line rather than the deployment-wide one it
     # overrides.
-    assert policy["allow_unlisted_channels"] is True
-    assert policy["allow_unlisted_key"] == VA_ALLOW_KEY
+    assert policy["mode"] == "optional"
+    assert policy["mode_key"] == VA_MODE_KEY
 
 
 def test_child_limits_posture_falls_back_to_the_deployment_wide_block(limits_deployment):
@@ -969,5 +965,5 @@ def test_child_limits_posture_falls_back_to_the_deployment_wide_block(limits_dep
     # This deployment wrote no block for the type ``live`` resolves to, so the
     # deployment-wide refusal is the whole posture — and the simulator's
     # relaxation, two keys away in the same file, does not reach it.
-    assert policy["allow_unlisted_channels"] is False
-    assert policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+    assert policy["mode"] == "exclusive"
+    assert policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY

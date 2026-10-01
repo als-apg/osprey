@@ -318,7 +318,7 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
     message = str(excinfo.value)
     assert "control_system.limits_checking.enabled" in message
     # An ABSENT deployment-wide leaf is unset, not unreadable, so it is not named.
-    assert "control_system.limits_checking.allow_unlisted_channels" not in message
+    assert "control_system.limits_checking.mode" not in message
     assert "literal true or false" in message
     assert probe_calls == []
 

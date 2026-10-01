@@ -49,7 +49,7 @@ def _step_validator(channel: str, max_step: float = 5.0) -> LimitsValidator:
             channel_address=channel, min_value=0.0, max_value=100.0, max_step=max_step
         )
     }
-    return LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+    return LimitsValidator(limits, {"mode": "exclusive"}, {})
 
 
 # ---------------------------------------------------------------------------

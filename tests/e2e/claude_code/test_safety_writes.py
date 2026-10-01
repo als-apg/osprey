@@ -206,7 +206,7 @@ async def test_write_to_readonly_denied(safety_project):
 
 
 # ---------------------------------------------------------------------------
-# Scenario 5: Write to unlisted channel (permissive mode)
+# Scenario 5: Write to unlisted channel (optional mode)
 # ---------------------------------------------------------------------------
 
 
@@ -214,12 +214,11 @@ async def test_write_to_readonly_denied(safety_project):
 @pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_write_to_unlisted_channel_succeeds(safety_project):
-    """Scenario 5: Writing to an unlisted channel should succeed in permissive mode.
+    """Scenario 5: Writing to an unlisted channel should succeed in the optional mode.
 
-    SR:RANDOM:UNLISTED is not in the limits DB. In permissive mode — which the
-    ``safety_project`` fixture pins via ``allow_unlisted_channels: true``; the
-    preset itself ships strict — unlisted channels are allowed through without
-    limits validation.
+    SR:RANDOM:UNLISTED is not in the limits DB. In the optional mode — which
+    the ``safety_project`` fixture pins via ``mode: optional`` — unlisted
+    channels are allowed through without limits validation.
 
     Cost budget: $0.50
     """

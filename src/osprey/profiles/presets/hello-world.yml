@@ -143,10 +143,10 @@ config:
   # The limits file, relative to the build directory. It is a build copy: edit
   # the one in data/ beside this file and rebuild.
   control_system.limits_checking.database_path: data/channel_limits.json
-  # Whether a channel the limits file does not list stays writable. The mock's
-  # invented channels need true; a production deployment sets false so an
-  # unknown channel fails closed.
-  control_system.limits_checking.allow_unlisted_channels: true
+  # `optional` = channels in the limits file are held to their limits, every
+  # other channel is written with no limits. `exclusive` = only channels in
+  # the file can be written.
+  control_system.limits_checking.mode: optional
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read.

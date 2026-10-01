@@ -57,7 +57,7 @@ control_system:
   limits_checking:
     enabled: false
     database_path: null
-    allow_unlisted_channels: true
+    mode: optional
     on_violation: "skip"
   connector:
     mock:
@@ -168,12 +168,12 @@ class TestBooleanUpdates:
             config_file,
             {
                 "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
         data = config_read(config_file)
         assert data["control_system"]["limits_checking"]["enabled"] is True
-        assert data["control_system"]["limits_checking"]["allow_unlisted_channels"] is False
+        assert data["control_system"]["limits_checking"]["mode"] == "exclusive"
 
 
 # ---------------------------------------------------------------------------

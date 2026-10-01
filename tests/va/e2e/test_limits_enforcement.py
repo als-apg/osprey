@@ -40,7 +40,7 @@ LIMITS_OVERRIDES = {
     "control_system.writes_enabled": True,
     "control_system.limits_checking.enabled": True,
     "control_system.limits_checking.database_path": str(e2e_conftest.LIMITS_DB_PATH),
-    "control_system.limits_checking.allow_unlisted_channels": True,
+    "control_system.limits_checking.mode": "optional",
 }
 
 #: Floor for this module's own test count -- a guard against a refactor that

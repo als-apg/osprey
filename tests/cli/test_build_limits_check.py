@@ -35,7 +35,7 @@ def _control_system(**overrides) -> dict:
         "writes_enabled": True,
         "limits_checking": {
             "enabled": True,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "database_path": "data/channel_limits.json",
         },
     }
@@ -150,7 +150,7 @@ def test_a_per_type_block_that_switches_checking_off_wins(tmp_path: Path) -> Non
     section = _control_system(
         connector={
             "epics": {
-                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+                "limits_checking": {"enabled": False, "mode": "exclusive"},
             }
         }
     )

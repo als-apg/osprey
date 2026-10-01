@@ -272,7 +272,7 @@ def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
                 "limits_checking": {
                     "enabled": True,
                     "database_path": str(limits_db),
-                    "allow_unlisted_channels": False,
+                    "mode": "exclusive",
                     "on_violation": "error",
                 }
             }
@@ -322,7 +322,7 @@ def test_wrapper_injects_validator_when_present(tmp_path, monkeypatch):
                 "limits_checking": {
                     "enabled": True,
                     "database_path": str(limits_db),
-                    "allow_unlisted_channels": False,
+                    "mode": "exclusive",
                     "on_violation": "error",
                 }
             }

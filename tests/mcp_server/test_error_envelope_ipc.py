@@ -195,7 +195,7 @@ async def limits_pair(tmp_path):
         "limits_checking": {
             "enabled": True,
             "database_path": str(limits_db),
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "on_violation": "error",
         },
         "connector": {MOCK_TYPE: {"response_delay_ms": 0, "noise_level": 0.0}},

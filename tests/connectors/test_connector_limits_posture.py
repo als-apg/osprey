@@ -1,7 +1,7 @@
 """Each connector builds its limits validator for its own connector type.
 
-A deployment may relax ``allow_unlisted_channels`` for its simulator while its
-live machine refuses unlisted channels. The block that decides is
+A deployment may run its simulator ``mode: optional`` while its live machine
+runs ``mode: exclusive``. The block that decides is
 ``control_system.connector.<type>.limits_checking``, so the connector has to ask
 about the type it *is* rather than about the deployment as a whole — otherwise
 the simulator's relaxation would leak onto the live machine, or the live
@@ -27,12 +27,12 @@ import pytest
 from osprey.connectors.types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey.errors import ChannelLimitsViolationError
 
-DEPLOYMENT_WIDE_ALLOW_KEY = "control_system.limits_checking.allow_unlisted_channels"
+DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
 
 
-def _type_allow_key(connector_type: str) -> str:
-    """The per-type spelling of the unlisted-channel key for *connector_type*."""
-    return f"control_system.connector.{connector_type}.limits_checking.allow_unlisted_channels"
+def _type_mode_key(connector_type: str) -> str:
+    """The per-type spelling of the mode key for *connector_type*."""
+    return f"control_system.connector.{connector_type}.limits_checking.mode"
 
 
 def _limits_db(tmp_path: Path) -> Path:
@@ -51,14 +51,12 @@ def _permissive_simulators_section() -> dict[str, Any]:
     """
     return {
         "type": EPICS,
-        "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+        "limits_checking": {"enabled": True, "mode": "exclusive"},
         "connector": {
             EPICS: {"gateway_address": "live.example"},
-            VIRTUAL_ACCELERATOR: {
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
-            },
-            LIVE_STANDIN: {"limits_checking": {"enabled": True, "allow_unlisted_channels": True}},
-            DOOCS: {"limits_checking": {"enabled": True, "allow_unlisted_channels": True}},
+            VIRTUAL_ACCELERATOR: {"limits_checking": {"enabled": True, "mode": "optional"}},
+            LIVE_STANDIN: {"limits_checking": {"enabled": True, "mode": "optional"}},
+            DOOCS: {"limits_checking": {"enabled": True, "mode": "optional"}},
         },
     }
 
@@ -85,9 +83,9 @@ def _patch_config(monkeypatch, section: dict[str, Any], db_path: Path) -> None:
 
 
 def _posture(connector) -> tuple[Any, Any]:
-    """The unlisted-channel policy the connector's validator was built with."""
+    """The limits mode the connector's validator was built with."""
     policy = connector._limits_validator.policy
-    return policy["allow_unlisted_channels"], policy["allow_unlisted_key"]
+    return policy["mode"], policy["mode_key"]
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +115,7 @@ class TestMockConnectorPosture:
             VIRTUAL_ACCELERATOR,
         )
 
-        assert _posture(connector) == (True, _type_allow_key(VIRTUAL_ACCELERATOR))
+        assert _posture(connector) == ("optional", _type_mode_key(VIRTUAL_ACCELERATOR))
 
     @pytest.mark.asyncio
     async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
@@ -126,7 +124,7 @@ class TestMockConnectorPosture:
             monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), None
         )
 
-        assert _posture(connector) == (False, DEPLOYMENT_WIDE_ALLOW_KEY)
+        assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
     @pytest.mark.asyncio
     async def test_type_without_a_block_inherits_deployment_wide(self, monkeypatch, tmp_path):
@@ -135,7 +133,7 @@ class TestMockConnectorPosture:
             monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
         )
 
-        assert _posture(connector) == (False, DEPLOYMENT_WIDE_ALLOW_KEY)
+        assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
     @pytest.mark.asyncio
     async def test_refusal_names_the_key_that_answered(self, monkeypatch, tmp_path):
@@ -151,7 +149,7 @@ class TestMockConnectorPosture:
         with pytest.raises(ChannelLimitsViolationError) as excinfo:
             connector._limits_validator.validate("NOT:IN:DB", 1.0)
 
-        assert DEPLOYMENT_WIDE_ALLOW_KEY in str(excinfo.value)
+        assert DEPLOYMENT_WIDE_MODE_KEY in str(excinfo.value)
 
     @pytest.mark.asyncio
     async def test_simulator_allows_the_unlisted_channel_the_live_machine_refuses(
@@ -208,7 +206,7 @@ class TestEPICSConnectorPosture:
         connector._connector_type = LIVE_STANDIN
         await connector.connect({"gateways": _gateways()})
 
-        assert _posture(connector) == (True, _type_allow_key(LIVE_STANDIN))
+        assert _posture(connector) == ("optional", _type_mode_key(LIVE_STANDIN))
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
@@ -220,7 +218,7 @@ class TestEPICSConnectorPosture:
         connector._connector_type = EPICS
         await connector.connect({"gateways": _gateways()})
 
-        assert _posture(connector) == (False, DEPLOYMENT_WIDE_ALLOW_KEY)
+        assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
@@ -231,7 +229,7 @@ class TestEPICSConnectorPosture:
         connector = EPICSConnector()
         await connector.connect({"gateways": _gateways()})
 
-        assert _posture(connector) == (False, DEPLOYMENT_WIDE_ALLOW_KEY)
+        assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
@@ -246,7 +244,7 @@ class TestEPICSConnectorPosture:
         connector._connector_type = VIRTUAL_ACCELERATOR
         await connector.connect({"gateways": _gateways()})
 
-        assert _posture(connector) == (True, _type_allow_key(VIRTUAL_ACCELERATOR))
+        assert _posture(connector) == ("optional", _type_mode_key(VIRTUAL_ACCELERATOR))
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +278,7 @@ class TestDOOCSConnectorPosture:
             monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), DOOCS
         )
 
-        assert _posture(connector) == (True, _type_allow_key(DOOCS))
+        assert _posture(connector) == ("optional", _type_mode_key(DOOCS))
 
     @pytest.mark.asyncio
     async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
@@ -288,4 +286,4 @@ class TestDOOCSConnectorPosture:
             monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), None
         )
 
-        assert _posture(connector) == (False, DEPLOYMENT_WIDE_ALLOW_KEY)
+        assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)

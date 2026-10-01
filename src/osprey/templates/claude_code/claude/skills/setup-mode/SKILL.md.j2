@@ -134,7 +134,7 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 | `control_system.writes_enabled` | Cold | The posture a connector type inherits when its own block says nothing. Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey build` + restart |
 | `control_system.connector.<type>.writes_enabled` | Cold | Write posture for one connector type, which answers instead of the key above for that type — same rebuild and restart, and `permissions.deny` changes shape when the two targets stop agreeing |
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
-| `control_system.limits_checking.allow_unlisted_channels` | Hot | Hooks re-read on each call |
+| `control_system.limits_checking.mode` | Hot | Hooks re-read on each call |
 | `control_system.connector.<type>.limits_checking.*` | Hot | Per-connector-type limits-checking posture, which answers instead of the keys above for that type — hooks re-read on each call |
 | `approval.enabled` | Hot | Hooks re-read on each call; false allows every gated tool |
 | `approval.default_policy` / `approval.tools.<tool>` | Hot | Per-tool approval policy; hooks re-read on each call |

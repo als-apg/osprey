@@ -1040,10 +1040,7 @@ def test_render_with_a_half_written_limits_block_is_unrunnable(tmp_path: Path) -
 
     (error,) = _render_limits_errors(render_dir)
 
-    assert (
-        "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-        in error
-    )
+    assert "control_system.connector.virtual_accelerator.limits_checking.mode" in error
 
 
 def test_render_with_a_complete_limits_block_is_runnable(tmp_path: Path) -> None:
@@ -1052,9 +1049,7 @@ def test_render_with_a_complete_limits_block_is_runnable(tmp_path: Path) -> None
         tmp_path,
         {
             "connector": {
-                "virtual_accelerator": {
-                    "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
-                }
+                "virtual_accelerator": {"limits_checking": {"enabled": True, "mode": "optional"}}
             }
         },
     )
@@ -1171,7 +1166,7 @@ def test_build_refuses_a_profile_writing_only_one_limits_leaf(tmp_path: Path) ->
 
     assert result.exit_code != 0, result.output
     assert "Profile validation failed" in result.output
-    assert "allow_unlisted_channels" in result.output
+    assert "mode" in result.output
     assert "virtual_accelerator" in result.output
 
 
@@ -1199,8 +1194,7 @@ def test_build_passes_a_complete_per_type_limits_block(tmp_path: Path) -> None:
         tmp_path,
         {
             "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
-            "control_system.connector.virtual_accelerator.limits_checking."
-            "allow_unlisted_channels": True,
+            "control_system.connector.virtual_accelerator.limits_checking.mode": "optional",
         },
         "whole-block",
     )

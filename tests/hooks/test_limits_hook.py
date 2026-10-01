@@ -22,7 +22,7 @@ from osprey_connectors.types import most_restrictive_limits_posture, target_limi
 from tests._control_context_fixtures import state_dir_under, write_control_context
 
 
-def _make_limits_config(tmp_path, channels_db, enabled=True, allow_unlisted=False):
+def _make_limits_config(tmp_path, channels_db, enabled=True, mode="exclusive"):
     """Create config.yml + channel_limits.json for a deployment-wide posture.
 
     The single-block shape, which is what every deployment had before per-type
@@ -38,7 +38,7 @@ def _make_limits_config(tmp_path, channels_db, enabled=True, allow_unlisted=Fals
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": enabled,
-                "allow_unlisted_channels": allow_unlisted,
+                "mode": mode,
             },
         },
         channels_db,
@@ -113,7 +113,7 @@ def test_valid_value_passes(tmp_path, hook_runner):
     config = _make_limits_config(
         tmp_path,
         {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-        allow_unlisted=True,
+        mode="optional",
     )
 
     result = hook_runner(
@@ -234,11 +234,11 @@ def test_clone_is_validated_without_a_hook_config(tmp_path, hook_runner):
 
 
 def test_unlisted_channel_blocked_by_default(tmp_path, hook_runner):
-    """Unlisted channels are blocked when allow_unlisted_channels is false (default)."""
+    """Unlisted channels are blocked when mode is exclusive (default)."""
     config = _make_limits_config(
         tmp_path,
         {"KNOWN:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-        allow_unlisted=False,
+        mode="exclusive",
     )
 
     result = hook_runner(
@@ -416,7 +416,7 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
 
 
 #: The one channel the limits database lists, and one it does not. The unlisted
-#: write is what the `allow_unlisted_channels` leaf decides, which is the leaf a
+#: write is what the `mode` leaf decides, which is the leaf a
 #: per-type block exists to differ on.
 KNOWN_DB = {"KNOWN:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}}
 UNLISTED_CHANNEL = "UNKNOWN:PV"
@@ -473,12 +473,12 @@ def _unlisted_write(tmp_path, hook_runner, config):
 #: reachable set a targetless call folds over is both targets.
 VA_PERMISSIVE = {
     "type": "epics",
-    "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+    "limits_checking": {"enabled": True, "mode": "exclusive"},
     "connector": {
         "epics": {"port_host": "live-gw.example.org"},
         "virtual_accelerator": {
             "port_host": "127.0.0.1",
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+            "limits_checking": {"enabled": True, "mode": "optional"},
         },
     },
 }
@@ -489,15 +489,15 @@ VA_PERMISSIVE = {
 #: which is the mock, and so answers the deployment-wide posture instead.
 STRAY_LIVE_BLOCK = {
     "type": "mock",
-    "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
-    "connector": {"epics": {"limits_checking": {"enabled": True, "allow_unlisted_channels": True}}},
+    "limits_checking": {"enabled": True, "mode": "exclusive"},
+    "connector": {"epics": {"limits_checking": {"enabled": True, "mode": "optional"}}},
 }
 
 #: A per-type block that states one leaf. It overrides whole, so it answers
 #: nothing: the validator is the failsafe one and every write is refused.
 HALF_WRITTEN_VA_BLOCK = {
     "type": "epics",
-    "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+    "limits_checking": {"enabled": True, "mode": "optional"},
     "connector": {
         "epics": {"port_host": "live-gw.example.org"},
         "virtual_accelerator": {"limits_checking": {"enabled": True}},
@@ -508,9 +508,9 @@ HALF_WRITTEN_VA_BLOCK = {
 #: of `VA_PERMISSIVE`, and the shape whose refusal must name a per-type key.
 LIVE_STRICT_BLOCK = {
     "type": "epics",
-    "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+    "limits_checking": {"enabled": True, "mode": "optional"},
     "connector": {
-        "epics": {"limits_checking": {"enabled": True, "allow_unlisted_channels": False}},
+        "epics": {"limits_checking": {"enabled": True, "mode": "exclusive"}},
     },
 }
 
@@ -521,7 +521,7 @@ LIVE_STRICT_BLOCK = {
 #: limits checking configured" and wave the write through.
 UNREADABLE_DEPLOYMENT_WIDE = {
     "type": "epics",
-    "limits_checking": {"enabled": "${OSPREY_LIMITS_ENABLED}", "allow_unlisted_channels": False},
+    "limits_checking": {"enabled": "${OSPREY_LIMITS_ENABLED}", "mode": "exclusive"},
     "connector": {"epics": {"port_host": "live-gw.example.org"}},
 }
 
@@ -544,11 +544,11 @@ POSTURE_SHAPES = [
     (LIVE_STRICT_BLOCK, "live"),
     (LIVE_STRICT_BLOCK, "va"),
     (
-        {"type": "mock", "limits_checking": {"enabled": True, "allow_unlisted_channels": True}},
+        {"type": "mock", "limits_checking": {"enabled": True, "mode": "optional"}},
         "live",
     ),
     (
-        {"type": "mock", "limits_checking": {"enabled": False, "allow_unlisted_channels": False}},
+        {"type": "mock", "limits_checking": {"enabled": False, "mode": "exclusive"}},
         "live",
     ),
     ({"type": "mock"}, None),
@@ -587,7 +587,7 @@ def _expected_allowed(posture):
         return False
     if posture.enabled is not True:
         return True
-    return posture.allow_unlisted is True
+    return posture.mode == "optional"
 
 
 @pytest.mark.parametrize(("section", "target"), POSTURE_SHAPES, ids=POSTURE_SHAPE_IDS)
@@ -661,10 +661,7 @@ def test_live_refusal_names_the_deployment_wide_key(tmp_path, hook_runner):
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "deny"
-    assert (
-        "control_system.limits_checking.allow_unlisted_channels"
-        in (output["permissionDecisionReason"])
-    )
+    assert "control_system.limits_checking.mode" in (output["permissionDecisionReason"])
 
 
 def test_va_passes_where_the_same_deployment_refuses_on_live(tmp_path, hook_runner):
@@ -689,7 +686,7 @@ def test_per_type_refusal_names_the_connector_block(tmp_path, hook_runner):
     """A refusal read from a connector block names that block, not the global key.
 
     A deployment permissive deployment-wide and strict on its ring is exactly
-    the case where naming `control_system.limits_checking.allow_unlisted_channels`
+    the case where naming `control_system.limits_checking.mode`
     would send the operator to flip a key that is already `true` and changes
     nothing.
     """
@@ -703,7 +700,7 @@ def test_per_type_refusal_names_the_connector_block(tmp_path, hook_runner):
     # Assert
     assert result is not None
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-    assert "control_system.connector.epics.limits_checking.allow_unlisted_channels" in reason
+    assert "control_system.connector.epics.limits_checking.mode" in reason
 
 
 def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, hook_runner):
@@ -731,10 +728,7 @@ def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, ho
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "deny"
-    assert (
-        "control_system.limits_checking.allow_unlisted_channels"
-        in (output["permissionDecisionReason"])
-    )
+    assert "control_system.limits_checking.mode" in (output["permissionDecisionReason"])
 
 
 def test_stray_connector_block_does_not_answer_for_a_targetless_call(tmp_path, hook_runner):
@@ -808,20 +802,18 @@ def test_osprey_unimportable_allows_the_write(tmp_path, hook_module, monkeypatch
 # and records which entry point the hook asked, which is the branch under test.
 
 #: The key a deployment-wide answer names, and the one a per-type answer does.
-DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.allow_unlisted_channels"
-VA_BLOCK_KEY = (
-    "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-)
+DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.mode"
+VA_BLOCK_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
-#: `(allow_unlisted, answering key)` for the VA-permissive / live-strict
-#: deployment, per entry point the hook can ask. The simulator takes unlisted
-#: writes; the ring, the fold across both, and the deployment-wide question an
-#: older framework asks all refuse.
+#: `(mode, answering key)` for the VA-optional / live-exclusive deployment,
+#: per entry point the hook can ask. The simulator takes writes to a channel
+#: with no record; the live machine, the fold across both, and the
+#: deployment-wide question an older framework asks all refuse.
 STAND_IN_POSTURES = {
-    ("target", "va"): (True, VA_BLOCK_KEY),
-    ("target", "live"): (False, DEPLOYMENT_WIDE_KEY),
-    ("most_restrictive", None): (False, DEPLOYMENT_WIDE_KEY),
-    ("deployment_wide", None): (False, DEPLOYMENT_WIDE_KEY),
+    ("target", "va"): ("optional", VA_BLOCK_KEY),
+    ("target", "live"): ("exclusive", DEPLOYMENT_WIDE_KEY),
+    ("most_restrictive", None): ("exclusive", DEPLOYMENT_WIDE_KEY),
+    ("deployment_wide", None): ("exclusive", DEPLOYMENT_WIDE_KEY),
 }
 
 
@@ -839,18 +831,17 @@ def _stand_in_validator_class(calls, per_target_api=True, checks=None, step_chec
     """
 
     class _StandIn:
-        def __init__(self, allow_unlisted, key):
-            self._allow_unlisted = allow_unlisted
+        def __init__(self, mode, key):
+            self._mode = mode
             self._key = key
 
         def _checked(self, entry_point, channel):
             if checks is not None:
                 checks.append(entry_point)
-            if channel in KNOWN_DB or self._allow_unlisted:
+            if channel in KNOWN_DB or self._mode == "optional":
                 return
             raise ValueError(
-                f"Channel '{channel}' not in limits database "
-                f"('{self._key}' does not allow unlisted channels)"
+                f"Channel '{channel}' not in limits database ('{self._key}' is not 'optional')"
             )
 
         def validate(self, channel, _value):

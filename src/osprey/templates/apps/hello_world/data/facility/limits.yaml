@@ -1,7 +1,7 @@
 # The limits hook checks every write against these records. A channel not
-# listed here follows control_system.limits_checking.allow_unlisted_channels;
-# hello-world allows unlisted channels, so listing a channel is how you put
-# bounds on it or block it.
+# listed here follows control_system.limits_checking.mode; hello-world runs
+# optional, so a channel with no record is written with no limits and listing
+# a channel is how you put bounds on it or block it.
 #
 # A setpoint record with min_value and max_value is writable within them.
 # writable: false blocks every write to the channel. confirm: false turns off

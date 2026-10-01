@@ -1581,7 +1581,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
             "    Targets:    rehearse on it with `control_target_set standin`; "
             "`control_target_set live` reaches the `epics` gateways your facility "
             "authored, and still asks for this profile's own operator "
-            "acknowledgment and strict limits. A deployment may start on the "
+            "acknowledgment. A deployment may start on the "
             "stand-in with `osprey set connector=live_standin`."
         )
     if wrote_gateways:
