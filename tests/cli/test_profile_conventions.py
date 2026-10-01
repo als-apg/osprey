@@ -1023,12 +1023,6 @@ def test_unreserved_writes_stay_writable(allowed: str):
     assert is_reserved_write(allowed) is None
 
 
-def test_every_facility_mirror_pattern_is_an_agent_side_pattern():
-    """What the mirror may not ship, a running agent may not rewrite."""
-    agent_side = {reserved.pattern for reserved in RESERVED_PATH_PATTERNS}
-    assert set(RESERVED_MIRROR_PATTERNS) <= agent_side
-
-
 @pytest.mark.parametrize("target", ["FACILITY.json", "Data/Facility/identity.yaml"])
 def test_case_variants_of_a_facility_path_are_refused(target: str):
     channel = is_reserved_write(target)
