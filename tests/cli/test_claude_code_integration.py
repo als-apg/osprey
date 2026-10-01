@@ -17,6 +17,7 @@ from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
+from osprey.facility.views.facts import zero_source_facts
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
 
 
@@ -657,6 +658,7 @@ class TestChannelFinderAgentTemplateFailGlobal:
             channel_finder_hierarchy=None,
             enabled_agents={"channel-finder"},
             facility_name="TestFacility",
+            facility_facts=zero_source_facts({"code": "lab", "name": "lab", "description": None}),
         )
 
     def test_unknown_mode_fails_the_render_and_names_the_mode(self):
