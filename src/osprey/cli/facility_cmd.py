@@ -245,7 +245,8 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 
     present = _authored_record_sources(facility_dir)
     if present:
-        click.echo(f"import mml: authored-present: {len(present)} files", err=True)
+        noun = "file" if len(present) == 1 else "files"
+        click.echo(f"import mml: authored-present: {len(present)} {noun}", err=True)
         for path in present:
             click.echo(f"rm {shlex.quote(_shown(path, repo_root))}", err=True)
         ctx.exit(1)

@@ -25,7 +25,11 @@ EXPORT = TREE / "quokka.sr.ao.json"
 EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
 
 #: The stop's first line, with the count of the files it then names.
-STOP = "import mml: authored-present: {} files"
+STOP = "import mml: authored-present: {} {}"
+
+
+def _stop(count: int) -> str:
+    return STOP.format(count, "file" if count == 1 else "files")
 
 
 @pytest.fixture(scope="module")
@@ -107,7 +111,7 @@ def test_an_authored_tree_stops_the_import_and_names_each_file(repo: Path) -> No
     assert result.exit_code == 1
     removals = _removals(result)
     assert result.stderr.splitlines() == [
-        STOP.format(len(removals)),
+        _stop(len(removals)),
         *(f"rm {path}" for path in removals),
     ]
     assert "data/facility/records/channels.yaml" in removals
@@ -198,7 +202,10 @@ def test_a_limits_file_without_the_layer_header_is_refused_and_named(
     result = _import(cleared)
 
     assert result.exit_code == 1
-    assert result.stderr.splitlines() == [STOP.format(1), "rm data/facility/limits.yaml"]
+    assert result.stderr.splitlines() == [
+        "import mml: authored-present: 1 file",
+        "rm data/facility/limits.yaml",
+    ]
     assert not (_facility(cleared) / LAYER_DIR / "channels.yaml").exists()
 
 

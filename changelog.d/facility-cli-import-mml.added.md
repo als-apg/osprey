@@ -10,8 +10,9 @@ While `data/facility/` holds an authored record source that would merge
 against the layer — a file of `records/` or `decks/`, `models.yaml`, or a
 `seeds.yaml`, `limits.yaml`, `identity.yaml` or `measurement/` file that does
 not open with the layer's header line — the verb prints
-`import mml: authored-present: <n> files` and one `rm <path>` line per file and
-exits 1; `fixes.yaml`, `classes.yaml` and `knowledge/` are never named.
+`import mml: authored-present: <n> files` (`1 file` for one) and one
+`rm <path>` line per file and exits 1; `fixes.yaml`, `classes.yaml` and
+`knowledge/` are never named.
 `--print-exporter` prints the MATLAB exporter the layer ships and needs neither
 a repo nor an export. A wired setpoint whose export `Range` lacks a finite edge
 is seeded into `limits.yaml` as `writable: false` beside whichever edge is
