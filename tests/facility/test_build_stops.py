@@ -1605,8 +1605,9 @@ def test_each_sentence_is_listed_once() -> None:
     assert len(sentences) == len(set(sentences))
 
 
-#: The calls whose last positional argument is a stop's remedy.
-_REMEDY_CALLS = frozenset({"stop", "_error", "_path_error", "FacilityBuildError"})
+#: The calls whose last positional argument is a stop's remedy, wrapper helpers
+#: that forward their last positional argument as the remedy included.
+_REMEDY_CALLS = frozenset({"stop", "_error", "_path_error", "_invalid", "FacilityBuildError"})
 
 _RECORDS_FILE = re.compile(r"records/[A-Za-z_]+\.yaml")
 
