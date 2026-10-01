@@ -73,14 +73,17 @@ def test_writes_record_sources_never_a_view(spear3: Path) -> None:
     assert sorted(p.name for p in layer.iterdir()) == [
         "StorageRing.response.json",
         "channels.yaml",
+        "decks",
         "devices.yaml",
         "groups.yaml",
         "mapping.yaml",
         "models.yaml",
     ]
-    assert sorted(p.relative_to(spear3).as_posix() for p in spear3.rglob("*") if p.is_file()) == [
-        f"{LAYER_DIR}/{p.name}" for p in sorted(layer.iterdir())
-    ]
+    assert sorted(p.name for p in (layer / "decks").iterdir()) == ["StorageRing.json"]
+    files = [p for p in layer.rglob("*") if p.is_file()]
+    assert sorted(p.relative_to(spear3).as_posix() for p in spear3.rglob("*") if p.is_file()) == (
+        sorted(p.relative_to(spear3).as_posix() for p in files)
+    )
 
 
 def test_each_record_file_is_sorted_by_id(spear3: Path) -> None:
@@ -142,8 +145,19 @@ def test_a_second_import_writes_the_same_bytes(tmp_path: Path, spear3: Path) -> 
         assert (again / LAYER_DIR / name).read_bytes() == (spear3 / LAYER_DIR / name).read_bytes()
 
 
+def _stated(model: dict[str, Any]) -> dict[str, Any]:
+    """A model entry without its wiring records."""
+    return {key: value for key, value in model.items() if key != "wiring"}
+
+
 def test_a_periodic_model_states_no_settings(spear3: Path) -> None:
-    assert _rows(spear3, "models.yaml") == [{"name": "StorageRing", "engine": "pyat"}]
+    (model,) = _rows(spear3, "models.yaml")
+    assert _stated(model) == {
+        "name": "StorageRing",
+        "engine": "pyat",
+        "deck": "imported/mml/decks/StorageRing.json",
+    }
+    assert model["wiring"]
 
 
 def test_nsls2_imports_with_the_demo_ontology_blocked(tmp_path: Path) -> None:
@@ -229,12 +243,18 @@ def test_transport_from_the_model_file_runs_single_pass_from_the_deck_twiss(
 ) -> None:
     facility = _import(tmp_path, "nsls2")
     models = _by_id(_rows(facility, "models.yaml"), "name")
-    assert models["LTB"] == {
+    assert _stated(models["LTB"]) == {
         "name": "LTB",
         "engine": "pyat",
+        "deck": "imported/mml/decks/LTB.json",
         "settings": {"pyat": {"solve": "single_pass", "twiss_in": _LTB_TWISS}},
     }
-    assert models["StorageRing"] == {"name": "StorageRing", "engine": "pyat"}
+    assert list(models["LTB"]) == ["name", "engine", "deck", "settings", "wiring"]
+    assert _stated(models["StorageRing"]) == {
+        "name": "StorageRing",
+        "engine": "pyat",
+        "deck": "imported/mml/decks/StorageRing.json",
+    }
 
 
 def test_transport_from_the_machine_type_without_a_model_file(tmp_path: Path) -> None:
@@ -253,7 +273,12 @@ def test_the_model_file_decides_over_the_machine_type(tmp_path: Path) -> None:
     model_file.write_text(json.dumps(document), encoding="utf-8")
     facility = _facility(tmp_path, "nsls2")
     import_mml([export], facility)
-    assert _rows(facility, "models.yaml") == [{"name": "LTB", "engine": "pyat"}]
+    (model,) = _rows(facility, "models.yaml")
+    assert _stated(model) == {
+        "name": "LTB",
+        "engine": "pyat",
+        "deck": "imported/mml/decks/LTB.json",
+    }
 
 
 def test_a_transport_line_without_initial_twiss_stops(tmp_path: Path) -> None:

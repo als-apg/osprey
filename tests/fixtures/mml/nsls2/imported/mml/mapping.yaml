@@ -111,6 +111,25 @@ models:
     description: 'The NSLS-II linac-to-booster transfer line at 200 MeV: bends, quadrupoles, orbit correctors,
       beam position monitors and fluorescent screens.'
     provenance: stated
+    wiring:
+      HCM:
+        element_field: Setpoint
+        engine:
+          attribute: KickAngle
+          index: 0
+        calibration: linear
+      VCM:
+        element_field: Setpoint
+        engine:
+          attribute: KickAngle
+          index: 1
+        calibration: linear
+      Q:
+        element_field: Setpoint
+        engine:
+          attribute: PolynomB
+          index: 1
+        calibration: linear
 section_order:
 - StorageRing
 - LTB
