@@ -281,9 +281,9 @@ drives because your export said so and you agreed. Two documents are what you
 read to agree: the **VA MAP card**, which the OSPREY agent draws while you are
 deciding, and ``VA-REPORT.md``, which ``verify`` writes once the model exists.
 
-**Import brings the lattice in.** Run ``mml_export.m`` 2.0 once per sub-machine
-as before. It now writes five files rather than two, and naming the ``ao.json``
-imports all five:
+**Import brings the lattice in.** Run ``mml_export.m`` 2.1.0 once per sub-machine
+as before. It now writes six files rather than two, and naming the ``ao.json``
+imports all six:
 
 .. code-block:: bash
 

@@ -1273,16 +1273,40 @@ to end.
 osprey facility
 ===============
 
-Check the facility description under ``data/facility/``.
+Check the facility description under ``data/facility/`` and import an export
+into it. See :doc:`/how-to/import-mml-export` for the import end to end.
 
 ``osprey facility validate [--repo DIRECTORY]``
    Run every check ``osprey build`` makes of ``data/facility/`` and render the
    facility views against the repo's main profile in a temporary directory.
-   Nothing is written into the repo. A clean tree exits 0 and prints nothing;
-   otherwise every error of the first failing stage prints on stderr, one line
-   each and sorted, and the command exits 1. A stale fix's line carries the
-   block to paste in its place. ``--repo`` names the deployment repo; without
-   it, the nearest ``profile.yml`` at or above the current directory is used.
+   Nothing is written into the repo. A clean tree exits 0, and each model with
+   a kept ``imported/mml/<model>.response.json`` prints one
+   ``response check <model>: …`` line on stderr, pass or fail; a failing check
+   exits 1 before the render. Otherwise every error of the first failing stage
+   prints on stderr, one line each and sorted, and the command exits 1. A stale
+   fix's line carries the block to paste in its place. ``--repo`` names the
+   deployment repo; without it, the nearest ``profile.yml`` at or above the
+   current directory is used.
+
+``osprey facility import mml EXPORT... [--repo DIRECTORY]``
+   Write MML exports as the mml layer's sources under
+   ``data/facility/imported/mml/`` and seed each authored file that does not
+   exist yet. ``EXPORT`` is an export's ``<stem>.ao.json``; give every export
+   the mapping names. The mapping is checked against the exports first: a
+   problem prints one ``<key>: <message>`` line per problem, then
+   ``<n> problems in data/facility/imported/mml/mapping.yaml; fix each and
+   check again.`` (``1 problem`` for one), writes nothing and exits 1. A system
+   the mapping names and no given export carries is one such line,
+   ``models.<system>: <system> is no exported system``. A mapping with the
+   wrong structure, or a profile that does not resolve, prints a one-line
+   failure with its cause and exits 1. An authored record source that would
+   merge against the layer prints ``import mml: authored-present: <n> files``
+   (``1 file`` for one) and one ``rm <path>`` line per file and exits 1;
+   ``fixes.yaml``, ``classes.yaml`` and ``knowledge/`` are never named.
+
+``osprey facility import mml --print-exporter``
+   Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
+   export.
 
 osprey ariel
 ============
