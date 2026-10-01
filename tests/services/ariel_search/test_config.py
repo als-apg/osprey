@@ -174,6 +174,48 @@ class TestIngestionConfig:
 
         assert "ariel.ingestion.adapter is required" in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        "value",
+        [float("inf"), float("nan"), 10**400, True, 0, -60, "hourly"],
+        ids=["inf", "nan", "10**400", "True", "zero", "negative", "word"],
+    )
+    @pytest.mark.parametrize(
+        ("make_block", "config_key"),
+        [
+            (lambda v: {"poll_interval_seconds": v}, "ingestion.poll_interval_seconds"),
+            (
+                lambda v: {"watch": {"max_interval_seconds": v}},
+                "ingestion.watch.max_interval_seconds",
+            ),
+        ],
+        ids=["poll", "watch-max"],
+    )
+    def test_an_interval_that_is_not_positive_finite_seconds_is_refused(
+        self, make_block, config_key, value
+    ) -> None:
+        with pytest.raises(ConfigurationError) as exc_info:
+            IngestionConfig.from_dict({"adapter": "als_logbook", **make_block(value)})
+
+        assert exc_info.value.config_key == config_key
+        assert f"ariel.{config_key}" in str(exc_info.value)
+
+    def test_a_numeric_string_interval_is_read_as_seconds(self) -> None:
+        config = IngestionConfig.from_dict(
+            {"adapter": "als_logbook", "poll_interval_seconds": "1800"}
+        )
+        assert config.poll_interval_seconds == 1800.0
+
+    def test_an_empty_interval_takes_the_default(self) -> None:
+        config = IngestionConfig.from_dict(
+            {
+                "adapter": "als_logbook",
+                "poll_interval_seconds": None,
+                "watch": {"max_interval_seconds": None},
+            }
+        )
+        assert config.poll_interval_seconds == 3600.0
+        assert config.watch.max_interval_seconds == 3600.0
+
     def test_the_refusal_lists_the_registered_adapters(self) -> None:
         """An operator who meets it is told what to write instead."""
         with pytest.raises(ConfigurationError) as exc_info:
