@@ -155,27 +155,36 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the drain timeout, and the five `extends` children inherit it; the other
     # three stand still. 5 is the reader's default, so a rebuilt project
     # behaves as before.
-    "ariel-standalone": ("sha256:fba3b12cb702e83da717b34e2905c69e6522473b552dc7baa58ca6baed3035e8"),
+    # The twentieth move, and the two presets that carry a text-embedding block:
+    # ariel-standalone and control-assistant gained `max_input_tokens: 2048` on
+    # the `nomic-embed-text` entry under
+    # `ariel.enhancement_modules.text_embedding.models`, the input window the
+    # embedding server applies. A rebuilt project cuts a longer entry to that
+    # window where it used the 512-token default before, so the staleness
+    # advisory firing on already-deployed projects is the correct signal. The
+    # five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    "ariel-standalone": ("sha256:49b0d114e4724353920115354c72b404e6e0bdc77789a9b426577aacc7e585cf"),
     "channel-finder-standalone": (
         "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
     ),
     "control-assistant": (
-        "sha256:bed7b7f4388ed1234f1347f6373aa5692974196d075eca159db18c8567f64bfc"
+        "sha256:f43cf8e6a142983610a5c9197256182c7e6905289ce5ef7fde9c963c89f9b8b6"
     ),
     "control-assistant-admin": (
-        "sha256:1af04ccad907032ad2559d460319b8f46c26528457928cef2a8cc1eb7bdd546f"
+        "sha256:f95d9d053378e4673e926f3490afdf45fe49626c4292a6569390f79e05b7b329"
     ),
     "control-assistant-knowledge": (
-        "sha256:b9e8496d461097b09cd65137b42f69e96c29a6f6ab659b071d32936db6ededca"
+        "sha256:8eaf412ab2d8b62124d2954614c7d4aa3236bec499cb5e8a8e8c92bcf1e0b680"
     ),
     "control-assistant-logbook": (
-        "sha256:b77c0eb583972f3cd3f0e0a82a16af3f32e8260fba88cc9c385381a1eb7161a0"
+        "sha256:2e92902090289a983aa1587824d9d24b9fd2b4332ed5e436cd83e2b9918a38f0"
     ),
     "control-assistant-readonly": (
-        "sha256:ad0c2053e17e50e00564aef38e9a1bb443acee76d17b562bd556ba8a16554009"
+        "sha256:6925fe118e1b76b6ecdcd7f89742a802b70b2d758ca6f7702e1f0692ba9bada1"
     ),
     "control-assistant-readwrite": (
-        "sha256:5c815f1c2186eb6d12905d177b4cb4e253959e3ab27288edde45c91e4bf2bfb4"
+        "sha256:7211e2db4afc7e79c7f9798e936c868394d9e6d366b271b30adb7eb813c32ea1"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }
