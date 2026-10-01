@@ -23,3 +23,11 @@ What else changes for callers:
 - Only one confirming write per channel is in flight at a time; a retry waits
   for the earlier one within its own deadline.
 - A char waveform takes text on write and reads back as unsigned bytes.
+- pvapy reads the `EPICS_CA_*` / `EPICS_PVA_*` environment once per process, at
+  its first channel. A process that reconnects the EPICS connector to a
+  different endpoint — a notebook kernel whose control target moved — is now
+  refused with `ControlTargetUnreachableError`, naming both endpoints, instead
+  of silently talking to the previous gateway. Start a fresh process to reach
+  the new endpoint.
+- The `max_step` read made by the runtime's limits check runs on the
+  connector's worker threads, so a notebook cell no longer hangs on macOS.
