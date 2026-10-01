@@ -1,0 +1,1 @@
+The `als_logbook` adapter stores entry text as plain text. HTML entities are decoded and the logbook's markup becomes line breaks, paragraphs and list items, so ARIEL Browse, keyword search, embeddings and agent tools no longer show `&lt;br /&gt;`.
