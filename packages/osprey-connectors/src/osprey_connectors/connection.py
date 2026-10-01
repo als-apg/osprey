@@ -47,8 +47,10 @@ LoginKind = Literal["token", "password"]
 #: Every login form the shape defines.
 ALL_LOGINS: frozenset[LoginKind] = frozenset({"token", "password"})
 
-#: What a ``*_env`` value must look like: an environment variable name.
-ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+#: What an environment variable name looks like, wherever a config names one. ``\A`` and
+#: ``\Z`` anchor the whole string, so ``match`` and ``fullmatch`` agree; a ``$`` anchor would
+#: also match just before a trailing newline.
+ENV_NAME_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
 
 _AUTH_KEYS = ("token_env", "username", "password_env")
 #: The ``auth:`` shape, named in every refusal of it.

@@ -114,6 +114,17 @@ def test_a_variable_name_that_is_not_one_is_refused_without_echoing_it(value):
         assert value not in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    "auth",
+    [{"token_env": "TOKEN\n"}, {"username": "u", "password_env": "PASSWORD\n"}],
+    ids=["token_env", "password_env"],
+)
+def test_a_variable_name_with_a_trailing_newline_is_refused(auth):
+    """No environment holds a name ending in a newline, so the login could never resolve."""
+    with pytest.raises(ValueError, match="must name an environment variable"):
+        _read({"auth": auth})
+
+
 @pytest.mark.parametrize("value", ["", "  "])
 def test_a_blank_url_reads_as_unset(value):
     assert _read({"url": value}).url is None
