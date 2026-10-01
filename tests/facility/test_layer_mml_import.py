@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey.facility.layers.mml.importer import LAYER_DIR, MappingProblems, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
 from osprey.facility.validate import run_stages
 from tests.facility.test_word_ratchet import OUTSIDE_FORMAT_FILES
@@ -318,3 +318,24 @@ def test_a_transport_line_without_initial_twiss_stops(tmp_path: Path) -> None:
         "import mml: mapping-undecided: LTB: transport line without initial twiss"
     )
     assert not (facility / LAYER_DIR / "models.yaml").exists()
+
+
+def test_a_mapping_that_fails_its_check_stops_the_import_before_anything_is_written(
+    tmp_path: Path,
+) -> None:
+    facility = _facility(tmp_path, "synthetic")
+    mapping = facility / MAPPING_FILE
+    text = mapping.read_text(encoding="utf-8")
+    assert text.count("    name: SR\n") == 1
+    mapping.write_text(text.replace("    name: SR\n", "    name: S R\n"), encoding="utf-8")
+
+    with pytest.raises(MappingProblems) as stop:
+        import_mml([FIXTURES / "synthetic" / "quokka.sr.ao.json"], facility)
+
+    assert stop.value.exit_code == 1
+    lines = stop.value.format_message().splitlines()
+    assert lines[0] == "models.SR.name: 'S R' is not PN_LOCAL"
+    assert lines[1:-1] == [str(problem) for problem in stop.value.problems[1:]]
+    assert lines[-1] == f"{len(lines) - 1} problems in {mapping}; fix each and check again."
+    assert sorted(path.name for path in (facility / LAYER_DIR).iterdir()) == ["mapping.yaml"]
+    assert sorted(path.name for path in facility.iterdir()) == ["imported"]

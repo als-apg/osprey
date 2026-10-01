@@ -2,7 +2,10 @@
 
 :func:`import_mml` reads one or more exports, loads the layer's mapping (or
 writes a draft and stops, :func:`~osprey.facility.layers.mml.mapping.load_or_draft`)
-and writes the layer's record files. It writes sources, never a view: the
+checks it against the exports
+(:func:`~osprey.facility.layers.mml.mapping.check_mapping`; a mapping with a
+problem stops the import before anything is written) and writes the layer's
+record files. It writes sources, never a view: the
 build merges them with every other layer.
 
 What is written, relative to ``data/facility/``:
@@ -64,15 +67,20 @@ import shutil
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
+
+import click
 
 from osprey.facility.layers.mml.decks import DECKS_DIR, write_deck
 from osprey.facility.layers.mml.identity import common_class, device_ids, endpoints
 from osprey.facility.layers.mml.mapping import (
+    MAPPING_FILE,
     FieldAnswer,
     ImportStop,
     Mapping,
     OwnerMap,
+    Problem,
+    check_mapping,
     field_roles,
     load_or_draft,
 )
@@ -87,6 +95,7 @@ __all__ = [
     "MODEL_SUFFIX",
     "TRANSPORT",
     "Exports",
+    "MappingProblems",
     "import_mml",
     "read_exports",
     "write_records",
@@ -217,6 +226,37 @@ def read_exports(paths: Sequence[Path]) -> Exports:
     return exports
 
 
+class MappingProblems(click.ClickException):
+    """The mapping fails its check: one line per problem, then how many there are.
+
+    Args:
+        path: The mapping file.
+        problems: What the check refused, in its order.
+    """
+
+    exit_code = 1
+
+    def __init__(self, path: Path, problems: Sequence[Problem]) -> None:
+        self.path = path
+        self.problems = tuple(problems)
+        count = len(self.problems)
+        noun = "problem" if count == 1 else "problems"
+        lines = [str(problem) for problem in self.problems]
+        lines.append(f"{count} {noun} in {path}; fix each and check again.")
+        super().__init__("\n".join(lines))
+
+    def show(self, file: IO[Any] | None = None) -> None:
+        """Write the lines alone, with no ``Error: `` prefix.
+
+        Args:
+            file: The stream to write to; stderr when omitted.
+        """
+        if file is None:
+            click.echo(self.format_message(), err=True, color=self.show_color)
+        else:
+            click.echo(self.format_message(), file=file, color=self.show_color)
+
+
 def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
     """Import MML exports as the mml layer's record sources and seed the authored files.
 
@@ -234,14 +274,16 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
             undecided; ``mapping-invalid`` for a ``devices`` answer the
             export cannot carry; ``export-invalid`` or ``reference-missing``
             from the wiring pass.
+        MappingProblems: The mapping fails its check; nothing is written.
         MappingError: The mapping has the wrong structure.
     """
-    import click
-
     from osprey.facility.layers.mml.seed import seed_once
 
     exports = read_exports(paths)
     mapping = load_or_draft(facility_dir, exports.ao, exports.ad or None, exports.va or None)
+    problems = check_mapping(mapping, exports.ao)
+    if problems:
+        raise MappingProblems(facility_dir / MAPPING_FILE, problems)
     answers = _export_answers(mapping)
     judged, views = _carried(exports, mapping, answers)
     written = _write_records(exports, mapping, facility_dir, answers, judged, views)
