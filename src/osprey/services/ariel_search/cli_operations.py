@@ -1333,8 +1333,11 @@ async def run_enhance(
 ) -> EnhanceResult:
     """Run enhancement modules on entries."""
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.database.repository import MAX_ENHANCEMENT_ATTEMPTS
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
+    from osprey.utils.logger import get_logger
 
+    logger = get_logger("ariel")
     config = _ariel_config(config_dict)
     enhancers = create_enhancers_from_config(config)
     if module:
@@ -1351,26 +1354,28 @@ async def run_enhance(
 
     service = await create_ariel_service(config)
     async with service:
+        # Which enhancers each entry is owed, so a module that finished an entry
+        # or set it aside never runs on it again.
+        owed: dict[str, set[str]] = {}
+        entries: list[EnhancedLogbookEntry] = []
+
+        def _collect(found: list[EnhancedLogbookEntry], names: list[str]) -> None:
+            for entry in found:
+                entry_id = entry["entry_id"]
+                if entry_id not in owed:
+                    owed[entry_id] = set()
+                    entries.append(entry)
+                owed[entry_id].update(names)
+
         if force:
-            entries = await service.repository.search_by_time_range(limit=limit)
-        elif module:
-            entries = await service.repository.get_incomplete_entries(
-                module_name=module,
-                limit=limit,
-            )
+            _collect(await service.repository.search_by_time_range(limit=limit), module_names)
         else:
-            # No specific module — collect entries incomplete for ANY enhancer
-            seen_ids: set[str] = set()
-            entries = []
             for enhancer in enhancers:
                 incomplete = await service.repository.get_incomplete_entries(
                     module_name=enhancer.name,
                     limit=limit,
                 )
-                for entry in incomplete:
-                    if entry["entry_id"] not in seen_ids:
-                        seen_ids.add(entry["entry_id"])
-                        entries.append(entry)
+                _collect(incomplete, [enhancer.name])
 
         if progress:
             progress(f"Processing {len(entries)} entries...")
@@ -1378,6 +1383,8 @@ async def run_enhance(
         async with service.pool.connection() as conn:
             for i, entry in enumerate(entries):
                 for enhancer in enhancers:
+                    if enhancer.name not in owed[entry["entry_id"]]:
+                        continue
                     try:
                         await enhancer.enhance(entry, conn)
                         await service.repository.mark_enhancement_complete(
@@ -1385,11 +1392,16 @@ async def run_enhance(
                             enhancer.name,
                         )
                     except Exception as e:
-                        await service.repository.mark_enhancement_failed(
+                        attempts = await service.repository.mark_enhancement_failed(
                             entry["entry_id"],
                             enhancer.name,
                             str(e),
                         )
+                        if attempts >= MAX_ENHANCEMENT_ATTEMPTS:
+                            logger.warning(
+                                f"Entry {entry['entry_id']}: {enhancer.name} failed {attempts} "
+                                f"times; it is left out of later passes ({str(e)[:200]})"
+                            )
 
                 if (i + 1) % 10 == 0 and progress:
                     progress(f"  Processed {i + 1} entries...")

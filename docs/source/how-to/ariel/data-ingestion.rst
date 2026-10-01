@@ -136,6 +136,12 @@ Enhancement Pipeline
 
 Enhancement modules run after ingestion to add computed fields to stored entries. While the base ingestion captures the raw logbook text and metadata, enhancement modules derive additional structure from that text --- generating vector embeddings that enable semantic similarity search, using an LLM to extract keywords and summaries that improve search recall and the quality of the context the agent layer surfaces, or performing any other analysis that produces useful derived data. Each module inherits from ``BaseEnhancementModule`` and is discovered through the Osprey registry. Because enhancement is decoupled from ingestion, you can ingest a large dataset first and enhance it later, swap out models without re-ingesting, or run only the modules you need. Run them with ``osprey ariel enhance``.
 
+Each module runs only on the entries it has not finished. An entry whose
+enhancement by a module fails three times is left out of that module's later
+passes. Its status keeps the attempt count and the last error, a success clears
+the count, and ``osprey ariel enhance --force`` re-runs the entries it selects
+regardless.
+
 The built-in enhancement modules:
 
 .. tab-set::

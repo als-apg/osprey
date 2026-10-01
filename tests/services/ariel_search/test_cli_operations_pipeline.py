@@ -45,6 +45,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
+from osprey.services.ariel_search.database.repository import MAX_ENHANCEMENT_ATTEMPTS
 from osprey.services.ariel_search.ingestion.scheduler import StopReason
 from tests.services.ariel_search._cli_ops_doubles import (
     _Adapter,
@@ -994,7 +995,7 @@ class TestRunEnhance:
         )
         assert other.seen == []
 
-    async def test_all_modules_dedupes_entries_incomplete_for_more_than_one(
+    async def test_each_enhancer_runs_only_on_the_entries_it_has_not_finished(
         self, monkeypatch, mock_repository
     ):
         from unittest.mock import AsyncMock
@@ -1014,11 +1015,56 @@ class TestRunEnhance:
         out = await ops.run_enhance(dict(_DB), module=None, force=False, limit=50)
 
         assert out.entries_processed == 3
-        assert first.seen == ["E1", "E2", "E3"]
-        # Every collected entry is offered to every enhancer, not just the one
-        # whose query produced it.
-        assert second.seen == ["E1", "E2", "E3"]
+        # Each enhancer runs only on the entries its own query returned, so a
+        # module that finished an entry, or set it aside, never runs on it again.
+        assert first.seen == ["E1", "E2"]
+        assert second.seen == ["E2", "E3"]
         assert mock_repository.get_incomplete_entries.await_count == 2
+
+    async def test_force_offers_every_entry_to_every_enhancer(self, monkeypatch, mock_repository):
+        first = _Enhancer("text_embedding")
+        second = _Enhancer("semantic_processor")
+        _patch_enhancers(monkeypatch, [first, second])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.search_by_time_range = _async_return(_entries(2))
+
+        await ops.run_enhance(dict(_DB), module=None, force=True, limit=10)
+
+        assert first.seen == ["E0", "E1"]
+        assert second.seen == ["E0", "E1"]
+
+    async def test_reaching_the_cap_is_logged_naming_the_entry(
+        self, monkeypatch, mock_repository, caplog
+    ):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding", fails_on={"E0"})])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return(_entries(1))
+        mock_repository.mark_enhancement_failed = AsyncMock(return_value=MAX_ENHANCEMENT_ATTEMPTS)
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await ops.run_enhance(dict(_DB), module=None, force=False, limit=10)
+
+        records = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "left out of later passes" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert "E0" in records[0]
+        assert "text_embedding" in records[0]
+
+    async def test_a_failure_below_the_cap_is_not_logged_as_set_aside(
+        self, monkeypatch, mock_repository, caplog
+    ):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding", fails_on={"E0"})])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return(_entries(1))
+        mock_repository.mark_enhancement_failed = AsyncMock(return_value=1)
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await ops.run_enhance(dict(_DB), module=None, force=False, limit=10)
+
+        assert not any("left out of later passes" in r.getMessage() for r in caplog.records)
 
     async def test_enhancement_failure_is_recorded_and_the_loop_continues(
         self, monkeypatch, mock_repository
