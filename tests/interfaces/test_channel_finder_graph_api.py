@@ -32,6 +32,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
+from osprey.services.channel_finder.databases import FlatChannelDatabase
 from tests._graph_index import build_index_from_ttl, default_index_path
 
 _CONFIG_SEAM = "osprey.utils.workspace.load_osprey_config"
@@ -378,7 +379,7 @@ class TestTheFileBackedParadigmsAreUntouched:
 
     @pytest.fixture
     def database(self) -> MagicMock:
-        db = MagicMock()
+        db = MagicMock(spec=FlatChannelDatabase)
         db.get_all_channels.return_value = [{"channel": "SR:DIAG:BPM:01:X"}]
         db.chunk_database.return_value = [[{"channel": "SR:DIAG:BPM:01:X"}]]
         db.format_chunk_for_prompt.return_value = "SR:DIAG:BPM:01:X"
