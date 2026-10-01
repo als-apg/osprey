@@ -148,6 +148,11 @@ def test_an_address_a_write_field_names_is_a_setpoint_whichever_field_named_it_f
     assert channel["role"] == "setpoint"
     assert "pair" not in channel
     assert list(channel) == ["id", "on", "role", "unit", "description"]
+    described = yaml.safe_load((spear3 / MAPPING_FILE).read_text(encoding="utf-8"))
+    fields = described["families"]["RF"]["fields"]
+    assert fields["Setpoint"]["description"] != fields["Monitor"]["description"]
+    assert channel["description"] == fields["Setpoint"]["description"]
+    assert channel["unit"] == family["Setpoint"]["HWUnits"]
 
 
 def test_the_imported_tree_loads_with_its_mapping_beside_the_records(spear3: Path) -> None:

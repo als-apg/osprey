@@ -459,8 +459,8 @@ def _channels(
     An address one device binds is ``on`` it; an address several devices bind
     names each in ``endpoint_of`` and belongs to no device. An address a
     ``write`` field names is a setpoint: when an earlier field wrote its
-    channel as anything else, the channel takes the setpoint role and its
-    pair and keeps the rest.
+    channel as anything else, the channel takes the setpoint role, its pair
+    and the write field's unit and description, and keeps the rest.
     """
     family = mapping.families[view.raw_name]
     for fld in view.fields.values():
@@ -482,6 +482,11 @@ def _channels(
                         found["role"] = _SETPOINT
                         if pair is not None and pair != address:
                             found["pair"] = pair
+                        unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
+                        if unit is not None:
+                            found["unit"] = unit
+                        if description is not None:
+                            found["description"] = description
                         channels[address] = {
                             key: found[key] for key in _CHANNEL_KEYS if key in found
                         }
