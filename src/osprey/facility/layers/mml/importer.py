@@ -48,6 +48,11 @@ does not carry is removed.
 Nothing is written until every record and every model's wiring is derived, so
 a stop leaves the layer directory as it was.
 
+After the records, :func:`import_mml` seeds the authored files that do not
+exist yet (``limits.yaml``, ``seeds.yaml``, ``measurement/<model>.yaml``,
+``classes.yaml`` and ``identity.yaml``; :mod:`~osprey.facility.layers.mml.seed`)
+and prints what the seeding reports.
+
 The export loaders pull numpy and scipy and the deck reader pulls pyAT, so
 each is imported inside the function that needs it.
 """
@@ -209,14 +214,15 @@ def read_exports(paths: Sequence[Path]) -> Exports:
 
 
 def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
-    """Import MML exports as the mml layer's record sources.
+    """Import MML exports as the mml layer's record sources and seed the authored files.
 
     Args:
         paths: The exports' AO files.
         facility_dir: The ``data/facility`` directory.
 
     Returns:
-        Every file written, in write order.
+        Every file written, in write order: the layer's records, then each
+        authored file seeded because it did not exist.
 
     Raises:
         ImportStop: ``mapping-draft`` when the mapping was absent and a draft
@@ -226,9 +232,19 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
             from the wiring pass.
         MappingError: The mapping has the wrong structure.
     """
+    import click
+
+    from osprey.facility.layers.mml.seed import seed_once
+
     exports = read_exports(paths)
     mapping = load_or_draft(facility_dir, exports.ao, exports.ad or None, exports.va or None)
-    return write_records(exports, mapping, facility_dir)
+    answers = _export_answers(mapping)
+    judged, views = _carried(exports, mapping, answers)
+    written = _write_records(exports, mapping, facility_dir, answers, judged, views)
+    seeded = seed_once(exports, mapping, facility_dir, views)
+    for line in seeded.lines:
+        click.echo(line)
+    return [*written, *seeded.written]
 
 
 # -- records ------------------------------------------------------------------
@@ -254,30 +270,23 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
         MappingError: The mapping answers a cavity voltage for a deck that
             holds its cavity.
     """
-    from osprey.services.mml.judgments import judged_family_views
-
-    roles = field_roles(mapping)
     answers = _export_answers(mapping)
-    views: list[FamilyView] = []
-    systems: dict[str, str] = {}
-    models: list[dict[str, Any]] = []
-    judged: dict[str, dict[str, FamilyView]] = {}
-    for system in exports.systems:
-        systems[system] = _model_name(mapping, system)
-        judged[system] = {}
-        for view in judged_family_views(system, exports.ao[system], answers):
-            judged[system][view.raw_name] = view
-            if view.channel_count == 0:
-                continue
-            family = mapping.families.get(view.raw_name)
-            if family is None:
-                raise ImportStop(
-                    "mapping-undecided", [f"families.{view.raw_name}: the export carries it"]
-                )
-            if family.channels == 0:
-                continue
-            views.append(view)
-        models.append(_model(exports, system, systems[system]))
+    judged, views = _carried(exports, mapping, answers)
+    return _write_records(exports, mapping, facility_dir, answers, judged, views)
+
+
+def _write_records(
+    exports: Exports,
+    mapping: Mapping,
+    facility_dir: Path,
+    answers: ExportAnswers,
+    judged: dict[str, dict[str, FamilyView]],
+    views: list[FamilyView],
+) -> list[Path]:
+    """Write the layer's files from the families as :func:`_carried` judged them."""
+    roles = field_roles(mapping)
+    systems = {system: _model_name(mapping, system) for system in exports.systems}
+    models = [_model(exports, system, systems[system]) for system in exports.systems]
 
     answered = {
         raw: family.devices
@@ -317,6 +326,40 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
             stale.unlink()
     written.extend(_copy_responses(exports, mapping, layer))
     return written
+
+
+def _carried(
+    exports: Exports, mapping: Mapping, answers: ExportAnswers
+) -> tuple[dict[str, dict[str, FamilyView]], list[FamilyView]]:
+    """Every family as the reviewer judged it, and those that carry channel records.
+
+    Returns:
+        ``{system: {raw family: view}}`` of every judged family, and the views
+        of the families the mapping gives channels, in import order.
+
+    Raises:
+        ImportStop: ``mapping-undecided`` for a family that carries channels
+            and the mapping does not name.
+    """
+    from osprey.services.mml.judgments import judged_family_views
+
+    judged: dict[str, dict[str, FamilyView]] = {}
+    views: list[FamilyView] = []
+    for system in exports.systems:
+        judged[system] = {}
+        for view in judged_family_views(system, exports.ao[system], answers):
+            judged[system][view.raw_name] = view
+            if view.channel_count == 0:
+                continue
+            family = mapping.families.get(view.raw_name)
+            if family is None:
+                raise ImportStop(
+                    "mapping-undecided", [f"families.{view.raw_name}: the export carries it"]
+                )
+            if family.channels == 0:
+                continue
+            views.append(view)
+    return judged, views
 
 
 def _model_name(mapping: Mapping, system: str) -> str:
