@@ -9,15 +9,9 @@ roster.
 This module is purely declarative data, in the style of
 :mod:`osprey.simulation.channel_schema`: stdlib-only, no I/O, no source
 selection, no parsing. The readers (:mod:`osprey.channel_roster.sources`,
-:mod:`osprey.channel_roster.graph`, :mod:`osprey.channel_roster.database`)
-build these types; the consumers --
+:mod:`osprey.channel_roster.graph`) build these types; the consumers --
 plan-device derivation, the channel snapshot, the build's fact lines, the
 channel-finder web routes -- read them.
-
-The package's reserved address tokens are declared here for the same reason:
-the database reader derives direction from one of them and the pairing
-heuristic builds a sibling address from both, and neither may import the other
--- pairing is applied identically to whichever reader ran.
 
 **Absence is data, not a missing return.** A roster that cannot be built is
 reported as a :class:`RosterAbsence` carrying its reason and the subjects it
@@ -27,11 +21,6 @@ reason therefore lives once, in :data:`ABSENCE_TEMPLATES`, rather than in a
 per-consumer ``if`` chain -- build facts and HTTP 503 bodies say the same true
 thing because they read the same sentence. Adding a reason without phrasing it
 raises there instead of rendering a blank.
-
-An absence and records coexist in exactly one case, by design: a database
-source whose membership is known but whose directions are not
-(:attr:`RosterAbsenceReason.DIRECTION_UNDERIVABLE`). The records are real; what
-is absent is the knowledge of which of them are settable.
 """
 
 from __future__ import annotations
@@ -44,8 +33,7 @@ from string import Formatter
 from typing import Literal
 
 #: Which way a channel points. ``None`` means the source could not say -- an
-#: honest unknown, never a stand-in for "read" (see
-#: :attr:`RosterAbsenceReason.DIRECTION_UNDERIVABLE`).
+#: honest unknown, never a stand-in for "read".
 ChannelDirection = Literal["read", "write"]
 
 _DIRECTIONS: frozenset[str] = frozenset({"read", "write"})
@@ -80,10 +68,6 @@ class RosterSourceKind(Enum):
     #: it in a column.
     GRAPH = "graph"
 
-    #: A channel-finder paradigm database, where membership is the record set
-    #: and direction is derived (write-limits flag first, ``:SP`` grammar next).
-    DATABASE = "database"
-
 
 #: How each source kind is named to a human. A table rather than a branch in
 #: every consumer, so the build fact line and the web body call the same file
@@ -92,7 +76,6 @@ class RosterSourceKind(Enum):
 SOURCE_LABELS: Mapping[RosterSourceKind, str] = {
     RosterSourceKind.FACILITY: "this project's facility file",
     RosterSourceKind.GRAPH: "the channel index built from the facility knowledge graph",
-    RosterSourceKind.DATABASE: "the channel finder database",
 }
 
 
@@ -101,28 +84,10 @@ class RosterAbsenceReason(Enum):
 
     Named rather than left to each caller's prose because these are different
     situations with different remedies, and every surface that reports one has
-    to tell them apart: nothing was configured, graph mode was configured but
-    points at no readable corpus, graph mode was configured but its block
-    cannot be read, a source was read but cannot say which channels are
-    settable, or a configured source is there and unreadable.
+    to tell them apart: the facility file is not built, it is built and
+    declares no channels, a source is not there, a source is there and
+    unreadable, or a source reads cleanly and enumerates nothing.
     """
-
-    #: No roster source is configured at all -- ``detect_pipeline_config``
-    #: named no pipeline. Fail-soft: the build stays browse-only.
-    NO_SOURCE = "no-source"
-
-    #: Graph mode is configured but no corpus resolves. The store is never
-    #: dialed to find out; the config keys are named instead.
-    GRAPH_NO_TTL = "graph-no-ttl"
-
-    #: Graph mode is configured but the ``services.graphdb`` block itself
-    #: cannot be read -- a blank ``ttl_path``, a value of the wrong shape. Kept
-    #: apart from :attr:`GRAPH_NO_TTL` because the remedy is different: not
-    #: "declare a corpus" but "fix the line you declared it with", so the
-    #: message carries the parser's own complaint. Fail-soft like its sibling,
-    #: and deliberately NOT :attr:`CORRUPT_SOURCE`: no source was named, so
-    #: none is there to be broken.
-    GRAPH_MALFORMED = "graph-malformed"
 
     #: No build has written the facility file into this render. Fail-soft,
     #: and its own reason because its remedy is one command rather than a
@@ -135,11 +100,6 @@ class RosterAbsenceReason(Enum):
     #: build: the file says what the project's ``data/facility`` tree declares,
     #: so building again writes the same file.
     FACILITY_EMPTY = "facility-empty"
-
-    #: A database source enumerated its channels, but carries neither a
-    #: write-limits database nor ``:SP`` addresses, so no direction can be
-    #: derived. Membership is still real -- see the module docstring.
-    DIRECTION_UNDERIVABLE = "direction-underivable"
 
     #: A configured source names a path that does not exist. Fail-soft, and
     #: deliberately NOT :attr:`CORRUPT_SOURCE`: a source that is not there is a
@@ -167,20 +127,6 @@ class RosterAbsenceReason(Enum):
 #: whose template names a subject the absence did not supply is rejected at
 #: construction -- an absence can never render "at None".
 ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
-    RosterAbsenceReason.NO_SOURCE: (
-        "No channel roster source is configured, so the set of channels this "
-        "facility has is unknown."
-    ),
-    RosterAbsenceReason.GRAPH_NO_TTL: (
-        "Graph mode is configured but names no readable knowledge-graph corpus, "
-        "so the set of channels this facility has is unknown; the corpus is "
-        "declared by {config_keys}."
-    ),
-    RosterAbsenceReason.GRAPH_MALFORMED: (
-        "Graph mode is configured but its services.graphdb block cannot be read "
-        "({detail}), so the set of channels this facility has is unknown; the "
-        "corpus is declared by {config_keys}."
-    ),
     RosterAbsenceReason.FACILITY_NOT_BUILT: (
         "The facility file {path} is not built, so the set of channels this "
         "facility has is unknown. Run `osprey build`."
@@ -188,11 +134,6 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
     RosterAbsenceReason.FACILITY_EMPTY: (
         "The facility file {path} declares no channels: the project's "
         "data/facility tree holds no channel records."
-    ),
-    RosterAbsenceReason.DIRECTION_UNDERIVABLE: (
-        "The channels in {path} are known, but which of them are settable is "
-        "not: that source carries no write-limits database and no ':SP' "
-        "addresses to derive a direction from."
     ),
     RosterAbsenceReason.MISSING_SOURCE: (
         "The channel roster source at {path} is not there, so the set of channels "
@@ -277,8 +218,7 @@ class RosterAbsence:
         config_keys: The configuration keys that would have declared a source,
             when naming them is the remedy.
         detail: The underlying failure, for
-            :attr:`RosterAbsenceReason.CORRUPT_SOURCE` and
-            :attr:`RosterAbsenceReason.GRAPH_MALFORMED`; or, on a
+            :attr:`RosterAbsenceReason.CORRUPT_SOURCE`; or, on a
             :attr:`RosterAbsenceReason.MISSING_SOURCE`, the remedy that would
             put the source there -- a source a build writes has one, a source
             an operator hands the deployment does not, so the reader that
