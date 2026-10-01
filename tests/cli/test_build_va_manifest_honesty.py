@@ -1081,7 +1081,7 @@ def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_facility_file(tmp
     assert _DEAD_FALLBACK_SENTENCE not in printed
 
     manifest = json.loads((repo / "build" / "data" / "simulation" / MANIFEST_FILENAME).read_text())
-    assert manifest["_metadata"]["source_paradigms"] == ["graph"]
+    assert manifest["_metadata"]["source_paradigms"] == []
     assert manifest["_metadata"]["source_corpus"] == _FACILITY_SPELLING
     assert {c["address"] for c in manifest["channels"]} == {
         "SR:MAG:HCM:01:CURRENT:SP",

@@ -24,12 +24,13 @@ tutorial machine) and the facility data tree ``osprey build`` is building from
 deployment always serves a manifest built from its OWN tree: there is no path
 by which a project's accelerator falls back to the bundled demo namespace.
 
-A graph-mode project stages no paradigm database at all -- its channels live in
-the knowledge-graph corpus the deploy seeds the graph store from. For such a
-tree the manifest's channel set is derived from the channel roster's graph
-reader (:func:`osprey.channel_roster.registered_channels`, the one membership
-authority), and ``_metadata`` names the corpus as the source. Staged paradigm
-databases always win: the graph is consulted only when the tree stages none.
+A tree that stages no paradigm database is not a tree with no channels: its
+channels are the records of the facility file the build writes at the root of
+the render. For such a tree the manifest's channel set is the channel roster's
+answer (:func:`osprey.channel_roster.registered_channels`, the one membership
+authority), and ``_metadata`` names the facility file as the source. Staged
+paradigm databases always win: the roster is asked only when the tree stages
+none.
 
 Run as a script to (re)generate ``channel_manifest.json``::
 
@@ -750,7 +751,7 @@ def _finish_manifest(
     """Union the scenario seed in, reconcile machine state, and assemble the document.
 
     The half of manifest generation every source shares: whichever enumerator
-    produced *entries* -- the paradigm databases or the knowledge-graph roster
+    produced *entries* -- the paradigm databases or the channel roster
     -- the scenario-seed union, the machine-state reconciliation, the census
     and the ``_metadata`` block are the same document, assembled once here so
     the two sources cannot drift in what they publish about themselves.
@@ -759,11 +760,12 @@ def _finish_manifest(
         entries: One entry per enumerated channel, before the scenario seed.
         paths: The data tree the per-tree sources (``machine.json``, the
             machine-state list) are read from.
-        source_paradigms: What fed the entries, in the paradigm vocabulary --
-            the paradigm databases that loaded, or ``["graph"]``.
+        source_paradigms: The paradigm databases that loaded and fed the
+            entries. Empty for a roster-sourced manifest, which loaded none:
+            ``source_corpus`` names what fed it.
         absent_paradigms: The paradigm databases the tree did not stage. Empty
-            for a graph-sourced manifest: graph mode stages no tier database
-            by design, so there is nothing absent to report.
+            for a roster-sourced manifest: its tree stages no tier database by
+            design, so there is nothing absent to report.
         corrupt_paradigms: The staged databases that could not be read, as
             rendered metadata rows.
         partition_source: What claimed the pyat-coupled partition -- the
@@ -776,10 +778,10 @@ def _finish_manifest(
             database named. Normally empty -- one emit run writes both files --
             and recorded when it is not, because those channels reach the
             served namespace from the bindings alone.
-        source_corpus: The knowledge-graph source the entries came from (the
-            channel search index built from the corpus), as an operator would
-            name it, or ``None`` for a database-sourced manifest -- the key
-            appears only when the graph actually fed it.
+        source_corpus: The roster source the entries came from (the facility
+            file), as an operator would name it, or ``None`` for a
+            database-sourced manifest -- the key appears only when the roster
+            actually fed it.
         unclassified_reason: Why no entry could be classified, or ``None``
             when classification ran. The key appears only when it happened,
             and the build's census report prints it.
@@ -853,34 +855,6 @@ def _finish_manifest(
         }
     )
     return {"_metadata": metadata, "channels": [asdict(e) for e in entries]}
-
-
-def _graph_roster(config: dict | None):
-    """The channel roster of the project this config belongs to.
-
-    Answered through :mod:`osprey.channel_roster` -- the one membership
-    authority -- rather than by a second reader here. ``None`` only when no
-    config is given, which tells the caller to keep the paradigm-database
-    rules; a config always gets a
-    :class:`~osprey.channel_roster.records.RosterResult` back, absence
-    included, so the refusal can name what the roster read.
-
-    Imported lazily: this module is imported inside the virtual-accelerator
-    container, which never reads a roster source and should not pay for the
-    roster package's import graph.
-    """
-    if config is None:
-        return None
-
-    from osprey.channel_roster import registered_channels
-
-    return registered_channels(config)
-
-
-#: The paradigm-vocabulary name of the graph source in ``_metadata``. The same
-#: token ``detect_pipeline_config`` answers for graph mode, so the manifest
-#: names its source in the vocabulary every other build surface already uses.
-GRAPH_SOURCE_PARADIGM = "graph"
 
 
 def _graph_missing_sources(paths: ManifestPaths) -> list[Path]:
@@ -1022,7 +996,7 @@ def _prepare_graph_manifest(roster, paths: ManifestPaths) -> PreparedManifest | 
         manifest = _finish_manifest(
             entries,
             paths,
-            source_paradigms=[GRAPH_SOURCE_PARADIGM],
+            source_paradigms=[],
             absent_paradigms=[],
             corrupt_paradigms=[],
             source_corpus=roster.source.for_display(),
@@ -1077,20 +1051,20 @@ def prepare_project_manifest(
     the framework's built-in demo namespace.
 
     A tree that stages no paradigm database is not always a tree with no
-    channels: a graph-mode project's channels live in its knowledge-graph
-    corpus. When *config* is given and resolves the project's roster source to
-    the graph, such a tree gets its manifest from the roster's graph reader
+    channels: its channels are the records of the render's facility file. When
+    *config* is given, such a tree gets its manifest from the channel roster
     instead (see :func:`_prepare_graph_manifest`). Staged paradigm databases
-    always win over the graph, exactly as before; a ``config`` of ``None``
-    keeps every existing caller on the paradigm-database rules alone.
+    always win over the roster; a ``config`` of ``None`` keeps the caller on
+    the paradigm-database rules alone.
 
     Args:
         data_root: The ``data/`` tree this build is sourcing from -- the
             profile's ``data:`` tree, or the bundle's own.
         tier: The build-resolved tier whose paradigm DBs to expand.
         config: The rendered project configuration, when the caller has one --
-            what the roster resolves the graph corpus from. ``None`` skips the
-            graph source entirely.
+            what the roster resolves the facility file from, so it must be
+            the config of a render that file is already written into. ``None``
+            skips the roster entirely.
 
     Returns:
         The prepared manifest, or ``None`` when this tree cannot back one: it
@@ -1117,9 +1091,12 @@ def prepare_project_manifest(
     paths = ManifestPaths(data_root=data_root, tier=tier)
     if not paths.staged_paradigms:
         if config is not None:
-            roster = _graph_roster(config)
-            if roster is not None:
-                return _prepare_graph_manifest(roster, paths)
+            # Imported here: this module is imported inside the
+            # virtual-accelerator container, which never reads a roster source
+            # and should not pay for the roster package's import graph.
+            from osprey.channel_roster import registered_channels
+
+            return _prepare_graph_manifest(registered_channels(config), paths)
         logger.debug(
             "Virtual-accelerator manifest not generated from %s: %s stages no "
             "paradigm channel database",
@@ -1251,15 +1228,14 @@ def manifest_gap_reason(data_root: Path, tier: int, *, config: dict | None = Non
     paths = ManifestPaths(data_root=data_root, tier=tier)
     if not paths.staged_paradigms:
         if config is not None:
-            roster = _graph_roster(config)
-            if roster is not None:
-                if roster.absence is not None:
-                    return roster.absence.message().rstrip(".")
-                missing = _graph_missing_sources(paths)
-                if missing:
-                    return "missing " + ", ".join(
-                        str(path.relative_to(data_root)) for path in missing
-                    )
+            from osprey.channel_roster import registered_channels
+
+            roster = registered_channels(config)
+            if roster.absence is not None:
+                return roster.absence.message().rstrip(".")
+            missing = _graph_missing_sources(paths)
+            if missing:
+                return "missing " + ", ".join(str(path.relative_to(data_root)) for path in missing)
         return (
             f"no channel database is staged at tier {tier} "
             f"({', '.join(sorted(paths.absent_paradigms))} are all absent)"
