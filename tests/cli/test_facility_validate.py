@@ -2,9 +2,10 @@
 
 The verb builds the facility file from ``data/facility/``, renders the repo's
 main profile into a temporary directory and hands that render to
-``render_facility_outputs``, then discards it. A clean repo exits 0 and prints
-nothing; a failing stage prints every one of its lines, sorted, to stderr and
-exits 1. The repo's tree, ``build/`` included, is byte-unchanged either way.
+``render_facility_outputs``, then discards it. A clean repo without a kept
+response export exits 0 and prints nothing; a failing stage prints every one of
+its lines, sorted, to stderr and exits 1. The repo's tree, ``build/`` included,
+is byte-unchanged either way.
 """
 
 from __future__ import annotations

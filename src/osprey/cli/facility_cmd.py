@@ -7,8 +7,10 @@ every error of that stage is printed, sorted, one line each on stderr. A clean
 tree is then taken through the render of the repo's main profile, made in a
 temporary directory with the build's ``--skip-deps`` semantics and discarded, so
 every view :func:`osprey.facility.render.render_facility_outputs` writes is
-checked against a real render without a file of it reaching the repo. Persona
-and image renders are checked by ``osprey build`` alone.
+checked against a real render without a file of it reaching the repo. On a clean
+tree the response check runs before the render and prints one line per kept
+response export. Persona and image renders are checked by ``osprey build``
+alone.
 
 ``osprey facility import mml EXPORT...`` writes MML exports as the mml layer's
 sources under ``data/facility/imported/mml/`` and seeds each authored file that
