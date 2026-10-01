@@ -30,12 +30,16 @@ command body, so ``osprey --help`` does not load them.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from .output import fail, report
 from .phase_reporter import current_reporter
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+
+if TYPE_CHECKING:
+    from .build_profile_load import LoadedProfile
 
 
 @click.group()
@@ -64,10 +68,8 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     from osprey.facility.validate import report, run_stages
 
     from .build_cmd import _render_project, _render_zones, _SharedRenderInputs
-    from .build_profile_resolve import resolve_build_document
     from .profile_conventions import PROJECT_MIRROR_DIR, facility_mirror_violation
     from .templates.manager import TemplateManager
-    from .variant_selection import resolve_variant_selection
 
     repo_root = find_repo_root(repo)
     name = repo_root.name
@@ -77,14 +79,9 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     if mirror_stop is not None:
         raise mirror_stop
 
-    variant = resolve_variant_selection(repo_root)
-    overlays: tuple[Path, ...] = (variant.path,) if variant.path is not None else ()
-    resolved = resolve_build_document(profile_path, None, overlays)
+    resolved, overlays = _main_profile(repo_root)
     build_profile = resolved.profile
-    data_root = build_profile.resolved_data_root(repo_root)
-    if data_root is None:
-        raise RuntimeError("a resolved profile names no data root")
-    facility_dir = data_root / "facility"
+    facility_dir = _facility_dir(resolved, repo_root)
 
     result = run_stages(facility_dir, project_name=name, later=LATER_STAGES)
     if not result.ok:
@@ -152,14 +149,18 @@ _RECORD_FILES = ("models.yaml",)
 _RECORD_DIRS = ("decks",)
 
 
-def _facility_dir(repo_root: Path) -> Path:
-    """The ``data/facility`` directory of the repo's main profile."""
+def _main_profile(repo_root: Path) -> tuple[LoadedProfile, tuple[Path, ...]]:
+    """The repo's resolved main profile and the overlays it was resolved with."""
     from .build_profile_resolve import resolve_build_document
     from .variant_selection import resolve_variant_selection
 
     variant = resolve_variant_selection(repo_root)
     overlays: tuple[Path, ...] = (variant.path,) if variant.path is not None else ()
-    resolved = resolve_build_document(repo_root / PROFILE_FILENAME, None, overlays)
+    return resolve_build_document(repo_root / PROFILE_FILENAME, None, overlays), overlays
+
+
+def _facility_dir(resolved: LoadedProfile, repo_root: Path) -> Path:
+    """The ``data/facility`` directory under a resolved profile's data root."""
     data_root = resolved.profile.resolved_data_root(repo_root)
     if data_root is None:
         raise RuntimeError("a resolved profile names no data root")
@@ -262,7 +263,7 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 
     repo_root = find_repo_root(repo)
     try:
-        facility_dir = _facility_dir(repo_root)
+        facility_dir = _facility_dir(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
