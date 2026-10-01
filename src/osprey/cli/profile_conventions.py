@@ -367,23 +367,6 @@ RESERVED_PATH_CHANNELS: dict[str, str] = {r.path: r.channel for r in RESERVED_PR
 #: first place — so a rule applying them would refuse the whole channel.
 RESERVED_EXACT_PATHS: frozenset[str] = frozenset(RESERVED_PATH_CHANNELS)
 
-#: Project paths the facility build writes from the profile's ``data/facility/``
-#: tree, as globs matched like :class:`ReservedPattern` (``*`` spans path
-#: separators, both sides casefolded). A ``project/`` mirror file at one of them
-#: stops the build with a ``profile-invalid`` line
-#: (:func:`facility_mirror_violation`) ahead of profile validation, so
-#: :func:`_mirror_violations` leaves them out and the gathered profile errors
-#: never repeat that stop. The simulator view under ``data/simulator/`` is
-#: written by the build from the same tree.
-RESERVED_MIRROR_PATTERNS: tuple[str, ...] = (
-    "facility.json",
-    "data/facility/**",
-    "data/simulator/**",
-)
-
-#: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in.
-FACILITY_AUTHORING_ROUTE = "data/facility/"
-
 #: The same exact reservations keyed by their casefolded path, for
 #: :func:`is_reserved_write`'s lookup only. Private, and derived rather than
 #: authored, because the exported tables above are read verbatim by the
@@ -414,10 +397,13 @@ class ReservedPattern:
             case-insensitive filesystem ``.CLAUDE/Skills/x`` opens the very
             file ``.claude/skills/x`` names.
         channel: The channel that *does* write it, phrased for a refusal.
+        mirror: Whether the facility build writes the path, which also puts it
+            in :data:`RESERVED_MIRROR_PATTERNS`.
     """
 
     pattern: str
     channel: str
+    mirror: bool = False
 
 
 #: Project paths no agent-side writer may touch, matched by shape. These are
@@ -470,18 +456,37 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         "facility.json",
         "the build, from the profile's `data/facility/` tree — this is the facility "
         "file every view and served channel is derived from",
+        mirror=True,
     ),
     ReservedPattern(
         "data/facility/**",
         "the profile's `data/facility/` tree — the facility is authored there and the "
         "build derives the facility file from it",
+        mirror=True,
     ),
     ReservedPattern(
         "data/simulator/**",
         "the build, from the profile's `data/facility/` tree — the simulator view is "
         "derived from the facility file, and a hand copy would be served in its place",
+        mirror=True,
     ),
 )
+
+
+#: Project paths the facility build writes from the profile's ``data/facility/``
+#: tree, as globs matched like :class:`ReservedPattern` (``*`` spans path
+#: separators, both sides casefolded). A ``project/`` mirror file at one of them
+#: stops the build with a ``profile-invalid`` line
+#: (:func:`facility_mirror_violation`) ahead of profile validation, so
+#: :func:`_mirror_violations` leaves them out and the gathered profile errors
+#: never repeat that stop. The simulator view under ``data/simulator/`` is
+#: written by the build from the same tree.
+RESERVED_MIRROR_PATTERNS: tuple[str, ...] = tuple(
+    reserved.pattern for reserved in RESERVED_PATH_PATTERNS if reserved.mirror
+)
+
+#: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in.
+FACILITY_AUTHORING_ROUTE = "data/facility/"
 
 
 #: Config keys no agent-side writer may set, keyed by the file that carries
