@@ -467,8 +467,7 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
     # The engine's own parser, not a second one: the anchor line's format
     # (and its naive-value timezone rule) is the engine's to define, and a
     # copy here would be free to drift from the file the engine actually
-    # reads. Private only because nothing outside the engine needed it
-    # before.
+    # reads. This is the one reader of it outside the engine.
     _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
     if anchor_epoch is not None:
         return datetime.fromtimestamp(anchor_epoch, UTC)
