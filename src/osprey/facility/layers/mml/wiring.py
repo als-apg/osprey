@@ -79,6 +79,7 @@ from osprey.facility.layers.mml.mapping import (
     MappingError,
     Model,
     WiringFamily,
+    _number,
 )
 from osprey.simulation.engines.calibration import Calibration, Linear, Table, evaluate
 
@@ -658,14 +659,6 @@ def _sampled_row(value: Any, device: int, devices: int, what: str) -> Any:
     ):
         return list(value)
     return _per_device_entry(value, device, devices, what)
-
-
-def _number(value: Any) -> float | None:
-    """A finite number as a float, or ``None``; an export spells a non-finite one as text."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) else None
 
 
 def _word(value: Any) -> str:

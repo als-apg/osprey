@@ -42,13 +42,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from osprey.facility.layers.mml.mapping import (
     ENGINE_AXES,
     DeviceIdentity,
     ImportStop,
     SameAs,
+    _text,
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
@@ -70,10 +71,6 @@ _WORD_BREAK = re.compile(r"([^0-9A-Za-z]+)")
 
 #: What a mapping without a ``devices`` answer is told to write.
 _ANSWER = "write address, a list of names or {same_as: <family>}"
-
-
-def _text(value: Any) -> str | None:
-    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _word(text: str) -> str:
