@@ -163,7 +163,8 @@ class ImportStop(click.ClickException):
     """An importer stop: ``import mml: <problem>: <what>``, one line per finding.
 
     Args:
-        problem: The stop's word, ``mapping-undecided`` or ``mapping-draft``.
+        problem: The stop's word: ``mapping-draft``, ``mapping-undecided``,
+            ``mapping-invalid``, ``export-invalid`` or ``reference-missing``.
         lines: What stopped the import, one entry per printed line.
     """
 
