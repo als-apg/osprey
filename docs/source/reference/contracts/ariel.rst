@@ -208,7 +208,29 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - ``/api/drafts/{draft_id}/attachments/{filename}``
               - Download a draft's attachment
 
-         Additionally, a ``GET /health`` endpoint at the root level returns a simple health check response.
+         ``GET /health`` at the root level is the one route the sign-in gate leaves open. It
+         reports ``status`` (``healthy`` or ``degraded``), a fixed ``message``, ``config_status``,
+         and a ``service`` object carrying ``entry_count``, ``last_ingestion``,
+         ``enabled_search_modules`` and ``enabled_enhancement_modules``. ``service`` is ``null``
+         when the panel runs without its search service or the store does not answer. Everything
+         that names the store (its address, ``database_uri``, the embedding tables and the
+         driver's ``errors``) is only on the signed-in ``/api/status``.
+
+         **HealthResponse:**
+
+         .. code-block:: json
+
+            {
+              "status": "healthy",
+              "message": "ARIEL service healthy",
+              "config_status": "ok",
+              "service": {
+                "entry_count": 48291,
+                "last_ingestion": "2026-09-30T08:00:00Z",
+                "enabled_search_modules": ["keyword"],
+                "enabled_enhancement_modules": ["text_embedding"]
+              }
+            }
 
          **SearchResponse:**
 
