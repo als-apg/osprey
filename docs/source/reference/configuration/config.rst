@@ -1087,7 +1087,7 @@ Overriding Service Images
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Seventeen images, one row each:
+default. One row per image:
 
 .. list-table::
    :header-rows: 1
@@ -1172,10 +1172,11 @@ images.
 Which of these images a deploy builds, and what naming another image does to
 that, is in :ref:`deployment-image-builds`.
 
-Six of the seventeen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other eleven are **built by OSPREY**
-from your project, and their default reference is assembled rather than
-fixed: a project name, a per-service suffix, and the two axes below.
+A row whose packaged default reads *upstream pin* is an **upstream pin** — an
+image somebody else publishes, named exactly as they publish it. Every other
+row is **built by OSPREY** from your project, and its default reference is
+assembled rather than fixed: a project name, a per-service suffix, and the two
+axes below.
 
 ``dispatch_worker``, ``ariel_sync`` and ``archive`` share one row value on
 purpose: all three run the bare project image, so all three read
@@ -1247,7 +1248,7 @@ Two things about *when* and *where* this applies are worth having straight:
   is what it always was — ``<project>:local`` and its siblings — so a
   deployment that never heard of them is unaffected.
 
-The axes never touch the six upstream pins. Prefixing ``mongo:7`` with your
+The axes never touch an upstream pin. Prefixing ``mongo:7`` with your
 registry would name an image that exists in no registry; mirror those through
 their own row instead.
 

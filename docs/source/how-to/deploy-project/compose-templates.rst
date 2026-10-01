@@ -97,7 +97,7 @@ Overriding Service Images
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
 default — and the two stack-wide axes assemble the default name of an
-OSPREY-built image. The thirteen images, the two axes and their precedence are
+OSPREY-built image. Every image, the two axes and their precedence are
 catalogued in :ref:`config-deployment`.
 
 .. _deployment-image-builds:
@@ -203,10 +203,10 @@ fails at ``up`` on the image it forgot:
 
    * - Images
      - How to point them at your mirror
-   * - The eight OSPREY-built images
+   * - The OSPREY-built images
      - Set the registry axis once — ``images.registry``, or
        ``OSPREY_IMAGE_REGISTRY`` for a single build.
-   * - The five upstream pins
+   * - The upstream pins
      - One row at a time: ``services.<name>.image`` (or the row's
        ``OSPREY_..._IMAGE`` variable) naming your mirrored copy.
    * - The web tier's images
@@ -234,6 +234,8 @@ fails at ``up`` on the image it forgot:
        image: registry.example.org/mirror/mongo:7
      openobserve:
        image: registry.example.org/mirror/openobserve:v0.92.2
+     graphdb:
+       image: registry.example.org/mirror/neo4j:5.26-community
      bluesky:
        tiled_image: registry.example.org/mirror/tiled:0.2.18
        redis_image: registry.example.org/mirror/redis:7.4-alpine
