@@ -60,7 +60,7 @@ def test_deploy_down_web_terminals_runs_compose_down_on_web_file(monkeypatch, tm
     """With a rendered build/docker-compose.web.yml, the web stack gets its own
     `compose ... down` under the pinned compose project — the mirror of
     deploy_up_web_terminals' second invocation. Without it the fixed-name
-    `<prefix>-web-<user>`/`<prefix>-nginx` containers outlive every
+    `<project>-web-<user>`/`<project>-nginx` containers outlive every
     `osprey down` and the next web-terminals deploy on the host dies at `up`
     with a container-name Conflict."""
     monkeypatch.chdir(tmp_path)
@@ -297,7 +297,7 @@ def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-aut
     if auth_image is not None:
         auth["image"] = auth_image
     return {
-        "facility": {"prefix": "als"},
+        "project_name": "demo-project",
         "modules": {
             "web_terminals": {
                 "users": list(users),
@@ -891,7 +891,7 @@ def test_local_mode_builds_the_auth_image_the_compose_overlay_references(monkeyp
     assert len(recorded) == 1
     cmd = recorded[0]
     context_dir = tmp_path / provision.AUTH_BUILD_CONTEXT
-    assert cmd[:4] == ["podman", "build", "-t", "als-assistant-auth:local"]
+    assert cmd[:4] == ["podman", "build", "-t", "demo-project-assistant-auth:local"]
     assert cmd[-1] == str(context_dir)
     assert "-f" in cmd and cmd[cmd.index("-f") + 1] == str(context_dir / "Dockerfile")
     # OSPREY_PROJECT_NAME is what stamps com.osprey.project on the image, the
@@ -1235,7 +1235,7 @@ def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) 
 def _persona_roster_config(root: Path, *, denies_bash: bool) -> dict:
     """A registry-mode roster whose single persona both enables writes and runs bluesky."""
     return {
-        "facility": {"prefix": "als"},
+        "project_name": "demo-project",
         "modules": {
             "web_terminals": {
                 "users": [{"name": "alice", "index": 0, "persona": "readwrite"}],
@@ -1406,7 +1406,7 @@ def _registry_open_repo(root: Path, *, rendered: bool) -> dict:
             json.dumps({"permissions": {"deny": list(DENY_DEFAULTS)}}), encoding="utf-8"
         )
     return {
-        "facility": {"prefix": "als"},
+        "project_name": "demo-project",
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -1484,7 +1484,7 @@ def _seeded_password_repo(root: Path, *, fqdn: str) -> dict:
     )
     (root / ".env").write_text("OSPREY_AUTH_PW_ALICE=demo-pw-alice\n", encoding="utf-8")
     return {
-        "facility": {"prefix": "als"},
+        "project_name": "demo-project",
         "deploy": {"fqdn": fqdn},
         "modules": {
             "web_terminals": {
