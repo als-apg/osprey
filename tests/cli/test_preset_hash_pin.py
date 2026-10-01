@@ -168,29 +168,40 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `simulation.models: null`, the served-model list, whose null serves every
     # model in the facility file as the absent key does, so a rebuilt project
     # behaves identically; the digest moves because the preset now states it.
+    # The twenty-second move, and control-assistant's family and hello-world:
+    # the limits block names its mode. hello-world states
+    # `control_system.limits_checking.mode: optional` in place of the boolean
+    # it carried for the same posture; control-assistant states the same leaf
+    # deployment-wide and drops its per-type `virtual_accelerator` limits
+    # block, so one pair now covers every target, and the five `extends`
+    # children inherit it. A rebuilt control-assistant project writes a channel
+    # the limits file does not list on every target instead of refusing it on
+    # the hardware-shaped ones, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. ariel-standalone and
+    # channel-finder-standalone carry no limits block and stand still.
     "ariel-standalone": ("sha256:cda6b1a4fce5d0c8d29dce418bee0e3c89b9af06ac9a944c3d2af152a8e75f5a"),
     "channel-finder-standalone": (
         "sha256:e7ad4d3ebc1edd2eb8f1ed48862e7c8048b23f49d475ba71f7e82c3989bb984b"
     ),
     "control-assistant": (
-        "sha256:72374e15ba9dcf9cc2bb1cc1ca0bc0f0b28bbcaa64e6483555fbf2c7db0fdd94"
+        "sha256:e8c1585dbdc5c85ee4be383113940c87ab55343bfe3493aeaa7fcd72b2073864"
     ),
     "control-assistant-admin": (
-        "sha256:b6bfa62b21f8bb3f72144413de064d3f020d4a406e3d1f0b4802933543c27e6f"
+        "sha256:034267faeded326a5311729557e35bd8a0239f5ce9ab87f632855810ea3bc664"
     ),
     "control-assistant-knowledge": (
-        "sha256:d0e0cd51975fe40eb180ee156206b319d05d1272cd90086491292dbff6df8dad"
+        "sha256:46e10a715f93eb718d73c56fd0834f0671728d7374f81cbaab80ea51f9dcc5a6"
     ),
     "control-assistant-logbook": (
-        "sha256:c9bf8516ed12d3f69b1ce5f0b7b556626fefd973de95bb0898dd397c353f5124"
+        "sha256:4e35dccee6c2dc4e1008fa8d290991e50d5185da7d984e52c34b44e2ed174a7c"
     ),
     "control-assistant-readonly": (
-        "sha256:6eac318fc25fb9289fc9ae99d342138c0f4b24ebfd6b9d9ad365a78af72f00fc"
+        "sha256:723292c08fd93d022071fd7d4e386eff140c034c9cb3fa07431ef87f43693a86"
     ),
     "control-assistant-readwrite": (
-        "sha256:54ee7afb70fa1d6baa7a2afe0d83a88baffb838e5ccae65064a0c5399e4ffed7"
+        "sha256:649c49f03e3ddf6a6f2282ea5af06637e26067a2f9c1ed99e2a57c1370488022"
     ),
-    "hello-world": ("sha256:b0778bfa09e22de1c9504d57f214e36cb58b4923402627b617ecb8e26d720d44"),
+    "hello-world": ("sha256:7154579c3523e8ff5801236b02aee662fcc006e150b7b2d0f9d3f55e8dc41d24"),
 }
 
 
