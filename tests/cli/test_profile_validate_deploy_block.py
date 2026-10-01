@@ -341,6 +341,14 @@ def test_the_deploy_block_declares_no_environment_variables(key: str) -> None:
     assert "`env.required` / `env.defaults`" in message
 
 
+def test_a_token_env_var_with_a_trailing_newline_is_rejected() -> None:
+    registry = {**VALID_DEPLOY["registry"], "token_env_var": "FACILITY_REGISTRY_TOKEN\n"}
+    message = _refusal(_deploy(registry=registry))
+
+    assert "must be an environment variable NAME" in message
+    assert "not starting with a digit" in message
+
+
 def test_a_token_value_written_where_a_name_belongs_is_rejected() -> None:
     """The block references variable names; a value here would land a secret in
     a version-controlled file."""

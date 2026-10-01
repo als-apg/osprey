@@ -380,6 +380,14 @@ def test_invalid_env_var_name_is_rejected(tmp_path: Path) -> None:
     assert _errors(profile, tmp_path) == ["Invalid env var name: not-a-var"]
 
 
+def test_an_env_var_name_with_a_trailing_newline_is_rejected(tmp_path: Path) -> None:
+    profile = _profile(name="x", env=EnvConfig(required=["OK_VAR\n"], pinned=["OK_PIN\n"]))
+    assert _errors(profile, tmp_path) == [
+        "Invalid env var name: OK_VAR\n",
+        "Invalid env.pinned var name: 'OK_PIN\\n'",
+    ]
+
+
 def test_pinned_env_var_names_are_held_to_the_required_pattern(tmp_path: Path) -> None:
     """``pinned`` names the same kind of thing as ``required``, one message per name."""
     profile = _profile(name="x", env=EnvConfig(pinned=["OK_VAR", "not-a-var", "also bad"]))

@@ -231,6 +231,12 @@ def test_an_empty_name_is_refused() -> None:
     assert any("collection must be a non-empty" in error for error in _errors(collection="  "))
 
 
+def test_a_password_env_with_a_trailing_newline_is_refused() -> None:
+    errors = _errors(password_env="MONGO_ROOT_PASSWORD\n")
+
+    assert any("must be an environment variable NAME" in error for error in errors)
+
+
 def test_password_env_must_name_a_variable_not_hold_one() -> None:
     errors = _errors(password_env="hunter 2")
 

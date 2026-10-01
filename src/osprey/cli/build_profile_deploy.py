@@ -27,13 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from osprey.errors import BuildProfileError
+from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.types import (
     LIMITS_CHECKING_LEAF,
     LIMITS_LEAVES,
     SET_CONTROL_SYSTEM_TYPES,
 )
-
-from .build_profile_schema import _ENV_VAR_RE
 
 #: CI platforms with a shipped pipeline template. ``deploy.ci`` selects one of
 #: these by name; the scaffolding verbs key their template lookup off the same
@@ -897,11 +896,11 @@ def _parse_env_var_name(value: Any, label: str, problems: list[str]) -> str | No
     """Validate a variable *name* the deploy block points at."""
     if value is None:
         return None
-    if not isinstance(value, str) or not _ENV_VAR_RE.match(value):
+    if not isinstance(value, str) or not ENV_NAME_RE.match(value):
         problems.append(
             f"'{label}' must be an environment variable NAME "
-            f"(uppercase letters, digits, underscores), got {value!r}. The value "
-            f"belongs in the deployment's .env; declare the name under `env.required`."
+            f"(letters, digits and underscores, not starting with a digit), got {value!r}. "
+            f"The value belongs in the deployment's .env; declare the name under `env.required`."
         )
         return None
     return value
