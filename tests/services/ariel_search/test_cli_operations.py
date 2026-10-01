@@ -708,6 +708,22 @@ class TestRunReembedDryRun:
         # The derived table name is surfaced in the dry-run preview.
         assert any("text_embeddings_nomic_embed_text" in m for m in messages)
 
+    async def test_dry_run_names_the_input_limit(self, monkeypatch):
+        _patch_service_raises(monkeypatch, AssertionError("service should not be created"))
+
+        messages: list[str] = []
+        await ops.run_reembed(
+            dict(_DB),
+            model="nomic-embed-text",
+            dimension=768,
+            batch_size=16,
+            dry_run=True,
+            force=False,
+            progress=messages.append,
+        )
+
+        assert "  Input limit: 512 tokens" in messages
+
 
 # ---------------------------------------------------------------------------
 # run_watch — input validation

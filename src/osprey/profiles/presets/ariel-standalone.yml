@@ -340,10 +340,13 @@ config:
   # pgvector is unavailable.
   ariel.enhancement_modules.text_embedding.enabled: true
   ariel.enhancement_modules.text_embedding.provider: ollama
-  # Embedding models and their vector dimension.
+  # Embedding models, their vector dimension, and the input window the server
+  # applies to each, in tokens. Ollama serves nomic-embed-text with a 2048-token
+  # window; a longer entry is cut so its start is embedded.
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
+      max_input_tokens: 2048
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.

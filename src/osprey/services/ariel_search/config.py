@@ -236,7 +236,9 @@ class ModelConfig:
     Attributes:
         name: Model name (e.g., "nomic-embed-text")
         dimension: Embedding dimension (must match model output)
-        max_input_tokens: Maximum input tokens for the model (optional)
+        max_input_tokens: Input window, in tokens, that the embedding server applies to this
+            model (optional). Unset means the text embedding module's
+            ``DEFAULT_MAX_INPUT_TOKENS``.
     """
 
     name: str

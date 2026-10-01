@@ -28,6 +28,10 @@ from osprey.services.ariel_search.enhancement.semantic_processor import (
 from osprey.services.ariel_search.enhancement.text_embedding import (
     TextEmbeddingModule,
 )
+from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+    fit_to_input_limit,
+    max_input_tokens,
+)
 from tests.services.ariel_search.conftest import _FakeConnection, _FakeEmbeddingProvider
 
 TABLES_QUERY = "information_schema.tables"
@@ -1200,21 +1204,77 @@ class TestTextEmbeddingEnhanceWithProvider:
         assert provider.calls[0]["api_key"] is None
 
     @pytest.mark.asyncio
-    async def test_enhance_truncates_text_to_model_token_budget(self, monkeypatch):
-        """Text is clipped to max_input_tokens * 4 characters."""
+    async def test_enhance_cuts_a_long_entry_to_the_model_input_limit(self, monkeypatch):
+        """A long entry is cut to the model's limit less the reserved tokens, in bytes."""
         provider = _FakeEmbeddingProvider()
         monkeypatch.setattr(
             "osprey.models.embeddings.get_embedding_provider",
             lambda name: provider,
         )
         module = _embedding_module(
-            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 10}]
+            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
         )
         conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
 
         await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 100}, conn)
 
-        assert provider.calls[0]["texts"] == ["x" * 40]
+        assert provider.calls[0]["texts"] == ["x" * 32]
+
+    @pytest.mark.asyncio
+    async def test_enhance_sends_an_entry_within_the_limit_whole(self, monkeypatch):
+        """An entry that fits the limit is sent unchanged."""
+        provider = _FakeEmbeddingProvider()
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(
+            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 32}, conn)
+
+        assert provider.calls[0]["texts"] == ["x" * 32]
+
+    @pytest.mark.asyncio
+    async def test_enhance_logs_the_cut_naming_the_entry(self, monkeypatch, caplog):
+        """A cut entry is logged once with its id, its length and the length embedded."""
+        provider = _FakeEmbeddingProvider()
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(
+            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        with caplog.at_level(logging.INFO, logger="ariel"):
+            await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 100}, conn)
+
+        records = [
+            r.getMessage()
+            for r in caplog.records
+            if "entry-001" in r.getMessage() and "100 characters" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert "first 32" in records[0]
+
+    @pytest.mark.asyncio
+    async def test_enhance_uses_the_default_limit_when_none_is_set(self, monkeypatch):
+        """A model listed without max_input_tokens is cut to the default limit."""
+        provider = _FakeEmbeddingProvider()
+        monkeypatch.setattr(
+            "osprey.models.embeddings.get_embedding_provider",
+            lambda name: provider,
+        )
+        module = _embedding_module(models=[{"name": "test-model", "dimension": 4}])
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance({"entry_id": "entry-001", "raw_text": "x" * 1000}, conn)
+
+        assert provider.calls[0]["texts"] == ["x" * 504]
 
     @pytest.mark.asyncio
     async def test_enhance_loads_provider_once_across_entries(self, entry, monkeypatch):
@@ -1258,6 +1318,59 @@ class TestTextEmbeddingEnhanceWithProvider:
         assert "model-b: embedding backend down" in str(exc.value)
         assert "Failed to generate embedding for entry entry-001" in caplog.text
         assert not any("INSERT" in sql for sql in conn.sql)
+
+
+class TestFitToInputLimit:
+    """Tests for the byte cut that fits a text to a model's input limit."""
+
+    def test_text_within_the_budget_is_returned_as_is(self):
+        """A text that fits is the same object, not a copy."""
+        text = "y" * 32
+        assert fit_to_input_limit(text, 40) is text
+
+    def test_the_cut_counts_utf8_bytes(self):
+        """A three-byte character costs three bytes of the budget."""
+        assert fit_to_input_limit("加" * 100, 40) == "加" * 10
+
+    def test_the_cut_never_splits_a_character(self):
+        """A character the cut would split is dropped whole."""
+        assert fit_to_input_limit("a" + "加" * 20, 13) == "a" + "加" * 1
+
+
+class TestMaxInputTokens:
+    """Tests for reading a model's input limit from its config entry."""
+
+    def test_unset_is_the_default(self):
+        """An absent or null limit reads as the default."""
+        assert max_input_tokens({}) == 512
+        assert max_input_tokens({"max_input_tokens": None}) == 512
+
+    def test_a_stated_limit_is_used(self):
+        """A stated integer limit is returned as is."""
+        assert max_input_tokens({"name": "m", "max_input_tokens": 2048}) == 2048
+
+    @pytest.mark.parametrize("bad", [8, 0, -1, True, "2048", 2048.0])
+    def test_rejects_every_other_spelling(self, bad):
+        """Anything but an integer above the reserve is refused with the model named."""
+        with pytest.raises(ValueError) as exc:
+            max_input_tokens({"name": "m", "max_input_tokens": bad})
+        assert str(exc.value) == (
+            "ariel.enhancement_modules.text_embedding.models: max_input_tokens for 'm' "
+            f"must be an integer greater than 8 (got {bad!r})"
+        )
+
+    def test_configure_refuses_a_malformed_limit(self):
+        """A malformed limit is refused when the module is configured."""
+        with pytest.raises(
+            ValueError,
+            match=r"max_input_tokens for 'test-model' must be an integer greater than 8",
+        ):
+            TextEmbeddingModule().configure(
+                {
+                    "models": [{"name": "test-model", "dimension": 4, "max_input_tokens": "2048"}],
+                    "provider": {"name": "fake"},
+                }
+            )
 
 
 class TestTextEmbeddingHealthCheckBranches:

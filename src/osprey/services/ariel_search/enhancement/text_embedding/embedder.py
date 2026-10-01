@@ -5,6 +5,7 @@ This module generates text embeddings for logbook entries to enable semantic sea
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.database.migrations import model_to_table_name
@@ -23,8 +24,63 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-# Default characters per token estimate (conservative)
-CHARS_PER_TOKEN = 4
+#: Input limit, in tokens, used for a model whose entry names no ``max_input_tokens``. It is
+#: the smallest window among the models the Ollama provider lists (``all-minilm`` and
+#: ``mxbai-embed-large`` serve 512), so an unstated limit is never larger than the model's.
+DEFAULT_MAX_INPUT_TOKENS = 512
+
+#: Tokens held back from a model's input limit for the special tokens a tokenizer wraps every
+#: input in (``nomic-embed-text`` adds two).
+RESERVED_TOKENS = 8
+
+
+def max_input_tokens(model_config: Mapping[str, Any]) -> int:
+    """Return the input limit, in tokens, of one configured embedding model.
+
+    Args:
+        model_config: One entry of ``ariel.enhancement_modules.text_embedding.models``.
+
+    Returns:
+        The entry's ``max_input_tokens``, or ``DEFAULT_MAX_INPUT_TOKENS`` when it is absent or
+        null.
+
+    Raises:
+        ValueError: If the limit is not an integer greater than ``RESERVED_TOKENS``.
+    """
+    value = model_config.get("max_input_tokens")
+    if value is None:
+        return DEFAULT_MAX_INPUT_TOKENS
+    if isinstance(value, int) and not isinstance(value, bool) and value > RESERVED_TOKENS:
+        return value
+    raise ValueError(
+        "ariel.enhancement_modules.text_embedding.models: max_input_tokens for "
+        f"{model_config.get('name')!r} must be an integer greater than {RESERVED_TOKENS} "
+        f"(got {value!r})"
+    )
+
+
+def fit_to_input_limit(text: str, max_input_tokens: int) -> str:
+    """Cut a text so it fits an embedding model's input limit, keeping its start.
+
+    The returned text is at most ``max_input_tokens - RESERVED_TOKENS`` UTF-8 bytes long. A
+    tokenizer emits at most one token per character (WordPiece, measured on
+    ``nomic-embed-text`` with punctuation, digits, CJK, accented and compatibility characters)
+    or one per byte (byte-level BPE), so a cut in UTF-8 bytes fits every text, whereas a
+    characters-per-token ratio fits only the text it was measured on.
+
+    Args:
+        text: The text to embed.
+        max_input_tokens: The model's input limit, in tokens.
+
+    Returns:
+        ``text`` itself when it fits, otherwise its longest prefix that fits. A character the
+        cut would split is dropped whole.
+    """
+    budget = max_input_tokens - RESERVED_TOKENS
+    encoded = text.encode("utf-8")
+    if len(encoded) <= budget:
+        return text
+    return encoded[:budget].decode("utf-8", errors="ignore")
 
 
 class TextEmbeddingModule(BaseEnhancementModule):
@@ -59,8 +115,13 @@ class TextEmbeddingModule(BaseEnhancementModule):
             config: The enhancement_modules.text_embedding config dict
                    containing 'provider' (provider name string or inline config dict)
                    and 'models' list.
+
+        Raises:
+            ValueError: If a model's ``max_input_tokens`` is malformed.
         """
         self._models = config.get("models", [])
+        for model_config in self._models:
+            max_input_tokens(model_config)
         provider_config = config.get("provider", "ollama")
 
         # Handle both provider name (string) and inline config (dict)
@@ -132,7 +193,7 @@ class TextEmbeddingModule(BaseEnhancementModule):
         """Generate embeddings for entry and store in database.
 
         Lazy-loads the embedding provider on first call.
-        Truncates text to model's max input tokens to prevent API failures.
+        Cuts a long entry to the model's input limit, so its start is embedded.
 
         Args:
             entry: The entry to enhance
@@ -157,9 +218,18 @@ class TextEmbeddingModule(BaseEnhancementModule):
             try:
                 model_name = model_config["name"]
 
-                max_tokens = model_config.get("max_input_tokens") or 8192
-                max_chars = max_tokens * CHARS_PER_TOKEN
-                text = raw_text[:max_chars]
+                limit = max_input_tokens(model_config)
+                text = fit_to_input_limit(raw_text, limit)
+                if text is not raw_text:
+                    logger.info(
+                        "Entry %s is %d characters; only the first %d were embedded with %s "
+                        "(its input limit is %d tokens)",
+                        entry.get("entry_id"),
+                        len(raw_text),
+                        len(text),
+                        model_name,
+                        limit,
+                    )
 
                 base_url = self._resolved_provider_config.get(
                     "base_url",

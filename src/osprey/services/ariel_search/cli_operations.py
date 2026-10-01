@@ -1497,6 +1497,23 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
         return {"error": msg}
 
 
+def _embedding_input_limit(config: ARIELConfig, model: str) -> int:
+    """Return the input limit, in tokens, the text embedding module states for ``model``.
+
+    A model not listed under ``text_embedding.models`` gets the module's default limit.
+    """
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+        DEFAULT_MAX_INPUT_TOKENS,
+        max_input_tokens,
+    )
+
+    module_config = config.enhancement_modules.get("text_embedding")
+    for m in (module_config.models if module_config else None) or []:
+        if m.name == model:
+            return max_input_tokens({"name": m.name, "max_input_tokens": m.max_input_tokens})
+    return DEFAULT_MAX_INPUT_TOKENS
+
+
 async def run_reembed(
     config_dict: dict,
     model: str,
@@ -1510,9 +1527,13 @@ async def run_reembed(
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.migrations import model_to_table_name
     from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingMigration
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+        fit_to_input_limit,
+    )
 
     config = _ariel_config(config_dict)
     table_name = model_to_table_name(model)
+    limit = _embedding_input_limit(config, model)
 
     if dry_run:
         if progress:
@@ -1520,6 +1541,7 @@ async def run_reembed(
             progress(f"  Table: {table_name}")
             progress(f"  Dimension: {dimension}")
             progress(f"  Batch size: {batch_size}")
+            progress(f"  Input limit: {limit} tokens")
             progress(f"  Force overwrite: {force}")
         return ReembedResult(processed=0, skipped=0, errors=0, dry_run=True)
 
@@ -1575,7 +1597,7 @@ async def run_reembed(
                             skipped += 1
                             continue
 
-                    batch_texts.append(raw_text or "")
+                    batch_texts.append(fit_to_input_limit(raw_text or "", limit))
                     batch_ids.append(entry_id)
 
                     if len(batch_texts) >= batch_size:

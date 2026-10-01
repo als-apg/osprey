@@ -455,6 +455,35 @@ def _fuzzy_threshold_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _embedding_input_limit_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The input window the presets now state for the embedding model they ship.
+
+    Each model under ``ariel.enhancement_modules.text_embedding.models`` states
+    the input window, in tokens, its embedding server applies, and a longer
+    entry is cut so its start is embedded. The two presets that carry a
+    text-embedding block now give ``nomic-embed-text`` its served 2048-token
+    window, so every document they render gains ``max_input_tokens`` on that
+    entry. The fixtures were frozen before the key existed. Lists are compared
+    whole, so the delta names the whole models list.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="ariel.enhancement_modules.text_embedding.models",
+            fixture=[{"dimension": 768, "name": "nomic-embed-text"}],
+            live=[{"dimension": 768, "max_input_tokens": 2048, "name": "nomic-embed-text"}],
+        )
+        for document in documents
+    )
+
+
 def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
     """The dispatch worker's turn ceiling, now written into its service block.
 
@@ -845,7 +874,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
     + _retired_upstream_link_deltas("root")
-    + _fuzzy_threshold_deltas("root"),
+    + _fuzzy_threshold_deltas("root")
+    + _embedding_input_limit_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root"),
@@ -870,6 +900,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -886,6 +917,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -902,6 +934,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -918,6 +951,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas(),
 }
 
