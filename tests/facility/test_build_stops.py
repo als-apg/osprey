@@ -11,9 +11,11 @@ that breaks one runs through ``osprey build --skip-deps`` only.
 
 from __future__ import annotations
 
+import ast
 import copy
 import itertools
 import json
+import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -23,6 +25,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+import osprey.facility
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
@@ -1170,7 +1173,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: seed-missing: channel Q2:SP — limits band [1, 2] excludes 0 and the "
-            "channel has no seed; fix: add simulation.nominal in records/channels.yaml"
+            "channel has no seed; fix: add a nominal for it in data/facility/seeds.yaml"
         ),
     ),
     "limit_invalid__writable": (
@@ -1600,6 +1603,46 @@ def test_every_kind_has_a_case() -> None:
 def test_each_sentence_is_listed_once() -> None:
     sentences = [(kind, sentence) for _case, kind, sentence in STOP_SENTENCES]
     assert len(sentences) == len(set(sentences))
+
+
+#: The calls whose last positional argument is a stop's remedy.
+_REMEDY_CALLS = frozenset({"stop", "_error", "_path_error", "FacilityBuildError"})
+
+_RECORDS_FILE = re.compile(r"records/[A-Za-z_]+\.yaml")
+
+
+def _remedy_literals() -> list[tuple[str, str]]:
+    """The literal text of every remedy argument, each with its ``file:line``."""
+    found: list[tuple[str, str]] = []
+    package = Path(osprey.facility.__file__).parent
+    for path in sorted(package.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name not in _REMEDY_CALLS:
+                continue
+            where = f"{path.relative_to(package)}:{node.lineno}"
+            found.extend(
+                (where, part.value)
+                for part in ast.walk(node.args[-1])
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            )
+    return found
+
+
+def test_no_literal_remedy_names_a_records_file() -> None:
+    """A literal remedy names only files authored in every tree.
+
+    A literal cannot know which layer a record lives in, so it names
+    ``seeds.yaml``, ``limits.yaml``, ``fixes.yaml``, ``classes.yaml``,
+    ``mapping.yaml`` or the profile. A remedy that must name the record's own
+    file interpolates it.
+    """
+    literals = _remedy_literals()
+    assert literals
+    assert [(where, text) for where, text in literals if _RECORDS_FILE.search(text)] == []
 
 
 # --- what builds ---------------------------------------------------------------------
