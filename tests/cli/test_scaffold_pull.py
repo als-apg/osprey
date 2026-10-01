@@ -154,14 +154,14 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/channel_databases/tiers/tier3/",
     "data/facility/",
     "data/facility/decks/",
+    "data/facility/knowledge/",
+    "data/facility/knowledge/devices/",
+    "data/facility/knowledge/physics/",
+    "data/facility/knowledge/procedures/",
+    "data/facility/knowledge/references/",
+    "data/facility/knowledge/subsystems/",
     "data/facility/measurement/",
     "data/facility/records/",
-    "data/facility_knowledge/",
-    "data/facility_knowledge/devices/",
-    "data/facility_knowledge/physics/",
-    "data/facility_knowledge/procedures/",
-    "data/facility_knowledge/references/",
-    "data/facility_knowledge/subsystems/",
     "data/landing/",
     "data/lattice/",
     "data/mml/",
@@ -194,6 +194,29 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/demo_machine.ttl",
     "data/facility/decks/SR.json",
     "data/facility/identity.yaml",
+    "data/facility/knowledge/devices/bpm.md",
+    "data/facility/knowledge/devices/index.md",
+    "data/facility/knowledge/devices/ion-pump.md",
+    "data/facility/knowledge/index.md",
+    "data/facility/knowledge/physics/beam-current-calibration.md",
+    "data/facility/knowledge/physics/index.md",
+    "data/facility/knowledge/physics/quadrupole-scan.md",
+    "data/facility/knowledge/procedures/index.md",
+    "data/facility/knowledge/procedures/orbit-correction.md",
+    "data/facility/knowledge/procedures/ps-startup.md",
+    "data/facility/knowledge/procedures/pss-reset.md",
+    "data/facility/knowledge/procedures/sample-scan.md",
+    "data/facility/knowledge/procedures/vacuum-recovery.md",
+    "data/facility/knowledge/references/epics-channel-access.md",
+    "data/facility/knowledge/references/index.md",
+    "data/facility/knowledge/references/safety-rules.md",
+    "data/facility/knowledge/subsystems/experimental-stations.md",
+    "data/facility/knowledge/subsystems/index.md",
+    "data/facility/knowledge/subsystems/primary-source.md",
+    "data/facility/knowledge/subsystems/pss.md",
+    "data/facility/knowledge/subsystems/timing.md",
+    "data/facility/knowledge/subsystems/transport-delivery.md",
+    "data/facility/knowledge/subsystems/vacuum.md",
     "data/facility/limits.yaml",
     "data/facility/measurement/SR.yaml",
     "data/facility/models.yaml",
@@ -202,29 +225,6 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/records/groups.yaml",
     "data/facility/records/places.yaml",
     "data/facility/seeds.yaml",
-    "data/facility_knowledge/devices/bpm.md",
-    "data/facility_knowledge/devices/index.md",
-    "data/facility_knowledge/devices/ion-pump.md",
-    "data/facility_knowledge/index.md",
-    "data/facility_knowledge/physics/beam-current-calibration.md",
-    "data/facility_knowledge/physics/index.md",
-    "data/facility_knowledge/physics/quadrupole-scan.md",
-    "data/facility_knowledge/procedures/index.md",
-    "data/facility_knowledge/procedures/orbit-correction.md",
-    "data/facility_knowledge/procedures/ps-startup.md",
-    "data/facility_knowledge/procedures/pss-reset.md",
-    "data/facility_knowledge/procedures/sample-scan.md",
-    "data/facility_knowledge/procedures/vacuum-recovery.md",
-    "data/facility_knowledge/references/epics-channel-access.md",
-    "data/facility_knowledge/references/index.md",
-    "data/facility_knowledge/references/safety-rules.md",
-    "data/facility_knowledge/subsystems/experimental-stations.md",
-    "data/facility_knowledge/subsystems/index.md",
-    "data/facility_knowledge/subsystems/primary-source.md",
-    "data/facility_knowledge/subsystems/pss.md",
-    "data/facility_knowledge/subsystems/timing.md",
-    "data/facility_knowledge/subsystems/transport-delivery.md",
-    "data/facility_knowledge/subsystems/vacuum.md",
     "data/facility_ontology.json",
     "data/landing/working-safely.md",
     "data/lattice/als_u_ar.mat",
@@ -276,7 +276,7 @@ def test_list_pullable_paths_offers_the_content_an_operator_edits(
     """The two trees a facility rewrites first are both named, machinery is not."""
     listed = list_pullable_paths(control_assistant_root)
 
-    assert "data/facility_knowledge/" in listed
+    assert "data/facility/knowledge/" in listed
     assert "web-terminal-context/" in listed
     assert [entry for entry in listed if entry.endswith(".j2")] == []
     assert "__init__.py" not in listed
@@ -325,15 +325,15 @@ def test_list_pullable_paths_drops_what_the_packaged_data_copy_drops(tmp_path: P
 
 def test_list_pullable_paths_restricts_to_a_subtree(control_assistant_root: Path) -> None:
     """A directory subtree yields itself and everything below it, and nothing else."""
-    listed = list_pullable_paths(control_assistant_root, "data/facility_knowledge")
+    listed = list_pullable_paths(control_assistant_root, "data/facility/knowledge")
 
-    assert "data/facility_knowledge/" in listed
-    assert "data/facility_knowledge/procedures/orbit-correction.md" in listed
-    assert all(entry.startswith("data/facility_knowledge/") for entry in listed)
+    assert "data/facility/knowledge/" in listed
+    assert "data/facility/knowledge/procedures/orbit-correction.md" in listed
+    assert all(entry.startswith("data/facility/knowledge/") for entry in listed)
     assert listed == [
         entry
         for entry in CONTROL_ASSISTANT_PULLABLE
-        if entry.startswith("data/facility_knowledge/")
+        if entry.startswith("data/facility/knowledge/")
     ]
 
 
@@ -377,7 +377,7 @@ def test_plan_pull_counts_match_the_packaged_knowledge_base(
     control_assistant_root: Path,
 ) -> None:
     """The pinned totals above are what the template actually ships."""
-    listed = list_pullable_paths(control_assistant_root, "data/facility_knowledge")
+    listed = list_pullable_paths(control_assistant_root, "data/facility/knowledge")
     markdown = [entry for entry in listed if entry.endswith(".md")]
 
     assert len(markdown) == KNOWLEDGE_MARKDOWN_FILES
@@ -395,7 +395,7 @@ def test_plan_pull_of_the_knowledge_base_writes_only_the_indexes(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -415,7 +415,7 @@ def test_plan_pull_with_content_writes_every_knowledge_document(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=True,
     )
@@ -432,15 +432,15 @@ def test_plan_pull_mirrors_the_template_relative_path_under_the_repo(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge/index.md",
+        "data/facility/knowledge/index.md",
         force=False,
         with_content=False,
     )
 
     assert [action.target for action in plan] == [
-        tmp_path / "data" / "facility_knowledge" / "index.md"
+        tmp_path / "data" / "facility" / "knowledge" / "index.md"
     ]
-    assert plan[0].source == control_assistant_root / "data/facility_knowledge/index.md"
+    assert plan[0].source == control_assistant_root / "data/facility/knowledge/index.md"
 
 
 def test_plan_pull_refuses_a_single_filtered_knowledge_file(
@@ -450,7 +450,7 @@ def test_plan_pull_refuses_a_single_filtered_knowledge_file(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge/devices/bpm.md",
+        "data/facility/knowledge/devices/bpm.md",
         force=False,
         with_content=False,
     )
@@ -464,19 +464,19 @@ def test_plan_pull_refuses_an_existing_destination(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """A file already in the repo stops the pull and the reason names the flag."""
-    _stage_template(tmp_path, ["data/facility_knowledge/index.md"])
+    _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=False,
     )
 
     refused = _by_action(plan)["refused"]
     assert [action.target for action in refused] == [
-        tmp_path / "data" / "facility_knowledge" / "index.md"
+        tmp_path / "data" / "facility" / "knowledge" / "index.md"
     ]
     assert "--force" in refused[0].reason
 
@@ -485,12 +485,12 @@ def test_plan_pull_updates_an_existing_destination_under_force(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """With the flag, a differing file is an update rather than a refusal."""
-    _stage_template(tmp_path, ["data/facility_knowledge/index.md"])
+    _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=True,
         with_content=False,
     )
@@ -498,7 +498,7 @@ def test_plan_pull_updates_an_existing_destination_under_force(
     grouped = _by_action(plan)
     assert "refused" not in grouped
     assert [action.target for action in grouped["updated"]] == [
-        tmp_path / "data" / "facility_knowledge" / "index.md"
+        tmp_path / "data" / "facility" / "knowledge" / "index.md"
     ]
     assert len(grouped["written"]) == KNOWLEDGE_INDEX_FILES - 1
 
@@ -507,15 +507,15 @@ def test_plan_pull_reports_an_identical_destination_as_unchanged(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """Re-pulling what is already there is a no-op, reported as one."""
-    source = control_assistant_root / "data/facility_knowledge/index.md"
-    target = tmp_path / "data" / "facility_knowledge" / "index.md"
+    source = control_assistant_root / "data/facility/knowledge/index.md"
+    target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge/index.md",
+        "data/facility/knowledge/index.md",
         force=True,
         with_content=False,
     )
@@ -530,13 +530,13 @@ def test_plan_pull_refuses_a_symlinked_target_directory(
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     repo_root = tmp_path / "repo"
-    (repo_root / "data").mkdir(parents=True)
-    (repo_root / "data" / "facility_knowledge").symlink_to(elsewhere, target_is_directory=True)
+    (repo_root / "data" / "facility").mkdir(parents=True)
+    (repo_root / "data" / "facility" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
 
     plan = plan_pull(
         control_assistant_root,
         repo_root,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=True,
         with_content=True,
     )
@@ -552,12 +552,12 @@ def test_plan_pull_refuses_a_directory_where_the_file_goes(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """A kind mismatch is never resolved on the facility's behalf."""
-    (tmp_path / "data" / "facility_knowledge" / "index.md").mkdir(parents=True)
+    (tmp_path / "data" / "facility" / "knowledge" / "index.md").mkdir(parents=True)
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge/index.md",
+        "data/facility/knowledge/index.md",
         force=True,
         with_content=False,
     )
@@ -570,18 +570,18 @@ def test_plan_pull_refuses_a_file_where_a_directory_is_needed(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """The mismatch counts anywhere between the repo root and the target."""
-    _stage_template(tmp_path, ["data/facility_knowledge/devices"])
+    _stage_template(tmp_path, ["data/facility/knowledge/devices"])
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge/devices/bpm.md",
+        "data/facility/knowledge/devices/bpm.md",
         force=True,
         with_content=True,
     )
 
     assert plan[0].action == "refused"
-    assert "data/facility_knowledge/devices" in plan[0].reason
+    assert "data/facility/knowledge/devices" in plan[0].reason
 
 
 def test_plan_pull_keeps_a_nested_package_marker(manager: TemplateManager, tmp_path: Path) -> None:
@@ -655,7 +655,7 @@ def test_apply_pull_of_the_knowledge_base_writes_only_the_indexes(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -672,20 +672,20 @@ def test_apply_pull_leaves_no_demo_document_title_in_a_pulled_index(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """The rebuilt indexes name what is on disk, so the demo concepts are gone."""
-    knowledge_source = control_assistant_root / "data" / "facility_knowledge"
+    knowledge_source = control_assistant_root / "data" / "facility" / "knowledge"
     demo_titles = _packaged_demo_titles(knowledge_source)
     assert "Beam Position Monitor (BPM)" in demo_titles
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=False,
     )
     apply_pull(plan, repo_root=tmp_path, with_content=False)
 
-    knowledge_target = tmp_path / "data" / "facility_knowledge"
+    knowledge_target = tmp_path / "data" / "facility" / "knowledge"
     pulled = "\n".join(
         index.read_text(encoding="utf-8") for index in knowledge_target.rglob(_INDEX_NAME)
     )
@@ -706,13 +706,13 @@ def test_a_skeleton_pull_leaves_indexes_that_validate(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=False,
     )
     apply_pull(plan, repo_root=tmp_path, with_content=False)
 
-    knowledge_target = tmp_path / "data" / "facility_knowledge"
+    knowledge_target = tmp_path / "data" / "facility" / "knowledge"
     assert check_indexes(knowledge_target) == []
 
 
@@ -723,7 +723,7 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=True,
     )
@@ -736,20 +736,20 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     for path in written:
         relative = path.relative_to(tmp_path)
         assert path.read_bytes() == (control_assistant_root / relative).read_bytes()
-    assert check_indexes(tmp_path / "data" / "facility_knowledge") == []
+    assert check_indexes(tmp_path / "data" / "facility" / "knowledge") == []
 
 
 def test_apply_pull_writes_nothing_when_the_plan_holds_a_refusal(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """One refusal stops the whole pull, so there is no half-applied copy to undo."""
-    _stage_template(tmp_path, ["data/facility_knowledge/index.md"])
+    _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
     before = _tree(tmp_path)
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -767,24 +767,24 @@ def test_apply_pull_overwrites_under_force_and_keeps_a_file_the_template_lacks(
     """A pull replaces what it names and removes nothing it does not."""
     _stage_template(
         tmp_path,
-        ["data/facility_knowledge/index.md", "data/facility_knowledge/devices/local-note.md"],
+        ["data/facility/knowledge/index.md", "data/facility/knowledge/devices/local-note.md"],
     )
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=True,
         with_content=True,
     )
     apply_pull(plan, repo_root=tmp_path, with_content=True)
 
-    target = tmp_path / "data" / "facility_knowledge" / "index.md"
+    target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
     assert (
         target.read_bytes()
-        == (control_assistant_root / "data/facility_knowledge/index.md").read_bytes()
+        == (control_assistant_root / "data/facility/knowledge/index.md").read_bytes()
     )
-    assert (tmp_path / "data" / "facility_knowledge" / "devices" / "local-note.md").is_file()
+    assert (tmp_path / "data" / "facility" / "knowledge" / "devices" / "local-note.md").is_file()
 
 
 def test_apply_pull_writes_a_nested_package_marker(
@@ -811,7 +811,7 @@ def test_apply_pull_returns_the_actions_it_applied(
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge",
+        "data/facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -827,15 +827,15 @@ def test_apply_pull_leaves_an_unchanged_target_alone(
     control_assistant_root: Path, tmp_path: Path
 ) -> None:
     """Re-pulling an identical file writes nothing and rebuilds nothing."""
-    source = control_assistant_root / "data/facility_knowledge/index.md"
-    target = tmp_path / "data" / "facility_knowledge" / "index.md"
+    source = control_assistant_root / "data/facility/knowledge/index.md"
+    target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
     plan = plan_pull(
         control_assistant_root,
         tmp_path,
-        "data/facility_knowledge/index.md",
+        "data/facility/knowledge/index.md",
         force=True,
         with_content=False,
     )
@@ -891,7 +891,7 @@ def test_the_listing_names_the_content_and_not_the_machinery(runner: CliRunner, 
     """The two trees a facility rewrites are named; the build machinery is not."""
     listed = run(runner, repo, "control-assistant", "--list").stdout.splitlines()
 
-    assert "data/facility_knowledge/" in listed
+    assert "data/facility/knowledge/" in listed
     assert "web-terminal-context/" in listed
     assert [entry for entry in listed if entry.endswith(".j2")] == []
     assert "__init__.py" not in listed
@@ -901,20 +901,20 @@ def test_the_listing_restricts_to_a_subtree_and_writes_nothing(
     runner: CliRunner, repo: Path
 ) -> None:
     """A path after the colon narrows the listing, and listing is read-only."""
-    result = run(runner, repo, "control-assistant:data/facility_knowledge", "--list")
+    result = run(runner, repo, "control-assistant:data/facility/knowledge", "--list")
 
     assert result.exit_code == 0, result.output
     assert result.stdout.splitlines() == [
         entry
         for entry in CONTROL_ASSISTANT_PULLABLE
-        if entry.startswith("data/facility_knowledge/")
+        if entry.startswith("data/facility/knowledge/")
     ]
     assert [path.name for path in repo.iterdir()] == ["profile.yml"]
 
 
 def test_pulling_the_knowledge_base_writes_only_the_indexes(runner: CliRunner, repo: Path) -> None:
     """A plain pull lands the structure, says what it left, and rebuilds the indexes."""
-    result = run(runner, repo, "control-assistant:data/facility_knowledge")
+    result = run(runner, repo, "control-assistant:data/facility/knowledge")
 
     assert result.exit_code == 0, result.output
     written = _markdown(repo)
@@ -933,7 +933,7 @@ def test_pulling_the_knowledge_base_with_content_writes_every_document(
     runner: CliRunner, repo: Path
 ) -> None:
     """The flag turns the skeleton into the whole worked example."""
-    result = run(runner, repo, "control-assistant:data/facility_knowledge", "--with-content")
+    result = run(runner, repo, "control-assistant:data/facility/knowledge", "--with-content")
 
     assert result.exit_code == 0, result.output
     assert len(_markdown(repo)) == KNOWLEDGE_MARKDOWN_FILES
@@ -944,7 +944,7 @@ def test_pulling_one_knowledge_document_names_the_flag_that_brings_it(
     runner: CliRunner, repo: Path
 ) -> None:
     """Asking for a single filtered document is a refusal, not a silent no-op."""
-    result = run(runner, repo, "control-assistant:data/facility_knowledge/devices/bpm.md")
+    result = run(runner, repo, "control-assistant:data/facility/knowledge/devices/bpm.md")
 
     assert result.exit_code == 1
     assert "--with-content" in result.output
@@ -961,15 +961,15 @@ def test_pulling_a_bundled_server_keeps_its_package_marker(runner: CliRunner, re
 
 def test_an_existing_destination_stops_the_whole_pull(runner: CliRunner, repo: Path) -> None:
     """One file already here refuses the pull, and nothing else is written."""
-    target = repo / "data" / "facility_knowledge" / _INDEX_NAME
+    target = repo / "data" / "facility" / "knowledge" / _INDEX_NAME
     target.parent.mkdir(parents=True)
     target.write_text("ours", encoding="utf-8")
 
-    result = run(runner, repo, "control-assistant:data/facility_knowledge")
+    result = run(runner, repo, "control-assistant:data/facility/knowledge")
 
     assert result.exit_code == 1
     assert "--force" in result.output
-    assert _markdown(repo) == ["data/facility_knowledge/index.md"]
+    assert _markdown(repo) == ["data/facility/knowledge/index.md"]
     assert target.read_text(encoding="utf-8") == "ours"
 
 
@@ -977,19 +977,19 @@ def test_force_overwrites_and_keeps_a_file_the_template_lacks(
     runner: CliRunner, repo: Path, control_assistant_root: Path
 ) -> None:
     """A pull replaces what it names and removes nothing it does not."""
-    knowledge = repo / "data" / "facility_knowledge"
+    knowledge = repo / "data" / "facility" / "knowledge"
     (knowledge / "devices").mkdir(parents=True)
     (knowledge / _INDEX_NAME).write_text("ours", encoding="utf-8")
     (knowledge / "devices" / "local-note.md").write_text("kept", encoding="utf-8")
 
     result = run(
-        runner, repo, "control-assistant:data/facility_knowledge", "--force", "--with-content"
+        runner, repo, "control-assistant:data/facility/knowledge", "--force", "--with-content"
     )
 
     assert result.exit_code == 0, result.output
     assert "(updated)" in result.output
     assert (knowledge / _INDEX_NAME).read_bytes() == (
-        control_assistant_root / "data/facility_knowledge/index.md"
+        control_assistant_root / "data/facility/knowledge/index.md"
     ).read_bytes()
     assert (knowledge / "devices" / "local-note.md").read_text(encoding="utf-8") == "kept"
 
@@ -998,12 +998,12 @@ def test_an_identical_file_is_reported_as_unchanged(
     runner: CliRunner, repo: Path, control_assistant_root: Path
 ) -> None:
     """Re-pulling what is already there says so rather than claiming a write."""
-    source = control_assistant_root / "data/facility_knowledge/index.md"
-    target = repo / "data" / "facility_knowledge" / _INDEX_NAME
+    source = control_assistant_root / "data/facility/knowledge/index.md"
+    target = repo / "data" / "facility" / "knowledge" / _INDEX_NAME
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
-    result = run(runner, repo, "control-assistant:data/facility_knowledge/index.md", "--force")
+    result = run(runner, repo, "control-assistant:data/facility/knowledge/index.md", "--force")
 
     assert result.exit_code == 0, result.output
     assert "(unchanged)" in result.output
@@ -1014,10 +1014,10 @@ def test_a_symlinked_target_is_refused(runner: CliRunner, repo: Path, tmp_path: 
     """A link on the way to the target would land the copy somewhere else."""
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    (repo / "data").mkdir()
-    (repo / "data" / "facility_knowledge").symlink_to(elsewhere, target_is_directory=True)
+    (repo / "data" / "facility").mkdir(parents=True)
+    (repo / "data" / "facility" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
 
-    result = run(runner, repo, "control-assistant:data/facility_knowledge", "--force")
+    result = run(runner, repo, "control-assistant:data/facility/knowledge", "--force")
 
     assert result.exit_code == 1
     assert "symlink" in result.output

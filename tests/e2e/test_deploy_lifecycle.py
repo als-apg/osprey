@@ -1565,7 +1565,7 @@ QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
 
 #: `facility_knowledge.bundle_path` for this scenario, relative to the repo
 #: root exactly as a facility config spells it.
-BUNDLE_REL = "data/facility_knowledge"
+BUNDLE_REL = "data/facility/knowledge"
 
 #: Where that same directory lands inside a web-terminal container. Derived by
 #: render._container_bundle_dir as `<container_project_dir>/<bundle_path>`, and

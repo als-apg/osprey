@@ -82,7 +82,7 @@ def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = (
     (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
     (data / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
     (data / LIMITS_FILENAME).write_text("{}\n")
-    (data / "facility_knowledge").mkdir()
+    (data / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (data / "facility_ontology.json").write_text(FACILITY_ONTOLOGY_JSON)
     if corpus is not None:
         (data / "facility.ttl").write_text(corpus, encoding="utf-8")

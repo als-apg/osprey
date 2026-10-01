@@ -841,7 +841,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility_knowledge
+  facility_knowledge.bundle_path: data/facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -2884,7 +2884,8 @@ data/
 ├── channel_limits.json                   # per-channel write limits
 ├── facility_ontology.json                # device vocabulary (facility.ontology)
 ├── machine_state_channels.json           # address list reconciled against the VA manifest
-├── facility_knowledge/                   # markdown knowledge bundle
+├── facility/                             # the facility's authored sources
+│   └── knowledge/                        # markdown knowledge bundle
 └── simulation/                           # mock-connector scenarios
 ```
 
@@ -3307,11 +3308,11 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility_ontology.json": FACILITY_ONTOLOGY_JSON,
     "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
     "data/raw/address_list.csv": RAW_ADDRESS_LIST_CSV,
-    "data/facility_knowledge/index.md": FK_INDEX_MD,
-    "data/facility_knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
-    "data/facility_knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
-    "data/facility_knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
-    "data/facility_knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
+    "data/facility/knowledge/index.md": FK_INDEX_MD,
+    "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
+    "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
+    "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
+    "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
     "data/demo_machine.ttl": DEMO_MACHINE_TTL,
     "data/simulation/machine.json": SIMULATION_MACHINE_JSON,
     "data/simulation/scenarios/nominal/scenario.json": SIMULATION_NOMINAL_SCENARIO_JSON,

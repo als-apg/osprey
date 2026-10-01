@@ -146,7 +146,7 @@ def _packaged_text(rel_path: str) -> str:
 #: The two corpora a fully-configured deployment mounts, as they appear in
 #: config. Spelled once so every test that needs "both corpora" agrees.
 BOTH_CORPORA = {
-    "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+    "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
     "ariel": {
         "enhancement_modules": {"qmd_export": {"enabled": True, "mirror_path": "data/ariel_mirror"}}
     },
@@ -292,16 +292,16 @@ def test_one_read_only_mount_per_configured_corpus():
 
     corpus_mounts = [v for v in service["volumes"] if ":/corpus/" in v]
     assert corpus_mounts == [
-        "./data/facility_knowledge:/corpus/okf:ro",
+        "./data/facility/knowledge:/corpus/okf:ro",
         "./data/ariel_mirror:/corpus/ariel:ro",
     ]
 
 
 def test_okf_bundle_alone_mounts_only_its_own_corpus():
-    service = compose_service(facility_knowledge={"bundle_path": "data/facility_knowledge"})
+    service = compose_service(facility_knowledge={"bundle_path": "data/facility/knowledge"})
 
     assert [v for v in service["volumes"] if ":/corpus/" in v] == [
-        "./data/facility_knowledge:/corpus/okf:ro"
+        "./data/facility/knowledge:/corpus/okf:ro"
     ]
 
 
@@ -401,7 +401,7 @@ def test_collection_names_match_the_code_that_queries_them():
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [
-        pytest.param("data/facility_knowledge", "./data/facility_knowledge", id="repo-relative"),
+        pytest.param("data/facility/knowledge", "./data/facility/knowledge", id="repo-relative"),
         pytest.param("./data/kb", "./data/kb", id="already-dot-prefixed"),
         pytest.param("{repo}/data/kb", "./data/kb", id="absolute-inside-repo"),
         pytest.param("/srv/shared/kb", "/srv/shared/kb", id="absolute-outside-repo"),
@@ -587,7 +587,7 @@ def test_setup_build_dir_produces_both_of_the_sidecars_artifacts(tmp_path, monke
             "build_dir": "./build",
             "services": {"qmd": {}},
             "system": {"timezone": "UTC"},
-            "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+            "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
         },
         {},
     )
@@ -596,7 +596,7 @@ def test_setup_build_dir_produces_both_of_the_sidecars_artifacts(tmp_path, monke
     compose = yaml.safe_load((out / "docker-compose.yml").read_text())
     index = yaml.safe_load((out / "index.yml").read_text())
 
-    assert "./data/facility_knowledge:/corpus/okf:ro" in compose["services"]["qmd"]["volumes"]
+    assert "./data/facility/knowledge:/corpus/okf:ro" in compose["services"]["qmd"]["volumes"]
     assert index["collections"]["okf"]["path"] == "/corpus/okf"
     # The templates themselves must never land in a build context.
     assert not list(out.glob("*.j2"))

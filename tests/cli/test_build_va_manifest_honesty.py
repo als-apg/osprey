@@ -983,7 +983,7 @@ def _graph_repo(
     (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
     (data / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
     (data / LIMITS_FILENAME).write_text("{}\n")
-    (data / "facility_knowledge").mkdir()
+    (data / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     # The bundle's config names a compiled ontology under data/; the exemplar's
     # table satisfies it without this test growing a vocabulary of its own.
     (data / "facility_ontology.json").write_text(FACILITY_ONTOLOGY_JSON)

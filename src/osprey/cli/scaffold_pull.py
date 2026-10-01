@@ -43,7 +43,7 @@ def list_pullable_paths(app_root: Path, subtree: str | None = None) -> list[str]
     two can never disagree about what a wheel actually ships.
 
     Directories come first because they are what an operator usually wants to
-    name: pulling ``data/facility_knowledge/`` is the common case, and pulling a
+    name: pulling ``data/facility/knowledge/`` is the common case, and pulling a
     single file the exception. Both groups are sorted, so the order is stable
     across releases and machines.
 
@@ -131,7 +131,7 @@ PullActionKind = Literal["written", "updated", "unchanged", "refused", "skipped"
 #: documents are demo content a facility replaces, while the ``index.md`` files
 #: are the structure it keeps, so a plain pull produces a skeleton and
 #: ``--with-content`` produces the worked example.
-_KNOWLEDGE_ROOT = "data/facility_knowledge"
+_KNOWLEDGE_ROOT = "data/facility/knowledge"
 _KNOWLEDGE_INDEX_NAME = "index.md"
 
 
@@ -171,7 +171,7 @@ def plan_pull(
 
     The rules, keyed on each file's template-relative path:
 
-    1. Under ``data/facility_knowledge/``, anything not named ``index.md`` is
+    1. Under ``data/facility/knowledge/``, anything not named ``index.md`` is
        ``skipped`` unless ``with_content``, leaving the structure without the
        demo documents. A request that resolves to exactly one such file is
        ``refused`` instead, because skipping it would do nothing at all.

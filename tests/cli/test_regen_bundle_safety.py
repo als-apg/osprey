@@ -12,9 +12,9 @@ template-rendered output set — the regen walk in ``claude_code.py`` only
 visits files under ``.claude/`` that originate from the template's ``claude/``
 directory, plus the root-level ``CLAUDE.md`` and ``.mcp.json``.
 
-Bundle location: ``{project_dir}/data/facility_knowledge/`` — matching the
+Bundle location: ``{project_dir}/data/facility/knowledge/`` — matching the
 value shipped in the control-assistant ``config.yml.j2``
-(``facility_knowledge.bundle_path: data/facility_knowledge``).  The bundle
+(``facility_knowledge.bundle_path: data/facility/knowledge``).  The bundle
 is structurally outside the regen output set.
 
 Test design — three interlocking assertions:
@@ -90,7 +90,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 # ---------------------------------------------------------------------------
 
 #: Relative bundle path shipped in control-assistant config.yml.j2.
-BUNDLE_REL_PATH = "data/facility_knowledge"
+BUNDLE_REL_PATH = "data/facility/knowledge"
 
 #: Top-level directory prefix regen is allowed to write inside.
 REGEN_ALLOWED_PREFIXES = (".claude/", "CLAUDE.md", ".mcp.json")
@@ -114,9 +114,9 @@ def _checksum_tree(root: Path) -> dict[str, str]:
 def _make_project_with_bundle(tmp_path: Path) -> tuple[Path, Path, TemplateManager]:
     """Create a minimal OSPREY project and populate a facility knowledge bundle.
 
-    The bundle is placed at ``{project_dir}/data/facility_knowledge/`` to match
+    The bundle is placed at ``{project_dir}/data/facility/knowledge/`` to match
     the shipping control-assistant ``config.yml.j2`` default.  The config is
-    updated to declare ``facility_knowledge.bundle_path: data/facility_knowledge``.
+    updated to declare ``facility_knowledge.bundle_path: data/facility/knowledge``.
 
     Args:
         tmp_path: Pytest temporary directory.

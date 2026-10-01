@@ -835,6 +835,27 @@ def _tool_content_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _knowledge_bundle_deltas() -> tuple[Delta, ...]:
+    """The knowledge bundle path every control-assistant document moved.
+
+    The control-assistant preset authors its knowledge pages inside the
+    facility tree, so every document it renders names that directory where the
+    frozen one names the bundle's own top-level directory.
+
+    Returns:
+        One delta per control-assistant document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="facility_knowledge.bundle_path",
+            fixture="data/facility_knowledge",
+            live="data/facility/knowledge",
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+    )
+
+
 def _probe_timeout_deltas() -> tuple[Delta, ...]:
     """The readiness-probe bound every control-assistant document gains.
 
@@ -927,6 +948,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -945,6 +967,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -963,6 +986,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -981,6 +1005,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 

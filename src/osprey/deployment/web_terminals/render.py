@@ -583,7 +583,7 @@ def _container_bundle_dir(config: Any, container_project_dir: str) -> str | None
     Per-service rather than one shared path, because personas differ: two
     personas built from different projects have different
     ``container_project_dir`` values, so the same configured
-    ``data/facility_knowledge`` resolves to two different in-container paths and
+    ``data/facility/knowledge`` resolves to two different in-container paths and
     a single hardcoded target would mount the bundle where only one of them
     looks. An ABSOLUTE ``bundle_path`` names the same absolute path on both
     sides and is NOT re-anchored — the same distinction

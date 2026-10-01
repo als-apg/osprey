@@ -68,7 +68,7 @@ pytest.importorskip("linkml_runtime")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = _REPO_ROOT / "tests" / "fixtures" / "mml"
 PACKAGED_DATA = _REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data"
-PACKAGED_KNOWLEDGE = PACKAGED_DATA / "facility_knowledge"
+PACKAGED_KNOWLEDGE = PACKAGED_DATA / "facility" / "knowledge"
 
 #: The export every recipe harvests: a paired ``ao``/``ad`` synthetic machine.
 SOURCE = FIXTURES / "paired"
@@ -83,7 +83,7 @@ TOKEN = "Quokka"
 #: reaches Docker object names, which the token's capital would not survive.
 PREFIX = "quokka"
 
-BUNDLE_PATH = "data/facility_knowledge"
+BUNDLE_PATH = "data/facility/knowledge"
 ONTOLOGY_PATH = "data/facility_ontology.json"
 DATABASE_PATH = "data/channel_databases/middle_layer.json"
 DUCKDB_PATH = "data/channel_databases/middle_layer.duckdb"

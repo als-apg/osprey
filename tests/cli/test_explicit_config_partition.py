@@ -142,9 +142,13 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
 #: that carry a text-embedding block now state each model's input window
 #: (``max_input_tokens``), so the frozen renders hold the models list as it was
 #: before that key existed; lists are leaves here, so the whole list is the
-#: frozen value.
+#: frozen value. ``control-assistant`` authors its knowledge pages inside the
+#: facility tree now (``data/facility/knowledge``), so the frozen renders hold
+#: the bundle's old top-level directory; the difference is pinned in
+#: ``test_explicit_config_equivalence.CELL_DELTAS`` by ``_knowledge_bundle_deltas``.
 _VALUE_MOVED_SINCE_THE_FREEZE = {
     "control_system.type": "live_standin",
+    "facility_knowledge.bundle_path": "data/facility_knowledge",
     "ariel.enhancement_modules.text_embedding.models": [
         {"dimension": 768, "name": "nomic-embed-text"}
     ],

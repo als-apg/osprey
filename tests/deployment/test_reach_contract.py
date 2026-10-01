@@ -718,10 +718,10 @@ def test_a_degrading_consumer_is_not_refused(tmp_path):
     a sidecar, by design — its contract says ``refuse=False``, so the same
     unresolved state that refuses hybrid search builds cleanly here (the
     ``reach`` health category still reports it)."""
-    (tmp_path / "data" / "facility_knowledge").mkdir(parents=True)
+    (tmp_path / "data" / "facility" / "knowledge").mkdir(parents=True)
     config = {
         "web": {"panels": {"okf": {"enabled": True}}},
-        "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+        "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
     }
 
     live = [consumer.name for _, consumer in live_consumers(config)]
@@ -767,16 +767,16 @@ def test_a_bundle_that_is_not_on_the_host_is_refused(tmp_path):
     """Authored content: nothing in the deploy fills it, so a key naming a
     directory that is not there is a typo or a bundle that was never put in
     place — refused at build time, naming the key, rather than bound empty."""
-    (error,) = reach_errors(_entitled_to_bundle("data/facility_knowledge"), repo_root=tmp_path)
+    (error,) = reach_errors(_entitled_to_bundle("data/facility/knowledge"), repo_root=tmp_path)
 
     assert "facility_knowledge.bundle_path" in error
-    assert str(tmp_path / "data" / "facility_knowledge") in error
+    assert str(tmp_path / "data" / "facility" / "knowledge") in error
 
 
 def test_a_bundle_on_the_host_is_not_refused(tmp_path):
-    (tmp_path / "data" / "facility_knowledge").mkdir(parents=True)
+    (tmp_path / "data" / "facility" / "knowledge").mkdir(parents=True)
 
-    assert reach_errors(_entitled_to_bundle("data/facility_knowledge"), repo_root=tmp_path) == []
+    assert reach_errors(_entitled_to_bundle("data/facility/knowledge"), repo_root=tmp_path) == []
 
 
 def test_a_bundle_path_naming_a_file_is_refused(tmp_path):

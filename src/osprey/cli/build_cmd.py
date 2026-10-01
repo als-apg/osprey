@@ -3942,6 +3942,50 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     return is_setup_patch_capable(persona_capability_document(overrides))
 
 
+def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
+    """The knowledge bundle *build_profile* names, relative to its render.
+
+    Read from the ``config:`` overrides the rendered config is about to be
+    written from, in every spelling ``facility_knowledge.bundle_path`` can take.
+    The image owns only what the render carries, so an absolute path, or one
+    that climbs out of the render, names nothing here.
+
+    Args:
+        build_profile: The resolved profile for the render being built.
+
+    Returns:
+        The normalized project-relative posix path, or ``""`` when the profile
+        names no bundle inside the render.
+    """
+    import posixpath
+    import re
+
+    from .build_profile_reach import spelled_values
+
+    overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
+    for _spelling, value in spelled_values(overrides, "facility_knowledge.bundle_path"):
+        if not isinstance(value, str) or not value.strip():
+            continue
+        relative = posixpath.normpath(value.strip())
+        if relative.startswith("/") or relative in (".", "..") or relative.startswith("../"):
+            return ""
+        # The path is written into a shell line; anything outside this set is
+        # left to the operator's own image step.
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", relative):
+            from . import output
+
+            output.warn_fact(
+                logger,
+                f"The image leaves the ownership of the knowledge bundle {relative} "
+                "to the operator.",
+                "Its path holds a character outside letters, digits, '.', '_', '-' and '/'.",
+                "rename the bundle directory to those characters",
+            )
+            return ""
+        return relative
+    return ""
+
+
 def _profile_preset(build_profile: BuildProfile) -> str | None:
     """The preset this profile records, or ``None`` for a hand-written one.
 
@@ -4168,6 +4212,9 @@ def _repo_render_context(
         # lifts the base floor — because the rendered config those keys land in
         # does not exist yet when this context is built.
         "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
+        # The directory Dockerfile.j2 hands to the agent's user beside `var/`:
+        # the knowledge bundle the profile names, relative to the render.
+        "knowledge_bundle_dir": _profile_knowledge_bundle_dir(build_profile),
         # The base this deployment's whole port block hangs off, resolved from
         # the profile ONCE and handed down: every framework port the render
         # writes is derived from this value by the template manager, so no

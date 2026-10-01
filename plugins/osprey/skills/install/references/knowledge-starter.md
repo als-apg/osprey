@@ -26,7 +26,7 @@ INTERVIEW.md with its source, and its ledger row reads the facility's name.
 **Step 1, the skeleton.**
 
 ```
-osprey scaffold pull control-assistant:data/facility_knowledge
+osprey scaffold pull control-assistant:data/facility/knowledge
 ```
 
 It writes six `index.md` files and reports `17 knowledge documents skipped (use
@@ -43,7 +43,7 @@ What lands is a skeleton, not a bundle:
   Subdirectories list with no descriptions.
 
 Tell the user this. An empty index before stubs exist is correct, not a failure.
-Ledger row: `data/facility_knowledge/ · pulled · skeleton`.
+Ledger row: `data/facility/knowledge/ · pulled · skeleton`.
 
 **Step 2, stubs.** One file per subsystem, device or procedure the user named,
 in the user's own words (`stated`), filed under the matching directory — or, on
@@ -53,8 +53,8 @@ else.
 **Step 3, regenerate the indexes.** Name the bundle path explicitly.
 
 ```
-osprey knowledge regen-index data/facility_knowledge
-osprey knowledge validate data/facility_knowledge
+osprey knowledge regen-index data/facility/knowledge
+osprey knowledge validate data/facility/knowledge
 ```
 
 The no-argument forms read the default bundle from `build/config.yml`, which only
@@ -129,7 +129,7 @@ through OSPREY verbs — nothing in it is typed by the agent.
 | A channel list as CSV (`address, description, family_name, instances, sub_channel`) | `osprey channel-finder build-database --csv <file> --output data/channel_databases/<name>.json` (without `--output` it lands at `processed/channel_database.json` in the profile's data tree) | `built`, this facility |
 | An IOC database or a channel database already in OSPREY's format | Copy in unchanged, then `osprey knowledge build-ttl data/<facility>.ttl --channel-db <hierarchical.json> --descriptions <in_context.json> --facility <prefix>`; set `config.services.graphdb.ttl_path=./data/<facility>.ttl`. `--facility` is required here: its default is `demo`, and it is stamped into every IRI the corpus mints. `--ontology` defaults to the demo machine's family-to-class table; a facility whose device families differ compiles its own with `osprey knowledge compile-ontology` and names it | `ported` (the database), `built` (the TTL) |
 | That TTL corpus, for the graph | After `osprey up`: `osprey knowledge seed-graph` loads it into the store; `osprey knowledge build-index` derives the search index | `built` |
-| That TTL corpus, for the OKF bundle | `osprey knowledge seed-from-ttl data/<facility>.ttl data/facility_knowledge` writes one device stub per device node (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
+| That TTL corpus, for the OKF bundle | `osprey knowledge seed-from-ttl data/<facility>.ttl data/facility/knowledge` writes one device stub per device node (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
 | A MATLAB Middle Layer the facility runs | The chain in §3.1: pull the exporter, the user exports, `osprey mml import`, `osprey mml map`, review, `osprey mml emit`, and `osprey mml verify` for a 2.0 export. One pass writes the channel database, the ontology, the OKF pages and the TTL corpus | `stated` (the mapping), `built` (everything emitted) |
 | A lattice file | Copy in unchanged under `data/lattice/`; the SIMULATION area's keys bind it | `ported` |
 | A logbook export | The LOGBOOK feature port for the keys, then `osprey ariel ingest -s <file or URL> -a <adapter>` once the service is up; `-a` takes the adapter names `--help` lists | `ported` |
@@ -204,7 +204,7 @@ types none of them.
 8. **Emit.** `osprey mml emit` writes `data/channel_databases/middle_layer.json` (and
    `data/channel_databases/tiers/tier3/middle_layer.json` where a `tiers/` directory
    exists), `data/ontology/<token>.yaml`, `data/facility_ontology.json`, the OKF pages
-   under `data/facility_knowledge/`, and the corpus `data/<token>.ttl`. `--duckdb` imports
+   under `data/facility/knowledge/`, and the corpus `data/<token>.ttl`. `--duckdb` imports
    the channel database into DuckDB as well. Emit refuses while the deployment still holds
    files it would contradict, and prints one `rm` line naming them: every file under
    `data/channel_databases/tiers/` other than emit's own `tier3/middle_layer.json`, and
@@ -360,7 +360,7 @@ the devil's advocate walks the same list against the ledger afterwards.
 
 | Path | Why it is the reference facility's |
 | --- | --- |
-| `data/facility_knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
+| `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
 | `data/channel_databases/examples/`, `data/channel_databases/tiers/` | demo channel databases |
 | `data/channel_limits.json` with entries nobody ported | the demo virtual accelerator's projection |
 | `data/simulation/` | demo scenarios |

@@ -387,7 +387,7 @@ class TestManifestPresetStamp:
             encoding="utf-8",
         )
         shutil.copytree(_bundle_data_root(), repo / "data", dirs_exist_ok=True)
-        (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+        (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
 
         result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
         assert result.exit_code == 0, (

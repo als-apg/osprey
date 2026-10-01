@@ -588,7 +588,7 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     shutil.copytree(
         TemplateManager().template_root / "apps" / "control_assistant" / "data", repo / "data"
     )
-    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 

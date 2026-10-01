@@ -1982,7 +1982,7 @@ def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
     # its channel databases out of this tree and no other, and the Reach
     # Contract refuses a render whose bind source is not there.
     materialize_data(repo)
-    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 

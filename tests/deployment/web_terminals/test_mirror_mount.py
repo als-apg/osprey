@@ -154,7 +154,7 @@ def test_each_distinct_gid_is_listed_once():
     """The deploy creates every shared directory as one user, so they usually
     share a group; a list that repeats it would read like two groups."""
     config = _config()
-    config["facility_knowledge"] = {"bundle_path": "data/facility_knowledge"}
+    config["facility_knowledge"] = {"bundle_path": "data/facility/knowledge"}
     groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=20)
     assert groups == {"web-alice": ["20"], "web-bob": ["20"]}
     groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=21)

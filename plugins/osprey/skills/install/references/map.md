@@ -91,7 +91,7 @@ The areas, and where each one's components are read from at run time:
 | Area | Source it consumes | Components, read from `control-assistant.yml` |
 | --- | --- | --- |
 | LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; persona `logbook`; `data/ariel/vocabulary.yml` |
-| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; persona `knowledge`; `data/facility_knowledge/`; a TTL corpus |
+| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; persona `knowledge`; `data/facility/knowledge/`; a TTL corpus |
 | CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read a channel database under `data/channel_databases/`, `graph` reads the graph store; an MML export emits for `middle_layer` and `graph` both), `tier`, `# ── Channel finder` group; agent `channel-finder` |
 | WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `facility.prefix`, `deploy.fqdn`, the floor keys); personas; the login wall |
 | SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `sim-scenarios`, `bluesky-*`; `lattice` panel; `data/simulation/lattice.json` and `data/simulation/va_bindings.json` (both emitted from an MML 2.0 export), `data/lattice/` |
@@ -145,8 +145,8 @@ no other. It is what keeps the profile complete and the data facility-owned.
 Worked example, the facility knowledge bundle:
 
 ```
-osprey scaffold pull control-assistant:data/facility_knowledge
-osprey set config.facility_knowledge.bundle_path=data/facility_knowledge
+osprey scaffold pull control-assistant:data/facility/knowledge
+osprey set config.facility_knowledge.bundle_path=data/facility/knowledge
 ```
 
 plus `okf` in the profile's top-level `web_panels` list, which is what renders the
