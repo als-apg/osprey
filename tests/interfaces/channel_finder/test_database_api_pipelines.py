@@ -545,8 +545,8 @@ class TestGraphParadigmRoutes:
         """Membership and enumeration answer from the roster, or say they cannot.
 
         An app started without one keeps no roster at all — the state
-        ``install_graph_paradigm`` leaves behind — and both routes name the key
-        that would give it one rather than reporting an empty facility.
+        ``install_graph_paradigm`` leaves behind — and both routes name the
+        build that would give it one rather than reporting an empty facility.
         """
         install_graph_paradigm(client)
         kwargs = {"json": body} if body is not None else {}
@@ -555,7 +555,7 @@ class TestGraphParadigmRoutes:
 
         assert resp.status_code == 503
         assert resp.json()["error_type"] == "service_unavailable"
-        assert "services.graphdb.ttl_path" in " ".join(resp.json()["suggestions"])
+        assert "osprey build" in " ".join(resp.json()["suggestions"])
 
     def test_switch_pipeline_400_names_the_paradigm_and_read_cypher(self, client):
         install_graph_paradigm(client)

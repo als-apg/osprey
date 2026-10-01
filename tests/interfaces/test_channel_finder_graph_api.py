@@ -3,8 +3,8 @@
 Two questions the graph paradigm used to refuse — "is this channel real?" (501)
 and "which channels are there?" (404) — are answered here from the channel
 roster, the one enumeration of a facility's channels. The store is never dialed
-for either: the roster is the staged corpus the store is seeded *from*, read
-once when the app starts.
+for either: the roster is the facility file the build writes at the root of
+the render, read once when the app starts.
 
 What these tests pin:
 
@@ -12,16 +12,15 @@ What these tests pin:
   file-backed paradigms already answer them in.
 - ``chunk_idx`` is refused (422) rather than honoured: chunking exists to cut
   the in-context paradigm's prompt into pieces, and the graph builds no prompt.
-- A deployment that stages no corpus — one pointed at an external store — still
-  *starts*: both routes answer 503 naming ``services.graphdb.ttl_path``, which
-  is the key an operator edits. The same goes for a search index nobody built,
-  and for one that is there and cannot be opened.
+- A render no build has written a facility file into still *starts*: both
+  routes answer 503 naming ``osprey build``, which is what an operator runs.
 - The roster is read once at lifespan, not once per request.
 - The file-backed paradigms are untouched.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,28 +31,23 @@ import pytest
 from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
-from tests._graph_index import build_index_from_ttl, default_index_path
+from tests._facility_file import channel_tree, write_facility_file
 
 _CONFIG_SEAM = "osprey.utils.workspace.load_osprey_config"
 _GRAPH_CONTEXT_SEAM = "osprey.interfaces.channel_finder.app._make_graph_context"
 
-#: The key an operator edits to name the corpus, which every unavailable answer
-#: has to put in front of them.
-_TTL_KEY = "services.graphdb.ttl_path"
+#: The action every unavailable answer puts in front of an operator.
+_REMEDY = "osprey build"
 
-_PREAMBLE = """\
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
-"""
+#: A facility small enough to assert against whole: one settable channel, its
+#: readback and one more readable one, so membership, direction-blind
+#: enumeration and ordering are all observable.
+_CHANNELS = channel_tree(
+    {"SR:MAG:QF:01:CURRENT:SP": "SR:MAG:QF:01:CURRENT:RB"}, readbacks=["SR:DIAG:BPM:01:X"]
+)
 
-#: A corpus small enough to assert against whole: two settable channels and one
-#: readable one, so membership, direction-blind enumeration and ordering are all
-#: observable.
-_CORPUS = {
-    "SR:MAG:QF:01:CURRENT:SP": "writesSignal",
-    "SR:MAG:QF:01:CURRENT:RB": "readsSignal",
-    "SR:DIAG:BPM:01:X": "readsSignal",
-}
+#: The addresses :data:`_CHANNELS` declares, in the order enumeration serves them.
+_ADDRESSES = ("SR:DIAG:BPM:01:X", "SR:MAG:QF:01:CURRENT:RB", "SR:MAG:QF:01:CURRENT:SP")
 
 
 @pytest.fixture(autouse=True)
@@ -64,26 +58,12 @@ def cold_roster_cache() -> Iterator[None]:
     channel_roster._roster_cache.clear()
 
 
-def _write_corpus(path: Path, bindings: dict[str, str]) -> Path:
-    """Write a corpus binding each address to its direction predicate."""
-    body = "".join(
-        f'<https://narad.example.org/binding/b{index}> narad_p:fullPv "{address}" ;\n'
-        f"    narad_p:{predicate} narad_sem:s{index} .\n"
-        for index, (address, predicate) in enumerate(bindings.items())
-    )
-    path.write_text(_PREAMBLE + body, encoding="utf-8")
-    return path
-
-
-def _graph_config(render: Path, ttl_path: str | None = "corpus.ttl") -> dict[str, Any]:
+def _graph_config(render: Path) -> dict[str, Any]:
     """A graph-paradigm project rendered into *render*."""
-    graphdb: dict[str, Any] = {"uri": "bolt://localhost:7687"}
-    if ttl_path is not None:
-        graphdb["ttl_path"] = ttl_path
     return {
         "config_dir": str(render),
         "channel_finder": {"pipeline_mode": "graph", "pipelines": None},
-        "services": {"graphdb": graphdb},
+        "services": {"graphdb": {"uri": "bolt://localhost:7687"}},
     }
 
 
@@ -106,10 +86,9 @@ def _started(config: dict[str, Any]) -> Iterator[TestClient]:
 
 @pytest.fixture
 def graph_client(tmp_path: Path) -> Iterator[TestClient]:
-    """A started graph-mode app whose corpus holds :data:`_CORPUS`."""
-    config = _graph_config(tmp_path)
-    build_index_from_ttl(_write_corpus(tmp_path / "corpus.ttl", _CORPUS), config)
-    with _started(config) as client:
+    """A started graph-mode app whose facility file holds :data:`_CHANNELS`."""
+    write_facility_file(tmp_path, _CHANNELS)
+    with _started(_graph_config(tmp_path)) as client:
         yield client
 
 
@@ -170,26 +149,17 @@ class TestGraphEnumeration:
             # The item shape every paradigm answers this route in: the channel
             # under "channel", with the file-backed paradigms' extra columns
             # beside it where they have any.
-            "channels": [{"channel": address} for address in sorted(_CORPUS)],
-            "total": len(_CORPUS),
+            "channels": [{"channel": address} for address in _ADDRESSES],
+            "total": 3,
         }
 
     def test_an_address_bound_twice_is_enumerated_once(self, tmp_path):
         """Otherwise the total disagrees with what membership can find."""
-        path = tmp_path / "corpus.ttl"
-        path.write_text(
-            _PREAMBLE
-            + '<https://narad.example.org/binding/a> narad_p:fullPv "SR:DIAG:BPM:01:X" ;\n'
-            "    narad_p:readsSignal narad_sem:s0 .\n"
-            '<https://narad.example.org/binding/b> narad_p:fullPv "SR:DIAG:BPM:01:X" ;\n'
-            "    narad_p:readsSignal narad_sem:s1 .\n",
-            encoding="utf-8",
+        (tmp_path / "facility.json").write_text(
+            json.dumps({"channels": [{"id": "SR:DIAG:BPM:01:X", "role": "readback"}] * 2})
         )
 
-        config = _graph_config(tmp_path)
-        build_index_from_ttl(path, config)
-
-        with _started(config) as client:
+        with _started(_graph_config(tmp_path)) as client:
             body = client.get("/api/channels").json()
 
             assert body == {"channels": [{"channel": "SR:DIAG:BPM:01:X"}], "total": 1}
@@ -204,9 +174,9 @@ class TestGraphEnumeration:
         """Not a range check: the graph builds no prompt to chunk at all."""
         assert graph_client.get("/api/channels?chunk_idx=0&chunk_size=1").status_code == 422
 
-    def test_the_index_is_read_once_for_the_whole_process(self, tmp_path):
+    def test_the_facility_file_is_read_once_for_the_whole_process(self, tmp_path):
         config = _graph_config(tmp_path)
-        build_index_from_ttl(_write_corpus(tmp_path / "corpus.ttl", _CORPUS), config)
+        write_facility_file(tmp_path, _CHANNELS)
         reads: list[dict[str, Any]] = []
         real = channel_roster.registered_channels
 
@@ -223,107 +193,50 @@ class TestGraphEnumeration:
         assert len(reads) == 1
 
 
-class TestADeploymentThatStagesNoCorpus:
-    """The external-store deployment: a graph store nobody staged a corpus for."""
+class TestARenderWithNoFacilityFile:
+    """A render no build has written a facility file into."""
 
     @pytest.fixture
     def client(self, tmp_path: Path) -> Iterator[TestClient]:
-        with _started(_graph_config(tmp_path, ttl_path=None)) as started:
+        with _started(_graph_config(tmp_path)) as started:
             yield started
 
     def test_the_app_still_starts_and_serves_the_graph_paradigm(self, client):
         assert client.get("/health").json()["pipeline_type"] == "graph"
         assert client.get("/api/info").json()["graph_backed"] is True
 
-    def test_validate_503s_naming_the_corpus_key(self, client):
+    def test_validate_503s_naming_the_build(self, client):
         resp = client.post("/api/validate", json={"channels": ["SR:DIAG:BPM:01:X"]})
 
         assert resp.status_code == 503
-        assert _TTL_KEY in _unavailable_text(resp.json())
+        assert _REMEDY in _unavailable_text(resp.json())
 
-    def test_channels_503s_naming_the_corpus_key(self, client):
+    def test_channels_503s_naming_the_build(self, client):
         resp = client.get("/api/channels")
 
         assert resp.status_code == 503
-        assert _TTL_KEY in _unavailable_text(resp.json())
+        assert _REMEDY in _unavailable_text(resp.json())
 
     def test_the_body_carries_the_remedy_the_other_graph_routes_carry(self, client):
         body = client.get("/api/channels").json()
 
         assert body["error_type"] == "service_unavailable"
-        assert body["suggestions"]
+        assert any(_REMEDY in s for s in body["suggestions"])
+        assert not any("ttl_path" in s for s in body["suggestions"])
 
     def test_the_reason_is_the_roster_absence_verbatim(self, client, tmp_path):
-        from osprey.channel_roster import resolve_roster_source
-
-        absence = resolve_roster_source(_graph_config(tmp_path, ttl_path=None)).absence
+        absence = channel_roster.registered_channels(_graph_config(tmp_path)).absence
 
         assert client.get("/api/channels").json()["detail"] == absence.message()
 
 
-class TestAnIndexThatCannotBeRead:
-    """A staged index that is missing or unreadable is not an absent one."""
+class TestAFacilityFileThatDeclaresNoChannels:
+    """A facility file that holds no channel record is a seeding gap, not a facility."""
 
     @pytest.fixture
     def client(self, tmp_path: Path) -> Iterator[TestClient]:
-        _write_corpus(tmp_path / "corpus.ttl", _CORPUS)
-        index_path = default_index_path(tmp_path)
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        index_path.write_bytes(b"this is not a database {{{")
+        write_facility_file(tmp_path, None)
         with _started(_graph_config(tmp_path)) as started:
-            yield started
-
-    def test_the_app_still_starts(self, client):
-        assert client.get("/health").status_code == 200
-
-    def test_both_routes_503_naming_the_corpus_key(self, client):
-        validate = client.post("/api/validate", json={"channels": ["SR:DIAG:BPM:01:X"]})
-        channels = client.get("/api/channels")
-
-        assert validate.status_code == 503
-        assert channels.status_code == 503
-        assert _TTL_KEY in _unavailable_text(validate.json())
-        assert _TTL_KEY in _unavailable_text(channels.json())
-
-    def test_the_detail_names_the_index_and_why_the_driver_refused_it(self, client, tmp_path):
-        """A file that is there and unreadable is diagnosed, not just reported.
-
-        The driver's own sentence travels with the absence, so an operator
-        looking at the 503 can tell "nobody built it" from "what is there is
-        not a database" -- and it names the file it opened to say so.
-        """
-        detail = client.get("/api/channels").json()["detail"]
-
-        assert str(default_index_path(tmp_path)) in detail
-        assert "DuckDB" in detail
-
-    def test_an_index_that_was_never_built_reads_the_same_way(self, tmp_path):
-        """The corpus is staged and nothing derived an index from it.
-
-        Named as the config spells it, not as the server resolved it: the
-        index path is relative (here, defaulted), and its resolved name is a
-        path inside whatever tree this process happens to be serving from.
-        """
-        _write_corpus(tmp_path / "corpus.ttl", _CORPUS)
-
-        with _started(_graph_config(tmp_path)) as client:
-            resp = client.get("/api/channels")
-            body = resp.json()
-
-            assert resp.status_code == 503
-            assert _TTL_KEY in _unavailable_text(body)
-            assert "./data/channel_databases/graph.duckdb" in body["detail"]
-            assert str(tmp_path) not in body["detail"]
-
-
-class TestACorpusThatDeclaresNoChannels:
-    """A corpus that parses and binds nothing is a seeding gap, not a facility."""
-
-    @pytest.fixture
-    def client(self, tmp_path: Path) -> Iterator[TestClient]:
-        config = _graph_config(tmp_path)
-        build_index_from_ttl(_write_corpus(tmp_path / "corpus.ttl", {}), config)
-        with _started(config) as started:
             yield started
 
     def test_enumeration_503s_rather_than_serving_an_empty_facility(self, client):
@@ -331,6 +244,12 @@ class TestACorpusThatDeclaresNoChannels:
 
         assert resp.status_code == 503
         assert "declares no channels" in resp.json()["detail"]
+
+    def test_the_remedy_names_the_facility_tree_rather_than_the_build(self, client):
+        suggestions = client.get("/api/channels").json()["suggestions"]
+
+        assert any("data/facility" in s for s in suggestions)
+        assert not any(_REMEDY in s for s in suggestions)
 
     def test_membership_503s_rather_than_calling_every_channel_invalid(self, client):
         resp = client.post("/api/validate", json={"channels": ["SR:DIAG:BPM:01:X"]})
@@ -354,7 +273,7 @@ class TestARosterThatCannotSayWhichChannelsAreSettable:
             RosterSourceKind,
         )
 
-        source = RosterSource(kind=RosterSourceKind.DATABASE, path=Path("/tmp/channels.json"))
+        source = RosterSource(kind=RosterSourceKind.FACILITY, path=Path("/tmp/facility.json"))
         state = graph_client.app.state
         state.channel_roster = RosterResult(
             records=(ChannelRecord(address="FAC:PS:01:CURRENT", source=source),),
