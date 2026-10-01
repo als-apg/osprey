@@ -19,6 +19,7 @@ import pytest
 
 from osprey.deployment.web_terminals import persona_images
 from osprey.deployment.web_terminals.lint import lint_web_terminals
+from osprey.deployment.web_terminals.persona_images import PREDATES_DELTA_REMEDY
 from osprey.docs_links import INSTALL_DOCS_URL
 
 #: A pre-delta value: the bundled preset name a facility used to write here.
@@ -87,7 +88,7 @@ def test_missing_delta_file_also_links_the_install_page(tmp_path: Path):
     message = _deploy_rejection(tmp_path, "personas/ops.yml")
 
     assert "no file exists at" in message
-    assert INSTALL_DOCS_URL in message
+    assert message.endswith(PREDATES_DELTA_REMEDY)
     assert "/osprey:install" not in message
 
 
@@ -111,4 +112,5 @@ def test_both_paths_recommend_the_same_delta_and_the_install_page(
     for message in (deploy_message, lint_message):
         assert "personas/ops.yml" in message
         assert INSTALL_DOCS_URL in message
+        assert message.endswith(PREDATES_DELTA_REMEDY)
         assert "/osprey:install" not in message
