@@ -1204,6 +1204,13 @@ def _created_fields(mapping: Mapping) -> set[str]:
 
 
 def _against_export(mapping: Mapping, ao: dict) -> Iterator[Problem]:
+    """Refuse what the mapping and the export say differently.
+
+    A system the mapping names and the export lacks is one problem. The
+    mapping does not say which system carries a family, so while one is
+    lacking no family or direction is listed as absent from the export; those
+    of the systems that are exported are listed once every mapped system is.
+    """
     from osprey.services.mml.directions import vote_directions
     from osprey.services.mml.family import family_views, system_bodies
 
@@ -1212,9 +1219,9 @@ def _against_export(mapping: Mapping, ao: dict) -> Iterator[Problem]:
         raw: {view.raw_name: view for view in family_views(raw, body)}
         for raw, body in systems.items()
     }
-    for raw in mapping.models:
-        if raw not in systems:
-            yield Problem(f"models.{raw}", f"{raw} is no exported system")
+    missing = [raw for raw in mapping.models if raw not in systems]
+    for raw in missing:
+        yield Problem(f"models.{raw}", f"{raw} is no exported system")
     for raw in systems:
         if raw not in mapping.models:
             yield Problem("models", f"leaves out the exported system {raw}")
@@ -1224,7 +1231,7 @@ def _against_export(mapping: Mapping, ao: dict) -> Iterator[Problem]:
         for family, found in carried_by.items():
             exported.setdefault(family, set()).update(found.fields)
     for family in mapping.families:
-        if family not in exported:
+        if family not in exported and not missing:
             yield Problem(f"families.{family}", f"{family} is no exported family")
     for family in exported:
         if family not in mapping.families:
@@ -1233,7 +1240,7 @@ def _against_export(mapping: Mapping, ao: dict) -> Iterator[Problem]:
     created = _created_fields(mapping)
     carried = {f"{family}.{name}" for family, names in exported.items() for name in names}
     for key in mapping.directions:
-        if key not in carried and key not in created:
+        if key not in carried and key not in created and not missing:
             yield Problem(f"directions.{key}", f"the export carries no channels under {key}")
     for key in sorted(carried - set(mapping.directions)):
         yield Problem("directions", f"{key} carries channels and has no direction")
