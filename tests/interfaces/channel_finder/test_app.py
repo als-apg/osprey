@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.utils.facility import facility_identity
 from tests.interfaces.channel_finder.graph_fixture import FakeGraphContext
 
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
@@ -121,6 +123,45 @@ class TestPipelineResolution:
         assert app.state.pipeline_type == "in_context"
         assert app.state.databases["in_context"] is registry.database
         assert app.state.facility_names["in_context"] == "TEST"
+
+
+class TestFacilityName:
+    """The app names the facility from the render its config sits in."""
+
+    @pytest.fixture(autouse=True)
+    def _no_config_env(self, monkeypatch):
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+    def test_repo_root_reports_the_facility_file_name(self, tmp_path, monkeypatch):
+        render = tmp_path / "build"
+        render.mkdir()
+        (render / "config.yml").write_text("project_name: demo-project\n")
+        (render / "facility.json").write_text(
+            json.dumps({"identity": {"code": "demo", "name": "Demo Lab"}})
+        )
+        monkeypatch.chdir(tmp_path)
+
+        from osprey.interfaces.channel_finder.app import create_app
+
+        application = create_app(project_cwd=str(tmp_path))
+        with TestClient(application):
+            identity = facility_identity(render)
+            assert identity is not None
+            assert application.state.facility_name == identity["name"] == "Demo Lab"
+
+    def test_render_without_a_facility_file_reports_the_project_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        app = _start_app({"project_name": "1st-lab"})
+
+        assert app.state.facility_name == "1st-lab"
+
+    def test_no_facility_file_and_no_project_name_reports_no_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        app = _start_app({})
+
+        assert app.state.facility_name == ""
 
 
 class TestGraphParadigmState:
