@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 from click.testing import CliRunner, Result
 
+from osprey.cli import build_profile_resolve
+from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.main import cli
 from osprey.facility.layers.mml.importer import LAYER_DIR
 from osprey.facility.layers.mml.mapping import MAPPING_FILE
@@ -258,3 +261,33 @@ def test_a_profile_that_does_not_resolve_stops_the_import(repo: Path) -> None:
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "The profile does not resolve." in result.stderr
     assert _snapshot(_facility(repo)) == before
+
+
+def test_a_profile_that_names_no_data_root_stops_the_import(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Profile validation requires ``data:``, so a resolved profile without a
+    # data root is reached only past it: the root goes missing once the
+    # profile has resolved.
+    resolve = build_profile_resolve.resolve_build_document
+
+    def resolved_without_a_data_root(*args: Any, **kwargs: Any) -> Any:
+        resolved = resolve(*args, **kwargs)
+        monkeypatch.setattr(BuildProfile, "resolved_data_root", lambda self, profile_dir: None)
+        return resolved
+
+    monkeypatch.setattr(
+        build_profile_resolve, "resolve_build_document", resolved_without_a_data_root
+    )
+    before = _snapshot(repo)
+
+    result = _import(repo)
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.stderr.splitlines() == [
+        "✗ The profile does not resolve.",
+        "  a resolved profile names no data root",
+    ]
+    assert result.stdout == ""
+    assert _snapshot(repo) == before
