@@ -73,7 +73,11 @@ from osprey.services.auth_sidecar.passwords import (
     stored_hash_problem,
     verify_password,
 )
-from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suffix_collisions
+from osprey.services.auth_sidecar.roster_env import (
+    PW_HASH_VAR_PREFIX,
+    env_var_suffix,
+    env_var_suffix_collisions,
+)
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
@@ -92,9 +96,6 @@ logger = get_logger("deployment.lifecycle")
 #: Project-root file holding the per-user password hashes. Separate from the
 #: project ``.env`` so the sidecar can be the only service that mounts it.
 AUTH_ENV_FILENAME = ".env.auth"
-
-#: Env-var stem for a stored hash, completed by :func:`env_var_suffix`.
-PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 
 #: Env-var stem for an operator-supplied plaintext password in the project
 #: ``.env``. Consumed and hashed at preflight; never forwarded to a container.

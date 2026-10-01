@@ -1,6 +1,12 @@
 """The roster username to per-user env-var suffix mapping and its collision detector."""
 
-from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suffix_collisions
+from pathlib import Path
+
+from osprey.services.auth_sidecar.roster_env import (
+    PW_HASH_VAR_PREFIX,
+    env_var_suffix,
+    env_var_suffix_collisions,
+)
 
 
 def test_env_var_suffix_uppercases_and_maps_dashes_to_underscores() -> None:
@@ -74,3 +80,24 @@ def test_env_var_suffix_collisions_ignores_non_string_entries() -> None:
 
     # Assert
     assert result == {"ALICE_B": ["alice-b", "alice_b"]}
+
+
+def test_pw_hash_prefix_is_spelled_once_in_the_source_tree() -> None:
+    """The variable name is the contract between the credential writer, the
+    sidecar and lint, so the stored-hash stem is defined in one place."""
+    # Arrange
+    src_root = Path(__file__).resolve().parents[3] / "src" / "osprey"
+    quoted = ('"OSPREY_AUTH_PW_HASH_"', "'OSPREY_AUTH_PW_HASH_'")
+
+    # Act
+    spelled_in = sorted(
+        path.relative_to(src_root).as_posix()
+        for path in src_root.rglob("*.py")
+        if "__pycache__" not in path.parts
+        and any(literal in path.read_text(encoding="utf-8") for literal in quoted)
+    )
+
+    # Assert
+    assert spelled_in == ["services/auth_sidecar/roster_env.py"]
+    assert PW_HASH_VAR_PREFIX == "OSPREY_AUTH_PW_HASH_"
+    assert f"{PW_HASH_VAR_PREFIX}{env_var_suffix('alice-b')}" == "OSPREY_AUTH_PW_HASH_ALICE_B"

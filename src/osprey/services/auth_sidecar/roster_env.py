@@ -5,7 +5,9 @@ keyed by in ``OSPREY_AUTH_PW_HASH_<SUFFIX>``, ``OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX
 ``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>``, ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`` and
 ``OSPREY_TERMINAL_SECRET_<SUFFIX>``. The deployment layer mints under these
 names (credential provisioning, render, lint, lifecycle) and the auth sidecar
-reads them, so both import the mapping from here.
+reads them, so both import the mapping from here. It also defines the
+stored-hash stem those names start with, for the same reason: both ends import
+it.
 
 It lives in the sidecar package because the deployment layer imports the
 sidecar's leaf modules and never the other way round, which keeps the sidecar's
@@ -15,6 +17,12 @@ process free of the render and CLI code. It imports only the standard library.
 from __future__ import annotations
 
 from collections.abc import Iterable
+
+PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
+"""Stem of a roster user's stored password hash, completed by :func:`env_var_suffix`.
+
+The one definition the credential writer, the sidecar and lint share.
+"""
 
 
 def env_var_suffix(username: str) -> str:
