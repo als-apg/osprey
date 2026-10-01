@@ -1047,6 +1047,50 @@ def test_every_exact_reservation_is_a_reserved_write():
         assert is_reserved_write(entry.path) == entry.channel
 
 
+@pytest.mark.parametrize(
+    "page",
+    [
+        "data/facility/knowledge/x.md",
+        "data/facility/knowledge/devices/bpm.md",
+        "data/facility/knowledge/index.md",
+        "Data/Facility/Knowledge/x.md",
+        "./data/facility//knowledge/x.md",
+    ],
+)
+def test_knowledge_pages_stay_agent_writable(page: str):
+    """The knowledge bundle sits in the facility tree and is the agent's to draft into."""
+    assert is_reserved_write(page) is None
+
+
+@pytest.mark.parametrize(
+    "authored",
+    [
+        "data/facility/limits.yaml",
+        "data/facility/knowledge.yaml",
+        "data/facility/knowledgebase/x.md",
+        "data/facility/knowledge/../limits.yaml",
+        "data/facility/imported/mml/knowledge/x.md",
+    ],
+)
+def test_the_rest_of_the_facility_tree_stays_reserved(authored: str):
+    """Only the knowledge directory is open; its neighbours name the facility tree."""
+    channel = is_reserved_write(authored)
+    assert channel is not None and "`data/facility/`" in channel
+
+
+def test_the_mirror_still_owns_the_knowledge_directory(tmp_path: Path):
+    """The agent-side opening does not reach the ``project/`` mirror."""
+    mirror = tmp_path / "project"
+    page = mirror / "data" / "facility" / "knowledge" / "x.md"
+    page.parent.mkdir(parents=True)
+    page.write_text("# x\n", encoding="utf-8")
+
+    error = facility_mirror_violation(mirror)
+
+    assert error is not None
+    assert error.record_id == "project/data/facility/knowledge/x.md"
+
+
 def test_exact_reservation_beats_the_pattern_table(monkeypatch: pytest.MonkeyPatch):
     """ORDER pin: the exact table answers before the pattern table.
 
