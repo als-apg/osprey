@@ -8,16 +8,19 @@ build merges them with every other layer.
 What is written, relative to ``data/facility/``:
 
 * ``imported/mml/devices.yaml``: one device per device of a family that
-  carries a channel, id ``<model>/<family>_<n>`` (``n`` counts from 1 within
-  the family in the export's device order), typed by the mapping's family
-  ``class``; its ``names`` carry the export's ``CommonNames`` slot and its
-  ``attributes`` the export's ``DeviceList`` row and ``ElementList`` slot,
-  each only when the family states one per device.
-* ``imported/mml/channels.yaml``: one channel per address, ``on`` the first
-  device that binds it in export order; its ``role`` follows the field's
-  direction (:func:`~osprey.facility.layers.mml.mapping.field_roles`) and a
-  setpoint that reads back through its family's ``Monitor`` names that
-  device's ``Monitor`` address as its ``pair``.
+  carries a channel, its id and the slots it stands for resolved by the
+  identity model (:mod:`~osprey.facility.layers.mml.identity`): the export's
+  ``CommonNames`` entry at the slot's position, slots naming one device being
+  one record; typed by the mapping's family ``class`` (the nearest class
+  every such family's class descends from); its ``names`` carry the export's
+  ``CommonNames`` slot and its ``attributes`` the export's ``DeviceList`` row
+  and ``ElementList`` slot, each only when the family states one per device.
+* ``imported/mml/channels.yaml``: one channel per address, ``on`` the one
+  device that binds it, or, bound by several, naming each in ``endpoint_of``
+  and ``on`` none; its ``role`` follows the field's direction
+  (:func:`~osprey.facility.layers.mml.mapping.field_roles`) and a setpoint
+  that reads back through its family's ``Monitor`` names that device's
+  ``Monitor`` address as its ``pair``.
 * ``imported/mml/groups.yaml``: one group per family, id the family's mapped
   token; same-named families of several exports are one group whose members
   are the union of theirs.
@@ -48,6 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from osprey.facility.layers.mml.identity import common_class, device_ids, endpoints
 from osprey.facility.layers.mml.mapping import (
     FieldAnswer,
     ImportStop,
@@ -237,12 +241,11 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
 
     roles = field_roles(mapping)
     answers = _export_answers(mapping)
-    devices: dict[str, dict[str, Any]] = {}
-    channels: dict[str, dict[str, Any]] = {}
-    groups: dict[str, dict[str, Any]] = {}
+    views: list[FamilyView] = []
+    systems: dict[str, str] = {}
     models: list[dict[str, Any]] = []
     for system in exports.systems:
-        model = _model_name(mapping, system)
+        systems[system] = _model_name(mapping, system)
         for view in judged_family_views(system, exports.ao[system], answers):
             if view.channel_count == 0:
                 continue
@@ -253,13 +256,21 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
                 )
             if family.channels == 0:
                 continue
-            token = mapping.mapped(view.raw_name)
-            ids = [f"{model}/{token}_{ordinal}" for ordinal in range(1, view.n_devices + 1)]
-            for device_id, device in zip(ids, _devices(view, family.class_), strict=True):
-                devices[device_id] = {"id": device_id, **device}
-            _channels(view, ids, mapping, roles, channels)
-            _group(groups, token, mapping, view.raw_name, ids)
-        models.append(_model(exports, system, model))
+            views.append(view)
+        models.append(_model(exports, system, systems[system]))
+
+    ids = device_ids(views, systems)
+    owners = endpoints(views, ids)
+    branches = {name: branch.parent for name, branch in mapping.branches.items()}
+    devices: dict[str, dict[str, Any]] = {}
+    channels: dict[str, dict[str, Any]] = {}
+    groups: dict[str, dict[str, Any]] = {}
+    for view, slot_ids in zip(views, ids, strict=True):
+        family = mapping.families[view.raw_name]
+        for device_id, device in zip(slot_ids, _devices(view, family.class_), strict=True):
+            _add_device(devices, device_id, device, branches)
+        _channels(view, slot_ids, owners, mapping, roles, channels)
+        _group(groups, mapping.mapped(view.raw_name), mapping, view.raw_name, slot_ids)
 
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
@@ -319,6 +330,32 @@ def _devices(view: FamilyView, klass: str | None) -> Iterable[dict[str, Any]]:
         yield device
 
 
+def _add_device(
+    devices: dict[str, dict[str, Any]],
+    device_id: str,
+    device: dict[str, Any],
+    branches: dict[str, str],
+) -> None:
+    """Record one slot's device, or fold it into the device its id already names.
+
+    The first slot's names and attributes stand; the class is the nearest one
+    every slot's family class descends from, absent when they share none.
+    """
+    found = devices.get(device_id)
+    if found is None:
+        devices[device_id] = {"id": device_id, **device}
+        return
+    klass = common_class(found.get("class"), device.get("class"), branches)
+    merged: dict[str, Any] = {"id": device_id}
+    if klass is not None:
+        merged["class"] = klass
+    for key in ("names", "attributes"):
+        value = found.get(key, device.get(key))
+        if value is not None:
+            merged[key] = value
+    devices[device_id] = merged
+
+
 def _field_scalar(fld: FieldView, key: str, index: int, n_devices: int) -> str | None:
     """The scalar ``fld.body[key]`` gives one device: its slot of a per-device list, or itself."""
     value = fld.body.get(key)
@@ -330,11 +367,16 @@ def _field_scalar(fld: FieldView, key: str, index: int, n_devices: int) -> str |
 def _channels(
     view: FamilyView,
     ids: list[str],
+    owners: dict[str, list[str]],
     mapping: Mapping,
     roles: dict[str, Any],
     channels: dict[str, dict[str, Any]],
 ) -> None:
-    """Add one channel per address of one family that no earlier device bound."""
+    """Add one channel per address of one family that no earlier family wrote.
+
+    An address one device binds is ``on`` it; an address several devices bind
+    names each in ``endpoint_of`` and belongs to no device.
+    """
     family = mapping.families[view.raw_name]
     for fld in view.fields.values():
         role = roles.get(f"{view.raw_name}.{fld.name}")
@@ -347,7 +389,12 @@ def _channels(
                 address = _text(slot)
                 if address is None or address in channels:
                     continue
-                channel: dict[str, Any] = {"id": address, "on": {"device": ids[index]}}
+                channel: dict[str, Any] = {"id": address}
+                bound = owners.get(address, [ids[index]])
+                if len(bound) > 1:
+                    channel["endpoint_of"] = sorted(bound)
+                else:
+                    channel["on"] = {"device": bound[0]}
                 if role is not None:
                     channel["role"] = role.role
                     pair = _text(pairs[index]) if index < len(pairs) else None

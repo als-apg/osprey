@@ -93,23 +93,22 @@ def test_each_record_file_is_sorted_by_id(spear3: Path) -> None:
 def test_devices_carry_device_list_and_element_list(spear3: Path) -> None:
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
     devices = _by_id(_rows(spear3, "devices.yaml"))
-    for ordinal, (row, element) in enumerate(
-        zip(ao["BPMx"]["DeviceList"], ao["BPMx"]["ElementList"], strict=True), start=1
+    for name, row, element in zip(
+        ao["BPMx"]["CommonNames"], ao["BPMx"]["DeviceList"], ao["BPMx"]["ElementList"], strict=True
     ):
-        device = devices[f"StorageRing/BPMx_{ordinal}"]
+        device = devices[f"StorageRing/{name}"]
         assert device["class"] == "BeamPositionMonitor"
         assert device["attributes"] == {"DeviceList": row, "ElementList": element}
 
 
 def test_each_family_is_a_group_of_its_devices(spear3: Path) -> None:
+    ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
     devices = _rows(spear3, "devices.yaml")
     groups = _by_id(_rows(spear3, "groups.yaml"))
     members = {member for group in groups.values() for member in group["members"]}
     assert members == {device["id"] for device in devices}
     hcm = groups["HCM"]
-    assert hcm["members"] == sorted(
-        d["id"] for d in devices if d["id"].startswith("StorageRing/HCM_")
-    )
+    assert hcm["members"] == sorted(f"StorageRing/{name}" for name in ao["HCM"]["CommonNames"])
     assert hcm["description"]
 
 
@@ -120,7 +119,7 @@ def test_a_setpoint_pairs_with_its_family_monitor(spear3: Path) -> None:
     monitor = ao["HCM"]["Monitor"]["ChannelNames"][0].strip()
     assert channels[setpoint]["role"] == "setpoint"
     assert channels[setpoint]["pair"] == monitor
-    assert channels[setpoint]["on"] == {"device": "StorageRing/HCM_1"}
+    assert channels[setpoint]["on"] == {"device": f"StorageRing/{ao['HCM']['CommonNames'][0]}"}
     assert channels[monitor]["role"] == "readback"
     assert "pair" not in channels[monitor]
 
@@ -167,8 +166,8 @@ def test_nsls2_imports_with_the_demo_ontology_blocked(tmp_path: Path) -> None:
 
     groups = _by_id(_rows(facility, "groups.yaml"))
     bpms = groups["BPMx"]["members"]
-    assert any(m.startswith("LTB/BPMx_") for m in bpms)
-    assert any(m.startswith("StorageRing/BPMx_") for m in bpms)
+    assert any(m.startswith("LTB/") for m in bpms)
+    assert any(m.startswith("StorageRing/") for m in bpms)
     assert bpms == sorted(set(bpms))
     for model in ("StorageRing", "LTB"):
         copied = facility / LAYER_DIR / f"{model}.response.json"
