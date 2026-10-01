@@ -32,6 +32,15 @@ TREES: dict[str, tuple[str, ...]] = {
     "nsls2": ("nsls2.storagering", "nsls2.ltb"),
 }
 
+#: The authored files the spear3 import seeds beside the layer's records.
+SEEDED = (
+    "classes.yaml",
+    "identity.yaml",
+    "limits.yaml",
+    "measurement/StorageRing.yaml",
+    "seeds.yaml",
+)
+
 _LTB_TWISS = {
     "beta": [4.5, 4.8],
     "alpha": [-0.5, -0.6],
@@ -80,9 +89,9 @@ def test_writes_record_sources_never_a_view(spear3: Path) -> None:
         "models.yaml",
     ]
     assert sorted(p.name for p in (layer / "decks").iterdir()) == ["StorageRing.json"]
-    files = [p for p in layer.rglob("*") if p.is_file()]
+    files = [p.relative_to(spear3).as_posix() for p in layer.rglob("*") if p.is_file()]
     assert sorted(p.relative_to(spear3).as_posix() for p in spear3.rglob("*") if p.is_file()) == (
-        sorted(p.relative_to(spear3).as_posix() for p in files)
+        sorted([*files, *SEEDED])
     )
 
 
