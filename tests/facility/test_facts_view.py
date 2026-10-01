@@ -21,7 +21,6 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
-from osprey.facility.compute import flatten_aliases
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.validate import _vocabulary
 from osprey.facility.views.facts import (
@@ -122,22 +121,23 @@ def test_each_device_class_carries_its_count_aliases_and_families(
 
     class_of = {device["id"]: device["class"] for device in facility["devices"]}
     assert list(classes) == sorted(set(class_of.values()))
-    aliases = flatten_aliases(_vocabulary(), facility["classes"])
+    authored: dict[str, list[str]] = {}
+    for row in _vocabulary()["classes"]:
+        authored.setdefault(row["name"], []).extend(row.get("aliases") or [])
+    for row in facility["classes"]:
+        authored.setdefault(row["class"], []).extend(row.get("aliases") or [])
     for name, entry in classes.items():
         members = {device for device, cls in class_of.items() if cls == name}
         assert entry == {
             "count": len(members),
-            "aliases": sorted(
-                row["term"]
-                for row in aliases
-                if row["scope"] == "device_class" and row["target"] == name
-            ),
+            "aliases": sorted(authored.get(name, [])),
             "families": sorted(
                 group["id"] for group in facility["groups"] if members & set(group["members"])
             ),
         }
     assert classes["Quadrupole"]["aliases"]
     assert classes["Quadrupole"]["families"]
+    assert {"BPM", "PM"} <= set(classes["BeamPositionMonitor"]["aliases"])
 
 
 def test_two_renders_differing_in_served_models_write_different_facts(
@@ -168,7 +168,11 @@ def test_two_renders_differing_in_served_models_write_different_facts(
 
 def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Path) -> None:
     tree = plain_tree()
-    declared = {"class": "SkewQuad", "parent": QUAD, "aliases": ["Skew Quad", "skew"]}
+    declared = {
+        "class": "SkewQuad",
+        "parent": QUAD,
+        "aliases": ["Skew Quad", " skew quad ", "skew"],
+    }
     tree["classes.yaml"] = [declared, {"class": "Spare", "parent": QUAD}]
     devices = tree["records/devices.yaml"]
     quad = next(device for device in devices if device["class"] == QUAD)
@@ -180,7 +184,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
     assert declared in document["classes"]
     assert list(classes) == sorted([BPM, "SkewQuad", "Spare"])
     assert classes["SkewQuad"]["count"] == 1
-    assert classes["SkewQuad"]["aliases"] == ["skew", "skew quad"]
+    assert classes["SkewQuad"]["aliases"] == ["Skew Quad", "skew"]
     assert classes["Spare"] == {"count": 0, "aliases": [], "families": []}
     assert QUAD not in classes
 
