@@ -118,9 +118,11 @@ EXPLICIT_TARGET_COMMANDS: frozenset[str] = frozenset(
 #: flag selecting it. They still take ``--repo``, because their default mode
 #: acts on a repo; the flag is what drops the requirement. Recorded here so the
 #: full exemption picture stays readable in one place even though the branch
-#: itself belongs to the command that owns the flag.
+#: itself belongs to the command that owns the flag. A key is a top-level
+#: command: ``facility``'s flag belongs to its verb ``facility import mml``.
 MODE_EXEMPT_FLAGS: Mapping[str, tuple[str, ...]] = {
     "config": ("--defaults",),
+    "facility": ("--print-exporter",),
 }
 
 _EXEMPT_COMMANDS = REPO_FREE_COMMANDS | SELF_DISCOVERING_COMMANDS | EXPLICIT_TARGET_COMMANDS
