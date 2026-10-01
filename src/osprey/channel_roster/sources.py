@@ -1,42 +1,45 @@
-"""Which source a build's channel roster is enumerated from, and where it sits.
+"""Which source a build's channel roster is enumerated from, and how it is read.
 
 One question, answered once: *given this project's configuration, what does the
-roster read?* The answer is settled by :func:`detect_pipeline_config` and
-nothing else --- the graph paradigm reads the search index the build derives
-from the Turtle corpus it stages for the graph store, every other paradigm
-reads its channel-finder database file, and a project that configures neither
-gets an honest
-:class:`~osprey.channel_roster.records.RosterAbsence` rather than a silent
-empty roster.
+roster read?* The facility file a build writes at the root of every render
+(``<render root>/facility.json``), and nothing else. The channel-finder mode
+does not choose it and no config key declares it: a project with no
+channel-finder mode enumerates the same file a graph-mode project does, so a
+facility has one enumeration of its own channels whoever asks.
 
-The mode decides, never the artifacts. A hierarchical project that also runs a
-graph store still resolves its database: probing ``services.graphdb.ttl_path``
-independently of the mode is how a facility ends up with two disagreeing
-enumerations of its own channels, which is the whole reason this package
-exists. For the same reason the graph store is never dialed here: the files on
-disk are what the deploy builds from the project's own configuration, so a
-graph project naming neither a corpus nor an index is an absence that names the
-config keys that would have declared one, not a network probe.
+The render root is the directory holding the ``config.yml`` in play:
+``config_dir`` when the config records one (:func:`_render_dir`), else the
+parent of :func:`osprey_connectors.workspace.resolve_config_path`.
 
-This module also owns the path rule the roster needs, moved here so the
-snapshot, the plan-device derivation and the build's fact lines resolve one
-configured string to one file: :func:`resolve_database_path` anchors
-``database.path`` on the process working directory, which the build sets to the
-project root before generating service files. The graph paradigm's index is
-render-relative instead, and
-:func:`~osprey.deployment.graphdb_service.resolve_graph_index_path` is the one
-resolver for it.
+:func:`read_facility_roster` turns the file's channel records into the
+roster's. Membership is the ``channels`` list verbatim --- the addresses a
+simulator serves for its own models' status are not channel records and are
+never listed. Direction is the record's ``role``: a ``setpoint`` is settable,
+a ``readback`` is readable, and ``none`` states no direction. A setpoint's
+readback is its ``pair``, unless the pair is the setpoint itself.
+
+Failure is data, never an exception: a file no build has written is a
+:attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_NOT_BUILT`
+absence, one that is there and cannot be read is
+:attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`, and
+one that holds no channel is
+:attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_EMPTY`.
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from osprey.channel_roster.records import (
+    ChannelDirection,
+    ChannelRecord,
     RosterAbsence,
     RosterAbsenceReason,
+    RosterResult,
     RosterSource,
     RosterSourceKind,
 )
@@ -49,18 +52,24 @@ logger = get_logger("channel_roster.sources")
 #: because a graph store is a service rather than a database file.
 GRAPH_PARADIGM = "graph"
 
-#: The keys a graph-mode project declares its roster with, named in the absence
-#: it gets when it declares none of them. ``ttl_path`` is the corpus this build
-#: stages; ``index_path`` is where the build writes the search index derived
-#: from it, which is what the roster actually reads; ``uri`` is how a project
-#: points at a store it does not run --- and a store is not enumerable from the
-#: build host, so naming it is the remedy for an operator who expected one, not
-#: a source.
+#: The keys a graph-mode project declares its search index with, named in the
+#: absence :mod:`osprey.channel_roster.graph` reports when that index is not
+#: there. ``ttl_path`` is the corpus a build stages; ``index_path`` is where
+#: the build writes the search index derived from it; ``uri`` is how a project
+#: points at a store it does not run.
 GRAPH_CORPUS_CONFIG_KEYS: tuple[str, ...] = (
     "services.graphdb.ttl_path",
     GRAPHDB_INDEX_PATH_CONFIG_KEY,
     "services.graphdb.uri",
 )
+
+#: The direction each facility-file ``role`` states. ``none`` states neither,
+#: which the roster carries as an unknown rather than as readable.
+_ROLE_DIRECTIONS: Mapping[str, ChannelDirection | None] = {
+    "setpoint": "write",
+    "readback": "read",
+    "none": None,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,33 +79,21 @@ class RosterSourceResolution:
     Attributes:
         source: The resolved source, or ``None`` when there is none.
         absence: Why there is no source, or ``None`` when there is one.
-        paradigm: The ``detect_pipeline_config`` paradigm the source belongs to
-            (``"graph"``, ``"hierarchical"``, ``"in_context"``,
-            ``"middle_layer"``). Carried because a database reader needs the
-            paradigm to know which database class opens the file.
-        db_config: The paradigm's ``database`` block, for the reader that opens
-            it --- the in-context paradigm's ``type`` key picks between the flat
-            and template databases. ``None`` for the graph paradigm.
 
     Raises:
         ValueError: If the resolution says both or neither (a source *and* an
-            absence, or neither), or names a source without the paradigm that
-            reads it. A caller branching on ``source is None`` would otherwise
-            silently take the wrong arm.
+            absence, or neither). A caller branching on ``source is None``
+            would otherwise silently take the wrong arm.
     """
 
     source: RosterSource | None = None
     absence: RosterAbsence | None = None
-    paradigm: str | None = None
-    db_config: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if (self.source is None) == (self.absence is None):
             raise ValueError(
                 "A roster source resolution names exactly one of a source or an absence."
             )
-        if self.source is not None and not self.paradigm:
-            raise ValueError("A resolved roster source must name the paradigm that reads it.")
 
 
 def _render_dir(config: dict) -> Path | None:
@@ -104,14 +101,14 @@ def _render_dir(config: dict) -> Path | None:
 
     :func:`osprey.deployment.compose_generator.prepare_compose_files` records
     ``config_dir`` --- the directory the loaded ``config.yml`` sits in --- before
-    any render helper runs, and that is what ``services.graphdb.ttl_path``
-    resolves against: the one render-relative key (see
-    :mod:`osprey.utils.config_paths`).
+    any render helper runs, and a build records the render it is writing the
+    same way. That directory is the render root, which is where the facility
+    file sits.
 
-    Returning None lets :func:`~osprey.utils.config_paths.resolve_render_relative_path`
-    fall back to the ``config.yml`` this process runs against --- ``OSPREY_CONFIG``
-    when set, else ``build/config.yml`` under the working directory when that
-    file exists, else the working directory itself
+    Returning None lets :func:`facility_file_path` fall back to the
+    ``config.yml`` this process runs against --- ``OSPREY_CONFIG`` when set,
+    else ``build/config.yml`` under the working directory when that file
+    exists, else the working directory itself
     (:func:`osprey_connectors.workspace.resolve_config_path`).
 
     Deliberately NOT the ``project_root`` rung of
@@ -131,150 +128,149 @@ def _render_dir(config: dict) -> Path | None:
     return None
 
 
-def resolve_database_path(db_config: dict) -> Path:
-    """Resolve a paradigm's ``database.path`` to a file on disk.
-
-    Anchored on the process working directory rather than the render, because
-    the build sets its working directory to the project root before generating
-    service files and a database file is a project artifact, not a rendered one.
-
-    Args:
-        db_config: The paradigm's ``database`` block, carrying ``path``.
-
-    Returns:
-        Absolute path to the database file.
-    """
-    db_path = Path(db_config["path"])
-    if not db_path.is_absolute():
-        db_path = Path.cwd() / db_path
-    return db_path
-
-
-def _graph_source(config: dict) -> RosterSourceResolution:
-    """Resolve the graph paradigm's search index, or say why there is none.
-
-    The roster reads the search index the build derives from the corpus, not the
-    corpus itself: one file, resolved by
-    :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`, so the
-    roster and every other index reader look in the place the build wrote.
-
-    The store is never dialed: a graph-mode project that declares no roster at
-    all gets an absence naming :data:`GRAPH_CORPUS_CONFIG_KEYS`, which is what
-    an operator has to edit, rather than a connection attempt whose failure
-    would be reported as an empty facility. "Declares none" means no
-    ``ttl_path`` *and* no explicit ``index_path``: ``index_path`` defaults
-    rather than being optional, so a ``uri``-only project -- one pointing at a
-    store it does not run and staging no corpus -- would otherwise be handed a
-    defaulted path to a file nothing in this deployment ever builds. An explicit
-    ``index_path`` is a declaration in its own right, and names the source even
-    with no corpus staged here.
-
-    A block the service resolver cannot read is its own absence
-    (:attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_MALFORMED`),
-    carrying the resolver's complaint: "you declared no corpus" and "the line
-    you declared it with cannot be read" send an operator to different edits.
-    Fail-soft either way -- the build stays browse-only and the web body says
-    why -- because no source was named, so none is there to be corrupt.
+def facility_file_path(config: dict) -> Path:
+    """Where the facility file of the render this config belongs to sits.
 
     Args:
         config: Full project configuration dictionary.
 
     Returns:
-        The index source, or a
-        :attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_NO_TTL`
-        / :attr:`~osprey.channel_roster.records.RosterAbsenceReason.GRAPH_MALFORMED`
-        absence.
+        ``<render root>/facility.json``. The file is not probed: whether a
+        build has written it is the reader's answer.
     """
-    # Private, deliberately: asking "did the operator write this key?" has to
-    # read the block exactly as the resolver that defaults it does, and a second
-    # copy of the services.graphdb lookup here would disagree with it on the
-    # shapes YAML allows (a bare ``graphdb:``, a non-mapping value).
-    from osprey.deployment.graphdb_service import (
-        _graphdb_block,
-        resolve_graph_index_path,
-        resolve_graphdb_service_config,
-    )
+    from osprey.facility.render import FACILITY_FILE
 
-    try:
-        settings = resolve_graphdb_service_config(config)
-    except ValueError as e:
-        logger.warning(
-            f"The services.graphdb block is malformed ({e}), so it names no readable "
-            "knowledge-graph corpus to enumerate channels from."
-        )
-        return RosterSourceResolution(
-            absence=RosterAbsence(
-                reason=RosterAbsenceReason.GRAPH_MALFORMED,
-                config_keys=GRAPH_CORPUS_CONFIG_KEYS,
-                detail=str(e),
-            )
-        )
+    render_dir = _render_dir(config)
+    if render_dir is None:
+        from osprey.utils.workspace import resolve_config_path
 
-    declares_index = "index_path" in (_graphdb_block(config) or {})
-    if settings is None or (settings.ttl_path is None and not declares_index):
-        return RosterSourceResolution(
-            absence=RosterAbsence(
-                reason=RosterAbsenceReason.GRAPH_NO_TTL,
-                config_keys=GRAPH_CORPUS_CONFIG_KEYS,
-            )
-        )
-
-    return RosterSourceResolution(
-        source=RosterSource(
-            kind=RosterSourceKind.GRAPH,
-            path=resolve_graph_index_path(config, _render_dir(config)),
-            spelled=str(settings.index_path),
-        ),
-        paradigm=GRAPH_PARADIGM,
-    )
+        render_dir = Path(resolve_config_path()).parent
+    return render_dir / FACILITY_FILE
 
 
 def resolve_roster_source(config: dict) -> RosterSourceResolution:
     """Decide what this project's channel roster is enumerated from.
 
-    The paradigm is read from :func:`~osprey.services.channel_finder.utils.detection.detect_pipeline_config`
-    verbatim --- explicit ``channel_finder.pipeline_mode`` first, then the
-    database paths that are actually configured --- and the source follows from
-    it alone:
-
-    - ``graph`` reads the staged Turtle corpus (:func:`_graph_source`).
-    - Any other paradigm reads its own ``database.path``, even when the project
-      also runs a graph store: the mode names the roster, and a second
-      enumeration read off a block the mode did not select is the divergence
-      this package exists to end.
-    - A project that configures no paradigm at all gets the
-      :attr:`~osprey.channel_roster.records.RosterAbsenceReason.NO_SOURCE`
-      absence, and the build stays browse-only.
+    Every project resolves to its render's facility file, whatever
+    channel-finder mode it configures and whether or not it configures one.
 
     Args:
         config: Full project configuration dictionary, as the build holds it.
 
     Returns:
-        The resolution: exactly one of a source or an absence.
+        The resolution, naming the facility file. The source is spelled by its
+        file name, because the resolved path of a render being built is a
+        staging path nobody can retype.
+    """
+    path = facility_file_path(config)
+    return RosterSourceResolution(
+        source=RosterSource(kind=RosterSourceKind.FACILITY, path=path, spelled=path.name)
+    )
+
+
+def read_facility_roster(source: RosterSource) -> RosterResult:
+    """Read every channel record the facility file holds.
+
+    Args:
+        source: The facility file, as :func:`resolve_roster_source` settled it.
+
+    Returns:
+        A :class:`~osprey.channel_roster.records.RosterResult` holding one
+        record per channel, in the file's order; or one carrying a
+        :attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_NOT_BUILT`
+        absence when the file is not there, a
+        :attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`
+        one when it is there and is not a facility file this reader can turn
+        into records, or an
+        :attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_EMPTY`
+        one when it holds no channel.
+    """
+    try:
+        text = source.path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning(
+            f"The facility file {source.for_display()} is not built, so this build "
+            "enumerates no channels."
+        )
+        return RosterResult(
+            absence=RosterAbsence(
+                reason=RosterAbsenceReason.FACILITY_NOT_BUILT,
+                path=source.path,
+                spelled=source.spelled,
+            )
+        )
+    except (OSError, UnicodeDecodeError) as e:
+        return _corrupt(source, str(e))
+
+    try:
+        records = tuple(_record(channel, source) for channel in json.loads(text)["channels"])
+    except (ValueError, KeyError, TypeError) as e:
+        return _corrupt(source, _failure(e))
+
+    if not records:
+        absence = RosterAbsence(
+            reason=RosterAbsenceReason.FACILITY_EMPTY,
+            path=source.path,
+            spelled=source.spelled,
+        )
+        # A project that declares no channels is a state of the project, not a
+        # fault of the read.
+        logger.info(absence.message())
+        return RosterResult(absence=absence)
+    return RosterResult(records=records, source=source)
+
+
+def _corrupt(source: RosterSource, detail: str) -> RosterResult:
+    """The absence for a facility file that is there and cannot be used."""
+    logger.warning(f"The facility file {source.for_display()} could not be read ({detail}).")
+    return RosterResult(
+        absence=RosterAbsence(
+            reason=RosterAbsenceReason.CORRUPT_SOURCE,
+            path=source.path,
+            spelled=source.spelled,
+            detail=detail,
+        )
+    )
+
+
+def _failure(error: Exception) -> str:
+    """Say what was wrong with the file, without a sentence terminator."""
+    if isinstance(error, KeyError):
+        return f"a record has no {error.args[0]!r}"
+    return str(error).rstrip(".") or type(error).__name__
+
+
+def _record(channel: Mapping[str, Any], source: RosterSource) -> ChannelRecord:
+    """Turn one facility-file channel record into the roster's.
 
     Raises:
-        PipelineModeError: If ``channel_finder.pipeline_mode`` names a paradigm
-            that does not exist. Deliberately not absorbed into an absence: a
-            typo'd mode is a configuration mistake with a fix, and reporting it
-            as "this facility has no channels" would hide it behind a plausible
-            state.
+        KeyError: The record has no ``id`` or no ``role``.
+        ValueError: The record's ``role`` is not one the facility file allows,
+            or the record is not one :class:`ChannelRecord` accepts.
+        TypeError: The record, or its ``on``, is not a mapping.
     """
-    from osprey.services.channel_finder.utils.detection import detect_pipeline_config
-
-    paradigm, db_config = detect_pipeline_config(config)
-
-    if paradigm == GRAPH_PARADIGM:
-        return _graph_source(config)
-
-    if not paradigm or not db_config or not db_config.get("path"):
-        return RosterSourceResolution(absence=RosterAbsence(reason=RosterAbsenceReason.NO_SOURCE))
-
-    return RosterSourceResolution(
-        source=RosterSource(
-            kind=RosterSourceKind.DATABASE,
-            path=resolve_database_path(db_config),
-            spelled=str(db_config["path"]),
-        ),
-        paradigm=paradigm,
-        db_config=db_config,
+    address = channel["id"]
+    role = channel["role"]
+    if role not in _ROLE_DIRECTIONS:
+        raise ValueError(f"channel {address} has the role {role!r}")
+    pair = channel.get("pair")
+    return ChannelRecord(
+        address=address,
+        source=source,
+        direction=_ROLE_DIRECTIONS[role],
+        readback=pair if role == "setpoint" and pair != address else None,
+        role=role,
+        value_type=channel.get("value_type"),
+        description=channel.get("description"),
+        on=_on(channel.get("on")),
     )
+
+
+def _on(target: Mapping[str, Any] | None) -> tuple[str, str] | None:
+    """The one device or place an ``on`` names, as ``(kind, id)``."""
+    if not target:
+        return None
+    for kind in ("device", "place"):
+        if target.get(kind):
+            return (kind, str(target[kind]))
+    return None

@@ -3,14 +3,11 @@
 Covers ``osprey.channel_roster.registered_channels`` -- the one call a consumer
 makes. Two things are load-bearing here and nowhere else in the package.
 
-The first is that the four stages compose into one honest answer: resolution
-picks the source, the right reader reads it, pairing runs over the records it
-returned, and an absence travels through untouched. The end-to-end assertion is
-against an index built from the corpus OSPREY ships -- 2908 channels, 396 of
-them settable, every one of those paired with the readback the corpus
-enumerates. Those are the numbers the feature exists for: the build that
-reported ``144 settable / 144 readable`` was reading the write-limits
-projection.
+The first is that the stages compose into one honest answer: resolution names
+the facility file, the reader reads it, and an absence travels through
+untouched. The end-to-end assertion is against the facility file built from
+the tree OSPREY ships -- 2912 channels, 396 of them settable, every one of
+those paired with the readback the file states.
 
 The second is memoization. A build asks this question several times -- both
 bridge lanes render from it and the channel snapshot is written from it -- and
@@ -19,16 +16,14 @@ more than once per build is a performance bug; serving a roster the file no
 longer holds is a correctness bug, so the tests pin both directions: one read
 across repeated calls, and a fresh read as soon as the file on disk changes.
 
-The graph paradigm's source is the search index a build writes, so the fixtures
-here write one: a real index where the reader reads it, and a stand-in file
-where a spy reader stands in for it and only the memo key looks at the bytes.
+The fixtures write the facility file a build writes: a real one where the
+reader reads it, and a stand-in file where a spy reader stands in for it and
+only the memo key looks at the bytes.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -45,18 +40,12 @@ from osprey.channel_roster import (
     RosterSourceKind,
     registered_channels,
 )
-from tests._graph_index import build_index_from_ttl, default_index_path, demo_corpus_path
+from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
-#: What the shipped demo corpus holds, pinned alongside
-#: ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.
-DEMO_CHANNELS = 2908
+#: What the facility file of the shipped demo tree holds.
+DEMO_CHANNELS = 2912
 DEMO_WRITES = 396
-DEMO_READS = 2512
-
-_PREAMBLE = """\
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
-"""
+DEMO_READS = 2516
 
 
 @pytest.fixture(autouse=True)
@@ -72,80 +61,24 @@ def cold_cache() -> Iterator[None]:
     channel_roster._roster_cache.clear()
 
 
-def _corpus(path: Path, addresses: dict[str, str]) -> Path:
-    """Write a corpus binding each address to its direction predicate."""
-    bindings = "".join(
-        f'<https://narad.example.org/binding/b{index}> narad_p:fullPv "{address}" ;\n'
-        f"    narad_p:{predicate} narad_sem:s{index} .\n"
-        for index, (address, predicate) in enumerate(addresses.items())
-    )
-    path.write_text(_PREAMBLE + bindings, encoding="utf-8")
-    return path
-
-
-def _build_index(render: Path, ttl_path: Path) -> Path:
-    """Build the search index a graph-mode build writes into *render*.
-
-    The roster reads the index, not the corpus, and it looks for it where
-    ``services.graphdb.index_path`` defaults -- so that is where it goes.
-    """
-    return build_index_from_ttl(ttl_path, index_path=default_index_path(render))
-
-
-def _stage_index_file(render: Path, payload: bytes = b"index") -> Path:
-    """Put *payload* where the build writes the index, and return its path.
+def _stage_facility_file(render: Path, payload: bytes = b"facility") -> Path:
+    """Put *payload* where the build writes the facility file, and return its path.
 
     For the tests that stand a spy in for the reader: nothing parses these
     bytes, and what they are pinning is that the memo key has a file to
-    fingerprint -- which is the index, now that the roster reads one.
+    fingerprint.
     """
-    index_path = default_index_path(render)
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_bytes(payload)
-    return index_path
+    path = render / "facility.json"
+    path.write_bytes(payload)
+    return path
 
 
-def _graph_config(render: Path, ttl_path: str | None = "corpus.ttl") -> dict[str, Any]:
-    """A graph-paradigm project rendered into *render*."""
-    graphdb: dict[str, Any] = {} if ttl_path is None else {"ttl_path": ttl_path}
-    return {
-        "config_dir": str(render),
-        "channel_finder": {"pipeline_mode": "graph"},
-        "services": {"graphdb": graphdb},
-    }
-
-
-def _flat_config(db_path: Path, limits_path: Path | None = None) -> dict[str, Any]:
-    """An in-context flat-database project, optionally enforcing channel limits."""
-    config: dict[str, Any] = {
-        "channel_finder": {
-            "pipeline_mode": "in_context",
-            "pipelines": {
-                "in_context": {"database": {"type": "flat", "path": str(db_path)}},
-            },
-        },
-    }
-    if limits_path is not None:
-        config["control_system"] = {"limits_checking": {"database_path": str(limits_path)}}
+def _config(render: Path, mode: str | None = "graph") -> dict[str, Any]:
+    """A project rendered into *render*, in channel-finder mode *mode*."""
+    config: dict[str, Any] = {"config_dir": str(render)}
+    if mode is not None:
+        config["channel_finder"] = {"pipeline_mode": mode}
     return config
-
-
-def _write_flat_db(path: Path, addresses: list[str]) -> Path:
-    """Write an in-context flat database enumerating *addresses*."""
-    path.write_text(
-        json.dumps([{"channel": address, "address": address} for address in addresses]),
-        encoding="utf-8",
-    )
-    return path
-
-
-def _write_limits(path: Path, writable: list[str], readable: list[str]) -> Path:
-    """Write a ``channel_limits.json``-shaped file declaring writability."""
-    entries: dict[str, Any] = {"_comment": "test fixture"}
-    entries.update({address: {"writable": True} for address in writable})
-    entries.update({address: {"writable": False} for address in readable})
-    path.write_text(json.dumps(entries), encoding="utf-8")
-    return path
 
 
 def _touch_later(path: Path) -> None:
@@ -155,7 +88,7 @@ def _touch_later(path: Path) -> None:
 
 
 class _SpyReader:
-    """A stand-in graph reader that records how often the facade called it.
+    """A stand-in reader that records how often the facade called it.
 
     Returns a one-record roster attributed to whatever source it was handed,
     unless *result* overrides it -- which is how the absence cases are staged
@@ -176,23 +109,17 @@ class _SpyReader:
         )
 
 
-class TestTheShippedDemoCorpus:
-    """End to end on the corpus OSPREY ships, through the facade only."""
+class TestTheShippedDemoTree:
+    """End to end on the tree OSPREY ships, through the facade only."""
 
     @pytest.fixture(scope="class")
     def demo_config(self, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-        """A graph-mode project whose index is built from the shipped corpus.
-
-        Built once for the class: the corpus is a multi-megabyte parse, and
-        every test here reads the same index.
-        """
+        """A graph-mode project whose facility file is built from the shipped tree."""
         render = tmp_path_factory.mktemp("demo_render")
-        with demo_corpus_path() as path:
-            shutil.copy(path, render / path.name)
-        _build_index(render, render / "demo_machine.ttl")
-        return _graph_config(render, ttl_path="demo_machine.ttl")
+        write_demo_facility_file(render)
+        return _config(render)
 
-    def test_enumerates_the_whole_machine_with_the_corpus_directions(self, demo_config) -> None:
+    def test_enumerates_the_whole_machine_with_the_stated_directions(self, demo_config) -> None:
         result = registered_channels(demo_config)
 
         assert result.absence is None
@@ -207,20 +134,20 @@ class TestTheShippedDemoCorpus:
         assert len(paired) == DEMO_WRITES
         assert all(record.readback == record.address[: -len("SP")] + "RB" for record in paired)
 
-    def test_names_the_index_it_read(self, demo_config) -> None:
+    def test_names_the_file_it_read(self, demo_config) -> None:
         source = registered_channels(demo_config).source
 
         assert source is not None
-        assert source.kind is RosterSourceKind.GRAPH
-        assert source.path == default_index_path(Path(demo_config["config_dir"]))
+        assert source.kind is RosterSourceKind.FACILITY
+        assert source.path == Path(demo_config["config_dir"]) / "facility.json"
 
 
 class TestMemoization:
     def test_the_source_is_read_once_across_repeated_calls(self, tmp_path, monkeypatch) -> None:
-        config = _graph_config(tmp_path)
-        _stage_index_file(tmp_path)
+        config = _config(tmp_path)
+        _stage_facility_file(tmp_path)
         spy = _SpyReader()
-        monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
+        monkeypatch.setattr(channel_roster, "read_facility_roster", spy)
 
         first = registered_channels(config)
         second = registered_channels(config)
@@ -230,10 +157,10 @@ class TestMemoization:
         assert first.addresses == ("A:B:C:SP",)
 
     def test_a_rewritten_source_is_read_again(self, tmp_path, monkeypatch) -> None:
-        config = _graph_config(tmp_path)
-        path = _stage_index_file(tmp_path)
+        config = _config(tmp_path)
+        path = _stage_facility_file(tmp_path)
         spy = _SpyReader()
-        monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
+        monkeypatch.setattr(channel_roster, "read_facility_roster", spy)
 
         registered_channels(config)
         _touch_later(path)
@@ -242,14 +169,14 @@ class TestMemoization:
         assert spy.calls == 2
 
     def test_a_source_that_changed_size_alone_is_read_again(self, tmp_path, monkeypatch) -> None:
-        config = _graph_config(tmp_path)
-        path = _stage_index_file(tmp_path)
+        config = _config(tmp_path)
+        path = _stage_facility_file(tmp_path)
         spy = _SpyReader()
-        monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
+        monkeypatch.setattr(channel_roster, "read_facility_roster", spy)
 
         registered_channels(config)
         stamp = path.stat()
-        _stage_index_file(tmp_path, payload=b"a longer index")
+        _stage_facility_file(tmp_path, payload=b"a longer facility file")
         os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
         registered_channels(config)
 
@@ -258,17 +185,16 @@ class TestMemoization:
     def test_a_source_that_is_not_there_is_not_cached(self, tmp_path, monkeypatch) -> None:
         # "Not there" during a build can mean "not there yet": caching the miss
         # would pin every later caller to a failure the build has since fixed.
-        config = _graph_config(tmp_path)
+        config = _config(tmp_path)
         spy = _SpyReader(
             RosterResult(
                 absence=RosterAbsence(
-                    reason=RosterAbsenceReason.CORRUPT_SOURCE,
-                    path=tmp_path / "corpus.ttl",
-                    detail="no such file",
+                    reason=RosterAbsenceReason.FACILITY_NOT_BUILT,
+                    path=tmp_path / "facility.json",
                 )
             )
         )
-        monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
+        monkeypatch.setattr(channel_roster, "read_facility_roster", spy)
 
         registered_channels(config)
         registered_channels(config)
@@ -276,85 +202,69 @@ class TestMemoization:
         assert spy.calls == 2
         assert not channel_roster._roster_cache
 
-    def test_an_absence_from_resolution_reaches_no_reader_and_is_not_cached(
-        self, tmp_path, monkeypatch
-    ) -> None:
-        spy = _SpyReader(RosterResult(absence=RosterAbsence(reason=RosterAbsenceReason.NO_SOURCE)))
-        monkeypatch.setattr(channel_roster, "read_graph_roster", spy)
+    def test_a_file_written_after_a_miss_is_read(self, tmp_path: Path) -> None:
+        config = _config(tmp_path)
 
-        result = registered_channels(_graph_config(tmp_path, ttl_path=None))
+        before = registered_channels(config)
+        write_facility_file(tmp_path, channel_tree(readbacks=["A:B:C:RB"]))
+        after = registered_channels(config)
 
-        assert spy.calls == 0
-        assert result.absence is not None
-        assert result.absence.reason is RosterAbsenceReason.GRAPH_NO_TTL
-        assert not channel_roster._roster_cache
+        assert before.absence is not None
+        assert before.absence.reason is RosterAbsenceReason.FACILITY_NOT_BUILT
+        assert after.addresses == ("A:B:C:RB",)
 
-    def test_a_second_projects_limits_do_not_serve_the_first_projects_directions(
+    def test_a_second_projects_file_does_not_serve_the_first_projects_directions(
         self, tmp_path: Path
     ) -> None:
-        # Same database file, different enforced writability: the directions
+        # Two renders, different roles for the same addresses: the directions
         # differ, so the cached answer must not cross between them.
-        db_path = _write_flat_db(tmp_path / "channels.json", ["A:B:C:SP", "A:B:C:RB"])
-        settable = _write_limits(tmp_path / "settable.json", ["A:B:C:SP"], ["A:B:C:RB"])
-        frozen = _write_limits(tmp_path / "frozen.json", [], ["A:B:C:SP", "A:B:C:RB"])
+        settable, frozen = tmp_path / "settable", tmp_path / "frozen"
+        write_facility_file(settable, channel_tree(setpoints={"A:B:C:SP": "A:B:C:RB"}))
+        write_facility_file(frozen, channel_tree(readbacks=["A:B:C:SP", "A:B:C:RB"]))
 
-        with_writes = registered_channels(_flat_config(db_path, settable))
-        without_writes = registered_channels(_flat_config(db_path, frozen))
+        with_writes = registered_channels(_config(settable))
+        without_writes = registered_channels(_config(frozen))
 
         assert [record.address for record in with_writes.write_records] == ["A:B:C:SP"]
         assert without_writes.write_records == ()
 
 
-class TestReaderDispatch:
-    def test_a_database_paradigm_reads_its_database_and_pairs_it(self, tmp_path: Path) -> None:
-        db_path = _write_flat_db(tmp_path / "channels.json", ["A:B:C:SP", "A:B:C:RB"])
-        limits = _write_limits(tmp_path / "limits.json", ["A:B:C:SP"], ["A:B:C:RB"])
+class TestReading:
+    @pytest.mark.parametrize("mode", ["graph", "hierarchical", "in_context", "middle_layer", None])
+    def test_every_mode_reads_the_facility_file_and_its_pairs(
+        self, tmp_path: Path, mode: str | None
+    ) -> None:
+        path = write_facility_file(tmp_path, channel_tree(setpoints={"A:B:C:SP": "A:B:C:RB"}))
 
-        result = registered_channels(_flat_config(db_path, limits))
+        result = registered_channels(_config(tmp_path, mode))
 
         assert result.source is not None
-        assert result.source.kind is RosterSourceKind.DATABASE
-        assert result.source.path == db_path
+        assert result.source.kind is RosterSourceKind.FACILITY
+        assert result.source.path == path
+        assert result.addresses == ("A:B:C:RB", "A:B:C:SP")
         assert [(record.address, record.readback) for record in result.write_records] == [
             ("A:B:C:SP", "A:B:C:RB")
         ]
 
-    def test_a_graph_paradigm_reads_its_index(self, tmp_path: Path) -> None:
-        ttl_path = _corpus(
-            tmp_path / "corpus.ttl",
-            {"A:B:C:SP": "writesSignal", "A:B:C:RB": "readsSignal"},
-        )
-        _build_index(tmp_path, ttl_path)
-
-        result = registered_channels(_graph_config(tmp_path))
-
-        assert result.source is not None
-        assert result.source.kind is RosterSourceKind.GRAPH
-        assert result.addresses == ("A:B:C:RB", "A:B:C:SP")
-
     def test_an_unreadable_source_is_a_corrupt_source_absence_not_an_empty_facility(
         self, tmp_path: Path
     ) -> None:
-        _stage_index_file(tmp_path, payload=b"this is not a database {{{")
+        _stage_facility_file(tmp_path, payload=b"this is not a facility file {{{")
 
-        result = registered_channels(_graph_config(tmp_path))
+        result = registered_channels(_config(tmp_path))
 
         assert result.records == ()
         assert result.absence is not None
         assert result.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE
 
+    def test_records_whose_role_states_no_direction_are_still_members(self, tmp_path: Path) -> None:
+        write_facility_file(tmp_path, channel_tree(unpaired=["A:B:C:X", "A:B:C:Y"]))
 
-class TestAbsenceTravelsThroughPairing:
-    def test_records_and_a_direction_absence_survive_together(self, tmp_path: Path) -> None:
-        # No limits file and not one ':SP' address: membership is real, the
-        # direction half is not, and pairing must not drop either.
-        db_path = _write_flat_db(tmp_path / "channels.json", ["A:B:C:X", "A:B:C:Y"])
-
-        result = registered_channels(_flat_config(db_path))
+        result = registered_channels(_config(tmp_path))
 
         assert result.addresses == ("A:B:C:X", "A:B:C:Y")
-        assert result.absence is not None
-        assert result.absence.reason is RosterAbsenceReason.DIRECTION_UNDERIVABLE
+        assert result.absence is None
+        assert all(record.direction is None for record in result.records)
         assert all(record.readback is None for record in result.records)
 
 

@@ -1,15 +1,16 @@
 """Record and result types for the authoritative channel roster.
 
 The roster answers one question -- *which channels does this facility have,
-and which way do they point* -- from one source per build: the facility
-knowledge graph or a channel-finder paradigm database, per
-``detect_pipeline_config``. Never the write-limits projection
-(``channel_limits.json``), which gates a subset and was never a roster.
+and which way do they point* -- from one source per build: the facility file
+the build writes at the root of every render. Never the write-limits
+projection (``channel_limits.json``), which gates a subset and was never a
+roster.
 
 This module is purely declarative data, in the style of
 :mod:`osprey.simulation.channel_schema`: stdlib-only, no I/O, no source
-selection, no parsing. The readers (:mod:`osprey.channel_roster.graph`,
-:mod:`osprey.channel_roster.database`) build these types; the consumers --
+selection, no parsing. The readers (:mod:`osprey.channel_roster.sources`,
+:mod:`osprey.channel_roster.graph`, :mod:`osprey.channel_roster.database`)
+build these types; the consumers --
 plan-device derivation, the channel snapshot, the build's fact lines, the
 channel-finder web routes -- read them.
 
@@ -69,6 +70,10 @@ ADDRESS_SEPARATOR = ":"
 class RosterSourceKind(Enum):
     """Which kind of source a roster was enumerated from."""
 
+    #: The facility file a build writes at the root of every render, where each
+    #: channel record states its role and a setpoint states its readback.
+    FACILITY = "facility"
+
     #: The search index a build derives from the facility knowledge graph's
     #: Turtle corpus, where direction is carried explicitly -- the corpus
     #: states it with ``writesSignal`` / ``readsSignal`` and the index keeps
@@ -85,6 +90,7 @@ class RosterSourceKind(Enum):
 #: the same thing, and a kind nobody has phrased raises here instead of being
 #: described as the wrong one.
 SOURCE_LABELS: Mapping[RosterSourceKind, str] = {
+    RosterSourceKind.FACILITY: "this project's facility file",
     RosterSourceKind.GRAPH: "the channel index built from the facility knowledge graph",
     RosterSourceKind.DATABASE: "the channel finder database",
 }
@@ -117,6 +123,18 @@ class RosterAbsenceReason(Enum):
     #: and deliberately NOT :attr:`CORRUPT_SOURCE`: no source was named, so
     #: none is there to be broken.
     GRAPH_MALFORMED = "graph-malformed"
+
+    #: No build has written the facility file into this render. Fail-soft,
+    #: and its own reason because its remedy is one command rather than a
+    #: config edit: the file is an output of ``osprey build``, declared by no
+    #: key.
+    FACILITY_NOT_BUILT = "facility-not-built"
+
+    #: The facility file is built and holds no channel record. Fail-soft, and
+    #: its own reason because its remedy is in the project rather than in the
+    #: build: the file says what the project's ``data/facility`` tree declares,
+    #: so building again writes the same file.
+    FACILITY_EMPTY = "facility-empty"
 
     #: A database source enumerated its channels, but carries neither a
     #: write-limits database nor ``:SP`` addresses, so no direction can be
@@ -162,6 +180,14 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
         "Graph mode is configured but its services.graphdb block cannot be read "
         "({detail}), so the set of channels this facility has is unknown; the "
         "corpus is declared by {config_keys}."
+    ),
+    RosterAbsenceReason.FACILITY_NOT_BUILT: (
+        "The facility file {path} is not built, so the set of channels this "
+        "facility has is unknown. Run `osprey build`."
+    ),
+    RosterAbsenceReason.FACILITY_EMPTY: (
+        "The facility file {path} declares no channels: the project's "
+        "data/facility tree holds no channel records."
     ),
     RosterAbsenceReason.DIRECTION_UNDERIVABLE: (
         "The channels in {path} are known, but which of them are settable is "
@@ -318,9 +344,19 @@ class ChannelRecord:
             holding a bare record can still say what it derives from.
         direction: ``"write"`` for a settable channel, ``"read"`` for a
             readable one, ``None`` when the source could not say.
-        readback: The paired readback address of a settable channel, assigned
-            by :mod:`osprey.channel_roster.pairing`. ``None`` when no sibling
-            was found -- the worker then reads the setpoint back.
+        readback: The paired readback address of a settable channel: the
+            facility file's ``pair`` when it names another channel. ``None``
+            when the setpoint is its own pair -- the worker then reads the
+            setpoint back.
+        role: The facility file's ``role`` for the channel (``"setpoint"``,
+            ``"readback"`` or ``"none"``), or ``None`` from a source that
+            states only a direction.
+        value_type: The facility file's ``value_type``, or ``None`` when the
+            source states none.
+        description: The channel's description, or ``None`` when it has none.
+        on: The device or place the channel belongs to, as the facility file's
+            ``on`` states it (``("device", <id>)`` or ``("place", <id>)``), or
+            ``None`` when the channel belongs to nothing.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/
@@ -332,6 +368,10 @@ class ChannelRecord:
     source: RosterSource
     direction: ChannelDirection | None = None
     readback: str | None = None
+    role: str | None = None
+    value_type: str | None = None
+    description: str | None = None
+    on: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         if not self.address:

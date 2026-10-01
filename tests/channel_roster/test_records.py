@@ -90,7 +90,7 @@ class TestChannelRecord:
 
 class TestRosterSource:
     def test_kinds_are_the_two_authoritative_sources(self) -> None:
-        assert {kind.value for kind in RosterSourceKind} == {"graph", "database"}
+        assert {kind.value for kind in RosterSourceKind} == {"facility", "graph", "database"}
 
     def test_describe_names_the_kind_and_the_resolved_path(self) -> None:
         assert _GRAPH.describe() == (
