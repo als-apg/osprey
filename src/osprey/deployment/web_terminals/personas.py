@@ -633,9 +633,12 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
     Raises:
         ValueError: when a configured name is not a plain identifier. The
             name is emitted into a compose ``environment:`` line verbatim, so
-            a value compose would mangle (a space, an ``=``, a ``${``) is
-            refused at the deploy gate rather than rendered broken. A refusal
-            of the block itself by the connection-settings reader propagates.
+            a value compose would mangle (a space, an ``=``, a ``${``, or
+            surrounding whitespace) is refused at the deploy gate rather than
+            rendered broken; the connector reads the name as written, so a
+            padded name is refused here rather than granted under a spelling
+            the connector never looks up. A refusal of the block itself by the
+            connection-settings reader propagates.
     """
     archiver = as_dict(as_dict(config).get("archiver"))
     connector = archiver.get("type")
@@ -646,14 +649,13 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
     for key, raw in read_credential_env_names(resolve_archiver_settings(archiver), where=where):
         if not isinstance(raw, str) or not raw.strip():
             continue
-        name = raw.strip()
-        if not ENV_NAME_RE.match(name):
+        if not ENV_NAME_RE.match(raw):
             raise ValueError(
                 f"{where}.{key} must name an environment variable (letters, digits and "
-                f"underscores, not starting with a digit), got {name!r}"
+                f"underscores, not starting with a digit), got {raw!r}"
             )
-        if name not in names:
-            names.append(name)
+        if raw not in names:
+            names.append(raw)
     return tuple(names)
 
 

@@ -51,6 +51,7 @@ from osprey.deployment.web_terminals.personas import (
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.roster_env import env_var_suffix_collisions
+from osprey_connectors.connection import read_connection_settings
 
 
 def test_normalize_users_bare_strings_indexed_by_position() -> None:
@@ -3067,6 +3068,24 @@ def test_config_archiver_credential_envs_refuses_a_name_compose_cannot_carry(
 
     with pytest.raises(ValueError, match=re.escape(f"archiver.mongodb_archiver.auth.{key}")):
         config_archiver_credential_envs({"archiver": archiver})
+
+
+@pytest.mark.parametrize("key", ["token_env", "password_env"])
+@pytest.mark.parametrize("padded", [" PW ", "PW\n"])
+def test_config_archiver_credential_envs_refuses_a_padded_name(padded: str, key: str) -> None:
+    """The connector reads the name as written and refuses surrounding whitespace, so
+    the grant refuses it too rather than granting a stripped name the connector never
+    looks up."""
+    block: dict[str, Any] = {"url": "https://a.example", "auth": {key: padded}}
+    if key == "password_env":
+        block["auth"]["username"] = "u"
+    archiver = {"type": "epics_archiver", "settings": block}
+
+    with pytest.raises(ValueError, match=re.escape(f"archiver.settings.auth.{key}")):
+        read_connection_settings(block, where="archiver.settings")
+    with pytest.raises(ValueError, match=re.escape(f"archiver.settings.auth.{key}")) as refused:
+        config_archiver_credential_envs({"archiver": archiver})
+    assert repr(padded) in str(refused.value)
 
 
 def test_config_archiver_credential_envs_reads_the_settings_block() -> None:
