@@ -309,6 +309,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("seed_invalid__paired_seed", "seed-invalid", "paired seed disagrees"),
     ("seed_invalid__int_nominal", "seed-invalid", "non-integral nominal on an int channel"),
     ("seed_invalid__int_override", "seed-invalid", "non-integral override on an int channel"),
+    (
+        "seed_missing__band_excludes_zero",
+        "seed-missing",
+        "an unseeded setpoint whose limits band excludes 0",
+    ),
     ("limit_invalid__writable", "limit-invalid", "writable on a non-setpoint"),
     ("limit_invalid__int_bound", "limit-invalid", "non-integral bound on an int channel"),
     (
@@ -1158,6 +1163,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "integral; fix: write an integral `overrides.T`"
         ),
     ),
+    "seed_missing__band_excludes_zero": (
+        _plain(
+            append("records/channels.yaml", EXTRA_SP),
+            limits({"address": "Q2:SP", "min_value": 1.0, "max_value": 2.0}),
+        ),
+        (
+            "facility: seed-missing: channel Q2:SP — limits band [1, 2] excludes 0 and the "
+            "channel has no seed; fix: add simulation.nominal in records/channels.yaml"
+        ),
+    ),
     "limit_invalid__writable": (
         _plain(limits({"address": "Q1:RB", "writable": True})),
         (
@@ -1603,6 +1618,25 @@ PERMUTED_FIXES: tuple[dict[str, Any], ...] = (
     {"op": "drop", "kind": "device", "id": "SR/SPARE", "why": "b"},
     {"op": "drop", "kind": "channel", "id": "SPARE:X", "why": "c"},
 )
+
+
+@pytest.mark.slow
+def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
+    initialised: Path, tmp_path: Path
+) -> None:
+    repo = tmp_path / PROJECT
+    shutil.copytree(initialised, repo, symlinks=True)
+    shutil.rmtree(repo / "data" / "facility")
+    make, _line = CASES["seed_missing__band_excludes_zero"]
+    tree = make()
+    tree["seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
+    write_tree(repo / "data" / "facility", tree)
+
+    validated = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
+    built = run_build(repo)
+
+    assert validated.exit_code == 0, validated.output
+    assert built.exit_code == 0, built.output
 
 
 def test_permuted_fixes_build_a_byte_equal_file(tmp_path: Path) -> None:

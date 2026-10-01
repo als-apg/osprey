@@ -107,7 +107,7 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
     ("class-unknown",),
     ("pair-invalid",),
     ("value-invalid",),
-    ("seed-invalid",),
+    ("seed-invalid", "seed-missing"),
     ("limit-invalid",),
     ("place-conflict", "span-invalid", "wiring-conflict"),
     ("engine-missing", "engine-invalid"),

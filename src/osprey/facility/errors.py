@@ -34,6 +34,7 @@ KINDS: tuple[str, ...] = (
     "pair-invalid",
     "value-invalid",
     "seed-invalid",
+    "seed-missing",
     "limit-invalid",
     "place-conflict",
     "span-invalid",
