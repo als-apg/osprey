@@ -1,0 +1,1 @@
+A cron trigger whose `interval_sec` is infinite, NaN or too large for a float is now skipped with a warning like any other bad interval, instead of never firing, dying on its first wait, or stopping the dispatcher from starting. A quoted number such as `"90"` is read as that many seconds.

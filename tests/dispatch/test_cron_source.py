@@ -133,6 +133,46 @@ async def test_valid_interval_spawns_task():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "value",
+    [float("inf"), float("nan"), 10**400, True],
+    ids=["inf", "nan", "10**400", "True"],
+)
+async def test_an_interval_that_is_not_finite_seconds_skips_only_its_trigger(value, caplog):
+    callback = _RecordingCallback()
+    source = CronSource()
+    triggers = [
+        _make_trigger("broken", interval_sec=value),
+        _make_trigger("hourly", interval_sec=3600),
+    ]
+    try:
+        with caplog.at_level(logging.WARNING, logger="osprey.dispatch.sources.cron"):
+            await source.start(triggers, callback)
+        assert len(source._tasks) == 1
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "'broken'" in warnings[0]
+    finally:
+        await source.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_numeric_string_interval_is_read_as_seconds():
+    waits: list[float] = []
+
+    async def record(seconds):
+        waits.append(seconds)
+        await asyncio.sleep(3600)
+
+    source = CronSource(sleep=record)
+    await source.start([_make_trigger("quoted", interval_sec="10")], _RecordingCallback())
+    await asyncio.sleep(0)
+    await source.stop()
+
+    assert waits == [10.0]
+
+
+@pytest.mark.asyncio
 async def test_stop_cancels_running_tasks():
     """stop() cancels parked tasks deterministically — no reliance on real-clock timing.
 
