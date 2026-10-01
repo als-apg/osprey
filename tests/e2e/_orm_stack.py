@@ -881,36 +881,43 @@ MONITOR_X = "x"
 MONITOR_Y = "y"
 
 
+#: The repo ``data`` tree each scratch render's facility file was built from,
+#: keyed on the resolved render directory. Written by :func:`_roster_config`,
+#: read by :func:`_facility_data_root`: the scratch render sits beside the repo
+#: and holds the facility file alone, so the tree is recorded rather than
+#: found by walking.
+_DATA_ROOT_OF_RENDER: dict[Path, Path] = {}
+
+
 def _facility_data_root(source_path: Path) -> Path:
-    """The facility data tree a roster source sits in -- the directory whose
-    ``simulation/va_bindings.json`` describes the machine those channels are
-    served from.
+    """The repo ``data`` tree a roster source was built from -- the directory
+    whose ``simulation/va_bindings.json`` describes the machine those channels
+    are served from.
 
-    Found by walking up from the file the roster read rather than by counting
-    parents: the channel databases sit at a tier depth the paradigm decides,
-    and the tree is identified by what it carries rather than by how far down
-    the database happens to be.
-
-    The walk stops at the roster's own data root -- the directory holding the
-    ``channel_databases`` the source came out of -- so a deployment whose tree
-    carries no bindings fails where the fault is. Above that directory lies
-    whatever tree the deployment happens to have been created inside, and a
-    bindings document found there describes a different machine.
+    The roster source is the facility file the build writes at the render root
+    (``facility.json``), and the tree it was built from is the repo's
+    ``data/facility`` tree. :func:`_roster_config` records the repo's ``data``
+    directory against the render it wrote the file into, and that record is the
+    roster's own data root: no other directory is consulted, so a deployment
+    whose tree carries no bindings fails where the fault is and a bindings
+    document belonging to a different machine is never read in its place.
     """
-    for candidate in source_path.parents:
-        if ManifestPaths(candidate).va_bindings.is_file():
-            return candidate
-        if (candidate / "channel_databases").is_dir():
-            raise AssertionError(
-                f"the data tree {candidate} that {source_path} was enumerated from "
-                f"carries no simulation/va_bindings.json, so nothing here can say "
-                f"which of its channels the accelerator model is coupled to"
-            )
-    raise AssertionError(
-        f"no facility data tree above {source_path}: no parent directory up to the "
-        f"filesystem root holds the channel databases it was enumerated from, so "
-        f"there is no tree here whose bindings could be read"
-    )
+    render = source_path.parent.resolve()
+    data_root = _DATA_ROOT_OF_RENDER.get(render)
+    if data_root is None:
+        raise AssertionError(
+            f"no data tree is recorded for the facility file {source_path}: it was "
+            f"not built from a repo's data/facility tree by this harness, so there "
+            f"is no tree here whose bindings could be read"
+        )
+    if not ManifestPaths(data_root).va_bindings.is_file():
+        raise AssertionError(
+            f"the data tree {data_root}, whose data/facility tree the facility file "
+            f"{source_path} was built from, carries no simulation/va_bindings.json, "
+            f"so nothing here can say which of its channels the accelerator model "
+            f"is coupled to"
+        )
+    return data_root
 
 
 @cache
@@ -1040,70 +1047,42 @@ def _roster_config(repo: Path) -> dict[str, Any]:
     """The configuration ``osprey.channel_roster`` reads, for a deployment repo
     that has not been rendered yet.
 
-    ``registered_channels`` takes the config a build holds, and the window in
-    which a lane must choose its plan devices is one step ahead of that config
-    existing: ``osprey build`` renders ``<repo>/build/config.yml``, materializes
-    the profile's tier database to the flat
-    ``data/channel_databases/<paradigm>.json`` that config names, and only then
-    is there a config to hand over. So the same answer is assembled here from
-    the repo's own ``profile.yml`` -- the paradigm it pins, at the tier
-    :func:`~osprey.build.build_tiers.default_tier_for_mode` derives for that
-    paradigm exactly as the build derives it -- pointed at the TIERED database
-    file the materializer will copy from. The channels it holds are the channels
-    the deployed channel finder will hold.
+    ``registered_channels`` reads ``<render root>/facility.json``, which
+    ``osprey build`` writes, and the window in which a lane must choose its
+    plan devices is one step ahead of that render existing. So the same file
+    is built here from the repo's own ``data/facility`` tree -- by the
+    in-memory build the real one runs and the writer it serialises with --
+    into a scratch render beside the repo, never inside it, so nothing of it
+    reaches the build zone. The channels it holds are the channels the
+    deployed channel finder will hold. Written once per repo, so the several
+    callers a lane makes during one ``pre_build`` hook share one roster read.
 
-    ``config_dir`` is the repo root, which anchors the relative limits path the
-    same way the render anchors it. The limits file is not a roster here and is
-    not read as one: the roster reads it only to learn which of the database's
-    channels this deployment enforces as writable, which is the same authority
-    the runtime write path applies.
+    The repo's ``data`` directory is recorded against the scratch render on
+    every call, which is how :func:`served_bindings` reaches the bindings of
+    the tree the records came out of.
 
     Raises:
-        AssertionError: If the profile pins no channel-finder paradigm, pins the
-            graph paradigm (whose corpus is staged by the render, so there is
-            nothing to enumerate this early), or if the tier database it names
-            is not in the repo.
+        osprey.facility.errors.FacilityBuildError: If the repo's facility tree does
+            not build, which is the same refusal ``osprey build`` would give.
     """
-    from osprey.build.build_tiers import default_tier_for_mode
-    from osprey.channel_roster.sources import GRAPH_PARADIGM
+    from osprey.facility.build import build_facility
+    from osprey.facility.render import FACILITY_FILE, facility_bytes
 
-    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8")) or {}
-    paradigm = profile.get("channel_finder_mode")
-    caller = _calling_module()
-
-    assert paradigm and paradigm != GRAPH_PARADIGM, (
-        f"{repo}'s profile pins channel_finder_mode={paradigm!r}, and this module can "
-        f"only enumerate a facility whose roster is a channel-finder DATABASE file "
-        f"before the render: the graph paradigm's corpus is staged into the build zone "
-        f"by `osprey build` itself, so there is nothing for {caller} to select devices "
-        f"from between `init` and `build`. Pin a file-database paradigm for this lane, "
-        f"or author its device file some other way."
-    )
-
-    tier = profile.get("tier") or default_tier_for_mode(paradigm)
-    database = repo / "data" / "channel_databases" / "tiers" / f"tier{tier}" / f"{paradigm}.json"
-    assert database.is_file(), (
-        f"{repo} ships no {paradigm} database at {database} (tier {tier}), so "
-        f"{caller} cannot enumerate the channels this deployment will serve"
-    )
-
-    return {
-        "config_dir": str(repo),
-        "control_system": {
-            "limits_checking": {"database_path": str(CHANNEL_LIMITS_RELATIVE)},
-        },
-        "channel_finder": {
-            "pipeline_mode": paradigm,
-            "pipelines": {paradigm: {"database": {"path": str(database)}}},
-        },
-    }
+    render = repo.parent / f"{repo.name}.roster"
+    target = render / FACILITY_FILE
+    if not target.exists():
+        document = build_facility(repo / "data" / "facility", project_name=repo.name)
+        render.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(facility_bytes(document))
+    _DATA_ROOT_OF_RENDER[render.resolve()] = repo / "data"
+    return {"config_dir": str(render)}
 
 
 def _roster(repo: Path) -> RosterResult:
     """The deployment repo's channel roster, or fail naming the absence.
 
     Memoized inside ``registered_channels`` per source file, so the several
-    callers a lane makes during one ``pre_build`` hook read the database once.
+    callers a lane makes during one ``pre_build`` hook read the file once.
     """
     from osprey.channel_roster import registered_channels
 
@@ -1120,9 +1099,9 @@ def roster_records(repo: Path) -> tuple[ChannelRecord, ...]:
     """Every channel the deployment repo's own roster enumerates.
 
     The ONE enumeration a plan-stack lane selects its devices from: the
-    channel-finder database the render will point the deployment at, read
-    through ``osprey.channel_roster.registered_channels`` -- the same producer
-    the build's own turn-key derivation uses. Never ``channel_limits.json``,
+    facility file the render holds, read through
+    ``osprey.channel_roster.registered_channels`` -- the same producer the
+    build's own turn-key derivation uses. Never ``channel_limits.json``,
     which gates writes on a subset of the facility and enumerates nothing (see
     :func:`channel_limits`).
 

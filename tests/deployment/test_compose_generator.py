@@ -2086,7 +2086,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     # <repo>/data into the build zone and stages the device file it finds there
     # into the bluesky service context, so a set written after the build would
     # never reach a worker. Chosen from the deployment's own channel roster --
-    # the facility's knowledge graph or channel-finder database -- never a
+    # its facility file, built from the repo's own data/facility tree -- never a
     # hardcoded preset channel.
     authored_correctors: dict[str, tuple[str, str]] = {}
 
