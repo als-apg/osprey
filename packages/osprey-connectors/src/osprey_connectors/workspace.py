@@ -211,9 +211,12 @@ def resolve_config_path() -> Path:
     """Resolve the path to the rendered ``config.yml``.
 
     Resolution order:
-      1. ``OSPREY_CONFIG`` environment variable (with shell variable expansion) —
-         what every deployed process actually gets, set by the CLI on the host
-         and by the compose templates in every container.
+      1. ``OSPREY_CONFIG`` environment variable (with shell variable expansion).
+         The CLI sets it on the host, every framework MCP server definition
+         sets it, and so does the compose service of every container whose
+         working directory does not hold the render: the Bluesky bridge, its
+         queueserver and the Bluesky sidecar run from ``/app`` with the config
+         mounted at ``/app/project/config.yml``.
       2. ``build/config.yml`` under the current working directory — standing in
          a repo root with a render in it.
       3. ``config.yml`` under the current working directory — a container
@@ -226,8 +229,9 @@ def resolve_config_path() -> Path:
     whose compose service sets the variable; this one answers for the framework
     everywhere, and ``CONFIG_FILE`` is a name generic enough that honoring it
     globally would let an unrelated export redirect every OSPREY process on the
-    host. Where both apply — inside the dispatch worker — they agree by
-    construction rather than by precedence: the compose sets ``CONFIG_FILE`` to
+    host. Where a container is handed both, they agree by construction rather
+    than by precedence. The Bluesky compose services set both to the one
+    mounted path. The dispatch worker's sets ``CONFIG_FILE`` to
     ``/app/<project>/build/config.yml``, and the image's ``WORKDIR`` is
     ``/app/<project>``, so step 2 above finds that same file.
     """
@@ -248,9 +252,7 @@ def load_osprey_config() -> dict:
     Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
     environment-variable placeholders are resolved consistently.
 
-    Resolution order:
-      1. ``OSPREY_CONFIG`` environment variable
-      2. ``./config.yml`` relative to the current working directory
+    The file is the one :func:`resolve_config_path` names.
 
     Returns:
         Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.
