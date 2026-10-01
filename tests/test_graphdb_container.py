@@ -10,25 +10,36 @@ concerned skips there. So they are read off the tree instead, which works
 wherever the suite is collected. This file exempts itself from the scan,
 because the guards below name what they forbid.
 
-The module also pins, against a fake driver session, how a store read that
-gets no answer fails: as :class:`tests._graphdb_container.GraphStoreUnavailable`,
-naming the store, with the next read still asking it. The fast lane has no
+The module also pins, against a fake driver session, what a store read that
+gets no answer does: it waits for the store to answer again and then reads
+once more, and fails as :class:`tests._graphdb_container.GraphStoreUnavailable`,
+naming the store, only when the store does not come back. The fast lane has no
 container, so a fake stands in for the driver there.
 """
 
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+import functools
+import socket
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 from neo4j.exceptions import ClientError, ServiceUnavailable
 
+from osprey.mcp_server.graph.server_context import GraphUnreachable
+from tests._container_support import ContainerExitedError
 from tests._graphdb_container import (
+    GRAPHDB_TEST_DATABASE,
+    STORE_PROBE_INTERVAL_S,
+    STORE_PROBE_TIMEOUT_S,
+    STORE_RECOVERY_S,
     GraphStoreUnavailable,
     WatchedSession,
     WatchedStore,
+    _store_answers,
     watched_graphdb_store,
 )
 from tests._tree_scan import python_sources
@@ -304,12 +315,18 @@ def test_a_result_that_breaks_while_it_is_read_fails_the_same_way() -> None:
 
 @pytest.mark.parametrize(
     "error",
-    [ClientError("Invalid input 'MATCH'"), AssertionError("a test's own check")],
-    ids=["client-error", "assertion"],
+    [
+        ClientError("Invalid input 'MATCH'"),
+        AssertionError("a test's own check"),
+        GraphUnreachable("The graph store did not answer: no route"),
+    ],
+    ids=["client-error", "assertion", "context-error-without-a-lost-store"],
 )
 def test_any_other_read_failure_is_left_as_it_is(error: Exception) -> None:
     """Only a store that stops answering is renamed; every other failure is its own."""
-    store, _fake, session = _watched([error])
+    wait = _Wait()
+    store = WatchedStore(URI, label=LABEL, wait_for_store=wait)
+    session = WatchedSession(_FakeSession([error]), store)
 
     with pytest.raises(type(error)) as raised:
         session.single("MATCH (n) RETURN n")
@@ -317,6 +334,7 @@ def test_any_other_read_failure_is_left_as_it_is(error: Exception) -> None:
     assert raised.value is error
     assert not isinstance(raised.value, GraphStoreUnavailable)
     assert store.losses == []
+    assert wait.calls == 0
 
 
 class _Inspector:
@@ -329,6 +347,129 @@ class _Inspector:
     def __call__(self) -> str:
         self.calls += 1
         return self.state
+
+
+class _Wait:
+    """Stands in for the wait on a lost store: counts calls, then raises *error* or returns."""
+
+    def __init__(self, error: BaseException | None = None) -> None:
+        self.error = error
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+
+
+def test_a_read_that_loses_the_store_waits_for_it_and_reads_again() -> None:
+    """Once the store answers again, the same read runs once more and its answer is the result."""
+    wait = _Wait()
+    store = WatchedStore(URI, label=LABEL, wait_for_store=wait)
+    fake = _FakeSession([ServiceUnavailable("defunct"), [{"n": 2}]])
+    session = WatchedSession(fake, store)
+
+    assert session.single("RETURN 2 AS n") == {"n": 2}
+
+    assert wait.calls == 1
+    assert len(fake.calls) == 2
+    assert len(store.losses) == 1
+
+
+@pytest.mark.parametrize(
+    "waited",
+    [
+        AssertionError(
+            f"{LABEL} at {URI}: started, but never answered — it went 120s without visible progress"
+        ),
+        ContainerExitedError(
+            f"{LABEL} at {URI}: the container reached state 'exited' during the wait\n"
+            "exit code: 137"
+        ),
+    ],
+    ids=["no-answer", "exited"],
+)
+def test_a_store_that_does_not_answer_again_fails_naming_the_wait(
+    waited: AssertionError,
+) -> None:
+    """A store that does not come back fails as the store, saying what the wait saw."""
+    lost = ServiceUnavailable("defunct")
+    wait = _Wait(waited)
+    store = WatchedStore(URI, label=LABEL, wait_for_store=wait)
+    fake = _FakeSession([lost])
+    session = WatchedSession(fake, store)
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    assert raised.value.__cause__ is lost
+    message = str(raised.value)
+    for fragment in (LABEL, URI, "did not answer again", str(waited)):
+        assert fragment in message, f"{fragment!r} is missing from: {message}"
+    assert wait.calls == 1
+    assert len(fake.calls) == 1
+
+
+def test_a_reread_that_loses_the_store_again_fails() -> None:
+    """One wait and one re-read per call: a second loss is the failure."""
+    gone = ServiceUnavailable("gone")
+    wait = _Wait()
+    store = WatchedStore(URI, label=LABEL, wait_for_store=wait)
+    session = WatchedSession(_FakeSession([ServiceUnavailable("defunct"), gone]), store)
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        session.single("RETURN 1 AS n")
+
+    assert raised.value.__cause__ is gone
+    assert wait.calls == 1
+    message = str(raised.value)
+    assert "answered again" in message
+    assert "stopped answering 2 times" in message
+
+
+def test_a_lost_store_behind_the_graph_context_error_is_a_loss() -> None:
+    """The graph context raises its own error from the driver's, so the cause decides."""
+    wait = _Wait()
+    store = WatchedStore(URI, label=LABEL, wait_for_store=wait)
+    outcomes: list[Callable[[], int]] = []
+
+    def lost() -> int:
+        try:
+            raise ServiceUnavailable("defunct")
+        except ServiceUnavailable as exc:
+            raise GraphUnreachable("The graph store did not answer: defunct") from exc
+
+    outcomes.extend([lost, lambda: 7])
+
+    assert store.read(lambda: outcomes.pop(0)()) == 7
+    assert wait.calls == 1
+
+
+def test_seeding_inside_reading_never_waits() -> None:
+    """A block that writes cannot be run a second time, so it fails at once."""
+    wait = _Wait()
+    store = WatchedStore(URI, label=LABEL, wait_for_store=wait)
+
+    with pytest.raises(GraphStoreUnavailable):
+        with store.reading():
+            raise ServiceUnavailable("defunct")
+
+    assert wait.calls == 0
+
+
+def test_a_loss_already_reported_inside_reading_passes_through() -> None:
+    """A watched read inside ``reading()`` reports its loss once; the block adds none."""
+    gone = ServiceUnavailable("gone")
+    store = WatchedStore(URI, label=LABEL, wait_for_store=_Wait())
+    session = WatchedSession(_FakeSession([ServiceUnavailable("defunct"), gone]), store)
+
+    with pytest.raises(GraphStoreUnavailable) as raised:
+        with store.reading():
+            session.single("RETURN 1 AS n")
+
+    assert raised.value.__cause__ is gone
+    assert len(store.losses) == 2
+    assert "stopped answering 2 times" in str(raised.value)
 
 
 def test_the_failure_says_what_state_the_container_was_in() -> None:
@@ -399,8 +540,15 @@ def test_the_watched_store_inspects_its_own_container(monkeypatch: pytest.Monkey
         inspected.append(container)
         return "paused"
 
+    waited_on: list[object] = []
+
+    def wait_until_ready(*_args: object, **kwargs: object) -> None:
+        waited_on.append(kwargs["container"])
+        raise AssertionError("store did not answer")
+
     monkeypatch.setattr("tests._graphdb_container.start_or_skip", lambda factory, *, label: started)
     monkeypatch.setattr("tests._graphdb_container.container_state", container_state)
+    monkeypatch.setattr("tests._graphdb_container.wait_until_ready", wait_until_ready)
 
     with watched_graphdb_store(Path("plugins"), label=LABEL) as store:
         session = WatchedSession(_FakeSession([ServiceUnavailable("defunct")]), store)
@@ -409,6 +557,106 @@ def test_the_watched_store_inspects_its_own_container(monkeypatch: pytest.Monkey
 
     assert store.uri == URI
     assert store.label == LABEL
+    assert waited_on == [started]
     assert inspected == [started]
     assert "Container state when the read failed: paused" in str(raised.value).splitlines()
     assert started.stopped
+
+
+def test_the_watched_store_waits_on_its_own_container(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lost read waits on the container the store started, probing the store's URI."""
+
+    class _StartedContainer:
+        def get_connection_url(self) -> str:
+            return URI
+
+        def stop(self) -> None:
+            pass
+
+    started = _StartedContainer()
+    waits: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def wait_until_ready(*args: object, **kwargs: object) -> None:
+        waits.append((args, kwargs))
+
+    monkeypatch.setattr("tests._graphdb_container.start_or_skip", lambda factory, *, label: started)
+    monkeypatch.setattr("tests._graphdb_container.container_state", lambda container: "running")
+    monkeypatch.setattr("tests._graphdb_container.wait_until_ready", wait_until_ready)
+
+    with watched_graphdb_store(Path("plugins"), label=LABEL) as store:
+        session = WatchedSession(_FakeSession([ServiceUnavailable("defunct"), [{"n": 1}]]), store)
+        assert session.single("RETURN 1 AS n") == {"n": 1}
+
+    assert len(waits) == 1
+    (probe, *_rest), kwargs = waits[0]
+    assert kwargs["container"] is started
+    assert kwargs["timeout"] == STORE_RECOVERY_S
+    assert kwargs["ceiling"] == STORE_RECOVERY_S
+    assert kwargs["interval"] == STORE_PROBE_INTERVAL_S
+    assert isinstance(probe, functools.partial)
+    assert probe.func is _store_answers
+    assert probe.args == (URI,)
+
+
+class _FakeDriver:
+    """A driver that records how it was built, what it was asked, and whether it closed."""
+
+    def __init__(self, uri: str, error: BaseException | None = None, **kwargs: object) -> None:
+        self.uri = uri
+        self.kwargs = kwargs
+        self.error = error
+        self.queries: list[tuple[str, dict[str, object]]] = []
+        self.closed = False
+
+    def execute_query(self, query: str, **kwargs: object) -> object:
+        self.queries.append((query, kwargs))
+        if self.error is not None:
+            raise self.error
+        return object()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize("error", [None, ServiceUnavailable("defunct")], ids=["answers", "lost"])
+def test_the_store_probe_asks_the_test_database_with_no_driver_retry(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException | None
+) -> None:
+    """One short query on the test database, no retry inside the driver, driver always closed."""
+    import neo4j
+
+    drivers: list[_FakeDriver] = []
+
+    def driver(uri: str, **kwargs: object) -> _FakeDriver:
+        drivers.append(_FakeDriver(uri, error, **kwargs))
+        return drivers[-1]
+
+    monkeypatch.setattr(neo4j.GraphDatabase, "driver", driver)
+
+    if error is None:
+        _store_answers(URI)
+    else:
+        with pytest.raises(ServiceUnavailable) as raised:
+            _store_answers(URI)
+        assert raised.value is error
+
+    (built,) = drivers
+    assert built.uri == URI
+    assert built.queries == [("RETURN 1", {"database_": GRAPHDB_TEST_DATABASE})]
+    assert built.kwargs["connection_timeout"] == STORE_PROBE_TIMEOUT_S
+    assert built.kwargs["connection_acquisition_timeout"] == STORE_PROBE_TIMEOUT_S
+    assert built.kwargs["max_transaction_retry_time"] == 0.0
+    assert built.closed
+
+
+def test_the_store_probe_fails_fast_on_a_port_nothing_answers() -> None:
+    """On the real driver the probe raises at once: it hides no retry loop."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    started = time.monotonic()
+    with pytest.raises(ServiceUnavailable):
+        _store_answers(f"bolt://127.0.0.1:{port}")
+
+    assert time.monotonic() - started < STORE_PROBE_TIMEOUT_S
