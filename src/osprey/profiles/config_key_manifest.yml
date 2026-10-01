@@ -557,7 +557,10 @@ keys:
     evidence: 'OSPREY_DISPATCH_IMAGE:-\{\{ services\.event_dispatcher\.image'
     note: >-
       OSPREY-built image, so its packaged default is assembled from the two
-      `images.*` axes; this pin replaces the assembled name outright.
+      `images.*` axes; this pin replaces the assembled name outright. Naming
+      any image other than `osprey_images.dispatch` renders the service with
+      no `build:` block, so compose runs that image as named instead of
+      building the dispatcher recipe under its name.
     default: derived
     default_note: osprey_images.dispatch — <registry><project>-dispatch:<images.tag>
   services.dispatch_worker.worker_port_stride:
@@ -583,7 +586,9 @@ keys:
   services.nextcloud_bridge.image:
     rendered: false
     evidence: 'OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-\{\{ services\.nextcloud_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.nextcloud_bridge
   services.nextcloud_bridge.mentions:
@@ -596,7 +601,9 @@ keys:
   services.gchat_bridge.image:
     rendered: false
     evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.gchat_bridge
   services.gchat_bridge.mentions:
@@ -609,7 +616,9 @@ keys:
   services.teams_bridge.image:
     rendered: false
     evidence: 'OSPREY_TEAMS_BRIDGE_IMAGE:-\{\{ services\.teams_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.teams_bridge
   services.teams_bridge.mentions:
@@ -656,7 +665,10 @@ keys:
       OSPREY-built bridge image. The compose template reaches it through
       `svc = services[lane_key]` because both Bluesky lanes render from the one
       fragment, so the evidence anchors on that alias rather than on the dotted
-      path — the alias is what a rename would have to touch.
+      path — the alias is what a rename would have to touch. The first lane
+      whose own image is `osprey_images.bluesky_bridge` owns the `build:`
+      stanza (two services building one tag would race); a lane naming
+      another image renders none.
     default: derived
     default_note: osprey_images.bluesky_bridge
   services.bluesky.tiled_image:
@@ -674,7 +686,9 @@ keys:
   services.bluesky_web.image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_WEB_IMAGE:-\{\{ services\.bluesky_web\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.bluesky_web
   services.virtual_accelerator.image:
@@ -775,7 +789,9 @@ keys:
   services.qmd.image:
     rendered: false
     evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.qmd
 

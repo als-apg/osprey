@@ -35,13 +35,15 @@
     numbers are defined, and the compose fragment, the entrypoint and the
     Python client all have to agree on them. -#}
 {%- set port = osprey_qmd.port -%}
-# The qmd search sidecar runs a locally-built image (see ./Dockerfile), which
-# bakes in the qmd CLI and its 2.1 GB of GGUF models so a cold container never
-# reaches out to huggingface.co. `osprey up` builds it on first run; subsequent
-# runs reuse the local tag, which is project-prefixed —
-# {{ osprey_labels.project_name }}-qmd:local — so two OSPREY projects on one host
-# never race to tag one shared image. To use a prebuilt/published image instead,
-# set OSPREY_QMD_IMAGE (e.g. OSPREY_QMD_IMAGE=my-registry/osprey-qmd:2.5.3).
+# The qmd search sidecar's image (see ./Dockerfile) bakes in the qmd CLI and its
+# 2.1 GB of GGUF models so a cold container never reaches out to huggingface.co.
+# It is built from the Dockerfile beside this file unless services.qmd.image
+# names a different image, which this file then runs as named with no build.
+# OSPREY_QMD_IMAGE names one for a single shell (e.g.
+# OSPREY_QMD_IMAGE=my-registry/osprey-qmd:2.5.3), and a start that reads it
+# builds nothing for this service. The built tag is project-prefixed
+# ({{ osprey_labels.project_name }}-qmd:local) so two OSPREY projects on one host
+# never race to tag one shared image.
 #
 # PORT SPLIT. qmd's daemon hardcodes `httpServer.listen(port, "localhost")` —
 # there is no --host flag and no env override — so it answers only on a loopback
@@ -65,6 +67,11 @@
 services:
   qmd:
     image: ${OSPREY_QMD_IMAGE:-{{ services.qmd.image | default(osprey_images.qmd) }}}
+{#- The build renders only while this service runs the image OSPREY builds
+    (no `services.qmd.image`, or one naming `osprey_images.qmd`). Any
+    other image is pulled and run as named, so a deploy never builds this
+    Dockerfile under a name the operator chose for something else. #}
+{%- if not services.qmd.image or services.qmd.image == osprey_images.qmd %}
     build:
       # EVERY relative path in this file — the build context and the bind-mount
       # sources alike — resolves against the pinned compose project directory,
@@ -92,6 +99,7 @@ services:
         # interpolation-driven conditionality is exactly where those two
         # disagree.
         OSPREY_QMD_MODELS_MOUNTED: "1"
+{%- endif %}
 {%- endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy a sidecar on one host without colliding

@@ -28,18 +28,24 @@
     way the macros spell it (unset means `bridge`), rather than repeated as a
     conditional beside the env var. -#}
 {%- set on_host_network = (services.event_dispatcher.network | default('bridge', true)) == 'host' -%}
-# The event-dispatcher runs a locally-built image (see ./Dockerfile).
-# `osprey up` builds it on first run; subsequent runs reuse the local
-# tag, which is project-prefixed ({{ osprey_labels.project_name }}-dispatch:local)
-# so two OSPREY projects on one host never race to tag one shared image.
-# To use a prebuilt/published image instead, set OSPREY_DISPATCH_IMAGE
-# (e.g. OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev).
+# The event-dispatcher's image is built from the Dockerfile beside this file
+# unless services.event_dispatcher.image names a different image, which this
+# file then runs as named with no build. OSPREY_DISPATCH_IMAGE names one for a
+# single shell (e.g. OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev), and
+# a start that reads it builds nothing for this service. The built tag is
+# project-prefixed ({{ osprey_labels.project_name }}-dispatch:local) so two
+# OSPREY projects on one host never race to tag one shared image.
 # Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 
 services:
   event-dispatcher:
     image: ${OSPREY_DISPATCH_IMAGE:-{{ services.event_dispatcher.image | default(osprey_images.dispatch) }}}
+{#- The build renders only while this service runs the image OSPREY builds
+    (no `services.event_dispatcher.image`, or one naming `osprey_images.dispatch`). Any
+    other image is pulled and run as named, so a deploy never builds this
+    Dockerfile under a name the operator chose for something else. #}
+{%- if not services.event_dispatcher.image or services.event_dispatcher.image == osprey_images.dispatch %}
     build:
       # EVERY relative path in this file — build contexts and bind-mount sources
       # alike — resolves against the pinned compose project directory, which is
@@ -58,6 +64,7 @@ services:
 {% endif %}
 {%- if osprey_pip_pre | default(false) %}
         OSPREY_PIP_PRE: "1"
+{%- endif %}
 {%- endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the dispatcher on one host without
