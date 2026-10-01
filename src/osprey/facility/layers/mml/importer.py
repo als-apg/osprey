@@ -29,15 +29,23 @@ What is written, relative to ``data/facility/``:
   ``<stem>.model.json``, else ``MachineType: Transport`` in its AD) runs
   ``solve: single_pass`` from the ``twiss_in`` of the first element of its
   deck that carries ``TwissData``; a transport line without one stops the
-  import (``mapping-undecided``).
+  import (``mapping-undecided``). A model whose export saved a deck names it
+  as its ``deck`` and carries the ``wiring`` the wiring pass derives
+  (:mod:`~osprey.facility.layers.mml.wiring`), one record per wired address.
+* ``imported/mml/decks/<model>.json``: the deck each such model is served,
+  its wired elements renamed so every wiring record's element is in it
+  exactly once (:mod:`~osprey.facility.layers.mml.decks`).
 * ``imported/mml/<model>.response.json``: the export's ``<stem>.response.json``
   copied byte for byte.
 
 Families are read through the reviewer's judgment answers, so every list is
 the grain the mapping settled on. Every record file is sorted by id, so an
 unchanged import rewrites the same bytes. The layer directory holds what the
-latest import carried: a response export of a model this import does not
-carry is removed.
+latest import carried: a response export or a deck of a model this import
+does not carry is removed.
+
+Nothing is written until every record and every model's wiring is derived, so
+a stop leaves the layer directory as it was.
 
 The export loaders pull numpy and scipy and the deck reader pulls pyAT, so
 each is imported inside the function that needs it.
@@ -51,6 +59,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from osprey.facility.layers.mml.decks import DECKS_DIR, write_deck
 from osprey.facility.layers.mml.identity import common_class, device_ids, endpoints
 from osprey.facility.layers.mml.mapping import (
     FieldAnswer,
@@ -211,7 +220,8 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
     Raises:
         ImportStop: ``mapping-draft`` when the mapping was absent and a draft
             was written; ``mapping-undecided`` while a slot it needs is
-            undecided.
+            undecided; ``export-invalid`` or ``reference-missing`` from the
+            wiring pass.
         MappingError: The mapping has the wrong structure.
     """
     exports = read_exports(paths)
@@ -223,7 +233,7 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
 
 
 def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> list[Path]:
-    """Write the layer's record files and copy each response export.
+    """Write the layer's record files and decks and copy each response export.
 
     Args:
         exports: What :func:`read_exports` read.
@@ -235,7 +245,10 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
 
     Raises:
         ImportStop: ``mapping-undecided`` for a system or family the mapping
-            does not name, or a transport line without initial twiss.
+            does not name, or a transport line without initial twiss;
+            ``export-invalid`` or ``reference-missing`` from the wiring pass.
+        MappingError: The mapping answers a cavity voltage for a deck that
+            holds its cavity.
     """
     from osprey.services.mml.judgments import judged_family_views
 
@@ -244,9 +257,12 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
     views: list[FamilyView] = []
     systems: dict[str, str] = {}
     models: list[dict[str, Any]] = []
+    judged: dict[str, dict[str, FamilyView]] = {}
     for system in exports.systems:
         systems[system] = _model_name(mapping, system)
+        judged[system] = {}
         for view in judged_family_views(system, exports.ao[system], answers):
+            judged[system][view.raw_name] = view
             if view.channel_count == 0:
                 continue
             family = mapping.families.get(view.raw_name)
@@ -272,6 +288,11 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
         _channels(view, slot_ids, owners, mapping, roles, channels)
         _group(groups, mapping.mapped(view.raw_name), mapping, view.raw_name, slot_ids)
 
+    family_ids: dict[str, dict[str, list[str]]] = {system: {} for system in exports.systems}
+    for view, slots in zip(views, ids, strict=True):
+        family_ids[view.system][view.raw_name] = slots
+    served = _wire(exports, mapping, models, judged, family_ids, owners, channels, answers)
+
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
     written = [
@@ -280,6 +301,11 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
         _dump(layer / "groups.yaml", _sorted(groups.values(), "id")),
         _dump(layer / "models.yaml", _sorted(models, "name")),
     ]
+    decks = [write_deck(deck, facility_dir, name) for name, deck in served]
+    written.extend(decks)
+    for stale in sorted((facility_dir / DECKS_DIR).glob("*.json")):
+        if stale not in decks:
+            stale.unlink()
     written.extend(_copy_responses(exports, mapping, layer))
     return written
 
@@ -453,6 +479,57 @@ def _model(exports: Exports, system: str, name: str) -> dict[str, Any]:
             raise ImportStop("mapping-undecided", [f"{name}: transport line without initial twiss"])
         model["settings"] = {ENGINE: {"solve": "single_pass", "twiss_in": twiss}}
     return model
+
+
+def _wire(
+    exports: Exports,
+    mapping: Mapping,
+    models: list[dict[str, Any]],
+    judged: dict[str, dict[str, FamilyView]],
+    family_ids: dict[str, dict[str, list[str]]],
+    owners: dict[str, list[str]],
+    channels: dict[str, dict[str, Any]],
+    answers: ExportAnswers,
+) -> list[tuple[str, Any]]:
+    """Wire every imported model and name its deck and wiring on its entry.
+
+    Each entry of ``models`` that has a deck gains ``deck``, the path its
+    served deck is written to relative to ``data/facility/``, and ``wiring``,
+    in the order ``name, engine, deck, settings, wiring``; its ``settings``
+    are left as they are. Nothing is written here.
+
+    Returns:
+        Each wired model's name and the deck it is served, in import order.
+
+    Raises:
+        ImportStop: ``export-invalid``, ``reference-missing`` or
+            ``mapping-undecided``, as the wiring pass states them.
+    """
+    from osprey.facility.layers.mml.wiring import wire_model
+
+    served: list[tuple[str, Any]] = []
+    for entry, system in zip(models, exports.systems, strict=True):
+        model = mapping.models[system]
+        wired = wire_model(
+            model,
+            exports.decks.get(system),
+            exports.va.get(system),
+            exports.ad.get(system),
+            judged[system],
+            family_ids[system],
+            owners,
+            channels,
+            answers,
+        )
+        if wired is None:
+            continue
+        settings = entry.pop("settings", None)
+        entry["deck"] = f"{DECKS_DIR}/{model.name}.json"
+        if settings is not None:
+            entry["settings"] = settings
+        entry["wiring"] = wired.records
+        served.append((model.name, wired.deck))
+    return served
 
 
 def _twiss_field(data: Any, name: str) -> Any:
