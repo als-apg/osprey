@@ -12,12 +12,12 @@ Written to ``<render>/data/``::
 takes the project's. ``place_levels`` is the distinct ``level`` words of the
 places, shallowest first. ``device_classes`` has one entry per class a device
 carries and per facility-added class: ``count`` devices, the ``aliases`` the
-vocabulary and ``classes.yaml`` give the class, and ``families``, the sorted
-ids of the groups with a member of that class. ``models`` lists every model
-with its ``engine``, whether the render serves it and its engine's ``solve``
-setting. ``measurement_models`` holds one record per measurement view the
-render carries, ``channel_count`` counts the channels, and ``snapshot`` is
-``null``.
+vocabulary and ``classes.yaml`` give the class in their authored spelling, and
+``families``, the sorted ids of the groups with a member of that class.
+``models`` lists every model with its ``engine``, whether the render serves it
+and its engine's ``solve`` setting. ``measurement_models`` holds one record per
+measurement view the render carries, ``channel_count`` counts the channels, and
+``snapshot`` is ``null``.
 
 A render with no facts file is read as the zero-source facts: the identity of
 its facility file or project name, no place level, no class, ``texture`` alone
@@ -81,15 +81,26 @@ def _place_levels(doc: Mapping[str, Any]) -> list[str]:
     return sorted(depth, key=lambda level: (depth[level], level))
 
 
+def _authored_aliases(
+    vocabulary: Mapping[str, Any], added: list[Mapping[str, Any]]
+) -> dict[str, list[str]]:
+    """Each class's aliases as authored: stripped, the first spelling of a term kept."""
+    spellings: dict[str, dict[str, str]] = defaultdict(dict)
+    rows = [(str(row["name"]), row) for row in vocabulary.get("classes", [])]
+    rows += [(str(row["class"]), row) for row in added]
+    for name, row in rows:
+        for alias in row.get("aliases") or []:
+            spelling = str(alias).strip()
+            if spelling:
+                spellings[name].setdefault(spelling.casefold(), spelling)
+    return {name: sorted(seen.values()) for name, seen in spellings.items()}
+
+
 def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    from osprey.facility.compute import flatten_aliases
     from osprey.facility.validate import _vocabulary
 
     added = doc.get("classes") or []
-    aliases: dict[str, list[str]] = defaultdict(list)
-    for record in flatten_aliases(_vocabulary(), added):
-        if record["scope"] == "device_class" and record["term"] not in aliases[record["target"]]:
-            aliases[record["target"]].append(record["term"])
+    aliases = _authored_aliases(_vocabulary(), added)
 
     class_of: dict[str, str] = {}
     count: dict[str, int] = {str(row["class"]): 0 for row in added}
@@ -109,7 +120,7 @@ def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return {
         name: {
             "count": count[name],
-            "aliases": sorted(aliases.get(name, [])),
+            "aliases": aliases.get(name, []),
             "families": sorted(families.get(name, ())),
         }
         for name in sorted(count)
