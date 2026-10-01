@@ -94,6 +94,7 @@ describe('available', () => {
     ['identity', 'identityAvailable'],
     ['system-health', 'systemHealthAvailable'],
     ['bluesky-queue', 'blueskyAvailable'],
+    ['control-target', 'controlTargetAvailable'],
   ])('%s is offered exactly where %s holds', (type, fact) => {
     const entry = BAR_CATALOG[type];
     expect(entry.available({})).toBe(false);
@@ -102,7 +103,7 @@ describe('available', () => {
   });
 
   test('every other type is available on a bare deployment', () => {
-    const gated = ['identity', 'bluesky-queue', 'system-health'];
+    const gated = ['identity', 'bluesky-queue', 'system-health', 'control-target'];
     for (const [type, entry] of entries()) {
       if (gated.includes(type)) continue;
       expect(entry.available({})).toBe(true);
