@@ -14,7 +14,9 @@ from __future__ import annotations
 import re
 
 #: One agent-facing text: ``(source, name, field)``. The source is an MCP
-#: server, or ``ariel_search`` for the ARIEL search descriptors.
+#: server, ``ariel_search`` for the ARIEL search descriptors, or ``rendered``
+#: for a file a build renders for the agent, named by its path under the
+#: render root.
 TextKey = tuple[str, str, str]
 
 #: The word, case-insensitive on its own and as a snake_case part; the
@@ -45,6 +47,17 @@ PENDING_REWORDING: frozenset[TextKey] = frozenset(
         ("phoebus", "phoebus_open_databrowser", "description"),
         ("phoebus", "phoebus_open_databrowser", "inputSchema/properties/channels/description"),
         ("phoebus", "phoebus_perceive", "description"),
+        ("rendered", ".claude/agents/channel-finder.md", "text"),
+        ("rendered", ".claude/agents/data-visualizer.md", "text"),
+        ("rendered", ".claude/agents/facility-knowledge-graph.md", "text"),
+        ("rendered", ".claude/agents/pyat-specialist.md", "text"),
+        ("rendered", ".claude/output-styles/control-operator.md", "text"),
+        ("rendered", ".claude/rules/control-system-safety.md", "text"),
+        ("rendered", ".claude/rules/safety.md", "text"),
+        ("rendered", ".claude/rules/test-ioc-safety.md", "text"),
+        ("rendered", ".claude/skills/session-report/reference.md", "text"),
+        ("rendered", ".claude/skills/writing-bluesky-plans/SKILL.md", "text"),
+        ("rendered", "CLAUDE.md", "text"),
     }
 )
 
@@ -71,4 +84,8 @@ RATCHET_PENDING: dict[TextKey, str] = {
         "list_families",
         "inputSchema/properties/system/description",
     ): "rename:12",
+    ("rendered", ".claude/agents/channel-finder.md", "text"): "rename:12",
+    ("rendered", ".claude/agents/facility-knowledge-graph.md", "text"): "rename:12",
+    ("rendered", ".claude/agents/pyat-specialist.md", "text"): "rename:12",
+    ("rendered", ".claude/output-styles/control-operator.md", "text"): "rename:12",
 }

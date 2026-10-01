@@ -15,7 +15,9 @@ tool that no longer exists, and the agent quietly loses the capability.
 The tool descriptions and input-schema descriptions every MCP server offers an
 agent, and the ARIEL search descriptors, are written for any control system.
 They name no protocol (``PV``, ``EPICS``) and no demo address prefix (``SR:``),
-and they lose ``RATCHET_WORD``. The words and the texts that still carry them
+and they lose ``RATCHET_WORD``. The same guard reads what a build renders
+for the agent: ``CLAUDE.md`` and the markdown under ``.claude/`` of every
+render root of the control-assistant preset. The words and the texts that still carry them
 live in :mod:`tests._vocabulary`: ``PENDING_REWORDING`` until the wording
 changes, ``RATCHET_PENDING`` under the file ratchet's stage tags.
 """
@@ -60,6 +62,12 @@ MCP_SERVERS: tuple[str, ...] = (
 )
 
 SOURCES = MCP_SERVERS + ("ariel_search",)
+
+#: The source of a rendered file's text; its name is the path under the render root.
+RENDERED = "rendered"
+
+# Each test reading the session's one real build carries
+# xdist_group("built_control_assistant"), so the build runs once per run.
 
 
 def _registered_tools(package: str) -> dict[str, Any]:
@@ -181,6 +189,36 @@ def agent_facing_texts(server_tools, ariel_search_descriptors) -> dict[TextKey, 
     return texts
 
 
+@pytest.fixture(scope="module")
+def rendered_texts(built_control_assistant) -> dict[TextKey, str]:
+    """The markdown each render root hands the agent, keyed by its path under the root.
+
+    A path rendered differently across roots carries every distinct rendering.
+    """
+    renderings: dict[str, set[str]] = {}
+    build_dir = built_control_assistant.build_dir
+    for claude_dir in sorted(build_dir.rglob(".claude")):
+        root = claude_dir.parent
+        for path in (root / "CLAUDE.md", *claude_dir.rglob("*.md")):
+            if path.is_file():
+                renderings.setdefault(path.relative_to(root).as_posix(), set()).add(
+                    path.read_text(encoding="utf-8")
+                )
+    assert "CLAUDE.md" in renderings, f"no rendered CLAUDE.md under {build_dir}"
+    return {
+        (RENDERED, name, "text"): "\n".join(sorted(texts))
+        for name, texts in sorted(renderings.items())
+    }
+
+
+def _listed(pending, *, rendered: bool):
+    """The entries for rendered files, or the entries for tool texts."""
+    keep = {key for key in pending if (key[0] == RENDERED) is rendered}
+    if isinstance(pending, Mapping):
+        return {key: pending[key] for key in pending if key in keep}
+    return frozenset(keep)
+
+
 def protocol_offenders(
     texts: Mapping[TextKey, str], pending: frozenset[TextKey] = PENDING_REWORDING
 ) -> dict[TextKey, list[str]]:
@@ -221,7 +259,7 @@ def test_agent_facing_text_names_no_protocol_word(source, agent_facing_texts):
 
 def test_pending_rewording_entries_still_name_a_protocol_word(agent_facing_texts):
     """Every baseline entry still excuses a real hit."""
-    stale = stale_rewording_entries(agent_facing_texts)
+    stale = stale_rewording_entries(agent_facing_texts, _listed(PENDING_REWORDING, rendered=False))
     assert stale == [], (
         f"{stale} no longer name a protocol word; delete them from PENDING_REWORDING"
     )
@@ -229,7 +267,30 @@ def test_pending_rewording_entries_still_name_a_protocol_word(agent_facing_texts
 
 def test_agent_facing_text_carries_the_ratchet_word_only_where_listed(agent_facing_texts):
     """A tool text carrying the word has an entry; an entry's text still carries it."""
-    assert ratchet_violations(agent_facing_texts) == []
+    assert ratchet_violations(agent_facing_texts, _listed(RATCHET_PENDING, rendered=False)) == []
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_rendered_text_names_no_protocol_word(rendered_texts):
+    """The markdown a build renders for the agent names no protocol word or demo address."""
+    assert protocol_offenders(rendered_texts) == {}
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_pending_rewording_entries_still_name_a_protocol_word_when_rendered(rendered_texts):
+    stale = stale_rewording_entries(rendered_texts, _listed(PENDING_REWORDING, rendered=True))
+    assert stale == [], (
+        f"{stale} no longer name a protocol word; delete them from PENDING_REWORDING"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_rendered_text_carries_the_ratchet_word_only_where_listed(rendered_texts):
+    """A rendered file carrying the word has an entry; an entry's file still carries it."""
+    assert ratchet_violations(rendered_texts, _listed(RATCHET_PENDING, rendered=True)) == []
 
 
 def test_ratchet_word_in_an_unlisted_text_is_refused():
