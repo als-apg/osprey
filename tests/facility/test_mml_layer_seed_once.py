@@ -275,7 +275,7 @@ def test_an_unwired_setpoint_carries_its_band_only(synthetic: Path) -> None:
     assert "QK:IDGAP:1:CUR:SP" not in _wired(synthetic)
     assert limits["QK:IDGAP:1:CUR:SP"] == {
         "address": "QK:IDGAP:1:CUR:SP",
-        "min_value": 4.0,
+        "min_value": 0.0,
         "max_value": 60.0,
     }
     assert limits["QK:QF:1:CUR:SP"] == {
@@ -324,6 +324,19 @@ def test_the_build_stops_on_a_nominal_outside_its_range(synthetic: Path) -> None
     assert "limits.yaml" in stop.value.sources
 
 
+def test_the_planted_nominal_is_the_only_stop_of_the_synthetic_tree(synthetic: Path) -> None:
+    report = run_stages(synthetic, project_name="demo", later=LATER_STAGES)
+    assert [(error.kind, error.record_kind, error.record_id) for error in report.errors] == [
+        ("seed-invalid", "channel", OUTSIDE)
+    ]
+
+
+def test_an_unseeded_setpoint_whose_band_holds_zero_is_no_stop(synthetic: Path) -> None:
+    row = _limits(synthetic)["QK:IDGAP:1:CUR:SP"]
+    assert row["min_value"] <= 0.0 <= row["max_value"]
+    assert "QK:IDGAP:1:CUR:SP" not in _load(synthetic / "seeds.yaml")
+
+
 def test_a_later_import_reports_each_differing_range_and_applies_none(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -331,7 +344,7 @@ def test_a_later_import_reports_each_differing_range_and_applies_none(
     before = _authored(facility)
 
     def widen(document: dict[str, Any]) -> None:
-        document["IDGAP"]["Setpoint"]["Range"] = [4, 80]
+        document["IDGAP"]["Setpoint"]["Range"] = [0, 80]
 
     ao = _edited(tmp_path, "synthetic", "quokka.sr", widen)
     capsys.readouterr()
@@ -340,8 +353,8 @@ def test_a_later_import_reports_each_differing_range_and_applies_none(
 
     lines = [line for line in capsys.readouterr().out.splitlines() if "limits differ" in line]
     assert lines == [
-        "limits differ: QK:IDGAP:1:CUR:SP file [4,60] export [4,80]",
-        "limits differ: QK:IDGAP:2:CUR:SP file [4,60] export [4,80]",
+        "limits differ: QK:IDGAP:1:CUR:SP file [0,60] export [0,80]",
+        "limits differ: QK:IDGAP:2:CUR:SP file [0,60] export [0,80]",
     ]
     assert _authored(facility) == before
 
