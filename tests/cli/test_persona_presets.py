@@ -1037,6 +1037,25 @@ class TestControlAssistantPersonas:
         tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
         assert _graph_entries(tools) == []
 
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "admin"))
+    def test_every_operator_tier_denies_monitor_and_enterworktree(
+        self, built_persona_stack: Path, persona: str
+    ) -> None:
+        """Every tier's session refuses a background shell and a new worktree.
+
+        ``Monitor`` runs shell commands in the background and ``EnterWorktree``
+        creates a git worktree on disk, so both sit on the interactive write
+        floor beside ``Bash`` and ``Edit``: the read-only tier refuses them, and
+        the write-capable tiers refuse them too.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
+        assert project.is_dir(), f"{persona} was never rendered"
+
+        settings = json.loads((project / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        deny = settings["permissions"]["deny"]
+        assert "Monitor" in deny, f"{persona} does not deny Monitor: {deny}"
+        assert "EnterWorktree" in deny, f"{persona} does not deny EnterWorktree: {deny}"
+
     @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
     def test_projected_facts_land_inside_the_attached_renders_services_map(
         self, built_persona_stack: Path, persona: str

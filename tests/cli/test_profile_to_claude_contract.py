@@ -1211,6 +1211,27 @@ def test_killswitch_deny_absent_when_writes_enabled(tmp_path):
     assert "mcp__controls__channel_write" not in _rendered_deny(project)
 
 
+@pytest.mark.parametrize("writes_enabled", [False, True], ids=["writes-off", "writes-on"])
+def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
+    tmp_path, writes_enabled
+):
+    """The read-only session refuses ``Monitor`` and ``EnterWorktree``, and so
+    does a session with writes on, exactly as for ``Bash`` and ``Edit``.
+
+    The control-system write posture decides only the MCP write tools; a
+    background shell and a new worktree on disk are on the built-in floor in
+    both postures.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        f"write-floor-{'on' if writes_enabled else 'off'}",
+        {"control_system.writes_enabled": writes_enabled},
+    )
+    deny = _rendered_deny(project)
+    for tool in ("Bash", "Edit", "Monitor", "EnterWorktree"):
+        assert tool in deny, f"{tool} missing from the rendered deny {deny}"
+
+
 def test_killswitch_dedupe_when_profile_also_denies(tmp_path):
     """A profile that itself denies a kill-switch matcher renders it exactly once.
 
