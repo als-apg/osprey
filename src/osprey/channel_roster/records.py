@@ -26,7 +26,7 @@ raises there instead of rendering a blank.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from string import Formatter
@@ -37,22 +37,6 @@ from typing import Literal
 ChannelDirection = Literal["read", "write"]
 
 _DIRECTIONS: frozenset[str] = frozenset({"read", "write"})
-
-# The roster's setpoint/readback vocabulary, and the one place it is spelled.
-# A channel's ADDRESS text is free -- any facility's namespace enumerates
-# through the same readers -- but these two tokens are reserved: ``SP`` marks
-# the settable channel and ``RB`` marks its readback, and an address whose
-# final token is neither is read as neither. Deliberately not
-# facility-configurable: a typo in a per-facility spelling would silently
-# unsettle every channel on the machine rather than fail loudly.
-#: Final address token that marks a setpoint.
-WRITE_SUBFIELD = "SP"
-
-#: Final address token that marks the readback of a setpoint.
-READBACK_SUBFIELD = "RB"
-
-#: What separates an address into its tokens.
-ADDRESS_SEPARATOR = ":"
 
 
 class RosterSourceKind(Enum):
@@ -326,10 +310,6 @@ class ChannelRecord:
                 f"{self.address} carries a readback but is not a write channel; a "
                 "readback pairs a setpoint."
             )
-
-    def with_readback(self, readback: str) -> ChannelRecord:
-        """Return a copy of this record carrying ``readback``."""
-        return replace(self, readback=readback)
 
 
 @dataclass(frozen=True, slots=True)

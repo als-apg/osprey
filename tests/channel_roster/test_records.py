@@ -63,14 +63,6 @@ class TestChannelRecord:
         )
         assert len({_record("A", "read"), _record("A", "read")}) == 1
 
-    def test_with_readback_returns_a_paired_copy(self) -> None:
-        setpoint = _record("SR:MAG:HCM:01:CURRENT:SP", "write")
-        paired = setpoint.with_readback("SR:MAG:HCM:01:CURRENT:RB")
-        assert paired.readback == "SR:MAG:HCM:01:CURRENT:RB"
-        assert paired.address == setpoint.address
-        assert paired.source is setpoint.source
-        assert setpoint.readback is None
-
     def test_empty_address_is_refused(self) -> None:
         with pytest.raises(ValueError, match="needs an address"):
             _record("")
@@ -333,28 +325,3 @@ class TestNoIO:
         source = Path(records_module.__file__ or "").read_text(encoding="utf-8")
         for forbidden in ("open(", "read_text", "rdflib", "json.load", "requests"):
             assert forbidden not in source
-
-
-class TestAddressTokenVocabularyHasOneProducer:
-    """``SP``/``RB``/``:`` are declared once, by ``records``, and read everywhere else.
-
-    A second spelling in another module is a second source of truth that is
-    free to drift from this one.
-    """
-
-    def test_every_consumer_reads_the_same_constants(self) -> None:
-        from osprey.channel_roster import records
-
-        assert records.WRITE_SUBFIELD == "SP"
-        assert records.READBACK_SUBFIELD == "RB"
-        assert records.ADDRESS_SEPARATOR == ":"
-
-    def test_no_reader_declares_a_vocabulary_of_its_own(self) -> None:
-        import inspect
-
-        from osprey.channel_roster import records
-
-        producer = inspect.getsource(records)
-        assert 'WRITE_SUBFIELD = "SP"' in producer
-        assert 'READBACK_SUBFIELD = "RB"' in producer
-        assert 'ADDRESS_SEPARATOR = ":"' in producer

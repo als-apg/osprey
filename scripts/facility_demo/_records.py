@@ -34,11 +34,12 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from osprey.channel_roster.records import (
-    ADDRESS_SEPARATOR,
-    READBACK_SUBFIELD,
-    WRITE_SUBFIELD,
-)
+#: The demo's own address grammar: a setpoint's readback is the same address
+#: with its final token swapped. The records the generator writes state the
+#: pair; the roster reads only that.
+_WRITE_SUBFIELD = "SP"
+_READBACK_SUBFIELD = "RB"
+_ADDRESS_SEPARATOR = ":"
 
 
 def _sibling(name: str) -> ModuleType:
@@ -425,11 +426,11 @@ def _column_owners(family_node: dict[str, Any], by_address: dict[str, str], size
 
 
 def _readback_address(address: str) -> str | None:
-    """The same-device readback address the roster pairs a setpoint address with."""
-    prefix, separator, subfield = address.rpartition(ADDRESS_SEPARATOR)
-    if not separator or subfield != WRITE_SUBFIELD:
+    """The same-device readback address the demo pairs a setpoint address with."""
+    prefix, separator, subfield = address.rpartition(_ADDRESS_SEPARATOR)
+    if not separator or subfield != _WRITE_SUBFIELD:
         return None
-    return prefix + separator + READBACK_SUBFIELD
+    return prefix + separator + _READBACK_SUBFIELD
 
 
 def _units() -> dict[str, str]:
