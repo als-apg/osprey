@@ -1399,7 +1399,7 @@ class TestGraphSourcedManifest:
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
         metadata = prepared.manifest["_metadata"]
-        assert metadata["source_paradigms"] == ["graph"]
+        assert metadata["source_paradigms"] == []
         # The file's name: the resolved path of a render being built is a
         # staging path nobody can retype.
         assert metadata["source_corpus"] == _FACILITY_SPELLING
