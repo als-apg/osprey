@@ -465,6 +465,48 @@ async def test_error_path_does_not_raise(monkeypatch):
     assert any(e["type"] == "error" and e["message"] == "boom" for e in events)
 
 
+_UNTRUSTED_NOTICE = (
+    "Ignoring 4 {kind} entries from .claude/settings.json: this workspace has not been "
+    "trusted. Run Claude Code interactively here once and accept the trust dialog, or set "
+    'projects["/app/build"].hasTrustDialogAccepted: true in '
+    "/var/osprey/agent_data/claude-config/.claude.json."
+)
+
+
+async def _stderr_of_failed_run(monkeypatch, *lines: str) -> str | None:
+    """Fail a run after the agent CLI wrote ``lines`` to stderr; return the record's stderr."""
+
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        for line in lines:
+            kw["stderr"](line)
+        raise Exception("boom")
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+    return result["stderr"]
+
+
+@pytest.mark.asyncio
+async def test_the_untrusted_allow_rules_notice_stays_out_of_the_run_record(monkeypatch):
+    """The CLI's notice about the off allow rules never sits above a failure's cause."""
+    notice = _UNTRUSTED_NOTICE.format(kind="permissions.allow")
+
+    stderr = await _stderr_of_failed_run(monkeypatch, notice, "real failure detail")
+
+    assert stderr == "real failure detail"
+
+
+@pytest.mark.asyncio
+async def test_another_untrusted_workspace_notice_is_kept(monkeypatch):
+    """Only the allow-rules notice is dropped; any other kind is new information."""
+    notice = _UNTRUSTED_NOTICE.format(kind="permissions.additionalDirectories")
+
+    stderr = await _stderr_of_failed_run(monkeypatch, notice)
+
+    assert stderr == notice
+
+
 # ---------------------------------------------------------------------------
 # Inactivity watchdog (fast-fail on a silently hung provider, e.g. bad cred)
 # ---------------------------------------------------------------------------
@@ -836,6 +878,25 @@ async def test_the_agent_config_dir_is_on_the_agent_data_volume(monkeypatch, tmp
 
     assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "var/agent_data/claude-config")
     assert (root / "claude-config").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_the_run_marks_nothing_trusted_in_its_config_dir(monkeypatch, tmp_path):
+    """The runner writes no Claude state into the agent's config dir.
+
+    Unattended dispatch runs keep the project's allow rules off on purpose:
+    project settings must not widen what a trigger may do, so nothing marks
+    the render trusted where the run's CLI looks for it.
+    """
+    root = tmp_path / "var" / "agent_data"
+    monkeypatch.setattr(
+        "osprey.agent_runner.artifact_resolve.deployed_agent_data_root",
+        lambda: root,
+    )
+
+    await _env_of_run(monkeypatch)
+
+    assert not (root / "claude-config" / ".claude.json").exists()
 
 
 @pytest.mark.asyncio
