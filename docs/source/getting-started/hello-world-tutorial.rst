@@ -310,10 +310,10 @@ shipped file looks like this (comments abridged):
 channel back once and compares what it finds with the value that was sent, so a
 write that did not land is reported rather than assumed.
 
-Channels not listed here are still writable — the preset sets
-``allow_unlisted_channels: true`` so the mock's invented channels stay usable;
-a production deployment sets it ``false`` so an unknown channel fails closed.
-Listing a channel is how you put bounds on it. Add one:
+Channels not listed here are written with no limits — the preset sets
+``control_system.limits_checking.mode: optional``. Under ``mode: exclusive``
+only channels in the limits file can be written. Listing a channel is how you
+put bounds on it. Add one:
 
 .. code-block:: json
 

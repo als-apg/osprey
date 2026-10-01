@@ -449,17 +449,16 @@ the live block by name, so no later per-type ``true`` can lift it.
 
       control_system:
         limits_checking:
-          enabled: true                       # the posture the live machine runs
-          allow_unlisted_channels: false      # under, and every type inherits
+          enabled: true          # the pair every type inherits: only channels
+          mode: exclusive        # in the limits file can be written
         connector:
           virtual_accelerator:
             limits_checking:
-              enabled: true                   # ... and the simulator alone lets
-              allow_unlisted_channels: true   # an unlisted channel through
+              enabled: true      # ... and on the simulator alone a channel
+              mode: optional     # with no record is written with no limits
 
    That is the shape ``config.yml`` ends up in; write it in the build profile's
-   ``config:`` block as flat dotted keys, as the ``control-assistant`` preset
-   does. A per-type block replaces the inherited pair as a *whole*: nothing is
+   ``config:`` block as flat dotted keys. A per-type block replaces the inherited pair as a *whole*: nothing is
    borrowed from the deployment-wide block, so both settings have to be written
    out. A block stating one of them alone is refused by ``osprey build`` and
    ``osprey validate``, naming the one that is missing. The limits database

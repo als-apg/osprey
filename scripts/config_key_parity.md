@@ -119,7 +119,7 @@ agreement among the presets that state the key.
 | `claude_code.telemetry.{protocol,backend,openobserve.*}` | wiring to the bundled store: correct when it matches the provisioner, which agreement among presets cannot show |
 | `web.feedback.max_store_bytes` | capacity |
 | `ariel.*` tuning | per-deployment, and `ariel.vocabulary.enabled` already diverges |
-| `control_system.*` | `type`, `writes_enabled` and `limits_checking.allow_unlisted_channels` already diverge |
+| `control_system.*` | `type` and `writes_enabled` already diverge |
 | `facility.*`, `channel_finder.query_max_rows`, `claude_code.servers.<name>.enabled` | capability-scoped |
 
 ## Per-preset (deliberate divergence)
@@ -169,20 +169,13 @@ per-facility decision, so no preset may ship it live.
 `control_system.connector.<type>.limits_checking` is the same story for the
 limits posture, and is likewise **not** parity-required. It overrides the
 deployment-wide `control_system.limits_checking` block whole -- a per-type
-block states both `enabled` and `allow_unlisted_channels` and then answers
-alone. Only `virtual_accelerator`, `epics` and `live_standin` carry entries;
-`mock` and `doocs` write no block. `database_path` has no per-type spelling: a
+block states both `enabled` and `mode` and then answers
+alone. `database_path` has no per-type spelling: a
 deployment mounts one limits database, so that leaf stays deployment-wide, and a
 per-type block omitting it is complete rather than half-written.
 
-The `epics` and `live_standin` blocks are written commented, so they are not in
-the union. The `virtual_accelerator` block is different, and the difference is
-the whole reason the per-type shape exists: `control-assistant` ships both of
-its leaves **live** and permissive, because the relaxation is about the
-simulator and must not reach the machine beside it. Parity is still not required
--- the other three presets carry no virtual-accelerator block at all -- but
-"no preset ships either leaf live" is false, and the manifest entries carry no
-`rendered: false` flag on that account.
+No preset writes a per-type limits block, so none is in the union and every
+per-type entry carries `rendered: false`.
 
 ### Keys nothing ships (`rendered: false`)
 
@@ -194,9 +187,7 @@ The flag is checked in **both** directions. A key carrying it that IS in the
 union fails as a phantom-key contradiction naming the source that renders it,
 because otherwise the flag is a one-way escape: a key that starts being shipped
 keeps a marking saying nothing ships it, and the prose beside it goes on
-describing a commented example. Four entries had rotted exactly that way under
-the preset conversion -- `facility.prefix` and the three virtual-accelerator
-`limits_checking` paths, all live in `control-assistant`.
+describing a commented example.
 
 The preset conversion added twenty of the seventy-five, in three groups:
 

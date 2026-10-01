@@ -183,18 +183,6 @@ commented out — a facility's channel names cannot be guessed, and a placeholde
 would make the live target look ready while naming a channel nothing answers.
 Set it to a channel your facility actually serves.
 
-**A strict limits posture** (``limits_posture``).
-Limits checking must be ``enabled: true`` with ``allow_unlisted_channels:
-false`` — every writable channel is on the list, and a channel that is not on
-the list is refused rather than allowed through. The posture is the target's
-own: ``control_system.connector.<type>.limits_checking`` when that target's
-connector type states a block, and the deployment-wide
-``control_system.limits_checking`` when it does not. The refusal names whichever
-of the two answered, so you edit the line that decides rather than one it
-overrides. This gate guards ``standin`` too: both are machines you meet hardware
-behaviour on, and a rehearsal on a permissive posture rehearses the wrong
-facility.
-
 **An operator acknowledgment** (``operator_ack_missing``).
 ``control_system.target_switch.live_gateway_acknowledged`` must be set, to the
 hostname of the live gateway this deployment is configured against. Setting it
@@ -215,7 +203,7 @@ build profile — and rebuild. The archive belongs to the machine it records.
 
 There is one exemption. A deployment can always come **home** to its own
 baseline — whichever of the three that is — with none of the gates above
-applied: not the limits posture, not the acknowledgment, not the archive gate,
+applied: not the acknowledgment, not the archive gate,
 and not the gateway and probe-channel checks either. Stranding a deployment away
 from the machine it was built for is the less safe outcome of the two, and a
 baseline whose block is half authored — no gateways yet, the probe channel still
@@ -416,14 +404,13 @@ has actually measured it — whether its gateway answered.
        of the same deployment can disagree about the first one: write posture is
        per target, so a simulator may be armed beside a live machine that is not.
    * - ``limits_strict``
-     - Whether **this target** runs the strict limits posture — limits checking
-       on and unlisted channels refused — which is what the ``limits_posture``
-       gate above requires. Rows can disagree here too, but only from the
-       deployment's config: a deployment can relax unlisted channels for its
-       simulator alone. Unlike ``writes_permitted``, no chip toggle
-       moves it. A target whose config states neither setting reads
-       ``false``, because a deployment that has stated nothing has refused
-       nothing.
+     - Whether **this target** runs exclusive limits — limits checking on and
+       ``mode: exclusive``, so only channels in the limits file can be written.
+       Rows can disagree here too, but only from the deployment's config: a
+       deployment can state a different mode for one connector type. Unlike
+       ``writes_permitted``, no chip toggle moves it. A target whose config
+       states neither setting reads ``false``, because a deployment that has
+       stated nothing has refused nothing.
 
 Two things the roster is careful about are worth knowing, because they are the
 difference between a report you can act on and one that flatters you:
@@ -513,8 +500,6 @@ not usable right now".
        is the mock one, which makes history up at read time. The pairing would
        put a made-up past next to a modelled present with nothing linking them.
        See "The honesty rule" in :doc:`use-virtual-accelerator`.
-   * - **The strict limits posture is not in place**
-     - Required toward ``live`` and toward ``standin`` alike. See `Go live`_.
    * - **The live machine's gates**
      - The operator acknowledgment, or the archive that belongs to the stand-in.
        Both are the live machine's alone. See `Go live`_.
@@ -641,25 +626,21 @@ reachable. The ``epics`` block beside it is untouched, so a facility already
 pointed at its own control system can stand a rehearsal up next to it without
 losing sight of its machine.
 
-**Set the posture yourself.** The strict limits pair is the profile's to state,
-in its ``config:`` block. The stand-in gets no block of its own — it is
-hardware-shaped, so it keeps the deployment-wide pair the live machine runs
-under, and only the simulator is relaxed:
+**Limits are the profile's to state.** Limits are optional, and the limits
+pair lives in the profile's ``config:`` block. The stand-in gets no block of
+its own, so it runs the deployment-wide pair:
 
 .. code-block:: yaml
 
    config:
      control_system.limits_checking.enabled: true
-     control_system.limits_checking.allow_unlisted_channels: false
-     control_system.connector.virtual_accelerator.limits_checking.enabled: true
-     control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+     control_system.limits_checking.mode: optional
 
-That first pair is what a switch to either real-machine target requires. Without
-it ``control_target_set standin`` refuses with ``limits_posture``, which is the
-right refusal: a rehearsal on a permissive posture rehearses a facility you do
-not have. Writing the relaxation under ``virtual_accelerator`` instead of
-deployment-wide is what keeps the rehearsal honest — a per-type block replaces
-the pair above for that type alone, and must state both settings or ``osprey
+``mode: exclusive`` means only channels in the limits file can be written.
+``mode: optional`` means channels in the file are held to their limits and every
+other channel is written with no limits. ``enabled: false`` means no limits at
+all. A ``control_system.connector.<type>.limits_checking`` block replaces the
+pair above for that type alone, and must state both settings or ``osprey
 build`` and ``osprey validate`` refuse it.
 
 **Three rows on the roster.** Ask where the deployment could go and you get one
