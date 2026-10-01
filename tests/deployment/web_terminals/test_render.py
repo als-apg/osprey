@@ -52,7 +52,6 @@ from osprey.services.auth_sidecar.app import (
     ENV_OIDC_CLIENT_SECRET_ENV,
     ENV_OIDC_ISSUER,
     ENV_OIDC_SUBJECT_PREFIX,
-    ENV_PW_HASH_PREFIX,
     ENV_SESSION_LIFETIME,
     ENV_SESSION_SECRET,
     ENV_STATE_SECRET,
@@ -60,7 +59,7 @@ from osprey.services.auth_sidecar.app import (
     ENV_USERS,
     ENV_WEB_APP_NAME,
 )
-from osprey.services.auth_sidecar.roster_env import env_var_suffix
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX, env_var_suffix
 from osprey.utils.workspace import agent_data_base_dir
 
 # The four classic config-set families; the effective per-family base set the
@@ -4159,7 +4158,7 @@ def test_auth_env_isolation_secrets_reach_the_sidecar_only_through_env_file() ->
 
     # Assert
     assert auth["env_file"] == AUTH_ENV_FILENAME
-    for secret_var in (ENV_SESSION_SECRET, ENV_STATE_SECRET, ENV_PW_HASH_PREFIX):
+    for secret_var in (ENV_SESSION_SECRET, ENV_STATE_SECRET, PW_HASH_VAR_PREFIX):
         assert secret_var not in rendered
 
 
