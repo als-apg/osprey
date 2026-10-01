@@ -579,12 +579,16 @@ def test_shipped_permissions_allow_only_preview_plan() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_queueserver_gets_the_config_mount_and_config_file(rendered: dict[str, Any]) -> None:
+def test_queueserver_gets_the_config_mount_and_both_config_variables(
+    rendered: dict[str, Any],
+) -> None:
     """The reference monitor runs in this container now, so it needs the same
-    config.yml the bridge reads — and CONFIG_FILE to find it, since CWD is the
-    image WORKDIR, not the project dir."""
+    config.yml the bridge reads — named by CONFIG_FILE and by OSPREY_CONFIG, since
+    CWD is the image WORKDIR, not the project dir, and the framework's loader
+    reads only the second."""
     queueserver = rendered["services"]["queueserver"]
     assert queueserver["environment"]["CONFIG_FILE"] == "/app/project/config.yml"
+    assert queueserver["environment"]["OSPREY_CONFIG"] == "/app/project/config.yml"
     assert (
         "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in queueserver["volumes"]
     )

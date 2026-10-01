@@ -1897,28 +1897,18 @@ def _inject_project_metadata(config):
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
 
-    # The same container-side root for a STANDALONE service image — one that
-    # runs no OSPREY project, so it has no `/app/<project>` to hang its audit
-    # zone under. Its writer anchors on the working directory instead
-    # (`writer.audit_dir` -> `resolve_project_root`, whose last rung is
-    # `Path.cwd()` when no config file is found there), and every standalone
-    # service image's WORKDIR is `/app` — so `/app/var/audit` is where such a
-    # service actually writes, and mounting `osprey_container_audit_dir` into it
-    # would bind a directory nothing ever writes to while the records went to
-    # the container's writable layer. Same shape and same reason as the auth
-    # sidecar's own root (``render._AUTH_SIDECAR_CONTAINER_ROOT``).
+    # The container-side root for a SERVICE image — the bluesky bridge image
+    # (its bridge and queueserver containers) and the bluesky_web sidecar —
+    # which runs no OSPREY project of its own and takes the project's config as
+    # a bind mount under `_CONTAINER_PROJECT_ROOT`. Its compose service hands it
+    # `OSPREY_CONFIG` naming that mount, so its writer resolves the project
+    # root from the config (`writer.audit_dir` -> `resolve_project_root`, the
+    # config rung) and writes under `/app/project/var/audit`. Neither the
+    # project image's `/app/<project>/var/audit` above nor the image WORKDIR's
+    # `/app/var/audit`: a bind at either would be a directory nothing writes to
+    # while the records went to the container's writable layer.
     config_with_labels["osprey_service_container_audit_dir"] = (
-        PurePosixPath(_CONTAINER_APP_ROOT) / AUDIT_DIR_RELPATH
-    ).as_posix()
-
-    # The container-side root for a lane's QUEUESERVER, which is neither of the
-    # two above. It sets `CONFIG_FILE=/app/project/config.yml` and runs from
-    # `/app/project`, so its writer resolves the project root from that config
-    # (`writer.audit_dir` -> `resolve_project_root`, the config rung) and writes
-    # under `/app/project/var/audit` — not the `/app/var/audit` a standalone
-    # image without a config anchors on.
-    config_with_labels["osprey_lane_container_audit_dir"] = (
-        PurePosixPath(_LANE_CONTAINER_PROJECT_DIR) / AUDIT_DIR_RELPATH
+        PurePosixPath(_CONTAINER_PROJECT_ROOT) / AUDIT_DIR_RELPATH
     ).as_posix()
 
     # The control-context TREE, in the two spellings a compose template needs:
@@ -2794,11 +2784,6 @@ def dispatch_worker_audit_identities(config):
 #: overlay rather than from ``services/``, and provisioned on that path
 #: (``web_terminals.provision``) alongside the roster's own identities.
 FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web"}
-
-
-#: Where a lane queueserver's project lives in its container: the mounted
-#: ``config.yml`` sits here and the RE Manager runs from here.
-_LANE_CONTAINER_PROJECT_DIR = "/app/project"
 
 
 def lane_queueserver_audit_identities(config):

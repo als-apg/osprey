@@ -86,6 +86,14 @@ services:
       # directory: /app" — mirrors dispatch_worker's identical CONFIG_FILE
       # convention.
       CONFIG_FILE: /app/project/config.yml
+      # The same file for the framework's own config loader
+      # (osprey_connectors.workspace.resolve_config_path), which reads this
+      # variable and never CONFIG_FILE. Without it the loader looks in the
+      # working directory, finds nothing, and every key this container reads
+      # through it (bluesky.plan_module, bluesky.plan_dirs,
+      # bluesky.excluded_plans, python_executor.child_env_passthrough) reads
+      # as unset.
+      OSPREY_CONFIG: /app/project/config.yml
       TZ: UTC
       # ── queue control plane (client side) ────────────────────────────────
       # The bridge is the ONLY authenticated route to the RE Manager: panels
@@ -307,6 +315,11 @@ services:
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
+      # The same file for the framework's own config loader, as on the bridge.
+      # The RunEngine worker loads plans through it, and the pre-flight
+      # verdicts below anchor their audit zone on the project it names — the
+      # directory the audit bind targets.
+      OSPREY_CONFIG: /app/project/config.yml
       OSPREY_AUDIT_IDENTITY: queueserver
       TZ: UTC
       # ── queue control plane (server side) ────────────────────────────────
