@@ -50,6 +50,7 @@ from osprey.facility.layers.mml.mapping import (
     ImportStop,
     SameAs,
     _text,
+    _vocabulary,
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
@@ -420,8 +421,6 @@ def common_class(
         return None
     if first == second:
         return first
-    from osprey.facility.layers.mml.mapping import _vocabulary
-
     parents: dict[str, str | None] = {**_vocabulary(), **(branches or {})}
     ancestors = _lineage(second, parents)
     return next((name for name in _lineage(first, parents) if name in ancestors), None)
