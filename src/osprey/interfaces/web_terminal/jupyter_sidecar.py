@@ -80,9 +80,13 @@ _NAME = "Notebook sidecar"
 #: Path of the panel under the terminal's URL prefix; the sidecar's ``base_url``.
 _PANEL_PATH = "panel/jupyter"
 
-#: The one kernelspec the sidecar lists. ``KernelSpecManager.allowed_kernelspecs``
-#: is pinned to exactly this name, and ``ensure_native_kernel`` is off, so the
-#: interpreter's own ``python3`` spec never appears.
+#: The one kernelspec the sidecar lists and the one it starts. The listing is
+#: ``KernelSpecManager.allowed_kernelspecs`` pinned to exactly this name, with
+#: ``ensure_native_kernel`` off. That trait filters the listing only, so starts
+#: go through :class:`~.jupyter_kernelspecs.AllowListKernelSpecManager`, which
+#: refuses every other name, and this is the default kernel, so a start that
+#: names none gets it. The interpreter's own ``python3`` spec is neither listed
+#: nor started.
 KERNELSPEC_NAME = "osprey"
 
 #: The shared-root subtree that holds sidecar state. Taken from the kernel
@@ -530,6 +534,9 @@ class JupyterSidecar:
         contents_manager = (
             "osprey.interfaces.web_terminal.jupyter_contents.ConfinedFileContentsManager"
         )
+        kernel_spec_manager = (
+            "osprey.interfaces.web_terminal.jupyter_kernelspecs.AllowListKernelSpecManager"
+        )
         return [
             sys.executable,
             "-m",
@@ -545,8 +552,10 @@ class JupyterSidecar:
             # the shared volume.
             "--FileContentsManager.delete_to_trash=False",
             "--FileContentsManager.always_delete_dir=True",
+            f"--ServerApp.kernel_spec_manager_class={kernel_spec_manager}",
             "--KernelSpecManager.ensure_native_kernel=False",
             f"--KernelSpecManager.allowed_kernelspecs=['{KERNELSPEC_NAME}']",
+            f"--MappingKernelManager.default_kernel_name={KERNELSPEC_NAME}",
             "--ServerApp.open_browser=False",
             "--ServerApp.default_url=/lab",
             # No news feed and no update check from inside an embedded panel.

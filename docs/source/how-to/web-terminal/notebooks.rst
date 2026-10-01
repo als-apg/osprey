@@ -8,6 +8,10 @@ write gates and with the same refusal text. Notebooks are ordinary files on a
 durable path, so they outlive the container, and the OSPREY agent can edit
 them alongside you.
 
+The panel starts one kernel, **OSPREY**. A request for any other kernelspec,
+the interpreter's own ``python3`` included, is refused, and a notebook that
+names no kernel gets the OSPREY one, so every cell runs under the gates below.
+
 Turning the panel on
 --------------------
 
