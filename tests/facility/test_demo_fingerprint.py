@@ -4,7 +4,9 @@
 Its channels, joined as the fingerprint joins them (address, role, value type,
 names, description), hold every frozen row unchanged, and what they hold beyond
 the frozen rows is exactly the additions file. The file validates as the
-generated ``Facility`` model, and the committed sources validate clean.
+generated ``Facility`` model, and the committed sources validate clean. The
+channel roster read off the built render enumerates every frozen address with
+the direction its role states.
 """
 
 from __future__ import annotations
@@ -94,3 +96,28 @@ def test_twelve_sectors_lie_under_sr(
     places = built_control_assistant.facility["places"]
     sectors = [place["id"] for place in places if place.get("level") == "sector"]
     assert sectors == sorted(f"SR/SECT{n}" for n in range(1, 13))
+
+
+def test_the_roster_enumerates_every_frozen_address_with_its_direction(
+    built_control_assistant: BuiltProject,
+) -> None:
+    import yaml
+
+    from osprey.channel_roster import registered_channels
+
+    config = yaml.safe_load((built_control_assistant.build_dir / "config.yml").read_text())
+    config["config_dir"] = str(built_control_assistant.build_dir)
+
+    roster = registered_channels(config)
+
+    assert roster.absence is None
+    directions = {record.address: record.direction for record in roster.records}
+    stated = {"setpoint": "write", "readback": "read", "none": None}
+    missing = [row["address"] for row in fingerprint_rows() if row["address"] not in directions]
+    changed = [
+        row["address"]
+        for row in fingerprint_rows()
+        if directions.get(row["address"], stated[row["role"]]) != stated[row["role"]]
+    ]
+    assert missing == []
+    assert changed == []
