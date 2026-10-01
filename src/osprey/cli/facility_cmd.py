@@ -238,6 +238,7 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     """
     import shlex
 
+    from osprey.facility.layers.mml.importer import MappingProblems
     from osprey.facility.layers.mml.importer import import_mml as run_import
 
     repo_root = find_repo_root(repo)
@@ -251,5 +252,8 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
             click.echo(f"rm {shlex.quote(_shown(path, repo_root))}", err=True)
         ctx.exit(1)
 
-    for path in run_import(list(exports), facility_dir):
-        report(f"wrote {_shown(path, repo_root)}")
+    try:
+        for path in run_import(list(exports), facility_dir):
+            report(f"wrote {_shown(path, repo_root)}")
+    except MappingProblems as stop:
+        raise MappingProblems(Path(_shown(stop.path, repo_root)), stop.problems) from None

@@ -220,7 +220,9 @@ def test_a_mapping_that_fails_its_check_stops_before_any_record(cleared: Path) -
     assert result.exit_code == 1
     lines = result.stderr.splitlines()
     assert lines[0] == "models.SR.name: 'S R' is not PN_LOCAL"
-    assert lines[-1] == f"{len(lines) - 1} problems in {mapping}; fix each and check again."
+    assert lines[-1] == (
+        f"{len(lines) - 1} problems in data/facility/{MAPPING_FILE}; fix each and check again."
+    )
     assert result.stdout == ""
     assert sorted(path.name for path in (_facility(cleared) / LAYER_DIR).iterdir()) == [
         "mapping.yaml"
