@@ -291,3 +291,19 @@ def test_a_profile_that_names_no_data_root_stops_the_import(
     ]
     assert result.stdout == ""
     assert _snapshot(repo) == before
+
+
+@pytest.mark.parametrize("separator", ["\f", " "], ids=["form-feed", "line-separator"])
+def test_a_header_line_that_runs_on_past_the_header_is_refused(
+    cleared: Path, separator: str
+) -> None:
+    limits = _facility(cleared) / "limits.yaml"
+    limits.write_text(f"{HEADER}{separator}\nrecords: []\n", encoding="utf-8")
+
+    result = _import(cleared)
+
+    assert result.exit_code == 1
+    assert result.stderr.splitlines() == [
+        "import mml: authored-present: 1 file",
+        "rm data/facility/limits.yaml",
+    ]
