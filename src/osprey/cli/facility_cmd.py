@@ -47,14 +47,18 @@ def facility() -> None:
 def validate(ctx: click.Context, repo: Path | None) -> None:
     """Check data/facility/ and render every facility view in memory; writes nothing.
 
-    Exits 0 and prints nothing when the tree builds and every view renders;
-    otherwise prints each error line to stderr and exits 1.
+    Exits 0 when the tree builds, every kept response export passes its check
+    and every view renders; otherwise prints each error line to stderr and
+    exits 1. Each model with a kept response export prints one
+    ``response check <model>:`` line to stderr, pass or fail.
     """
     import tempfile
 
     from osprey.errors import BuildProfileError
     from osprey.facility.build import LATER_STAGES
     from osprey.facility.render import facility_digest
+    from osprey.facility.response_check import check_responses
+    from osprey.facility.response_check import report as report_responses
     from osprey.facility.validate import report, run_stages
 
     from .build_cmd import _render_project, _render_zones, _SharedRenderInputs
@@ -87,6 +91,14 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     document = result.validated.document
     if document is None:
         raise RuntimeError("the stages ran clean without producing the document")
+
+    try:
+        responses = check_responses(facility_dir, document)
+    except (OSError, ValueError) as error:
+        fail("The response check cannot run.", str(error))
+        ctx.exit(1)
+    if not report_responses(responses):
+        ctx.exit(1)
 
     shared = _SharedRenderInputs(
         repo_root=repo_root,

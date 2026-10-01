@@ -1,4 +1,4 @@
-"""The response check of each kept response export against its model.
+"""The response check ``osprey facility validate`` runs per kept response export.
 
 The tree cases import a fixture tree's exports into a fresh ``data/facility/``
 under the tree's mapping, widen the limits records the build names, and hold
@@ -9,13 +9,16 @@ to ``osprey.services.mml.va.verify`` on spear3.
 
 from __future__ import annotations
 
+import json
 import math
 import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
+from click.testing import CliRunner, Result
 
+from osprey.cli.main import cli
 from osprey.facility import response_check
 from osprey.facility.build import build_facility
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
@@ -43,6 +46,9 @@ TREES: dict[str, tuple[str, ...]] = {
     "nsls2": ("nsls2.storagering", "nsls2.ltb"),
 }
 
+SPEAR3_LINE = (
+    "response check StorageRing: measured BPMx/HCM median ratio 0.922 (pass at 0.8 to 1.25)"
+)
 NSLS2_LINES = [
     "response check LTB: model - judged blocks 0 (pass at 0)",
     "response check StorageRing: model BPMx/HCM inside band 1.000 (pass at 0.99)",
@@ -65,6 +71,25 @@ def _facility(repo: Path) -> Path:
     return repo / "data" / "facility"
 
 
+def _snapshot(root: Path) -> dict[str, bytes | None]:
+    return {
+        path.relative_to(root).as_posix(): None if path.is_dir() else path.read_bytes()
+        for path in sorted(root.rglob("*"))
+    }
+
+
+def _validate(repo: Path, monkeypatch: pytest.MonkeyPatch) -> Result:
+    """Run ``osprey facility validate`` with the profile render left out.
+
+    The response check runs on the facility file, before the render; the
+    render of a whole profile is held by the verb's own cases.
+    """
+    from osprey.cli import build_cmd
+
+    monkeypatch.setattr(build_cmd, "_render_project", lambda *args, **kwargs: None)
+    return CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
+
+
 @pytest.fixture(scope="module")
 def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return _repo(tmp_path_factory.mktemp("spear3"), "spear3")
@@ -83,7 +108,19 @@ def spear3_blocks(spear3: Path) -> tuple[Block, ...]:
     return compare(facility, document, model)
 
 
-# --- the trees ----------------------------------------------------------------------
+# --- the verb -----------------------------------------------------------------------
+
+
+def test_a_measured_export_prints_one_line_and_exits_0(
+    spear3: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    before = _snapshot(spear3)
+
+    result = _validate(spear3, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert (result.stdout, result.stderr) == ("", SPEAR3_LINE + "\n")
+    assert _snapshot(spear3) == before
 
 
 def test_a_model_derived_export_passes_block_by_block(nsls2: Path) -> None:
@@ -96,6 +133,32 @@ def test_a_model_derived_export_passes_block_by_block(nsls2: Path) -> None:
     assert all(check.passed for check in checks)
 
 
+def test_one_judged_block_scaled_by_a_tenth_exits_1(
+    nsls2: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "nsls2"
+    shutil.copytree(nsls2, repo)
+    path = _facility(repo) / LAYER_DIR / "StorageRing.response.json"
+    response = json.loads(path.read_text(encoding="utf-8"))
+    block = response["blocks"][0]
+    assert (block["monitor"]["family"], block["actuator"]["family"]) == ("BPMx", "HCM")
+    assert block["origin"] == "model"
+    block["data"] = [[1.10 * value for value in row] for row in block["data"]]
+    path.write_text(json.dumps(response), encoding="utf-8")
+    before = _snapshot(repo)
+
+    result = _validate(repo, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    assert (result.stdout, result.stderr) == (
+        "",
+        NSLS2_LINES[0]
+        + "\n"
+        + "response check StorageRing: model BPMx/HCM inside band 0.022 (fail at 0.99)\n",
+    )
+    assert _snapshot(repo) == before
+
+
 def test_a_tree_without_a_kept_export_checks_nothing(spear3: Path, tmp_path: Path) -> None:
     repo = tmp_path / "spear3"
     shutil.copytree(spear3, repo)
@@ -103,6 +166,20 @@ def test_a_tree_without_a_kept_export_checks_nothing(spear3: Path, tmp_path: Pat
     (facility / LAYER_DIR / "StorageRing.response.json").unlink()
 
     assert check_responses(facility, build_facility(facility, project_name="scratch")) == []
+
+
+def test_an_unreadable_export_exits_1_without_a_traceback(
+    spear3: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "spear3"
+    shutil.copytree(spear3, repo)
+    (_facility(repo) / LAYER_DIR / "StorageRing.response.json").write_text("{", encoding="utf-8")
+
+    result = _validate(repo, monkeypatch)
+
+    assert result.exit_code == 1
+    assert "The response check cannot run." in result.stderr
+    assert "Traceback" not in result.output
 
 
 # --- parity with the comparison it re-expresses -------------------------------------
