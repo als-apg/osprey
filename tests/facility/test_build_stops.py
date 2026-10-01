@@ -2,9 +2,11 @@
 
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
 Each case is a minimal tree that breaks exactly that rule. It replaces the
-``data/facility`` tree of a control-assistant repo and runs through
-``osprey build --skip-deps`` and through ``osprey facility validate``; both must
-print the case's line byte for byte on stderr and exit 1.
+``data/facility`` tree of a control-assistant repo, beside any profile edit the
+case makes, and runs through ``osprey build --skip-deps`` and through
+``osprey facility validate``; both must print the case's line byte for byte on
+stderr and exit 1. A persona render is checked by the build alone, so a case
+that breaks one runs through ``osprey build --skip-deps`` only.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
@@ -401,6 +404,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile_invalid__mirrored_simulator_view",
         "profile-invalid",
         "`project/data/simulator/x.json`",
+    ),
+    (
+        "profile_invalid__unknown_served_model",
+        "profile-invalid",
+        "`simulation.models` names a model the facility file lacks",
+    ),
+    (
+        "profile_invalid__persona_served_models",
+        "profile-invalid",
+        "a persona on a VA target sets `simulation.models`",
     ),
 )
 
@@ -1439,6 +1452,22 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "fix: remove project/data/simulator/x.json and author the facility in data/facility/"
         ),
     ),
+    "profile_invalid__unknown_served_model": (
+        _deck(),
+        (
+            "facility: profile-invalid: path simulation.models — `NOPE` is not a model in the "
+            "facility file; its models are `LINE`, `SR`, `texture`; fix: name only models the "
+            "facility file holds in `simulation.models`"
+        ),
+    ),
+    "profile_invalid__persona_served_models": (
+        _plain(),
+        (
+            "facility: profile-invalid: path personas/reader.yml — a persona on the `va` target "
+            "sets `simulation.models`, and that target serves the deployment's list; fix: remove "
+            "`simulation.models` from personas/reader.yml"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -1446,6 +1475,30 @@ MIRRORED: dict[str, tuple[str, ...]] = {
     "profile_invalid__mirrored_facility_file": ("facility.json",),
     "profile_invalid__mirrored_simulator_view": ("data/simulator/x.json",),
 }
+
+
+def _serve_unknown_model(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data.setdefault("config", {})["simulation.models"] = ["NOPE"]
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _persona_serves_models(repo: Path) -> None:
+    persona = repo / "personas" / "reader.yml"
+    persona.parent.mkdir(parents=True, exist_ok=True)
+    persona.write_text("name: reader\nconfig:\n  simulation.models: [texture]\n", encoding="utf-8")
+
+
+#: The profile edit a case makes beside a clean tree.
+PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
+    "profile_invalid__unknown_served_model": _serve_unknown_model,
+    "profile_invalid__persona_served_models": _persona_serves_models,
+}
+
+#: Cases only ``osprey build`` stops on: validate checks the main profile render, and
+#: persona renders are checked by the build.
+BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__persona_served_models"})
 
 IDS = list(CASES)
 
@@ -1472,7 +1525,10 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
-    """A copy of the initialised repo whose ``data/facility`` is the case's tree."""
+    """A copy of the initialised repo whose ``data/facility`` is the case's tree.
+
+    The case's ``project/`` mirror files and profile edit are applied beside it.
+    """
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
     shutil.rmtree(repo / "data" / "facility")
@@ -1481,6 +1537,9 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
         mirrored = repo / "project" / rel
         mirrored.parent.mkdir(parents=True, exist_ok=True)
         mirrored.write_text("{}\n", encoding="utf-8")
+    edit = PROFILE_EDITS.get(case)
+    if edit is not None:
+        edit(repo)
     return repo
 
 
@@ -1496,7 +1555,7 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("case", IDS)
+@pytest.mark.parametrize("case", [case for case in IDS if case not in BUILD_ONLY])
 def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: str) -> None:
     repo = _repo(initialised, tmp_path, case)
 
