@@ -301,24 +301,51 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
 
     Args:
         exports: What :func:`read_exports` read.
-        mapping: The layer's mapping, every slot decided.
+        mapping: The layer's mapping, every slot decided and its check
+            against these exports clean.
         facility_dir: The ``data/facility`` directory.
 
     Returns:
         Every file written, in write order.
 
     Raises:
-        ImportStop: ``mapping-undecided`` for a system or family the mapping
-            does not name, a family whose devices it leaves unidentified, or
-            a transport line without initial twiss; ``mapping-invalid`` for a
-            ``devices`` answer the export cannot carry;
+        ImportStop: ``mapping-undecided`` for a family whose devices the
+            mapping leaves unidentified or a transport line without initial
+            twiss; ``mapping-invalid`` for a ``devices`` answer the export
+            cannot carry;
             ``export-invalid`` or ``reference-missing`` from the wiring pass.
+        MappingProblems: The mapping leaves out a system or a family these
+            exports carry; nothing is written.
         MappingError: The mapping answers a cavity voltage for a deck that
             holds its cavity.
     """
+    unnamed = _unnamed(exports, mapping)
+    if unnamed:
+        raise MappingProblems(facility_dir / MAPPING_FILE, unnamed)
     answers = _export_answers(mapping)
     judged, views = _carried(exports, mapping, answers)
     return _write_records(exports, mapping, facility_dir, answers, judged, views)
+
+
+def _unnamed(exports: Exports, mapping: Mapping) -> list[Problem]:
+    """The exported systems and families the mapping leaves out, as its check words them."""
+    from osprey.services.mml.family import family_views
+
+    problems = [
+        Problem("models", f"leaves out the exported system {system}")
+        for system in exports.systems
+        if system not in mapping.models
+    ]
+    families = {
+        view.raw_name
+        for system in exports.systems
+        for view in family_views(system, exports.ao[system])
+    }
+    problems.extend(
+        Problem("families", f"leaves out the exported family {family}")
+        for family in sorted(families - set(mapping.families))
+    )
+    return problems
 
 
 def _write_records(
@@ -382,10 +409,6 @@ def _carried(
     Returns:
         ``{system: {raw family: view}}`` of every judged family, and the views
         of the families the mapping gives channels, in import order.
-
-    Raises:
-        ImportStop: ``mapping-undecided`` for a family that carries channels
-            and the mapping does not name.
     """
     from osprey.services.mml.judgments import judged_family_views
 
@@ -397,22 +420,14 @@ def _carried(
             judged[system][view.raw_name] = view
             if view.channel_count == 0:
                 continue
-            family = mapping.families.get(view.raw_name)
-            if family is None:
-                raise ImportStop(
-                    "mapping-undecided", [f"families.{view.raw_name}: the export carries it"]
-                )
-            if family.channels == 0:
+            if mapping.families[view.raw_name].channels == 0:
                 continue
             views.append(view)
     return judged, views
 
 
 def _model_name(mapping: Mapping, system: str) -> str:
-    model = mapping.models.get(system)
-    if model is None:
-        raise ImportStop("mapping-undecided", [f"models.{system}: the export carries it"])
-    return model.name
+    return mapping.models[system].name
 
 
 def _text(value: Any) -> str | None:
