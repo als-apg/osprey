@@ -943,6 +943,51 @@ def test_only_lane_one_builds_the_shared_image(two_lane: dict[str, Any]) -> None
     )
 
 
+#: An image OSPREY does not build, as a site would name it on a lane's block.
+_FOREIGN_BRIDGE_IMAGE = "registry.example.org/site/bluesky-bridge:pinned"
+
+
+def _two_lane_text_with_images(images: dict[str, str]) -> str:
+    """The two-lane render with ``image`` set on the lanes *images* names."""
+    lanes = {
+        key: ({**block, "image": images[key]} if key in images else block)
+        for key, block in VA_BASELINE_LANES.items()
+    }
+    return _render_text(
+        _context(
+            lanes=lanes,
+            deployed_services=["bluesky", "bluesky_live", "virtual_accelerator"],
+        )
+    )
+
+
+def _builders(rendered: dict[str, Any]) -> list[str]:
+    return [name for name, service in rendered["services"].items() if "build" in service]
+
+
+def test_the_second_lane_builds_when_lane_one_runs_another_image() -> None:
+    """The build goes to the first lane that runs the image OSPREY builds."""
+    rendered = yaml.safe_load(_two_lane_text_with_images({"bluesky": _FOREIGN_BRIDGE_IMAGE}))
+    assert _builders(rendered) == ["bluesky-live-bridge"]
+
+
+def test_no_lane_builds_when_every_lane_runs_another_image() -> None:
+    """With no lane on OSPREY's image, nothing in the file builds."""
+    rendered = yaml.safe_load(
+        _two_lane_text_with_images(
+            {"bluesky": _FOREIGN_BRIDGE_IMAGE, "bluesky_live": _FOREIGN_BRIDGE_IMAGE}
+        )
+    )
+    assert _builders(rendered) == []
+
+
+def test_a_lane_running_another_image_says_so_on_its_queueserver() -> None:
+    """Each queueserver's comment names who builds its image, or that nobody does."""
+    text = _two_lane_text_with_images({"bluesky": _FOREIGN_BRIDGE_IMAGE})
+    assert text.count("This lane names an image OSPREY does not build") == 1
+    assert text.count("`bluesky-live-bridge` above owns the build") == 1
+
+
 def test_a_va_second_lane_is_named_for_its_target_too() -> None:
     """A live BASELINE puts the VA on lane 2, and the naming follows the target.
 
