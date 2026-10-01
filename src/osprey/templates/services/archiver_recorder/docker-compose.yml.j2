@@ -242,9 +242,12 @@ services:
       #
       # Read-only, so the repo's .env is also visible to this container.
       # Accepted: it is first-party and already receives the store credential
-      # by env. The in-network connection values still come from the
-      # OSPREY_ARCHIVER_MONGODB_* overrides above — the config's own connection
-      # block stays host-side and is not what this service connects with.
+      # by env. The recorder reads the config's archiver connection block
+      # through this mount for everything but the address: the store's name,
+      # collection, login, timeout_s and tls.ca_bundle, whose file is mounted
+      # below at the path the key names. host and port are written for the
+      # host side, so the OSPREY_ARCHIVER_MONGODB_* overrides above replace
+      # them.
       - .:/app/project:ro
       # The simulation data dir, read-only, mounted at the SAME container path
       # the VA uses so a relative VA_CHANNELS_FILE resolves identically on both
