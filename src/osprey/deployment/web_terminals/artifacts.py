@@ -21,6 +21,7 @@ one helper makes that class of drift impossible.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -56,11 +57,12 @@ from osprey.deployment.web_terminals.personas import (
     settings_json_is_rendered,
 )
 from osprey.deployment.web_terminals.render import (
+    PROXY_ENV_NAMES,
     _auth_tls_context,
     clear_nginx_templates_dir,
     render_web_terminals,
 )
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from osprey.utils.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors.types import WRITES_ENABLED_KEY
 
@@ -970,6 +972,25 @@ def _terminal_secrets(config: Any, root: Path) -> dict[str, str] | None:
     return secrets or None
 
 
+def proxy_env_names_with_a_value(root: Path) -> tuple[str, ...]:
+    """The members of :data:`PROXY_ENV_NAMES` compose will interpolate to a value.
+
+    Read where compose reads them, in its order: this process's environment
+    first, then the merged env chain. A name that resolves to nothing there
+    is left out, so the render writes it under neither spelling.
+
+    Args:
+        root: The deployment repo root, which holds the env chain.
+
+    Returns:
+        The names with a non-blank value, in :data:`PROXY_ENV_NAMES` order.
+    """
+    chain = merge_chain(root)
+    return tuple(
+        name for name in PROXY_ENV_NAMES if os.environ.get(name, chain.get(name, "")).strip()
+    )
+
+
 def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     """Every disk-derived input the deploy hands :func:`render_web_terminals`.
 
@@ -982,7 +1003,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     per-user environment block; which name a facility-knowledge bundle or run
     a qmd export and so get the deployment's bundle or mirror bind-mounted,
     and the groups those shared directories (and every user's audit zone)
-    were provisioned with; and the roster's operator secrets.
+    were provisioned with; the roster's operator secrets; and which proxy
+    settings hold a value where compose will read them (this process's
+    environment, then the chain).
 
     The one seam between "what is on disk" and "what the render is told", so a
     test that wants the render the deploy actually produces asks this rather
@@ -1058,6 +1081,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # nginx.conf.j2 still emits the `include` that reads one — an nginx that
         # refuses to start, pointing at a path nothing ever wrote.
         "terminal_secrets": _terminal_secrets(config, root),
+        "proxy_env_names": proxy_env_names_with_a_value(root),
     }
 
 

@@ -25,6 +25,7 @@ from osprey.deployment.web_terminals.ports import (
 )
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
+    PROXY_ENV_NAMES,
     TERMINAL_SECRET_HEADER,
     TLS_LISTEN_PORT,
     DeploymentOrigin,
@@ -3737,10 +3738,9 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
         ENV_TLS_ENABLED,
         ENV_EXTERNAL_ORIGIN,
         ENV_USERS,
-        # The egress passthrough, non-secret in the same sense as the rest of
-        # this block and pinned in render order. Its own shape — values, case,
-        # and what deliberately does NOT join it — is asserted below.
-        *_PROXY_NAMES,
+        # No egress passthrough: this render is told no proxy name holds a
+        # value, so it writes none under either spelling. Its shape when one
+        # does is asserted below.
     ]
 
 
@@ -4195,26 +4195,38 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 1.2: the sidecar's egress passthrough — the proxy settings its OIDC
-# fetches need behind a corporate proxy, and the three shapes that ruling took
+# The egress passthrough: the proxy settings the sidecar's OIDC fetches and
+# every terminal's outbound calls need behind a corporate proxy
 # ---------------------------------------------------------------------------
 
 # Rendered verbatim, `${VAR:-}` and all: these are compose interpolation
-# directives, not values. Spelled out rather than imported because there is
-# nothing to import — the sidecar reads none of them itself, the HTTP client
-# libraries inside it do, so the template is their only definition.
+# directives, not values. Both spellings interpolate the UPPERCASE name, so the
+# twin carries the same value by construction.
 _PROXY_ENTRIES = [
     "HTTP_PROXY=${HTTP_PROXY:-}",
+    "http_proxy=${HTTP_PROXY:-}",
     "HTTPS_PROXY=${HTTPS_PROXY:-}",
+    "https_proxy=${HTTPS_PROXY:-}",
     "NO_PROXY=${NO_PROXY:-}",
+    "no_proxy=${NO_PROXY:-}",
 ]
 _PROXY_NAMES = [entry.split("=", 1)[0] for entry in _PROXY_ENTRIES]
-_LOWERCASE_PROXY_NAMES = [name.lower() for name in _PROXY_NAMES]
-# The CA-bundle family that looks like it belongs beside the proxy trio and does
+# The CA-bundle family that looks like it belongs beside the proxy names and does
 # not: a site CA is BAKED INTO the image from `images.site_ca`, and the image
 # sets these itself to the merged bundle it installs into. One named here could
 # only name a path the container might not have.
 _CA_BUNDLE_NAMES = ["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE"]
+
+
+def _proxied_compose(config: dict, names: tuple[str, ...] = PROXY_ENV_NAMES) -> dict:
+    """The rendered compose overlay for a deployment whose `names` hold a value."""
+    return yaml.safe_load(
+        render_web_terminals(config, proxy_env_names=names)["docker-compose.web.yml"]
+    )
+
+
+def _proxy_entries(service: dict) -> list[str]:
+    return [entry for entry in service["environment"] if entry.split("=", 1)[0] in _PROXY_NAMES]
 
 
 def _oidc_auth_config() -> dict:
@@ -4225,56 +4237,69 @@ def _oidc_auth_config() -> dict:
 @pytest.mark.parametrize(
     "config_factory", [_auth_config, _oidc_auth_config], ids=["password", "oidc"]
 )
-def test_auth_sidecar_egress_passes_the_proxy_settings_through_verbatim(config_factory) -> None:
+def test_auth_sidecar_egress_passes_each_proxy_setting_under_both_spellings(
+    config_factory,
+) -> None:
     """The sidecar's OIDC discovery, token and userinfo fetches are its only
     outbound traffic, and behind a corporate proxy they fail unless the host's
-    proxy settings reach the container. They arrive as `${VAR:-}` passthrough,
-    which is asserted by VALUE and not merely by name: the whole mechanism is the
-    interpolation directive, and an entry rendered with a baked literal — or with
-    a default other than empty — would satisfy a name-only pin while pinning the
-    deploy host's proxy into the committed compose artifact.
+    proxy settings reach the container. Each setting with a value arrives under
+    its uppercase name and its lowercase twin, both `${NAME:-}` of the UPPERCASE
+    name. Asserted by VALUE and not merely by name: an entry rendered with a
+    baked literal would pin the deploy host's proxy into the compose artifact,
+    and a lowercase entry interpolating the lowercase name would let the two
+    spellings disagree.
 
-    Rendered in both postures, not gated on `oidc`. The gate would be wrong even
-    though OIDC is the motivating traffic: a `password` sidecar behind a proxy
-    that suddenly needed an outbound fetch would fail in a way no operator could
-    read off the compose file, and an empty passthrough on a host with no proxy
-    costs nothing.
+    Rendered in both postures, not gated on `oidc`: a `password` sidecar behind
+    a proxy that needed an outbound fetch would otherwise fail in a way no
+    operator could read off the compose file.
     """
     # Act
-    auth = _compose(config_factory())["services"]["auth"]
+    auth = _proxied_compose(config_factory())["services"]["auth"]
 
     # Assert
-    assert [entry for entry in auth["environment"] if entry.split("=", 1)[0] in _PROXY_NAMES] == (
-        _PROXY_ENTRIES
-    )
+    assert _proxy_entries(auth) == _PROXY_ENTRIES
 
 
-def test_auth_sidecar_egress_is_uppercase_only() -> None:
-    """UPPERCASE only, and the lowercase pair is not an oversight to be tidied up
-    later — adding it would BREAK the no-proxy case. httpx (Authlib's transport
-    for every fetch above, `trust_env` at its default) and requests read the
-    uppercase names. CPython's own `urllib.request.getproxies_environment` reads
-    both, lowercase last and winning, and treats a present-but-EMPTY lowercase
-    `http_proxy` as "this scheme is configured, to nothing" — popping the scheme
-    the uppercase pass just set, while an empty uppercase variable is skipped.
-    Since `${VAR:-}` renders exactly that empty value on every host without a
-    proxy, a lowercase entry here would hand every stdlib caller a cancelled
-    proxy on the common case."""
+@pytest.mark.parametrize("name", PROXY_ENV_NAMES)
+def test_a_proxy_setting_with_no_value_is_written_under_neither_spelling(name: str) -> None:
+    """Only the names that hold a value are written, each with its twin. A
+    present-but-EMPTY lowercase name is not harmless: CPython's
+    `urllib.request.getproxies_environment` reads lowercase last and lets an
+    empty one POP the scheme, and an explicit empty entry also overrides
+    whatever the container runtime itself injects. So a setting with no value
+    reaches the container under neither spelling."""
     # Act
-    auth = _compose(_auth_config())["services"]["auth"]
+    services = _proxied_compose(_auth_config(["alice", "bob"]), (name,))["services"]
 
     # Assert
-    names = _env_names(auth)
-    assert [name for name in names if name in _PROXY_NAMES] == _PROXY_NAMES
-    assert not [
-        name
-        for name in names
-        if name not in _PROXY_NAMES and name.lower() in _LOWERCASE_PROXY_NAMES
-    ]
+    expected = [f"{name}=${{{name}:-}}", f"{name.lower()}=${{{name}:-}}"]
+    for service_name in ("auth", "web-alice", "web-bob"):
+        assert _proxy_entries(services[service_name]) == expected, service_name
+
+
+def test_no_proxy_setting_with_a_value_writes_no_proxy_line_at_all() -> None:
+    """The default render, and the one a deployment with no proxy gets."""
+    # Act
+    services = _compose(_auth_config(["alice", "bob"]))["services"]
+
+    # Assert
+    for service_name, service in services.items():
+        assert not [env for env in _env_names(service) if env.upper() in PROXY_ENV_NAMES], (
+            service_name
+        )
+
+
+def test_proxy_names_render_in_one_order_whatever_order_they_arrive_in() -> None:
+    # Act
+    forward = render_web_terminals(_auth_config(), proxy_env_names=PROXY_ENV_NAMES)
+    backward = render_web_terminals(_auth_config(), proxy_env_names=PROXY_ENV_NAMES[::-1])
+
+    # Assert
+    assert forward == backward
 
 
 def test_auth_sidecar_egress_is_proxy_only_and_carries_no_ca_bundle_variable() -> None:
-    """The egress block stops at the proxy trio. The other half of the
+    """The egress block stops at the proxy names. The other half of the
     corporate-network story — a proxy that re-signs TLS with a site CA — is
     deliberately NOT here: the CA is installed into the image at build time
     from `images.site_ca`, and the image points these variables at the merged
@@ -4282,7 +4307,7 @@ def test_auth_sidecar_egress_is_proxy_only_and_carries_no_ca_bundle_variable() -
     not have, which crashes httpx at client construction and turns a working
     plain-HTTP deployment into a sidecar that cannot build a client at all."""
     # Act
-    auth = _compose(_oidc_auth_config())["services"]["auth"]
+    auth = _proxied_compose(_oidc_auth_config())["services"]["auth"]
 
     # Assert
     names = _env_names(auth)
@@ -4298,13 +4323,11 @@ def test_auth_sidecar_egress_adds_no_second_env_file() -> None:
     values a file whose content compose does NOT interpolate — so `${HTTP_PROXY}`
     would reach httpx as a literal seven-character string."""
     # Act
-    auth = _compose(_auth_config())["services"]["auth"]
+    auth = _proxied_compose(_auth_config())["services"]["auth"]
 
     # Assert
     assert auth["env_file"] == AUTH_ENV_FILENAME
-    assert [entry for entry in auth["environment"] if entry.split("=", 1)[0] in _PROXY_NAMES] == (
-        _PROXY_ENTRIES
-    )
+    assert _proxy_entries(auth) == _PROXY_ENTRIES
 
 
 def test_every_container_that_reaches_out_carries_the_passthrough() -> None:
@@ -4321,7 +4344,7 @@ def test_every_container_that_reaches_out_carries_the_passthrough() -> None:
     having to remember to widen this test.
     """
     # Act
-    services = _compose(_auth_config(["alice", "bob"]))["services"]
+    services = _proxied_compose(_auth_config(["alice", "bob"]))["services"]
 
     # Assert
     reaches_out = {"auth", "web-alice", "web-bob"}
@@ -4332,12 +4355,6 @@ def test_every_container_that_reaches_out_carries_the_passthrough() -> None:
             assert present == _PROXY_NAMES, f"{name} is missing the proxy passthrough"
         else:
             assert not present, f"{name} fetches nothing and needs no proxy passthrough"
-        # UPPERCASE only, everywhere, for the reason spelled out above.
-        assert not [
-            env
-            for env in _env_names(service)
-            if env not in _PROXY_NAMES and env.lower() in _LOWERCASE_PROXY_NAMES
-        ], f"{name} carries a lowercase proxy name"
 
 
 def _session_lifetime_config(method: str, **auth: object) -> dict:

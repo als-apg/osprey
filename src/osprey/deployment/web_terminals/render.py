@@ -226,6 +226,13 @@ TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"
 #: the render errors below refer to it by that name.
 TERMINAL_SECRET_ENV_PREFIX = TERMINAL_SECRET_VAR_PREFIX
 
+#: The proxy settings every outbound container of this stack is handed, in the
+#: spelling the deploy env chain carries them under. Each one that has a value
+#: reaches the login service and every terminal under this name and under its
+#: lowercase twin, both interpolated from this name; one with no value reaches
+#: neither under either spelling.
+PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
 #: Output-relative directory the per-user nginx *templates* land in — mounted
 #: read-only at ``/etc/nginx/templates``, where the base image's entrypoint
 #: envsubsts every file into ``NGINX_ENVSUBST_OUTPUT_DIR``. Deliberately a
@@ -780,6 +787,7 @@ def render_web_terminals(
     telemetry_vars_personas: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
+    proxy_env_names: tuple[str, ...] = (),
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -963,6 +971,14 @@ def render_web_terminals(
             external origin are threaded on every render regardless — neither is
             a secret, and the compose reference resolves to empty when the
             deploy ``.env`` holds nothing.
+        proxy_env_names: The members of :data:`PROXY_ENV_NAMES` that hold a
+            value where compose interpolates them, resolved by
+            :func:`osprey.deployment.web_terminals.artifacts.proxy_env_names_with_a_value`
+            because this function reads no environment. Each becomes two lines
+            in the login service's and every terminal's ``environment:``, the
+            name and its lowercase twin, both ``${NAME:-}``; a name left out
+            renders neither. ``()`` (the default, and the scaffold preview)
+            renders none.
 
     Returns:
         Mapping of output-relative-path to rendered content: the three artifacts
@@ -1563,6 +1579,9 @@ def render_web_terminals(
         # env line and the page keeps its built-in fallbacks.
         "web_theme": str(as_dict(root.get("web")).get("theme") or ""),
         "web_app_name": resolve_facility_name(root, ""),
+        # The proxy names that hold a value, in the order PROXY_ENV_NAMES
+        # spells them, so the render does not depend on the caller's order.
+        "proxy_env_names": tuple(name for name in PROXY_ENV_NAMES if name in proxy_env_names),
         "auth_audit_identity": AUTH_SIDECAR_AUDIT_IDENTITY,
         "auth_audit_mount_source": _audit_mount_source(AUTH_SIDECAR_AUDIT_IDENTITY),
         "auth_audit_dir": _container_audit_dir(

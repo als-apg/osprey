@@ -420,8 +420,8 @@
      remains the sidecar's only env file and rule 1 above is untouched. An
      operator who puts credentials in a proxy URL is opting that value into
      `docker inspect` like any other `environment:` value; see the EGRESS
-     comment on those three entries for the rest, including why they are
-     uppercase-only.
+     comment on those entries for the rest, including why each is written
+     under both spellings and only when it has a value.
 
   ----------------------------------------------------------------------------
   OPERATOR SECRET (the per-user carrier, and why no VALUE is rendered here)
@@ -746,24 +746,27 @@ services:
          `osprey init` writes the commented-out block that documents them);
          the `env_file` chain stays `.env.auth` and nothing else.
 
-         UPPERCASE ONLY, deliberately. httpx — Authlib's transport for every
-         fetch above, with `trust_env` left at its default — and requests read
-         the UPPERCASE names. CPython's own
-         `urllib.request.getproxies_environment` reads both, lowercase last and
-         winning: a present-but-EMPTY lowercase `http_proxy` reads as "this
-         scheme is configured, to nothing" and POPS the scheme the uppercase
-         pass just set, while an empty UPPERCASE variable is skipped. Adding
-         the lowercase pair here would therefore hand every stdlib caller a
-         cancelled proxy on any host that sets none — which is exactly what
-         `${VAR:-}` renders when the host has no proxy. No CA-bundle variable
+         BOTH SPELLINGS, and only with a value. httpx — Authlib's transport
+         for every fetch above, with `trust_env` left at its default — and
+         requests read the proxy through CPython's
+         `urllib.request.getproxies_environment`, which reads both spellings,
+         lowercase last and winning; curl reads the lowercase one alone. So each
+         setting is written under its UPPERCASE name and its lowercase twin,
+         both interpolated from the UPPERCASE name so the two cannot disagree.
+         A present-but-EMPTY lowercase name POPS the scheme, and an explicit
+         empty entry overrides whatever the container runtime injects itself,
+         so a setting with no value is written under neither spelling: the
+         deploy resolves which of the three hold a value where compose reads
+         them (artifacts.proxy_env_names_with_a_value) before this render. No CA-bundle variable
          joins them, and none is needed: a site CA is BAKED INTO the sidecar
          image from `images.site_ca`, and the image sets `SSL_CERT_FILE` and
          `REQUESTS_CA_BUNDLE` itself to the merged bundle it installs into. A
          path named here instead could name a file the container does not
          have, which crashes httpx at client construction. #}
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-}
+{%- for proxy_env in proxy_env_names %}
+      - {{ proxy_env }}={{ "${" ~ proxy_env ~ ":-}" }}
+      - {{ proxy_env | lower }}={{ "${" ~ proxy_env ~ ":-}" }}
+{%- endfor %}
 {#- Everything OIDC — issuer, credential-variable names, claim, and the per-user
    subject mapping — is gated on the mode, so a `password` deployment carries no
    OIDC settings at all even if a roster entry still declares an `oidc_subject`
@@ -964,15 +967,13 @@ services:
          marks the file authored and trips the drift refusal.
 
          So they arrive the same way the login service's do: `${VAR:-}`
-         passthrough interpolated from the deploy env chain, uppercase only.
-         The uppercase-only rule is the login service's, for the same reason —
-         `urllib.request.getproxies_environment` reads lowercase last and lets
-         a present-but-EMPTY lowercase name POP the scheme the uppercase pass
-         set, which is exactly what `${VAR:-}` renders on a host with no proxy.
-         An empty UPPERCASE variable is skipped instead. #}
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-}
+         passthrough interpolated from the deploy env chain, each setting with
+         a value under both spellings and one with none under neither, for the
+         login service's reasons. #}
+{%- for proxy_env in proxy_env_names %}
+      - {{ proxy_env }}={{ "${" ~ proxy_env ~ ":-}" }}
+      - {{ proxy_env | lower }}={{ "${" ~ proxy_env ~ ":-}" }}
+{%- endfor %}
       {#- WHO this container's audit records are written as, and WHERE. Both
          rendered from the same roster name that names the mount below
          (render._audit_mount_source / _container_audit_dir), so the identity
