@@ -9,6 +9,10 @@ export with ``--system``. The refusals the command owes a facility (a v7.3
 MAT-file, a system token imported twice) are pinned here too, as is the promise
 that ``PROFILE.md`` lists every ``MemberOf`` tag of the source verbatim.
 
+A 2.0 fixture tree commits ``imported/mml/mapping.yaml``, and its exports enter
+the facility description first: every 2.0 case runs ``osprey facility import
+mml`` over all of the tree's exports, in one call, before ``mml import``.
+
 Two lanes run against a facility's real data, which never enters the repo:
 
 * ``OSPREY_ALS_MML_EXPORT`` names the facility's JSON export; the import-walk census
@@ -31,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
@@ -76,7 +81,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A minimal deployment repo (a ``profile.yml`` marker) as the cwd."""
     root = tmp_path / "deploy"
     root.mkdir()
-    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+    (root / "profile.yml").write_text("name: scratch\ndata: data\n", encoding="utf-8")
     monkeypatch.chdir(root)
     return root
 
@@ -260,6 +265,28 @@ def _two_zero_inputs(fixture: str) -> list[str]:
     return [str(path) for path in sorted((FIXTURES / fixture).glob("*.ao.json"))]
 
 
+def _facility_import(repo: Path, fixture: str) -> Path:
+    """Write a 2.0 fixture's exports as the mml layer's sources, under its reviewed mapping.
+
+    Returns:
+        The layer directory the import wrote.
+    """
+    from osprey.facility.layers.mml.importer import LAYER_DIR
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
+    facility = repo / "data" / "facility"
+    target = facility / MAPPING_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / fixture / MAPPING_FILE, target)
+
+    result = CliRunner().invoke(
+        cli, ["facility", "import", "mml", *_two_zero_inputs(fixture)], catch_exceptions=False
+    )
+
+    assert result.exit_code == 0, result.output
+    return facility / LAYER_DIR
+
+
 def _va_sections(profile: str, systems: list[str]) -> dict[str, str]:
     """Each system's ``Virtual accelerator`` section, keyed by system.
 
@@ -286,7 +313,8 @@ class TestATwoZeroImport:
 
     The siblings are never named on the command line: ``mml import`` pairs the
     ``va``, ``response`` and ``lattice`` files beside each ``ao.json`` it is
-    handed, which is how a facility runs it.
+    handed, which is how a facility runs it. ``facility import mml`` has taken
+    the same exports first, and ``mml import`` writes what it always wrote.
     """
 
     def test_every_two_zero_fixture_is_listed(self) -> None:
@@ -296,7 +324,21 @@ class TestATwoZeroImport:
         )
 
     @pytest.mark.parametrize("fixture", TWO_ZERO_FIXTURES)
+    def test_the_facility_import_writes_one_model_per_system(
+        self, repo: Path, fixture: str
+    ) -> None:
+        """Every export of the tree goes in one call, and each becomes a model."""
+        layer = _facility_import(repo, fixture)
+
+        models = yaml.safe_load((layer / "models.yaml").read_text(encoding="utf-8"))
+        assert sorted(model["name"] for model in models) == TWO_ZERO_SYSTEMS[fixture]
+        assert (layer / "channels.yaml").is_file()
+        assert not _out(repo).exists()
+
+    @pytest.mark.parametrize("fixture", TWO_ZERO_FIXTURES)
     def test_the_siblings_land_under_their_own_systems(self, repo: Path, fixture: str) -> None:
+        _facility_import(repo, fixture)
+
         result = _invoke("import", *_two_zero_inputs(fixture))
 
         assert result.exit_code == 0, result.output
@@ -311,6 +353,7 @@ class TestATwoZeroImport:
         self, repo: Path, fixture: str
     ) -> None:
         inputs = _two_zero_inputs(fixture)
+        _facility_import(repo, fixture)
         assert _invoke("import", *inputs).exit_code == 0
         out = _out(repo)
         before = {path.name: path.read_bytes() for path in sorted(out.rglob("*")) if path.is_file()}
@@ -323,6 +366,8 @@ class TestATwoZeroImport:
 
     def test_the_two_system_export_carries_both_blocks(self, repo: Path) -> None:
         """NSLS-II imports as two sub-machines, the transfer line among them."""
+        _facility_import(repo, "nsls2")
+
         result = _invoke("import", *_two_zero_inputs("nsls2"))
 
         assert result.exit_code == 0, result.output
@@ -363,6 +408,8 @@ class TestATwoZeroImport:
         """
         from osprey.services.mml.profile import VA_HEADINGS
 
+        _facility_import(repo, fixture)
+
         result = _invoke("import", *_two_zero_inputs(fixture))
 
         assert result.exit_code == 0, result.output
@@ -384,6 +431,7 @@ class TestATwoZeroImport:
 
     def test_the_two_system_profile_states_each_deck_on_its_own_system(self, repo: Path) -> None:
         """The two sub-machines are not one another: different deck, different ring."""
+        _facility_import(repo, "nsls2")
         assert _invoke("import", *_two_zero_inputs("nsls2")).exit_code == 0
 
         sections = _va_sections(

@@ -16,12 +16,15 @@ The lane is two deployments over one export, because that is how a facility is
 installed:
 
 * the chain --- ``import`` -> ``map --init`` -> the reviewed mapping ->
-  ``map --check`` -> ``emit --duckdb`` -> ``verify``, twice --- driven by the
+  ``map --check`` -> ``facility import mml`` -> ``emit --duckdb`` -> ``verify``,
+  twice --- driven by the
   same ``run_chain`` the fixtures use, and judged by the same cases
   :class:`~tests.cli.test_mml_chain.TestTheVirtualAcceleratorChain` judges them
   by. The report that chain ends in is read for the sections a reviewer reads.
-* the install recipe --- ``init --preset control-assistant`` -> the harvest ->
-  the refusals -> ``set`` -> ``validate`` -> ``build``, twice --- and judged by
+* the install recipe --- ``init --preset control-assistant`` -> ``facility
+  import mml`` past the stop it makes over the preset's authored sources -> the
+  harvest -> the refusals -> ``set`` -> ``validate`` -> ``build`` past the
+  ``seed-invalid`` stops the imported tree carries, twice --- and judged by
   the cases :class:`~tests.cli.test_mml_build_recipes.TestServedFromATwoZeroExport`
   judges the fixture recipe by.
 
@@ -37,13 +40,15 @@ named skip rather than a lane that quietly asserts one of the answers.
 
 Two ways in other than the facility's own checkout:
 
-* ``OSPREY_ALS_LANE_STAND_IN=<dir>`` names a directory holding a 2.0 export and
-  its reviewed ``mapping.yaml``, and the lane installs that instead. It is
+* ``OSPREY_ALS_LANE_STAND_IN=<dir>`` names a directory holding a 2.0 export,
+  its reviewed ``mapping.yaml`` and the reviewed ``imported/mml/mapping.yaml``
+  ``facility import mml`` reads, and the lane installs that instead. It is
   test-only. The same fixtures and the same borrowed cases run, so a green run
   proves this file's code path and the plumbing it drives; it proves nothing
   about the facility, whose export it never touched.
 * ``OSPREY_ALS_MML_EXPORT`` and ``OSPREY_ALS_MML_MAPPING`` name one export and
-  its mapping directly, and win ahead of both the checkout gate and the MATLAB
+  its mapping directly (``imported/mml/mapping.yaml`` is read from beside that
+  mapping), and win ahead of both the checkout gate and the MATLAB
   gate --- deliberately, so a reviewer holding an export elsewhere names it
   rather than moving it. That pair is shared with the counts lane in
   ``test_mml_chain``, so setting it for one lane arms the other too, and this
@@ -63,6 +68,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.facility.layers.mml.mapping import MAPPING_FILE
 from osprey.services.mml.va.verify import REPORT_FILENAME
 
 pytest.importorskip("linkml_runtime")
@@ -73,8 +79,11 @@ from tests.cli.test_mml_build_recipes import (
     TestServedFromATwoZeroExport as _BuildCases,
 )
 from tests.cli.test_mml_build_recipes import (
+    build_past_the_seed_stops,
+    clear_authored,
     drive_emit,
     env_values,
+    import_facility,
     invoke,
     published,
     served_settings,
@@ -121,11 +130,13 @@ class Lane:
         label: What the tree is, for the failure to name.
         exports: The export paths handed to ``mml import``.
         mapping: The reviewed ``mapping.yaml`` the chain installs.
+        facility_mapping: The reviewed mapping ``facility import mml`` reads.
     """
 
     label: str
     exports: tuple[str, ...]
     mapping: Path
+    facility_mapping: Path
 
 
 def _va_sibling(export: Path) -> Path:
@@ -154,7 +165,15 @@ def _from_tree(tree: Path, label: str) -> Lane | str:
     mapping = tree / "mapping.yaml"
     if not mapping.is_file():
         return f"{label} holds no reviewed mapping.yaml"
-    return Lane(label=label, exports=tuple(str(path) for path in exports), mapping=mapping)
+    facility_mapping = tree / MAPPING_FILE
+    if not facility_mapping.is_file():
+        return f"{label} holds no reviewed {MAPPING_FILE}"
+    return Lane(
+        label=label,
+        exports=tuple(str(path) for path in exports),
+        mapping=mapping,
+        facility_mapping=facility_mapping,
+    )
 
 
 def _resolve() -> Lane | str:
@@ -185,10 +204,17 @@ def _resolve() -> Lane | str:
                 f"{ALS_EXPORT_ENV} names a 1.0 export ({_va_sibling(export).name} is "
                 "not beside it); the lane asserts the 2.0 chain through build"
             )
+        facility_mapping = mapping.parent / MAPPING_FILE
+        if not facility_mapping.is_file():
+            return (
+                f"{ALS_MAPPING_ENV} names {mapping}, and no reviewed {MAPPING_FILE} "
+                "is beside it; the lane imports the export under that mapping"
+            )
         return Lane(
             label=f"the export named by {ALS_EXPORT_ENV}",
             exports=(str(export),),
             mapping=mapping,
+            facility_mapping=facility_mapping,
         )
 
     named = os.environ.get(ALS_PROFILES_ENV)
@@ -288,6 +314,7 @@ def als_chain(tmp_path_factory: pytest.TempPathFactory) -> Chain:
         LANE.mapping,
         name=LANE.label,
         verify=True,
+        facility_mapping=LANE.facility_mapping,
     )
 
 
@@ -299,7 +326,10 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     the chain builds in a scratch repo with no preset, and ``osprey build``
     publishes a tree only a real deployment has. Nothing is decided here ---
     each refusal is obeyed as written, and every claim about what came out is
-    borrowed from the recipe's own cases.
+    borrowed from the recipe's own cases. The export enters the facility
+    description before the harvest, and the limits record of every setpoint the
+    first build stops on is widened as that stop names it; which setpoints those
+    are is the facility's own fact, so nothing here lists them.
 
     This deployment stands on its own: the container-name token is a property
     of the reviewed mapping, so it is read there rather than from the chain,
@@ -311,6 +341,8 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     repo = tmp_path_factory.mktemp("als-build") / "deployment"
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
+    cleared = clear_authored(runner, repo, LANE.exports)
+    import_facility(runner, repo, LANE.exports, LANE.facility_mapping)
     invoke(runner, "mml", "import", *LANE.exports, "--repo", str(repo))
     shutil.copy(LANE.mapping, repo / "data" / "mml" / "mapping.yaml")
 
@@ -318,7 +350,7 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     invoke(runner, "set", "--repo", str(repo), *served_settings(_mapping_token()))
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
+    stopped, remedied, build = build_past_the_seed_stops(runner, repo)
     first = published(repo)
     first_env = env_values(repo)
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
@@ -326,6 +358,9 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     return {
         "fixture": LANE.label,
         "repo": repo,
+        "cleared": cleared,
+        "stopped": stopped,
+        "remedied": remedied,
         "rounds": rounds,
         "emit": emitted.output,
         "validate": validate.output,

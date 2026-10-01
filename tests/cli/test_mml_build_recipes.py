@@ -25,7 +25,15 @@ makes:
   bundle index rather than merely unlinked.
 * **control-assistant, from a 2.0 export.** The same recipe over an export that
   carries a virtual accelerator, which is the only harvest that ends in a tree
-  the build can serve a model from. It runs one verb further and one refusal
+  the build can serve a model from. Its export enters the facility description
+  first: ``osprey facility import mml`` stops over the preset's authored record
+  sources and prints one ``rm`` line per file, the recipe removes exactly those,
+  installs the tree's reviewed ``imported/mml/mapping.yaml`` and imports. The
+  seeded ``limits.yaml`` holds each band as the export states it, so the build
+  then stops ``seed-invalid`` while a setpoint starts outside its band;
+  ``facility validate`` names each one, and the recipe widens exactly the
+  records those lines name before it builds.
+  Past that it runs one verb further and one refusal
   further still -- the demo's own machine documents, which only a harvest
   carrying a machine replaces -- and the claims it makes are about what ``osprey build`` then
   published: the manifest is partitioned by the harvest's own bindings, the
@@ -41,9 +49,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shlex
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -175,6 +185,30 @@ DEMO_CHANNELLED_SCENARIOS, DEMO_PLAIN_SCENARIOS = _packaged_scenarios()
 #: Where the build publishes the served tree, relative to the repo.
 SERVED = "build/data/simulation"
 
+#: The facility description of a deployment, and the limits file an import
+#: seeds into it, both relative to the repo.
+FACILITY_DIR = "data/facility"
+FACILITY_LIMITS = f"{FACILITY_DIR}/limits.yaml"
+
+#: The first line of the stop ``facility import mml`` prints over authored
+#: record sources; one ``rm`` line per file follows it.
+AUTHORED_PRESENT = "import mml: authored-present: "
+
+#: The line a build stage prints for a setpoint that starts outside its band:
+#: the address, the nominal it starts at, the side it lies on and the edge of
+#: the limits record it lies beyond.
+SEED_INVALID = re.compile(
+    r"^facility: seed-invalid: channel (?P<address>.+?) — nominal (?P<nominal>\S+) lies "
+    r"(?P<side>above|below) `(?P<edge>min_value|max_value)` \S+; "
+    r"fix: .*widen the limits record$"
+)
+
+#: The response-check line of the synthetic tree's one model.
+SYNTHETIC_RESPONSE_LINES = ("response check SR: model BPMx/HC inside band 1.000 (pass at 0.99)",)
+
+#: The first words of every line the response check prints.
+RESPONSE_CHECK = "response check "
+
 
 def invoke(runner: CliRunner, *args: str) -> Result:
     """Run one ``osprey`` verb and insist it succeeded.
@@ -209,6 +243,172 @@ def harvest(runner: CliRunner, repo: Path, export: Path) -> None:
     """
     invoke(runner, "mml", "import", str(export), "--repo", str(repo))
     shutil.copy(SOURCE / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
+
+
+def facility_mapping(fixture: Path) -> Path:
+    """The reviewed mapping ``facility import mml`` reads, committed beside a tree."""
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
+    return fixture / MAPPING_FILE
+
+
+def clear_authored(runner: CliRunner, repo: Path, exports: Sequence[str]) -> tuple[str, ...]:
+    """Obey the stop ``facility import mml`` makes over a preset's authored sources.
+
+    The verb stops before it reads an export while an authored record source is
+    present, and prints the ``rm`` line of each. Every path removed here was
+    named by one of those lines, one path per line.
+
+    Returns:
+        The removed paths, in the order they were printed.
+    """
+    stopped = runner.invoke(
+        cli, ["facility", "import", "mml", *exports, "--repo", str(repo)], catch_exceptions=False
+    )
+    assert stopped.exit_code == 1, stopped.output
+    lines = stopped.stderr.splitlines()
+    assert lines and lines[0].startswith(AUTHORED_PRESENT), stopped.stderr
+    assert all(line.startswith("rm ") for line in lines[1:]), stopped.stderr
+
+    removed: list[str] = []
+    for line in lines[1:]:
+        (named,) = remove_named(repo, line)
+        removed.append(named)
+    return tuple(removed)
+
+
+def import_facility(runner: CliRunner, repo: Path, exports: Sequence[str], mapping: Path) -> Result:
+    """Install the reviewed mapping and write the exports as the mml layer's sources.
+
+    Every export of a facility goes in one call, as the verb takes them.
+    """
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
+    target = repo / FACILITY_DIR / MAPPING_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(mapping, target)
+    return invoke(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
+
+
+def seed_stops(stderr: str) -> dict[str, tuple[str, float]]:
+    """Every ``seed-invalid`` line of *stderr*: address -> the edge and the stated nominal."""
+    stops: dict[str, tuple[str, float]] = {}
+    for line in stderr.splitlines():
+        match = SEED_INVALID.match(line)
+        if match is None:
+            continue
+        expected_edge = "max_value" if match["side"] == "above" else "min_value"
+        assert match["edge"] == expected_edge, line
+        stops[match["address"]] = (match["edge"], float(match["nominal"]))
+    return stops
+
+
+def widen_limits_record(limits: Path, address: str, edge: str, nominal: float) -> None:
+    """Move one edge of one limits record out to hold *nominal*; change no other line.
+
+    The stop states the nominal to six significant digits, so the edge is set to
+    the whole number at or beyond it rather than to the stated digits.
+    """
+    value = float(math.ceil(nominal) if edge == "max_value" else math.floor(nominal))
+    lines = limits.read_text(encoding="utf-8").split("\n")
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("- address:") and yaml.safe_load(line[2:])["address"] == address
+    ]
+    assert len(starts) == 1, f"{address} has {len(starts)} limits records in {limits}"
+    end = next(
+        (index for index in range(starts[0] + 1, len(lines)) if not lines[index].startswith("  ")),
+        len(lines),
+    )
+    edges = [index for index in range(starts[0] + 1, end) if lines[index].startswith(f"  {edge}:")]
+    assert len(edges) == 1, f"{address} states {edge} {len(edges)} times in {limits}"
+    lines[edges[0]] = f"  {edge}: {value}"
+    limits.write_text("\n".join(lines), encoding="utf-8")
+
+
+def apply_seed_invalid_remedies(
+    runner: CliRunner, repo: Path, *, responses: Sequence[str] | None = None
+) -> tuple[str, ...]:
+    """Widen the limits record of every ``seed-invalid`` stop the tree prints.
+
+    ``osprey facility validate`` runs the build's own stages and writes nothing,
+    so its stderr is where the stops are read. Each line names one address, and
+    exactly that record of the deployment's ``data/facility/limits.yaml`` is
+    widened to hold the nominal the line states. The verb then runs once more,
+    render included, and must print the tree's response-check lines and
+    nothing else.
+
+    Args:
+        runner: The CLI runner.
+        repo: The deployment repo.
+        responses: The response-check lines the clean run prints, in order; when
+            omitted, every line it prints must be a response-check line.
+
+    Returns:
+        The widened addresses, in the order the stops were printed.
+    """
+    where = ["facility", "validate", "--repo", str(repo)]
+    stopped = runner.invoke(cli, where, catch_exceptions=False)
+    stops = seed_stops(stopped.stderr)
+    if stops:
+        assert stopped.exit_code == 1, stopped.output
+        assert len(stops) == len(stopped.stderr.splitlines()), stopped.stderr
+    for address, (edge, nominal) in stops.items():
+        widen_limits_record(repo / FACILITY_LIMITS, address, edge, nominal)
+
+    clean = runner.invoke(cli, where, catch_exceptions=False)
+    assert clean.exit_code == 0, clean.output
+    printed = clean.stderr.splitlines()
+    if responses is None:
+        assert all(line.startswith(RESPONSE_CHECK) for line in printed), clean.stderr
+    else:
+        assert printed == list(responses), clean.stderr
+    return tuple(stops)
+
+
+def expected_seed_stops(tree: str) -> frozenset[str]:
+    """The setpoints a fixture tree's build stops on once its exports are imported.
+
+    The synthetic tree plants one corrector outside its band; the other trees'
+    stops are the records their build case widens. Both are read from the
+    seed-once module, so a wiring change that removes a stop fails there too.
+    """
+    from tests.facility.test_mml_layer_seed_once import OUTSIDE, WIDENED
+
+    if tree == "synthetic":
+        return frozenset({OUTSIDE})
+    return frozenset(WIDENED.get(tree, {}))
+
+
+def expected_response_lines(tree: str) -> tuple[str, ...]:
+    """The response-check lines a fixture tree's clean ``facility validate`` prints."""
+    from tests.facility.test_response_check import NSLS2_LINES, SPEAR3_LINE
+
+    return {
+        "nsls2": tuple(NSLS2_LINES),
+        "spear3": (SPEAR3_LINE,),
+        "synthetic": SYNTHETIC_RESPONSE_LINES,
+    }[tree]
+
+
+def build_past_the_seed_stops(
+    runner: CliRunner, repo: Path, *, responses: Sequence[str] | None = None
+) -> tuple[Result, tuple[str, ...], Result]:
+    """Run ``osprey build`` into its ``seed-invalid`` stops, remedy them and build.
+
+    Returns:
+        The stopped build (or the clean one, on a tree with no stop), the
+        addresses whose limits records were widened, and the build that passed.
+    """
+    arguments = ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
+    stopped = runner.invoke(cli, arguments, catch_exceptions=False)
+    remedied = apply_seed_invalid_remedies(runner, repo, responses=responses)
+    if not remedied:
+        assert stopped.exit_code == 0, stopped.output
+        return stopped, remedied, stopped
+    assert stopped.exit_code != 0, stopped.output
+    return stopped, remedied, invoke(runner, *arguments)
 
 
 def emit(runner: CliRunner, repo: Path, *args: str) -> Result:
@@ -434,8 +634,13 @@ def served_repo(
     committed with the fixture answers the block, and ``emit`` writes the ring
     and the bindings the build then publishes.
 
-    The build runs twice. The second run is what says the published tree is a
-    function of the harvest and not of the run that wrote it.
+    Before any of that the same exports enter the facility description through
+    ``facility import mml``, past the stop it makes over the preset's authored
+    sources, and the first build runs into the ``seed-invalid`` stops the
+    imported tree carries; ``build_past_the_seed_stops`` applies their remedy.
+
+    The build then runs twice. The second run is what says the published tree
+    is a function of the harvest and not of the run that wrote it.
     """
     fixture = FIXTURES / request.param
     exports = sorted(str(path) for path in fixture.glob("*.ao.json"))
@@ -445,6 +650,8 @@ def served_repo(
     repo = tmp_path_factory.mktemp(f"recipe-served-{request.param}") / "demo"
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
+    cleared = clear_authored(runner, repo, exports)
+    import_facility(runner, repo, exports, facility_mapping(fixture))
     invoke(runner, "mml", "import", *exports, "--repo", str(repo))
     shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
 
@@ -452,7 +659,9 @@ def served_repo(
     invoke(runner, "set", "--repo", str(repo), *served_settings(facility_prefix(fixture)))
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
+    stopped, remedied, build = build_past_the_seed_stops(
+        runner, repo, responses=expected_response_lines(request.param)
+    )
     first = published(repo)
     first_env = env_values(repo)
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
@@ -460,6 +669,9 @@ def served_repo(
     return {
         "fixture": request.param,
         "repo": repo,
+        "cleared": cleared,
+        "stopped": stopped,
+        "remedied": remedied,
         "rounds": rounds,
         "emit": emitted.output,
         "validate": validate.output,
@@ -839,6 +1051,104 @@ class TestServedFromATwoZeroExport:
 
         assert published(repo) == served_repo["first"]
         assert env_values(repo) == served_repo["first_env"]
+
+
+class TestTheFacilityImportOfATwoZeroExport:
+    """What ``facility import mml`` asks of the preset, and what the build then stops on.
+
+    Read off the ``served_repo`` harvest above. The import comes before ``mml
+    emit`` in that recipe, so everything here is about a tree both verbs wrote
+    into.
+    """
+
+    def test_the_import_stops_over_every_authored_record_source_of_the_preset(
+        self, served_repo: dict
+    ) -> None:
+        """One ``rm`` line per file, and never ``classes.yaml``.
+
+        The preset ships no ``classes.yaml``, so the import seeds the tree's
+        own classes and the build reaches the limits records rather than
+        stopping on a class nothing declares.
+        """
+        cleared = served_repo["cleared"]
+        facility = served_repo["repo"] / FACILITY_DIR
+
+        assert cleared == tuple(sorted(cleared))
+        assert f"{FACILITY_DIR}/records/channels.yaml" in cleared
+        assert all(path.startswith(f"{FACILITY_DIR}/") for path in cleared)
+        assert not (PACKAGED_DATA / "facility" / "classes.yaml").exists()
+        assert (facility / "classes.yaml").is_file()
+        assert (facility / "imported" / "mml" / "channels.yaml").is_file()
+
+    def test_the_build_stops_on_each_setpoint_outside_its_band_until_it_is_widened(
+        self, served_repo: dict
+    ) -> None:
+        """The stops are the tree's own, and the remedy touched exactly those records.
+
+        ``osprey build`` stops on the first of them; ``facility validate``
+        prints them all, and that is the set the remedy was read from.
+        """
+        expected = expected_seed_stops(served_repo["fixture"])
+        stopped = served_repo["stopped"]
+        named = set(seed_stops(stopped.stderr))
+
+        assert expected, f"{served_repo['fixture']} plants no stop to pass"
+        assert stopped.exit_code != 0
+        assert named and named <= expected
+        assert len(served_repo["remedied"]) == len(expected)
+        assert set(served_repo["remedied"]) == expected
+
+    @pytest.mark.parametrize("served_repo", ["synthetic"], indirect=True)
+    def test_the_synthetic_harvest_stops_on_its_one_planted_corrector(
+        self, served_repo: dict
+    ) -> None:
+        """One line, naming the corrector the export starts outside its own ``Range``."""
+        (address,) = expected_seed_stops("synthetic")
+        lines = [
+            line
+            for line in served_repo["stopped"].stderr.splitlines()
+            if line.startswith("facility: ")
+        ]
+
+        assert lines == [
+            f"facility: seed-invalid: channel {address} — nominal 1.5 lies above `max_value` 1; "
+            "fix: move the operating point inside [min_value, max_value], or widen the limits "
+            "record"
+        ]
+        assert served_repo["remedied"] == (address,)
+        limits = yaml.safe_load((served_repo["repo"] / FACILITY_LIMITS).read_text(encoding="utf-8"))
+        (record,) = [row for row in limits["records"] if row["address"] == address]
+        assert record == {
+            "address": address,
+            "min_value": -1.0,
+            "max_value": 2.0,
+            "writable": True,
+        }
+
+    def test_the_remedy_changes_no_other_line_of_the_seeded_limits(
+        self, served_repo: dict, tmp_path: Path
+    ) -> None:
+        """A fresh import of the same exports differs only in the widened edges."""
+        from osprey.facility.layers.mml.importer import import_mml
+        from osprey.facility.layers.mml.mapping import MAPPING_FILE
+        from osprey.facility.layers.mml.seed import HEADER
+
+        fixture = FIXTURES / served_repo["fixture"]
+        fresh = tmp_path / FACILITY_DIR
+        (fresh / MAPPING_FILE).parent.mkdir(parents=True)
+        shutil.copyfile(facility_mapping(fixture), fresh / MAPPING_FILE)
+        import_mml(sorted(fixture.glob("*.ao.json")), fresh)
+
+        seeded = (fresh / "limits.yaml").read_text(encoding="utf-8").splitlines()
+        remedied = (served_repo["repo"] / FACILITY_LIMITS).read_text(encoding="utf-8").splitlines()
+
+        assert remedied[0] == HEADER
+        assert len(remedied) == len(seeded)
+        changed = [index for index, line in enumerate(seeded) if line != remedied[index]]
+        assert len(changed) == len(served_repo["remedied"])
+        assert all(
+            seeded[index].lstrip().startswith(("min_value:", "max_value:")) for index in changed
+        )
 
 
 def _collapsed(text: str) -> str:

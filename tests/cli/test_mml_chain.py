@@ -1,9 +1,12 @@
 """The whole ``osprey mml`` chain, run on every committed fixture.
 
 ``import`` → ``map --init`` → the fixture's reviewed ``mapping.yaml`` →
-``map --check`` → ``emit --duckdb``, twice, under ``CliRunner``. The single
-chain each fixture gets is shared by every assertion in this module, so what is
-pinned here is one facility installed the way a facility is installed:
+``map --check`` → ``emit --duckdb``, twice, under ``CliRunner``. A fixture tree
+that commits ``imported/mml/mapping.yaml`` enters the facility description
+first: ``facility import mml`` writes every export of the tree, in one call,
+before ``emit`` runs. The single chain each fixture gets is shared by every
+assertion in this module, so what is pinned here is one facility installed the
+way a facility is installed:
 
 * the chain stays green and a second pass changes no byte of any emitted file
   except the DuckDB one, whose ``channels`` row count is the export's distinct
@@ -75,6 +78,9 @@ from tests.cli.test_mml_import_chain import FIXTURE_IMPORTS
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
+#: Where ``facility import mml`` writes, relative to ``data/``.
+FACILITY = "facility/"
+
 #: The fixture trees a 2.0 export commits, discovered rather than listed: the
 #: virtual accelerator of an export lives in its ``*.va.json`` sibling, so a
 #: directory that carries one chains all the way through ``verify``. A tree
@@ -115,6 +121,8 @@ class Pass:
     Attributes:
         artifacts: Every emitted non-DuckDB file under ``data/``, keyed by its
             path relative to the repo root.
+        facility: Every file under ``data/facility/``, keyed the same way;
+            empty on a chain that ran no ``facility import mml``.
         duck: The ``channels`` and ``systems`` row counts of the DuckDB import.
         emit: Everything ``mml emit`` reported on that pass, for the lines it
             says rather than writes.
@@ -123,6 +131,7 @@ class Pass:
     """
 
     artifacts: dict[str, bytes]
+    facility: dict[str, bytes]
     duck: dict[str, int]
     emit: str
     verify: str | None
@@ -186,7 +195,8 @@ def _artifacts(root: Path) -> dict[str, bytes]:
 
     ``data/mml/`` holds the chain's inputs rather than its output, and the
     DuckDB file timestamps every row it imports, so neither is comparable
-    between passes.
+    between passes. ``data/facility/`` is what ``facility import mml`` wrote,
+    not ``emit``, and is read by :func:`_facility_files`.
     """
     data = root / "data"
     return {
@@ -194,8 +204,25 @@ def _artifacts(root: Path) -> dict[str, bytes]:
         for path in sorted(data.rglob("*"))
         if path.is_file()
         and path.suffix != ".duckdb"
-        and not path.relative_to(data).as_posix().startswith("mml/")
+        and not path.relative_to(data).as_posix().startswith(("mml/", FACILITY))
     }
+
+
+def _facility_files(root: Path) -> dict[str, bytes]:
+    """Every file under ``data/facility/``, keyed by path relative to the repo."""
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted((root / "data" / FACILITY).rglob("*"))
+        if path.is_file()
+    }
+
+
+def facility_mapping_of(tree: Path) -> Path | None:
+    """The reviewed mapping ``facility import mml`` reads, where a tree commits one."""
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
+    mapping = tree / MAPPING_FILE
+    return mapping if mapping.is_file() else None
 
 
 def _duck_counts(path: Path) -> dict[str, int]:
@@ -221,12 +248,18 @@ def run_chain(
     name: str,
     passes: int = 2,
     verify: bool = False,
+    facility_mapping: Path | None = None,
 ) -> Chain:
     """Install one facility from its export, ``passes`` times over.
 
     The reviewed mapping is copied over the skeleton ``map --init`` writes, as
     a facility's own review would leave it; every later pass re-inits with
     ``--force`` so the whole chain runs, not only its tail.
+
+    With ``facility_mapping`` the same exports enter the facility description
+    on every pass, in one ``facility import mml`` call, before ``emit`` runs.
+    That mapping is installed once: the first import moves its ``facility:``
+    block into ``identity.yaml``, and the file is the deployment's from then on.
 
     Args:
         root: The deployment repo to build in. Created if absent.
@@ -238,14 +271,22 @@ def run_chain(
         verify: Whether each pass ends in ``mml verify``. Only an export that
             carries a virtual accelerator has one to verify; the report lands
             under ``data/mml/``, which is not part of the emitted tree.
+        facility_mapping: The reviewed ``imported/mml/mapping.yaml`` to install
+            for ``facility import mml``, or ``None`` to run no such import.
 
     Returns:
         The finished chain, with one :class:`Pass` per run.
     """
     root.mkdir(parents=True, exist_ok=True)
-    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+    (root / "profile.yml").write_text("name: scratch\ndata: data\n", encoding="utf-8")
     where = ("--repo", str(root))
     mapping_path = root / "data" / "mml" / "mapping.yaml"
+    if facility_mapping is not None:
+        from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
+        installed = root / "data" / FACILITY / MAPPING_FILE
+        installed.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(facility_mapping, installed)
 
     records: list[Pass] = []
     for index in range(passes):
@@ -253,11 +294,14 @@ def run_chain(
         _run("mml", "map", "--init", *(("--force",) if index else ()), *where)
         shutil.copy(mapping_source, mapping_path)
         _run("mml", "map", "--check", *where)
+        if facility_mapping is not None:
+            _run("facility", "import", "mml", *inputs, *where)
         emit = _run("mml", "emit", "--duckdb", *where)
         checked = _run("mml", "verify", *where).output if verify else None
         records.append(
             Pass(
                 artifacts=_artifacts(root),
+                facility=_facility_files(root),
                 duck=_duck_counts(root / "data/channel_databases/middle_layer.duckdb"),
                 emit=emit.output,
                 verify=checked,
@@ -294,6 +338,7 @@ def chains(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], Chain]:
                 flags,
                 FIXTURES / name / "mapping.yaml",
                 name=name,
+                facility_mapping=facility_mapping_of(FIXTURES / name),
             )
         return built[name]
 
@@ -329,6 +374,7 @@ def two_zero_chains(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str],
                 FIXTURES / name / "mapping.yaml",
                 name=name,
                 verify=True,
+                facility_mapping=facility_mapping_of(FIXTURES / name),
             )
         return built[name]
 
@@ -765,6 +811,27 @@ class TestTheVirtualAcceleratorChain:
 
         assert set(first.artifacts) >= set(VA_ARTIFACTS)
         assert second.artifacts == first.artifacts
+
+    def test_the_exports_entered_the_facility_description_before_emit(
+        self, two_zero_chain: Chain
+    ) -> None:
+        """The import wrote the layer's records, and a second one changed no byte.
+
+        The channels the layer holds are the ones ``emit`` then bound: every
+        address the bindings drive is a channel of the imported records.
+        """
+        from osprey.facility.layers.mml.importer import LAYER_DIR
+
+        first, second = two_zero_chain.passes[0], two_zero_chain.passes[1]
+        records = f"data/{FACILITY}{LAYER_DIR}/channels.yaml"
+
+        assert records in first.facility
+        assert second.facility == first.facility
+        imported = {channel["id"] for channel in yaml.safe_load(first.facility[records])}
+        bound = set(
+            setpoints(load_bindings(two_zero_chain.root / "data/simulation/va_bindings.json"))
+        )
+        assert bound and bound <= imported, sorted(bound - imported)
 
     def test_every_bound_address_is_one_the_chain_kept(self, two_zero_chain: Chain) -> None:
         # The machine is driven through the same addresses the deployment
