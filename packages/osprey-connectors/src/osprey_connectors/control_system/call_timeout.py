@@ -18,7 +18,7 @@ DEFAULT_TIMEOUT_S = 5.0
 #: The connector block's key for that bound.
 TIMEOUT_KEY = "timeout_s"
 
-#: The spelling the connector block no longer reads.
+#: The other spelling of that key, refused wherever a config carries it.
 _RENAMED_KEY = "timeout"
 
 #: Every old-spelled key, as the dotted path a whole config names it by.
