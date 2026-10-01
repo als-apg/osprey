@@ -40,7 +40,6 @@ from typing import Any
 
 from .database import read_database_roster, resolve_limits_path
 from .graph import read_graph_roster
-from .pairing import assign_readbacks
 from .records import (
     ABSENCE_TEMPLATES,
     SOURCE_LABELS,

@@ -366,25 +366,22 @@ class TestAddressTokenVocabularyHasOneProducer:
     """
 
     def test_every_consumer_reads_the_same_constants(self) -> None:
-        from osprey.channel_roster import database, pairing, records
+        from osprey.channel_roster import database, records
 
         assert records.WRITE_SUBFIELD == "SP"
         assert records.READBACK_SUBFIELD == "RB"
         assert records.ADDRESS_SEPARATOR == ":"
-        for module in (pairing, database):
-            assert module.WRITE_SUBFIELD is records.WRITE_SUBFIELD
-            assert module.ADDRESS_SEPARATOR is records.ADDRESS_SEPARATOR
-        assert pairing.READBACK_SUBFIELD is records.READBACK_SUBFIELD
+        assert database.WRITE_SUBFIELD is records.WRITE_SUBFIELD
+        assert database.ADDRESS_SEPARATOR is records.ADDRESS_SEPARATOR
 
     def test_no_reader_declares_a_vocabulary_of_its_own(self) -> None:
         import inspect
 
-        from osprey.channel_roster import database, pairing, records
+        from osprey.channel_roster import database, records
 
-        for module in (pairing, database):
-            source = inspect.getsource(module)
-            for name in ("WRITE_SUBFIELD", "READBACK_SUBFIELD", "ADDRESS_SEPARATOR"):
-                assert f"{name} = " not in source, f"{module.__name__} declares {name}"
+        source = inspect.getsource(database)
+        for name in ("WRITE_SUBFIELD", "READBACK_SUBFIELD", "ADDRESS_SEPARATOR"):
+            assert f"{name} = " not in source, f"{database.__name__} declares {name}"
         producer = inspect.getsource(records)
         assert 'WRITE_SUBFIELD = "SP"' in producer
         assert 'READBACK_SUBFIELD = "RB"' in producer

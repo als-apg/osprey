@@ -95,8 +95,7 @@ _BINDING_ID_IRI = _NARAD_P + "bindingId"
 #: ``GapMonitor`` for an insertion device's gap). The same two field names the
 #: facility-knowledge seeder reads off a binding
 #: (``seeder/ttl_seeder._binding_channel_name``). This is the corpus stating
-#: a pair; the ``:SP``/``:RB`` address grammar in :mod:`.pairing` is the
-#: fallback for the records a corpus groups nothing with.
+#: a pair.
 SETPOINT_FIELD_SUFFIX = "Setpoint"
 MONITOR_FIELD_SUFFIX = "Monitor"
 
@@ -128,10 +127,7 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
         facility would be a lie with a source attached. A settable record
         carries the readback the corpus itself stated for it -- the
         ``<stem>Monitor`` binding beside its ``<stem>Setpoint`` binding on the
-        same device (:func:`_corpus_readbacks`); the records the corpus pairs
-        nothing with are left to the address-grammar pass in
-        :mod:`osprey.channel_roster.pairing`, which never overrides a readback
-        the source stated.
+        same device (:func:`_corpus_readbacks`).
     """
     from osprey.services.channel_finder.graph_index.reader import (
         GraphIndexAbsence,
