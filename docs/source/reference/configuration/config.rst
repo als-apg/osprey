@@ -279,7 +279,7 @@ you normally configure nothing.
      auto:
        mcp:
          enabled: true        # default true — set false to drop the category
-         url_key: host_url    # which URL to probe (see below)
+         url_key: host_url    # which URL to probe (see below; set by the build when web terminals are served)
 
 A server is included when its ``claude_code.servers`` block carries a ``url`` and
 a ``network`` block with a URL to reach it. Servers without those are skipped.
@@ -290,14 +290,19 @@ server seen from the machine, ``http://localhost:<port>/mcp``) and ``docker_url`
 category picks one automatically:
 
 - If you set ``url_key`` explicitly, that choice is always used.
+- A deployment that serves web terminals has the choice made for it. The
+  terminals run on the host's network, where a compose service name does not
+  resolve, so ``osprey build`` writes ``url_key: host_url`` into each render,
+  persona renders included. That is the same address the agent dials. Setting
+  the key to anything else in such a profile is refused at build time.
 - Otherwise the framework detects whether the health check is itself running
   inside a container — the runtime's own marker file, ``/.dockerenv`` under
   Docker or ``/run/.containerenv`` under Podman, or an ``OSPREY_IN_CONTAINER``
   environment variable you set yourself — and uses ``docker_url`` when
   containerized, ``host_url`` on a plain host. Nothing in the shipped
-  deployment sets that variable; set ``url_key`` explicitly when the automatic
-  answer is wrong for your network layout (a host-networked container is in a
-  container but cannot resolve compose service names).
+  deployment sets that variable. This detection decides only for a render
+  without web terminals; such a render sets ``url_key`` when the detected
+  answer is wrong for its network.
 
 **Expected tools.** If a server block declares ``permissions`` (its ``allow``
 and ``ask`` tool lists), the derived check also confirms the server actually
@@ -311,7 +316,9 @@ a plain reachability check.
    ``config.yml`` — a server named ``matlab`` is probed at ``http://matlab:…``.
    If your compose service is named differently, the probe points at a host that
    does not exist. Either rename the service to match the key, or set
-   ``url_key: host_url`` to probe the localhost URL instead.
+   ``url_key: host_url`` to probe the localhost URL instead. A deployment that
+   serves web terminals always probes ``host_url``, so this caveat applies only
+   where ``docker_url`` is in use.
 
 Timeouts
 ~~~~~~~~
