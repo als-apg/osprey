@@ -139,6 +139,20 @@ def test_extend_include_names_only_extensionless_python_scripts() -> None:
         assert _is_python_script(entry, modes[entry]), f"{entry} is not a Python script"
 
 
+def test_extend_exclude_hides_only_the_generated_schema_modules() -> None:
+    excluded = _extend_exclude()
+    hidden = {
+        path
+        for path in _tracked_modes()
+        if path.endswith(PYTHON_SUFFIXES)
+        and any(path == entry or path.startswith(entry.rstrip("/") + "/") for entry in excluded)
+    }
+    assert hidden == {
+        "src/osprey/facility/schema/_generated/__init__.py",
+        "src/osprey/facility/schema/_generated/core.py",
+    }, "extend-exclude hides tracked Python files ruff should lint, or the generated set moved"
+
+
 def test_every_ruff_invocation_checks_the_whole_repository() -> None:
     narrowed = []
     for surface in INVOCATION_SURFACES:
