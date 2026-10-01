@@ -70,7 +70,7 @@ from osprey.port_layout import (
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
+from osprey_connectors.types import CONTROL_TARGETS, configured_targets, target_writes_enabled
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -1202,6 +1202,13 @@ class TestControlAssistantPersonas:
         assert "mcp__osprey_facility_knowledge__draft_concept" in settings["permissions"]["deny"]
 
 
+#: The two standalone personas, which reach no machine.
+STANDALONE_PERSONAS = ("control-assistant-knowledge", "control-assistant-logbook")
+
+#: ``control_system.connector.<type>.writes_enabled``, any type.
+_PER_TYPE_WRITE_KEY = re.compile(r"control_system\.connector\.[^.]+\.writes_enabled")
+
+
 # ---------------------------------------------------------------------------
 # Write posture, per control target, across every shipped preset
 # ---------------------------------------------------------------------------
@@ -1246,8 +1253,9 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     # flat key. One machine armed, the two hardware-shaped ones not.
     "control-assistant-admin": {"live": False, "va": True, "standin": False},
     "control-assistant-readwrite": {"live": False, "va": True, "standin": False},
-    # The standalone logbook tier pins the flat key off and writes no per-type
-    # block, so every target inherits the off.
+    # The standalone logbook persona pins the flat key off AND the epics and
+    # virtual_accelerator blocks, like the knowledge persona and the read-only
+    # tier, so a profile that arms either type cannot arm it here.
     "control-assistant-logbook": {"live": False, "va": False, "standin": False},
     # The standalone knowledge persona pins the flat key off AND the epics and
     # virtual_accelerator blocks, like the read-only tier: it has no control
@@ -1328,6 +1336,39 @@ class TestWritePostureMatrix:
         # Flat dotted keys, never a nested `control_system:` mapping — which
         # would replace the rendered subtree and drop the sibling keys.
         assert "control_system" not in profile.config
+
+    def test_the_logbook_persona_pins_what_the_knowledge_persona_pins(self) -> None:
+        """The two standalone personas state the write boundary the same way:
+        the same write keys, every one off, so a profile that arms epics or
+        the simulator per type cannot arm it for either."""
+        pins = {
+            preset: {
+                key: value
+                for key, value in resolve_preset(preset).config.items()
+                if key == WRITES_KEY or _PER_TYPE_WRITE_KEY.fullmatch(str(key))
+            }
+            for preset in STANDALONE_PERSONAS
+        }
+
+        assert pins["control-assistant-logbook"] == pins["control-assistant-knowledge"]
+        assert pins["control-assistant-logbook"] == {
+            WRITES_KEY: False,
+            EPICS_WRITES_KEY: False,
+            VA_WRITES_KEY: False,
+        }
+
+    @pytest.mark.parametrize("preset", STANDALONE_PERSONAS)
+    def test_the_standalone_personas_keep_the_hosting_presets_targets(
+        self, tmp_path: Path, preset: str
+    ) -> None:
+        """The write pins change what a login may do, never which machines it
+        has: the persona's configured targets are the hosting preset's."""
+        (tmp_path / "persona").mkdir()
+        (tmp_path / "root").mkdir()
+        section = _rendered_control_system(tmp_path / "persona", preset)
+        hosting = _rendered_control_system(tmp_path / "root", "control-assistant")
+
+        assert configured_targets(section) == configured_targets(hosting)
 
     def test_readwrite_is_armed_on_the_simulator_alone(self, tmp_path: Path) -> None:
         """The same tool call writes on one machine and refuses on the other
