@@ -80,6 +80,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Endpoint,
     derive_endpoints,
 )
+from osprey.utils.seconds import positive_seconds
 from osprey_connectors.types import configured_targets
 
 logger = logging.getLogger(__name__)
@@ -218,7 +219,7 @@ class EndpointProber:
         )
         self._connect_timeout_s = float(connect_timeout_s)
         self._interval_s = (
-            _positive_float(interval_s, DEFAULT_PROBE_INTERVAL_S)
+            _interval_or_default(interval_s)
             if interval_s is not None
             else _configured_interval(config)
         )
@@ -449,13 +450,10 @@ class EndpointProber:
 # ---------------------------------------------------------------------------
 
 
-def _positive_float(value: Any, default: float) -> float:
-    """*value* as a positive float, or *default* when it is neither."""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    return number if number > 0 else default
+def _interval_or_default(value: object) -> float:
+    """*value* as a positive number of seconds, or :data:`DEFAULT_PROBE_INTERVAL_S`."""
+    seconds = positive_seconds(value)
+    return DEFAULT_PROBE_INTERVAL_S if seconds is None else seconds
 
 
 def _section(config: Any) -> Any:
@@ -477,6 +475,4 @@ def _configured_interval(config: Any) -> float:
         section = section.get(part)
     if not isinstance(section, dict):
         return DEFAULT_PROBE_INTERVAL_S
-    return _positive_float(
-        section.get(PROBE_INTERVAL_KEY.rsplit(".", 1)[1]), DEFAULT_PROBE_INTERVAL_S
-    )
+    return _interval_or_default(section.get(PROBE_INTERVAL_KEY.rsplit(".", 1)[1]))
