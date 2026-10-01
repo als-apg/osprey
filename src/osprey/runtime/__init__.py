@@ -87,6 +87,7 @@ __all__ = [
     "write_channels",
     "cleanup_runtime",
     "ControlTargetChangedError",
+    "ControlTargetUnreachableError",
     "SwitchInProgressError",
 ]
 
@@ -153,6 +154,19 @@ class SwitchInProgressError(ControlTargetChangedError):
             f"{refusal}. A control-target switch is in progress on pid {named}; "
             "re-run the cell when the chip settles."
         )
+
+
+class ControlTargetUnreachableError(ControlTargetChangedError):
+    """The target moved, and this process's client cannot follow it.
+
+    Raised by :func:`_get_connector` when the connector rebuilt for a new stamp
+    is refused because the control-system client in this process is already
+    bound to another endpoint — pvapy reads its ``EPICS_CA_*`` /
+    ``EPICS_PVA_*`` environment once per process, so a kernel that moved
+    targets would otherwise reach the old gateway under the new target's
+    name. Nothing was read or written, and re-running the cell cannot help:
+    only a fresh process (a restarted kernel, a new sandbox) can.
+    """
 
 
 # Module-level state
@@ -335,6 +349,10 @@ async def _get_connector():
         SwitchInProgressError: If the kernel routed this cell nowhere because a
             control-target switch is in flight. Nothing is built, and the
             connector this process already holds is left alone.
+        ControlTargetUnreachableError: If the connector for the stamp cannot
+            be built in this process, because its client is bound to another
+            endpoint. Nothing is held afterwards, so every later call is
+            refused the same way rather than reaching the old target.
     """
     global _runtime_connector, _connector_stamp
 
@@ -359,9 +377,21 @@ async def _get_connector():
                     stamp[0],
                     config["type"],
                 )
-            _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=stamp[0]
-            )
+            from osprey_connectors.errors import ClientEndpointConflictError
+
+            try:
+                _runtime_connector = await ConnectorFactory.create_control_system_connector(
+                    config=config, control_target=stamp[0]
+                )
+            except ClientEndpointConflictError as exc:
+                where = (
+                    f"control target {stamp[0]!r}"
+                    if stamp[0] is not None
+                    else "the configured control system"
+                )
+                raise ControlTargetUnreachableError(
+                    f"This process cannot reach {where}. {exc}"
+                ) from exc
             _connector_stamp = stamp
 
     return _runtime_connector
@@ -549,7 +579,11 @@ def _run_async(coro) -> Any:
         # No running loop - we're in a subprocess, use asyncio.run()
         return asyncio.run(coro)
 
-    # If we have a running loop, we need to run in a new thread
+    # If we have a running loop, we need to run in a new thread. That thread is
+    # joined when the ``with`` block ends, so it must never call pvapy itself:
+    # on macOS a thread that did hangs forever on exit. Every pvapy call the
+    # EPICS connector makes, the limits net's step read included, runs on the
+    # connector's own never-exiting workers instead.
     import concurrent.futures
 
     with concurrent.futures.ThreadPoolExecutor() as executor:

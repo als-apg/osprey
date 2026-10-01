@@ -467,7 +467,8 @@ def _hint_for(value: BaseException) -> str | None:
     Every branch is read from the stamp this cell was given, so the hint and
     the connector's own refusal text answer from one state rather than from a
     flag the kernel would have to keep in step. A live-store refusal, a limits
-    violation and a switch in flight get no line: their own message already
+    violation, a switch in flight and a target this kernel can no longer
+    reach get no line: their own message already
     names what to do, and a second line would either repeat it or send the
     operator somewhere the message did not.
 
@@ -478,11 +479,15 @@ def _hint_for(value: BaseException) -> str | None:
         The line to print before the traceback, or ``None`` to print none.
     """
     from osprey.mcp_server.python_executor import executor
-    from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
+    from osprey.runtime import (
+        ControlTargetChangedError,
+        ControlTargetUnreachableError,
+        SwitchInProgressError,
+    )
     from osprey_connectors import posture_store
     from osprey_connectors.errors import ChannelWriteBlockedError
 
-    if isinstance(value, SwitchInProgressError):
+    if isinstance(value, SwitchInProgressError | ControlTargetUnreachableError):
         return None
     if isinstance(value, ControlTargetChangedError):
         return HINT_TARGET_CHANGED

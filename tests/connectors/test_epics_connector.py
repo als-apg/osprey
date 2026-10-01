@@ -17,6 +17,7 @@ a call carried, refusal reason — never merely that a call "didn't raise".
 import asyncio
 import os
 import sys
+import threading
 import time
 from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
@@ -1170,6 +1171,68 @@ class TestNothingSentIsFailed:
         assert "nothing was sent" in result.error_message
         assert result.refusal_reason is None
         assert connector._pvaccess.calls("put") == []
+
+    @pytest.mark.asyncio
+    async def test_pvapys_own_timeout_landing_on_the_deadline_is_still_failed(self, monkeypatch):
+        """Unreachable before the put was issued is FAILED, whichever timer fired first.
+
+        pvapy's own channel timeout can fire inside the worker at the very
+        moment the write's deadline does. The deadline is made to observe the
+        put as still running although the worker has already failed its
+        introspection with pvapy's "timed out" text — the interleaving that
+        used to escape as a raised ConnectionError.
+        """
+        from types import SimpleNamespace
+
+        from osprey_connectors.control_system import epics_connector as module
+
+        failed = threading.Event()
+
+        def unreachable():
+            failed.set()
+            raise FakePvaException("Channel SR:CH timed out.")
+
+        async def deadline_sees_it_still_running(futures, timeout=None):  # noqa: ARG001
+            failed.wait(5)  # blocks the loop: the outcome cannot reach the future yet
+            time.sleep(0.05)  # let the worker finish raising
+            return set(), set(futures)
+
+        loop_view = SimpleNamespace(
+            **{name: getattr(asyncio, name) for name in dir(asyncio) if not name.startswith("__")}
+        )
+        loop_view.wait = deadline_sees_it_still_running
+        monkeypatch.setattr(module, "asyncio", loop_view)
+
+        connector = _write_connector()
+        connector._pvaccess.introspection_hooks["SR:CH"] = unreachable
+
+        result = await connector.write_channel("SR:CH", 5.0, confirm=True, timeout=0.2)
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert "nothing was sent" in result.error_message
+        assert connector._pvaccess.calls("put") == []
+
+    @pytest.mark.asyncio
+    async def test_pvapys_own_timeout_racing_the_deadline_is_always_failed(self):
+        """The same race with real timers: every run reports FAILED, none raises."""
+
+        def unreachable_after(delay):
+            def hook():
+                time.sleep(delay)
+                raise FakePvaException("Channel SR:CH timed out.")
+
+            return hook
+
+        for attempt in range(24):
+            connector = _write_connector()
+            delay = 0.05 + 0.001 * (attempt - 12)
+            connector._pvaccess.introspection_hooks["SR:CH"] = unreachable_after(delay)
+
+            result = await connector.write_channel("SR:CH", 5.0, confirm=True, timeout=0.05)
+            await asyncio.sleep(0.1)  # let a stalled worker finish
+
+            assert result.outcome is WriteOutcome.FAILED, attempt
+            assert connector._pvaccess.calls("put") == []
 
     @pytest.mark.asyncio
     async def test_a_dead_channel_mid_batch_keeps_every_row(self):

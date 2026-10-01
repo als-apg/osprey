@@ -23,6 +23,7 @@ import re
 import threading
 import time
 import uuid
+import weakref
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypeVar
@@ -41,6 +42,7 @@ from osprey_connectors.control_system.limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     step_read_timeout_seconds,
 )
+from osprey_connectors.errors import ClientEndpointConflictError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import writes_enabled_key
 
@@ -731,6 +733,7 @@ class _EpicsWorkers:
         return future
 
     def _work(self) -> None:
+        _worker_local.active = True
         while True:
             future, fn, args = self._queue.get()
             if future.set_running_or_notify_cancel():
@@ -743,6 +746,119 @@ class _EpicsWorkers:
 
 
 _workers = _EpicsWorkers(max_workers=min(32, (os.cpu_count() or 1) + 4))
+
+
+#: Marks :data:`_workers`' own threads (``active`` is set on each).
+_worker_local = threading.local()
+
+
+def _on_worker() -> bool:
+    """True on one of :data:`_workers`' threads."""
+    return bool(getattr(_worker_local, "active", False))
+
+
+# ----------------------------------------------------------------------
+# The endpoint each provider is bound to, per process
+# ----------------------------------------------------------------------
+
+#: The environment variables that name a provider's endpoint — the ones
+#: ``connect()`` sets — keyed by provider (``"ca"`` / ``"pva"``).
+_ENDPOINT_VARS: dict[str, tuple[str, ...]] = {
+    "ca": (
+        "EPICS_CA_ADDR_LIST",
+        "EPICS_CA_SERVER_PORT",
+        "EPICS_CA_NAME_SERVERS",
+        "EPICS_CA_AUTO_ADDR_LIST",
+    ),
+    "pva": ("EPICS_PVA_ADDR_LIST", "EPICS_PVA_NAME_SERVERS", "EPICS_PVA_AUTO_ADDR_LIST"),
+}
+
+#: An endpoint: each of a provider's :data:`_ENDPOINT_VARS` and its value
+#: (``None`` when unset).
+_Endpoint = dict[str, str | None]
+
+#: What each pvaccess module was bound to: the endpoint environment in force
+#: when this module created that client's FIRST channel of each provider.
+#: pvapy reads ``EPICS_CA_*`` / ``EPICS_PVA_*`` at that moment and never again,
+#: so this is the only endpoint the provider can reach for the rest of the
+#: process. Keyed by the module object rather than held as one global so a
+#: test's stand-in client carries its own record.
+_bound_endpoints: "weakref.WeakKeyDictionary[Any, dict[str, _Endpoint]]" = (
+    weakref.WeakKeyDictionary()
+)
+#: Serializes the record above against ``connect()``'s check-then-set of the
+#: environment, so a channel is never created between the two.
+_endpoint_lock = threading.Lock()
+
+
+def _provider(pva: bool) -> str:
+    return "pva" if pva else "ca"
+
+
+def _current_endpoint(provider: str) -> _Endpoint:
+    """The endpoint the process environment names for ``provider`` right now."""
+    return {var: os.environ.get(var) for var in _ENDPOINT_VARS[provider]}
+
+
+def _describe_endpoint(endpoint: _Endpoint, provider: str) -> str:
+    """``endpoint`` as ``VAR=value`` pairs, for an operator to compare."""
+    named = [f"{var}={value}" for var, value in endpoint.items() if value is not None]
+    return ", ".join(named) or f"no EPICS_{provider.upper()}_* variable set"
+
+
+def _endpoint_conflict(
+    pvaccess: Any, provider: str, requested: _Endpoint
+) -> ClientEndpointConflictError | None:
+    """The refusal for ``requested``, or ``None`` when the client can still reach it.
+
+    The caller holds :data:`_endpoint_lock`. A provider this client has not
+    bound yet can reach anything; one it has bound reaches only that.
+    """
+    bound = _bound_endpoints.get(pvaccess, {}).get(provider)
+    if bound is None or bound == requested:
+        return None
+    protocol = "PVAccess" if provider == "pva" else "Channel Access"
+    return ClientEndpointConflictError(
+        provider,
+        dict(bound),
+        dict(requested),
+        f"Refusing to connect the EPICS connector to the {protocol} endpoint "
+        f"[{_describe_endpoint(requested, provider)}]: this process's pvapy client is "
+        f"already bound to [{_describe_endpoint(bound, provider)}]. pvapy reads the "
+        f"EPICS_{provider.upper()}_* environment once per process, when its first "
+        f"{protocol} channel is created, so a connector built here would still talk to "
+        "the old endpoint. Nothing was read or written. Start a fresh process to reach "
+        "the new endpoint (restart the notebook kernel, or run the code in a new sandbox).",
+    )
+
+
+def _new_channel(
+    pvaccess: Any, channel_address: str, pva: bool, expected: dict[str, _Endpoint] | None
+) -> Any:
+    """Create a pvapy Channel, recording the endpoint its provider binds to.
+
+    The first channel of a provider binds it to the environment in force now;
+    that is recorded so a later ``connect()`` asking for another endpoint is
+    refused instead of silently reaching this one. ``expected`` is the
+    endpoint the creating connector configured (``None`` for one wired
+    without ``connect()``); a channel whose provider is bound elsewhere is
+    refused here too, for the connector that configured its endpoint and was
+    overtaken by another before its first channel.
+
+    Raises:
+        ClientEndpointConflictError: The provider is bound to an endpoint other
+            than ``expected``.
+    """
+    provider = _provider(pva)
+    with _endpoint_lock:
+        record = _bound_endpoints.setdefault(pvaccess, {})
+        if provider not in record:
+            record[provider] = _current_endpoint(provider)
+        if expected is not None and provider in expected:
+            conflict = _endpoint_conflict(pvaccess, provider, expected[provider])
+            if conflict is not None:
+                raise conflict
+        return pvaccess.Channel(channel_address, pvaccess.PVA if pva else pvaccess.CA)
 
 
 def _backstop(timeout: float) -> float:
@@ -891,6 +1007,10 @@ class EPICSConnector(ControlSystemConnector):
         # The pvaccess module, imported by connect() (never at module scope:
         # this file is held to import isolation).
         self._pvaccess: Any = None
+        # The endpoint environment connect() configured, per provider; checked
+        # again when a channel is created. None on a connector wired without
+        # connect().
+        self._endpoints: dict[str, _Endpoint] | None = None
         # PVA routing state. Empty globs => every address is Channel Access and
         # no PVA environment variable is set.
         self._pva_channel_globs: list[str] = []
@@ -940,10 +1060,17 @@ class EPICSConnector(ControlSystemConnector):
         creates no channel, so the variables it sets here are the ones that
         count — provided nothing else in this process opened a channel first.
         That is why a target switch is a new connector-host process, never a
-        second connect() in the same one.
+        second connect() in the same one — and why a second connect() in the
+        same process that needs a different endpoint than the one pvapy bound
+        to is refused rather than allowed to reach the old one silently. The
+        same endpoint reconnects freely.
 
         Raises:
             ImportError: If pvapy is not installed
+            ClientEndpointConflictError: If this process's pvapy client is
+                already bound to a different Channel Access (or, with
+                ``pva_channels``, PVAccess) endpoint. The environment is left
+                untouched and the connector stays unconnected.
         """
         # Import pvapy here (never at module scope) to give a clear error if it
         # is not installed, and to keep this module importable without it.
@@ -953,7 +1080,6 @@ class EPICSConnector(ControlSystemConnector):
             raise ImportError(
                 "pvapy is required for the EPICS connector. Install with: pip install pvapy"
             ) from None
-        self._pvaccess = pvaccess
 
         # Select the CA gateway. EPICS uses one process-wide context, so the
         # connector points at a single gateway. A read-only gateway rejects
@@ -992,6 +1118,10 @@ class EPICSConnector(ControlSystemConnector):
                     "reject writes. Configure gateways.write_access to enable hardware writes."
                 )
 
+        # What this connector sets in the environment, per variable (None
+        # unsets it). Worked out first and applied only once the client is
+        # known to still be able to reach it — see the check below.
+        ca_updates: dict[str, str | None] = {}
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
@@ -1005,30 +1135,19 @@ class EPICSConnector(ControlSystemConnector):
             # the connector's worker threads.
             if use_name_server:
                 # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
-                os.environ["EPICS_CA_NAME_SERVERS"] = f"{address}:{port}"
-                os.environ.pop("EPICS_CA_ADDR_LIST", None)
-                os.environ.pop("EPICS_CA_SERVER_PORT", None)
+                ca_updates["EPICS_CA_NAME_SERVERS"] = f"{address}:{port}"
+                ca_updates["EPICS_CA_ADDR_LIST"] = None
+                ca_updates["EPICS_CA_SERVER_PORT"] = None
                 logger.debug(f"Using EPICS_CA_NAME_SERVERS: {address}:{port}")
             else:
                 # Use CA_ADDR_LIST (standard gateway configuration)
-                os.environ["EPICS_CA_ADDR_LIST"] = address
-                os.environ["EPICS_CA_SERVER_PORT"] = str(port)
-                os.environ.pop("EPICS_CA_NAME_SERVERS", None)
+                ca_updates["EPICS_CA_ADDR_LIST"] = address
+                ca_updates["EPICS_CA_SERVER_PORT"] = str(port)
+                ca_updates["EPICS_CA_NAME_SERVERS"] = None
                 logger.debug(f"Using EPICS_CA_ADDR_LIST: {address}, CA_SERVER_PORT: {port}")
 
-            os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
-
+            ca_updates["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
             logger.debug(f"Configured EPICS gateway: {address}:{port}")
-            self._epics_configured = True
-
-        self._timeout = config.get("timeout", 5.0)
-        # The ceiling on the fresh read a `max_step` check makes before a
-        # write. A facility-network fact like `timeout` above, and read from
-        # the same block: a gateway two hops away answers slower than a soft
-        # IOC on this host. Running out of budget answers None, which refuses
-        # the write — raising it buys a slow channel more room, never a
-        # weaker check.
-        self._step_read_timeout = step_read_timeout_seconds(config, self._connector_type)
 
         # Configure PVAccess routing. Addresses matching one of these globs are
         # served by pvapy's PVA provider; every other address by its CA
@@ -1036,9 +1155,10 @@ class EPICSConnector(ControlSystemConnector):
         pva_channels = config.get("pva_channels") or []
         if isinstance(pva_channels, str):
             pva_channels = [pva_channels]
-        self._pva_channel_globs = [str(p).strip() for p in pva_channels if str(p).strip()]
+        pva_globs = [str(p).strip() for p in pva_channels if str(p).strip()]
 
-        if self._pva_channel_globs:
+        pva_updates: dict[str, str | None] = {}
+        if pva_globs:
             pva_gateway = config.get("pva_gateway") or {}
             if pva_gateway:
                 pva_address = str(pva_gateway.get("address", ""))
@@ -1052,8 +1172,8 @@ class EPICSConnector(ControlSystemConnector):
                     # UDP-searching — required for SSH tunnels. 5075 is the PVA
                     # TCP port.
                     pva_endpoint = f"{pva_address}:{pva_port or 5075}"
-                    os.environ["EPICS_PVA_NAME_SERVERS"] = pva_endpoint
-                    os.environ.pop("EPICS_PVA_ADDR_LIST", None)
+                    pva_updates["EPICS_PVA_NAME_SERVERS"] = pva_endpoint
+                    pva_updates["EPICS_PVA_ADDR_LIST"] = None
                     logger.debug(f"Using EPICS_PVA_NAME_SERVERS: {pva_endpoint}")
                 else:
                     # Address-list entries are UDP search targets, whose default
@@ -1064,17 +1184,57 @@ class EPICSConnector(ControlSystemConnector):
                     if pva_port:
                         hosts = [f"{host}:{pva_port}" for host in hosts]
                     pva_endpoint = " ".join(hosts)
-                    os.environ["EPICS_PVA_ADDR_LIST"] = pva_endpoint
-                    os.environ.pop("EPICS_PVA_NAME_SERVERS", None)
+                    pva_updates["EPICS_PVA_ADDR_LIST"] = pva_endpoint
+                    pva_updates["EPICS_PVA_NAME_SERVERS"] = None
                     logger.debug(f"Using EPICS_PVA_ADDR_LIST: {pva_endpoint}")
 
                 # Containment, mirroring EPICS_CA_AUTO_ADDR_LIST above: a
                 # deployment deliberately pinned to a gateway must not also
                 # broadcast-discover servers on the local subnet.
-                os.environ["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
+                pva_updates["EPICS_PVA_AUTO_ADDR_LIST"] = "NO"
                 logger.debug(f"Configured PVA gateway: {pva_endpoint}")
 
-            logger.debug(f"PVA routing enabled for {len(self._pva_channel_globs)} glob pattern(s)")
+            logger.debug(f"PVA routing enabled for {len(pva_globs)} glob pattern(s)")
+
+        # pvapy reads a provider's environment once per process, at its first
+        # channel. If this process's client is already bound to a different
+        # endpoint than the one worked out above, a connector built now would
+        # talk to the old one under this configuration's name — so it is
+        # refused, before the environment is touched. Every non-PVA address
+        # is Channel Access, so CA is always checked; PVA only when routed.
+        updates = {"ca": ca_updates}
+        if pva_globs:
+            updates["pva"] = pva_updates
+        with _endpoint_lock:
+            endpoints: dict[str, _Endpoint] = {}
+            for provider, changes in updates.items():
+                endpoint = _current_endpoint(provider)
+                endpoint.update(changes)
+                conflict = _endpoint_conflict(pvaccess, provider, endpoint)
+                if conflict is not None:
+                    raise conflict
+                endpoints[provider] = endpoint
+            for changes in updates.values():
+                for var, value in changes.items():
+                    if value is None:
+                        os.environ.pop(var, None)
+                    else:
+                        os.environ[var] = value
+
+        self._pvaccess = pvaccess
+        self._endpoints = endpoints
+        self._pva_channel_globs = pva_globs
+        if ca_updates:
+            self._epics_configured = True
+
+        self._timeout = config.get("timeout", 5.0)
+        # The ceiling on the fresh read a `max_step` check makes before a
+        # write. A facility-network fact like `timeout` above, and read from
+        # the same block: a gateway two hops away answers slower than a soft
+        # IOC on this host. Running out of budget answers None, which refuses
+        # the write — raising it buys a slow channel more room, never a
+        # weaker check.
+        self._step_read_timeout = step_read_timeout_seconds(config, self._connector_type)
 
         # Initialize limits validator for automatic validation and confirm policy
         from osprey_connectors.control_system.limits_validator import LimitsValidator
@@ -1166,7 +1326,7 @@ class EPICSConnector(ControlSystemConnector):
         with self._channels_lock:
             entry = self._channels.get(key)
             if entry is None:
-                channel = pvaccess.Channel(channel_address, pvaccess.PVA if pva else pvaccess.CA)
+                channel = _new_channel(pvaccess, channel_address, pva, self._endpoints)
                 entry = _ChannelEntry(channel)
                 self._channels[key] = entry
         return entry
@@ -1337,11 +1497,18 @@ class EPICSConnector(ControlSystemConnector):
         A PVA-routed address answers ``None`` as well, which fails the step
         check closed. ``write_channel`` refuses those before validation ever
         runs, so this is the belt to that braces.
+
+        The read itself always runs on a pvapy worker (:class:`_EpicsWorkers`),
+        whichever thread calls the reader: the runtime calls it on its own
+        thread — in a notebook, a ``ThreadPoolExecutor`` thread that is joined
+        when the call returns, which on macOS hangs forever once it has touched
+        pvapy. A caller off the workers waits for the read at most
+        :func:`_backstop` of the step budget, and a read that has not answered
+        by then answers ``None``. The connector's own validation already runs
+        on a worker, so it reads in place rather than queueing behind itself.
         """
 
-        def read_current(channel_address: str) -> Any:
-            if self._is_pva_channel(channel_address):
-                return None
+        def read(channel_address: str) -> Any:
             try:
                 result = self._get(channel_address, False, _VALUE_REQUEST, self._step_read_timeout)
                 value = result["value"]
@@ -1351,6 +1518,21 @@ class EPICSConnector(ControlSystemConnector):
             if isinstance(value, dict) and "index" in value:
                 return value["index"]
             return value
+
+        def read_current(channel_address: str) -> Any:
+            if self._is_pva_channel(channel_address):
+                return None
+            if _on_worker():
+                return read(channel_address)
+            future = _workers.submit(read, channel_address)
+            deadline = _backstop(self._step_read_timeout)
+            try:
+                return future.result(timeout=deadline)
+            except concurrent.futures.TimeoutError:
+                logger.debug(
+                    f"Step-check read of '{channel_address}' did not answer within {deadline:.1f}s"
+                )
+                return None
 
         return read_current
 
@@ -1637,23 +1819,25 @@ class EPICSConnector(ControlSystemConnector):
         if confirm:
             self._track_inflight_put(channel_address, issued)
         put_done = asyncio.wrap_future(issued)
-        try:
-            # shield: a deadline must not cancel the future the worker settles.
-            await asyncio.wait_for(asyncio.shield(put_done), max(deadline - loop.time(), 0.0))
-        except TimeoutError:
-            if put_done.done():  # the put's own TimeoutError, not the deadline
-                put_done.result()
-                return True
+        # asyncio.wait neither raises nor cancels the future the worker settles.
+        # Only a put still running at the deadline is decided here; a settled
+        # one is judged below like any other, whichever timer fired first — so
+        # pvapy's own channel timeout landing on the deadline is still a
+        # connect that sent nothing.
+        await asyncio.wait({put_done}, timeout=max(deadline - loop.time(), 0.0))
+        if not put_done.done():
             put_done.add_done_callback(_retrieve)
             with gate:
                 was_sent = state["sent"]
                 state["abandoned"] = not was_sent
             if not was_sent:
-                raise _NothingSent(
-                    f"channel '{channel_address}' did not connect within {timeout}s"
-                ) from None
+                raise _NothingSent(f"channel '{channel_address}' did not connect within {timeout}s")
             return False
+        try:
+            put_done.result()
         except ConnectionError as exc:
+            # Unreachable before the put was issued (connect, introspection,
+            # NELM lookup): known not sent.
             if not state["sent"]:
                 raise _NothingSent(str(exc)) from exc
             raise
@@ -1927,7 +2111,7 @@ class EPICSConnector(ControlSystemConnector):
             except RuntimeError:  # the loop closed under a still-running monitor
                 logger.debug(f"Dropping update for '{channel_address}': event loop closed")
 
-        channel = pvaccess.Channel(channel_address, pvaccess.PVA if pva else pvaccess.CA)
+        channel = _new_channel(pvaccess, channel_address, pva, self._endpoints)
         name = f"osprey-{uuid.uuid4().hex}"
         subscription = _ChannelSubscription(channel, name)
         try:

@@ -167,6 +167,36 @@ class ChannelWriteFailedError(Exception):
         return f"Write to '{self.channel_address}' failed ({self.reason})"
 
 
+class ClientEndpointConflictError(RuntimeError):
+    """A connector asked for an endpoint this process's client can no longer reach.
+
+    Some control-system clients read their endpoint configuration once per
+    process and keep it: pvapy reads ``EPICS_CA_*`` when the first Channel
+    Access channel is created and ``EPICS_PVA_*`` when the first PVAccess one
+    is, and never again. A connector configured for a different gateway in
+    the same process would therefore talk to the first one under the new
+    configuration's name. It is refused instead, before any channel is
+    created: nothing was read or written. Only a fresh process can reach the
+    new endpoint.
+
+    ``provider`` names the transport (``"ca"`` or ``"pva"``); ``bound`` and
+    ``requested`` are the endpoint environments, as variable-to-value maps
+    (``None`` for a variable that is unset).
+    """
+
+    def __init__(
+        self,
+        provider: str,
+        bound: dict[str, str | None],
+        requested: dict[str, str | None],
+        message: str,
+    ) -> None:
+        self.provider = provider
+        self.bound = bound
+        self.requested = requested
+        super().__init__(message)
+
+
 class RegistryError(Exception):
     """Exception for registry-related errors.
 
