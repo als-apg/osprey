@@ -24,7 +24,7 @@
 # namespace, so this cannot collide with a virtual accelerator already running
 # on 5064. Do not add `-p` to the run below without re-reading that sentence.
 #
-# The image is rebuilt only when pyproject.toml or uv.lock changes; test and
+# The image is rebuilt only when a pyproject.toml or uv.lock changes; test and
 # source edits are picked up from the mount with no rebuild. Set
 # OSPREY_LIVE_CA_REBUILD=1 to force one.
 #
@@ -45,8 +45,8 @@ if [[ ! -f "${WORKTREE_ROOT}/uv.lock" ]]; then
     exit 1
 fi
 
-# The tag is a digest of everything that goes into the image: the two
-# dependency files and the Containerfile itself. That makes "reuse it if it
+# The tag is a digest of everything that goes into the image: the dependency
+# files (both workspace pyprojects and the lock) and the Containerfile itself. That makes "reuse it if it
 # exists" safe rather than merely convenient -- bump the pcaspy floor, add a
 # dependency, or edit a build step, and the tag changes, so a stale image
 # cannot be silently reused under a name that no longer describes it. A fixed
@@ -60,6 +60,7 @@ else
     DIGEST_CMD=(shasum -a 256)
 fi
 BUILD_ID="$(cat "${WORKTREE_ROOT}/pyproject.toml" \
+                "${WORKTREE_ROOT}/packages/osprey-connectors/pyproject.toml" \
                 "${WORKTREE_ROOT}/uv.lock" \
                 "${SCRIPT_DIR}/Containerfile" | "${DIGEST_CMD[@]}" | cut -c1-12)"
 IMAGE="osprey-va-live-ca:${BUILD_ID}"
@@ -84,8 +85,10 @@ fi
 
 echo "--- runtime: ${RUNTIME}, platform: ${PLATFORM} ---"
 
-# The image needs exactly three files: pyproject.toml, uv.lock and README.md.
-# They are staged into a scratch directory used as the build context, the same
+# The image needs exactly five files: pyproject.toml, uv.lock and README.md,
+# plus the osprey-connectors workspace member's pyproject.toml and README.md at
+# their repo-relative path (uv will not resolve the workspace without the
+# member's metadata; see the Containerfile). They are staged into a scratch directory used as the build context, the same
 # way scripts/va/run_va.sh stages its own -- the repo root would work as a
 # context but also holds .git/, .venv/ and the worktrees, and would make every
 # build re-tar gigabytes of content the image never reads. src/ and tests/
@@ -98,6 +101,10 @@ if [[ "${OSPREY_LIVE_CA_REBUILD:-0}" == "1" ]] || \
        "${WORKTREE_ROOT}/uv.lock" \
        "${WORKTREE_ROOT}/README.md" \
        "${CONTEXT}/"
+    mkdir -p "${CONTEXT}/packages/osprey-connectors"
+    cp "${WORKTREE_ROOT}/packages/osprey-connectors/pyproject.toml" \
+       "${WORKTREE_ROOT}/packages/osprey-connectors/README.md" \
+       "${CONTEXT}/packages/osprey-connectors/"
 
     echo "--- building ${IMAGE} ---"
     "${RUNTIME}" build --platform "${PLATFORM}" \

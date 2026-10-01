@@ -28,19 +28,31 @@ FROM --platform=${BASE_PLATFORM} ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 # re-resolved, so the container cannot quietly pick a different pcaspy than the
 # one uv.lock pins.
 #
-# Only the dependency closure is installed (--no-install-project). The osprey
-# source is bind-mounted at /work and put on PYTHONPATH at run time, so editing
-# a test or a module never invalidates this layer -- it is rebuilt only when
-# pyproject.toml or uv.lock changes.
+# Only the dependency closure is installed (--no-install-workspace, which skips
+# the root project AND every workspace member). The osprey source is
+# bind-mounted at /work and put on PYTHONPATH at run time, so editing a test or
+# a module never invalidates this layer -- it is rebuilt only when a pyproject
+# or uv.lock changes.
 #
-# The build context is therefore just those three files, staged by
-# run_live_ca.sh -- NOT the repo root, which also holds .git/, .venv/ and the
-# worktrees and would make every build re-tar gigabytes the image never reads.
+# osprey-connectors is a uv workspace member (the root pyproject's
+# [tool.uv.workspace]), and uv refuses to resolve the workspace at all unless
+# the member's pyproject.toml is present at its declared path -- "Distribution
+# not found: packages/osprey-connectors" otherwise. So the member's metadata is
+# staged too, but never its source: like osprey's own, that arrives over the
+# mount and goes on PYTHONPATH below. Installing either project for real is not
+# an option here, not merely a slower one: both version from git tags via
+# hatch-vcs, and the context deliberately holds no .git/.
+#
+# The build context is therefore just those files, staged by run_live_ca.sh --
+# NOT the repo root, which also holds .git/, .venv/ and the worktrees and would
+# make every build re-tar gigabytes the image never reads.
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy
 WORKDIR /opt/osprey
 COPY pyproject.toml uv.lock README.md /opt/osprey/
-RUN uv sync --frozen --no-install-project --extra dev --extra virtual-accelerator
+COPY packages/osprey-connectors/pyproject.toml packages/osprey-connectors/README.md \
+     /opt/osprey/packages/osprey-connectors/
+RUN uv sync --frozen --no-install-workspace --extra dev --extra virtual-accelerator
 
 # Channel Access stays inside this container: the server and the client share
 # this process and this network namespace, so nothing is published and no host
@@ -53,7 +65,7 @@ RUN uv sync --frozen --no-install-project --extra dev --extra virtual-accelerato
 # can run), so the ports are deliberately left unset here. Only the loopback
 # discipline is pinned, which is what stops a stray broadcast search.
 ENV PATH=/opt/venv/bin:$PATH \
-    PYTHONPATH=/work/src \
+    PYTHONPATH=/work/src:/work/packages/osprey-connectors/src \
     PYTHONDONTWRITEBYTECODE=1 \
     EPICS_CA_ADDR_LIST=127.0.0.1 \
     EPICS_CA_AUTO_ADDR_LIST=NO
