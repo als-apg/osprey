@@ -2419,10 +2419,15 @@ keys:
       framework synthesizes from `claude_code.servers` so no facility has to
       re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
       `auto.mcp.url_key` are read; anything else under it is ignored by design,
-      which is why the leaves carry no entries of their own.
+      which is why the leaves carry no entries of their own. The build writes
+      `auto.mcp.url_key: host_url` into every render whose deployment serves
+      web terminals (`osprey.cli.build_profile_health`) and refuses a
+      contradicting `config:` spelling there.
     default: derived
     default_note: >-
-      the default AutoMcpSettings: mcp.enabled true, url_key host_url, not explicit
+      the default AutoMcpSettings: mcp.enabled true, url_key host_url, not
+      explicit; a render that serves web terminals carries url_key host_url,
+      written by the build
   health.disk:
     rendered: false
     evidence: 'disk = parse_disk_thresholds\(health\.get\("disk"\)\)'
