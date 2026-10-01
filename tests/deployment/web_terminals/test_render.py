@@ -16,7 +16,6 @@ from jinja2 import Environment, Template
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
-from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
@@ -61,6 +60,7 @@ from osprey.services.auth_sidecar.app import (
     ENV_USERS,
     ENV_WEB_APP_NAME,
 )
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.utils.workspace import agent_data_base_dir
 
 # The four classic config-set families; the effective per-family base set the

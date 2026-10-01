@@ -112,11 +112,10 @@ from dataclasses import dataclass, field
 
 from fastapi import Request
 
-from osprey.deployment.web_terminals.personas import env_var_suffix
-
 from .. import audit
 from ..identity_headers import is_header_safe
 from ..methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
+from ..roster_env import env_var_suffix
 from ..sessions import UnlockedUser
 
 logger = logging.getLogger(__name__)
@@ -179,7 +178,7 @@ REASON_AMBIGUOUS_ROLE_CLAIM = audit.REASON_AMBIGUOUS_ROLE_CLAIM
 ENV_ROSTER_ROLE_PREFIX = "OSPREY_AUTH_ROSTER_ROLE_"
 """Per-user static role: ``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>``.
 
-The suffix is :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`'s,
+The suffix is :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`'s,
 the same derivation that keys this user's password hash and mapped IdP subject,
 so one username cannot key three variables three ways.
 

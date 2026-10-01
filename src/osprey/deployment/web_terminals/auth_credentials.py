@@ -66,8 +66,6 @@ from osprey.deployment.service_tokens import (
 # deploy-time gate and the other two drift apart.
 from osprey.deployment.web_terminals.personas import (
     USERNAME_CHARSET_RE,
-    env_var_suffix,
-    env_var_suffix_collisions,
 )
 from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
 from osprey.services.auth_sidecar.passwords import (
@@ -75,6 +73,7 @@ from osprey.services.auth_sidecar.passwords import (
     stored_hash_problem,
     verify_password,
 )
+from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suffix_collisions
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,

@@ -43,7 +43,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
 from osprey.services.auth_sidecar.identity_headers import (
@@ -52,6 +51,7 @@ from osprey.services.auth_sidecar.identity_headers import (
     SUBJECT_HEADER,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes import recheck
 from osprey.services.auth_sidecar.routes import verify as verify_module
 from osprey.services.auth_sidecar.routes.oidc import (

@@ -56,8 +56,6 @@ from osprey.deployment.web_terminals.personas import (
     control_identity_problems,
     effective_image_source,
     entry_is_shared,
-    env_var_suffix,
-    env_var_suffix_collisions,
     resolve_access_principals,
     resolve_personas,
     roster_role_by_name,
@@ -74,6 +72,7 @@ from osprey.docs_links import PERIMETER_LIMITS_URL
 # stdlib-only, so importing it here cannot cycle.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
+from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suffix_collisions
 
 # A stdlib-only leaf of the sidecar: the throttle's defaults and its one
 # validity predicate, shared with the sidecar that builds the throttle.
@@ -265,7 +264,7 @@ _SECRET_TEMPLATE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 #: What the DERIVED variable suffix must look like. The filename rule above
 #: admits ``.`` — legal in a filename and in an nginx ``include`` — while
-#: :func:`~osprey.deployment.web_terminals.personas.env_var_suffix` maps only
+#: :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix` maps only
 #: ``-`` to ``_``, so ``alice.b`` would derive ``OSPREY_TERMINAL_SECRET_ALICE.B``.
 #: That is not a legal environment-variable name: envsubst does not recognize
 #: the reference, leaves it in the snippet verbatim, and nginx refuses to start
@@ -295,7 +294,7 @@ def terminal_secret_env_var(username: str) -> str:
 
     Returns:
         ``OSPREY_TERMINAL_SECRET_<SUFFIX>``, with the suffix from
-        :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`.
+        :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`.
     """
     return terminal_secret_var(username)
 
@@ -3073,7 +3072,7 @@ def _check_roster_env_var_collisions(
     """Fail-closed render gate: with authentication on, no two roster names may
     share one per-user env-var suffix.
 
-    :func:`~osprey.deployment.web_terminals.personas.env_var_suffix` is total and
+    :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix` is total and
     lossy — ``alice-b`` and ``alice_b`` both key ``..._ALICE_B`` — so a colliding
     pair would share a single ``OSPREY_AUTH_PW_HASH_ALICE_B``: one user's
     password would open the other's terminal, which is the precise isolation

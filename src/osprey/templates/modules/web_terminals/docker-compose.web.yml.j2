@@ -296,7 +296,7 @@
       module sits inside the container; both the bind target and the
       OSPREY_CONTROL_IDENTITY_MODULE value, one spelling for both.
     services[].oidc_subject_env: str — the env-var name the above is emitted
-      under, pre-resolved by render.py through personas.env_var_suffix(). Always
+      under, pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `oidc_subject` is set. Pre-resolved on purpose:
       the username->env-var mapping has exactly one definition, and a template
       that re-derived it could key a subject differently from the password hash
@@ -313,7 +313,7 @@
       not the persona it binds: the persona already reached this file as the
       service's image and project.
     services[].role_env: str — the env-var name the above is emitted under,
-      pre-resolved by render.py through personas.env_var_suffix(). Always
+      pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `role` is set. Pre-resolved for the same reason
       `oidc_subject_env` is. The `ROSTER_` infix is load-bearing:
       OSPREY_AUTH_ROLE_CLAIM / OSPREY_AUTH_ROLE_MAP above are the deployment's
@@ -335,7 +335,7 @@
       BOTH login methods, ungated exactly like the role table and for the same
       structural reason: only the enclosing `sidecar_active` decides it.
     services[].access_env: str — the env-var name the above is emitted under,
-      pre-resolved by render.py through personas.env_var_suffix(). Always
+      pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `access_value` is non-empty. Pre-resolved for the
       same reason `oidc_subject_env` is, and the `ROSTER_` infix follows the
       `role_env` precedent above.
@@ -841,7 +841,7 @@ services:
 {%- if svc.oidc_subject %}
       {#- This user's expected IdP identity — the non-secret half of the
          roster→identity mapping. The variable NAME arrives pre-resolved as
-         `svc.oidc_subject_env` (render.py, via personas.env_var_suffix()) and
+         `svc.oidc_subject_env` (render.py, via roster_env.env_var_suffix()) and
          is emitted verbatim: deriving `upper|replace` here would be a second
          copy of the username→env-var mapping, free to drift from the one that
          keys this user's password hash in `.env.auth`. tojson quotes the WHOLE
@@ -874,7 +874,7 @@ services:
    opener of a shared card, and its login does reach this table.
 
    The variable NAME arrives pre-resolved as `svc.role_env` (render.py, via
-   personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
+   roster_env.env_var_suffix()) and is emitted verbatim, for the reason spelled
    out on `oidc_subject_env` above. tojson quotes the WHOLE `KEY=value`, the
    same treatment: a role name is config, and `": "` in one would otherwise
    turn this list item into a YAML mapping and hand the sidecar a truncated
@@ -906,7 +906,7 @@ services:
    AUTHORED. A fixed token here would hand a `domain:` card to every login.
 
    The variable NAME arrives pre-resolved as `svc.access_env` (render.py, via
-   personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
+   roster_env.env_var_suffix()) and is emitted verbatim, for the reason spelled
    out on `oidc_subject_env` above; the `ROSTER_` infix follows the role
    table's precedent. tojson quotes the whole `KEY=value`, which is what keeps
    a JSON array — commas, colons and quotes of its own — one YAML string,
