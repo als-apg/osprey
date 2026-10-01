@@ -21,8 +21,8 @@ The rules that turn a corpus into those channels still live in this module --
 :func:`_direction`. The builder applies them when it writes the index
 (:func:`osprey.services.channel_finder.graph_index.builder.channels_from_corpus`),
 so the rules are stated once rather than twice where the two copies could
-drift, and the rows this reader returns are the records it used to build
-itself. They import ``rdflib`` inside the function that needs it, exactly as
+drift, and the rows this reader returns are the records those rules
+produce. They import ``rdflib`` inside the function that needs it, exactly as
 :mod:`osprey.deployment.channel_snapshot` does and for the same two reasons:
 importing anything from ``osprey.services.facility_knowledge`` executes that
 package's ``__init__`` and pulls ``osprey.services.qmd`` into the build's
