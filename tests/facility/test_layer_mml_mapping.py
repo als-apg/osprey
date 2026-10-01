@@ -615,6 +615,17 @@ class TestCheckAgainstTheExport:
         document["section_order"].append("BR")
         assert _problems(document, _export()) == ["models.BR: BR is no exported system"]
 
+    def test_a_system_the_export_lacks_is_one_problem(self) -> None:
+        document = _document()
+        ao = _export()
+        ao["TL"] = ao.pop("SR")
+        ao["_import_order"] = ["TL"]
+        del ao["TL"]["BPMx"]
+        assert _problems(document, ao) == [
+            "models.SR: SR is no exported system",
+            "models: leaves out the exported system TL",
+        ]
+
     def test_families_name_exactly_the_exported_families(self) -> None:
         ao = _export()
         ao["SR"]["DCCT"] = {"Monitor": {"ChannelNames": ["DCCT"]}}
