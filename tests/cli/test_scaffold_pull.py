@@ -191,7 +191,6 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/channel_databases/tiers/tier3/middle_layer.json",
     "data/channel_limits.json",
     "data/demo_machine.ttl",
-    "data/facility/classes.yaml",
     "data/facility/decks/SR.json",
     "data/facility/identity.yaml",
     "data/facility/limits.yaml",

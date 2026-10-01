@@ -5,7 +5,6 @@ Run on demand; the written tree is committed and edited as authored sources
 from then on. It writes, under ``--out``:
 
 * ``identity.yaml`` -- ``code: ca``; ``--standalone`` adds the facility name;
-* ``classes.yaml`` -- empty: every demo class is a vocabulary class;
 * ``models.yaml`` -- the deck machine's model on the committed deck and its
   wiring, sorted by address;
 * ``seeds.yaml`` -- how each channel no model wires starts and moves, and
@@ -97,7 +96,6 @@ def files(records: Any) -> dict[str, str]:
     models = _models.build_models()
     return {
         "identity.yaml": dump(records.identity),
-        "classes.yaml": dump(records.classes),
         "models.yaml": dump(models),
         "seeds.yaml": dump(_seeds.build_seeds(records.channels, models)),
         "records/places.yaml": dump(records.places),
