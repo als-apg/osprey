@@ -62,16 +62,22 @@ def host_env() -> dict[str, str]:
     return env
 
 
-async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
+async def spawn_host(python: str, env: Mapping[str, str], *, stderr: int | None = None) -> Any:
     """Launch one connector-host child with its frame pipes attached.
 
     Args:
         python: The interpreter to run the child under.
         env: The child's environment, normally :func:`host_env`.
+        stderr: A file descriptor for the child's diagnostics, or ``None`` to
+            inherit this process's stderr. A supervisor whose own descriptor 2
+            is not where its diagnostics belong — a notebook kernel, whose
+            descriptor 2 is published into the running cell — passes the one
+            its own log records go to.
 
     Returns:
-        The ``asyncio.subprocess.Process``. stderr is inherited, so the child's
-        diagnostics land wherever the supervisor's own do.
+        The ``asyncio.subprocess.Process``. stderr is inherited unless *stderr*
+        names another descriptor, so the child's diagnostics land wherever the
+        supervisor's own do.
 
     Raises:
         OSError: The interpreter could not be executed. Callers wrap this in
@@ -83,6 +89,7 @@ async def spawn_host(python: str, env: Mapping[str, str]) -> Any:
         CHILD_MODULE,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
+        stderr=stderr,
         env=dict(env),
     )
 

@@ -422,6 +422,9 @@ class ConnectorHostPool:
             :class:`ConnectorHostWriteTimeoutError`. Off, a timed-out write's
             child is kept when it answers, and the write may still land after
             a newer one (see the module docstring). Reads are never affected.
+        child_stderr: A file descriptor the children's stderr goes to, or
+            ``None`` to inherit this process's (see
+            :func:`~osprey_connectors.ipc.launch.spawn_host`).
     """
 
     def __init__(
@@ -436,8 +439,10 @@ class ConnectorHostPool:
         ping_timeout_s: float = DEFAULT_PING_TIMEOUT_S,
         terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
         kill_on_write_timeout: bool = False,
+        child_stderr: int | None = None,
     ) -> None:
         self._section = copy.deepcopy(dict(control_system))
+        self._child_stderr = child_stderr
         self._config_file = str(Path(config_file).resolve()) if config_file else None
         self._python = python
         self._start_timeout_s = start_timeout_s
@@ -698,7 +703,7 @@ class ConnectorHostPool:
             )
 
         try:
-            process = await spawn_host(self._python, host_env())
+            process = await spawn_host(self._python, host_env(), stderr=self._child_stderr)
         except OSError as exc:
             raise ConnectorHostStartError(
                 f"Could not spawn a connector-host child for {_label(key)}: {exc}",

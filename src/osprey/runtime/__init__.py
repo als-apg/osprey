@@ -60,7 +60,13 @@ Control Target:
     stamp from the deployment's record before every cell. This module follows
     that — the connector is rebuilt when the stamp moves, and a cell the kernel
     could route nowhere at all is refused by :func:`_get_connector` on its first
-    control-system call.
+    control-system call. A Channel Access connector cannot be rebuilt for
+    another gateway in the same process (pvapy binds its endpoint once), so in a
+    kernel it is never built in-process: it is served by a connector-host child
+    per target, on a loop the kernel keeps for its whole life — see
+    :mod:`osprey.runtime._kernel_host`. Every other process keeps the
+    in-process connector, and a same-process move to another endpoint there is
+    still refused with :class:`ControlTargetUnreachableError`.
 """
 
 import asyncio
@@ -71,6 +77,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from osprey.runtime import _kernel_host
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -162,18 +169,21 @@ class ControlTargetUnreachableError(ControlTargetChangedError):
     Raised by :func:`_get_connector` when the connector rebuilt for a new stamp
     is refused because the control-system client in this process is already
     bound to another endpoint — pvapy reads its ``EPICS_CA_*`` /
-    ``EPICS_PVA_*`` environment once per process, so a kernel that moved
+    ``EPICS_PVA_*`` environment once per process, so a process that moved
     targets would otherwise reach the old gateway under the new target's
-    name. Nothing was read or written, and re-running the cell cannot help:
-    only a fresh process (a restarted kernel, a new sandbox) can.
+    name. Nothing was read or written, and re-running cannot help: only a
+    fresh process can. A notebook kernel does not meet it — its Channel Access
+    connectors live in connector-host children, one per target.
     """
 
 
 # Module-level state
 _runtime_connector: Any | None = None
-#: The ``(target, generation)`` the connector above was built for. A kernel
-#: re-stamps itself every cell, so this is what tells a rebuild from a reuse.
-_connector_stamp: tuple[str | None, int | None] | None = None
+#: The ``(target, generation)`` the connector above was built for — plus, for a
+#: kernel's pooled connector, the launch pin and execution mode its child was
+#: spawned under. A kernel re-stamps itself every cell, so this is what tells a
+#: rebuild from a reuse.
+_connector_stamp: tuple[Any, ...] | None = None
 _connector_lock = asyncio.Lock()
 #: The in-flight marker this cell holds, or ``None``. Removed by
 #: ``post_run_cell``, which is why the claim below re-checks the file rather
@@ -352,7 +362,12 @@ async def _get_connector():
         ControlTargetUnreachableError: If the connector for the stamp cannot
             be built in this process, because its client is bound to another
             endpoint. Nothing is held afterwards, so every later call is
-            refused the same way rather than reaching the old target.
+            refused the same way rather than reaching the old target. A
+            notebook kernel never builds a Channel Access connector here, so
+            it never meets this: see :mod:`osprey.runtime._kernel_host`.
+        ConnectorHostStartError: In a kernel, if the target's connector-host
+            child could not be brought up or failed verification. Nothing is
+            held, so the next call tries again.
     """
     global _runtime_connector, _connector_stamp
 
@@ -360,12 +375,26 @@ async def _get_connector():
     _claim_cell()
 
     async with _connector_lock:
-        stamp = (_stamped_target(), _stamped_generation())
+        stamp: tuple[Any, ...] = (_stamped_target(), _stamped_generation())
+        # The one place a kernel's connector is routed to a child: everything
+        # else about the build — the refusal, the claim, the rebuild on a moved
+        # stamp — is the same for both.
+        route = _kernel_host.pool_route(stamp[0]) if _kernel_host.in_notebook_kernel() else None
+        if route is not None:
+            stamp = (*stamp, route.launch_pin, route.execution_mode)
         if _runtime_connector is not None and stamp != _connector_stamp:
             logger.debug("Control target moved to %s; rebuilding the connector", stamp)
             await _disconnect_locked()
 
-        if _runtime_connector is None:
+        if _runtime_connector is None and route is not None:
+            logger.debug(
+                "Serving control target %s from a connector-host child (%s)",
+                route.target,
+                route.execution_mode or "readwrite",
+            )
+            _runtime_connector = await _kernel_host.pooled_connector(route)
+            _connector_stamp = stamp
+        elif _runtime_connector is None:
             from osprey.connectors.factory import ConnectorFactory
 
             config = _target_connector_config()
@@ -506,14 +535,24 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # every max_step channel before the connector that CAN measure it is reached.
     if _limits_validator is not None:
         _limits_validator.validate(
-            channel_address, value, read_current=connector._current_value_reader()
+            channel_address, value, read_current=_step_reader(connector)
         )  # Raises ChannelLimitsViolationError
 
     # write_channel_checked is the reference monitor's denial contract: it raises
     # on a refusal, on a failed write, AND on a write whose confirming re-read
     # did not hold the setpoint. Calling write_channel directly would let an
     # unconfirmed write return silently and get logged as "Wrote ...".
-    result = await connector.write_channel_checked(channel_address, value, **kwargs)
+    try:
+        result = await connector.write_channel_checked(channel_address, value, **kwargs)
+    except (ConnectionError, TimeoutError) as exc:
+        lost = (
+            _kernel_host.lost_write(channel_address, value, exc)
+            if _kernel_host.is_pooled(connector)
+            else None
+        )
+        if lost is None:
+            raise
+        raise lost from exc
 
     # Reaching here means the outcome is confirmed, or confirmation was not
     # requested (unrequested) — every other outcome already raised above.
@@ -550,21 +589,50 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # Validate every value before any of them is sent, with the same
         # connector-supplied reader the single-channel path uses.
         if _limits_validator is not None:
-            read_current = connector._current_value_reader()
+            read_current = _step_reader(connector)
             for channel_address, value in channel_values.items():
                 _limits_validator.validate(channel_address, value, read_current=read_current)
 
-        results = await connector.write_multiple_channels(list(channel_values.items()), **kwargs)
+        try:
+            results = await connector.write_multiple_channels(
+                list(channel_values.items()), **kwargs
+            )
+        except (ConnectionError, TimeoutError) as exc:
+            lost = (
+                _kernel_host.lost_write(", ".join(channel_values), channel_values, exc)
+                if _kernel_host.is_pooled(connector)
+                else None
+            )
+            if lost is None:
+                raise
+            raise lost from exc
         # Same denial contract as the single-channel path: a refusal or an
         # unconfirmed write must raise rather than return.
         for result in results:
             raise_for_write_result(result)
 
 
+def _step_reader(connector: Any) -> Any:
+    """The connector's own ``max_step`` reader for the limits net, or ``None``.
+
+    A pooled connector has none — its child is reached asynchronously only —
+    and ``None`` makes the net refuse a ``max_step`` channel rather than skip
+    the measurement. The net is injected by the executor's wrapper alone and a
+    pooled connector exists in a notebook kernel alone, so the two never meet:
+    a kernel's step check is the one its child's connector makes, over the
+    client the write goes through.
+    """
+    reader = getattr(connector, "_current_value_reader", None)
+    return reader() if reader is not None else None
+
+
 def _run_async(coro) -> Any:
     """Run async coroutine synchronously.
 
-    Handles both subprocess and Jupyter notebook contexts correctly.
+    Handles both subprocess and Jupyter notebook contexts correctly. In a
+    notebook kernel every coroutine runs on the kernel's own long-lived loop
+    (:mod:`osprey.runtime._kernel_host`), the one its connector-host pool is
+    bound to, whatever thread or loop the caller is on.
 
     Only the loop probe sits inside the ``try``: the ``RuntimeError`` it
     raises is the one signal that there is no running loop. Whatever the
@@ -572,6 +640,9 @@ def _run_async(coro) -> Any:
     which is a ``RuntimeError`` too — must propagate unchanged from either
     branch, never be mistaken for that signal and retried.
     """
+    if _kernel_host.in_notebook_kernel():
+        return _kernel_host.run(coro)
+
     try:
         # Try to get running loop (e.g., in Jupyter with nest_asyncio)
         asyncio.get_running_loop()
@@ -739,15 +810,27 @@ async def cleanup_runtime() -> None:
     at end of execution, but can be called manually if needed.
 
     This is particularly useful for long-running notebook sessions to
-    ensure connections don't become stale.
+    ensure connections don't become stale. In a notebook kernel the work is
+    done on the kernel's own loop, whichever loop awaits this.
     """
+    if _kernel_host.in_notebook_kernel() and not _kernel_host.on_owner_loop():
+        if _kernel_host.owner_started():
+            await _kernel_host.run_from_loop(cleanup_runtime())
+        return
     async with _connector_lock:
         await _disconnect_locked()
 
 
 # Register cleanup on module exit
 def _cleanup_on_exit() -> None:
-    """Synchronous cleanup for atexit handler."""
+    """Synchronous cleanup for atexit handler.
+
+    A kernel's connector and pool live on the kernel's loop, so they are
+    disconnected and closed there, which stops every connector-host child.
+    """
+    if _kernel_host.owner_started():
+        _kernel_host.shutdown(cleanup_runtime())
+        return
     if _runtime_connector is not None:
         try:
             asyncio.run(cleanup_runtime())

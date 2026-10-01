@@ -24,10 +24,14 @@ What else changes for callers:
   for the earlier one within its own deadline.
 - A char waveform takes text on write and reads back as unsigned bytes.
 - pvapy reads the `EPICS_CA_*` / `EPICS_PVA_*` environment once per process, at
-  its first channel. A process that reconnects the EPICS connector to a
-  different endpoint — a notebook kernel whose control target moved — is now
+  its first channel. A notebook kernel therefore no longer builds its EPICS
+  connector in-process: `osprey.runtime` serves Channel Access targets from a
+  connector-host child per target, so a kernel still follows a control-target
+  switch on its next cell without a restart (the old target's child is stopped
+  on the switch, and every child when the kernel exits). A write whose child is
+  lost mid-call raises `ChannelWriteFailedError` (`UNCONFIRMED`). Any other
+  process that reconnects the EPICS connector to a different endpoint is
   refused with `ControlTargetUnreachableError`, naming both endpoints, instead
-  of silently talking to the previous gateway. Start a fresh process to reach
-  the new endpoint.
+  of silently talking to the previous gateway.
 - The `max_step` read made by the runtime's limits check runs on the
   connector's worker threads, so a notebook cell no longer hangs on macOS.

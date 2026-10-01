@@ -3,11 +3,13 @@
 Two of them, both about pvapy:
 
 * It binds each provider to the ``EPICS_CA_*`` / ``EPICS_PVA_*`` environment
-  in force at its first channel, for the life of the process. A notebook
-  kernel whose control target moved rebuilds its connector in the SAME
-  process, so a rebuild needing another gateway is refused — the runtime
+  in force at its first channel, for the life of the process. A process that
+  is not a notebook kernel and whose stamp moved rebuilds its connector in the
+  SAME process, so a rebuild needing another gateway is refused — the runtime
   raises :class:`ControlTargetUnreachableError` and holds no connector,
-  rather than reaching the old gateway under the new target's name.
+  rather than reaching the old gateway under the new target's name. (A kernel
+  serves Channel Access from connector-host children instead; see
+  ``test_runtime_kernel_pool.py``.)
 * On macOS a thread that called pvapy hangs forever when it exits. The
   runtime's notebook branch runs its coroutine on a ``ThreadPoolExecutor``
   thread that is joined at once, and the limits net's ``max_step`` read is

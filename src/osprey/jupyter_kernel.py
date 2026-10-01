@@ -31,6 +31,10 @@ launch pin and no control target at all. What takes it out of that is the cell
 hook — :func:`pre_run_cell` rewrites the target, the generation and the launch
 pin from the deployment's record before every cell, so a kernel follows the
 record for its whole life instead of holding whatever was true when it started.
+Following it is possible because a kernel's Channel Access connector is not
+built in this process: :mod:`osprey.runtime` serves it from a connector-host
+child per target (``osprey.runtime._kernel_host``), since pvapy binds a process
+to one gateway for good.
 """
 
 from __future__ import annotations
@@ -47,6 +51,7 @@ from typing import Any
 __all__ = [
     "ENV_CONTROL_TARGET_REFUSAL",
     "ENV_IN_CELL",
+    "ENV_NOTEBOOK_KERNEL_PID",
     "JUPYTER_SHARED_SUBTREE",
     "KERNEL_SESSION_PREFIX",
     "compute_stamps",
@@ -137,6 +142,14 @@ OSPREY_CONFIG_ENV_VAR = "OSPREY_CONFIG"
 CONFIG_FILE_ENV_VAR = "CONFIG_FILE"
 
 
+#: This kernel's own pid, which is what tells :mod:`osprey.runtime` that the
+#: process it runs in outlives a control-target switch and must serve Channel
+#: Access from connector-host children (``osprey.runtime._kernel_host``, which
+#: re-spells the name). A pid rather than a flag, so a subprocess a cell starts
+#: inherits the variable without being taken for the kernel.
+ENV_NOTEBOOK_KERNEL_PID = "OSPREY_NOTEBOOK_KERNEL_PID"
+
+
 def compute_stamps(
     kernel_id: str | None,
     env: MutableMapping[str, str],
@@ -148,7 +161,8 @@ def compute_stamps(
     by. The launch pin follows, and it is the literal ``*=sandbox`` rather
     than whatever the store would answer — nothing here selects a control
     target, so reads route to the deployment baseline and every write is
-    refused by the connector's launch pin.
+    refused by the connector's launch pin. Last, :data:`ENV_NOTEBOOK_KERNEL_PID`
+    names this process as the kernel.
 
     The three target names are REMOVED rather than left inherited, and they are
     named by reusing ``python_executor.executor``'s constants rather than by
@@ -185,6 +199,7 @@ def compute_stamps(
     stamps[executor.ENV_LAUNCH_POSTURE] = posture_store.launch_posture_stamp(
         None, posture_store.POSTURE_SANDBOX
     )
+    stamps[ENV_NOTEBOOK_KERNEL_PID] = str(os.getpid())
 
     env.update(stamps)
     return stamps
@@ -666,7 +681,7 @@ def _writes_to_process_stderr(handler: logging.Handler) -> bool:
         return False
 
 
-def _route_logs_to_process_stderr() -> None:
+def _route_logs_to_process_stderr() -> int:
     """Send this process's log records to the stderr the kernel was started on.
 
     A kernel's log records are for whoever reads the terminal log, and every
@@ -686,14 +701,21 @@ def _route_logs_to_process_stderr() -> None:
     Called once, first thing in :func:`main`, so that everything the
     preparation and the registry log is already routed. No level is set: the
     root logger's own decides, as it did before.
+
+    Returns:
+        The duplicate descriptor, for the connector-host children
+        :mod:`osprey.runtime` starts: they inherit descriptor 2 otherwise, and
+        their log lines would be published into the cell that spawned them.
     """
     root = logging.getLogger()
     for handler in list(root.handlers):
         if _writes_to_process_stderr(handler):
             root.removeHandler(handler)
-    handler = logging.StreamHandler(os.fdopen(os.dup(_STDERR_FD), "w", buffering=1))
+    stream = os.fdopen(os.dup(_STDERR_FD), "w", buffering=1)
+    handler = logging.StreamHandler(stream)
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     root.addHandler(handler)
+    return stream.fileno()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -721,7 +743,9 @@ def main(argv: list[str] | None = None) -> None:
             handed the same list, because the connection file among them is
             what names this kernel.
     """
-    _route_logs_to_process_stderr()
+    from osprey.runtime import _kernel_host
+
+    _kernel_host.set_child_stderr(_route_logs_to_process_stderr())
     _prepare_environment(argv if argv is not None else sys.argv[1:])
     _initialize_registry()
 
