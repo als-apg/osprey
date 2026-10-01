@@ -103,10 +103,16 @@ class TestLimitsValidator:
         """Test PV with no limits allows any value."""
         basic_validator.validate("TEST:PV:NO_LIMITS", 9999.0)  # Should not raise
 
-    def test_non_numeric_value_skips_checks(self, basic_validator):
-        """Test that non-numeric values skip min/max checks."""
-        basic_validator.validate("TEST:PV", "some_string")  # Should not raise
-        basic_validator.validate("TEST:PV", None)  # Should not raise
+    def test_non_numeric_value_is_refused_on_a_numeric_limited_channel(self, basic_validator):
+        """A value min/max cannot be applied to is refused, not skipped."""
+        for value in ("some_string", None):
+            with pytest.raises(ChannelLimitsViolationError) as exc_info:
+                basic_validator.validate("TEST:PV", value)
+            assert exc_info.value.violation_type == "INVALID_NUMERIC_VALUE"
+
+    def test_non_numeric_value_passes_a_channel_without_numeric_limits(self, basic_validator):
+        """No numeric limit, nothing numeric to hold the value to."""
+        basic_validator.validate("TEST:PV:NO_LIMITS", "some_string")  # Should not raise
 
     # =========================================================================
     # Min/Max Violation Tests
@@ -217,11 +223,12 @@ class TestLimitsValidator:
         basic_validator.validate("TEST:PV", 99.0)  # Large change, but no max_step check
 
     def test_max_step_non_numeric_current_value(self, step_validator):
-        """Test that non-numeric current value skips step check."""
+        """A non-numeric current value leaves no step to measure: fail closed."""
         reader = MagicMock(return_value="invalid")  # Non-numeric current value
 
-        # Should not raise because current value is non-numeric
-        step_validator.validate("TEST:PV:STEP", 55.0, read_current=reader)
+        with pytest.raises(ChannelLimitsViolationError) as exc_info:
+            step_validator.validate("TEST:PV:STEP", 55.0, read_current=reader)
+        assert exc_info.value.violation_type == "STEP_CHECK_FAILED"
 
     # =========================================================================
     # Database Loading Tests
