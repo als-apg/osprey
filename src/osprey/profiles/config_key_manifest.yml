@@ -2496,13 +2496,16 @@ keys:
       rendered value would only repeat the default.
     default: once
   web.control_target_picker:
-    rendered: false
     evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"control_target_picker"\s*\)'
     note: >-
       Whether the title bar offers the control-target picker (the chip and its
-      switching popover). Display only: it grants and removes no access.
-      Commented in the four root presets. A value that is not a boolean, or a
-      file that cannot be read, keeps the default.
+      switching popover). Display only: it grants and removes no access. Set
+      false by every shipped preset that reaches no machine (no control-system
+      tool server and no JUPYTER panel): ariel-standalone and
+      channel-finder-standalone, which render it, and the
+      control-assistant-logbook and control-assistant-knowledge personas.
+      Commented in control-assistant and hello-world. A value that is not a
+      boolean, or a file that cannot be read, keeps the default.
     default: true
   web.file_watch_reconcile_interval_s:
     rendered: false
@@ -3298,7 +3301,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 349
+  expected_union_size: 350
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
