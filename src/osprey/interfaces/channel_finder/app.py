@@ -192,14 +192,13 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
 def _read_channel_roster(config) -> RosterResult | None:
     """Enumerate the facility's channels once, for the routes that answer them.
 
-    The graph paradigm's roster is the Turtle corpus the build stages for the
-    store, not the store itself, and reading it costs a multi-megabyte parse —
-    so it happens here, at startup, rather than once per request. The store is
-    never dialed for it: a corpus that is staged answers even while the store is
+    The roster is the facility file the build writes at the root of the render,
+    read once here at startup rather than once per request. The store is never
+    dialed for it: a render that holds the file answers even while the store is
     down, and a store that is up answers nothing this app can enumerate.
 
-    Fail-soft. A deployment pointed at a graph store somebody else runs stages
-    no corpus at all, and that is a serving app whose two enumeration routes say
+    Fail-soft. A deployment pointed at a graph store somebody else runs may hold
+    no facility file, and that is a serving app whose two enumeration routes say
     why they cannot answer — not a reason to refuse to start.
 
     Args:

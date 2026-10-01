@@ -177,12 +177,20 @@ _NO_ROSTER_DETAIL = (
     "The channel roster could not be read, so which channels this facility has is unknown."
 )
 
-#: What an operator edits when an enumeration route reports no roster. Named on
-#: every such answer, including the ones whose reason already names a path: the
-#: path says which file was unreadable, this says which key put it there.
+#: What an operator does when an enumeration route reports no roster and the
+#: facility file is not the reason it is empty: the file is an output of
+#: ``osprey build``, so the remedy is the build, not a config edit.
 _NO_ROSTER_SUGGESTIONS = [
-    f"Check that 'services.{GRAPHDB_SERVICE_NAME}.ttl_path' names a readable "
-    "knowledge-graph corpus and restart the channel finder.",
+    "Run `osprey build` so the render holds its facility file (facility.json), "
+    "then restart the channel finder.",
+]
+
+#: What an operator does when the facility file is built and declares no
+#: channels. The build is not the remedy: it writes what the project's tree
+#: declares, so the tree is what changes.
+_EMPTY_FACILITY_SUGGESTIONS = [
+    "Declare the channels in the project's data/facility tree, then rebuild "
+    "and restart the channel finder.",
 ]
 
 
@@ -413,14 +421,20 @@ def _roster_unavailable(absence: RosterAbsence | None) -> JSONResponse:
 
     Returns:
         The 503, in the body shape the other graph routes answer an unavailable
-        store in: detail, error type, and the remedy.
+        store in: detail, error type, and the remedy -- the project's facility
+        tree for a file that declares no channels, the build for every other
+        reason.
     """
+    from osprey.channel_roster import RosterAbsenceReason
+
+    empty = absence is not None and absence.reason is RosterAbsenceReason.FACILITY_EMPTY
+    suggestions = _EMPTY_FACILITY_SUGGESTIONS if empty else _NO_ROSTER_SUGGESTIONS
     return JSONResponse(
         status_code=503,
         content={
             "detail": absence.message() if absence is not None else _NO_ROSTER_DETAIL,
             "error_type": "service_unavailable",
-            "suggestions": list(_NO_ROSTER_SUGGESTIONS),
+            "suggestions": list(suggestions),
         },
     )
 

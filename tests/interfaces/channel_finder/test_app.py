@@ -285,16 +285,16 @@ class TestGraphParadigmState:
                 assert stats.json()["error_type"]
                 assert stats.json()["suggestions"]
 
-                # This config names a store and stages no corpus, so the two
-                # routes that enumerate channels have no roster to answer from
-                # and say which key would give them one.
+                # No build has written a facility file into this render, so
+                # the two routes that enumerate channels have no roster to
+                # answer from and name the build that would give them one.
                 for enumeration in (
                     c.post("/api/validate", json={"channels": []}),
                     c.get("/api/channels"),
                 ):
                     assert enumeration.status_code == 503
                     body = enumeration.json()
-                    assert "services.graphdb.ttl_path" in " ".join(body["suggestions"])
+                    assert "osprey build" in " ".join(body["suggestions"])
 
                 switched = c.put("/api/pipeline", json={"pipeline_type": "in_context"})
                 assert switched.status_code == 400
