@@ -1708,12 +1708,11 @@ def deploy_up_web_terminals(
             # image-store race. A service an override holds (see _start_stack)
             # makes a non-dev start build here too, naming only the others:
             # compose's implicit build-on-up cannot leave it out.
-            for service, (variable, image) in selection.held.items():
-                report_fact(logger, f"{service} runs {image} ({variable}); not built")
-            if not selection.held or selection.build:
-                services_build = services_base + ["build"]
-                if selection.held:
-                    services_build += list(selection.build)
+            for fact in selection.held_facts():
+                report_fact(logger, fact)
+            build_targets = selection.build_targets()
+            if build_targets is not None:
+                services_build = services_base + ["build", *build_targets]
                 logger.debug(f"Running command:\n    {' '.join(services_build)}")
                 # Watched only for as long as the build runs — same scope as the
                 # plain path's build (see _start_stack).

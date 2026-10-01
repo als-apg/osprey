@@ -50,7 +50,11 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 
-from osprey.build.claude_code_telemetry import OPENOBSERVE_LISTEN_PORT, openobserve_published_port
+from osprey.build.claude_code_telemetry import (
+    OPENOBSERVE_LISTEN_PORT,
+    OPENOBSERVE_PORT_REMEDY,
+    openobserve_published_port,
+)
 from osprey.cli import output
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
 from osprey.utils.logger import get_logger
@@ -739,10 +743,7 @@ def provision_ingest_identity(
     try:
         base_url = store_base_url(config)
     except ValueError as exc:
-        return _degraded(
-            str(exc),
-            "Set services.openobserve.port to an integer port and run `osprey build`.",
-        )
+        return _degraded(str(exc), OPENOBSERVE_PORT_REMEDY)
     org = store_org(config)
 
     with httpx.Client(timeout=REQUEST_TIMEOUT_S, transport=transport) as client:

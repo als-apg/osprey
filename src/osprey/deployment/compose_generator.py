@@ -2252,19 +2252,15 @@ def _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_a
     :param site_image_build_args: What the staging step returned for it.
     :type site_image_build_args: dict[str, str]
     """
-    from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+    from osprey.deployment.container_lifecycle import (
+        SITE_CA_CONTEXT_FILENAME,
+        rendered_compose_services,
+    )
 
     if site_image_build_args.get("OSPREY_SITE_CA") != SITE_CA_CONTEXT_FILENAME:
         return
-    try:
-        with open(compose_filepath, encoding="utf-8") as handle:
-            document = yaml.safe_load(handle)
-    except (OSError, yaml.YAMLError):
-        return
-    if not isinstance(document, Mapping):
-        return
-    services = document.get("services")
-    if not isinstance(services, Mapping):
+    services = rendered_compose_services(Path(compose_filepath))
+    if services is None:
         return
     if any(isinstance(service, Mapping) and "build" in service for service in services.values()):
         return

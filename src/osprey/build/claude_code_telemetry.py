@@ -315,6 +315,10 @@ OPENOBSERVE_LISTEN_PORT = 5080
 #: convention as the host variable: topology is declared, never sniffed.
 OPENOBSERVE_PORT_ENV_VAR = "OSPREY_OTEL_OPENOBSERVE_PORT"
 
+#: The remedy every reader of the store's address gives when
+#: :func:`openobserve_published_port` cannot read the configured port.
+OPENOBSERVE_PORT_REMEDY = "Set services.openobserve.port to an integer port and run `osprey build`."
+
 
 def openobserve_published_port(config: Mapping[str, Any] | None) -> int:
     """The port this deployment publishes the telemetry store on.

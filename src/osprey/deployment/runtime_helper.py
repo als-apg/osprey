@@ -116,6 +116,16 @@ def _await_runtime_answer(
         notice.join()
 
 
+def _no_answer(argv: Sequence[object], timeout: float) -> str:
+    """The clause a message gives for a runtime command that reached the hang guard."""
+    return f"`{' '.join(str(part) for part in argv)}` did not answer within {timeout:g}s"
+
+
+def _retry_hint(runtime: str) -> str:
+    """What to do about a runtime that did not answer."""
+    return f"Run `{runtime} ps` to see whether it answers, then retry."
+
+
 class _ProbeOutcome(StrEnum):
     """How a runtime probe failed."""
 
@@ -159,10 +169,7 @@ def _probe_runtime(runtime: str) -> _ProbeFailure | None:
             return _ProbeFailure(_ProbeOutcome.EXITED, f"`{runtime} ps` exited {ps.returncode}")
         return None
     except subprocess.TimeoutExpired as e:
-        return _ProbeFailure(
-            _ProbeOutcome.NO_ANSWER,
-            f"`{' '.join(str(part) for part in e.cmd)}` did not answer within {e.timeout:g}s",
-        )
+        return _ProbeFailure(_ProbeOutcome.NO_ANSWER, _no_answer(e.cmd, e.timeout))
     except FileNotFoundError:
         return _ProbeFailure(
             _ProbeOutcome.NOT_EXECUTABLE, f"`{runtime}` is on PATH but could not be executed"
@@ -194,9 +201,7 @@ def _no_usable_runtime_message(skipped: Sequence[tuple[str, _ProbeFailure]]) -> 
             )
             blocks.append(f"{failure.reason}.\n\n{help_text}")
         else:
-            blocks.append(
-                f"{failure.reason}. Run `{runtime} ps` to see whether it answers, then retry."
-            )
+            blocks.append(f"{failure.reason}. {_retry_hint(runtime)}")
     return "\n\n".join(blocks)
 
 
@@ -446,9 +451,7 @@ def detect_compose_provider(
         result = _await_runtime_answer([*base, "version"], text=True)
     except subprocess.TimeoutExpired as exc:
         raise UnsupportedComposeProviderError(
-            _unsupported_provider_message(
-                base, f"`{' '.join(base)} version` did not answer within {exc.timeout:g}s", ""
-            )
+            _unsupported_provider_message(base, _no_answer([*base, "version"], exc.timeout), "")
         ) from exc
     except OSError as exc:
         raise UnsupportedComposeProviderError(
@@ -777,10 +780,7 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
         return False, f"`{runtime} ps` exited {result.returncode}:\n{result.stderr}"
 
     except subprocess.TimeoutExpired as exc:
-        return False, (
-            f"`{runtime} ps` did not answer within {exc.timeout:g}s. "
-            f"Run `{runtime} ps` to see whether it answers, then retry."
-        )
+        return False, f"{_no_answer([runtime, 'ps'], exc.timeout)}. {_retry_hint(runtime)}"
     except RuntimeError as e:
         # No runtime found at all
         return False, str(e)
