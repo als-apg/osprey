@@ -62,8 +62,9 @@ SUPERSEDED_MODULE = "testcontainers.neo4j"
 RECIPE = "_graphdb_container.py"
 
 #: Every lane that reads a real graph store, relative to ``tests/``. Each one
-#: reads it only through :class:`tests._graphdb_container.WatchedSession` or
-#: inside :meth:`tests._graphdb_container.WatchedStore.reading`.
+#: reads it only through :class:`tests._graphdb_container.WatchedSession`,
+#: inside :meth:`tests._graphdb_container.WatchedStore.reading`, or through
+#: :meth:`tests._graphdb_container.WatchedStore.read`.
 REAL_STORE_LANES = (
     "integration/test_graph_index_parity_ties.py",
     "integration/test_graphdb_store.py",
@@ -83,6 +84,14 @@ SEEDER_SESSION_LANES = (
 #: A raw driver read. The watched session's methods are ``single`` and
 #: ``records``, so a module that reads only through it never spells this.
 RAW_DRIVER_READ = ".run("
+
+#: The graph context's read; a lane that calls it directly calls it only
+#: inside :meth:`tests._graphdb_container.WatchedStore.read`.
+CONTEXT_READ = "run_read"
+
+#: The lanes that read the store through the graph context directly, relative
+#: to ``tests/``.
+CONTEXT_READ_LANES = ("integration/test_graph_mcp.py",)
 
 #: The private halves of the plugin recipe. A lane that assembles its own
 #: plugin directory has to call one of these, so naming them names every way
@@ -171,6 +180,39 @@ def _seeder_sessions(text: str) -> list[tuple[int, bool]]:
         (node.lineno, id(node) in watched)
         for node in ast.walk(tree)
         if _is_call_to(node, "open_session")
+    )
+
+
+def _unwatched_context_reads(text: str) -> list[int]:
+    """The lines of every ``run_read(...)`` call in *text* not inside a ``.read(...)``."""
+    tree = ast.parse(text)
+    watched = {
+        id(inner)
+        for node in ast.walk(tree)
+        if _is_call_to(node, "read")
+        for argument in [*node.args, *(keyword.value for keyword in node.keywords)]
+        for inner in ast.walk(argument)
+    }
+    return sorted(
+        node.lineno
+        for node in ast.walk(tree)
+        if _is_call_to(node, CONTEXT_READ) and id(node) not in watched
+    )
+
+
+@pytest.mark.parametrize("lane", CONTEXT_READ_LANES)
+def test_a_lane_reads_the_graph_context_only_through_the_watch(lane: str) -> None:
+    """A direct context read outside the watch would fail a stalled store as the product's error."""
+    text = _lane_text(lane)
+
+    assert f"{CONTEXT_READ}(" in text, (
+        f"{lane} calls no {CONTEXT_READ}(, so this guard proves nothing there"
+    )
+    unwatched = _unwatched_context_reads(text)
+    assert unwatched == [], (
+        f"{lane} reads the graph context outside the store's watch at line(s) "
+        f"{unwatched}, so a stalled store would fail such a read as the product's "
+        f"GraphUnreachable. Read through ``store.read(lambda: context.{CONTEXT_READ}(...))``."
     )
 
 
