@@ -300,9 +300,8 @@ agent guessed is worse than no database, because the deployment acts on it.
 `data/channel_limits.json` has three legal starting states:
 
 - **Absent.** A deployment that enforces no limits is an ordinary one. Channel
-  direction then comes from the graph corpus's `readsSignal` and `writesSignal`
-  bindings (`src/osprey/channel_roster/graph.py`), and is unknown where the
-  corpus cannot say.
+  direction comes from the facility file's channel records (`role`), never
+  from the limits file.
 - **Empty.** Keep `_version` and a `defaults` block, carry no channel keys. The
   validator reads it and reports no writable addresses.
 - **Ported.** The facility's own file, unchanged.

@@ -154,9 +154,9 @@ class RosterSource:
         kind: Which kind of source this is.
         path: The resolved on-disk path that was read -- what every reader
             opens and what the memo key fingerprints. Resolution (the
-            render-relative rule for a corpus, the cwd-anchored rule for a
-            database) happens in :mod:`osprey.channel_roster.sources`; by the
-            time it is here it is settled.
+            render-relative rule for the facility file) happens in
+            :mod:`osprey.channel_roster.sources`; by the time it is here it is
+            settled.
         spelled: The configured value the path was resolved FROM, as an
             operator wrote it, or None when there is nothing but the resolved
             path. Carried because the two are different sentences to a reader:
@@ -247,9 +247,7 @@ class RosterAbsence:
         :attr:`detail` says its remedy after that sentence rather than inside
         it: the template names the path and the keys that declare it, which is
         the whole answer for a source nothing here writes, and a second
-        sentence is what a reader adds when there IS a command to run. The
-        database readers state no remedy and render exactly as they always
-        have.
+        sentence is what a reader adds when there IS a command to run.
         """
         rendered = ABSENCE_TEMPLATES[self.reason].format(**self._values())
         if self.reason is RosterAbsenceReason.MISSING_SOURCE and self.detail:
