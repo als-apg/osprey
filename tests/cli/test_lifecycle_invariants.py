@@ -208,6 +208,8 @@ def test_the_exemption_sets_name_only_commands_that_exist() -> None:
     pass.
     """
     registered = set(LazyGroup().list_commands(ctx=None))
+    # MODE_EXEMPT_FLAGS is keyed by top-level command: ``facility`` is there for
+    # ``--print-exporter``, which its verb ``facility import mml`` owns.
     named = _EXEMPT | set(MODE_EXEMPT_FLAGS)
     assert named - registered == set(), (
         f"repo_resolver exempts commands the CLI does not register: {sorted(named - registered)}"

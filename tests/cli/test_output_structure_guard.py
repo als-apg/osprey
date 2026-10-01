@@ -343,6 +343,18 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "console with markup, so the theming lives on the human path and the raw "
         "path carries diff bytes only.",
     ),
+    "cli/facility_cmd.py": (
+        3,
+        "Two classes, both already blessed elsewhere. One is the --print-exporter "
+        "byte render: `osprey facility import mml --print-exporter` prints the "
+        "layer's mml_export.m for a caller redirecting it into a file, the same "
+        "class as users_cmd's byte render. The other two are the import's "
+        "authored-present stop: its `import mml: authored-present: <n> files` "
+        "line and one `rm <path>` line per file, on stderr, which the mml "
+        "recipes apply as printed -- the bare-line shape every facility stop "
+        "prints through its ClickException.show, so this stop reads like the "
+        "importer's own mapping stops beside it.",
+    ),
 }
 
 #: Rule 3, zero-tolerance. Nothing, anywhere. The builtin has no legal use in
