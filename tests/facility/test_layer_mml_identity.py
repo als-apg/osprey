@@ -375,7 +375,10 @@ def test_a_nameless_family_the_mapping_leaves_out_stops_the_import(tmp_path: Pat
     del document["families"]["BPMy"]["devices"]
     target.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     with pytest.raises(ImportStop) as stop:
-        import_mml([FIXTURES / "nsls2" / "nsls2.storagering.ao.json"], facility)
+        import_mml(
+            [FIXTURES / "nsls2" / f"nsls2.{stem}.ao.json" for stem in ("storagering", "ltb")],
+            facility,
+        )
     assert stop.value.format_message() == (
         "import mml: mapping-undecided: families.BPMy.devices: "
         "write address, a list of names or {same_as: <family>}"

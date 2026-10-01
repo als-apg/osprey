@@ -254,10 +254,12 @@ def test_the_import_returns_each_deck_it_wrote(tmp_path: Path) -> None:
 
 
 def test_a_deck_of_a_model_the_import_does_not_carry_is_removed(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "nsls2")
-    import_mml([FIXTURES / "nsls2" / f"{stem}.ao.json" for stem in TREES["nsls2"]], facility)
-    assert (facility / decks.DECKS_DIR / "LTB.json").is_file()
-    import_mml([FIXTURES / "nsls2" / "nsls2.storagering.ao.json"], facility)
+    facility = _facility(tmp_path, "spear3")
+    exports = [FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]]
+    import_mml(exports, facility)
+    stale = facility / decks.DECKS_DIR / "Other.json"
+    shutil.copyfile(facility / decks.DECKS_DIR / "StorageRing.json", stale)
+    import_mml(exports, facility)
     assert sorted(p.name for p in (facility / decks.DECKS_DIR).iterdir()) == ["StorageRing.json"]
 
 
@@ -274,7 +276,7 @@ def test_a_wired_family_the_export_places_no_device_of_stops_per_family(tmp_path
                 "calibration": "linear",
             }
 
-    assert _stops(tmp_path, "nsls2", ("nsls2.ltb",), unplaced).splitlines() == [
+    assert _stops(tmp_path, "nsls2", TREES["nsls2"], unplaced).splitlines() == [
         "import mml: export-invalid: LTB: family BPMx is wired through Monitor "
         "and the export places none of its devices",
         "import mml: export-invalid: LTB: family BPMy is wired through Monitor "
@@ -323,7 +325,7 @@ def test_a_wired_address_no_channel_record_carries_stops(tmp_path: Path) -> None
 
 def test_a_driven_readback_the_export_states_no_way_back_for_stops(tmp_path: Path) -> None:
     facility = _facility(tmp_path, "nsls2")
-    exports = _exports(tmp_path, "nsls2", ("nsls2.ltb",))
+    exports = _exports(tmp_path, "nsls2", TREES["nsls2"])
     sibling = exports[0].with_name("nsls2.ltb.va.json")
     document = json.loads(sibling.read_text(encoding="utf-8"))
     del document["families"]["Q"]["Monitor"]["monitor_inverse"]
@@ -345,7 +347,7 @@ def test_an_unanswered_cavity_voltage_stays_mapping_undecided(tmp_path: Path) ->
     def unanswered(document: dict[str, Any]) -> None:
         del document["models"]["StorageRing"]["wiring"]["RF"]["voltage"]
 
-    assert _stops(tmp_path, "nsls2", ("nsls2.storagering",), unanswered) == (
+    assert _stops(tmp_path, "nsls2", TREES["nsls2"], unanswered) == (
         "import mml: mapping-undecided: models.StorageRing.wiring.RF.voltage: "
         "answer the cavity voltage in volts; the deck holds no cavity"
     )
