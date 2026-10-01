@@ -13,3 +13,11 @@ remedy when the render holds no facility file. A facility file that declares no
 channels reports `The facility file facility.json declares no channels: the
 project's data/facility tree holds no channel records.`; the plan-device file
 is not staged, and the channel finder's 503 names `data/facility` as the remedy.
+A project that stages no channel database gets its virtual-accelerator channel
+set from the facility file in every channel-finder mode, read from the render
+being built. Such a manifest carries `_metadata.source_paradigms: []` — no
+channel database fed it, and `source_corpus` names `facility.json` — where it
+carried `["graph"]`; a manifest built from staged channel databases is
+unchanged. When the facility file declares no channels, a build deploying a
+virtual accelerator stops with that sentence in place of `no channel database
+is staged at tier N`.
