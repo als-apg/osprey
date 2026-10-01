@@ -1607,8 +1607,8 @@ def _report_va_manifest_outcome(
 
     shared.va_reported.add(key)
     metadata = prepared.manifest["_metadata"]
-    # The graph source as an operator names it: the search index the
-    # roster read, not the Turtle corpus behind it.
+    # The roster's source as an operator names it: the facility file, by its
+    # file name.
     graph_source = metadata.get("source_corpus")
     absent = metadata["absent_paradigms"]
     novel = metadata["machine_json_novel_addresses"]
@@ -1617,11 +1617,10 @@ def _report_va_manifest_outcome(
     # operator is being told what the accelerator will serve, not sent to a
     # path they would have to retype.
     if graph_source is not None:
-        # The one source that is not a channel database. The index path is the
-        # configured spelling, which IS what an operator would retype.
+        # The one source that is not a channel database.
         line = (
-            f"Virtual-accelerator channel set built from this project's channel search "
-            f"index ({graph_source}): {from_databases} channel(s)"
+            f"Virtual-accelerator channel set built from this project's facility file "
+            f"({graph_source}): {from_databases} channel(s)"
         )
     else:
         fed = _named_in_prose(metadata["source_paradigms"])
@@ -1637,11 +1636,11 @@ def _report_va_manifest_outcome(
         line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
     line += "."
     if graph_source is not None and metadata["setpoint_count"]:
-        # What the corpus's device grouping bought: the pairs it states are
-        # the only channels a graph-sourced accelerator can echo a write on,
-        # and the operator driving one should know which count that is.
+        # The pairs the facility file states are the only channels an
+        # accelerator built from it can echo a write on, and the operator
+        # driving one should know which count that is.
         line += (
-            f" The corpus pairs {metadata['setpoint_count']} setpoint(s) with a readback; "
+            f" The facility file pairs {metadata['setpoint_count']} setpoint(s) with a readback; "
             "those are served as setpoint-echo channels, every other channel as static-noisy."
         )
     if absent:
@@ -1677,7 +1676,7 @@ def _report_va_manifest_outcome(
     if degraded:
         unclassified_reason = metadata.get("unclassified_reason")
         if graph_source is not None:
-            lead_in = " The knowledge graph carries no hierarchy identity keys, so"
+            lead_in = " The facility file carries no hierarchy identity keys, so"
         elif "hierarchical" not in metadata["source_paradigms"]:
             lead_in = " Without a hierarchical database the channels carry no identity keys, so"
         elif unclassified_reason:

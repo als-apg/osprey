@@ -855,40 +855,25 @@ def _finish_manifest(
     return {"_metadata": metadata, "channels": [asdict(e) for e in entries]}
 
 
-def _graph_roster(config: dict):
-    """The channel roster, when this project's roster source is the knowledge graph.
+def _graph_roster(config: dict | None):
+    """The channel roster of the project this config belongs to.
 
     Answered through :mod:`osprey.channel_roster` -- the one membership
-    authority -- rather than by a second corpus parser here. ``None`` when the
-    project's roster source is not the graph at all (a database paradigm, or
-    nothing configured), which tells the caller to keep the paradigm-database
-    rules; a graph-mode project always gets a
+    authority -- rather than by a second reader here. ``None`` only when no
+    config is given, which tells the caller to keep the paradigm-database
+    rules; a config always gets a
     :class:`~osprey.channel_roster.records.RosterResult` back, absence
-    included, so the refusal can name the corpus.
+    included, so the refusal can name what the roster read.
 
     Imported lazily: this module is imported inside the virtual-accelerator
     container, which never reads a roster source and should not pay for the
     roster package's import graph.
     """
-    from osprey.channel_roster import (
-        RosterAbsenceReason,
-        RosterSourceKind,
-        registered_channels,
-        resolve_roster_source,
-    )
-
-    resolution = resolve_roster_source(config)
-    # Graph mode with no readable corpus is still graph mode: both absences
-    # come back so the refusal can name the corpus keys, or the broken line.
-    graph_configured = (
-        resolution.source is not None and resolution.source.kind is RosterSourceKind.GRAPH
-    ) or (
-        resolution.absence is not None
-        and resolution.absence.reason
-        in (RosterAbsenceReason.GRAPH_NO_TTL, RosterAbsenceReason.GRAPH_MALFORMED)
-    )
-    if not graph_configured:
+    if config is None:
         return None
+
+    from osprey.channel_roster import registered_channels
+
     return registered_channels(config)
 
 
