@@ -139,6 +139,17 @@ def test_valid_profile_validates_silently(tmp_path: Path) -> None:
     assert _profile(name="x").validate(tmp_path) is None
 
 
+def test_a_docker_url_probe_address_beside_web_terminals_is_refused(tmp_path: Path) -> None:
+    """A web-terminal deployment probes MCP servers at the host address only."""
+    profile = _profile(
+        name="x",
+        config={"modules.web_terminals.enabled": True, "health.auto.mcp.url_key": "docker_url"},
+    )
+    errors = _errors(profile, tmp_path)
+    assert len(errors) == 1
+    assert errors[0].startswith("config: health.auto.mcp.url_key is 'docker_url'")
+
+
 # --- scalar fields: name, deploy_services, tier, channel_finder_mode -------
 
 

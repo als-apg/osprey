@@ -44,6 +44,7 @@ from .build_profile_archiver import (
     va_mock_archiver_errors,
 )
 from .build_profile_deploy import DeployConfig
+from .build_profile_health import health_url_key_errors
 from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
 from .build_profile_schema import (
     _ENV_VAR_RE,
@@ -1339,6 +1340,9 @@ class BuildProfile:
         # And the one derived branch whose source is a sibling FILE rather than
         # a field or the build's own layout.
         errors.extend(provider_catalog_key_errors(self.config))
+        # The one conditionally derived key, judged here where the condition
+        # (whether this deployment serves web terminals) is known.
+        errors.extend(health_url_key_errors(self.config))
 
         if self.tier is not None and self.tier not in (1, 3):
             errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
