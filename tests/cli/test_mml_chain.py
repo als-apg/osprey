@@ -1148,14 +1148,6 @@ class TestFacilitySpecificForms:
             "# osprey:direction-source mapping"
         )
 
-    def test_the_prompt_snapshot_names_the_mapping_as_the_direction_source(self) -> None:
-        from osprey.services.facility_knowledge.seeder import prompt_snapshot
-
-        line = prompt_snapshot.DIRECTION_PROVENANCE_LINES["mapping"]
-
-        assert "MML export" in line
-        assert "mapping file" in line
-
 
 class TestTheReviewersJudgment:
     """What the reviewer answered is what the artifacts hold.

@@ -216,29 +216,8 @@ def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: s
         )
         assert result.ok
         assert result.triples_loaded == EXPECTED_TRIPLES_LOADED
-        graph_seeder.write_marker(
-            session, expected_sha, graph_seeder.parse_direction_source(demo_ttl)
-        )
+        graph_seeder.write_marker(session, expected_sha)
         assert graph_seeder.read_marker(session) == expected_sha
-        assert graph_seeder.read_direction_source(session) == "limits", (
-            "the shipped corpus declares its direction source in its first line, "
-            "and the marker is what carries that to the baked agent prompt"
-        )
-
-        # --- 2b. A corpus declaring nothing clears the stored claim ----------
-        # The properties share one MERGE, so a re-seed cannot leave the previous
-        # corpus's provenance standing beside the new corpus's digest.
-        graph_seeder.write_marker(
-            session,
-            expected_sha,
-            graph_seeder.parse_direction_source("@prefix ex: <http://x/> .\n"),
-        )
-        assert graph_seeder.read_direction_source(session) is None
-        assert graph_seeder.read_marker(session) == expected_sha
-
-        graph_seeder.write_marker(
-            session, expected_sha, graph_seeder.parse_direction_source(demo_ttl)
-        )
 
         # --- 3. The verified counts -----------------------------------------
         _assert_verified_counts(watched)
@@ -269,12 +248,9 @@ def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: s
         reimport = graph_seeder.import_ttl(session, demo_ttl)
         assert reimport.termination_status == graph_seeder.TERMINATION_OK, reimport.extra_info
         assert reimport.triples_loaded == EXPECTED_TRIPLES_LOADED
-        graph_seeder.write_marker(
-            session, expected_sha, graph_seeder.parse_direction_source(demo_ttl)
-        )
+        graph_seeder.write_marker(session, expected_sha)
 
         assert graph_seeder.read_marker(session) == expected_sha
-        assert graph_seeder.read_direction_source(session) == "limits"
         _assert_verified_counts(watched)
 
 

@@ -317,12 +317,10 @@ class _FakeDriver:
         *,
         count: int = 7,
         sha256: str | None = DIGEST,
-        direction_source: str | None = "grammar",
         connect_error: Exception | None = None,
     ) -> None:
         self.count = count
         self.sha256 = sha256
-        self.direction_source = direction_source
         self.connect_error = connect_error
         self.queries: list[str] = []
 
@@ -335,9 +333,7 @@ class _FakeDriver:
         if "_OspreySeed" in query:
             if self.sha256 is None:
                 return _FakeEagerResult([])
-            return _FakeEagerResult(
-                [_FakeRecord(sha256=self.sha256, direction_source=self.direction_source)]
-            )
+            return _FakeEagerResult([_FakeRecord(sha256=self.sha256)])
         return _FakeEagerResult([_FakeRecord(count=self.count)])
 
     def close(self) -> None:

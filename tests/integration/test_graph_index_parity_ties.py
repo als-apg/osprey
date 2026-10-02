@@ -186,7 +186,6 @@ def ties_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
             graph_seeder.write_marker(
                 session,
                 graph_seeder.ttl_sha256(TIES_CORPUS),
-                graph_seeder.parse_direction_source(TIES_CORPUS),
             )
             logger.info(
                 f"ties: seeded {imported.triples_loaded} triples, "

@@ -165,7 +165,6 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
             graph_seeder.write_marker(
                 session,
                 graph_seeder.ttl_sha256(ttl_text),
-                graph_seeder.parse_direction_source(ttl_text),
             )
             logger.info(
                 f"{label}: seeded {imported.triples_loaded} triples, "
