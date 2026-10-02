@@ -12,7 +12,7 @@
 
     project_name: str
       The deployment's project name, as resolve_project_name() returns it
-      (e.g. "ex"). Used for container_name (`<project>-web-<user>`,
+      (e.g. "my-assistant"). Used for container_name (`<project>-web-<user>`,
       `<project>-nginx`, `<project>-auth`) and the sidecar's local image tag
       only — the per-user agent-data mount path comes from each service's own
       `container_agent_data_dir` (below), not this field, so a persona-resolved

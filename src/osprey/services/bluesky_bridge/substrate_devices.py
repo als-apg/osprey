@@ -55,10 +55,10 @@ readily as for a virtual one. That is a considered position rather than an
 oversight: a device in the worker's namespace is a name a plan MAY reference,
 never a write that has happened. The gates that decide whether a write lands
 sit on the write path -- the connector's per-put reference monitor and the
-bridge's arming + limits facade. Withholding the machine's own channels from the namespace would add no
-gate; it would only make the channels an agent is allowed to read invisible to
-it, and push operators back to hand-authored device files that nothing keeps in
-step with the facility.
+bridge's arming + limits facade. Withholding the machine's own channels from
+the namespace would add no gate; it would only make the channels an agent is
+allowed to read invisible to it, and push operators back to hand-authored
+device files that nothing keeps in step with the facility.
 
 Two consumers share this module (DRY, one derivation):
 
