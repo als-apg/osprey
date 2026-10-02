@@ -399,7 +399,7 @@ def plain(text: str) -> str:
 STDOUT_NEEDLES = {
     "Created": "Claude Code integration file(s)",
     "data files": "Copied profile data files from",
-    "tier artifacts": "Materialized tier",
+    "benchmark queries": "Copied benchmark queries",
     "web-terminal context": "Installed web-terminal context to",
 }
 
@@ -501,18 +501,18 @@ class TestStdoutDataCopyQuiet:
         assert "Copied profile data files" in caplog.text
         assert "Copied profile data" not in plain(capsys.readouterr().out)
 
-    def test_stdout_csv_prune_is_quiet(
+    def test_stdout_staging_prune_is_quiet(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
     ) -> None:
         """Pruning ``data/raw/`` reports the removal at DEBUG, not on stdout."""
-        from osprey.cli.templates.scaffolding import prune_csv_build_artifacts
+        from osprey.cli.templates.scaffolding import materialize_benchmark_queries
 
         raw = self._tree(tmp_path / "project" / "data" / "raw")
 
         capsys.readouterr()
         with caplog.at_level(logging.DEBUG, logger="osprey.cli.templates"):
-            prune_csv_build_artifacts(tmp_path / "project", "hierarchical")
+            materialize_benchmark_queries(tmp_path / "project", "hierarchical")
 
         assert not raw.exists()
-        assert "no CSV build path" in caplog.text
-        assert "no CSV build path" not in plain(capsys.readouterr().out)
+        assert "from the render" in caplog.text
+        assert "from the render" not in plain(capsys.readouterr().out)

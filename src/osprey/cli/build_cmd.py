@@ -1988,13 +1988,12 @@ def _render_project(
         The rendered project directory.
     """
     from osprey.agent_runner.provider_env import load_provider_spec
-    from osprey.build.build_tiers import tier_mode_conflict
     from osprey.deployment.reach import reach_errors
     from osprey.services.virtual_accelerator.manifest.build import (
         prepare_project_manifest,
         write_project_manifest,
     )
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths, _manifest_tier
 
     from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
@@ -2093,16 +2092,16 @@ def _render_project(
         else:
             context["profile_owns_facility_rule"] = (repo_root / FACILITY_RULE_RELPATH).is_file()
 
-    # Prepared before the render (which prunes the tiers/ subtree the paradigm
-    # databases live in) and written after it, so the decision is settled before
-    # anything is written.
+    # Prepared from the facility tree before the render (which carries no
+    # tiers/ subtree the paradigm databases live in) and written after it, so
+    # the decision is settled before anything is written.
     #
     # The profile's own tree is the only one there is: `data:` is required of
     # every profile file, so nothing falls back to a packaged bundle here and
     # the manifest describes the facility's databases or the build refuses.
     data_root = build_profile.resolved_data_root(repo_root)
     assert data_root is not None  # `data:` required; narrows for type-checkers
-    va_key = (str(data_root), build_profile.resolved_tier())
+    va_key = (str(data_root), _manifest_tier(build_profile.channel_finder_mode))
     # A tree that stages no paradigm database has nothing to prepare yet: its
     # channels are the records of the facility file this render is about to be
     # given, and the outgoing build/ holds the previous build's or none. Its
@@ -2122,21 +2121,6 @@ def _render_project(
             tier=va_key[1],
             prepared=shared.va_manifests[va_key],
         )
-
-    # ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
-    # not "the tier to use": given ``None`` it applies the same paradigm-aware
-    # derivation ``resolved_tier()`` does, and given a value it enforces
-    # ``tier_mode_conflict`` against it. So a paradigm that refuses an explicit
-    # tier — one whose store is a service rather than tiered database files —
-    # must be handed ``None`` here, or its own derived default comes back as a
-    # pin and the build refuses to render at all. Ask the rule rather than
-    # naming the paradigm, so this stays true as paradigms are added.
-    derived_tier = build_profile.resolved_tier()
-    pinned_tier = (
-        None
-        if tier_mode_conflict(derived_tier, build_profile.channel_finder_mode)
-        else derived_tier
-    )
 
     # Every edit of the render's config.yml — the template's own ownership
     # registration, the overrides, the projections, the service injectors, the
@@ -2161,7 +2145,6 @@ def _render_project(
             context=context,
             force=True,
             artifacts=effective_artifacts,
-            tier=pinned_tier,
             data_root=data_root,
         )
         progress("  ✓ Base template rendered")

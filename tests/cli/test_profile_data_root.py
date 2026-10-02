@@ -7,7 +7,7 @@ replacement, not a layer, and the tree is content rather than templates:
 * a stray ``.j2`` file lands byte-identical, extension intact
 * neither ``copy_template_data`` branch that reads the bundle contributes a
   file (the ``apps/<bundle>/data`` derivation nor the rglob fallback/merge)
-* the build-time pipeline is otherwise untouched: tier materialization runs
+* the build-time pipeline is otherwise untouched: the benchmark query step runs
   against the profile-sourced tree, and the project/ mirror applied later still
   wins
 """
@@ -36,8 +36,8 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
     """Materialize a profile directory carrying its own copy of the bundle data.
 
     The copy starts byte-identical to ``apps/control_assistant/data/`` so the
-    tier-routed subtrees the build materializes from are present; individual
-    tests then mutate it to make the replacement observable.
+    benchmark query sources the build copies from are present; individual tests
+    then mutate it to make the replacement observable.
     """
     profile_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(_bundle_data_dir(), profile_dir / "data")
@@ -235,26 +235,35 @@ class TestFullReplacement:
 class TestBuildPipelineOrderingHolds:
     """Materialization and the mirror behave as for a bundle-sourced tree."""
 
-    def test_tier_materialization_runs_against_the_profile_tree(self, tmp_path: Path) -> None:
+    def test_benchmark_queries_come_from_the_profile_tree(self, tmp_path: Path) -> None:
         profile_dir = tmp_path / "profile"
         profile_path = _write_profile(profile_dir)
 
-        # A facility DB that is recognizably NOT the bundle's, staged where the
-        # tier materializer reads from.
-        tier_src = (
-            profile_dir / "data" / "channel_databases" / "tiers" / "tier1" / "in_context.json"
+        # A query file that is recognizably NOT the bundle's, staged where the
+        # build reads the in_context mode's queries from.
+        queries_src = (
+            profile_dir
+            / "data"
+            / "benchmarks"
+            / "cross_paradigm"
+            / "queries"
+            / "tier1_queries.json"
         )
-        tier_src.write_text('{"channels": {"FACILITY:TIER:SRC": {"description": "profile"}}}\n')
+        queries_src.write_text('[{"user_query": "profile", "targeted_pv": []}]\n')
 
         project_dir = _build(profile_path)
 
-        flat = project_dir / "data" / "channel_databases" / "in_context.json"
-        assert flat.read_text() == tier_src.read_text(), (
-            "flat channel DB was not materialized from the profile's tier tree"
+        queries = project_dir / "data" / "benchmarks" / "queries.json"
+        assert queries.read_text() == queries_src.read_text(), (
+            "benchmark queries were not copied from the profile's tree"
+        )
+        assert not (project_dir / "data" / "benchmarks" / "cross_paradigm").exists(), (
+            "cross_paradigm/ subtree reached the render from the profile-sourced tree"
         )
         assert not (project_dir / "data" / "channel_databases" / "tiers").exists(), (
-            "tiers/ subtree was not pruned from the profile-sourced tree"
+            "tiers/ subtree reached the render from the profile-sourced tree"
         )
+        assert queries_src.exists(), "the profile's own tree was pruned"
 
     def test_project_mirror_wins_over_profile_data(self, tmp_path: Path) -> None:
         """The project/ mirror applies after the data tree lands, so it wins."""
@@ -266,9 +275,8 @@ class TestBuildPipelineOrderingHolds:
         mirror_src.parent.mkdir(parents=True, exist_ok=True)
         mirror_src.write_text(mirror_body)
 
-        # Both the profile's flat DB and the tier source it is materialized from
-        # carry different content, so a passing assertion can only mean the
-        # mirror landed last.
+        # The profile's flat DB and its tier source both carry different
+        # content, so a passing assertion can only mean the mirror landed last.
         profile_flat = profile_dir / "data" / "channel_databases" / "in_context.json"
         profile_flat.write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
         tier_src = (
@@ -284,5 +292,5 @@ class TestBuildPipelineOrderingHolds:
         )
         landed = project_dir / "data" / "channel_databases" / "in_context.json"
         assert landed.read_text() == mirror_body, (
-            "project/ mirror did not win over the profile data tree / tier materialization"
+            "project/ mirror did not win over the profile data tree"
         )

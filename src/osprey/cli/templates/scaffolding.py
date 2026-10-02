@@ -1,18 +1,15 @@
 """Project creation helpers: directory structure, services, data files.
 
-Includes :func:`materialize_tier_artifacts`, the build-time step that picks
-the tier-routed channel-database file(s) and the matching tier-routed
-benchmark query file for the selected paradigm, copies them into the canonical
-flat locations (``data/channel_databases/<paradigm>.json`` and
-``data/benchmarks/queries.json``), and prunes the now-redundant ``tiers/`` and
-``benchmarks/cross_paradigm/`` subtrees.
+Includes :func:`materialize_benchmark_queries`, the build-time step that copies
+the selected mode's benchmark query file to ``data/benchmarks/queries.json``
+and removes the facility tree's channel-finder staging subtrees from the
+render.
 """
 
 import logging
 import shutil
 from pathlib import Path
 
-from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates._rendering import render_template
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -425,146 +422,57 @@ def copy_template_data(
     logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
 
 
-#: Alias of the paradigm registry in :mod:`osprey.build.modes`, kept
-#: under the local name this module's guard reads. Adding a paradigm to the
-#: registry admits it here with no edit.
-_ALL_PARADIGMS: tuple[str, ...] = VALID_CHANNEL_FINDER_MODES
+#: The staging subtrees a facility data tree may carry that no render needs:
+#: the per-tier channel databases and benchmark query sources, and the raw
+#: inputs they were generated from. Relative to the render's ``data/``.
+_RENDER_EXCLUDED_DATA_DIRS: tuple[tuple[str, ...], ...] = (
+    ("benchmarks", "cross_paradigm"),
+    ("channel_databases", "tiers"),
+    ("raw",),
+)
 
 
-def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode: str) -> None:
-    """Materialize tier-routed channel databases AND benchmark queries.
+def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -> None:
+    """Copy the mode's benchmark query file into place and prune the staging trees.
 
-    The preset ships:
-    - channel databases under
-      ``data/channel_databases/tiers/tier{1,3}/<paradigm>.json``
-    - benchmark query files under
-      ``data/benchmarks/cross_paradigm/queries/tier{1,3}_queries.json``
+    The facility tree ships its benchmark query sources under
+    ``data/benchmarks/cross_paradigm/queries/``: ``tier1_queries.json`` for
+    ``in_context`` and ``tier3_queries.json`` for every other mode. The selected
+    one is copied to ``data/benchmarks/queries.json``. Then
+    ``data/benchmarks/cross_paradigm/``, ``data/channel_databases/tiers/`` and
+    ``data/raw/`` are removed from the render; the facility tree they were
+    copied from is never touched. Each channel-finder index is the view the
+    build writes at its own path, so nothing is flattened here.
 
-    After ``osprey build``, this helper picks the requested ``tier`` and:
-    - copies the active paradigm's DB to the flat
-      ``data/channel_databases/<paradigm>.json``
-    - copies the tier-matching query file to the flat
-      ``data/benchmarks/queries.json``
-    - prunes both the ``tiers/`` and ``benchmarks/cross_paradigm/`` subtrees
-      so only the active artifacts remain.
-
-    ``graph`` takes the query file and nothing else: its store is a seeded
-    graph service, so the preset ships no ``tiers/tier{N}/graph.json`` and the
-    build materializes no channel database for it. The queries still land,
-    because the graph benchmark lane scores the same tier-3 ground truth as
-    the file-database paradigms. Graph only ever reaches this function at the
-    derived tier 3 — :func:`osprey.build.build_tiers.tier_mode_conflict`
-    rejects an explicit ``tier`` paired with it.
-
-    Facility profiles overlaying their own DB files don't care which tier
-    was selected — their overlay overwrites the preset DB after this step.
-    Tier itself is build-time only and is NOT written into ``config.yml``.
+    A render whose tree ships no ``data/benchmarks/cross_paradigm/`` subtree
+    gets no ``queries.json``.
 
     Args:
         project_dir: Root directory of the rendered project.
-        tier: Tier number (1 or 3) selecting the source subdirectories. Tier 1
-            ships only the ``in_context`` paradigm; the build-profile validator
-            rejects tier 1 paired with a non-in_context channel_finder_mode
-            before this step, so a missing tier1/<paradigm>.json here is a bug.
-            For ``graph`` the tier selects the query file only.
-        channel_finder_mode: Paradigm selector from the build profile. Must
-            be one of the paradigms in
-            :data:`osprey.build.modes.VALID_CHANNEL_FINDER_MODES`.
+        channel_finder_mode: Channel-finder mode from the build profile.
 
     Raises:
-        ValueError: If ``channel_finder_mode`` is not a registered paradigm
-            (the build-profile validator and ``manager.py`` should catch this
-            earlier, but this is a defensive guard).
-        FileNotFoundError: If a required source artifact is missing. Raised
-            BEFORE any destination file is overwritten or any directory is
-            removed, so the project tree is left untouched on failure.
-
-    No-ops (returns silently) when the rendered project carries no
-    ``data/channel_databases/tiers/`` subtree — bundles that don't ship
-    channel-finder DBs (e.g. ``hello_world``) have nothing to materialize.
+        FileNotFoundError: If the tree ships query sources but none for this
+            mode. Raised before anything is copied or removed.
     """
-    tiers_root = project_dir / "data" / "channel_databases" / "tiers"
-    if not tiers_root.exists():
-        return
-
-    if channel_finder_mode not in _ALL_PARADIGMS:
-        raise ValueError(
-            f"Unknown channel_finder_mode {channel_finder_mode!r}; "
-            f"expected one of {sorted(_ALL_PARADIGMS)!r}"
+    data_dir = project_dir / "data"
+    queries_root = data_dir / "benchmarks" / "cross_paradigm" / "queries"
+    if queries_root.exists():
+        source_name = (
+            "tier1_queries.json" if channel_finder_mode == "in_context" else "tier3_queries.json"
         )
-    # The paradigms that have a channel database to flatten. ``graph`` is
-    # backed by a seeded graph service rather than a database file, so it
-    # contributes no (src, dst) DB pair — only the query file below.
-    paradigms: set[str] = set() if channel_finder_mode == "graph" else {channel_finder_mode}
-
-    tier_dir = tiers_root / f"tier{tier}"
-    flat_root = project_dir / "data" / "channel_databases"
-    queries_src_root = project_dir / "data" / "benchmarks" / "cross_paradigm"
-
-    # Resolve every (src, dst) pair up front, validate existence, then copy.
-    # This keeps the destination tree consistent on FileNotFoundError.
-    pairs: list[tuple[Path, Path]] = []
-    for paradigm in sorted(paradigms):
-        src = tier_dir / f"{paradigm}.json"
-        dst = flat_root / f"{paradigm}.json"
-        if not src.exists():
+        queries_src = queries_root / source_name
+        if not queries_src.exists():
             raise FileNotFoundError(
-                f"Tier-routed channel database not found: {src} "
-                f"(tier={tier}, paradigm={paradigm!r})"
+                f"Benchmark queries file not found: {queries_src} "
+                f"(channel_finder_mode={channel_finder_mode!r})"
             )
-        pairs.append((src, dst))
+        queries_dst = data_dir / "benchmarks" / "queries.json"
+        shutil.copy2(queries_src, queries_dst)
+        logger.debug("Copied benchmark queries %s to %s", queries_src, queries_dst)
 
-    # The unified query file lives under the preset's
-    # data/benchmarks/cross_paradigm/queries/ subtree, which copy_template_data
-    # wholesale-copies into the project. Pick the tier-matching file and
-    # materialize it as the canonical data/benchmarks/queries.json.
-    queries_src = queries_src_root / "queries" / f"tier{tier}_queries.json"
-    queries_dst = project_dir / "data" / "benchmarks" / "queries.json"
-    if not queries_src.exists():
-        raise FileNotFoundError(
-            f"Tier-routed benchmark queries file not found: {queries_src} (tier={tier})"
-        )
-    pairs.append((queries_src, queries_dst))
-
-    for src, dst in pairs:
-        shutil.copy2(src, dst)
-
-    # All copies succeeded — safe to prune the preset's staging subtrees.
-    shutil.rmtree(tiers_root)
-    if queries_src_root.exists():
-        shutil.rmtree(queries_src_root)
-
-    logger.debug(
-        "Materialized tier%s artifacts for %r (channel DBs: %r) to %s",
-        tier,
-        channel_finder_mode,
-        sorted(paradigms),
-        project_dir / "data",
-    )
-
-
-def prune_csv_build_artifacts(project_dir: Path, channel_finder_mode: str) -> None:
-    """Remove ``data/raw/`` for paradigms that have no CSV → DB build path.
-
-    The bundled ``osprey channel-finder build-database`` tool consumes a flat
-    CSV (``data/raw/address_list.csv``) and emits a flat in_context-format
-    JSON. Hierarchical and middle_layer databases have a nested structure
-    that the CSV format cannot express, and a graph build has no database file
-    at all, so the ``raw/`` directory is dead weight in those projects.
-
-    Args:
-        project_dir: Root directory of the rendered project.
-        channel_finder_mode: Paradigm selector from the build profile.
-
-    No-op when ``channel_finder_mode == "in_context"`` or when the rendered
-    project carries no ``data/raw/`` subtree.
-    """
-    if channel_finder_mode == "in_context":
-        return
-
-    raw_dir = project_dir / "data" / "raw"
-    if not raw_dir.exists():
-        return
-
-    shutil.rmtree(raw_dir)
-    logger.debug("Removed %s (no CSV build path for %r paradigm)", raw_dir, channel_finder_mode)
+    for parts in _RENDER_EXCLUDED_DATA_DIRS:
+        excluded = data_dir.joinpath(*parts)
+        if excluded.exists():
+            shutil.rmtree(excluded)
+            logger.debug("Removed %s from the render", excluded)

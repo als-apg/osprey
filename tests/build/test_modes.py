@@ -8,11 +8,11 @@ paradigm cannot quietly leave one of them behind.
 
 from __future__ import annotations
 
-from osprey.build.build_tiers import default_tier_for_mode
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
-from osprey.cli.templates import manager, scaffolding
+from osprey.cli.templates import manager
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.benchmarks.runner import PARADIGM_CONFIG_KEYS
+from osprey.services.virtual_accelerator.manifest.paths import _manifest_tier
 
 
 def test_graph_is_a_registered_paradigm():
@@ -44,11 +44,6 @@ def test_mcp_pipeline_tool_map_serves_graph():
         "read_cypher",
         "search_channels",
     ]
-
-
-def test_scaffolding_paradigms_is_the_registry_itself():
-    """``scaffolding._ALL_PARADIGMS`` is an alias, not a second list."""
-    assert scaffolding._ALL_PARADIGMS is VALID_CHANNEL_FINDER_MODES
 
 
 def test_manager_enable_flags_cover_every_paradigm():
@@ -84,15 +79,15 @@ def test_benchmark_paradigm_config_keys_exclude_only_graph():
     assert set(PARADIGM_CONFIG_KEYS) == set(VALID_CHANNEL_FINDER_MODES) - {"graph"}
 
 
-def test_default_tier_is_inherited_for_every_paradigm():
-    """Inherited rule, pinned here only so a new paradigm can't change it silently.
+def test_manifest_tier_is_inherited_for_every_paradigm():
+    """A new paradigm cannot change the manifest's tier silently.
 
-    ``default_tier_for_mode`` is unchanged by the registry work: ``in_context``
-    lands on tier 1, every other paradigm on tier 3. A paradigm added to the
-    registry inherits the tier-3 branch, and this test says so out loud.
+    ``in_context`` reads the tier-1 databases, every other paradigm the tier-3
+    ones. A paradigm added to the registry inherits the tier-3 branch, and this
+    test says so out loud.
     """
     for mode in VALID_CHANNEL_FINDER_MODES:
-        assert default_tier_for_mode(mode) == (1 if mode == "in_context" else 3)
+        assert _manifest_tier(mode) == (1 if mode == "in_context" else 3)
 
 
 def _cli_choices(command: str, param: str) -> tuple[str, ...]:
