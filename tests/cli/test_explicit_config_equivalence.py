@@ -897,6 +897,26 @@ def _simulation_models_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _dispatcher_name_deltas() -> tuple[Delta, ...]:
+    """The facility name the dispatcher dashboard shows.
+
+    The dispatcher shows the facility identity's name, and a project that
+    authors no identity is named by its project name. The fixtures were frozen
+    while the dashboard name was a profile key every preset left empty.
+
+    Returns:
+        One delta, on the root document.
+    """
+    return (
+        Delta(
+            document="root",
+            path="services.event_dispatcher.facility_name",
+            fixture="",
+            live=PROJECT_NAME,
+        ),
+    )
+
+
 def _facility_name_deltas() -> tuple[Delta, ...]:
     """The display name the two standalone presets no longer state.
 
@@ -973,6 +993,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -992,6 +1013,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1011,6 +1033,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1030,6 +1053,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
 }
 
