@@ -21,7 +21,7 @@ import logging
 from typing import Any
 
 from osprey.mcp_server.channel_finder_common import (
-    _config_path,
+    config_path,
     load_cf_config,
     resolve_cf_path,
 )
@@ -95,7 +95,7 @@ class ChannelFinderICContext:
                 "channel finder tools will fail until config is provided"
             )
 
-        identity = facility_identity(_config_path().parent, self._raw_config.get("project_name"))
+        identity = facility_identity(config_path().parent, self._raw_config.get("project_name"))
         if identity is not None:
             self._facility_name = identity["name"]
 

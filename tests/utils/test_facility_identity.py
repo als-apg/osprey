@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -94,3 +96,19 @@ def test_a_file_that_is_not_an_object_is_refused(tmp_path: Path):
 
     with pytest.raises(FacilityFileError, match=r"facility\.json.*names no identity code"):
         facility_identity(tmp_path, "demo")
+
+
+def test_reading_the_identity_leaves_the_facility_build_unimported(tmp_path: Path):
+    probe = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from osprey.utils.facility import facility_identity\n"
+        f"facility_identity(Path({str(tmp_path)!r}), 'demo')\n"
+        "print('osprey.facility.build' in sys.modules)\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip() == "False"

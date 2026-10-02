@@ -97,10 +97,10 @@ def _authored_aliases(
 
 
 def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    from osprey.facility.validate import _vocabulary
+    from osprey.facility.validate import vocabulary
 
     added = doc.get("classes") or []
-    aliases = _authored_aliases(_vocabulary(), added)
+    aliases = _authored_aliases(vocabulary(), added)
 
     class_of: dict[str, str] = {}
     count: dict[str, int] = {str(row["class"]): 0 for row in added}

@@ -21,12 +21,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.facility import FACILITY_FILE
 from osprey.facility.build import FacilityDocument
 
 __all__ = ["FACILITY_FILE", "facility_bytes", "facility_digest", "render_facility_outputs"]
-
-#: The facility file's name at the root of every render.
-FACILITY_FILE = "facility.json"
 
 #: The document last serialised and its bytes: every render of one build hands
 #: in the same document, so it is serialised once.
