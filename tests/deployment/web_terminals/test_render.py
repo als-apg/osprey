@@ -3719,7 +3719,8 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
     `scrypt$...` hash would be eaten by `$` expansion) and, unlike an env_file, the
     values land in the committed compose artifact."""
     # Act
-    auth = _compose(_auth_config())["services"]["auth"]
+    rendered = render_web_terminals(_auth_config(), facility_name="Demo Light Source")
+    auth = yaml.safe_load(rendered["docker-compose.web.yml"])["services"]["auth"]
 
     # Assert
     assert _env_names(auth) == [

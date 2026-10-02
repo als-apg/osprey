@@ -1844,8 +1844,12 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
                 "modules.web_terminals has lint errors; fix them or pass --no-lint to render anyway."
             )
 
+    # The preview names the facility by the project name, the name a build
+    # with no authored identity records.
     try:
-        artifacts = render_web_terminals(config)
+        artifacts = render_web_terminals(
+            config, facility_name=str(config.get("project_name") or "")
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 

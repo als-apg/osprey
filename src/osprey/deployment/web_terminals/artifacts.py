@@ -1005,7 +1005,8 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     and the groups those shared directories (and every user's audit zone)
     were provisioned with; the roster's operator secrets; and which proxy
     settings hold a value where compose will read them (this process's
-    environment, then the chain).
+    environment, then the chain); and the facility's display name, from the
+    build's facility identity.
 
     The one seam between "what is on disk" and "what the render is told", so a
     test that wants the render the deploy actually produces asks this rather
@@ -1082,7 +1083,28 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # refuses to start, pointing at a path nothing ever wrote.
         "terminal_secrets": _terminal_secrets(config, root),
         "proxy_env_names": proxy_env_names_with_a_value(root),
+        "facility_name": _facility_name(config, root),
     }
+
+
+def _facility_name(config: Any, repo_root: Path) -> str:
+    """The display name of the facility the repo's build renders.
+
+    The build's facility identity is the one source: the name its facility file
+    records, else the project name, else nothing.
+
+    Args:
+        config: The parsed deploy config.
+        repo_root: The deployment repo root.
+
+    Returns:
+        The name, or ``""`` when the build names none and the config names no
+        project.
+    """
+    from osprey.utils.facility import facility_identity
+
+    identity = facility_identity(web_artifacts_dir(repo_root), as_dict(config).get("project_name"))
+    return identity["name"] if identity is not None else ""
 
 
 def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = None) -> list[Path]:
