@@ -8125,3 +8125,147 @@ def test_cli_tool_inventory_check_runs_on_every_push__mutation_writes_instead() 
     step["run"] = step["run"].replace("--check", "--write")
     with pytest.raises(AssertionError):
         test_cli_tool_inventory_check_runs_on_every_push(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Web-terminal cleanup steps address containers by the compose project name
+# ---------------------------------------------------------------------------
+
+#: Every belt-and-suspenders cleanup step that removes web-terminal containers,
+#: with the compose project names its lane deploys. A web-terminal container is
+#: ``<project>-web-<user>`` / ``<project>-nginx`` / ``<project>-auth``, so an
+#: exact-named removal spelled any other way removes nothing the lane created.
+WEB_TERMINAL_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
+    (
+        "multi-user-deploy-lifecycle-e2e",
+        "Clean up any stranded lifecycle-e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "multi-user-deploy-lifecycle-e2e-podman",
+        "Clean up any stranded lifecycle-e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "qmd-sidecar-e2e",
+        "Clean up any stranded shared-bundle e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "auth-perimeter-e2e",
+        "Clean up any stranded auth-perimeter resources",
+    ): ("osprey-e2e-auth-perimeter",),
+    (
+        "terminal-auth-multiuser-e2e",
+        "Clean up any stranded terminal-auth-multiuser resources",
+    ): ("osprey-e2e-token-multiuser", "osprey-e2e-open-multiuser"),
+    (
+        "full-chain-auth-e2e",
+        "Clean up any stranded full-chain-auth resources",
+    ): ("osprey-e2e-full-chain-auth",),
+    (
+        "jupyter-panel-e2e",
+        "Clean up any stranded notebook-panel resources",
+    ): ("osprey-e2e-jnb",),
+}
+
+#: The lanes whose deploy builds the auth sidecar, which is ``<project>-auth``
+#: running ``<project>-assistant-auth:local``.
+AUTH_SIDECAR_CLEANUP_STEPS = (
+    ("auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"),
+    ("full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"),
+)
+
+_CONTAINER_REMOVAL = re.compile(r'\b(?:docker|podman) rm -f "?([^"\s]+)"?')
+
+
+def _cleanup_step_run(wf: dict[str, Any], job: str, step_name: str) -> str:
+    return _find_named_step(wf, job, step_name).get("run", "")
+
+
+def test_web_terminal_cleanup_removes_project_named_containers(
+    workflow: dict[str, Any],
+) -> None:
+    """Each cleanup step removes its lane's per-user and nginx containers by the
+    compose project name the same step tears down."""
+    for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
+        run = _cleanup_step_run(workflow, job, step_name)
+        removed = _CONTAINER_REMOVAL.findall(run)
+        for project in projects:
+            assert f"compose -p {project} down" in run, (
+                f"'{job}' / '{step_name}' does not tear down compose project {project}"
+            )
+            assert any(name.startswith(f"{project}-web-") for name in removed), (
+                f"'{job}' / '{step_name}' removes no {project}-web-<user> container"
+            )
+            assert f"{project}-nginx" in removed, (
+                f"'{job}' / '{step_name}' does not remove {project}-nginx"
+            )
+
+
+def test_web_terminal_cleanup_removes_only_project_named_containers(
+    workflow: dict[str, Any],
+) -> None:
+    """No exact-named removal in these steps is spelled off anything but one of
+    the step's own compose project names."""
+    for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
+        run = _cleanup_step_run(workflow, job, step_name)
+        removed = _CONTAINER_REMOVAL.findall(run)
+        assert removed, f"'{job}' / '{step_name}' removes no container"
+        strays = [
+            name
+            for name in removed
+            if not any(name.startswith(f"{project}-") for project in projects)
+        ]
+        assert not strays, (
+            f"'{job}' / '{step_name}' removes containers not named by its project: {strays}"
+        )
+
+
+def test_auth_sidecar_cleanup_removes_project_named_sidecar(workflow: dict[str, Any]) -> None:
+    """The auth lanes remove ``<project>-auth`` and its ``<project>-assistant-auth:local``
+    image."""
+    for job, step_name in AUTH_SIDECAR_CLEANUP_STEPS:
+        (project,) = WEB_TERMINAL_CLEANUP_STEPS[(job, step_name)]
+        run = _cleanup_step_run(workflow, job, step_name)
+        assert f"{project}-auth" in _CONTAINER_REMOVAL.findall(run), (
+            f"'{job}' does not remove the {project}-auth container"
+        )
+        assert f"rmi -f {project}-assistant-auth:local" in run, (
+            f"'{job}' does not remove the {project}-assistant-auth:local image"
+        )
+
+
+def test_web_terminal_cleanup_removes_project_named_containers__mutation_prefix_spelling() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"
+    )
+    original = step["run"]
+    step["run"] = original.replace("osprey-e2e-auth-perimeter-nginx", "authe2e-nginx")
+    assert step["run"] != original, "no project-named nginx removal — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_web_terminal_cleanup_removes_project_named_containers(mutated)
+
+
+def test_web_terminal_cleanup_removes_only_project_named_containers__mutation_stray() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated,
+        "multi-user-deploy-lifecycle-e2e",
+        "Clean up any stranded lifecycle-e2e resources",
+    )
+    step["run"] += "\ndocker rm -f e2e-nginx || true\n"
+    with pytest.raises(AssertionError):
+        test_web_terminal_cleanup_removes_only_project_named_containers(mutated)
+
+
+def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_image() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"
+    )
+    original = step["run"]
+    step["run"] = original.replace(
+        "osprey-e2e-full-chain-auth-assistant-auth:local", "fullchain-assistant-auth:local"
+    )
+    assert step["run"] != original, "no project-named sidecar image — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_auth_sidecar_cleanup_removes_project_named_sidecar(mutated)
