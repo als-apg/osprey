@@ -324,7 +324,13 @@ def test_validate_project_mirror_tolerates_a_missing_mirror(profile_dir: Path):
 
 
 def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
-    assert RESERVED_MIRROR_PATTERNS == ("facility.json", "data/facility/**", "data/simulator/**")
+    assert RESERVED_MIRROR_PATTERNS == (
+        "facility.json",
+        "data/facility/**",
+        "data/simulator/**",
+        "data/facility_facts.json",
+        "data/facility_facts.md",
+    )
 
 
 @pytest.mark.parametrize(
@@ -348,6 +354,20 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
             "facility: profile-invalid: path project/data/simulator/x.json — the project/ "
             "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
             "fix: remove project/data/simulator/x.json and author the facility in data/facility/",
+        ),
+        (
+            "data/facility_facts.json",
+            "facility: profile-invalid: path project/data/facility_facts.json — the project/ "
+            "mirror writes data/facility_facts.json, which the build writes from data/facility/; "
+            "fix: remove project/data/facility_facts.json and author the facility in "
+            "data/facility/",
+        ),
+        (
+            "data/facility_facts.md",
+            "facility: profile-invalid: path project/data/facility_facts.md — the project/ "
+            "mirror writes data/facility_facts.md, which the build writes from data/facility/; "
+            "fix: remove project/data/facility_facts.md and author the facility in "
+            "data/facility/",
         ),
     ],
 )
@@ -392,6 +412,8 @@ def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path)
     _write(mirror / "facility.json")
     _write(mirror / "data" / "facility" / "identity.yaml")
     _write(mirror / "data" / "simulator" / "x.json")
+    _write(mirror / "data" / "facility_facts.json")
+    _write(mirror / "data" / "facility_facts.md")
     _write(mirror / ".mcp.json")
 
     violations = conventions._mirror_violations(mirror)
@@ -1002,6 +1024,8 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         ("data/facility/decks/SR.json", "`data/facility/`"),
         ("data/simulator/served_models.json", "`data/facility/`"),
         ("data/simulator/decks/SR.json", "`data/facility/`"),
+        ("data/facility_facts.json", "`data/facility/`"),
+        ("data/facility_facts.md", "`data/facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
