@@ -783,6 +783,7 @@ class TestDeploymentContextIsServerSupplied:
             "identityAvailable": False,
             "blueskyAvailable": False,
             "systemHealthAvailable": False,
+            "controlTargetAvailable": True,
         }
 
     def test_a_configured_deployment_stamps_its_identity_and_its_panel(self, configured_app):
@@ -792,6 +793,7 @@ class TestDeploymentContextIsServerSupplied:
             "identityAvailable": True,
             "blueskyAvailable": False,
             "systemHealthAvailable": True,
+            "controlTargetAvailable": True,
         }
         assert "system-health" in _shell_types(body, "status")
 
@@ -839,6 +841,24 @@ class TestDeploymentContextIsServerSupplied:
             assert client.app.state.bluesky_available is True
             assert _context(_body(client))["blueskyAvailable"] is True
 
+    def test_the_control_target_fact_is_the_picker_setting(self, bar_items_app):
+        """``web.control_target_picker`` is the one fact the item is offered on:
+        on by default, and with it off the item has no shell and the served
+        default names it in neither bar."""
+        with bar_items_app() as client:
+            assert client.app.state.control_target_picker_available is True
+            body = _body(client)
+            assert _context(body)["controlTargetAvailable"] is True
+            assert "control-target" in _shell_types(body, "header")
+        with bar_items_app(web={"control_target_picker": False}) as client:
+            assert client.app.state.control_target_picker_available is False
+            body = _body(client)
+            assert _context(body)["controlTargetAvailable"] is False
+            assert 'data-bar-item="control-target"' not in body
+            layout = client.get("/api/bar-items").json()
+            for host in ("header", "status"):
+                assert "control-target" not in [item["type"] for item in layout[host]], host
+
     def test_the_plan_queue_renders_where_the_panel_is_declared(self, bar_items_app):
         """An available, JS-built item gets its shell on first paint; the
         same layout on a deployment without the panel paints no shell."""
@@ -882,17 +902,21 @@ class TestDeploymentContextIsServerSupplied:
             "identity": {"identityAvailable"},
             "bluesky-queue": {"blueskyAvailable"},
             "system-health": {"systemHealthAvailable"},
+            "control-target": {"controlTargetAvailable"},
         }
         assert set(expected) == set(BAR_ITEM_AVAILABILITY), "a gated type grew or vanished"
         assert set(BAR_ITEM_GATES) == set(BAR_ITEM_AVAILABILITY), (
             "every gated type names what it needs, for the web.bar_items warning"
         )
         # The build-time half: every panel-gated type is judged by `osprey
-        # build` too, and the one runtime-gated type (identity) is the only one
-        # it leaves to the server.
+        # build` too; identity (a runtime fact) and control-target (a config
+        # key the server reads) are the two it leaves to the server.
         from osprey.profiles.web_panels import BAR_ITEM_PANEL_GATES
 
-        assert set(BAR_ITEM_AVAILABILITY) - set(BAR_ITEM_PANEL_GATES) == {"identity"}
+        assert set(BAR_ITEM_AVAILABILITY) - set(BAR_ITEM_PANEL_GATES) == {
+            "identity",
+            "control-target",
+        }
         assert BAR_ITEM_PANEL_GATES["system-health"] == SYSTEM_HEALTH_PANEL_ID
         for item_type, keys in expected.items():
             entry = _catalog_entry(source, item_type)

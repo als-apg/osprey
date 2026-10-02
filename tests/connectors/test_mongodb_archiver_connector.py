@@ -1,5 +1,9 @@
 """Tests for MongoDB Archiver connector."""
 
+import copy
+import logging
+import re
+import ssl
 import sys
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -9,6 +13,7 @@ import pytest
 
 from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.mongodb_archiver_connector import (
+    DEPLOY_HINT,
     HOST_OVERRIDE_ENV,
     PORT_OVERRIDE_ENV,
     MongoDBArchiverConnector,
@@ -16,6 +21,7 @@ from osprey.connectors.archiver.mongodb_archiver_connector import (
 )
 from osprey.connectors.factory import ConnectorFactory
 from osprey.port_layout import default_port
+from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
 # container, and this file shares the group with the Postgres-backed ARIEL tests so
@@ -45,7 +51,7 @@ class TestConnectDisconnectLifecycle:
         """Test that default timeout of 60s is used when not specified."""
         # Remove timeout from config to test default
         config_without_timeout = mongodb_config.copy()
-        del config_without_timeout["timeout"]
+        del config_without_timeout["timeout_s"]
 
         connector = MongoDBArchiverConnector()
         await connector.connect(config_without_timeout)
@@ -58,7 +64,7 @@ class TestConnectDisconnectLifecycle:
     async def test_connect_custom_timeout(self, mongodb_config):
         """Test that custom timeout is used when specified."""
         config_with_timeout = mongodb_config.copy()
-        config_with_timeout["timeout"] = 120
+        config_with_timeout["timeout_s"] = 120
 
         connector = MongoDBArchiverConnector()
         await connector.connect(config_with_timeout)
@@ -101,36 +107,38 @@ class TestConnectDisconnectLifecycle:
             await connector.connect(config)
 
     @pytest.mark.asyncio
-    async def test_connect_missing_username_raises_value_error(self, mongodb_config):
-        """Test that connect raises ValueError when username is missing."""
-        config = mongodb_config.copy()
-        del config["username"]
+    async def test_connect_missing_auth_username_raises_value_error(self, mongodb_config):
+        """Test that connect raises ValueError when auth.username is missing."""
+        config = copy.deepcopy(mongodb_config)
+        del config["auth"]["username"]
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ValueError, match="username is required"):
+        with pytest.raises(ValueError, match=r"auth\.username is required"):
             await connector.connect(config)
 
     @pytest.mark.asyncio
-    async def test_connect_missing_password_env_raises_value_error(self, mongodb_config):
-        """Test that connect raises ValueError when password_env is missing."""
-        config = mongodb_config.copy()
-        del config["password_env"]
+    async def test_connect_missing_auth_password_env_raises_value_error(self, mongodb_config):
+        """Test that connect raises ValueError when auth.password_env is missing."""
+        config = copy.deepcopy(mongodb_config)
+        del config["auth"]["password_env"]
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ValueError, match="password_env is required"):
+        with pytest.raises(ValueError, match=r"auth\.password_env is required"):
             await connector.connect(config)
 
     @pytest.mark.asyncio
-    async def test_connect_missing_auth_db_raises_value_error(self, mongodb_config):
-        """Test that connect raises ValueError when auth database is missing."""
-        config = mongodb_config.copy()
-        del config["auth"]
+    async def test_connect_missing_auth_source_raises_value_error(self, mongodb_config):
+        """Test that connect raises ValueError when auth.source is missing."""
+        config = copy.deepcopy(mongodb_config)
+        del config["auth"]["source"]
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ValueError, match="auth.*authentication database.*required"):
+        with pytest.raises(
+            ValueError, match=r"auth\.source \(authentication database\) is required"
+        ):
             await connector.connect(config)
 
     @pytest.mark.asyncio
@@ -144,7 +152,7 @@ class TestConnectDisconnectLifecycle:
         rather than as an opaque internal error.
         """
         config = mongodb_config.copy()
-        config["password_env"] = "NONEXISTENT_ENV_VAR"
+        config["auth"] = {**config["auth"], "password_env": "NONEXISTENT_ENV_VAR"}
 
         connector = MongoDBArchiverConnector()
 
@@ -863,6 +871,189 @@ class TestQueryShapeWithoutDocker:
         assert slow_values == pytest.approx([500.0 + i for i in range(50)])
 
 
+class TestClientKwargsWithoutDocker:
+    """The keyword arguments the connector hands pymongo, with the client patched."""
+
+    @pytest.mark.asyncio
+    async def test_a_bundled_block_builds_the_six_keyword_client(self, monkeypatch):
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(bundled_block())
+
+        assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
+    @pytest.mark.asyncio
+    async def test_a_ca_bundle_becomes_tls_ca_file(self, monkeypatch):
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        block = {**bundled_block(), "tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}}
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(block)
+
+        assert mock_client_cls.call_args.kwargs == {
+            **BUNDLED_CLIENT_KWARGS,
+            "tlsCAFile": "/etc/ssl/certs/site-ca.pem",
+        }
+
+    @pytest.mark.asyncio
+    async def test_no_ca_bundle_passes_no_tls_key(self, monkeypatch):
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect({**bundled_block(), "tls": {}})
+
+        assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
+
+
+class TestUrlWithoutDocker:
+    """A block that names its store by a connection string, with the client patched."""
+
+    URL = "mongodb://h1.example.org:27017,h2.example.org:27018/?replicaSet=rs0&tls=true"
+
+    @staticmethod
+    def _config(url, **extra):
+        return {"url": url, "name": "testdb", "collection": "testcoll", **extra}
+
+    @pytest.mark.asyncio
+    async def test_a_url_is_passed_verbatim_as_host(self, monkeypatch):
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(self._config(self.URL))
+
+        assert mock_client_cls.call_args.kwargs == {
+            "host": self.URL,
+            "serverSelectionTimeoutMS": 60000,
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_url_ignores_the_address_overrides(self, monkeypatch):
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(self._config(self.URL, host="localhost"))
+
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["host"] == self.URL
+        assert "port" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_a_url_with_a_login_passes_it_as_keywords(self, monkeypatch):
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        auth = {"source": "archive", "username": "reader", "password_env": "MONGODB_MOCK_PASSWORD"}
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await MongoDBArchiverConnector().connect(self._config(self.URL, auth=auth))
+
+        assert mock_client_cls.call_args.kwargs == {
+            "host": self.URL,
+            "username": "reader",
+            "password": "secret",
+            "authSource": "archive",
+            "serverSelectionTimeoutMS": 60000,
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "mongodb://u:p@h.example.org/",
+            "mongodb://u@h.example.org/",
+            "mongodb://h.example.org/?tlsCertificateKeyFilePassword=x",
+            "mongodb://h.example.org/?tls=true;tlsCertificateKeyFilePassword=x",
+        ],
+    )
+    async def test_a_url_carrying_a_credential_is_refused(self, url):
+        with pytest.raises(ValueError, match=r"archiver\.settings\.url") as exc_info:
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+        assert url not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("option", "key"),
+        [
+            ("authSource", "auth.source"),
+            ("authsource", "auth.source"),
+            ("tlsCAFile", "tls.ca_bundle"),
+            ("serverSelectionTimeoutMS", "timeout_s"),
+        ],
+    )
+    async def test_a_url_option_with_its_own_key_is_refused(self, option, key):
+        url = f"mongodb://h.example.org/?{option}=x"
+
+        with pytest.raises(ValueError, match=rf"`{option}`.*`{re.escape(key)}`"):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "option", ["tlsInsecure", "tlsAllowInvalidCertificates", "tlsAllowInvalidHostnames"]
+    )
+    async def test_a_url_option_that_turns_verification_off_is_refused(self, option):
+        url = f"mongodb://h.example.org/?tls=true&{option}=true"
+
+        with pytest.raises(ValueError, match=rf"`{option}`.*certificate verification"):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    async def test_a_malformed_url_is_refused_by_key(self):
+        url = "mongodb://[::1/"
+
+        with pytest.raises(
+            ValueError, match=r"archiver\.settings\.url.*not a valid connection string"
+        ):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("url", "option", "key"),
+        [
+            ("mongodb://h.example.org/?tls=true;authSource=x", "authSource", "auth.source"),
+            (
+                "mongodb://h.example.org/?tls=true;serverSelectionTimeoutMS=5",
+                "serverSelectionTimeoutMS",
+                "timeout_s",
+            ),
+        ],
+    )
+    async def test_an_option_after_a_semicolon_separator_is_refused(self, url, option, key):
+        with pytest.raises(ValueError, match=rf"`{option}`.*`{re.escape(key)}`"):
+            await MongoDBArchiverConnector().connect(self._config(url))
+
+    @pytest.mark.asyncio
+    async def test_a_url_with_another_scheme_is_refused(self):
+        with pytest.raises(ValueError, match="mongodb://"):
+            await MongoDBArchiverConnector().connect(self._config("https://h.example.org/"))
+
+    @pytest.mark.asyncio
+    async def test_the_route_is_logged_once_per_process(self, monkeypatch, caplog):
+        from osprey_connectors.archiver import mongodb_archiver_connector as module
+
+        monkeypatch.setattr(module, "_ROUTE_LOGGED", False)
+        monkeypatch.setattr(module.logger, "propagate", True, raising=False)
+        caplog.set_level(logging.INFO)
+
+        with patch("pymongo.MongoClient"):
+            await MongoDBArchiverConnector().connect(self._config(self.URL))
+            await MongoDBArchiverConnector().connect(self._config(self.URL))
+
+        routes = [r.getMessage() for r in caplog.records if "reaches its store" in r.getMessage()]
+        assert routes == [
+            "MongoDB archiver reaches its store by `url`; host, port and the "
+            "OSPREY_ARCHIVER_MONGODB_* overrides are not applied"
+        ]
+        assert self.URL not in caplog.text
+
+
 class TestErrorHandlingWithoutDocker:
     """Exception mapping and degradation paths, with the pymongo client mocked."""
 
@@ -900,9 +1091,11 @@ class TestErrorHandlingWithoutDocker:
             "port": default_port("mongo"),
             "name": "testdb",
             "collection": "testcoll",
-            "auth": "admin",
-            "username": "user",
-            "password_env": "MONGODB_MOCK_PASSWORD",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
         }
 
         with patch("pymongo.MongoClient") as mock_client_cls:
@@ -911,6 +1104,78 @@ class TestErrorHandlingWithoutDocker:
                 await connector.connect(config)
 
         assert isinstance(exc_info.value.__cause__, type(raised))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            ssl.SSLError("no certificate"),
+            FileNotFoundError(2, "No such file or directory"),
+            IsADirectoryError(21, "Is a directory"),
+            PermissionError(13, "Permission denied"),
+        ],
+    )
+    async def test_an_unreadable_ca_bundle_is_named(self, raised, monkeypatch):
+        """pymongo reads the CA file while it builds the client, before any ping."""
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        config = {
+            "host": "mongodb.example.invalid",
+            "port": default_port("mongo"),
+            "name": "testdb",
+            "collection": "testcoll",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
+            "tls": {"ca_bundle": "/etc/ssl/certs/missing-site-ca.pem"},
+        }
+
+        with patch("pymongo.MongoClient", side_effect=raised):
+            with pytest.raises(ConnectionError, match=r"tls\.ca_bundle") as exc_info:
+                await MongoDBArchiverConnector().connect(config)
+
+        assert exc_info.value.__cause__ is raised
+        assert DEPLOY_HINT not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_a_missing_file_without_a_ca_bundle_is_not_blamed_on_one(self, monkeypatch):
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        config = {
+            "host": "mongodb.example.invalid",
+            "port": default_port("mongo"),
+            "name": "testdb",
+            "collection": "testcoll",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
+        }
+
+        with patch("pymongo.MongoClient", side_effect=FileNotFoundError(2, "missing")):
+            with pytest.raises(ConnectionError, match="MongoDB connection failed") as exc_info:
+                await MongoDBArchiverConnector().connect(config)
+
+        assert "tls.ca_bundle" not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_a_bearer_token_is_refused_by_name(self, monkeypatch):
+        """The store authenticates a user and a password; a token has nowhere to go."""
+        monkeypatch.setenv("MONGODB_MOCK_TOKEN", "secret")
+
+        with pytest.raises(ValueError, match="not a bearer token") as exc_info:
+            await MongoDBArchiverConnector().connect(
+                {
+                    "host": "mongodb.example.invalid",
+                    "port": default_port("mongo"),
+                    "name": "testdb",
+                    "collection": "testcoll",
+                    "auth": {"source": "admin", "token_env": "MONGODB_MOCK_TOKEN"},
+                }
+            )
+
+        assert "archiver.settings.auth" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_a_missing_port_is_refused_rather_than_guessed(self, monkeypatch):
@@ -931,9 +1196,11 @@ class TestErrorHandlingWithoutDocker:
                     "host": "mongodb.example.invalid",
                     "name": "testdb",
                     "collection": "testcoll",
-                    "auth": "admin",
-                    "username": "user",
-                    "password_env": "MONGODB_MOCK_PASSWORD",
+                    "auth": {
+                        "source": "admin",
+                        "username": "user",
+                        "password_env": "MONGODB_MOCK_PASSWORD",
+                    },
                 }
             )
 
@@ -950,9 +1217,11 @@ class TestErrorHandlingWithoutDocker:
                 {
                     "name": "testdb",
                     "collection": "testcoll",
-                    "auth": "admin",
-                    "username": "user",
-                    "password_env": "MONGODB_MOCK_PASSWORD",
+                    "auth": {
+                        "source": "admin",
+                        "username": "user",
+                        "password_env": "MONGODB_MOCK_PASSWORD",
+                    },
                 }
             )
 
@@ -1169,9 +1438,11 @@ class TestInNetworkAddressOverride:
             "port": 27017,
             "name": "testdb",
             "collection": "testcoll",
-            "auth": "admin",
-            "username": "user",
-            "password_env": "MONGODB_MOCK_PASSWORD",
+            "auth": {
+                "source": "admin",
+                "username": "user",
+                "password_env": "MONGODB_MOCK_PASSWORD",
+            },
         }
         config.update(overrides)
         return config

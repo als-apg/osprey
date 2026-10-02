@@ -33,6 +33,13 @@ class GoogleProviderAdapter(LiteLLMDelegatingProvider):
     ]
     api_key_note = None
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "GOOGLE_API_KEY"
+    api_protocol = "openai"
+    supports_interactive_login = False
+    supports_images = True
+    supports_thinking = False
+
     # LiteLLM integration - Google uses "gemini" prefix
     litellm_prefix = "gemini"
 

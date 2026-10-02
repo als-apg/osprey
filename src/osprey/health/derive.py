@@ -54,10 +54,11 @@ def _in_container() -> bool:
     nothing in the shipped compose sets it — deliberately. It would say only
     what the marker files already say, while the question it gets used for is
     a different one: a ``network_mode: host`` service (the web terminals) runs
-    in a container AND cannot resolve a compose service DNS name. A deployment
-    whose MCP servers are reachable only by service name pins
-    ``health.auto.mcp.url_key`` instead. Topology is declared, never sniffed —
-    the same reason
+    in a container AND cannot resolve a compose service DNS name. So the build
+    writes ``health.auto.mcp.url_key: host_url`` into every render that serves
+    web terminals (:mod:`osprey.cli.build_profile_health`), and this detection
+    decides only for a render without web terminals. Topology is declared,
+    never sniffed — the same reason
     :func:`osprey.build.claude_code_telemetry._openobserve_host_override`
     exists.
     """

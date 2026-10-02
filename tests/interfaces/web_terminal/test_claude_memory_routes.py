@@ -11,6 +11,10 @@ from fastapi.testclient import TestClient
 
 from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.interfaces.web_terminal.app import create_app
+from osprey.interfaces.web_terminal.claude_memory_service import (
+    MEMORY_TRUNCATION_LIMIT,
+    MEMORY_TRUNCATION_WARNING,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -76,6 +80,8 @@ class TestListMemoryFiles:
         data = resp.json()
         assert data["files"] == []
         assert data["count"] == 0
+        assert "line_limit" in data
+        assert "line_warning" in data
 
     def test_with_files(self, client, memory_dir):
         (memory_dir / "MEMORY.md").write_text("# Main\n", encoding="utf-8")
@@ -88,13 +94,27 @@ class TestListMemoryFiles:
         names = {f["filename"] for f in data["files"]}
         assert names == {"MEMORY.md", "notes.md"}
 
+    @pytest.mark.usefixtures("memory_dir")
+    def test_serves_the_line_limits(self, client):
+        resp = client.get("/api/claude-memory")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["line_limit"] == MEMORY_TRUNCATION_LIMIT
+        assert data["line_warning"] == MEMORY_TRUNCATION_WARNING
+        assert 0 < data["line_warning"] < data["line_limit"]
+
     def test_empty_when_the_memory_dir_is_missing(self, client):
         assert not _memory_dir_of(client).exists()
 
         resp = client.get("/api/claude-memory")
 
         assert resp.status_code == 200
-        assert resp.json() == {"files": [], "count": 0}
+        assert resp.json() == {
+            "files": [],
+            "count": 0,
+            "line_limit": MEMORY_TRUNCATION_LIMIT,
+            "line_warning": MEMORY_TRUNCATION_WARNING,
+        }
 
     def test_lists_only_what_the_gallery_can_open(self, client, memory_dir):
         """The listing and the per-file routes share one filename grammar.

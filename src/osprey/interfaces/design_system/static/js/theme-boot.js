@@ -15,9 +15,8 @@
 // storage rungs read `osprey-theme--<scope>` instead — and do NOT fall back to
 // the bare key, since that polluted slot is the very thing being escaped; a
 // scoped page with no scoped value simply falls through to the server rung.
-// With the attribute absent (single-user serving, and every non-web_terminal
-// interface that loads this script) the legacy bare key is used unchanged,
-// legacy bare-token format included.
+// With the attribute absent (single-user serving, where nothing is stamped)
+// the legacy bare key is used unchanged, legacy bare-token format included.
 (function () {
   "use strict";
 

@@ -363,6 +363,110 @@ def load_osprey_config(hook_input=None):
     return _osprey_config_cache
 
 
+# The framework default agent-data root, imported so the hooks and the framework
+# cannot drift apart. The literal serves a hook running with osprey off the
+# path, the one case where guessing beats crashing.
+try:
+    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _DEFAULT_AGENT_DATA_ROOT
+except Exception:  # pragma: no cover - hooks must never crash the agent
+    _DEFAULT_AGENT_DATA_ROOT = "var/agent_data"
+
+
+def agent_data_base_dir(config: dict | None) -> str:
+    """Read ``agent_data.base_dir`` out of an already-loaded config mapping.
+
+    A restatement of ``osprey_connectors.workspace.agent_data_base_dir`` using
+    the standard library only, because a hook runs in user projects where
+    ``osprey`` may not be importable. This is the only hook-side reader of the
+    key, so every hook that touches agent data follows a relocated root the same
+    way the framework and the rendered ``Edit(...)`` allow rules do.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The configured base directory, possibly relative to a project anchor.
+    """
+    section = (config or {}).get("agent_data") or {}
+    if not isinstance(section, dict):
+        return _DEFAULT_AGENT_DATA_ROOT
+    return str(section.get("base_dir") or _DEFAULT_AGENT_DATA_ROOT)
+
+
+def agent_data_root_at(anchor, config) -> str:
+    """Anchor the configured agent-data root on *anchor*.
+
+    The same three-way choice as ``osprey_connectors.workspace.anchored_path``:
+    ``~`` is expanded, an absolute ``base_dir`` is returned as is, and a relative
+    one is joined onto the anchor.
+
+    Args:
+        anchor: The directory a relative ``base_dir`` is anchored on.
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The agent-data root as a string.
+    """
+    base = Path(agent_data_base_dir(config)).expanduser()
+    if base.is_absolute():
+        return str(base)
+    return str(Path(anchor).expanduser() / base)
+
+
+def repo_agent_data_root(hook_input=None) -> str:
+    """The agent-data root the gallery and the channel-finder app write under.
+
+    ``agent_data.base_dir`` anchored on the repo (:func:`get_repo_root`) rather
+    than the render, because ``build/`` is disposable. It does not read the
+    ``OSPREY_AGENT_DATA_ROOT`` stamp: the writers it pairs with resolve through
+    the config alone.
+
+    Args:
+        hook_input: The parsed hook payload, used to locate the project.
+
+    Returns:
+        The agent-data root as a string.
+    """
+    return agent_data_root_at(get_repo_root(hook_input), load_osprey_config(hook_input))
+
+
+def agent_data_subdirs(hook_input, subdir) -> list[Path]:
+    """Resolve one agent-data subdirectory under every anchor it can have.
+
+    A relative ``agent_data.base_dir`` — the normal case — needs an anchor, and
+    under the four-zone layout there are two plausible ones: the repo root that
+    owns durable agent state (:func:`get_repo_root`) and the render Claude Code
+    actually runs in (:func:`get_project_dir`). They coincide in a flat layout
+    and diverge in a zoned one, and the gallery can write under either, so
+    both are accepted rather than picking one and denying the agent its
+    own notebooks under the other. An absolute ``base_dir`` needs no anchor and
+    yields exactly one directory.
+
+    Args:
+        hook_input: The parsed hook payload, used to locate the project.
+        subdir: The agent-data subdirectory to resolve, e.g. ``artifacts``.
+
+    Returns:
+        Resolved ``.../<subdir>`` directories, deduplicated, possibly empty.
+    """
+    config = load_osprey_config(hook_input)
+    candidates = [
+        Path(agent_data_root_at(anchor, config))
+        for anchor in (get_repo_root(hook_input), get_project_dir(hook_input))
+        if anchor
+    ]
+
+    subdirs: list[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = (candidate / subdir).resolve()
+        except (OSError, ValueError):
+            continue
+        if resolved not in subdirs:
+            subdirs.append(resolved)
+    return subdirs
+
+
 _debug_from_config = None  # module-level cache
 
 

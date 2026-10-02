@@ -29,11 +29,12 @@
   THE `args` ARGUMENT
   ----------------------------------------------------------------------------
 
-  The mapping `compose_generator._stage_site_image_args_for_context` resolved
+  The mapping `compose_generator._site_image_args_for_context` resolved
   for THIS service's build context — a CA for a TLS-intercepting proxy, pip's
   proxy bypass list, an internal package index — as the deployment's `images:`
-  block declares them. The CA arrives already rewritten to the name staged
-  INSIDE the context, because `COPY` cannot reach outside one. A deployment
+  block declares them. The CA arrives already rewritten to the name `osprey up`
+  stages INSIDE the context before compose builds it, because `COPY` cannot
+  reach outside one. A deployment
   that declares none of them passes an empty mapping and nothing is emitted,
   so its build argv is what it always was.
 

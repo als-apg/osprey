@@ -44,8 +44,19 @@ from osprey.cli.build_cmd import (
     _render_compose_files,
     _render_zones,
 )
-from osprey.cli.build_injectors import _copy_service_templates
-from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE, VALID_NETWORK_MODES
+from osprey.cli.build_injectors import (
+    _copy_service_templates,
+    _inject_gchat_bridge,
+    _inject_nextcloud_bridge,
+    _inject_teams_bridge,
+)
+from osprey.cli.build_profile_schema import (
+    DEFAULT_NETWORK_MODE,
+    VALID_NETWORK_MODES,
+    GChatBridgeProfileConfig,
+    NextcloudBridgeProfileConfig,
+    TeamsBridgeProfileConfig,
+)
 from osprey.deployment.compose_generator import prepare_compose_files
 
 yaml_rt = YAML()
@@ -435,6 +446,34 @@ def test_host_dispatch_pair_with_a_host_mode_chat_bridge_passes(
     config_path = _dispatch_config(
         tmp_path, dispatch_network=_HOST_NETWORK, bridges={"gchat_bridge": _HOST_NETWORK}
     )
+    config, compose_files = _render(config_path, tmp_path, monkeypatch)
+
+    assert _network_check_errors(config, compose_files) == []
+
+
+_BRIDGE_INJECTORS = {
+    "gchat_bridge": lambda project: _inject_gchat_bridge(GChatBridgeProfileConfig(), project),
+    "nextcloud_bridge": lambda project: _inject_nextcloud_bridge(
+        NextcloudBridgeProfileConfig(), project
+    ),
+    "teams_bridge": lambda project: _inject_teams_bridge(TeamsBridgeProfileConfig(), project),
+}
+
+
+@pytest.mark.parametrize("bridge", sorted(_BRIDGE_INJECTORS))
+def test_a_host_mode_chat_bridge_beside_a_host_pair_builds_through_the_injector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bridge: str
+) -> None:
+    """The ``network: host`` the docs prescribe survives the bridge's own injector.
+
+    The injector rebuilds the bridge's block after the profile's ``config:``
+    overrides land, so the authored network has to be carried across that
+    rewrite for the render to put the bridge beside the host-mode pair.
+    """
+    config_path = _dispatch_config(
+        tmp_path, dispatch_network=_HOST_NETWORK, bridges={bridge: _HOST_NETWORK}
+    )
+    _BRIDGE_INJECTORS[bridge](tmp_path)
     config, compose_files = _render(config_path, tmp_path, monkeypatch)
 
     assert _network_check_errors(config, compose_files) == []

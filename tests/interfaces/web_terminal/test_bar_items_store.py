@@ -53,7 +53,11 @@ CATALOG: dict[str, dict[str, Any]] = {
     "feedback": {"options": {}},
     "clock": {
         "options": {
-            "zone": {"kind": "enum", "values": ("none", "local", "utc", "both"), "default": "none"},
+            "zone": {
+                "kind": "enum",
+                "values": ("none", "local", "facility", "utc", "both"),
+                "default": "none",
+            },
             "format": {"kind": "enum", "values": ("24h", "12h"), "default": "24h"},
             "seconds": {"kind": "boolean", "default": False},
         },

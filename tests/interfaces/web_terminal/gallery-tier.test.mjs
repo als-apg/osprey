@@ -215,6 +215,35 @@ describe('writes disabled', () => {
     expect(editBtn.title).toBeTruthy();
   });
 
+  /** @param {any} modules */
+  function editTitle(modules) {
+    const gallery = makeGallery({
+      selectedArtifact: { ...ARTIFACTS[0], custom: false },
+      detailMode: 'preview',
+    });
+    modules.detail.createScaffoldGalleryDetail(gallery).renderDetailModes();
+    const buttons = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')];
+    return /** @type {HTMLButtonElement} */ (buttons[2]).title;
+  }
+
+  test("the Edit tab's reason names the unreadable file", async () => {
+    const modules = await loadModules();
+    modules.gate.applyScaffoldWriteGate({
+      scaffold_write_enabled: false,
+      config_unreadable_path: '/app/project/config.yml',
+    });
+    expect(editTitle(modules)).toBe('Editing is off: /app/project/config.yml could not be read.');
+  });
+
+  test('a later payload without the path restores the generic reason', async () => {
+    const modules = await loadModules();
+    modules.gate.applyScaffoldWriteGate({
+      scaffold_write_enabled: false,
+      config_unreadable_path: '/app/project/config.yml',
+    });
+    modules.gate.applyScaffoldWriteGate({ scaffold_write_enabled: false });
+    expect(editTitle(modules)).toBe(modules.gate.WRITES_DISABLED_REASON);
+  });
 });
 
 describe('writes enabled — the shipped posture', () => {

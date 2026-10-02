@@ -90,6 +90,11 @@ def requires_module(module_type: str, module_name: str) -> Callable[[F], F]:
     return decorator
 
 
+#: Failed attempts after which an entry leaves a module's backfill. The count is kept in the
+#: module's status object, and a success clears it.
+MAX_ENHANCEMENT_ATTEMPTS = 3
+
+
 class ARIELRepository:
     """Repository for ARIEL database operations.
 
@@ -483,6 +488,11 @@ class ARIELRepository:
     ) -> list[EnhancedLogbookEntry]:
         """Get entries with incomplete or failed enhancements.
 
+        With ``module_name`` alone, an entry is returned when the module never ran on it, when
+        its status is ``pending``, or when it is ``failed`` and has failed fewer than
+        ``MAX_ENHANCEMENT_ATTEMPTS`` times. With ``status`` too, every entry in that state is
+        returned.
+
         Args:
             module_name: Filter by specific module (optional)
             status: Filter by status ('failed', 'pending') (optional)
@@ -511,11 +521,21 @@ class ARIELRepository:
                             """
                             SELECT * FROM enhanced_entries
                             WHERE NOT (enhancement_status ? %s)
-                               OR enhancement_status->%s->>'status' IN ('failed', 'pending')
+                               OR enhancement_status->%s->>'status' = 'pending'
+                               OR (enhancement_status->%s->>'status' = 'failed'
+                                   AND COALESCE((enhancement_status->%s->>'attempts')::int, 0)
+                                       < %s)
                             ORDER BY created_at ASC
                             LIMIT %s
                             """,
-                            [module_name, module_name, limit],
+                            [
+                                module_name,
+                                module_name,
+                                module_name,
+                                module_name,
+                                MAX_ENHANCEMENT_ATTEMPTS,
+                                limit,
+                            ],
                         )
                     else:
                         await cur.execute(
@@ -642,17 +662,23 @@ class ARIELRepository:
         entry_id: str,
         module_name: str,
         error: str,
-    ) -> None:
-        """Mark an enhancement as failed for an entry.
+    ) -> int:
+        """Mark an enhancement as failed for an entry and count the attempt.
+
+        The count is kept in the module's status object; a status written before the count
+        existed counts as no attempts.
 
         Args:
             entry_id: The entry ID
             module_name: The enhancement module name
             error: Error message
+
+        Returns:
+            The attempt count now stored, or 0 when no entry has that id.
         """
         try:
             async with self.pool.connection() as conn:
-                await conn.execute(
+                result = await conn.execute(
                     """
                     UPDATE enhanced_entries
                     SET enhancement_status = jsonb_set(
@@ -661,13 +687,17 @@ class ARIELRepository:
                         jsonb_build_object(
                             'status', 'failed',
                             'failed_at', NOW()::text,
-                            'error', %s::text
+                            'error', %s::text,
+                            'attempts', COALESCE((enhancement_status->%s->>'attempts')::int, 0) + 1
                         )
                     )
                     WHERE entry_id = %s
+                    RETURNING (enhancement_status->%s->>'attempts')::int
                     """,
-                    [[module_name], error[:500], entry_id],
+                    [[module_name], error[:500], module_name, entry_id, module_name],
                 )
+                row = await result.fetchone()
+                return int(row[0]) if row else 0
         except Exception as e:
             raise DatabaseQueryError(
                 f"Failed to mark enhancement failed: {e}",

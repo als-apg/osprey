@@ -104,7 +104,7 @@ Then re-enter `/setup-mode` to verify the fix.
 {% endif %}| `graph` | Facility knowledge-graph queries (read-only Cypher against the graphdb store) | {% if "graph" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 | `osprey_facility_knowledge` | Facility knowledge bundle: concept index, concept read, full-text search, concept drafting | {% if "osprey_facility_knowledge" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 | `bluesky` | Bluesky plan authoring, queue control and run data | {% if "bluesky" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
-| `phoebus` | Phoebus display bridge: open, perceive, drive | {% if "phoebus" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
+| `phoebus` | Phoebus display bridge: open, perceive{% if phoebus_agent_access == "read_write" %}, drive{% endif %} | {% if "phoebus" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 | `health` | Deployment health checks | {% if "health" in enabled_servers %}Enabled{% else %}Disabled{% endif %} |
 
 ### Required Environment Variables
@@ -140,6 +140,7 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 | `approval.default_policy` / `approval.tools.<tool>` | Hot | Per-tool approval policy; hooks re-read on each call |
 | `control_system.type` | Cold | Requires MCP server restart. To change target for this session, use `control_target_set` (run-time switch, asks for approval) — do not rebuild to switch target |
 | `control_system.target_switch.drain_timeout_s` | Cold | Read when a switch drains in-flight work, from the config the server cached at launch — requires MCP server restart |
+| `control_system.target_switch.probe_timeout_s` | Cold | Read when a switch probes the new connection, from the config the server cached at launch — requires MCP server restart |
 | `control_system.target_switch.probe_interval_s` | Cold | The target prober reads its interval once at server start — requires MCP server restart |
 | `control_system.target_switch.live_gateway_acknowledged` | Cold | The operator's acknowledgment that the named live gateway is the real machine — requires MCP server restart before the live target is switchable |
 | `control_system.connector.<target>.probe_channel` | Cold | Like every other `control_system.connector.*` key: read when the connector is built — requires MCP server restart |

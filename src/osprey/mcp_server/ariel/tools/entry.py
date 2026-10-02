@@ -12,6 +12,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastmcp.exceptions import ToolError
 
@@ -24,6 +25,9 @@ from osprey.mcp_server.ariel.server import (
 )
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.http import notify_agent_activity_async
+
+if TYPE_CHECKING:
+    from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
 
@@ -137,9 +141,9 @@ async def entries_by_ids(
 ) -> str:
     """Get multiple logbook entries by their IDs in a single call.
 
-    Efficient batch retrieval for reading full details of entries found
-    via search. Returns full entry content with a higher text limit than
-    search results.
+    Efficient batch retrieval for reading entries found via search. Each entry
+    carries more of its text than a search result does; an entry cut short is
+    marked `raw_text_truncated`, and `entry_get` returns it whole.
 
     Args:
         entry_ids: List of entry IDs to retrieve (max 50 per call).
@@ -168,8 +172,10 @@ async def entries_by_ids(
 
         entries = await service.repository.get_entries_by_ids(entry_ids)
 
-        # Serialize with longer text limit for full details
-        entries_out = [serialize_entry(e, text_limit=1000) for e in entries]
+        # A batch read carries more of each entry than a search result; a cut entry says so.
+        entries_out = [
+            serialize_entry(e, text_limit=registry.config.entry_text.read_chars) for e in entries
+        ]
 
         return json.dumps(
             {
@@ -362,7 +368,7 @@ async def entry_create(
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
-        entry = {
+        entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
             "source_system": ARIEL_NATIVE_SOURCE_SYSTEM,
             "timestamp": now,

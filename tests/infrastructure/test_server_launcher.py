@@ -17,6 +17,8 @@ import inspect
 import io
 import os
 import socket
+import threading
+import time
 import urllib.error
 import urllib.request
 from types import SimpleNamespace
@@ -458,7 +460,7 @@ class TestHeldPortAdoption:
             patch.object(launcher, "_operator_secret", return_value=secret),
             patch.object(launcher, "_probe_status", side_effect=probe),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
             patch("osprey.infrastructure.server_launcher.logger.warning") as mock_warn,
             patch("osprey.infrastructure.server_launcher.logger.info") as mock_info,
         ):
@@ -691,7 +693,7 @@ class TestRepeatRefusalsAreCheapAndQuiet:
             patch.object(launcher, "_operator_secret", return_value=secret),
             patch.object(launcher, "_probe_status", side_effect=probe),
             patch.object(launcher, "_launch_in_thread"),
-            patch("osprey.infrastructure.server_launcher.time.sleep", sleep_mock),
+            patch("osprey.infrastructure.server_launcher._sleep", sleep_mock),
             patch("osprey.infrastructure.server_launcher.logger.warning") as mock_warn,
             patch("osprey.infrastructure.server_launcher.logger.info") as mock_info,
         ):
@@ -710,6 +712,25 @@ class TestRepeatRefusalsAreCheapAndQuiet:
         launcher._retry_not_before = 0.0
         self._refuse(launcher, _probes(200), sleep)
         sleep.assert_not_called()
+
+    def test_a_sleep_on_another_thread_is_not_the_launchers(self):
+        """The grace window is counted on the launcher's own wait, not the process's.
+
+        A library thread that sleeps in a loop for the life of the process (a
+        callback dispatcher's queue monitor, say) must not reach the stand-in
+        that counts the launcher's waits, however often it sleeps.
+        """
+        launcher = _make_launcher()
+        sleep = MagicMock()
+
+        def _probe(*_args):
+            neighbour = threading.Thread(target=lambda: time.sleep(0))
+            neighbour.start()
+            neighbour.join()
+            return 200
+
+        self._refuse(launcher, _probe, sleep)
+        assert sleep.call_count == launcher._release_grace_attempts
 
     def test_an_unchanged_repeat_verdict_drops_to_info(self):
         launcher = _make_launcher()
@@ -919,7 +940,7 @@ class TestRefusalMemoryIsScopedToOneHeldPortEpisode:
 
         with (
             patch("osprey.infrastructure.server_launcher.threading.Thread"),
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
             patch.object(launcher, "_is_running", return_value=True),
         ):
             launcher._launch_in_thread("127.0.0.1", 4321)
@@ -947,7 +968,7 @@ class TestRefusalMemoryIsScopedToOneHeldPortEpisode:
                 "osprey.infrastructure.server_launcher.threading.Thread",
                 return_value=dead_thread,
             ),
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
         ):
             launcher.ensure_running()
         assert launcher._launched is False
@@ -1194,7 +1215,7 @@ class TestBindableAndConnectableTogetherDecideTheLaunch:
             patch.object(launcher, "_operator_secret", return_value=None),
             patch.object(launcher, "_probe_status", side_effect=_probes(None)),
             patch.object(launcher, "_launch_in_thread") as mock_launch,
-            patch("osprey.infrastructure.server_launcher.time.sleep"),
+            patch("osprey.infrastructure.server_launcher._sleep"),
             patch("osprey.infrastructure.server_launcher.logger.warning"),
             patch("osprey.infrastructure.server_launcher.logger.info") as mock_info,
         ):

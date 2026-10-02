@@ -142,27 +142,62 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The seventeenth move, and control-assistant's family alone: the root
     # preset turns on the full tool-call record (`audit.tool_call.*`), which
     # the five `extends` children inherit; the other three stand still.
-    "ariel-standalone": ("sha256:e430af35441251fbc5fb24ddd87175b18341919a5bae8ceb5788a96a86faeece"),
+    # The eighteenth move, and the two presets that carry a keyword block:
+    # ariel-standalone and control-assistant gained
+    # `ariel.search_modules.keyword.settings.fuzzy_threshold: 0.3`, the
+    # fuzzy-fallback similarity floor that was a literal in the keyword module.
+    # The value is the one the module already applied, so a rebuilt project
+    # behaves identically; the digest moves because the preset now states it.
+    # The five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    # The nineteenth move, and control-assistant's family alone: the root
+    # preset states `control_system.target_switch.probe_timeout_s: 5` beside
+    # the drain timeout, and the five `extends` children inherit it; the other
+    # three stand still. 5 is the reader's default, so a rebuilt project
+    # behaves as before.
+    # The twentieth move, and the two presets that carry a text-embedding block:
+    # ariel-standalone and control-assistant gained `max_input_tokens: 2048` on
+    # the `nomic-embed-text` entry under
+    # `ariel.enhancement_modules.text_embedding.models`, the input window the
+    # embedding server applies. A rebuilt project cuts a longer entry to that
+    # window where it used the 512-token default before, so the staleness
+    # advisory firing on already-deployed projects is the correct signal. The
+    # five `extends` children inherit it; channel-finder-standalone and
+    # hello-world stand still.
+    # The twenty-first move, and control-assistant's family alone: the root
+    # preset spells the EPICS and virtual-accelerator call bound `timeout_s`,
+    # the one key every control-system connector reads, and the five `extends`
+    # children inherit it; the other three stand still. The value is unchanged.
+    # The twenty-second move, and the four presets that reach no machine:
+    # control-assistant-logbook and control-assistant-knowledge drop the
+    # JUPYTER panel, whose kernels reach the control target, and they,
+    # ariel-standalone and channel-finder-standalone state
+    # `web.control_target_picker: false`; the logbook persona also pins the
+    # epics and virtual_accelerator write keys off, as the knowledge persona
+    # already did. A rebuilt project of any of the four has no picker, so the
+    # advisory firing is correct. control-assistant and hello-world gained a
+    # comment only, which moves no digest; the other five stand still.
+    "ariel-standalone": ("sha256:abb22faa5923ade1f2cf430fd8a95f376bedf0a89ede3c738433f8bd776513c2"),
     "channel-finder-standalone": (
-        "sha256:b96693984048dec0897c6bab4a3a16867b1e277037c0647930f40457965b1cdc"
+        "sha256:7bec034ab9e5ae0c11d79df9cf294075e9c38c66bc7251ab9246a684165c9ee5"
     ),
     "control-assistant": (
-        "sha256:f053c6de8fd9497d272a068a03f8174b9ed9c1d9c21c6fb800ef60b641a2f3ce"
+        "sha256:284e5a0e2ba8b55a9adcfd4fb97859e43a5c8ad01ed66e830f312cc36c09b182"
     ),
     "control-assistant-admin": (
-        "sha256:b27fb8d6fe3d79ba8ff5febdb28ccb70cbc117e3d8717b825002daa608694c57"
+        "sha256:a1cde818cbb963b0eb9200b237f60e28a68431b3ac897bebf67873a595070bb5"
     ),
     "control-assistant-knowledge": (
-        "sha256:53265269ecd689a2355c8c5bd892e68d022e0de03186ab4338104a805c54a6d0"
+        "sha256:5d60857376ca6702cb371eaddce2a16c790bb372a2dacade4a5d4a227c0fc51d"
     ),
     "control-assistant-logbook": (
-        "sha256:cffa27c611273350222d9a3e064002435c36f670f7db8d383d94639002726437"
+        "sha256:5be8777709428d65ef629693978e07dee4910fd665260c8b66003a8b2ffdbefb"
     ),
     "control-assistant-readonly": (
-        "sha256:251d61c019a064f0b5d3386d7744c2a68c35ca929f61caa9bd1cd1418b4f532a"
+        "sha256:fc185914a127d56abbf0b9383012a7b2eb1dfbde54fe6573956de962a127e087"
     ),
     "control-assistant-readwrite": (
-        "sha256:88d62d2fdd672b4bf16d30ae9c72294e4b64f63a0819cdc0bc0e0be71a5746b6"
+        "sha256:52ca513ef55d1ea7b32333a3730d6396ac5d7f687043cc9fea9c9161769f2217"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }

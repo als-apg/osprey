@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.services.auth_sidecar.throttle import AttemptThrottle
+from osprey.services.auth_sidecar.throttle import (
+    DEFAULT_FORGET_AFTER,
+    DEFAULT_INITIAL_DELAY,
+    DEFAULT_MAX_DELAY,
+    DEFAULT_MULTIPLIER,
+    AttemptThrottle,
+    throttle_problems,
+)
 
 
 class FakeClock:
@@ -241,11 +248,54 @@ def test_custom_growth_parameters_are_honoured(clock: FakeClock) -> None:
         {"multiplier": 0.5},
         {"max_delay": 0.5},
         {"forget_after": -1.0},
+        {"initial_delay": float("nan")},
+        {"multiplier": float("nan")},
+        {"max_delay": float("inf")},
+        {"forget_after": float("inf")},
+        {"initial_delay": True},
     ],
 )
 def test_nonsensical_parameters_are_rejected(kwargs: dict[str, float]) -> None:
     with pytest.raises(ValueError):
         AttemptThrottle(**kwargs)
+
+
+def test_throttle_problems_is_empty_for_the_defaults() -> None:
+    assert (
+        throttle_problems(
+            initial_delay=DEFAULT_INITIAL_DELAY,
+            multiplier=DEFAULT_MULTIPLIER,
+            max_delay=DEFAULT_MAX_DELAY,
+            forget_after=DEFAULT_FORGET_AFTER,
+        )
+        == {}
+    )
+
+
+def test_throttle_problems_names_every_parameter_at_fault() -> None:
+    problems = throttle_problems(
+        initial_delay=0, multiplier=0.5, max_delay=float("nan"), forget_after=-1
+    )
+    assert set(problems) == {"initial_delay", "multiplier", "max_delay", "forget_after"}
+
+
+def test_a_cap_below_the_initial_delay_is_a_max_delay_problem() -> None:
+    problems = throttle_problems(
+        initial_delay=60,
+        multiplier=DEFAULT_MULTIPLIER,
+        max_delay=30,
+        forget_after=DEFAULT_FORGET_AFTER,
+    )
+    assert set(problems) == {"max_delay"}
+
+
+def test_a_zero_forget_after_is_a_fixed_delay_not_an_error(clock: FakeClock) -> None:
+    """Escalation resets as soon as a window lifts: a fixed delay, which is a policy."""
+    throttle = AttemptThrottle(initial_delay=2.0, forget_after=0, clock=clock)
+
+    assert throttle.record_failure("alice") == 2.0
+    clock.advance(2.0)
+    assert throttle.record_failure("alice") == 2.0
 
 
 def test_defaults_to_a_monotonic_clock() -> None:

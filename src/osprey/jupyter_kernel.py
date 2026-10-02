@@ -2,8 +2,9 @@
 
 A notebook kernel runs as its own process, started by the Jupyter server, with
 no handle on the web terminal the operator is actually working in. It needs
-none: the deployment has one control context, recorded under the shared
-agent-data root, and every client reads that one record. What the kernel
+none: the login it runs as has one control context, recorded under the
+shared agent-data root in that identity's directory, and every client of
+that login reads that one record. What the kernel
 supplies is its own name — ``kernel:<kernel_id>``, taken from the connection
 file Jupyter wrote for it — so that the records it files are attributable to a
 kernel an operator can find and interrupt.

@@ -1,0 +1,1 @@
+The channel-finder web API answers `503` with `Database not available for pipeline '<paradigm>'` on every route when the active paradigm has no database; the tree, structure, in-context edit and device-info routes answered `500`.

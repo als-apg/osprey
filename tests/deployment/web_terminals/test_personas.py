@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -15,28 +16,33 @@ from osprey.deployment.web_terminals.personas import (
     _is_shared_entry,
     access_wire_value,
     bluesky_server_enabled,
-    config_archiver_password_env,
+    ca_bundle_mounts,
+    config_archiver_ca_bundles,
+    config_archiver_credential_envs,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_graphdb_password,
     config_needs_launch_token,
     config_needs_launch_token_for,
+    config_needs_phoebus_handles,
+    configured_registry_url,
     control_identity_collision_warnings,
     control_identity_problems,
     effective_persona,
     entry_is_shared,
-    env_var_suffix,
-    env_var_suffix_collisions,
     freeze_user_indices,
     lane_control_target,
     normalize_users,
-    personas_needing_archiver_password,
+    personas_needing_archiver_ca_bundles,
+    personas_needing_archiver_credentials,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
+    personas_needing_phoebus_handles,
     personas_not_denying_bash,
+    phoebus_server_runs,
     resolve_access_principals,
     resolve_authorization_roles,
     resolve_personas,
@@ -44,6 +50,8 @@ from osprey.deployment.web_terminals.personas import (
     shared_card_privileged_problems,
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.services.auth_sidecar.roster_env import env_var_suffix_collisions
+from osprey_connectors.connection import read_connection_settings
 
 
 def test_normalize_users_bare_strings_indexed_by_position() -> None:
@@ -475,9 +483,28 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("registry_cfg", "expected"),
+    [
+        (None, ""),
+        ({}, ""),
+        ({"url": None}, ""),
+        ({"url": 5}, ""),
+        ({"url": "registry.example.org/osprey"}, "registry.example.org/osprey"),
+    ],
+)
+def test_configured_registry_url_reads_only_a_string_url(registry_cfg: Any, expected: str) -> None:
+    """Only a string `registry.url` inside a mapping counts as configured."""
+    # Act
+    result = configured_registry_url(registry_cfg)
+
+    # Assert
+    assert result == expected
+
+
 def test_resolve_personas_no_catalog_empty_registry_url_matches_template_concat() -> None:
-    """An unset registry.url must reproduce the exact (leading-slash) string the
-    compose template built by direct concatenation before this function existed."""
+    """An unset registry.url still resolves: the resolver stays total and yields
+    the leading-slash name, and the render is where this shape is refused."""
     # Arrange
     web_terminals = {"users": ["alice"]}
 
@@ -1875,81 +1902,8 @@ def test_resolve_personas_omits_oidc_subject_key_when_unset() -> None:
 
 
 # ---------------------------------------------------------------------------
-# env_var_suffix() / env_var_suffix_collisions()
+# env_var_suffix_collisions() over a normalized roster
 # ---------------------------------------------------------------------------
-
-
-def test_env_var_suffix_uppercases_and_maps_dashes_to_underscores() -> None:
-    """The one definition of how a username keys its per-user env vars."""
-    # Act / Assert
-    assert env_var_suffix("alice") == "ALICE"
-    assert env_var_suffix("alice-b") == "ALICE_B"
-    assert env_var_suffix("Alice-B-C") == "ALICE_B_C"
-
-
-def test_env_var_suffix_leaves_already_conforming_names_untouched() -> None:
-    """Idempotent on its own output — an already-uppercase, underscored name is
-    returned unchanged, so re-keying an existing entry can't drift."""
-    # Arrange
-    once = env_var_suffix("alice-b")
-
-    # Act / Assert
-    assert env_var_suffix(once) == once
-
-
-def test_env_var_suffix_is_total_and_does_not_validate_charset() -> None:
-    """Charset enforcement belongs to the preflight raise and lint, not here —
-    this helper maps whatever it is given rather than raising."""
-    # Act / Assert
-    assert env_var_suffix("") == ""
-    assert env_var_suffix("alice.b") == "ALICE.B"
-
-
-def test_env_var_suffix_collisions_reports_names_sharing_one_suffix() -> None:
-    """`alice-b` and `alice_b` both key OSPREY_AUTH_PW_HASH_ALICE_B — without
-    this check one user's password would open the other's terminal."""
-    # Act
-    result = env_var_suffix_collisions(["alice-b", "alice_b", "carol"])
-
-    # Assert
-    assert result == {"ALICE_B": ["alice-b", "alice_b"]}
-
-
-def test_env_var_suffix_collisions_empty_for_an_unambiguous_roster() -> None:
-    """A roster whose usernames map one-to-one reports nothing."""
-    # Act / Assert
-    assert env_var_suffix_collisions(["alice", "bob", "carol"]) == {}
-    assert env_var_suffix_collisions([]) == {}
-
-
-def test_env_var_suffix_collisions_ignores_case_only_and_repeated_names() -> None:
-    """A verbatim-repeated name is one user listed twice (a duplicate-name error
-    reported separately), not two users sharing a credential — while names
-    differing only in case really do collide onto one suffix."""
-    # Act / Assert
-    assert env_var_suffix_collisions(["alice", "alice"]) == {}
-    assert env_var_suffix_collisions(["alice", "Alice"]) == {"ALICE": ["Alice", "alice"]}
-
-
-def test_env_var_suffix_collisions_output_is_sorted_for_stable_messages() -> None:
-    """Suffix keys and the names under each are sorted, so a lint or preflight
-    message built from this reads the same across runs."""
-    # Act
-    result = env_var_suffix_collisions(["zed_x", "b-1", "zed-x", "b_1"])
-
-    # Assert
-    assert list(result) == ["B_1", "ZED_X"]
-    assert result == {"B_1": ["b-1", "b_1"], "ZED_X": ["zed-x", "zed_x"]}
-
-
-def test_env_var_suffix_collisions_ignores_non_string_entries() -> None:
-    """Drop-don't-raise, like the rest of this module: a malformed roster entry
-    that slipped through can't crash the collision check."""
-    # Act
-    result = env_var_suffix_collisions(["alice-b", None, 7, "alice_b"])  # type: ignore[list-item]
-
-    # Assert
-    assert result == {"ALICE_B": ["alice-b", "alice_b"]}
 
 
 def test_env_var_suffix_collisions_consumes_normalize_users_names() -> None:
@@ -2141,6 +2095,92 @@ def test_personas_needing_ariel_password_skips_unrendered_persona_projects(tmp_p
 
     # Act / Assert
     assert personas_needing_ariel_password(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# Phoebus server -> per-user PHOEBUS_REQUIRE_HANDLE stamp
+#
+# Every terminal of a multi-user stack reaches the one Phoebus product, so a
+# project that runs any Phoebus server addresses displays by handle unless it
+# says `phoebus.require_handle: false`.
+# ---------------------------------------------------------------------------
+
+
+def _phoebus_servers(servers: Any) -> dict:
+    return {"claude_code": {"servers": servers}}
+
+
+def test_phoebus_server_runs_reads_the_override_tri_state() -> None:
+    """`claude_code.servers.phoebus.enabled` is an override over the registry default."""
+    # Assert
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {"enabled": True}})) is True
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {"enabled": False}})) is False
+    assert phoebus_server_runs({}) is FRAMEWORK_SERVERS["phoebus"].default_enabled
+    assert phoebus_server_runs(_phoebus_servers({"phoebus": {}})) is (
+        FRAMEWORK_SERVERS["phoebus"].default_enabled
+    )
+
+
+def test_phoebus_server_runs_counts_an_extends_clone() -> None:
+    """A declared `extends: phoebus` clone runs unless it says `enabled: false`."""
+    # Assert
+    assert phoebus_server_runs(_phoebus_servers({"phoebus2": {"extends": "phoebus"}})) is True
+    assert (
+        phoebus_server_runs(
+            _phoebus_servers({"phoebus2": {"extends": "phoebus", "enabled": False}})
+        )
+        is False
+    )
+    assert (
+        phoebus_server_runs(
+            _phoebus_servers({"phoebus": {"enabled": False}, "phoebus2": {"extends": "phoebus"}})
+        )
+        is True
+    )
+
+
+def test_config_needs_phoebus_handles_honours_an_explicit_false() -> None:
+    """Only an explicit `phoebus.require_handle: false` withholds the stamp."""
+    # Arrange
+    enabled = _phoebus_servers({"phoebus": {"enabled": True}})
+
+    # Assert
+    assert config_needs_phoebus_handles(enabled) is True
+    assert config_needs_phoebus_handles({**enabled, "phoebus": {"require_handle": True}}) is True
+    assert config_needs_phoebus_handles({**enabled, "phoebus": {"require_handle": False}}) is False
+    assert config_needs_phoebus_handles(_phoebus_servers({"phoebus": {"enabled": False}})) is False
+
+
+def test_personas_needing_phoebus_handles_selects_only_the_phoebus_persona(tmp_path) -> None:
+    """The stamp set is exactly the personas whose rendered project runs Phoebus."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path, "rw", _phoebus_servers({"phoebus": {"enabled": True}})
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path, "ro", {"web": {"panels": {"okf": {"enabled": True}}}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_phoebus_handles(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite"}
 
 
 # ---------------------------------------------------------------------------
@@ -2906,88 +2946,174 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
 
 
 # ---------------------------------------------------------------------------
-# Archiver connector -> per-user store password
+# Archiver connector -> per-user credential variables
 #
-# The archiver connector authenticates with the variable its own config block
-# names (`archiver.<type>.password_env`); `osprey up` mints it into the deploy
-# `.env` for a store the project deploys. `.env.users` excludes service tokens
-# by design and cannot say "the personas whose archiver reads this", so the
-# grant is per-user, and it carries the configured NAME because the block may
-# point at a facility-run store under any variable.
+# The archiver connector authenticates with the variables its own config block
+# names under `auth:` (`auth.token_env`, or `auth.username` + `auth.password_env`);
+# `osprey up` mints the MongoDB password into the deploy `.env` for a store the
+# project deploys. `.env.users` excludes service tokens by design and cannot say
+# "the personas whose archiver reads this", so the grant is per-user, and it
+# carries the configured NAMES because the block may point at a facility-run
+# store under any variable.
 # ---------------------------------------------------------------------------
 
 _MONGO_ARCHIVER = {
     "type": "mongodb_archiver",
-    "mongodb_archiver": {"host": "localhost", "password_env": "MONGO_ROOT_PASSWORD"},
+    "mongodb_archiver": {
+        "host": "localhost",
+        "auth": {"username": "root", "password_env": "MONGO_ROOT_PASSWORD", "source": "admin"},
+    },
 }
 
 
-def test_config_archiver_password_env_reads_the_selected_connector_block() -> None:
-    """The variable named by the SELECTED connector's block is the entitlement."""
-    assert config_archiver_password_env({"archiver": _MONGO_ARCHIVER}) == "MONGO_ROOT_PASSWORD"
+def test_config_archiver_credential_envs_reads_the_selected_connector_block() -> None:
+    """The variables named by the SELECTED connector's block are the entitlement."""
+    assert config_archiver_credential_envs({"archiver": _MONGO_ARCHIVER}) == (
+        "MONGO_ROOT_PASSWORD",
+    )
 
 
-def test_config_archiver_password_env_ignores_an_unselected_connector_block() -> None:
+def test_config_archiver_credential_envs_ignores_an_unselected_connector_block() -> None:
     """The shipped config carries a `mongodb_archiver:` block under `type: mock_archiver`;
     a block the selected type never reads entitles nothing."""
     archiver = {**_MONGO_ARCHIVER, "type": "mock_archiver"}
 
-    assert config_archiver_password_env({"archiver": archiver}) is None
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
 
 
-def test_config_archiver_password_env_follows_any_connector_that_names_one() -> None:
-    """The key, not the connector name, is what is read: a future connector with a
-    `password_env` is granted exactly like MongoDB's."""
-    archiver = {"type": "facility_db", "facility_db": {"password_env": "FACILITY_DB_PW"}}
+def test_config_archiver_credential_envs_reads_no_flat_password_env() -> None:
+    """The variable is named under `auth:`; a flat `password_env` grants nothing."""
+    archiver = {"type": "my_facility.stores.Archive", "settings": {"password_env": "X"}}
 
-    assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+def test_config_archiver_credential_envs_follows_any_connector_that_names_one() -> None:
+    """The key, not the connector name, is what is read: a future connector with an
+    `auth.password_env` is granted exactly like MongoDB's."""
+    archiver = {
+        "type": "facility_db",
+        "facility_db": {"auth": {"username": "u", "password_env": "FACILITY_DB_PW"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("FACILITY_DB_PW",)
+
+
+def test_config_archiver_credential_envs_grants_the_bearer_token_variable() -> None:
+    archiver = {
+        "type": "epics_archiver",
+        "settings": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("ARCHIVER_TOKEN",)
+
+
+def test_config_archiver_credential_envs_grants_the_login_password_variable() -> None:
+    """The username is not a secret: it is read from the container's own config.yml."""
+    archiver = {
+        "type": "epics_archiver",
+        "settings": {
+            "url": "https://a.example",
+            "auth": {"username": "reader", "password_env": "ARCHIVER_PW"},
+        },
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("ARCHIVER_PW",)
+
+
+def test_config_archiver_credential_envs_ignores_an_unselected_epics_token() -> None:
+    archiver = {
+        "type": "mock_archiver",
+        "epics_archiver": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
+    }
+
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
+
+
+@pytest.mark.parametrize("present", [True, False])
+def test_config_archiver_credential_envs_reads_no_environment(monkeypatch, present: bool) -> None:
+    """The grant names what the block names, whether or not the variable is set here."""
+    if present:
+        monkeypatch.setenv("MONGO_ROOT_PASSWORD", "s3cr3t")
+    else:
+        monkeypatch.delenv("MONGO_ROOT_PASSWORD", raising=False)
+
+    assert config_archiver_credential_envs({"archiver": _MONGO_ARCHIVER}) == (
+        "MONGO_ROOT_PASSWORD",
+    )
 
 
 @pytest.mark.parametrize(
     "missing", [{}, {"archiver": None}, {"archiver": {"type": "mock_archiver"}}]
 )
-def test_config_archiver_password_env_is_none_without_a_named_variable(missing: dict) -> None:
-    assert config_archiver_password_env(missing) is None
+def test_config_archiver_credential_envs_is_empty_without_a_named_variable(missing: dict) -> None:
+    assert config_archiver_credential_envs(missing) == ()
 
 
 @pytest.mark.parametrize("blank", ["", "   ", None, 7])
-def test_config_archiver_password_env_treats_a_blank_name_as_unset(blank: Any) -> None:
-    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": blank}}
+def test_config_archiver_credential_envs_treats_a_blank_name_as_unset(blank: Any) -> None:
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {"password_env": blank}}}
 
-    assert config_archiver_password_env({"archiver": archiver}) is None
+    assert config_archiver_credential_envs({"archiver": archiver}) == ()
 
 
+@pytest.mark.parametrize("key", ["token_env", "password_env"])
 @pytest.mark.parametrize("bad", ["MONGO PASSWORD", "1PASS", "PW=x", "${PW}", "pw-name"])
-def test_config_archiver_password_env_refuses_a_name_compose_cannot_carry(bad: str) -> None:
+def test_config_archiver_credential_envs_refuses_a_name_compose_cannot_carry(
+    bad: str, key: str
+) -> None:
     """The name is emitted into a compose `environment:` line verbatim, so anything
     that is not a plain identifier is refused here rather than rendered broken."""
-    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"password_env": bad}}
+    archiver = {"type": "mongodb_archiver", "mongodb_archiver": {"auth": {key: bad}}}
 
-    with pytest.raises(ValueError, match="password_env"):
-        config_archiver_password_env({"archiver": archiver})
+    with pytest.raises(ValueError, match=re.escape(f"archiver.mongodb_archiver.auth.{key}")):
+        config_archiver_credential_envs({"archiver": archiver})
 
 
-def test_config_archiver_password_env_reads_the_settings_block() -> None:
+@pytest.mark.parametrize("key", ["token_env", "password_env"])
+@pytest.mark.parametrize("padded", [" PW ", "PW\n"])
+def test_config_archiver_credential_envs_refuses_a_padded_name(padded: str, key: str) -> None:
+    """The connector reads the name as written and refuses surrounding whitespace, so
+    the grant refuses it too rather than granting a stripped name the connector never
+    looks up."""
+    block: dict[str, Any] = {"url": "https://a.example", "auth": {key: padded}}
+    if key == "password_env":
+        block["auth"]["username"] = "u"
+    archiver = {"type": "epics_archiver", "settings": block}
+
+    with pytest.raises(ValueError, match=re.escape(f"archiver.settings.auth.{key}")):
+        read_connection_settings(block, where="archiver.settings")
+    with pytest.raises(ValueError, match=re.escape(f"archiver.settings.auth.{key}")) as refused:
+        config_archiver_credential_envs({"archiver": archiver})
+    assert repr(padded) in str(refused.value)
+
+
+def test_config_archiver_credential_envs_reads_the_settings_block() -> None:
     """A connector selected by dotted module path is configured from `archiver.settings`."""
     archiver = {
         "type": "my_facility.stores.Archive",
-        "settings": {"password_env": "FACILITY_DB_PW"},
+        "settings": {"auth": {"username": "u", "password_env": "FACILITY_DB_PW"}},
     }
 
-    assert config_archiver_password_env({"archiver": archiver}) == "FACILITY_DB_PW"
+    assert config_archiver_credential_envs({"archiver": archiver}) == ("FACILITY_DB_PW",)
 
 
-def test_config_archiver_password_env_refusal_names_the_settings_key() -> None:
+def test_config_archiver_credential_envs_refusal_names_the_settings_key() -> None:
     """The refusal names the block the operator wrote."""
-    archiver = {"type": "my_facility.stores.Archive", "settings": {"password_env": "PW NAME"}}
+    archiver = {
+        "type": "my_facility.stores.Archive",
+        "settings": {"auth": {"password_env": "PW NAME"}},
+    }
 
-    with pytest.raises(ValueError, match=r"archiver\.settings\.password_env"):
-        config_archiver_password_env({"archiver": archiver})
+    with pytest.raises(ValueError, match=r"archiver\.settings\.auth\.password_env"):
+        config_archiver_credential_envs({"archiver": archiver})
 
 
-def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tmp_path) -> None:
-    """The grant is a persona -> variable-name map, so two personas reading two
-    different stores each get their own line and a persona with no archiver gets none."""
+def test_personas_needing_archiver_credentials_maps_each_persona_to_its_variables(
+    tmp_path,
+) -> None:
+    """The grant is a persona -> variable-names map, so two personas reading two
+    different stores each get their own lines and a persona with no archiver gets none."""
     # Arrange
     catalog = {
         "readwrite": {
@@ -3001,7 +3127,15 @@ def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tm
             "project_path": _write_persona_project_config(
                 tmp_path,
                 "fac",
-                {"archiver": {"type": "other_db", "other_db": {"password_env": "OTHER_DB_PW"}}},
+                {
+                    "archiver": {
+                        "type": "epics_archiver",
+                        "epics_archiver": {
+                            "url": "https://a.example",
+                            "auth": {"token_env": "OTHER_TOKEN"},
+                        },
+                    }
+                },
             ),
         },
         "readonly": {
@@ -3021,13 +3155,15 @@ def test_personas_needing_archiver_password_maps_each_persona_to_its_variable(tm
     )
 
     # Act
-    result = personas_needing_archiver_password(config, tmp_path)
+    result = personas_needing_archiver_credentials(config, tmp_path)
 
     # Assert
-    assert result == {"readwrite": "MONGO_ROOT_PASSWORD", "facility": "OTHER_DB_PW"}
+    assert result == {"readwrite": ("MONGO_ROOT_PASSWORD",), "facility": ("OTHER_TOKEN",)}
 
 
-def test_personas_needing_archiver_password_skips_unrendered_persona_projects(tmp_path) -> None:
+def test_personas_needing_archiver_credentials_skips_unrendered_persona_projects(
+    tmp_path,
+) -> None:
     """A persona whose project isn't on disk contributes nothing: a credential is
     never granted on a guess."""
     config = _catalog_config(
@@ -3035,7 +3171,114 @@ def test_personas_needing_archiver_password_skips_unrendered_persona_projects(tm
         [{"name": "alice", "index": 0, "persona": "ghost"}],
     )
 
-    assert personas_needing_archiver_password(config, tmp_path) == {}
+    assert personas_needing_archiver_credentials(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# Archiver connector -> the CA file its block names, mounted into the container
+# ---------------------------------------------------------------------------
+
+
+def _ca_block(ca: str) -> dict[str, Any]:
+    return {"url": "https://a.example", "tls": {"ca_bundle": ca}}
+
+
+def test_ca_bundle_mounts_names_a_file_on_this_host(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+
+    assert ca_bundle_mounts(_ca_block(str(ca)), where="archiver.settings") == (str(ca),)
+
+
+def test_ca_bundle_mounts_skips_a_file_not_on_this_host(tmp_path) -> None:
+    """The connector in the container then refuses at connect, as on the host."""
+    ca = tmp_path / "absent.pem"
+
+    assert ca_bundle_mounts(_ca_block(str(ca)), where="archiver.settings") == ()
+
+
+@pytest.mark.parametrize(
+    "tls", [{"ca_bundle": "certs/site-ca.pem"}, {"verify": False}], ids=["relative", "verify"]
+)
+def test_ca_bundle_mounts_skips_a_path_the_reader_refuses(tls: dict[str, Any]) -> None:
+    assert ca_bundle_mounts({"tls": tls}, where="archiver.settings") == ()
+
+
+def test_ca_bundle_mounts_skips_a_home_relative_path(monkeypatch, tmp_path) -> None:
+    """`~` would name a different file in each process, so it is never mounted."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "site-ca.pem").write_text("x\n")
+
+    assert ca_bundle_mounts(_ca_block("~/site-ca.pem"), where="archiver.settings") == ()
+
+
+@pytest.mark.parametrize(
+    ("connector", "key"),
+    [("epics_archiver", "epics_archiver"), ("my_facility.stores.Archive", "settings")],
+)
+def test_config_archiver_ca_bundles_reads_the_selected_block(
+    tmp_path, connector: str, key: str
+) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    archiver = {"type": connector, key: _ca_block(str(ca))}
+
+    assert config_archiver_ca_bundles({"archiver": archiver}) == (str(ca),)
+
+
+def test_config_archiver_ca_bundles_ignores_an_unselected_block(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    archiver = {"type": "mock_archiver", "epics_archiver": _ca_block(str(ca))}
+
+    assert config_archiver_ca_bundles({"archiver": archiver}) == ()
+
+
+def test_personas_needing_archiver_ca_bundles_maps_each_persona_to_its_file(tmp_path) -> None:
+    """Only a persona whose selected archiver names a CA file on this host is mapped."""
+    # Arrange
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    catalog = {
+        "facility": {
+            "project": "fac",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "fac",
+                {"archiver": {"type": "epics_archiver", "epics_archiver": _ca_block(str(ca))}},
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path, "ro", {"archiver": {"type": "mock_archiver"}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "facility"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_archiver_ca_bundles(config, tmp_path)
+
+    # Assert
+    assert result == {"facility": (str(ca),)}
+
+
+def test_personas_needing_archiver_ca_bundles_skips_unrendered_persona_projects(
+    tmp_path,
+) -> None:
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    assert personas_needing_archiver_ca_bundles(config, tmp_path) == {}
 
 
 # ---------------------------------------------------------------------------

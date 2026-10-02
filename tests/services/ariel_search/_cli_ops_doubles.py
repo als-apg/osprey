@@ -64,6 +64,7 @@ class _Adapter:
         entries: Entries to yield, in order.
         raise_at: Index at which ``fetch_entries`` raises instead of yielding,
             for the "stream dies mid-ingest" path.
+        unreadable: What the adapter reports as ``unreadable_entries``.
     """
 
     def __init__(
@@ -71,10 +72,12 @@ class _Adapter:
         entries: Iterable[dict[str, Any]] = (),
         source_system_name: str = "TestSource",
         raise_at: int | None = None,
+        unreadable: int = 0,
     ) -> None:
         self.entries = list(entries)
         self.source_system_name = source_system_name
         self.raise_at = raise_at
+        self.unreadable_entries = unreadable
         self.fetch_calls: list[dict[str, Any]] = []
 
     async def fetch_entries(self, since: Any = None, limit: int | None = None):

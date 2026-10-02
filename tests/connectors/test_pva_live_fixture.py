@@ -196,7 +196,7 @@ def connector_factory(pva_server):
         asyncio.run(
             connector.connect(
                 {
-                    "timeout": timeout,
+                    "timeout_s": timeout,
                     "pva_channels": [PVA_GLOB],
                     "pva_gateway": {
                         "address": "127.0.0.1",

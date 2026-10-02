@@ -99,10 +99,10 @@ def test_the_resolved_type_is_the_connector_sub_block_key():
     """The factory reads ``connector.<resolved type>``, so the type IS the key."""
     section = _section(
         EPICS,
-        {"epics": {"address": "gw"}, "virtual_accelerator": {"timeout": 5.0}},
+        {"epics": {"address": "gw"}, "virtual_accelerator": {"timeout_s": 5.0}},
     )
 
-    assert section["connector"][resolve_target(section, TARGET_VA)] == {"timeout": 5.0}
+    assert section["connector"][resolve_target(section, TARGET_VA)] == {"timeout_s": 5.0}
     assert section["connector"][resolve_target(section, TARGET_LIVE)] == {"address": "gw"}
 
 
@@ -165,7 +165,7 @@ def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(baseline:
     section = _section(
         baseline,
         {
-            "virtual_accelerator": {"timeout": 5.0},
+            "virtual_accelerator": {"timeout_s": 5.0},
             "mock": {"noise_level": 0.0},
             "epics": {"gateways": {"read_only": {"address": "gw"}}},
         },
@@ -175,7 +175,7 @@ def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(baseline:
 
 
 def test_live_on_a_simulated_baseline_with_no_live_block_refuses():
-    section = _section(VIRTUAL_ACCELERATOR, {"virtual_accelerator": {"timeout": 5.0}})
+    section = _section(VIRTUAL_ACCELERATOR, {"virtual_accelerator": {"timeout_s": 5.0}})
 
     with pytest.raises(ValueError) as excinfo:
         resolve_target(section, TARGET_LIVE)
@@ -212,7 +212,7 @@ def test_live_refuses_when_two_live_blocks_leave_it_ambiguous():
 @pytest.mark.parametrize(
     "connector",
     [
-        {"virtual_accelerator": {"timeout": 5.0}},
+        {"virtual_accelerator": {"timeout_s": 5.0}},
         {"epics": {"address": "gw"}, "doocs": {"address": "gw"}},
     ],
     ids=["no-live-block", "two-live-blocks"],
@@ -248,7 +248,7 @@ def test_the_stand_in_and_the_simulator_are_not_a_second_real_machine(caplog: An
         EPICS,
         {
             "epics": {"address": "gw"},
-            "virtual_accelerator": {"timeout": 5.0},
+            "virtual_accelerator": {"timeout_s": 5.0},
             "live_standin": {"address": "127.0.0.1"},
         },
     )

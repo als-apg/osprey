@@ -199,6 +199,7 @@ const NO_CONTEXT = Object.freeze(
     identityAvailable: false,
     blueskyAvailable: false,
     systemHealthAvailable: false,
+    controlTargetAvailable: false,
   })
 );
 
@@ -231,6 +232,7 @@ export function deploymentContext(root) {
       identityAvailable: parsed.identityAvailable === true,
       blueskyAvailable: parsed.blueskyAvailable === true,
       systemHealthAvailable: parsed.systemHealthAvailable === true,
+      controlTargetAvailable: parsed.controlTargetAvailable === true,
     };
   } catch {
     console.warn(`[bar-sync] ${CONTEXT_ATTR} is not readable JSON`, raw);

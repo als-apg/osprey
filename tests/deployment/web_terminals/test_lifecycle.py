@@ -17,17 +17,19 @@ import pytest
 import yaml
 from ruamel.yaml import YAML
 
-from osprey.cli.templates.claude_code import DENY_DEFAULTS
+from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.deployment.compose_generator import resolve_user_volume_names
+from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
 from osprey.deployment.web_terminals.artifacts import (
     BashLaunchTokenConflictError,
     OpenModeEgressError,
 )
-from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME, PW_HASH_VAR_PREFIX
+from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.provision import AUTH_SERVICE_NAME
 from osprey.services.auth_sidecar.passwords import verify_password
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils import config_writer
 from osprey.utils.dotenv import parse_dotenv_file
 
@@ -63,7 +65,8 @@ def _config(
         web_terminals["image_source"] = image_source
     return {
         "project_name": project_name,
-        "facility": {"name": "Demo Light Source", "prefix": facility_prefix, "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": facility_prefix},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {"web_terminals": web_terminals},
@@ -2738,3 +2741,234 @@ def test_up_reconcile_argv_safety_removal_is_exact_named(tmp_path, monkeypatch, 
         assert not (_FORBIDDEN_ARGV_TOKENS & set(argv)), argv
         assert not any(_GLOB_METACHARACTERS & set(token) for token in argv), argv
         assert argv[:3] == ["docker", "rm", "-f"] and len(argv) == 4
+
+
+# =============================================================================
+# A removal the runtime refused is named, never reported as done
+# =============================================================================
+
+
+def _refuse_removals(monkeypatch, removals: dict[str, str], archives: dict[str, str] | None = None):
+    """Make the runtime refuse named removals and archives, on top of a fixture's fake.
+
+    Wraps whichever fake ``lifecycle.subprocess.run`` is installed (one of the
+    ``fake_runtime*`` fixtures) and delegates every call to it first, so the
+    fixture's ``calls`` list still records each argv. Then, for a ``volume rm
+    <name>`` or ``image rm <tag>`` whose name is a key of ``removals``, the
+    result is replaced with exit 1 and ``removals[name]`` as stderr. An archive
+    ``run`` whose ``--mount type=volume,source=<name>,...`` names a key of
+    ``archives`` raises :class:`subprocess.CalledProcessError` with
+    ``archives[name]`` as stderr, as ``check=True`` would. The maps are separate
+    so one volume can archive and then be refused removal.
+    """
+    archives = archives or {}
+    inner = lifecycle.subprocess.run
+
+    def _run(argv, *args, **kwargs):
+        result = inner(argv, *args, **kwargs)
+        if argv[1:3] in (["volume", "rm"], ["image", "rm"]) and argv[3] in removals:
+            return subprocess.CompletedProcess(argv, 1, "", removals[argv[3]])
+        if argv[1:2] == ["run"]:
+            for arg in argv:
+                if arg.startswith("type=volume,source="):
+                    name = arg.split(",")[1].removeprefix("source=")
+                    if name in archives:
+                        raise subprocess.CalledProcessError(1, argv, "", archives[name])
+        return result
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _run)
+
+
+def _in_use(volume: str) -> str:
+    return f"Error response from daemon: remove {volume}: volume is in use - [abc]"
+
+
+def _already_gone(volume: str) -> str:
+    return f"Error response from daemon: get {volume}: no such volume"
+
+
+def test_nuke_attempts_every_volume_then_fails_naming_each_one_kept(
+    tmp_path, monkeypatch, capsys, fake_runtime_nuke
+):
+    calls, _listing, _down_result, _image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice", "bob"])
+    config_path = _write_config(tmp_path, config)
+    alice_claude, _alice_agent = resolve_user_volume_names(config, "alice")
+    _refuse_removals(monkeypatch, {alice_claude: _in_use(alice_claude)})
+
+    with pytest.raises(RemovalIncompleteError) as exc_info:
+        lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    assert len([c for c in calls if c[1:3] == ["volume", "rm"]]) == 4
+    assert exc_info.value.left == ((f"volume {alice_claude!r}", _in_use(alice_claude)),)
+    out = capsys.readouterr()
+    printed = out.out + out.err
+    assert alice_claude in printed
+    assert "volume is in use" in printed
+
+
+def test_nuke_treats_a_volume_already_gone_as_removed(tmp_path, monkeypatch, fake_runtime_nuke):
+    calls, _listing, _down_result, _image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice", "bob"])
+    config_path = _write_config(tmp_path, config)
+    alice_claude, _alice_agent = resolve_user_volume_names(config, "alice")
+    _refuse_removals(monkeypatch, {alice_claude: _already_gone(alice_claude)})
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    assert len([c for c in calls if c[1:3] == ["volume", "rm"]]) == 4
+
+
+def test_nuke_still_removes_images_after_a_refused_volume_and_names_a_refused_image(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    calls, _listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control:local"] = "demo-project"
+    alice_claude, _alice_agent = resolve_user_volume_names(config, "alice")
+    image_refusal = "Error response from daemon: conflict: unable to remove repository reference"
+    _refuse_removals(
+        monkeypatch,
+        {alice_claude: _in_use(alice_claude), "acc-control:local": image_refusal},
+    )
+
+    with pytest.raises(RemovalIncompleteError) as exc_info:
+        lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    assert [c for c in calls if c[1:3] == ["image", "rm"]] == [
+        ["docker", "image", "rm", "acc-control:local"]
+    ]
+    assert exc_info.value.left == (
+        (f"volume {alice_claude!r}", _in_use(alice_claude)),
+        ("image 'acc-control:local'", image_refusal),
+    )
+
+
+def test_decommission_purge_names_each_volume_the_runtime_kept(tmp_path, monkeypatch, fake_runtime):
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice", "bob"])
+    config_path = _write_config(tmp_path, config)
+    claude_vol, agent_vol = resolve_user_volume_names(config, "alice")
+    _refuse_removals(monkeypatch, {agent_vol: _in_use(agent_vol)})
+
+    with pytest.raises(RemovalIncompleteError) as exc_info:
+        lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    assert _reload_users(config_path) == [{"name": "bob", "index": 1}]
+    assert ["docker", "rm", "-f", "dls-web-alice"] in fake_runtime
+    assert [c for c in fake_runtime if c[1:3] == ["volume", "rm"]] == [
+        ["docker", "volume", "rm", claude_vol],
+        ["docker", "volume", "rm", agent_vol],
+    ]
+    assert exc_info.value.left == ((f"volume {agent_vol!r}", _in_use(agent_vol)),)
+
+
+@pytest.mark.usefixtures("fake_runtime")
+def test_decommission_archive_names_a_volume_archived_but_not_removed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    config_path = _write_config(tmp_path, config)
+    claude_vol, _agent_vol = resolve_user_volume_names(config, "alice")
+    _refuse_removals(monkeypatch, {claude_vol: _in_use(claude_vol)})
+
+    with pytest.raises(RemovalIncompleteError) as exc_info:
+        lifecycle.decommission_user(str(config_path), "alice", archive=True, assume_yes=True)
+
+    [(subject, reason)] = exc_info.value.left
+    assert subject == f"volume {claude_vol!r}"
+    assert "archived to" in reason
+    assert f"{claude_vol}.tar.gz" in reason
+
+
+def test_decommission_archive_failure_keeps_that_volume_and_still_handles_the_next(
+    tmp_path, monkeypatch, fake_runtime
+):
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"])
+    config_path = _write_config(tmp_path, config)
+    claude_vol, agent_vol = resolve_user_volume_names(config, "alice")
+    _refuse_removals(monkeypatch, {}, archives={claude_vol: "tar: write error"})
+
+    with pytest.raises(RemovalIncompleteError) as exc_info:
+        lifecycle.decommission_user(str(config_path), "alice", archive=True, assume_yes=True)
+
+    volume_rm_calls = [c for c in fake_runtime if c[1:3] == ["volume", "rm"]]
+    assert volume_rm_calls == [["docker", "volume", "rm", agent_vol]]
+    agent_mount = f"type=volume,source={agent_vol},destination=/from,readonly"
+    assert any(c[1] == "run" and agent_mount in c for c in fake_runtime)
+    [(subject, reason)] = exc_info.value.left
+    assert subject == f"volume {claude_vol!r}"
+    assert reason.startswith("not archived, so not removed:")
+    assert "tar: write error" in reason
+
+
+@pytest.mark.usefixtures("fake_runtime", "auth_reconcile_runtime")
+def test_decommission_reconcile_error_is_the_one_raised_when_a_volume_is_also_kept(
+    tmp_path, monkeypatch, capsys
+):
+    from osprey.deployment.web_terminals import provision
+
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    config = _renderable_auth_config(["alice", "bob"])
+    config_path = _write_config(tmp_path, config)
+    claude_vol, _agent_vol = resolve_user_volume_names(config, "alice")
+
+    def _failed_recreate(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["docker", "compose", "up"])
+
+    monkeypatch.setattr(provision, "force_recreate_auth_sidecar", _failed_recreate)
+    _refuse_removals(monkeypatch, {claude_vol: _in_use(claude_vol)})
+
+    with pytest.raises(RuntimeError) as exc_info:
+        lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    assert not isinstance(exc_info.value, RemovalIncompleteError)
+    assert "still holds their roster entry and password hash" in str(exc_info.value)
+    out = capsys.readouterr()
+    printed = out.out + out.err
+    assert claude_vol in printed
+    assert "volume is in use" in printed
+
+
+def test_prune_names_each_kept_volume_after_every_orphan_is_handled(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config([])
+    config_path = _write_config(tmp_path, config)
+    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
+    mallory_claude, mallory_agent = resolve_user_volume_names(config, "mallory")
+    listing["containers"] = ["dls-web-eve", "dls-web-mallory"]
+    listing["volumes"] = [eve_claude, eve_agent, mallory_claude, mallory_agent]
+    _refuse_removals(monkeypatch, {eve_claude: _in_use(eve_claude)})
+
+    with pytest.raises(RemovalIncompleteError) as exc_info:
+        lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
+
+    assert [c[3] for c in calls if c[1:3] == ["volume", "rm"]] == [
+        eve_claude,
+        eve_agent,
+        mallory_claude,
+        mallory_agent,
+    ]
+    assert exc_info.value.left == ((f"volume {eve_claude!r}", _in_use(eve_claude)),)
+
+
+def test_decommission_treats_a_volume_already_gone_as_removed(tmp_path, monkeypatch, fake_runtime):
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice", "bob"])
+    config_path = _write_config(tmp_path, config)
+    claude_vol, agent_vol = resolve_user_volume_names(config, "alice")
+    _refuse_removals(
+        monkeypatch, {claude_vol: _already_gone(claude_vol), agent_vol: _already_gone(agent_vol)}
+    )
+
+    lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    assert len([c for c in fake_runtime if c[1:3] == ["volume", "rm"]]) == 2

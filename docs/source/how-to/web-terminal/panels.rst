@@ -182,6 +182,14 @@ a CSS variable there, and all eight themes are defined in that one file, so a
 service that restates its colors in terms of those variables gets the whole
 theme switch for free.
 
+**The fonts come from the terminal too.** Like ``/design-system/``, the
+terminal serves ``/static/fonts/fonts.css`` to every embedded panel, so a
+URL-backed panel links it and does not vendor the fonts:
+
+.. code-block:: html
+
+   <link rel="stylesheet" href="/static/fonts/fonts.css">
+
 Two boundaries are worth saying out loud:
 
 - **Nothing happens on its own.** The terminal only *tells* the panel the

@@ -43,12 +43,13 @@ FORBIDDEN_KEYWORDS = {
 # Maximum rows per query
 MAX_ROWS = 200
 
-# Lexical shapes the FROM-list scan cannot read, refused outright rather than
+# Lexical shapes the validator cannot read, refused outright rather than
 # resolved: a quoted identifier hides a table name from an unquoted-identifier
 # scan, a comment can carry a parenthesis or a comma that desynchronises it,
 # dollar quoting opens a string the scan does not terminate, and a backslash in
-# an ``E'...'`` string escapes the quote (``E'\''``), which desynchronises the
-# scan from the server's lexer. No agent query needs any of them.
+# an ``E'...'`` string escapes the quote (``E'\''``), which moves the end of a
+# literal away from where the server's lexer puts it. No agent query needs any
+# of them.
 REFUSED_LEXEMES = (
     ('"', "Quoted identifiers"),
     ("--", "Line comments"),
@@ -57,9 +58,17 @@ REFUSED_LEXEMES = (
     ("\\", "Backslash escapes"),
 )
 
+# A single-quoted string, ``''`` being an escaped quote inside it. The one
+# definition of a literal's boundaries: every check that skips literal text
+# skips exactly this. A quote left open at the end of the query is a syntax
+# error to the server, so where this pattern ends such a literal is moot.
+_STRING_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
+
 # Identifiers, single-quoted strings (skipped whole, so a comma or parenthesis
 # inside one is not read as syntax), parentheses and commas.
-_TOKEN_RE = re.compile(r"'(?:[^']|'')*'|[a-zA-Z_][a-zA-Z0-9_]*|[(),]")
+_TOKEN_RE = re.compile(rf"{_STRING_LITERAL_RE.pattern}|[a-zA-Z_][a-zA-Z0-9_]*|[(),]")
+
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # Keywords that end a FROM clause at their own paren depth. Anything else --
 # an alias, ``AS``, ``ON`` and its condition -- leaves the clause open. A
@@ -110,9 +119,9 @@ def _scan_relations(normalized: str) -> list[str]:
     One pass over one token stream is the only reader of the query text. A
     single-quoted string is consumed whole, so nothing inside a literal is
     read as syntax (a backslash, the one escape the scan cannot follow, is
-    refused up front). A CTE name is resolved where the reference is read,
-    against the declarations visible at that depth: a ``WITH`` inside a
-    subquery does not cover a ``JOIN`` at the top level.
+    refused by the caller before this runs). A CTE name is resolved where the
+    reference is read, against the declarations visible at that depth: a
+    ``WITH`` inside a subquery does not cover a ``JOIN`` at the top level.
 
     The allowlist resolves one name per ``FROM``/``JOIN``/``TABLE`` (Postgres's
     ``TABLE name`` is ``SELECT * FROM name`` without the keyword), so any shape
@@ -127,12 +136,8 @@ def _scan_relations(normalized: str) -> list[str]:
         The referenced table names in the order they appear.
 
     Raises:
-        ValueError: If the query carries a refused lexeme or FROM shape.
+        ValueError: If the query carries a refused FROM shape.
     """
-    for lexeme, label in REFUSED_LEXEMES:
-        if lexeme in normalized:
-            raise ValueError(f"{label} are not allowed in a query; remove {lexeme!r}.")
-
     tokens = _TOKEN_RE.findall(normalized)
     refs: list[str] = []
     # One frame per paren depth; a closing paren discards its frame, so the
@@ -207,13 +212,15 @@ class SqlQueryInput(BaseModel):
 def validate_sql_query(query: str) -> None:
     """Validate that a SQL query is safe to execute.
 
-    Five rules, all of which must hold:
+    Six rules, all of which must hold:
 
     - starts with SELECT or WITH (for CTEs);
-    - one statement — no semicolons in the body;
-    - no DML/DDL/DCL keyword anywhere;
+    - no lexeme the validator cannot read — no quoted identifier, no comment,
+      no dollar quoting, no backslash;
+    - one statement — no semicolon outside a string literal;
+    - no DML/DDL/DCL keyword outside a string literal;
     - every FROM/JOIN target is a shape the allowlist can resolve — no comma
-      list, no quoted identifier, no comment, no dollar quoting;
+      list, no parenthesised join;
     - reads at least one allowlisted table, and no table outside the
       allowlist.
 
@@ -226,6 +233,12 @@ def validate_sql_query(query: str) -> None:
     one — ``SELECT pg_read_file('/etc/passwd') FROM enhanced_entries`` — still
     passes here: bounding what a function call may read is the read-only
     database role's job, not the allowlist's.
+
+    Skipping literal text is sound only because the lexeme rule runs first:
+    with backslash escapes and dollar quoting refused, a single-quoted
+    literal ends where the server's lexer ends it, so text the checks skip is
+    text the server reads as a value. ``WHERE raw_text ILIKE '%vacuum%'`` is
+    a read.
 
     Args:
         query: The SQL query to validate.
@@ -250,17 +263,26 @@ def validate_sql_query(query: str) -> None:
             f"Query starts with: {normalized.split()[0]!r}"
         )
 
+    # Refused before anything skips literal text: each of these moves a
+    # literal's boundaries away from where the server's lexer puts them.
+    for lexeme, label in REFUSED_LEXEMES:
+        if lexeme in normalized:
+            raise ValueError(f"{label} are not allowed in a query; remove {lexeme!r}.")
+
+    # The query with every literal emptied: a literal is a value, never SQL.
+    code = _STRING_LITERAL_RE.sub("''", normalized)
+
     # Reject multi-statement (semicolons in the body)
-    if ";" in normalized:
+    if ";" in code:
         raise ValueError(
             "Multi-statement queries are not allowed. Remove semicolons from the query body."
         )
 
-    # Check for forbidden keywords
-    # Use word boundary matching to avoid false positives (e.g. "UPDATED_AT")
-    for keyword in FORBIDDEN_KEYWORDS:
-        pattern = rf"\b{keyword}\b"
-        if re.search(pattern, upper):
+    # Whole identifiers only, so a column like "UPDATED_AT" is not a keyword;
+    # the first offender in query order names the refusal.
+    for word in _IDENTIFIER_RE.findall(code):
+        keyword = word.upper()
+        if keyword in FORBIDDEN_KEYWORDS:
             raise ValueError(
                 f"Forbidden keyword '{keyword}' found in query. "
                 "Only read-only SELECT queries are allowed."

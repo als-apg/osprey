@@ -1,9 +1,11 @@
 """Unit tests for the version resolution chain in osprey.version."""
 
+import re
 import subprocess
 import tomllib
 
 import pytest
+from packaging.version import Version
 
 from osprey import version as version_module
 from osprey.version import get_release_version, get_running_version, is_release
@@ -17,6 +19,22 @@ def _clear_version_cache():
     yield
     get_running_version.cache_clear()
     get_release_version.cache_clear()
+
+
+@pytest.fixture
+def git_is_the_only_answer(monkeypatch):
+    """Leave git as the one source that can answer, with no deadline on the probe.
+
+    The stamp and metadata fallbacks would hand a failed probe this checkout's own
+    build stamp, which reads as a wrong version rather than a failed probe; with
+    them gone a failed probe reads ``0.0.0+unknown``. The deadline is the probe's
+    guard against a hung git, how fast a loaded host forks is not what these tests
+    measure, and the per-test timeout bounds a real hang. Not autouse: the
+    fall-through tests patch the stamp to specific values on purpose.
+    """
+    monkeypatch.setattr(version_module, "_GIT_TIMEOUT_SECONDS", None)
+    monkeypatch.setattr(version_module, "_version_from_stamp", lambda: None)
+    monkeypatch.setattr(version_module, "_version_from_metadata", lambda: None)
 
 
 def _git(*args, cwd):
@@ -80,15 +98,18 @@ class TestDescribeParsing:
 
 
 class TestResolutionChain:
+    @pytest.mark.usefixtures("git_is_the_only_answer")
     def test_source_checkout_reports_distance_past_the_tag(self, tmp_path, monkeypatch):
         repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=3)
         monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
 
-        running = get_running_version()
-        assert running.startswith("2026.6.2.post3+g")
+        running = Version(get_running_version())
+        assert (running.base_version, running.post) == ("2026.6.2", 3)
+        assert re.fullmatch(r"g[0-9a-f]{9}", running.local or "")
         assert get_release_version() == "2026.6.2"
         assert is_release() is False
 
+    @pytest.mark.usefixtures("git_is_the_only_answer")
     def test_clean_tag_is_a_release(self, tmp_path, monkeypatch):
         repo = _make_repo(tmp_path / "osprey", "v2026.6.2")
         monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
@@ -116,6 +137,36 @@ class TestResolutionChain:
         monkeypatch.chdir(unrelated)
 
         assert get_running_version() == "2026.6.2"
+
+    @pytest.mark.usefixtures("git_is_the_only_answer")
+    def test_inherited_git_variables_do_not_redirect_the_probe(self, tmp_path, monkeypatch):
+        """The anchor must beat the environment too.
+
+        The cwd route is pinned above; this is the environment route a git hook
+        opens. A hook run from a linked worktree exports ``GIT_DIR``, ``GIT_WORK_TREE``
+        and ``GIT_INDEX_FILE`` naming its own repository, and ``GIT_DIR`` beats ``-C``.
+        """
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=1)
+        other = _make_repo(tmp_path / "other", "v9.9.9")
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(other))
+        monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+
+        running = Version(get_running_version())
+        assert (running.base_version, running.post) == ("2026.6.2", 1)
+        assert re.fullmatch(r"g[0-9a-f]{9}", running.local or "")
+
+    def test_the_probe_scrubs_every_variable_git_names_repository_local(self):
+        """The hard-coded scrub set covers everything the host's git calls local."""
+        printed = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        missing = set(printed) - version_module._GIT_REPOSITORY_ENV
+        assert not missing, f"git names repository-local variables the probe keeps: {missing}"
 
     def test_pyproject_declaring_another_project_is_rejected(self, tmp_path, monkeypatch):
         repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=1)
@@ -158,11 +209,32 @@ class TestResolutionChain:
         monkeypatch.setattr(version_module, "_version_from_stamp", lambda: "2026.6.2")
 
         def _slow(*args, **kwargs):
-            raise subprocess.TimeoutExpired(cmd="git", timeout=2)
+            raise subprocess.TimeoutExpired(cmd="git", timeout=kwargs["timeout"])
 
         monkeypatch.setattr(version_module.subprocess, "run", _slow)
 
         assert get_running_version() == "2026.6.2"
+
+    def test_the_probe_deadline_only_cuts_off_a_hang(self, tmp_path, monkeypatch):
+        """A describe that takes seconds on a loaded host still answers from git.
+
+        The fallback below the probe is stale in a source checkout, so the
+        deadline is sized to cut off a hung git, never a slow one.
+        """
+        repo = _make_repo(tmp_path / "osprey", "v2026.6.2", extra_commits=1)
+        monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+
+        real_run = subprocess.run
+        deadlines = []
+
+        def _recording_run(*args, **kwargs):
+            deadlines.append(kwargs.get("timeout"))
+            return real_run(*args, **kwargs)
+
+        monkeypatch.setattr(version_module.subprocess, "run", _recording_run)
+
+        get_running_version()
+        assert deadlines == [30]
 
     def test_shallow_clone_without_tags_falls_through(self, tmp_path, monkeypatch):
         repo = tmp_path / "osprey"
@@ -189,22 +261,26 @@ class TestPreReleaseChannel:
     beta (v2026.9.0b1) was prepared.
     """
 
+    @pytest.mark.usefixtures("git_is_the_only_answer")
     def test_clean_beta_tag_is_a_release(self, tmp_path, monkeypatch):
         repo = _make_repo(tmp_path / "osprey", "v2026.9.0b1")
         monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
         assert get_running_version() == "2026.9.0b1"
         assert is_release() is True
 
+    @pytest.mark.usefixtures("git_is_the_only_answer")
     def test_release_version_keeps_the_pre_segment(self, tmp_path, monkeypatch):
         repo = _make_repo(tmp_path / "osprey", "v2026.9.0b1", extra_commits=3)
         monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
         assert get_release_version() == "2026.9.0b1"
         assert is_release() is False  # distance: a dev build past the beta
 
+    @pytest.mark.usefixtures("git_is_the_only_answer")
     def test_dirty_beta_checkout_is_not_a_release(self, tmp_path, monkeypatch):
         repo = _make_repo(tmp_path / "osprey", "v2026.9.0b1")
         (repo / "pyproject.toml").write_text('[project]\nname = "osprey-framework"\n# dirty\n')
         monkeypatch.setattr(version_module, "_SOURCE_ROOT", repo)
+        assert get_running_version().startswith("2026.9.0b1.post0+g")
         assert is_release() is False
 
 
@@ -226,6 +302,7 @@ class TestUnresolvableEnvironment:
 
 
 class TestLiveCheckout:
+    @pytest.mark.usefixtures("git_is_the_only_answer")
     def test_release_version_matches_the_newest_tag(self):
         """The running checkout's release lineage is the newest v* tag reachable."""
         described = subprocess.run(
@@ -253,6 +330,7 @@ class TestBuildStampParity:
     the next sibling tag fails a test instead of shipping.
     """
 
+    @pytest.mark.usefixtures("git_is_the_only_answer")
     def test_the_build_backend_and_the_runtime_derive_the_same_version(self):
         setuptools_scm = pytest.importorskip("setuptools_scm")
 

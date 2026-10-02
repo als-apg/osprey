@@ -22,7 +22,8 @@ decides what stands between a card and the terminal behind it.
    * - ``password``
      - A login page, against passwords OSPREY manages.
    * - ``oidc``
-     - A login page, against the single sign-on your facility already runs.
+     - A login page, against your facility's single sign-on, spoken as OIDC
+       (:ref:`multi-user-site-sign-in`).
 
 .. raw:: html
    :file: ../../../_diagrams/auth-postures.html
@@ -68,10 +69,10 @@ inside the deployment can reach nginx back:
    :file: ../../../_diagrams/open-mode-egress.html
 
 ``osprey up`` refuses to start an open deployment unless every persona's
-``.claude/settings.json`` denies ``Bash``, ``WebFetch``, ``WebSearch`` and
-``mcp__plugin_playwright_playwright__*`` (``osprey scaffold web-terminals
-lint`` reports the same, as ``web_terminals.open_mode_egress``). All four are
-in OSPREY's deny defaults, so a refusal means a persona lifted one — put it
+``.claude/settings.json`` denies ``Bash``, ``Monitor``, ``WebFetch``,
+``WebSearch`` and ``mcp__plugin_*`` (``osprey scaffold web-terminals
+lint`` reports the same, as ``web_terminals.open_mode_egress``). All of them
+are in OSPREY's deny defaults, so a refusal means a persona lifted one — put it
 back in that persona's ``config:`` block and rebuild. The python executor's
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: ``none`` is for rooms where the agents are trusted too.
@@ -164,8 +165,11 @@ Under ``password`` or ``oidc`` a small authentication service joins the stack
 and nginx asks it about every request under ``/u/<name>/`` before proxying
 anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
 set it — see :ref:`reference-ports`),
-``auth.session_lifetime`` in whole seconds (default ``43200``), and
-``auth.image``, required with ``image_source: registry``.
+``auth.session_lifetime`` in whole seconds (default ``43200``),
+``auth.throttle`` (see :ref:`multi-user-login-throttle`), and
+``auth.image``, required with ``image_source: registry`` — a published build of
+OSPREY's login service; :ref:`multi-user-login-service-contract` says what it
+answers.
 
 .. dropdown:: Where ``auth.session_lifetime`` applies
    :icon: gear
@@ -192,6 +196,31 @@ key's default, which ``osprey scaffold web-terminals lint`` reports as
    ``$`` sequences on the way through, and the only symptom is a login that
    refuses for no visible reason. ``osprey up`` refuses such a stack and names
    the variable; if a provider issued the secret, issue a new one.
+
+.. _multi-user-site-sign-in:
+
+When your site's sign-in is not OIDC
+====================================
+
+The login service serves two methods, ``password`` and ``oidc``, and no
+others. A site whose single sign-on is SAML, Kerberos, CAS, or a header set by
+a proxy after its own login reaches OSPREY through an **OIDC broker**: an
+identity provider that signs people in against the site's system and issues
+OIDC ID tokens to OSPREY. Keycloak and Dex are two widely used ones. Many site
+identity providers also publish an OIDC endpoint beside their SAML one, so ask
+the site's identity team before running a second service.
+
+Point ``auth.oidc.issuer`` at the broker and set ``claim`` to the attribute it
+releases for each person. The rest of this page applies unchanged:
+``oidc_subject``, ``scopes``, role binding, shared cards.
+
+OSPREY takes no identity from a request header. The four ``X-Osprey-Auth-*``
+headers the terminals read are written by nginx from the login service's
+answer and cleared on every other route
+(:ref:`multi-user-login-service-contract`), so a proxy in front of OSPREY
+cannot say who a user is, and whatever it sends is overwritten. A login that trusted such a header would
+let anyone who reaches nginx without passing that proxy name themselves. A
+broker keeps the proof in a signed token that the login service checks itself.
 
 .. _multi-user-role-from-sso:
 
@@ -222,16 +251,22 @@ the provider's groups choose:
 
 A roster entry carries ``role:`` or ``persona:``, never both. The rules:
 
-- Every value of the claim is matched, in any order. Exactly one distinct role
-  must result: none → refused (``unmapped_role_claim``), more than one →
-  refused (``ambiguous_role_claim``).
-- The role the token grants must be the role the roster named for the card
-  that was clicked; otherwise the login is refused (``role_mismatch``). Fix
-  whichever of roster or provider has drifted.
+- Every value of the claim is matched, in any order. No mapped role → refused
+  (``unmapped_role_claim``).
+- On a card whose entry names a ``role:``, the login carries that role, and it
+  must be one of the roles the token maps to; otherwise it is refused
+  (``role_mismatch``). A person in several mapped groups opens the card built
+  for any one of them, and the login record lists the mapped roles in
+  ``detail`` (``mapped_roles=…``). Fix whichever of roster or provider has
+  drifted.
+- On a card whose entry names a ``persona:`` instead, the token's role is
+  carried, so it must map to exactly one role; several → refused
+  (``ambiguous_role_claim``).
 - A role is resolved at login and travels inside the session — together with
   its origin, the roster entry or the provider's claim — so a change at the
-  provider or in the roster reaches the *next* login. To withdraw a role now,
-  end the session: ``osprey users decommission <name>``.
+  provider or in the roster reaches the *next* login. Short of the next login,
+  the one way to end a role now is to end the person's access:
+  ``osprey users remove <name>``.
 
 Every login and refusal is recorded in ``var/audit/sidecar/auth_sidecar.jsonl``
 on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
@@ -254,6 +289,74 @@ what the chain delivers to which container.
 This applies to the image OSPREY builds. In registry mode
 (``modules.web_terminals.auth.image``) the login service runs a published image
 the facility built itself, so its trust store is that build's business.
+
+.. _multi-user-login-service-contract:
+
+What the login service answers
+==============================
+
+In both image modes the stack starts the login service with a fixed command,
+``uvicorn osprey.services.auth_sidecar.app:create_app --factory``, bound to the
+loopback address on ``auth.port``, and probes it with the image's own
+``python``. An ``auth.image`` is therefore a build of OSPREY's login service
+from the same release as the terminals, published by the facility's CI. It is
+not a place for a login service of the site's own. What follows is what nginx
+and the terminals rely on, and what a build has to keep answering across an
+upgrade.
+
+``GET /verify?user=<card>`` is asked once for every request under
+``/u/<card>/``, from an internal location whose card name is fixed when the
+stack is rendered, so nothing in the request picks the card. It is answered
+over loopback within 2 s to connect and 5 s to read. An empty 200 admits the
+request and a bare 401 refuses it, with no body and no redirect; any other
+status fails the request. A refused browser page load is sent to
+``/auth/login?user=<card>``, and a program gets the bare 401. ``/verify`` is not
+under ``/auth/`` and cannot be reached from outside.
+
+A 200 carries up to four headers:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - Header
+     - Present
+     - What it names
+   * - ``X-Osprey-Auth-Account``
+     - On every 200.
+     - The roster card the request is on.
+   * - ``X-Osprey-Auth-Subject``
+     - When the session holds who proved the login.
+     - The provider's asserted identity, or under ``password`` the roster name
+       of whoever typed the password. It equals the account on an own card and
+       differs on a shared one.
+   * - ``X-Osprey-Auth-Role``
+     - Only when the session holds a role.
+     - The role. Absent means no privileges, never a default.
+   * - ``X-Osprey-Auth-Role-Source``
+     - Only beside a role.
+     - ``roster`` or ``claim``, for display only.
+
+Values are printable ASCII with no leading or trailing space. A value that
+cannot travel refuses the request rather than leaving its header off.
+
+``/auth/`` is the public login surface: the login page ``/auth/login``,
+``/auth/oidc/login``, the provider callback ``/auth/oidc/callback``,
+``/auth/logout``, the card-less entry ``/auth/enter`` and its single sign-on
+start ``/auth/oidc/enter``. nginx proxies the whole prefix without a gate, because it is
+where a session comes from.
+
+``/health`` answers 200 with ``status``, ``service``, ``method`` and
+``configured``, even when the service is misconfigured. In that state it
+reports ``configured: false`` and every other path answers 503. The container
+healthcheck polls it on the service's own port, and nginx never proxies it.
+
+nginx writes all four header names in every location that proxies. A gated
+``/u/<card>/`` sets them from the ``/verify`` answer; the ungated branch, the
+internal ``/verify`` target and ``/auth/`` clear them. A client's own copy of
+these headers therefore never reaches a terminal or the login service, and the
+answer to ``/verify`` is the only way an identity reaches a terminal. How the
+terminals record them: :ref:`audit-trail-identity-keys`.
 
 .. _multi-user-shared-card:
 
@@ -388,15 +491,16 @@ field on its login form:
 the person types their *own* roster name beside the password, and it is that
 name's stored password that is checked — and that name the rate limit counts
 against. A card that never had a password of its own has no credential to
-offer here; one flipped from ``own`` still does, until you decommission it —
+offer here; one flipped from ``own`` still does, until its hash is retired —
 see :ref:`Removing someone <multi-user-shared-card-removal>` below.
 
 A session opened by someone the roster names carries who opened it — the
 *opener* — and re-checks that person against the roster on every request.
-Rotating the opener's password or decommissioning them ends every shared
-session they opened at the next request, and under ``oidc`` so does editing
-or removing their ``oidc_subject:`` — that per-person revocation is how a
-shared card is taken away from one user without touching the rest.
+Rotating the opener's password or removing them with ``osprey users remove``
+ends every shared session they opened at the next request, and under ``oidc``
+so does editing or removing their ``oidc_subject:`` — that per-person
+revocation is how a shared card is taken away from one user without touching
+the rest.
 
 A session admitted by a ``user:`` or ``domain:`` principal has no roster
 entry behind it. It carries the identity the provider asserted, and every
@@ -463,6 +567,76 @@ arms it. Once the deployment is running, a card whose
 ``OSPREY_AUTH_ROSTER_ACCESS_*`` value the login service cannot read admits
 nobody, its owner included, and the service logs a warning naming the
 variable until the deployment is rendered again from a corrected profile.
+
+.. _multi-user-roster-contract:
+
+Who the roster names
+====================
+
+The roster is the list of people and shared cards, written in the profile.
+Adding a person, removing one or changing their tier is a roster edit followed
+by ``osprey up`` (the day-to-day table on :ref:`how-to-multi-user`).
+``osprey users remove`` is the removal that also retires the credential.
+Nothing reads the roster from a directory at run time.
+
+Under ``oidc`` the provider proves who someone is. The roster decides whether
+that person has a terminal, and which tier. A person the provider knows but
+whom no roster entry or principal covers is refused.
+
+A provider's groups can already pick the tier of a person the roster names
+(:ref:`multi-user-role-from-sso`). They add nobody to the roster and admit
+nobody to a card. ``user:`` and ``domain:`` principals are how people without
+an entry of their own reach a shared card.
+
+``group:`` is reserved for a principal naming a provider group. It will be
+built with the first site whose sign-in releases a groups claim to OSPREY.
+Groups are defined in the site's identity provider, not in OSPREY, and some
+providers release none. Until then the lint refuses it
+(``web_terminals.invalid_user_access``).
+
+
+.. _multi-user-own-terminal-entry:
+
+Log in without choosing a card
+==============================
+
+Under ``password`` or ``oidc``, ``https://<host>/auth/enter`` signs a person
+in without picking a card on the landing page. With ``password`` they type
+their roster username and their password. With ``oidc`` the address sends them
+to ``/auth/oidc/enter``, which starts the sign-in at your provider.
+
+Afterwards they land on their own terminal. When more than one card admits
+them, their own plus any card shared with them, they see a list instead, and
+every terminal on it is already unlocked. Nothing is unlocked that the card
+itself would not have unlocked for the same password or the same provider
+login.
+
+A person no card admits sees "No terminal for this account", and the login
+service records ``no_card``. Under ``token`` and ``none`` there is no login
+service, so the address does not exist.
+
+
+.. _multi-user-hide-names:
+
+Keep names off the landing page
+===============================
+
+.. code-block:: yaml
+
+   landing:
+     groups:
+       - type: users
+         names: hidden
+
+The users section then shows one "Log in to your terminal" button and no names.
+The button opens the sign-in described in :ref:`multi-user-own-terminal-entry`.
+Service trays and link sections are not affected.
+
+``names: shown`` is the default. ``names: hidden`` needs ``auth.method:
+password`` or ``oidc``. Under any other method ``osprey build`` refuses it as
+``web_terminals.landing_names_hidden_without_sign_in``. Under ``token`` each
+person opens their terminal with ``osprey users login-url <name>`` and returns
+through their card. Under ``none`` the card is the only way in.
 
 
 .. _multi-user-control-identity:
@@ -557,7 +731,7 @@ connection. Two shapes:
 
 **This nginx terminates TLS.** Set ``tls.enabled: true`` with a certificate
 and key; nginx serves HTTPS on 443 — or on ``tls.port`` when you set one — and
-redirects the plain port to it. ``host_cert_dir`` is the only key that names a
+redirects the plain port to the deployment's origin. ``host_cert_dir`` is the only key that names a
 path on the deploy host — it is bind-mounted, read-only, where ``cert`` and
 ``key`` (paths inside the container) sit, so both must be in that one directory
 and the path must be absolute. Leave ``host_cert_dir`` out to mount the
@@ -590,9 +764,19 @@ port stays out of the origin and the callback is
 request unless the browser says it came from that address, and nothing else
 in the configuration can work out what the thing in front answers on. Write
 it as a bare origin — scheme, host, port if non-default, no path.
+
+The deployment answers on that one origin, and every other name is redirected
+there. A front proxy must forward the browser's own ``Host`` (for nginx in
+front: ``proxy_set_header Host $host;``). A proxy that sends its upstream's name
+gets every request redirected back to itself. A tunnel opened on ``localhost``
+is redirected to the origin too; it could not act before either, because the
+terminals accept actions only from the origin.
 ``allow_insecure_http`` is not a way to postpone certificates on a reachable
 host; with nothing terminating TLS, anyone watching the traffic can become
 that user.
+Lint does not warn about plain HTTP in this shape because the browser's
+origin is ``https``; the hop from the terminator to this nginx is still plain
+HTTP, so keep it on a network you trust.
 
 A single-user ``osprey web`` behind the same kind of TLS terminator sets
 ``OSPREY_TERMINAL_EXTERNAL_ORIGIN`` to that address instead. It is the same
@@ -609,17 +793,67 @@ only. On every ``osprey up``, for each user in order:
 
 #. An existing hash in ``.env.auth`` is kept; deploying never resets a
    password.
+   A hash the authentication service cannot read, such as a truncated paste
+   or another tool's format, is kept as well, and ``osprey up``,
+   ``osprey scaffold web-terminals lint`` and the service's startup log each
+   name the user. ``osprey users passwd <user>`` replaces it.
 #. Otherwise a plaintext ``OSPREY_AUTH_PW_<USER>`` in ``.env`` is hashed in —
    the way to set a password you chose. ``<USER>`` is the name uppercased with
    ``-`` turned into ``_``.
 #. Otherwise a password is generated, hashed, and printed once. Capture it.
 
+A password ``profile.yml`` publishes under ``env.defaults`` (the preset's
+demo logins are one example) is refused by ``osprey up`` once browsers reach
+the deployment anywhere but this machine: ``external_origin``, or
+``deploy.fqdn`` when that is unset, names a host other than ``127.0.0.1`` or
+``localhost``. Run ``osprey users passwd <user>`` for each login it
+names; for a shared card, delete its ``OSPREY_AUTH_PW_HASH_<CARD>`` line from
+``.env.auth`` and run ``osprey up``. HTTPS does not lift the refusal.
+
 To change one later, ``osprey users passwd alice`` prompts, rewrites that hash
 and ends alice's sessions — her own card's, and every
 :ref:`shared-card <multi-user-shared-card>` session she opened, since those
 are held open by this same credential. Sessions held open by other people's
-passwords stay up. Password login is rate-limited per user but never locks
-anyone out — a control-room operator must not be shut out of the terminals.
+passwords stay up.
+
+.. _multi-user-login-throttle:
+
+Failed logins are slowed, never locked out
+------------------------------------------
+
+After a wrong password, that username waits ``initial_delay_s`` before its
+next attempt is checked at all. Each further failure multiplies the wait by
+``multiplier``, up to ``max_delay_s``, and a correct password clears it. There
+is no lockout at any count: the wait always lifts within ``max_delay_s``. A
+username that stays quiet for ``forget_after_s`` after its wait lifts starts
+over.
+
+The wait is kept per username, and on a
+:ref:`shared card <multi-user-shared-card>` per opener. It lives in the
+authentication service's memory, so a restart clears it. It applies to
+password login only; under ``oidc`` the identity provider applies its own
+policy.
+
+The four keys and their defaults:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       auth:
+         method: password
+         throttle:
+           initial_delay_s: 1
+           multiplier: 2
+           max_delay_s: 30
+           forget_after_s: 300
+
+A key you leave out, or write with no value, takes its default.
+
+``osprey build`` enforces these rules: ``initial_delay_s`` greater than zero,
+``multiplier`` at least 1, ``max_delay_s`` at least ``initial_delay_s``, and
+``forget_after_s`` not negative. It refuses any other value, and any key
+outside these four.
 
 .. _multi-user-shared-card-removal:
 
@@ -628,37 +862,51 @@ Removing someone, and turning it off
 
 A credential can outlive an account, so:
 
+- **An OSPREY login is its own session.** Under ``oidc`` the provider's proof
+  is checked once, at sign-in. The session that follows lasts until logout or
+  ``auth.session_lifetime``, whatever happens at the provider afterwards.
+  Signing out at the provider does not end it, and neither does disabling the
+  account there. ``osprey users remove <name>`` ends it now, and for a shared
+  card so does editing that person's ``oidc_subject:``. The reverse also
+  holds: logging out of OSPREY does not sign the browser out of the provider,
+  so on a shared machine sign out there too.
 - **Use** ``osprey users remove alice``, not a hand-edit of the roster —
   removing the entry alone leaves her hash in ``.env.auth``, and adding the
-  name back months later revives her password. ``decommission`` (or
-  ``prune``, for names already edited out) retires the credential and, under
-  OIDC, ends the session.
+  name back months later revives her password. ``remove`` (or ``prune``, for
+  names already edited out) retires the credential and ends the person's
+  login-page session.
 - **A shared card is revoked per person, through their own credential.**
   ``osprey users passwd alice`` ends every shared-card session alice opened
   along with her own (see above); under ``oidc``, editing or removing her
   ``oidc_subject:`` ends her shared-card sessions at the next request — her
   *own* card's session is different, lapsing at expiry or logout as it always
-  has, unless ``osprey users decommission alice`` ends it now.
+  has, unless ``osprey users remove alice`` ends it now.
 
 - **Sharing a card does not retire the card's own password** — the hash stays
   in ``.env.auth`` and still works: anyone who knows it can open the shared
-  card by typing the card's own name into the username field. Run
-  ``osprey users decommission <card>`` when you share a card that used to
-  have its own password; returning the card to ``own`` revives an unretired
-  hash. ``osprey users passwd <card>`` is refused while the card is shared —
+  card by typing the card's own name into the username field. When you share
+  a card that used to have its own password, delete its
+  ``OSPREY_AUTH_PW_HASH_<CARD>`` line from ``.env.auth`` and run
+  ``osprey up``; returning the card to ``own`` later mints it a fresh
+  password. A hash left in place is revived by that return. ``<CARD>`` is the
+  name uppercased with ``-`` turned into ``_``.
+  ``osprey users passwd <card>`` is refused while the card is shared —
   there is no password of its own to change.
-- **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives
-  decommission** and would be hashed straight back in for the next alice.
+- **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives**
+  ``osprey users remove`` and would be hashed straight back in for the next
+  alice.
   Delete the line by hand when the person leaves.
 - **Logging out ends a terminal session** on the server: the cookie it was
-  carrying is refused from that moment on. The login page's cookie is the
-  other case — that logout is remembered in the authentication service's
-  memory only, so a copy captured beforehand can be replayed until it
-  expires, within ``auth.session_lifetime``.
+  carrying is refused from that moment on. The login page's cookie is refused
+  too, and stays refused when the authentication service restarts or is
+  recreated (``osprey up``, ``osprey users passwd``): the service keeps each
+  logged-out session as a one-way digest in ``var/audit/sidecar/``, until that
+  session would have expired anyway. If that directory cannot be written, the
+  service logs a warning and a logout lasts until the service restarts.
 - **Terminal sessions are kept on disk** — behind ``auth.method: token`` and
   ``osprey web``, not behind the login page here — so there they outlive a
   restart of the web terminals and a change of the operator secret. A
-  password change or a decommission ends the login-page session, not those.
+  password change or a removal ends the login-page session, not those.
 - **A shortened** ``auth.session_lifetime`` **reaches sessions already
   running** at the next restart of the web terminals, when their deadlines
   are clamped to the new value.

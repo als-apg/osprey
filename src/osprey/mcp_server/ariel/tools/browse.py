@@ -69,7 +69,9 @@ async def browse(
         )
 
         # TypedDict entries -- use dict access, not attribute access
-        entries_out = [serialize_entry(e, text_limit=300) for e in entries]
+        entries_out = [
+            serialize_entry(e, text_limit=registry.config.entry_text.listing_chars) for e in entries
+        ]
 
         return json.dumps(
             {

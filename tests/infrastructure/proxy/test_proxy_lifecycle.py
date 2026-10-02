@@ -10,11 +10,20 @@ lane never leaks a "running" proxy between tests.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import types
 from unittest.mock import MagicMock
 
 import pytest
 
 import osprey.infrastructure.proxy.lifecycle as lifecycle
+from osprey.models.provider_registry import (
+    _BUILTIN_PROVIDERS,
+    ProviderRegistry,
+    get_provider_registry,
+    reset_provider_registry,
+)
 
 
 @pytest.fixture
@@ -109,6 +118,78 @@ class TestIsProxyNeeded:
         api = {"custom": {"base_url": "https://gateway.example.org/v1"}}
         assert lifecycle.is_proxy_needed("custom", api_providers=api) is True
 
+    @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
+    def test_explicit_openai_on_a_native_provider_routes_through_the_proxy(self, provider):
+        api = {provider: {"api_protocol": "openai"}}
+        assert lifecycle.is_proxy_needed(provider, api_providers=api) is True
+
+    def test_every_builtin_follows_its_adapters_declaration(self):
+        for name in _BUILTIN_PROVIDERS:
+            needed = lifecycle.is_proxy_needed(name)
+            cls = get_provider_registry().get_provider(name)
+            assert cls is not None, name
+            assert needed is (cls.api_protocol != "anthropic"), name
+
+
+class TestTheProxyDecisionReadsTheRegistry:
+    """The declared protocol comes from the provider registry singleton."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_registry(self):
+        reset_provider_registry()
+        yield
+        reset_provider_registry()
+
+    @staticmethod
+    def _register(monkeypatch, name: str, api_protocol: str) -> None:
+        """Register a stand-in adapter for *name* declaring *api_protocol*."""
+        module = types.ModuleType("site_gateway_adapter")
+        module.SiteGatewayAdapter = type(
+            "SiteGatewayAdapter", (), {"name": name, "api_protocol": api_protocol}
+        )
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+        get_provider_registry().register_provider(name, module.__name__, "SiteGatewayAdapter")
+
+    def test_the_builtin_decision_imports_no_adapter(self, monkeypatch):
+        def refuse(_self, name, _entry):
+            raise AssertionError(f"imported the adapter for {name}")
+
+        monkeypatch.setattr(ProviderRegistry, "_load", refuse)
+        for name in _BUILTIN_PROVIDERS:
+            lifecycle.is_proxy_needed(name)
+
+    def test_a_registered_adapter_declaring_anthropic_skips_the_proxy(self, monkeypatch):
+        self._register(monkeypatch, "site-gateway", "anthropic")
+        assert lifecycle.is_proxy_needed("site-gateway") is False
+
+    def test_a_registration_over_a_builtin_name_is_honoured(self, monkeypatch):
+        self._register(monkeypatch, "openai", "anthropic")
+        assert lifecycle.is_proxy_needed("openai") is False
+
+    def test_config_wins_over_a_registered_declaration(self, monkeypatch):
+        self._register(monkeypatch, "site-gateway", "openai")
+        api = {"site-gateway": {"api_protocol": "anthropic"}}
+        assert lifecycle.is_proxy_needed("site-gateway", api_providers=api) is False
+
+
+def test_resolution_imports_no_adapter_module():
+    """Resolving a launch never imports an adapter module or LiteLLM."""
+    script = """
+import sys
+from osprey.agent_runner.provider_env import ClaudeCodeModelResolver as R
+served = {"models": ["m"], "default_model": "m"}
+for p in ("anthropic", "cborg", "als-apg"):
+    R.resolve({"provider": p}, {p: {}})
+R.resolve({"provider": "openai"}, {"openai": {"base_url": "https://x/v1", **served}})
+R.resolve({"provider": "my-gw"}, {"my-gw": {"base_url": "https://x/v1", **served}})
+loaded = [m for m in sys.modules if m == "litellm" or m.startswith("osprey.models.providers.")]
+print(loaded)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "[]", result.stdout + result.stderr
+
 
 # ---------------------------------------------------------------------------
 # find_free_port
@@ -138,47 +219,145 @@ class TestStartStop:
     def test_start_returns_port_and_populates_state(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        port = lifecycle.start_proxy("https://up.example/v1", upstream_api_key="k")
+        port = lifecycle.start_proxy(
+            "https://up.example/v1", upstream_api_key="k", forward_headers=(), supports_images=None
+        )
 
         assert isinstance(port, int)
         assert lifecycle._state["port"] == port
         assert isinstance(lifecycle._state["server"], _FakeServer)
         assert lifecycle.get_proxy_url() == f"http://127.0.0.1:{port}"
         app_factory.assert_called_once_with(
-            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=True
+            "https://up.example/v1",
+            "k",
+            provider=None,
+            max_tokens_param="max_tokens",
+            accepts_temperature=None,
+            forward_headers=frozenset(),
+            supports_images=False,
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_builds_the_app_with_the_providers_request_shape(self, monkeypatch):
         """The proxy sends what the provider's adapter class declares."""
+        from osprey.models.providers.openai import OpenAIProviderAdapter
+
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        lifecycle.start_proxy("https://api.openai.com/v1", upstream_api_key="k", provider="openai")
+        lifecycle.start_proxy(
+            "https://api.openai.com/v1",
+            upstream_api_key="k",
+            provider="openai",
+            forward_headers=(),
+            supports_images=None,
+        )
 
         app_factory.assert_called_once_with(
             "https://api.openai.com/v1",
             "k",
+            provider="openai",
             max_tokens_param="max_completion_tokens",
-            accepts_temperature=False,
+            accepts_temperature=OpenAIProviderAdapter.accepts_temperature,
+            forward_headers=frozenset(),
+            supports_images=True,
         )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_an_unregistered_provider_gets_the_default_request_shape(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        lifecycle.start_proxy("https://up.example/v1", upstream_api_key="k", provider="house-llm")
+        lifecycle.start_proxy(
+            "https://up.example/v1",
+            upstream_api_key="k",
+            provider="house-llm",
+            forward_headers=(),
+            supports_images=None,
+        )
 
         app_factory.assert_called_once_with(
-            "https://up.example/v1", "k", max_tokens_param="max_tokens", accepts_temperature=True
+            "https://up.example/v1",
+            "k",
+            provider="house-llm",
+            max_tokens_param="max_tokens",
+            accepts_temperature=None,
+            forward_headers=frozenset(),
+            supports_images=False,
         )
+
+    @pytest.mark.parametrize(("declared", "provider"), [(True, "ollama"), (False, "openai")])
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_the_entrys_declaration_beats_the_adapters(self, monkeypatch, declared, provider):
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy(
+            "https://up.example/v1",
+            upstream_api_key="k",
+            provider=provider,
+            forward_headers=(),
+            supports_images=declared,
+        )
+
+        assert app_factory.call_args.kwargs["supports_images"] is declared
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_an_undeclared_local_server_takes_no_images(self, monkeypatch):
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy(
+            "http://localhost:11434/v1",
+            upstream_api_key="k",
+            provider="ollama",
+            forward_headers=(),
+            supports_images=None,
+        )
+
+        assert app_factory.call_args.kwargs["supports_images"] is False
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_proxy_requires_the_image_declaration(self, monkeypatch):
+        _install_fake_uvicorn(monkeypatch)
+
+        with pytest.raises(TypeError):
+            lifecycle.start_proxy(  # type: ignore[call-arg]
+                "https://up.example/v1", upstream_api_key="k", forward_headers=()
+            )
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_hands_the_app_the_declared_headers(self, monkeypatch):
+        app_factory = _install_fake_uvicorn(monkeypatch)
+
+        lifecycle.start_proxy(
+            "https://up.example/v1",
+            upstream_api_key="k",
+            forward_headers=["X-Corp-Trace", "x-litellm-tags"],
+            supports_images=None,
+        )
+
+        # Lower-casing is the app's job; the lifecycle passes the names as given.
+        assert app_factory.call_args.kwargs["forward_headers"] == frozenset(
+            {"X-Corp-Trace", "x-litellm-tags"}
+        )
+
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_proxy_requires_the_declared_headers(self, monkeypatch):
+        _install_fake_uvicorn(monkeypatch)
+
+        with pytest.raises(TypeError):
+            lifecycle.start_proxy(  # type: ignore[call-arg]
+                "https://up.example/v1", supports_images=None
+            )
 
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_start_is_idempotent(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
-        first = lifecycle.start_proxy("https://up.example/v1")
+        first = lifecycle.start_proxy(
+            "https://up.example/v1", forward_headers=(), supports_images=None
+        )
         server = lifecycle._state["server"]
-        second = lifecycle.start_proxy("https://up.example/v1")
+        second = lifecycle.start_proxy(
+            "https://up.example/v1", forward_headers=(), supports_images=None
+        )
 
         assert first == second
         # Repeated calls must not rebuild the app or swap the server out.
@@ -207,7 +386,9 @@ class TestStartStop:
         sleep = MagicMock()
         monkeypatch.setattr(lifecycle.time, "sleep", sleep)
 
-        port = lifecycle.start_proxy("https://up.example/v1")
+        port = lifecycle.start_proxy(
+            "https://up.example/v1", forward_headers=(), supports_images=None
+        )
 
         assert lifecycle._state["port"] == port
         # It polled ``started`` and slept while the server was still coming up.
@@ -216,7 +397,7 @@ class TestStartStop:
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_stop_shuts_down_and_clears_state(self, monkeypatch):
         _install_fake_uvicorn(monkeypatch)
-        lifecycle.start_proxy("https://up.example/v1")
+        lifecycle.start_proxy("https://up.example/v1", forward_headers=(), supports_images=None)
         server = lifecycle._state["server"]
 
         lifecycle.stop_proxy()
@@ -237,3 +418,117 @@ class TestStartStop:
     @pytest.mark.usefixtures("clean_proxy_state")
     def test_get_proxy_url_none_before_start(self):
         assert lifecycle.get_proxy_url() is None
+
+
+# ---------------------------------------------------------------------------
+# start_proxy_for
+# ---------------------------------------------------------------------------
+
+
+def _gateway_spec(**entry):
+    """A resolved spec for an OpenAI-compatible gateway entry ``my-gw``."""
+    from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
+
+    return ClaudeCodeModelResolver.resolve(
+        {"provider": "my-gw"},
+        {
+            "my-gw": {
+                "base_url": "https://gw.example/v1",
+                "models": ["m"],
+                "default_model": "m",
+                **entry,
+            }
+        },
+    )
+
+
+class TestStartProxyFor:
+    def test_every_argument_comes_from_the_spec_and_the_launch_env(self, monkeypatch):
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
+        env = {
+            "ANTHROPIC_AUTH_TOKEN": "sk-gw",
+            "ANTHROPIC_BASE_URL": "https://gw.example",
+            "ANTHROPIC_CUSTOM_HEADERS": "X-Corp-Trace: abc\nx-litellm-end-user-id: alice",
+        }
+
+        port = lifecycle.start_proxy_for(_gateway_spec(), env)
+
+        assert port == 41234
+        primitive.assert_called_once_with(
+            "https://gw.example/v1",
+            "sk-gw",
+            provider="my-gw",
+            forward_headers=frozenset({"x-corp-trace", "x-litellm-end-user-id"}),
+            supports_images=None,
+        )
+
+    def test_a_missing_key_starts_the_proxy_without_one(self, monkeypatch):
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
+
+        lifecycle.start_proxy_for(_gateway_spec(), {})
+
+        assert primitive.call_args.args == ("https://gw.example/v1", None)
+        assert primitive.call_args.kwargs["forward_headers"] == frozenset()
+
+    def test_the_entrys_image_declaration_is_passed_on(self, monkeypatch):
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
+
+        lifecycle.start_proxy_for(_gateway_spec(supports_images=True), {})
+
+        assert primitive.call_args.kwargs["supports_images"] is True
+
+    def test_a_spec_that_does_not_route_through_the_proxy_is_refused(self, monkeypatch):
+        from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
+
+        primitive = MagicMock(return_value=41234)
+        monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", primitive)
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"}, {"anthropic": {}})
+
+        with pytest.raises(
+            ValueError, match="'anthropic' does not route through the translation proxy"
+        ):
+            lifecycle.start_proxy_for(spec, {})
+
+        primitive.assert_not_called()
+
+
+def test_only_the_lifecycle_module_starts_the_proxy_primitive():
+    """No module under ``src/osprey/`` but ``lifecycle.py`` imports or calls ``start_proxy``."""
+    import ast
+    from pathlib import Path
+
+    import osprey
+
+    root = Path(osprey.__file__).parent
+    own = Path(lifecycle.__file__).resolve()
+    primitive = lifecycle.start_proxy.__name__
+    hits: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        if path.resolve() == own:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        where = path.relative_to(root)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and any(
+                alias.name == primitive for alias in node.names
+            ):
+                hits.append(f"{where}:{node.lineno}")
+            elif isinstance(node, ast.Call):
+                func = node.func
+                name = (
+                    func.id
+                    if isinstance(func, ast.Name)
+                    else func.attr
+                    if isinstance(func, ast.Attribute)
+                    else None
+                )
+                if name == primitive:
+                    hits.append(f"{where}:{node.lineno}")
+
+    assert not hits, (
+        "A launch path starts the proxy with start_proxy_for(spec, env), "
+        f"not the start_proxy primitive: {hits}"
+    )

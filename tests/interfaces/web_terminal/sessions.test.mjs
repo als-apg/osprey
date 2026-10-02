@@ -21,6 +21,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
+
 /** @typedef {{ session_id: string, last_modified: string, message_count: number, first_message?: string }} SessionRecord */
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js')} */
@@ -199,6 +201,36 @@ describe('renderSessionList: one item per record', () => {
     );
     expect(first.querySelector('.session-item-time')).not.toBeNull();
     expect(first.querySelector('.session-item-meta')?.textContent).toBe('7 messages');
+  });
+});
+
+describe('renderSessionList: an old session\'s date', () => {
+  afterEach(() => stampFacilityZone(null));
+
+  test('a session older than a week shows its date on the facility calendar', async () => {
+    // 23:30Z is already the next day in Tokyo and Berlin and still the same
+    // day in New York.
+    const old = new Date(Date.now() - 30 * 86_400_000);
+    old.setUTCHours(23, 30, 0, 0);
+    stampFacilityZone(FACILITY_ZONE);
+    stubSessions([
+      {
+        session_id: 'dddddddd-3333-4444-5555-666666666666',
+        last_modified: old.toISOString(),
+        message_count: 3,
+        first_message: 'An old session',
+      },
+    ]);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    const expected = new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      timeZone: FACILITY_ZONE,
+    }).format(old);
+    expect(document.querySelector('.session-item-time')?.textContent).toBe(expected);
   });
 });
 

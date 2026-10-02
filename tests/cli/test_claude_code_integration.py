@@ -1496,8 +1496,10 @@ class TestFacilityPermissions:
         "Edit",
         "WebFetch",
         "WebSearch",
-        "mcp__plugin_playwright_playwright__*",
-        "mcp__plugin_context7_context7__*",
+        "mcp__plugin_*",
+        "mcp__claude_ai_*",
+        "Monitor",
+        "EnterWorktree",
     ]
 
     def _settings(self, tmp_path, permissions_config):
@@ -2038,6 +2040,65 @@ class TestPhoebusBridgeDefaultContextKey:
         assert phoebus[0]["env"]["PHOEBUS_BRIDGE_URL"] == (
             "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:19921}"
         )
+
+
+class TestPhoebusAgentAccessContextKey:
+    """``phoebus_agent_access``, the key that decides whether phoebus_drive is offered.
+
+    Both render paths merge it before ``resolve_servers`` runs, so an unknown
+    value is refused at build rather than falling back either way.
+    """
+
+    @staticmethod
+    def _derive(config):
+        from pathlib import Path
+
+        from osprey.cli.templates import claude_code
+
+        return claude_code.config_derived_context(config, Path("."))
+
+    def test_defaults_to_read(self):
+        assert self._derive({})["phoebus_agent_access"] == "read"
+
+    def test_read_write_passes_through(self):
+        derived = self._derive({"phoebus": {"agent_access": "read_write"}})
+        assert derived["phoebus_agent_access"] == "read_write"
+
+    def test_unknown_value_is_refused_by_name(self):
+        from osprey.errors import BuildProfileError
+
+        with pytest.raises(BuildProfileError) as exc_info:
+            self._derive({"phoebus": {"agent_access": "write"}})
+        message = str(exc_info.value)
+        assert "phoebus.agent_access" in message
+        assert "'write'" in message
+
+    def test_build_path_renders_no_drive_by_default(self, tmp_path):
+        """With the server on and no agent_access, the resolved server asks for no drive."""
+        from osprey.cli.templates import claude_code
+
+        manager = TemplateManager()
+        project_dir = _create_project(
+            manager,
+            project_name="phoebus-agent-access",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
+        )
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+
+        config.setdefault("claude_code", {}).setdefault("servers", {})["phoebus"] = {
+            "enabled": True
+        }
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+
+        phoebus = [s for s in ctx["servers"] if s["name"] == "phoebus"]
+        assert len(phoebus) == 1
+        assert phoebus[0]["enabled"] is True
+        assert "phoebus_drive" not in phoebus[0]["permissions_ask"]
 
 
 if __name__ == "__main__":

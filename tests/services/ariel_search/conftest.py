@@ -28,9 +28,13 @@ from osprey.services.ariel_search.enhancement.semantic_processor.processor impor
 from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
     TextEmbeddingModule,
 )
+from tests import _litellm_callbacks
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from concurrent.futures import ThreadPoolExecutor
+
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
 
@@ -813,7 +817,7 @@ def mock_repository() -> MagicMock:
     repo.count_entries = AsyncMock(return_value=0)
     repo.health_check = AsyncMock(return_value=(True, "OK"))
     repo.mark_enhancement_complete = AsyncMock()
-    repo.mark_enhancement_failed = AsyncMock()
+    repo.mark_enhancement_failed = AsyncMock(return_value=1)
     repo.start_ingestion_run = AsyncMock(return_value=1)
     repo.complete_ingestion_run = AsyncMock()
     repo.fail_ingestion_run = AsyncMock()
@@ -855,3 +859,14 @@ def seed_entry_factory():
         }
 
     return _create_entry
+
+
+@pytest.fixture
+def litellm_callback_pool() -> Iterator[ThreadPoolExecutor]:
+    """Run litellm's success handlers on a pool this test owns, shut down after it.
+
+    Requested by name by every test or fixture that reaches a live model, so the
+    scope is open before the first call is made.
+    """
+    with _litellm_callbacks.litellm_callback_pool() as pool:
+        yield pool

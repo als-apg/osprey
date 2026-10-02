@@ -17,40 +17,49 @@ import json
 import logging
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from claude_agent_sdk import (
+        CanUseTool,
         ClaudeAgentOptions,
         ClaudeSDKClient,
+        HookCallback,
+        McpServerConfig,
         PermissionMode,
         ResultMessage,
         SettingSource,
         SystemMessage,
         ToolResultBlock,
     )
+    from claude_agent_sdk.types import SystemPromptFile, SystemPromptPreset
 
 # SDK imports — keep module importable even when SDK is absent.
 try:
     from claude_agent_sdk import (  # type: ignore[assignment]
-        AssistantMessage,
         ClaudeAgentOptions,
+        HookMatcher,
         ResultMessage,
         SystemMessage,
-        TextBlock,
-        ToolResultBlock,
-        ToolUseBlock,
-        UserMessage,
     )
 
     HAS_SDK = True
 except ImportError:
     HAS_SDK = False
 
-from osprey.infrastructure.proxy.lifecycle import start_proxy
+from osprey.agent_runner.errors import McpNotReadyError
+from osprey.agent_runner.events import (
+    AgentEvent,
+    TextEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+    translate_message,
+)
+from osprey.agent_runner.launcher import RENDERED_MCP_CONFIG
+from osprey.infrastructure.proxy.lifecycle import start_proxy_for
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +73,7 @@ logger = logging.getLogger(__name__)
 
 
 def _apply_e2e_overrides(spec: Any) -> Any:
-    """Apply suite-wide CBORG model-matrix overrides to a resolved spec (#259).
+    """Apply suite-wide CBORG model-matrix overrides to a resolved spec.
 
     This is the single chokepoint every routing consumer goes through
     (``provider_env_for_project``, ``resolve_default_model``,
@@ -97,7 +106,7 @@ def _apply_e2e_overrides(spec: Any) -> Any:
     changes: dict[str, Any] = {}
     env_block = dict(spec.env_block)
     if force_model:
-        from osprey.build.claude_code_resolver import TIER_MODEL_ENV_VARS
+        from osprey.agent_runner.provider_env import TIER_MODEL_ENV_VARS
 
         changes["default_model_id"] = force_model
         changes["alias_models"] = dict.fromkeys(spec.alias_models, force_model)
@@ -153,7 +162,7 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
             config before resolving — used by cross-provider model sweeps in
             the benchmark runner.
     """
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.build.claude_code_telemetry import (
         ObservabilityCredentialError,
         telemetry_creds_are_store_issued,
@@ -209,7 +218,8 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     Returns:
         Env dict with ``ANTHROPIC_BASE_URL``, the auth-token var, the tier-model
         vars, and the *raw* upstream secret var (see below), populated from the
-        configured provider.
+        configured provider. It also carries ``ANTHROPIC_CUSTOM_HEADERS`` whenever
+        the operator set one or the gateway attributes spend.
 
     Raises:
         RuntimeError: When the project has no resolvable provider.
@@ -246,7 +256,7 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     # shell exports; strictly a superset of reading os.environ alone. Uses the
     # shared overlay helper (no circular import: resolver never imports primitives),
     # against the repo's secrets zone rather than the render — see _secrets_dir.
-    from osprey.build.claude_code_resolver import _env_lookup, provider_base_url_env
+    from osprey.agent_runner.provider_env import _env_lookup, provider_base_url_env
 
     lookup: dict[str, str] = _env_lookup(_secrets_dir(project_dir))
 
@@ -270,9 +280,14 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
         if base_url:
             env[base_url_var] = base_url
 
-    # Spend attribution on a LiteLLM-fronted provider (mirrors inject_provider_env).
-    from osprey.models.spend_attribution import apply_attribution_env
+    # The operator's own request headers (from the shell or the .env) ride into the
+    # launch env, and a LiteLLM gateway's spend attribution is merged into them, as
+    # inject_provider_env does for the launch paths that share os.environ.
+    from osprey.models.spend_attribution import CUSTOM_HEADERS_ENV, apply_attribution_env
 
+    operator_headers = lookup.get(CUSTOM_HEADERS_ENV)
+    if operator_headers:
+        env[CUSTOM_HEADERS_ENV] = operator_headers
     apply_attribution_env(env, spec.gateway)
     return env
 
@@ -431,7 +446,7 @@ class SDKWorkflowResult:
 _FALLBACK_MODEL = "claude-sonnet-5"
 
 
-def resolve_default_model(project_dir: Path) -> str:
+def resolve_default_model(project_dir: Path, *, provider: str | None = None) -> str:
     """The project's main model id.
 
     Reads ``config.yml`` and returns the deployment's main model —
@@ -443,12 +458,14 @@ def resolve_default_model(project_dir: Path) -> str:
 
     Args:
         project_dir: Path to an initialized OSPREY project.
+        provider: When given, overrides ``claude_code.provider`` in the loaded
+            config before resolving — used by cross-provider model sweeps.
 
     Returns:
         Model identifier string suitable for passing to the Claude Agent SDK
         ``model=`` argument.
     """
-    spec = _resolve_project_spec(project_dir)
+    spec = _resolve_project_spec(project_dir, provider=provider)
     if spec is not None:
         model_id: str = spec.default_model_id
         return model_id
@@ -517,6 +534,44 @@ def combined_text(result: SDKWorkflowResult) -> str:
     return " ".join(parts).lower()
 
 
+def _record_event(
+    event: AgentEvent,
+    text_blocks: list[str],
+    tool_traces: list[ToolTrace],
+    pending: dict[str, ToolTrace],
+) -> None:
+    """Fold one event record into a run's text and tool traces.
+
+    Text is appended to *text_blocks*. A tool call becomes a :class:`ToolTrace`
+    on *tool_traces* and waits in *pending* under its ``tool_use_id``; a tool
+    result fills in the pending trace it names, and is dropped when none is
+    pending. Every other record carries nothing for these accumulators.
+
+    Args:
+        event: One record from :func:`~osprey.agent_runner.events.translate_message`.
+        text_blocks: The run's assistant text, in order.
+        tool_traces: The run's tool calls, in order.
+        pending: ``tool_use_id`` → the trace awaiting its result.
+    """
+    if isinstance(event, TextEvent):
+        text_blocks.append(event.text)
+    elif isinstance(event, ToolUseEvent):
+        trace = ToolTrace(
+            name=event.name,
+            input=event.input,
+            tool_use_id=event.tool_use_id,
+            parent_tool_use_id=event.parent_tool_use_id,
+        )
+        tool_traces.append(trace)
+        pending[event.tool_use_id] = trace
+    elif isinstance(event, ToolResultEvent):
+        matched = pending.get(event.tool_use_id)
+        if matched is None:
+            return
+        matched.result = event.text
+        matched.is_error = event.is_error
+
+
 def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTrace]) -> None:
     """Match a ToolResultBlock to its pending ToolTrace and populate result/is_error.
 
@@ -529,18 +584,13 @@ def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTra
         block: The tool result block to ingest.
         pending_tools: Map of tool_use_id to the ToolTrace awaiting its result.
     """
-    matched = pending_tools.get(block.tool_use_id)
-    if matched is None:
-        return
-    if isinstance(block.content, str):
-        matched.result = block.content
-    elif isinstance(block.content, list):
-        texts = []
-        for item in block.content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                texts.append(item.get("text", ""))
-        matched.result = "\n".join(texts) if texts else str(block.content)
-    matched.is_error = bool(block.is_error)
+    event = ToolResultEvent(
+        tool_use_id=block.tool_use_id,
+        content=block.content,
+        is_error=bool(block.is_error),
+        parent_tool_use_id=None,
+    )
+    _record_event(event, [], [], pending_tools)
 
 
 # ---------------------------------------------------------------------------
@@ -554,80 +604,183 @@ def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTra
 def build_agent_options(
     project_dir: Path,
     *,
-    disallowed_tools: list[str],
-    max_turns: int = 25,
-    max_budget_usd: float = 2.0,
+    disallowed_tools: Sequence[str],
+    max_turns: int | None = 25,
+    max_budget_usd: float | None = 2.0,
     model: str | None = None,
-    permission_mode: PermissionMode = "bypassPermissions",
+    permission_mode: PermissionMode | None = "bypassPermissions",
     setting_sources: list[SettingSource] | None = None,
+    allowed_tools: Sequence[str] = (),
+    system_prompt: str | SystemPromptPreset | SystemPromptFile | None = None,
+    env: Mapping[str, str] | None = None,
+    provider: str | None = None,
+    mcp_servers: Mapping[str, McpServerConfig] | Path | None = None,
+    session_id: str | None = None,
+    resume: str | None = None,
+    can_use_tool: CanUseTool | None = None,
+    pre_tool_use_hooks: Sequence[HookCallback] = (),
+    stderr: Callable[[str], None] | None = None,
 ) -> ClaudeAgentOptions:
-    """Build ``ClaudeAgentOptions`` routed to a project's configured provider.
+    """Build ``ClaudeAgentOptions`` for a run in *project_dir*.
 
-    Resolves the model and provider env, and — for non-native (OpenAI-protocol)
-    providers — starts the in-process translation proxy and repoints
-    ``ANTHROPIC_BASE_URL`` at it. The proxy upstream comes from
-    ``spec.upstream_base_url`` (the OpenAI root *with* its ``/v1``), NOT from
-    ``env["ANTHROPIC_BASE_URL"]`` which the resolver strips of ``/v1`` for Claude
-    Code; sourcing the upstream from the env var would forward to a ``/v1``-less
-    ``…/chat/completions`` (issue #312).
+    Who routes the run is decided by *env*. Without one, the builder routes it
+    to the project's configured provider: it resolves the provider env and the
+    model and — for non-native (OpenAI-protocol) providers — starts the
+    in-process translation proxy and repoints ``ANTHROPIC_BASE_URL`` at it. The
+    proxy upstream comes from ``spec.upstream_base_url`` (the OpenAI root *with*
+    its ``/v1``), NOT from ``env["ANTHROPIC_BASE_URL"]`` which the resolver
+    strips of ``/v1`` for Claude Code; sourcing the upstream from the env var
+    would forward to a ``/v1``-less ``…/chat/completions``. With an *env*, the
+    caller has already routed the run: that env is used verbatim, nothing is read
+    from the project's provider config, and ``model=None`` stays ``None`` so the
+    CLI takes the model the env names.
+
+    Every option left at its default produces the same options as a builder
+    that knew only the first seven parameters.
 
     Args:
-        project_dir: Path to an initialized OSPREY project.
+        project_dir: Path to an initialized OSPREY project; the agent's ``cwd``.
         disallowed_tools: Tool names forbidden at the SDK level (forwarded as
             ``--disallowedTools``; the architectural read-only guard).
-        max_turns: Maximum agentic turns before the SDK stops a response.
-        max_budget_usd: Budget ceiling passed to the SDK (literal, not scaled).
-        model: Model id; when ``None``, the project's main model.
+        max_turns: Maximum agentic turns before the SDK stops a response;
+            ``None`` sets no cap.
+        max_budget_usd: Budget ceiling passed to the SDK (literal, not scaled);
+            ``None`` sets no ceiling.
+        model: Model id. When ``None``, the project's main model if the builder
+            routes the run, else whatever model *env* names.
         permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
-            read-only headless path; ``"default"`` when an approval callback
-            should mediate tool use.
+            read-only headless path; ``None`` leaves the CLI's own default, under
+            which *can_use_tool* is consulted.
         setting_sources: Which settings layers the SDK loads. ``None`` (the
             default) means the project's own ``.claude`` settings — its hooks,
             agents and permissions — which is right for every path that runs
             *as* the deployment. Pass ``[]`` for a run that must not adopt the
             target project's settings, such as a reviewer pointed at a project
             it is only reading.
+        allowed_tools: Tool names the agent may use without asking.
+        system_prompt: The agent's system prompt: a string, or an SDK preset or
+            file reference.
+        env: The complete environment for the agent process, when the caller
+            has routed the run itself.
+        provider: Overrides ``claude_code.provider`` while the builder routes
+            the run — used by cross-provider sweeps.
+        mcp_servers: MCP servers to load: a name → config mapping, or the path
+            of an ``.mcp.json`` file — exactly those servers. ``None`` means
+            the rendered ``.mcp.json`` when the project settings layer loads;
+            no server otherwise. Every run is strict: no plugin, connector,
+            user- or local-scope server loads beside the ones named here.
+        session_id: The id to give a new transcript.
+        resume: The id of an existing transcript to continue.
+        can_use_tool: Callback the CLI asks before each tool use it has not been
+            told to allow.
+        pre_tool_use_hooks: Callbacks run before every tool use.
+        stderr: Sink for each line the agent process writes to stderr.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
 
     Raises:
         ImportError: When ``claude_agent_sdk`` is not installed.
+        ValueError: When *env* and *provider* are both given, or *session_id*
+            and *resume* are.
     """
     if not HAS_SDK:
         raise ImportError(
             "claude_agent_sdk is required to build agent options. "
             "Install it with: pip install claude-agent-sdk"
         )
+    if env is not None and provider is not None:
+        raise ValueError(
+            "env and provider are exclusive: a caller that supplies env has already "
+            "chosen the provider"
+        )
+    if session_id is not None and resume is not None:
+        raise ValueError(
+            "session_id and resume are exclusive: resume names the transcript to "
+            "continue, so it already fixes the id"
+        )
 
-    resolved_model = model if model is not None else resolve_default_model(project_dir)
-    env = sdk_env(project_dir)
+    if env is not None:
+        run_env = dict(env)
+        resolved_model = model
+    else:
+        run_env = sdk_env(project_dir, provider=provider)
+        resolved_model = (
+            model if model is not None else resolve_default_model(project_dir, provider=provider)
+        )
+        spec = _resolve_project_spec(project_dir, provider=provider)
+        if spec and spec.needs_proxy and spec.upstream_base_url:
+            if not run_env.get(spec.auth_env_var):
+                # A missing token otherwise surfaces only as an opaque proxy 401
+                # mid-query; warn early naming the var and provider.
+                logger.warning(
+                    "Auth token %s missing for provider '%s' — proxied requests may "
+                    "fail to authenticate (set the provider secret in the project .env)",
+                    spec.auth_env_var,
+                    spec.provider,
+                )
+            port = start_proxy_for(spec, run_env)
+            run_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
-    spec = _resolve_project_spec(project_dir)
-    if spec and spec.needs_proxy and spec.upstream_base_url:
-        auth_token = env.get(spec.auth_env_var)
-        if not auth_token:
-            # A missing token otherwise surfaces only as an opaque proxy 401
-            # mid-query; warn early naming the var and provider.
-            logger.warning(
-                "Auth token %s missing for provider '%s' — proxied requests may "
-                "fail to authenticate (set the provider secret in the project .env)",
-                spec.auth_env_var,
-                spec.provider,
-            )
-        port = start_proxy(spec.upstream_base_url, auth_token, provider=spec.provider)
-        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+    sources: list[SettingSource] = ["project"] if setting_sources is None else list(setting_sources)
+    run_mcp_servers: dict[str, McpServerConfig] | str
+    if mcp_servers is None:
+        # Absolute, because the SDK hands the path straight to the CLI. An explicit
+        # config loads even when the project layer does not, so a run that skips
+        # that layer gets no server rather than the project's.
+        run_mcp_servers = str(project_dir / RENDERED_MCP_CONFIG) if "project" in sources else {}
+    elif isinstance(mcp_servers, Path):
+        run_mcp_servers = str(mcp_servers)
+    else:
+        run_mcp_servers = dict(mcp_servers)
 
-    return ClaudeAgentOptions(
+    options = ClaudeAgentOptions(
         model=resolved_model,
         cwd=str(project_dir),
         permission_mode=permission_mode,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        env=env,
-        setting_sources=["project"] if setting_sources is None else setting_sources,
-        disallowed_tools=disallowed_tools,
+        env=run_env,
+        setting_sources=sources,
+        mcp_servers=run_mcp_servers,
+        strict_mcp_config=True,
+        disallowed_tools=list(disallowed_tools),
+        allowed_tools=list(allowed_tools),
+        system_prompt=system_prompt,
+        session_id=session_id,
+        resume=resume,
+        can_use_tool=can_use_tool,
+        stderr=stderr,
     )
+    if pre_tool_use_hooks:
+        options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}
+    return options
+
+
+def _absorb_message(
+    message: object,
+    workflow: SDKWorkflowResult,
+    pending_tools: dict[str, ToolTrace],
+) -> None:
+    """Fold one message of a response stream into *workflow*.
+
+    System messages and the result message are kept as they arrived; every
+    other message goes through :func:`~osprey.agent_runner.events.translate_message`
+    and its records are folded in by :func:`_record_event`.
+
+    Args:
+        message: One message from the SDK's response stream.
+        workflow: Result accumulator.
+        pending_tools: ``tool_use_id`` → the trace awaiting its result, shared
+            across the messages of one response stream.
+    """
+    if isinstance(message, SystemMessage):
+        workflow.system_messages.append(message)
+    elif isinstance(message, ResultMessage):
+        workflow.result = message
+    else:
+        for event in translate_message(message):
+            _record_event(event, workflow.text_blocks, workflow.tool_traces, pending_tools)
 
 
 async def _drain_response(
@@ -651,33 +804,25 @@ async def _drain_response(
     # purely local to this drain, reset for each response stream.
     pending_tools: dict[str, ToolTrace] = {}
     async for message in client.receive_response():
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    workflow.text_blocks.append(block.text)
-                elif isinstance(block, ToolUseBlock):
-                    trace = ToolTrace(
-                        name=block.name,
-                        input=block.input,
-                        tool_use_id=block.id,
-                        parent_tool_use_id=message.parent_tool_use_id,
-                    )
-                    workflow.tool_traces.append(trace)
-                    pending_tools[block.id] = trace
-                elif isinstance(block, ToolResultBlock):
-                    _ingest_tool_result(block, pending_tools)
+        _absorb_message(message, workflow, pending_tools)
 
-        elif isinstance(message, UserMessage):
-            if isinstance(message.content, list):
-                for block in message.content:
-                    if isinstance(block, ToolResultBlock):
-                        _ingest_tool_result(block, pending_tools)
 
-        elif isinstance(message, SystemMessage):
-            workflow.system_messages.append(message)
+async def _send_turn(client: ClaudeSDKClient, prompt: str | Sequence[Mapping[str, Any]]) -> None:
+    """Send one user turn on *client*.
 
-        elif isinstance(message, ResultMessage):
-            workflow.result = message
+    A string is sent as the turn's text. A sequence of content blocks (text,
+    images, …) is sent as the content of a single user message.
+    """
+    if isinstance(prompt, str):
+        await client.query(prompt)
+        return
+
+    content = list(prompt)
+
+    async def _one_user_message() -> AsyncIterator[dict[str, Any]]:
+        yield {"type": "user", "message": {"role": "user", "content": content}}
+
+    await client.query(_one_user_message())
 
 
 # ---------------------------------------------------------------------------
@@ -767,7 +912,7 @@ def expected_mcp_servers(project_dir: Path) -> set[str]:
     """The MCP server names a project declares in ``.mcp.json`` — the set the
     readiness barrier waits for. Returns an empty set if the file is unreadable."""
     try:
-        cfg = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
+        cfg = json.loads((project_dir / RENDERED_MCP_CONFIG).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
     return set(cfg.get("mcpServers", {}).keys())
@@ -836,3 +981,85 @@ def mcp_snapshot_summary(servers: list[Any]) -> list[dict[str, Any]]:
             }
         )
     return summary
+
+
+async def _ready_mcp(
+    client: ClaudeSDKClient,
+    project_dir: Path,
+    *,
+    await_mcp_servers: Collection[str] | None,
+    require_mcp_servers: Collection[str] = (),
+    on_mcp_status: Callable[[list[dict[str, Any]]], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Hold the first turn until the expected MCP servers are terminal.
+
+    The expected set is the project's declared servers when *await_mcp_servers*
+    is ``None``, else exactly the names given. An empty set skips the barrier:
+    an empty expectation can never be satisfied, so polling it only delays the
+    run to the readiness deadline.
+
+    Once the barrier ends, *on_mcp_status* receives the snapshot, and only then
+    is the outcome judged. An expected server that is not connected refuses the
+    run when *require_mcp_servers* names it — the agent's toolset is fixed at
+    its first turn, so a run started without a server it requires would run
+    without its tools — and is logged otherwise. A required server that is not
+    expected is never waited for, so it is not refused.
+
+    Args:
+        client: An open ``ClaudeSDKClient``, before its first turn.
+        project_dir: The project whose ``.mcp.json`` declares the servers.
+        await_mcp_servers: The servers to wait for; ``None`` for the declared
+            ones.
+        require_mcp_servers: The servers without which the run is refused.
+        on_mcp_status: Receives the snapshot the barrier ended on.
+
+    Returns:
+        That snapshot; ``[]`` when the barrier was skipped.
+
+    Raises:
+        McpNotReadyError: When a required, expected server is not connected.
+    """
+    expected = (
+        expected_mcp_servers(project_dir) if await_mcp_servers is None else set(await_mcp_servers)
+    )
+    if not expected:
+        logger.debug("No MCP servers expected for %s; skipping readiness barrier", project_dir)
+        if on_mcp_status is not None:
+            on_mcp_status([])
+        return []
+
+    servers: list[dict[str, Any]] = await await_mcp_ready(client, expected)
+    if on_mcp_status is not None:
+        on_mcp_status(servers)
+
+    connected = mcp_servers_connected(servers)
+    missing = expected - connected
+    missing_required = sorted(missing & set(require_mcp_servers))
+    if missing_required:
+        by_name = {s.get("name"): s for s in servers}
+
+        def _describe(name: str) -> str:
+            entry = by_name.get(name) or {}
+            status = entry.get("status") or "not reported"
+            error = entry.get("error")
+            return f"{name} ({status}: {error})" if error else f"{name} ({status})"
+
+        detail = ", ".join(_describe(name) for name in missing_required)
+        raise McpNotReadyError(
+            f"MCP server(s) this run requires were not connected within "
+            f"{MCP_READY_TIMEOUT_S:.0f}s of agent start: {detail}. The agent's toolset "
+            "is fixed at its first turn, so the run was refused rather than started "
+            "without them.",
+            servers=servers,
+            missing=sorted(missing),
+        )
+    if missing:
+        logger.warning(
+            "MCP servers not connected before first turn: %s (expected %s) — their "
+            "tools will be absent for this run",
+            sorted(missing),
+            sorted(expected),
+        )
+    else:
+        logger.info("MCP ready before first turn: %s", sorted(connected))
+    return servers

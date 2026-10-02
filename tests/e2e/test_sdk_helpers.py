@@ -24,6 +24,8 @@ from tests.e2e.sdk_helpers import (
     hook_attachments,
 )
 
+pytestmark = pytest.mark.model_free
+
 # ---------------------------------------------------------------------------
 # The agent-transcript dump. Its whole reason to exist is that the judge sees
 # tool results previewed at 300 characters, so the property worth pinning is
@@ -339,3 +341,31 @@ def test_hook_event_decision_reason_defaults_and_accepts():
     )
     assert with_reason.reason == "custom_policy"
     assert with_reason.decision_reason == "target is outside the render"
+
+
+def test_run_claude_holds_the_first_turn_for_every_mcp_server(tmp_path, monkeypatch):
+    """``run_claude`` spawns the CLI with the readiness env, so a subagent
+    spawned on the first turn gets every declared server's tools."""
+    import subprocess
+
+    from osprey.agent_runner.primitives import MCP_READY_TIMEOUT_S
+    from tests.e2e import test_claude_code_build_integration as integration
+
+    (tmp_path / "build").mkdir()
+    for key in ("MCP_CONNECTION_NONBLOCKING", "MCP_CONNECT_TIMEOUT_MS", "MCP_TIMEOUT"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(integration, "provider_env_for_project", lambda render: {})
+    monkeypatch.setattr(integration, "_resolve_claude_binary", lambda: "claude")
+    seen: dict[str, str] = {}
+
+    def fake_run(cmd, **kwargs):
+        seen.update(kwargs["env"])
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(integration.subprocess, "run", fake_run)
+    integration.run_claude(tmp_path, "hello")
+
+    ready_ms = str(int(MCP_READY_TIMEOUT_S * 1000))
+    assert seen["MCP_CONNECTION_NONBLOCKING"] == "0"
+    assert seen["MCP_CONNECT_TIMEOUT_MS"] == ready_ms
+    assert seen["MCP_TIMEOUT"] == ready_ms

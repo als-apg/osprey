@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 import openai
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from osprey.utils.logger import get_logger
 
@@ -44,6 +44,15 @@ class AskSageProviderAdapter(BaseProvider):
         "Follow the instructions on the AskSage website to get an API key.",
     ]
     api_key_note = None
+
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "ASKSAGE_API_KEY"
+    api_protocol = "openai"
+    supports_interactive_login = False
+    # The OpenAI route documents no image input, so none is assumed.
+    supports_images = False
+    supports_thinking = False
+
     _models_cache: list[str] | None = None
 
     def get_available_models(
@@ -151,7 +160,9 @@ You must respond with valid JSON that matches this schema:
 {json.dumps(schema, indent=2)}
 
 Respond ONLY with the JSON object, no additional text or markdown formatting."""
-            messages = [{"role": "user", "content": structured_message}]
+            messages: list[ChatCompletionMessageParam] = [
+                {"role": "user", "content": structured_message}
+            ]
         else:
             messages = [{"role": "user", "content": message}]
 

@@ -44,7 +44,11 @@ that is not a mapping is replaced outright by the later value. OSPREY's
 rendered files carry disjoint ``services:`` maps (one file per deployed
 service) plus the top-level file's ``networks:``/``volumes:``, so the merge is
 in practice a union — but the precedence rule is stated and tested, because a
-future template that does overlap must resolve the way compose would.
+future template that does overlap must resolve the way compose would. Service
+``labels:`` are the single place where the list form is read as the mapping
+compose reads it (``key=value`` items, a bare ``key`` meaning an empty value),
+because a later file's label mapping must add to an earlier file's list rather
+than replace it.
 """
 
 from __future__ import annotations
@@ -124,8 +128,40 @@ def merge_compose_documents(documents: Iterable[Mapping[str, Any]]) -> dict[str,
     """
     merged: dict[str, Any] = {}
     for document in documents:
-        _merge_into(merged, document)
+        _merge_into(merged, _normalise_service_labels(document))
     return merged
+
+
+def _normalise_service_labels(document: Mapping[str, Any]) -> Mapping[str, Any]:
+    """*document* with every list-form ``services.<name>.labels`` as a mapping.
+
+    Returns *document* itself when nothing needs normalising, and otherwise a
+    copy that shares every untouched value with it, so the input is never
+    mutated.
+    """
+    services = document.get("services")
+    if not isinstance(services, Mapping):
+        return document
+    normalised: dict[str, Any] = {}
+    changed = False
+    for name, service in services.items():
+        labels = service.get("labels") if isinstance(service, Mapping) else None
+        if isinstance(labels, list):
+            service = {**service, "labels": _labels_as_mapping(labels)}
+            changed = True
+        normalised[name] = service
+    if not changed:
+        return document
+    return {**document, "services": normalised}
+
+
+def _labels_as_mapping(labels: list[Any]) -> dict[str, Any]:
+    """Compose's reading of a list-form ``labels:``: split each item on its first ``=``."""
+    mapping: dict[str, Any] = {}
+    for item in labels:
+        key, _, value = str(item).partition("=")
+        mapping[key] = value
+    return mapping
 
 
 def render_merged_compose(documents: Iterable[Mapping[str, Any]]) -> str:
@@ -146,7 +182,12 @@ def render_merged_compose(documents: Iterable[Mapping[str, Any]]) -> str:
     return f"{_HEADER}\n{body}"
 
 
-def write_merged_compose(repo_root: Path | str, compose_files: Iterable[Path | str]) -> Path:
+def write_merged_compose(
+    repo_root: Path | str,
+    compose_files: Iterable[Path | str],
+    *,
+    overlay: Mapping[str, Any] | None = None,
+) -> Path:
     """Merge *compose_files* into ``<repo_root>/.osprey-compose.yml``.
 
     The deploy-side half of the provider-compat invocation: the caller hands
@@ -163,12 +204,18 @@ def write_merged_compose(repo_root: Path | str, compose_files: Iterable[Path | s
     :param compose_files: Compose files in ``-f`` order. Relative paths are
         resolved against *repo_root*, matching
         :func:`osprey.deployment.compose_generator.compose_base_cmd`.
+    :param overlay: A parsed compose document merged after every file — for a
+        generated document that has no file of its own in this invocation.
     :return: Absolute path to the written document.
     :raises ComposeMergeError: A listed file is missing, unparseable, or is not
         a YAML mapping.
     """
     root = Path(repo_root).expanduser().absolute()
-    documents = [_load_compose_document(_resolve(path, root)) for path in compose_files]
+    documents: list[Mapping[str, Any]] = [
+        _load_compose_document(_resolve(path, root)) for path in compose_files
+    ]
+    if overlay is not None:
+        documents.append(overlay)
     target = root / MERGED_COMPOSE_FILENAME
     _atomic_write(target, render_merged_compose(documents))
     logger.debug("Wrote merged compose document %s from %d file(s)", target, len(documents))

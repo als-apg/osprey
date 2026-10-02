@@ -993,7 +993,8 @@ class TestTheKnowledgeBundle:
                 assert page.name in index, page.name
 
     def test_every_advertised_concept_resolves_to_a_file(self, chain: Chain) -> None:
-        # `knowledge validate` reads index front matter, never index links.
+        # `list_concepts` reads index links; this is the reader's side of what
+        # `knowledge validate` checks.
         concepts = OKFBundle(chain.bundle).list_concepts()
 
         assert concepts

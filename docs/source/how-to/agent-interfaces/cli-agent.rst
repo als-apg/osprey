@@ -217,7 +217,14 @@ cannot call any of these tools even if it tries. The list is the union of:
 
 - **Built-in write/exec/network tools** — ``Bash`` (arbitrary shell, which
   could itself write hardware via ``caput``), ``Write``, ``Edit``,
-  ``MultiEdit``, ``NotebookEdit``, ``WebFetch``, ``WebSearch``.
+  ``NotebookEdit``, ``WebFetch``, ``WebSearch``, ``Monitor`` (background
+  shell commands), ``Workflow``, ``CronCreate`` and ``ScheduleWakeup`` (jobs
+  that fire later), ``SendMessage`` (messages to other sessions) and
+  ``EnterWorktree`` (a new worktree on disk).
+- **Plugin and connector MCP tools** — ``mcp__plugin_*`` and
+  ``mcp__claude_ai_*``. The run loads only the servers in the project's
+  ``.mcp.json``, so none of these can start. The entries hold even if that
+  changes.
 - **Control-system write tools** — ``mcp__controls__channel_write`` and
   ``mcp__python__execute`` (plus any facility-specific tools in the project's
   ``hook_config.json`` ``write_tools`` block). These are always included even

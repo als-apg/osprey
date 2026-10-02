@@ -840,7 +840,7 @@ def _posture_refusal_wording() -> tuple[str, list[str]]:
 
     return (
         f"writes are off for the '{target}' control target — turned off from the "
-        "control-target chip in the header; applies deployment-wide.",
+        "control-target chip in the header; applies to every session of this login.",
         [
             f"Turn writes back on for '{target}' from the control-target chip in "
             "the header if the write is intended; the deployment config is not "

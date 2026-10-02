@@ -157,14 +157,20 @@ def _render(context: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+#: An image OSPREY does not build, as an operator would name their own.
+FOREIGN_VA_IMAGE = "my-registry/osprey-va:dev"
+
+
 def _single_instance_contexts() -> dict[str, dict[str, Any]]:
     """Every single-instance shape whose rendered bytes are pinned.
 
     ``minimal`` is the plainest deploy the build can produce — the historical
     block with nothing but its port. ``overridden`` turns on the axes that open
-    branches in this file at once (a non-default port, a pinned image, a
-    ``--dev`` build and a host-env passthrough), because those are where a
-    template parameterized over instances is most likely to drift.
+    branches in this file at once (a non-default port, a ``--dev`` build and a
+    host-env passthrough), because those are where a template parameterized
+    over instances is most likely to drift. ``foreign_image`` pins an image
+    OSPREY does not build, which renders the instance with no ``build:`` block
+    and so none of the ``--dev`` build arguments either.
     """
     return {
         "minimal": _context(
@@ -175,9 +181,15 @@ def _single_instance_contexts() -> dict[str, dict[str, Any]]:
             instances={
                 "virtual_accelerator": _instance_block(
                     5065,
-                    image="my-registry/osprey-va:dev",
                     env=["HTTP_PROXY", "NO_PROXY"],
                 )
+            },
+            deployed_services=["virtual_accelerator"],
+            dev_mode=True,
+        ),
+        "foreign_image": _context(
+            instances={
+                "virtual_accelerator": _instance_block(5064, image=FOREIGN_VA_IMAGE),
             },
             deployed_services=["virtual_accelerator"],
             dev_mode=True,
@@ -370,6 +382,62 @@ def test_va_compose_builds_the_image_on_the_first_instance_only(
     """Two services building one tag race each other; one build serves both."""
     assert "build" in two_instances["services"]["virtual-accelerator"]
     assert "build" not in two_instances["services"]["live-standin"]
+
+
+def test_va_compose_renders_no_build_for_an_image_osprey_does_not_build() -> None:
+    """A pinned image OSPREY does not build is run as named, never built.
+
+    Compose tags a build with the service's ``image:``, so a build block beside
+    a foreign name would rebuild OSPREY's recipe under the operator's name.
+    """
+    service = _render(_single_instance_contexts()["foreign_image"])["services"][
+        "virtual-accelerator"
+    ]
+    assert "build" not in service
+    assert service["image"] == f"${{OSPREY_VA_IMAGE:-{FOREIGN_VA_IMAGE}}}"
+
+
+def test_va_compose_keeps_the_build_when_the_pinned_image_is_the_one_osprey_builds() -> None:
+    """Pinning the very image OSPREY builds keeps the build that produces it."""
+    rendered = _render(
+        _context(
+            instances={
+                "virtual_accelerator": _instance_block(5064, image=_image_defaults("proj")["va"]),
+            },
+            deployed_services=["virtual_accelerator"],
+        )
+    )
+    assert "build" in rendered["services"]["virtual-accelerator"]
+
+
+def test_va_compose_standin_builds_when_the_baseline_runs_another_image() -> None:
+    """The stand-in still runs OSPREY's image, so it carries the one build."""
+    rendered = _render(
+        _context(
+            instances={
+                "virtual_accelerator": _instance_block(5064, image=FOREIGN_VA_IMAGE),
+                "live_standin": _instance_block(5074),
+            },
+            deployed_services=["virtual_accelerator", "live_standin"],
+        )
+    )
+    assert "build" not in rendered["services"]["virtual-accelerator"]
+    assert "build" in rendered["services"]["live-standin"]
+
+
+def test_va_compose_builds_nothing_when_every_instance_runs_another_image() -> None:
+    """With every instance naming a foreign image there is nothing to build."""
+    rendered = _render(
+        _context(
+            instances={
+                "virtual_accelerator": _instance_block(5064, image=FOREIGN_VA_IMAGE),
+                "live_standin": _instance_block(5074, image="my-registry/standin:1"),
+            },
+            deployed_services=["virtual_accelerator", "live_standin"],
+        )
+    )
+    for service in rendered["services"].values():
+        assert "build" not in service
 
 
 def test_va_compose_gives_every_instance_an_image(two_instances: dict[str, Any]) -> None:

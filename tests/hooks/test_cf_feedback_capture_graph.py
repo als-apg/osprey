@@ -122,8 +122,8 @@ def _hook_extra(tmp_path, transcript="/tmp/transcript.jsonl"):
 def _pending_items(tmp_path):
     """Read items from pending_reviews.json, return dict or empty.
 
-    The store lives under the agent-data root, resolved from the same constant
-    the hook uses so a relocated ``agent_data.base_dir`` moves both together.
+    The store lives under the agent-data root. No config names a ``base_dir`` in
+    these runs, so the hook resolves the framework default the helper reads.
     """
     store = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
     if not store.exists():

@@ -110,7 +110,7 @@ def _steal_section_comment(container: Any) -> str | None:
     token = entry[slot] if entry else None
     if token is None:
         return None
-    text = token.value
+    text: str = token.value
     newline = text.find("\n")
     if newline == -1 or not text[newline + 1 :].strip():
         return None  # inline-only comment — nothing trails onto later lines
@@ -933,7 +933,8 @@ def config_read(config_path: Path) -> dict:
     import json
 
     data = load_config_document(config_path)
-    return json.loads(json.dumps(copy.deepcopy(data), default=str))
+    plain = json.loads(json.dumps(copy.deepcopy(data), default=str))
+    return plain if isinstance(plain, dict) else {}
 
 
 # =============================================================================
@@ -1069,7 +1070,7 @@ def get_control_system_type(config_path: Path, key: str = "control_system.type")
             if value is None:
                 return None
 
-        return value
+        return value if isinstance(value, str) else None
     except Exception:
         pass  # Config read/parse failed; return default below
 
@@ -1092,8 +1093,14 @@ def set_control_system_type(
 
     Args:
         config_path: Path to config.yml
-        control_type: 'mock', 'epics', or 'virtual_accelerator'
-        archiver_type: Optional archiver type ('mock_archiver', 'epics_archiver')
+        control_type: The connector name to write as ``control_system.type``: a
+            built-in from :data:`osprey_connectors.types.SET_CONTROL_SYSTEM_TYPES`,
+            or a custom connector's dotted module path. Written as given; not
+            validated here.
+        archiver_type: The connector name to write as ``archiver.type`` — a
+            built-in from :data:`osprey_connectors.types.CLI_ARCHIVER_TYPES`, or a
+            custom connector's dotted module path — or ``None`` to leave the key
+            untouched.
         create_backup: If True, copies the file into the agent-data state zone
                 before modifying it (see :func:`config_backup_path`)
 

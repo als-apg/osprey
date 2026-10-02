@@ -9,13 +9,16 @@ exists-check it (CI is expected to have produced it). Called from
 
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from osprey.build.claude_code_telemetry import telemetry_auth_token_env
 from osprey.cli.output import report_fact
 from osprey.deployment.errors import ComposeInterpolationError
+from osprey.deployment.openobserve_provision import INGEST_TOKEN_VAR
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     effective_persona,
@@ -172,10 +175,36 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
 #: depends on. The unbraced ``$NAME`` spelling is deliberately NOT matched:
 #: nothing this module reads is written that way, and treating it as a
 #: reference would make any value containing a bare ``$`` look like one.
-_ENV_REFERENCE_RE = re.compile(r"\A\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}\Z")
+_ENV_REFERENCE_PATTERN = r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}"
+_ENV_REFERENCE_RE = re.compile(rf"\A{_ENV_REFERENCE_PATTERN}\Z")
 
-#: Where a project's telemetry credentials live in its own ``config.yml``.
-_TELEMETRY_CONFIG_PATH = ("claude_code", "telemetry", "openobserve")
+#: Every ``${NAME}`` / ``${NAME:-default}`` occurrence inside a string, in the
+#: :data:`_ENV_REFERENCE_RE` dialect but unanchored. The telemetry walk reads
+#: values that are not reference literals: ``Authorization: Bearer
+#: ${OTLP_TOKEN}`` depends on ``OTLP_TOKEN`` exactly as a whole-value reference
+#: does, because the config loader expands a reference anywhere in a string
+#: (:func:`osprey_connectors.config.resolve_env_vars`).
+_ENV_REFERENCES_IN_RE = re.compile(_ENV_REFERENCE_PATTERN)
+
+#: Where a project's telemetry block lives in its own ``config.yml``.
+_TELEMETRY_BLOCK_PATH = ("claude_code", "telemetry")
+
+#: What a reference at a key path under the telemetry block stands for.
+#:
+#: * ``"account"`` — the observability store's account NAME: reported to the
+#:   stale-file advisory in both forms, never required, and never copied except
+#:   through the fixed :data:`_TELEMETRY_USER_ENV_VAR` copy.
+#: * ``"store-secret"`` — the observability store's login secret: required when
+#:   bare, never copied into ``.env.users``, and explained by the store note of
+#:   the refusal.
+#:
+#: A path this table does not name is a ``"secret"``: required when bare, never
+#: copied into ``.env.users``. Failing closed is the point — a key added later
+#: may carry a credential, and ``.env.users`` is handed to every persona alike.
+_TELEMETRY_REFERENCE_ROLES: dict[tuple[str, ...], str] = {
+    ("openobserve", "user"): "account",
+    ("openobserve", "password"): "store-secret",
+}
 
 #: The observability store's INGEST account NAME — an email address, not a
 #: secret. A fixed name rather than a config-declared one, like ``TZ`` and
@@ -195,26 +224,32 @@ _TELEMETRY_CONFIG_PATH = ("claude_code", "telemetry", "openobserve")
 #:
 #: There is no companion constant for the SECRET. The password half is read
 #: from the config, not from a fixed spelling here — see
-#: :func:`_telemetry_credential_requirements`, which reports whatever variable
-#: the telemetry block's ``password:`` names — so repointing the templates at
-#: the ingest token needed no change on that side.
+#: :func:`_telemetry_credential_requirements`, which reports every bare
+#: reference in the telemetry block outside the account name — so repointing
+#: the templates at the ingest token needed no change on that side.
 _TELEMETRY_USER_ENV_VAR = "ZO_INGEST_USER_EMAIL"
+
+#: The telemetry variables every terminal already receives by a fixed route:
+#: the ingest token through its own unconditional compose line, the account
+#: name through ``.env.users``. A persona's telemetry block may reference them,
+#: and its per-persona list (:func:`telemetry_delivered_vars`) never repeats them.
+_TELEMETRY_FIXED_ROUTE_VARS: frozenset[str] = frozenset({INGEST_TOKEN_VAR, _TELEMETRY_USER_ENV_VAR})
 
 
 def _env_reference(value: object) -> tuple[str, bool] | None:
     """Read a config value that IS an env-var reference.
 
-    The telemetry credential keys hold the reference itself (``user:
-    ${ZO_INGEST_USER_EMAIL:-ingest@example.com}``) rather than the *name* of a
-    variable the way ``llm.api_key_env_var`` does, so telling a reference from
-    a plain literal — and a bare reference from one carrying its own default —
-    takes reading the value, which is what this does.
+    ``api.providers.<name>.base_url`` holds the reference itself (``base_url:
+    ${GATEWAY_URL}``) rather than the *name* of a variable the way
+    ``llm.api_key_env_var`` does, so telling a reference from a plain literal —
+    and a bare reference from one carrying its own default — takes reading the
+    value, which is what this does.
 
     The distinction matters because the two forms fail differently in a
     container: a reference with a default quietly falls back to it when the
     variable is unset, while a bare one is left in the config verbatim (see
-    :func:`osprey_connectors.config.resolve_env_vars`) and reaches the store as
-    a literal ``${...}`` string.
+    :func:`osprey_connectors.config.resolve_env_vars`) and reaches its consumer
+    as a literal ``${...}`` string.
 
     :param value: A raw config value; anything that is not a string, and any
         string that is not exactly one reference, reads as a plain literal.
@@ -228,21 +263,59 @@ def _env_reference(value: object) -> tuple[str, bool] | None:
     return match.group(1), match.group(2) is not None
 
 
-def _telemetry_credentials(cfg: dict) -> dict:
-    """The ``claude_code.telemetry.openobserve`` block of one project's config."""
+def _telemetry_block(cfg: dict) -> dict:
+    """The ``claude_code.telemetry`` block of one project's config."""
     node: object = cfg
-    for key in _TELEMETRY_CONFIG_PATH:
+    for key in _TELEMETRY_BLOCK_PATH:
         if not isinstance(node, dict):
             return {}
         node = node.get(key)
     return node if isinstance(node, dict) else {}
 
 
+@dataclass(frozen=True)
+class _TelemetryReference:
+    """One env-var reference found in a telemetry block.
+
+    Attributes:
+        var: The referenced variable's name.
+        origin: The key path and the config that holds it, for messages.
+        role: ``"account"``, ``"store-secret"`` or ``"secret"`` (see
+            :data:`_TELEMETRY_REFERENCE_ROLES`).
+        has_default: Whether the reference names its own ``:-default``.
+    """
+
+    var: str
+    origin: str
+    role: str
+    has_default: bool
+
+
+def _block_references(
+    node: object, path: tuple[str, ...] = ()
+) -> Iterator[tuple[tuple[str, ...], str, bool]]:
+    """``(path, var, has_default)`` for every reference under ``node``.
+
+    Recurses through mappings (the path element is the key) and lists (the path
+    element is ``[i]``); every reference inside a string counts, whole value or
+    embedded.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _block_references(value, (*path, str(key)))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _block_references(value, (*path, f"[{index}]"))
+    elif isinstance(node, str):
+        for match in _ENV_REFERENCES_IN_RE.finditer(node):
+            yield path, match.group(1), match.group(2) is not None
+
+
 def _telemetry_enabled(cfg: dict) -> bool:
     """Whether one project's config asks for telemetry at all.
 
     The master switch, read exactly the way the builder reads it
-    (:func:`osprey.build.claude_code_telemetry.build_telemetry_env`, whose first
+    (:func:`osprey.build.claude_code_telemetry._build_telemetry_env`, whose first
     act is to return an empty env for a falsy or absent ``enabled``). Same rule
     on both sides on purpose: a block this module treats as live while the
     builder discards it would have an operator hunting for a credential nothing
@@ -251,12 +324,60 @@ def _telemetry_enabled(cfg: dict) -> bool:
     Absent reads as OFF, not on. A config with no ``enabled`` key exports
     nothing, so the credentials underneath it are decoration.
     """
-    node: object = cfg
-    for key in _TELEMETRY_CONFIG_PATH[:-1]:
-        if not isinstance(node, dict):
-            return False
-        node = node.get(key)
-    return bool(node.get("enabled")) if isinstance(node, dict) else False
+    return bool(_telemetry_block(cfg).get("enabled"))
+
+
+def telemetry_delivered_vars(cfg: dict) -> tuple[str, ...]:
+    """The variables a terminal running this config needs for its telemetry.
+
+    The collector's bearer token first (the variable
+    ``claude_code.telemetry.auth.token_env`` names), then every variable the
+    telemetry block references, in walk order, each once. A persona's
+    ``config.yml`` keeps those references verbatim and the loader resolves them
+    inside the container, so a variable that never reaches the container leaves
+    a bare reference unresolved and a defaulted one silently on its default.
+    The names in :data:`_TELEMETRY_FIXED_ROUTE_VARS` are left out: every
+    terminal receives them already.
+
+    :param cfg: One project's config.
+    :return: The names, or ``()`` when the config's telemetry is off.
+    :raises TelemetryConfigError: For an ``auth`` block the collector cannot
+        use (a :class:`ValueError`, reported by the deploy gate like any other
+        config refusal).
+    """
+    if not _telemetry_enabled(cfg):
+        return ()
+    block = _telemetry_block(cfg)
+    names: list[str] = []
+    token_env = telemetry_auth_token_env(block)
+    if token_env is not None:
+        names.append(token_env)
+    for _path, var, _has_default in _block_references(block):
+        if var in names or var in _TELEMETRY_FIXED_ROUTE_VARS:
+            continue
+        names.append(var)
+    return tuple(names)
+
+
+def personas_needing_telemetry_vars(
+    config: dict, project_root: str | Path
+) -> dict[str, tuple[str, ...]]:
+    """``{persona_name: names}`` for every persona whose terminal needs telemetry variables.
+
+    The referenced personas are walked as :func:`_telemetry_references` walks
+    them; a persona whose project cannot be read contributes nothing, and one
+    whose :func:`telemetry_delivered_vars` is empty is left out.
+
+    :param config: Raw deploy config.
+    :param project_root: Project root the persona projects resolve against.
+    :return: The map the web-terminal render emits per-user lines from.
+    """
+    needing: dict[str, tuple[str, ...]] = {}
+    for persona_name, persona_config in _readable_persona_configs(config, Path(project_root)):
+        names = telemetry_delivered_vars(persona_config)
+        if names:
+            needing[persona_name] = names
+    return needing
 
 
 def _referenced_persona_names(config: dict) -> list[str]:
@@ -334,47 +455,60 @@ def _load_config_yml(path: Path) -> dict | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def _telemetry_credential_references(
-    config: dict, project_root: Path, field: str, *, bare_only: bool, enabled_only: bool = False
-) -> dict[str, str]:
-    """``{var: origin}`` for one telemetry credential key across every config in play.
+def _readable_persona_configs(config: dict, project_root: Path) -> list[tuple[str, dict]]:
+    """``(persona_name, loaded config.yml)`` for every persona this roster runs.
 
-    The deploy config and each referenced persona project's rendered
+    A persona whose project names no ``config.yml``, or one that cannot be read
+    as a mapping, is skipped silently: :func:`_claude_code_auth_secret_vars`
+    warns about the same unreadable project already, and saying it again per
+    deploy would read as a separate problem.
+    """
+    configs: list[tuple[str, dict]] = []
+    for persona_name, entry in _referenced_persona_entries(config):
+        config_yml = _persona_config_yml(project_root, entry)
+        if config_yml is None or not config_yml.is_file():
+            continue
+        persona_config = _load_config_yml(config_yml)
+        if persona_config is not None:
+            configs.append((persona_name, persona_config))
+    return configs
+
+
+def _telemetry_references(
+    config: dict, project_root: Path, *, enabled_only: bool
+) -> list[_TelemetryReference]:
+    """Every env-var reference in the telemetry block of every config in play.
+
+    The whole block is read — store login, endpoint, resource
+    attributes — so a credential cannot hide under a key this module does not
+    name. The deploy config and each referenced persona project's rendered
     ``config.yml`` are read the same way :func:`_claude_code_auth_secret_vars`
     reads them, since a per-user container runs its persona's project and it is
     that project's telemetry block which decides what the agent inside presents
-    to the observability store.
+    to the observability backend.
 
-    :param field: Key under ``claude_code.telemetry.openobserve`` to read.
-    :param bare_only: When true, report only references with no ``:-default``
-        of their own — the ones that cannot resolve to anything on their own.
     :param enabled_only: When true, skip a config whose telemetry master switch
         is off. Each config answers for itself, since a roster can mix a persona
         that exports with one that does not.
+    :return: Persona configs first, then the deploy config, each in walk order.
     """
-    references: dict[str, str] = {}
+    references: list[_TelemetryReference] = []
 
     def _record(cfg: dict, source: str) -> None:
         if enabled_only and not _telemetry_enabled(cfg):
             return
-        reference = _env_reference(_telemetry_credentials(cfg).get(field))
-        if reference is None:
-            return
-        var, has_default = reference
-        if bare_only and has_default:
-            return
-        references.setdefault(var, f"claude_code.telemetry.openobserve.{field} {source}")
+        for path, var, has_default in _block_references(_telemetry_block(cfg)):
+            dotted = ".".join(path).replace(".[", "[")
+            references.append(
+                _TelemetryReference(
+                    var=var,
+                    origin=f"claude_code.telemetry.{dotted} {source}",
+                    role=_TELEMETRY_REFERENCE_ROLES.get(path, "secret"),
+                    has_default=has_default,
+                )
+            )
 
-    for persona_name, entry in _referenced_persona_entries(config):
-        config_yml = _persona_config_yml(project_root, entry)
-        if config_yml is None or not config_yml.is_file():
-            # Silent, unlike _claude_code_auth_secret_vars: that function warns
-            # about the same unreadable project already, and saying it twice
-            # per deploy would read as two separate problems.
-            continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is None:
-            continue
+    for persona_name, persona_config in _readable_persona_configs(config, project_root):
         _record(persona_config, f"(persona {persona_name!r})")
 
     _record(config, "(deploy config)")
@@ -419,21 +553,23 @@ def deploy_issued_credential_vars(config: dict) -> set[str]:
 
 
 def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict[str, str]:
-    """``{var: origin}`` for telemetry passwords a config REQUIRES from the env chain.
+    """``{var: origin}`` for telemetry variables a config REQUIRES from the env chain.
 
-    A bare ``${VAR}`` password reference — no ``:-default`` — is a config
-    asserting that the variable is set: unset, it is left in the rendered
-    config verbatim and the agent authenticates to the observability store with
-    a literal ``${VAR}`` string. This reports those variables so
+    A bare ``${VAR}`` reference in the telemetry block — no ``:-default`` — is
+    a config asserting that the variable is set: unset, it is left in the
+    rendered config verbatim and the agent presents a literal ``${VAR}`` string
+    to the observability backend. This reports those variables so
     :func:`ensure_env_production` can refuse a deploy that would ship one,
     exactly as it refuses a missing provider auth secret.
 
-    Nothing here is bound to one variable spelling: whatever the telemetry
-    block's ``password:`` names is what gets reported. That is why repointing
-    the shipped configs from the store's root password to its ingest service
-    account's token (``ZO_INGEST_SA_TOKEN``) needed no edit on this side, while
-    :data:`_TELEMETRY_USER_ENV_VAR` — the account NAME, which IS a fixed
-    spelling — did.
+    Nothing here is bound to one variable spelling or one key: every bare
+    reference in the block outside the account table
+    (:data:`_TELEMETRY_REFERENCE_ROLES`) is reported, whichever key holds it —
+    the store password, a resource attribute, the endpoint. That is why
+    repointing the shipped configs from the store's root password to its ingest
+    service account's token (``ZO_INGEST_SA_TOKEN``) needed no edit on this
+    side, while :data:`_TELEMETRY_USER_ENV_VAR` — the account NAME, which IS a
+    fixed spelling — did.
 
     The result feeds the missing-variable gate ONLY. It must never reach
     :func:`_build_env_production_subset`, for either identity: the root
@@ -471,12 +607,55 @@ def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict
     deploy already declared inert, and send the operator to obtain a token that
     would go unused.
     """
-    referenced = _telemetry_credential_references(
-        config, project_root, "password", bare_only=True, enabled_only=True
-    )
-    self_issued = deploy_issued_credential_vars(config)
+    return {
+        var: ref.origin for var, ref in _telemetry_secret_requirements(config, project_root).items()
+    }
 
-    return {var: origin for var, origin in referenced.items() if var not in self_issued}
+
+def _telemetry_token_requirements(config: dict, project_root: Path) -> dict[str, str]:
+    """``{var: origin}`` for the collector bearer tokens the configs in play name.
+
+    Read from ``claude_code.telemetry.auth.token_env`` of each referenced
+    persona's rendered ``config.yml`` and of the deploy config, walked as
+    :func:`_telemetry_references` walks them; a config whose telemetry is off
+    names none. The token reaches every exporting terminal through its own
+    compose environment, so the chain must carry it; it is never copied into
+    ``.env.users``.
+
+    :raises TelemetryConfigError: For an ``auth`` block the collector cannot
+        use.
+    """
+    required: dict[str, str] = {}
+
+    def _record(cfg: dict, source: str) -> None:
+        if not _telemetry_enabled(cfg):
+            return
+        token_env = telemetry_auth_token_env(_telemetry_block(cfg))
+        if token_env is not None:
+            required.setdefault(token_env, f"claude_code.telemetry.auth.token_env {source}")
+
+    for persona_name, persona_config in _readable_persona_configs(config, project_root):
+        _record(persona_config, f"(persona {persona_name!r})")
+
+    _record(config, "(deploy config)")
+    return required
+
+
+def _telemetry_secret_requirements(
+    config: dict, project_root: Path
+) -> dict[str, _TelemetryReference]:
+    """``{var: reference}`` behind :func:`_telemetry_credential_requirements`.
+
+    The first reference to a variable wins, persona configs before the deploy
+    config.
+    """
+    self_issued = deploy_issued_credential_vars(config)
+    required: dict[str, _TelemetryReference] = {}
+    for ref in _telemetry_references(config, project_root, enabled_only=True):
+        if ref.role == "account" or ref.has_default or ref.var in self_issued:
+            continue
+        required.setdefault(ref.var, ref)
+    return required
 
 
 def _telemetry_user_references(config: dict, project_root: Path) -> dict[str, str]:
@@ -487,7 +666,11 @@ def _telemetry_user_references(config: dict, project_root: Path) -> dict[str, st
     to the shipped placeholder address, which is the wrong account whenever the
     deploy configured the store under a different one.
     """
-    return _telemetry_credential_references(config, project_root, "user", bare_only=False)
+    accounts: dict[str, str] = {}
+    for ref in _telemetry_references(config, project_root, enabled_only=False):
+        if ref.role == "account":
+            accounts.setdefault(ref.var, ref.origin)
+    return accounts
 
 
 def _copy_named_env_var(var_name: str | None, source: dict[str, str], dest: dict[str, str]) -> None:
@@ -513,7 +696,7 @@ def _claude_code_auth_secret_vars(
     """Auth-secret env-var names every ``claude_code.provider`` in play needs.
 
     This is the web-terminal counterpart of the launch-time secret injection
-    in :mod:`osprey.build.claude_code_resolver`: a per-user web container runs
+    in :mod:`osprey.agent_runner.provider_env`: a per-user web container runs
     its persona project's agent, which authenticates via the provider named in
     that project's ``claude_code.provider`` — and the *only* env its container
     sees is ``docker-compose.web.yml``'s ``env_file: .env.users``. A
@@ -550,11 +733,11 @@ def _claude_code_auth_secret_vars(
     :func:`verify_persona_renders` REFUSES a deploy whose persona projects are
     missing *before* :func:`ensure_env_production` runs, so on every deploy path
     that reaches generation the rendered configs are on disk. A provider name known
-    neither to ``CLAUDE_CODE_PROVIDERS`` nor to the config's own
+    neither to the provider registry nor to the config's own
     ``api.providers`` is likewise skipped here (the resolver raises its own
     actionable error for that at launch).
     """
-    from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.agent_runner.provider_env import provider_auth_secret_env
 
     def _provider_is_keyless(provider: str) -> bool:
         # The models adapter registry is the authority on whether a provider
@@ -647,7 +830,7 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
 
     ``required`` is the narrower question: whether the container resolves NO
     endpoint without this variable. Only a provider that ships no default host
-    (:func:`~osprey.build.claude_code_resolver.provider_requires_base_url`) can
+    (:func:`~osprey.agent_runner.provider_env.provider_requires_base_url`) can
     reach that state, and only when nothing else in the config answers for the
     URL — a literal endpoint resolves on its own, and so does a reference
     carrying its own ``:-default``.
@@ -657,7 +840,7 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
     :return: ``(var, required)``, or ``None`` when no variable names this
         provider's endpoint at all.
     """
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.provider_env import (
         provider_base_url_env,
         provider_requires_base_url,
     )
@@ -672,10 +855,10 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
         var, has_default = reference
         return var, needs_endpoint and not has_default
 
-    var = provider_base_url_env(provider)
-    if not var:
+    fallback = provider_base_url_env(provider)
+    if not fallback:
         return None
-    return var, needs_endpoint and not declared
+    return fallback, needs_endpoint and not declared
 
 
 def required_provider_endpoint_var(cfg: dict) -> str | None:
@@ -756,16 +939,7 @@ def _provider_endpoint_vars(
     catalog = catalog if isinstance(catalog, dict) else {}
     referenced = _referenced_persona_names(config)
 
-    for persona_name, entry in _referenced_persona_entries(config):
-        config_yml = _persona_config_yml(project_root, entry)
-        if config_yml is None or not config_yml.is_file():
-            # Silent: _claude_code_auth_secret_vars warns about the same
-            # unreadable project already, and saying it twice per deploy would
-            # read as two separate problems.
-            continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is None:
-            continue
+    for persona_name, persona_config in _readable_persona_configs(config, project_root):
         _record(persona_config, f"(persona {persona_name!r})", enforce=True)
 
     # Under a catalog the per-user containers run persona projects, so the
@@ -825,8 +999,8 @@ def _build_env_production_subset(
       fallback address is the wrong one on any deploy that set this. The ROOT
       account name (``ZO_ROOT_USER_EMAIL``) is not copied: nothing a terminal
       runs authenticates as root.
-    - ``TZ`` — always, from ``facility.timezone`` (default ``"UTC"``, matching
-      the schema's own documented default), likewise a literal config value.
+    - ``TZ`` — always, from ``system.timezone`` (default ``"UTC"``), the zone
+      every deployed service runs in; likewise a literal config value.
 
     The telemetry SECRET is deliberately not here beside the account name, and
     that holds for either identity. ``ZO_ROOT_USER_PASSWORD`` is the store's
@@ -862,11 +1036,11 @@ def _build_env_production_subset(
     in ``docker-compose.web.yml``. See
     :func:`osprey.deployment.web_terminals.render.render_web_terminals`, whose
     ``dispatcher_personas``, ``ariel_personas``, ``launch_token_personas``,
-    ``graphdb_personas`` and ``archiver_password_personas`` arguments each carry
+    ``graphdb_personas`` and ``archiver_credential_personas`` arguments each carry
     the subset of the roster entitled to one credential —
     ``EVENT_DISPATCHER_TOKEN``, ``ARIEL_DB_PASSWORD``, ``BLUESKY_LAUNCH_TOKEN``,
-    ``GRAPHDB_PASSWORD`` and the archiver store's ``password_env``
-    (``MONGO_ROOT_PASSWORD`` on the shipped preset) respectively — emitted into
+    ``GRAPHDB_PASSWORD`` and the variables the selected archiver block names
+    under ``auth:`` (``MONGO_ROOT_PASSWORD`` on the shipped preset) respectively — emitted into
     that user's own ``environment:`` block and interpolated by compose from the
     deploy ``.env``, so the secret never lands in a rendered artifact either.
 
@@ -955,8 +1129,8 @@ def _build_env_production_subset(
     # admin password never does (see the security spec above).
     _copy_named_env_var(_TELEMETRY_USER_ENV_VAR, dotenv, subset)
 
-    facility = config.get("facility") or {}
-    subset["TZ"] = str(facility.get("timezone") or "UTC")
+    system = config.get("system") or {}
+    subset["TZ"] = str(system.get("timezone") or "UTC")
 
     return subset
 
@@ -971,14 +1145,23 @@ class _MissingRequiredVars:
         endpoints: The subset of ``missing`` naming a gateway endpoint — a
             provider that resolves no URL without it, so the container exits
             during startup and compose restarts it forever.
-        telemetry: The subset of ``missing`` naming an observability-store
-            credential, which the chain must carry and ``.env.users`` may not
-            (see :func:`_telemetry_credential_requirements`).
+        telemetry: The subset of ``missing`` named by a telemetry block, which
+            the chain must carry and ``.env.users`` may not (see
+            :func:`_telemetry_credential_requirements`).
+        telemetry_store: The subset of ``telemetry`` that is the observability
+            store's login secret (the ``"store-secret"`` role of
+            :data:`_TELEMETRY_REFERENCE_ROLES`).
+        collector_tokens: The subset of ``missing`` that is a telemetry
+            collector's bearer token (see :func:`_telemetry_token_requirements`),
+            which every exporting terminal receives from the chain through its
+            own compose environment.
     """
 
     missing: dict[str, str]
     endpoints: frozenset[str]
     telemetry: frozenset[str]
+    telemetry_store: frozenset[str]
+    collector_tokens: frozenset[str]
 
 
 def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _MissingRequiredVars:
@@ -1011,19 +1194,34 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
     # Reported, never copied: these are variables a telemetry block depends on
     # that this file is not allowed to carry, so they join the gate and nothing
     # else. Keeping them out of the {**required, **extra} pair handed to
-    # _build_env_production_subset is what stops the store's admin password from
+    # _build_env_production_subset is what stops a telemetry secret from
     # being written into a file every persona reads.
-    telemetry_vars = _telemetry_credential_requirements(config, project_root)
+    telemetry_refs = _telemetry_secret_requirements(config, project_root)
+    telemetry_vars = {var: ref.origin for var, ref in telemetry_refs.items()}
+    # Reported, never copied, for the same reason: compose hands the collector's
+    # token to each exporting terminal from the chain, so the chain must carry it.
+    collector_tokens = _telemetry_token_requirements(config, project_root)
 
     missing = {
         var: origin
-        for var, origin in {**telemetry_vars, **required_cc_vars, **required_url_vars}.items()
+        for var, origin in {
+            **collector_tokens,
+            **telemetry_vars,
+            **required_cc_vars,
+            **required_url_vars,
+        }.items()
         if var not in dotenv
     }
     return _MissingRequiredVars(
         missing=missing,
         endpoints=frozenset(var for var in missing if var in required_url_vars),
         telemetry=frozenset(var for var in missing if var in telemetry_vars),
+        telemetry_store=frozenset(
+            var
+            for var in missing
+            if var in telemetry_refs and telemetry_refs[var].role == "store-secret"
+        ),
+        collector_tokens=frozenset(var for var in missing if var in collector_tokens),
     )
 
 
@@ -1095,8 +1293,8 @@ def _required_vars_refusal(
     # operator who adds one and expects it to reach the terminals has to be
     # told what actually happens instead.
     telemetry_note = ""
-    if gap.telemetry:
-        telemetry_missing = [var for var in gap.missing if var in gap.telemetry]
+    if gap.telemetry_store:
+        telemetry_missing = [var for var in gap.missing if var in gap.telemetry_store]
         telemetry_names = ", ".join(telemetry_missing)
         telemetry_verb = "are" if len(telemetry_missing) > 1 else "is"
         telemetry_note = (
@@ -1111,6 +1309,39 @@ def _required_vars_refusal(
             "agent read — but a web terminal will not receive it from here. A "
             "telemetry block that names its own fallback (${VAR:-default}) is "
             "not asked for here at all."
+        )
+    # Any other telemetry secret (an endpoint, a resource attribute) gets its own
+    # note: the store note names the store's accounts, which would misdescribe it.
+    other_missing = [
+        var
+        for var in gap.missing
+        if var in gap.telemetry
+        and var not in gap.telemetry_store
+        and var not in gap.collector_tokens
+    ]
+    if other_missing:
+        other_names = ", ".join(other_missing)
+        other_verb = "are" if len(other_missing) > 1 else "is"
+        telemetry_note += (
+            f" Note: {other_names} {other_verb} referenced from the telemetry block "
+            "with no default of its own, so it is handled as a credential. One "
+            ".env.users is handed to every persona alike, so this file never "
+            "carries it; the env chain is still where it belongs, but a web "
+            "terminal will not receive it from here."
+        )
+
+    # The collector's token is the one telemetry secret a terminal DOES receive
+    # from the chain, so its note says so rather than reusing the notes above.
+    collector_missing = [var for var in gap.missing if var in gap.collector_tokens]
+    collector_note = ""
+    if collector_missing:
+        collector_names = ", ".join(collector_missing)
+        collector_verb = "are" if len(collector_missing) > 1 else "is"
+        collector_note = (
+            f" Note: {collector_names} {collector_verb} the telemetry collector's bearer "
+            f"token (claude_code.telemetry.auth.token_env). Set it in {env_path}: every "
+            "terminal that exports telemetry receives it from there through its own "
+            "compose environment, never through .env.users."
         )
 
     if existing:
@@ -1132,7 +1363,7 @@ def _required_vars_refusal(
             "yourself (an existing file is never regenerated) if this deploy "
             "authenticates another way."
         )
-    return f"{opening}{telemetry_note}{shell_hint}"
+    return f"{opening}{telemetry_note}{collector_note}{shell_hint}"
 
 
 def users_env_required_problem(config: dict, project_root: str | Path) -> str | None:
@@ -1263,6 +1494,34 @@ def _write_users_env(users_env_path: Path, text: str) -> None:
     os.chmod(users_env_path, 0o600)
 
 
+def _provider_secret_vars(config: dict, project_root: Path) -> set[str]:
+    """Every variable a render could have written as some provider's auth secret.
+
+    The secret of each provider the registry or the built-in Claude Code table
+    knows, plus each ``api.providers`` entry of the deploy config and of every
+    referenced persona's rendered config. A variable in this set that a fresh
+    render no longer writes is the line an earlier render wrote for a provider
+    since switched away from — the one kind of extra line in an OSPREY-rendered
+    ``.env.users`` that is not an operator's edit. A custom provider removed
+    from every config is not in it, so its leftover key counts as the
+    operator's: the safe side, since a re-render would drop it.
+    """
+    from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS, provider_auth_secret_env
+    from osprey.models.provider_registry import get_provider_registry
+
+    names = set(get_provider_registry().list_providers()) | set(CLAUDE_CODE_PROVIDERS)
+    api_providers: dict = {}
+    for cfg in (
+        config,
+        *(loaded for _name, loaded in _readable_persona_configs(config, project_root)),
+    ):
+        declared = (cfg.get("api") or {}).get("providers")
+        if isinstance(declared, dict):
+            api_providers.update(declared)
+    names |= set(api_providers)
+    return {var for var in (provider_auth_secret_env(name, api_providers) for name in names) if var}
+
+
 def _expected_credential_vars(config: dict, project_root: Path) -> dict[str, str]:
     """The provider secrets this deploy's web terminals authenticate with.
 
@@ -1293,14 +1552,22 @@ class UsersEnvDrift:
     Attributes:
         path: The file.
         sources: The chain files it should agree with, in merge order.
-        generated: Whether the file is OSPREY's own render — it opens with the
-            banner and carries no variable the render would not write — and so
-            is OSPREY's to re-render. ``False`` means an operator authored or
-            edited it, and it is never rewritten.
+        generated: Whether the file is OSPREY's own render, and so OSPREY's
+            to re-render: it opens with the banner, and every variable in it
+            that the render would not write is a provider secret (see
+            :func:`_provider_secret_vars`) — one an earlier render wrote for a
+            provider no longer in play. ``False`` means an operator authored
+            the file or added a line of their own, and it is never rewritten.
         stale_vars: The provider secrets (see :func:`_expected_credential_vars`)
-            whose value in the file differs from the chain's. Non-empty for an
-            authored file by construction; may be empty for a generated one
-            whose drift is elsewhere (a timezone, a module variable).
+            present in both the file and a fresh render, with values that
+            differ.
+        missing_vars: The required ``claude_code`` auth secrets (the
+            ``required`` half of :func:`_claude_code_auth_secret_vars` — what a
+            deployed terminal actually authenticates with) that a fresh render
+            writes and the file lacks, as after a provider switch. An authored
+            file always has ``stale_vars`` or ``missing_vars``; a generated one
+            may have neither when its drift is elsewhere (a timezone, a module
+            variable).
         changed_vars: Every variable the file and the render disagree on —
             added, removed or changed. Names only, for the report line.
         subset: What a fresh render would carry.
@@ -1311,6 +1578,7 @@ class UsersEnvDrift:
     sources: tuple[Path, ...]
     generated: bool
     stale_vars: tuple[str, ...]
+    missing_vars: tuple[str, ...]
     changed_vars: tuple[str, ...]
     subset: dict[str, str]
     rendered: str
@@ -1329,8 +1597,9 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
     Answers ``None`` — nothing to report — when there is no ``.env.users``, no
     chain to compare it with (registry-mode hosts that were handed the file),
     the file is byte-for-byte what the chain renders, or the file is an
-    operator's own and agrees with the chain on every provider secret (whatever
-    else it carries is theirs).
+    operator's own, agrees with the chain on every provider secret it carries,
+    and lacks none of the credentials the terminals authenticate with
+    (whatever else it carries is theirs).
 
     Pure: reads the chain, the file and each referenced persona's rendered
     ``config.yml``; writes nothing. Values never leave it except inside the
@@ -1368,9 +1637,15 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
 
     present = parse_dotenv_file(users_env_path)
     # Ours to re-render only when nothing in it is the operator's: the banner
-    # says OSPREY wrote it, and a variable the render would not write is a
-    # hand edit that a re-render would silently drop.
-    generated = text.startswith(_USERS_ENV_MARKER) and set(present) <= set(subset)
+    # says OSPREY wrote it, and a variable the render would not write is a hand
+    # edit that a re-render would silently drop -- unless it is a provider
+    # secret. Those are what the render itself writes, one per provider in
+    # play, so after a provider switch the previous provider's key is the
+    # earlier render's line, not the operator's.
+    foreign = set(present) - set(subset)
+    generated = text.startswith(_USERS_ENV_MARKER) and (
+        not foreign or foreign <= _provider_secret_vars(config, root)
+    )
     expected = _expected_credential_vars(config, root)
     stale_vars = tuple(
         sorted(
@@ -1379,7 +1654,14 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
             if var in present and var in subset and present[var] != subset[var]
         )
     )
-    if not generated and not stale_vars:
+    # A credential the render writes and the file lacks: every terminal would
+    # start without it and fail authentication on its first prompt. Only the
+    # required secrets count -- an extra or keyless provider's var is not one a
+    # deployed terminal cannot run without.
+    missing_vars = tuple(
+        sorted(var for var in required_cc_vars if var in subset and var not in present)
+    )
+    if not generated and not stale_vars and not missing_vars:
         return None
     changed_vars = tuple(
         sorted(key for key in set(present) | set(subset) if present.get(key) != subset.get(key))
@@ -1389,6 +1671,7 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
         sources=tuple(sources),
         generated=generated,
         stale_vars=stale_vars,
+        missing_vars=missing_vars,
         changed_vars=changed_vars,
         subset=subset,
         rendered=rendered,
@@ -1396,22 +1679,33 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
 
 
 def _users_env_drift_refusal(drift: UsersEnvDrift) -> str:
-    """The sentence an authored, stale ``.env.users`` refuses the deploy with."""
+    """The sentence an authored ``.env.users`` with a stale or missing credential
+    refuses the deploy with. Names variables only, never a value."""
     sources_desc = " + ".join(str(path) for path in drift.sources)
-    stale = ", ".join(drift.stale_vars)
+    findings = []
+    consequences = []
+    if drift.missing_vars:
+        missing = ", ".join(drift.missing_vars)
+        findings.append(f"lacks {missing}, which the terminals authenticate with")
+        consequences.append("start without that credential")
+    if drift.stale_vars:
+        stale = ", ".join(drift.stale_vars)
+        findings.append(f"disagrees with {sources_desc} on {stale}")
+        consequences.append("authenticate with a value the rest of the deployment no longer uses")
     return (
-        f"{drift.path} disagrees with {sources_desc} on {stale}. Web terminals run "
-        f"with {USERS_ENV_FILENAME}, not .env, so every terminal would authenticate "
-        "with a value the rest of the deployment no longer uses and fail on its "
-        "first prompt. The file is not OSPREY's render (no banner, or lines the "
-        "render would not write), so it is treated as yours and was not rewritten: "
-        f"run `osprey users env --output {USERS_ENV_FILENAME}` to re-render it from "
-        "the chain, or change the line yourself."
+        f"{drift.path} {'; it also '.join(findings)}. Web terminals run with "
+        f"{USERS_ENV_FILENAME}, not .env, so every terminal would "
+        f"{' or '.join(consequences)} and fail on its first prompt. The file is "
+        "not OSPREY's render (no banner, or lines the render would not write), so "
+        "it is treated as yours and was not rewritten: run "
+        f"`osprey users env --output {USERS_ENV_FILENAME}` to re-render it from "
+        "the chain, or change the file yourself."
     )
 
 
 def users_env_drift_problem(config: dict, project_root: str | Path) -> str | None:
-    """Whether an authored ``.env.users`` would send the terminals a stale secret.
+    """Whether an authored ``.env.users`` would send the terminals a stale secret,
+    or none at all for a credential they authenticate with.
 
     The question :func:`ensure_env_production` refuses on, for the collect-all
     preflight — the same pairing as :func:`users_env_generation_problem`. Only
@@ -1442,11 +1736,13 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       the comparison below cannot see that case: a variable neither the file
       nor the chain sets is one they agree on. Otherwise the file is compared
       with what the chain renders now (:func:`users_env_drift`). A file OSPREY
-      rendered — banner, nothing added by hand — that the chain has moved away
-      from is re-rendered in place, so a key rotated in ``.env`` reaches the
-      terminals on the next ``up``. A file an operator authored or edited is
-      never rewritten; it is returned as-is unless a provider secret in it
-      disagrees with the chain, which raises (every terminal would fail
+      rendered — banner, nothing added by hand beyond a previous provider's
+      secret — that the chain has moved away from is re-rendered in place, so a
+      key rotated in ``.env`` or a switched provider reaches the terminals on
+      the next ``up``. A file an operator authored or edited is never
+      rewritten; it is returned as-is unless a provider secret in it disagrees
+      with the chain, or it lacks a credential the terminals authenticate with
+      and the render writes, either of which raises (every terminal would fail
       authentication on its first prompt, and ``.env`` would look fine). When
       such a file contains *none* of the credentials the config declares
       (``llm.api_key_env_var`` or any ``claude_code.provider`` in play — see
@@ -1469,10 +1765,11 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       of generating: the resulting file would produce healthy-looking terminals
       that fail authentication on their first prompt (authoring
       ``.env.users`` directly remains the bypass for deploys that
-      authenticate another way). A telemetry password reference that carries no
-      default of its own (see :func:`_telemetry_credential_requirements`) joins
-      the same gate: the variable it names is reported when the chain does not
-      set it, and is never written into the generated file either way. So does
+      authenticate another way). Every bare reference in the telemetry block
+      outside the account name — one that carries no default of its own (see
+      :func:`_telemetry_credential_requirements`) — joins the same gate: the
+      variable it names is reported when the chain does not set it, and is
+      never written into the generated file either way. So does
       the gateway endpoint of a provider that ships no default host (see
       :func:`_provider_endpoint_vars`), whose absence is a container that exits
       during startup rather than one that fails on its first prompt.
@@ -1630,14 +1927,14 @@ def _warn_if_env_production_lacks_credentials(
 ) -> None:
     """Warn when an existing ``.env.users`` is missing credentials the config names.
 
-    The never-clobber rule (see :func:`ensure_env_production`) means a file
-    generated before a provider change — or before the generator knew about
-    ``claude_code`` providers at all — keeps being shipped into every web
-    container verbatim. When the config declares LLM credentials and the file
-    contains none of them, the deploy would succeed with terminals that fail
-    authentication on their first prompt; this warning is the only breadcrumb.
-    Advisory by design: an operator-authored file may authenticate another
-    way, so nothing here blocks the deploy or touches the file.
+    The never-clobber rule (see :func:`ensure_env_production`) means an
+    operator's file keeps being shipped into every web container verbatim. A
+    *required* ``claude_code`` secret the chain sets and the file lacks never
+    reaches this point — :func:`users_env_drift` reports it and the deploy
+    refuses — so what is left here is the advisory remainder: the legacy
+    ``llm.api_key_env_var`` and the extra providers' secrets, which an
+    operator-authored file may legitimately do without. Nothing here blocks the
+    deploy or touches the file.
 
     Two arms, evaluated independently — either can fire on its own, and a file
     that satisfies one says nothing about the other:

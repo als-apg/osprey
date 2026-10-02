@@ -17,7 +17,7 @@ Provider Integration:
     - is_openai_compatible: True for OpenAI-compatible endpoints (CBORG, vLLM, etc.)
     - supports_native_structured_output: True=native json_schema, False=prompt fallback, None=auto-detect
     - max_tokens_param: the request parameter that carries the output-token cap (max_tokens)
-    - accepts_temperature: False when the endpoint's models refuse a caller-chosen temperature
+    - accepts_temperature(model_id): whether a request for that model carries the caller's temperature
 
     This prefers provider-declared attributes over the hardcoded fallback maps and allows custom providers to integrate
     without modifying this adapter.
@@ -176,16 +176,16 @@ def _max_tokens_param(provider: str) -> str:
     return getattr(provider_class, "max_tokens_param", "max_tokens")
 
 
-def _accepts_temperature(provider: str) -> bool:
-    """Whether a request to *provider* carries the caller's sampling temperature.
+def _accepts_temperature(provider: str, model_id: str) -> bool:
+    """Whether a request to *provider* for *model_id* carries the caller's temperature.
 
-    Read from the registered adapter class (``accepts_temperature``). An
-    unregistered name sends the temperature, which LiteLLM maps per route.
+    Asked of the registered adapter class. An unregistered name sends the
+    temperature, which LiteLLM maps per route.
     """
     from osprey.models.provider_registry import get_provider_registry
 
     provider_class = get_provider_registry().get_provider(provider)
-    return bool(getattr(provider_class, "accepts_temperature", True))
+    return provider_class is None or provider_class.accepts_temperature(model_id)
 
 
 def execute_litellm_completion(
@@ -197,7 +197,7 @@ def execute_litellm_completion(
     max_tokens: int = 1024,
     temperature: float = 0.0,
     **kwargs,
-) -> str | BaseModel | list:
+) -> str | BaseModel | list | dict:
     """Execute chat completion using LiteLLM.
 
     This is the core completion function that handles all provider-specific
@@ -209,10 +209,11 @@ def execute_litellm_completion(
     :param api_key: API key for authentication
     :param base_url: Custom API endpoint URL
     :param max_tokens: Maximum tokens to generate
-    :param temperature: Sampling temperature (not sent where the provider declares
-        accepts_temperature False)
+    :param temperature: Sampling temperature (not sent for a model the provider's
+        accepts_temperature answers False for)
     :param kwargs: Additional arguments (enable_thinking, budget_tokens, output_format, etc.)
-    :return: Response text, Pydantic model instance, or list of content blocks
+    :return: Response text, Pydantic model instance, dict for a TypedDict output, or list
+        of content blocks
     """
     # Pop chat_request and tools from kwargs (passed through from get_chat_completion)
     chat_request = kwargs.pop("chat_request", None)
@@ -233,7 +234,7 @@ def execute_litellm_completion(
         "messages": messages,
         _max_tokens_param(provider): max_tokens,
     }
-    if _accepts_temperature(provider):
+    if _accepts_temperature(provider, model_id):
         completion_kwargs["temperature"] = temperature
 
     extra_body = kwargs.get("extra_body")
@@ -448,9 +449,8 @@ def _supports_native_structured_output(litellm_model: str, provider: str) -> boo
     from osprey.models.provider_registry import get_provider_registry
 
     provider_class = get_provider_registry().get_provider(provider)
-    declared = getattr(provider_class, "supports_native_structured_output", None)
-    if declared is not None:
-        return declared
+    if provider_class is not None and provider_class.supports_native_structured_output is not None:
+        return provider_class.supports_native_structured_output
 
     try:
         return litellm.supports_response_schema(model=litellm_model)
@@ -613,7 +613,8 @@ def _execute_ollama_completion(
 
     # Extract content - works correctly even with thinking field present
     data = response.json()
-    return data["message"]["content"]
+    content: str = data["message"]["content"]
+    return content
 
 
 def _execute_ollama_structured_output(

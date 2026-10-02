@@ -131,6 +131,42 @@ def test_nothing_outside_the_include_table_is_copied(trees):
     assert sorted(p.name for p in copied) == ["MANIFEST.jsonl", "s.jsonl"]
 
 
+def test_dot_named_files_in_the_audit_tree_are_not_copied(trees):
+    sources, dest = trees
+    _put(sources / "audit/sidecar/auth_sidecar.jsonl", "{}\n")
+    _put(sources / "audit/sidecar/.revoked-sessions.json", '{"v": 1, "revoked": {}}')
+    _put(sources / "audit/sidecar/.revoked-sessions.json.x1.tmp", "{")
+    _put(sources / "audit/.stray.json", "{}")
+
+    result = run_pass(sources, dest, now=DAY1)
+
+    assert result.files == 1
+    assert result.errors == []
+    assert (dest / "2026-09-24/audit/sidecar/auth_sidecar.jsonl").read_text() == "{}\n"
+    named = [r["source"] for r in _lines(dest) if "source" in r]
+    assert not [s for s in named if Path(s).name.startswith(".")]
+
+
+def test_a_dot_named_ledger_is_still_copied(trees):
+    sources, dest = trees
+    _put(sources / "audit/ident/.odd.jsonl", "{}\n")
+
+    result = run_pass(sources, dest, now=DAY1)
+
+    assert result.files == 1
+    assert (dest / "2026-09-24/audit/ident/.odd.jsonl").read_text() == "{}\n"
+
+
+def test_a_dot_named_file_outside_the_audit_tree_follows_its_kinds_table(trees):
+    sources, dest = trees
+    _put(sources / "terminal_agent_data/alice/artifacts/.state.json", "{}")
+
+    result = run_pass(sources, dest, now=DAY1)
+
+    assert result.files == 1
+    assert (dest / "2026-09-24/terminal_agent_data/alice/artifacts/.state.json").exists()
+
+
 def test_an_unknown_kind_is_skipped_with_a_warning(trees, caplog):
     sources, dest = trees
     _put(sources / "mystery/x/projects/a.jsonl", "x")

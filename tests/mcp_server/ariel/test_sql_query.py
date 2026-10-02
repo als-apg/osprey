@@ -104,9 +104,8 @@ class TestValidateSqlQuery:
             )
 
     def test_comment_injection(self):
-        """SQL comments don't bypass keyword detection."""
-        # The query body still contains DROP after the comment
-        with pytest.raises(ValueError, match="DROP"):
+        """A comment cannot hide a keyword: the comment itself is refused first."""
+        with pytest.raises(ValueError, match="Line comments are not allowed"):
             validate_sql_query("SELECT * FROM enhanced_entries -- DROP TABLE foo\n DROP TABLE bar")
 
 

@@ -110,6 +110,48 @@ and injector modules in ``src/osprey/cli/`` so a profile can switch the new
 service on. Pinning test: ``tests/bridges/test_ports.py``. Deployers start
 from :doc:`/how-to/agent-interfaces/chat-bridges/index`.
 
+.. _extending-trigger-source:
+
+Trigger source
+--------------
+
+A trigger source is what wakes the event dispatcher, as a webhook call, a
+fixed interval or an EPICS channel crossing does; a message queue or a file
+drop would each be a new one. Write a class matching
+``osprey.dispatch.sources.base.TriggerSource``: a ``source_type`` class
+attribute, ``register_routes``, which runs before the dispatcher's app is built
+and does something only for a source that serves HTTP routes, and ``start`` and
+``stop``, which run with the event loop going. ``start`` receives the triggers
+that name this source and a fire callback. The source reads each trigger's own
+``source_config`` and awaits the callback with the trigger and a payload
+mapping for every event it detects. Stamp the event's instant as a
+timezone-aware ``datetime``: the dispatcher stores it as given and shows it to
+the agent in the facility zone, while a time carried as text reaches the agent
+unchanged. The callback returns the queued run's id, returns ``None`` when the
+trigger is disabled, and raises
+``osprey.dispatch.pool.QueueFullError`` when the queue is full; what happens
+then is the source's decision, and every shipped source logs the event and
+drops it. A fire from a source is attributed to nobody.
+
+This seam is the exception to the registry-module paragraph that opens this
+page: sources are not registered in a registry module. They are found through a Python package
+entry point, in the group OSPREY declares its own three under ---
+``[project.entry-points."osprey.trigger_sources"]`` in ``pyproject.toml`` ---
+and the entry point's name is the ``source:`` value a trigger writes.
+``osprey.dispatch.source_registry.SourceRegistry`` loads the group when the
+dispatcher starts, and the dispatcher does not start when an entry point's
+class lacks the three methods, or when one name is claimed by two different
+classes. The package has to be installed wherever the dispatcher runs: a
+dispatcher started with ``python -m osprey.dispatch`` finds it in that
+environment, while the image OSPREY builds for the containerized dispatcher
+installs OSPREY alone, so a container deployment names an image that carries
+the package through ``services.event_dispatcher.image``
+(:ref:`deployment-image-overrides`). Copy
+``src/osprey/dispatch/sources/cron.py`` for a source with no routes, or
+``src/osprey/dispatch/sources/webhook.py`` for one that serves them. Pinning
+test: ``tests/dispatch/test_source_registry.py``; deployer view:
+:ref:`event-dispatch-trigger-sources`.
+
 .. _extending-ariel:
 
 ARIEL
@@ -177,20 +219,126 @@ and may not do at runtime --- notably the proxy's header stripping, which
 rules out backends that authenticate their own callers --- is on
 :doc:`/how-to/web-terminal/panels`.
 
+.. _extending-login-service:
+
+Login service
+-------------
+
+The login service is a closed seam, not a plugin point. It serves exactly the
+methods in ``osprey.services.auth_sidecar.methods.SUPPORTED_METHODS``, and a
+facility registers no other. A site meets it at two places. One is an OIDC
+issuer: a sign-in that is not OIDC is brokered to one. The other is the answer
+nginx asks of it, ``GET /verify`` with the four headers named in
+``osprey.services.auth_sidecar.identity_headers``, which every terminal decodes
+through ``osprey.interfaces.common_middleware.forwarded_identity``. A new login
+method is a framework change: it joins ``SUPPORTED_METHODS`` and the render
+postures in ``osprey.deployment.web_terminals.render.SUPPORTED_AUTH_METHODS``
+together, with an audit category of its own. Pinning tests:
+``tests/services/auth_sidecar/test_methods_parity.py`` for the method set,
+``tests/services/auth_sidecar/test_verify.py`` for the answer, and
+``tests/deployment/web_terminals/test_nginx_auth_surface.py`` for nginx's
+side. Deployer view: :doc:`/how-to/web-terminal/multi-user/login`.
+
 .. _extending-lume-model:
 
 LUME model
 ----------
 
-The virtual accelerator serves whatever physics you hand it, as long as that
-physics is a ``lume.model.LUMEModel``. The floor is
+The virtual accelerator serves one ``lume.model.LUMEModel``, chosen by the
+module the container runs. The shipped
+``osprey.services.virtual_accelerator.entrypoint`` builds
+``osprey.services.virtual_accelerator.model.pyat.PyATRingModel`` over the
+served tree's lattice, or the floor,
 ``osprey.services.virtual_accelerator.serving.model_stub.NullModel``, which
-serves a channel list and no physics at all; at the other end,
-``src/osprey/services/virtual_accelerator/serving/write_path.py:182`` shows a
-shipped model wrapped so that setpoint writes carry a calibration and push
-recomputed readings back onto their channels. The seam is guarded in both
-directions: ``tests/va/test_facility_seam.py`` pins that a facility without a
-lattice boots with no accelerator-physics imports on the path at all, and
-``tests/va/test_pyat_ring_model.py`` covers the shipped ring model. Deployers
-configure the result in
-:doc:`/how-to/control-systems/use-virtual-accelerator`.
+serves a channel list and no physics. A different pyAT deck needs no code (see
+"Bringing your own model" on :doc:`/architecture/virtual-accelerator`). A
+different backend is a replacement entrypoint module named in
+``VA_ENTRYPOINT_MODULE``. For a shipped model wrapped so that setpoint writes
+carry a calibration and push recomputed readings back onto their channels, see
+``osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel``.
+
+A replacement entrypoint honours the same contract as the shipped one, which
+is its reference implementation:
+
+- **Runnable and importable.** The container runs it as
+  ``python -u -m <module>``, so it is importable in the image and has a
+  ``__main__`` guard, or is a package with a ``__main__.py``. Its image is one
+  the facility builds on top of OSPREY's, because the stock image installs
+  OSPREY and nothing else.
+- **The same inputs.** The data directory is ``VA_DATA_DIR``, default
+  ``/data/simulation``. The channel manifest ``VA_CHANNELS_FILE`` is required
+  and resolved against that directory, and the manifest is the served
+  namespace. ``VA_LATTICE`` and ``VA_STATE_DIR`` are set too. Channel Access is
+  served on ``EPICS_CAS_SERVER_PORT``, which the image's command exports from
+  ``EPICS_CA_SERVER_PORT``, and pvAccess on ``EPICS_PVAS_SERVER_PORT``. The
+  deployment's health check is a TCP connect to the Channel Access port and
+  nothing more.
+- **Clamp writes to the drive bands.** The shipped entrypoint reads
+  ``channel_limits.json`` from the data directory and hands the bands to the
+  runner, which clamps every written value into its band before anything else
+  happens to it (the clamp is
+  ``osprey.services.virtual_accelerator.serving.write_path.clamp_into``). A
+  replacement that builds its own server without them serves setpoints with no
+  band on the IOC side. The connector's own ``limits_checking`` is separate and
+  unchanged.
+- **Announce readiness.** Once every boot value is on the wire, print one line
+  starting with ``osprey.services.virtual_accelerator.entrypoint.READY_MARKER``
+  (``virtual accelerator IOC serving PVs``), followed by ``: <N> channels``.
+  The image boot check and the container test fixtures wait on that line and
+  read the count out of it.
+- **Leave on SIGTERM.** The image's command ``exec``\ s Python, so the module
+  is the container's first process and receives ``docker stop``'s SIGTERM
+  itself. A first process with no handler for it ignores it and is killed when
+  the stop timeout runs out. The shipped entrypoint installs handlers for
+  SIGINT and SIGTERM once its servers are up, and they leave through the
+  runner's own exit.
+- **One module for every instance.** With a live stand-in, both containers
+  run the same image and the same ``VA_ENTRYPOINT_MODULE``.
+
+The seam is guarded in both directions: ``tests/va/test_facility_seam.py``
+pins that a facility without a lattice boots with no accelerator-physics
+imports on the path at all, and ``tests/va/test_pyat_ring_model.py`` covers
+the shipped ring model. How to deploy a replacement is in
+:ref:`va-serving-your-own-model`.
+
+.. _extending-agent-harness:
+
+Agent harness
+-------------
+
+The agent harness is not a seam. Osprey ships one harness, Claude Code, and
+there is no configuration key or base class for choosing another. What the
+codebase keeps instead is a boundary: the code specific to Claude Code lives in
+one package, ``src/osprey/agent_runner/``, and the rest of the framework reaches
+the agent through it. That package owns:
+
+- the Agent SDK calls. ``osprey.agent_runner.run_query`` and
+  ``osprey.agent_runner.stream_query`` run one prompt,
+  ``osprey.agent_runner.agent_session`` holds a conversation of many turns, and
+  each hands its caller the plain event records of
+  ``osprey.agent_runner.events`` rather than SDK types;
+- the command line that starts the CLI: its program name, its flags and the
+  resolution of its bare name (``src/osprey/agent_runner/launcher.py``);
+- the provider and model environment the agent is launched with
+  (``src/osprey/agent_runner/provider_env.py``);
+- the first-run state the CLI expects in ``.claude.json``, and the suffix that
+  names each user's state volume (``src/osprey/agent_runner/claude_state.py``);
+- the catalog of files a build writes for the CLI
+  (``src/osprey/agent_runner/build_artifacts/``);
+- the built-in tool names every deny list is made of
+  (``src/osprey/agent_runner/tool_names.py``), and the permission hook and
+  callback of a dispatched run (``src/osprey/agent_runner/tool_policy.py``).
+
+The templates a build renders for the CLI --- settings, hooks, rules, agents and
+skills --- are Claude Code's own file formats and stay with the other templates,
+in ``src/osprey/templates/claude_code/``. The deny list in the rendered settings
+comes from ``src/osprey/agent_runner/tool_names.py``.
+
+A lint holds the boundary. Ruff's banned-api rule (``TID251``, configured in
+``pyproject.toml``) refuses an import of ``claude_agent_sdk`` anywhere in
+``src/`` or ``packages/`` outside the adapter, and the unit suite refuses the
+same import, including the dynamic imports ruff cannot see. No module is exempt
+by name. Tests and developer scripts sit outside the shipped trees and drive the
+SDK directly. New code that needs the agent calls the adapter; a Claude-specific
+need the adapter does not meet yet is added to the adapter, not written inline
+where it is needed. Pinning test: ``tests/test_harness_fence.py``.

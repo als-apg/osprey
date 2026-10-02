@@ -25,7 +25,8 @@ from osprey.deployment.web_terminals import env_production
 from osprey.utils.dotenv import ENV_USERS_BANNER, parse_dotenv_file
 
 _CC_CONFIG = {
-    "facility": {"timezone": "UTC"},
+    "facility": {},
+    "system": {"timezone": "UTC"},
     "claude_code": {"provider": "cborg"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -150,7 +151,8 @@ def test_keyless_provider_drift_is_not_a_secret_drift(tmp_path):
     """OLLAMA_API_KEY differing cannot produce an authentication failure, so
     an authored file is not refused over it."""
     config = {
-        "facility": {"timezone": "UTC"},
+        "facility": {},
+        "system": {"timezone": "UTC"},
         "api": {"providers": {"ollama": {"base_url": "http://localhost:11434"}}},
         "claude_code": {"provider": "ollama"},
         "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
@@ -173,3 +175,120 @@ def test_the_preflight_report_carries_the_drift_refusal(tmp_path):
     blocking, _advisories = web_terminal_preflight_report(_CC_CONFIG, repo_root=tmp_path)
 
     assert any("CBORG_API_KEY" in problem for problem, _remedy in blocking)
+
+
+# A provider switch renames the secret: the render now writes a variable the
+# file never carried, and stops writing one it did.
+_SWITCHED_CONFIG = {**_CC_CONFIG, "claude_code": {"provider": "anthropic"}}
+
+
+def test_provider_switch_rerenders_an_unedited_render(tmp_path):
+    """The file OSPREY wrote for the old provider is still OSPREY's: the old
+    provider's key is one its own render put there, not a hand edit, so the
+    switch re-renders the file instead of turning it into an authored one."""
+    _generate(tmp_path, {"CBORG_API_KEY": _STALE})
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": _STALE, "ANTHROPIC_API_KEY": _FRESH})
+
+    drift = env_production.users_env_drift(_SWITCHED_CONFIG, tmp_path)
+    assert drift is not None and drift.generated is True
+
+    path = env_production.ensure_env_production(_SWITCHED_CONFIG, tmp_path)
+    present = parse_dotenv_file(path)
+    assert present.get("ANTHROPIC_API_KEY") == _FRESH
+    assert "CBORG_API_KEY" not in present
+
+
+def test_authored_file_missing_the_new_providers_secret_refuses(tmp_path):
+    """A file without the credential the terminals authenticate with is every
+    terminal opening on a login prompt, whoever wrote it. An authored file is
+    not rewritten, so the deploy refuses, naming the variable and the remedy."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": _FRESH})
+    authored = f"CBORG_API_KEY={_STALE}\nTZ=UTC\n"
+    (tmp_path / ".env.users").write_text(authored, encoding="utf-8")
+
+    drift = env_production.users_env_drift(_SWITCHED_CONFIG, tmp_path)
+    assert drift is not None
+    assert drift.generated is False
+    assert drift.missing_vars == ("ANTHROPIC_API_KEY",)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        env_production.ensure_env_production(_SWITCHED_CONFIG, tmp_path)
+    message = str(excinfo.value)
+    assert "ANTHROPIC_API_KEY" in message
+    assert "osprey users env --output .env.users" in message
+    assert _STALE not in message and _FRESH not in message
+    assert (tmp_path / ".env.users").read_text(encoding="utf-8") == authored
+
+
+def test_edited_render_missing_the_new_providers_secret_refuses(tmp_path):
+    """Once the operator has edited the render, the old key could be theirs:
+    the file is authored, and the missing credential refuses the deploy."""
+    rendered = _generate(tmp_path, {"CBORG_API_KEY": _STALE})
+    (tmp_path / ".env.users").write_text(rendered + "MY_OWN=thing\n", encoding="utf-8")
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": _FRESH})
+
+    drift = env_production.users_env_drift(_SWITCHED_CONFIG, tmp_path)
+    assert drift is not None and drift.generated is False
+    assert drift.missing_vars == ("ANTHROPIC_API_KEY",)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+        env_production.ensure_env_production(_SWITCHED_CONFIG, tmp_path)
+
+
+def test_extra_line_beside_the_old_providers_key_keeps_the_file_authored(tmp_path):
+    """Only a provider secret is an earlier render's line. Any other variable the
+    render would not write is the operator's, so the file stays theirs and the
+    missing credential refuses the deploy instead of a re-render dropping it."""
+    legacy = ENV_USERS_BANNER + f"CBORG_API_KEY={_STALE}\nHTTPS_PROXY=http://proxy:3128\n"
+    (tmp_path / ".env.users").write_text(legacy, encoding="utf-8")
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": _FRESH})
+
+    assert env_production.users_env_drift_problem(_SWITCHED_CONFIG, tmp_path) is not None
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+        env_production.ensure_env_production(_SWITCHED_CONFIG, tmp_path)
+    assert (tmp_path / ".env.users").read_text(encoding="utf-8") == legacy
+
+
+def test_leftover_key_of_an_unknown_provider_keeps_the_file_authored(tmp_path):
+    """A custom provider removed from every config is no longer known, so its
+    leftover key cannot be told from an operator's line: the safe answer is
+    to refuse with the remedy rather than re-render it away."""
+    legacy = ENV_USERS_BANNER + f"GONE_GATEWAY_TOKEN={_STALE}\n"
+    (tmp_path / ".env.users").write_text(legacy, encoding="utf-8")
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": _FRESH})
+
+    drift = env_production.users_env_drift(_SWITCHED_CONFIG, tmp_path)
+    assert drift is not None and drift.generated is False
+    assert drift.missing_vars == ("ANTHROPIC_API_KEY",)
+
+
+def test_custom_provider_key_from_a_config_counts_as_a_render_line(tmp_path):
+    """A provider the config's ``api.providers`` declares is known: switching
+    away from it to a built-in leaves a key the earlier render wrote."""
+    config = {
+        **_SWITCHED_CONFIG,
+        "api": {"providers": {"site-gw": {"base_url": "https://gw.example"}}},
+    }
+    legacy = ENV_USERS_BANNER + f"SITE_GW_API_KEY={_STALE}\n"
+    (tmp_path / ".env.users").write_text(legacy, encoding="utf-8")
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": _FRESH})
+
+    path = env_production.ensure_env_production(config, tmp_path)
+
+    present = parse_dotenv_file(path)
+    assert present.get("ANTHROPIC_API_KEY") == _FRESH
+    assert "SITE_GW_API_KEY" not in present
+
+
+def test_health_reports_the_missing_credential(tmp_path):
+    """``osprey health`` asks the same function, so it no longer reports a file
+    without the terminals' credential as agreeing with .env."""
+    from osprey.health.core.file_system import _check_users_env
+
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": _FRESH})
+    (tmp_path / ".env.users").write_text(f"CBORG_API_KEY={_STALE}\n", encoding="utf-8")
+
+    [row] = _check_users_env(_SWITCHED_CONFIG, tmp_path)
+
+    assert row.status.name == "ERROR"
+    assert "ANTHROPIC_API_KEY" in row.message
+    assert _STALE not in row.message and _FRESH not in row.message

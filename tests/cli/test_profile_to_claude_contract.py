@@ -598,6 +598,8 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
       NOT in allow), PreToolUse approval hook under exactly
       mcp__phoebus2__phoebus_drive (drive-only — no wildcard rule).
     * hook_config.json: both phoebus prefixes in server/approval prefixes.
+    * phoebus.agent_access is read_write, because only a deployment that offers
+      the drive renders it into ask.
     """
     manager = TemplateManager()
     project = _create_project(
@@ -615,6 +617,7 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
         project / "config.yml",
         {
             "claude_code.servers.phoebus.enabled": True,
+            "phoebus.agent_access": "read_write",
             "claude_code.servers.phoebus2.extends": "phoebus",
             "claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL": (
                 "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
@@ -1206,6 +1209,27 @@ def test_killswitch_deny_absent_when_writes_enabled(tmp_path):
         },
     )
     assert "mcp__controls__channel_write" not in _rendered_deny(project)
+
+
+@pytest.mark.parametrize("writes_enabled", [False, True], ids=["writes-off", "writes-on"])
+def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
+    tmp_path, writes_enabled
+):
+    """The read-only session refuses ``Monitor`` and ``EnterWorktree``, and so
+    does a session with writes on, exactly as for ``Bash`` and ``Edit``.
+
+    The control-system write posture decides only the MCP write tools; a
+    background shell and a new worktree on disk are on the built-in floor in
+    both postures.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        f"write-floor-{'on' if writes_enabled else 'off'}",
+        {"control_system.writes_enabled": writes_enabled},
+    )
+    deny = _rendered_deny(project)
+    for tool in ("Bash", "Edit", "Monitor", "EnterWorktree"):
+        assert tool in deny, f"{tool} missing from the rendered deny {deny}"
 
 
 def test_killswitch_dedupe_when_profile_also_denies(tmp_path):

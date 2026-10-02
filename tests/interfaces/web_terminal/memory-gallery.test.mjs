@@ -44,7 +44,7 @@ function stubFetch(writeResponse) {
     vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => {
       if (init?.method && init.method !== 'GET') return writeResponse;
       if (typeof url === 'string' && url.endsWith('/api/claude-memory')) {
-        return { ok: true, json: async () => ({ files: [FILE] }) };
+        return { ok: true, json: async () => ({ files: [FILE], line_limit: 200, line_warning: 180 }) };
       }
       if (typeof url === 'string' && url.includes('/api/claude-memory/')) {
         return { ok: true, json: async () => ({ content: 'hello' }) };
@@ -70,6 +70,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  document.getElementById('settings-drawer')?.dispatchEvent(new Event('drawer:close'));
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   delete window.__OSPREY_PREFIX__;
@@ -138,6 +139,32 @@ describe('promptCreateFile', () => {
     const fetchMock = /** @type {import('vitest').Mock} */ (fetch);
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
     expect(postCall?.[0]).toBe('/u/alice/api/claude-memory');
+  });
+});
+
+describe('line gauge', () => {
+  test('reads the limit and warning threshold the server serves', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          files: [{ filename: 'MEMORY.md', is_primary: true, line_count: 45, size: 900 }],
+          line_limit: 50,
+          line_warning: 40,
+        }),
+      }))
+    );
+
+    initMemoryGallery();
+    document.getElementById('tab-memory')?.dispatchEvent(new Event('drawer:tab-activate'));
+    await flush();
+
+    const fill = /** @type {HTMLElement} */ (document.querySelector('.memory-line-gauge-fill'));
+    expect(fill.classList.contains('memory-gauge-warn')).toBe(true);
+    expect(fill.classList.contains('memory-gauge-over')).toBe(false);
+    const gauge = /** @type {HTMLElement} */ (document.querySelector('.memory-line-gauge'));
+    expect(gauge.title).toBe('45/50 lines (truncated after 50)');
   });
 });
 

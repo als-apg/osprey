@@ -33,7 +33,8 @@ import pytest
 
 from osprey.services.virtual_accelerator.bindings import Binding, load_bindings
 from osprey.services.virtual_accelerator.lattice.calibration import to_physics
-from osprey.services.virtual_accelerator.lattice.response import orbit_response
+from osprey.services.virtual_accelerator.lattice.response import orbit_response, orbit_responses
+from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError
 from osprey.services.virtual_accelerator.manifest import PARTITION_PYAT_COUPLED
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
@@ -642,6 +643,212 @@ class TestTheSweepIsBipolarAndRolledBack:
 
         for cell in range(1, CELLS + 1):
             assert _axis(again, cell, "x") == pytest.approx(_axis(first, cell, "x"), rel=1e-12)
+
+
+# -- many actuators in one sweep ---------------------------------------------
+
+#: Three actuators of three shapes, each swept by its own width.
+SWEEPS: tuple[tuple[str, float], ...] = ((H_CORR, 2.0), (V_CORR, 1.5), (SPLIT_CORR, 3.0))
+
+
+def _bits(result: dict[str, tuple[float, float]] | OrbitSolveError) -> Any:
+    """A result as the exact bits it carries, or the refusal it is."""
+    if isinstance(result, OrbitSolveError):
+        return ("refused", str(result))
+    return {element: tuple(value.hex() for value in pair) for element, pair in result.items()}
+
+
+def _state(model: PyATRingModel, served: _Served) -> dict[str, Any]:
+    """Every corrector kick, held setpoint and monitor reading, as exact bits."""
+    return {
+        "kicks": {
+            _corrector(cell): model.lattice[model.element_index(_corrector(cell))]
+            .KickAngle.tobytes()
+            .hex()
+            for cell in range(1, CELLS + 1)
+        },
+        "held": {address: float(model.get(address)).hex() for address, _ in SWEEPS},
+        "monitors": {
+            monitor.setpoint_address: float(model.get(monitor.setpoint_address)).hex()
+            for monitor in served.monitors()
+        },
+    }
+
+
+def _one_at_a_time(model: PyATRingModel, served: _Served) -> list[Any]:
+    """The reference: one :func:`orbit_response` per actuator, each on its own."""
+    results: list[Any] = []
+    for address, delta in SWEEPS:
+        try:
+            results.append(
+                orbit_response(model, served.bindings[address], delta, monitors=served.monitors())
+            )
+        except OrbitSolveError as exc:
+            results.append(exc)
+    return results
+
+
+def _together(model: PyATRingModel, served: _Served) -> list[Any]:
+    """The same actuators through one :func:`orbit_responses` call."""
+    return orbit_responses(
+        model,
+        [(served.bindings[address], delta) for address, delta in SWEEPS],
+        monitors=served.monitors(),
+    )
+
+
+def _held_off_zero(model: PyATRingModel) -> PyATRingModel:
+    """Hold two correctors away from zero, so no pair of arms straddles it."""
+    model.set({H_CORR: 3.0, V_CORR: -1.0})
+    return model
+
+
+def _losing(model: PyATRingModel, address: str, value: float) -> PyATRingModel:
+    """Refuse every write that sets ``address`` to ``value``, as a lost orbit."""
+    original = model.set
+
+    def refusing(values: dict) -> None:
+        if values.get(address) == value:
+            raise OrbitSolveError(f"{address} at {value} has no stable closed orbit")
+        original(values)
+
+    model.set = refusing  # type: ignore[method-assign]
+    return model
+
+
+def _recording(model: PyATRingModel) -> list[dict]:
+    """Record every batch written to ``model``, in order."""
+    written: list[dict] = []
+    original = model.set
+
+    def record(values: dict) -> None:
+        written.append(dict(values))
+        original(values)
+
+    model.set = record  # type: ignore[method-assign]
+    return written
+
+
+class TestASweepOfManyActuators:
+    """Many actuators in one call answer bit for bit what one call each does."""
+
+    def test_every_bit_is_the_one_a_sweep_per_actuator_returns(self, served: _Served) -> None:
+        reference = _held_off_zero(served.boot())
+        together = _held_off_zero(served.boot())
+
+        expected = [_bits(result) for result in _one_at_a_time(reference, served)]
+        got = [_bits(result) for result in _together(together, served)]
+
+        assert got == expected
+        assert _state(together, served) == _state(reference, served)
+
+    def test_each_actuator_costs_two_solves_and_one_write_back_closes_the_pass(
+        self, served: _Served
+    ) -> None:
+        """Each write-back shares its write with the next actuator's first arm."""
+        model = _held_off_zero(served.boot())
+        written = _recording(model)
+
+        _together(model, served)
+
+        (h, dh), (v, dv), (s, ds) = SWEEPS
+        assert written == [
+            {h: 3.0 + dh / 2},
+            {h: 3.0 - dh / 2},
+            {h: 3.0, v: -1.0 + dv / 2},
+            {v: -1.0 - dv / 2},
+            {v: -1.0, s: 0.0 + ds / 2},
+            {s: 0.0 - ds / 2},
+            {s: 0.0},
+        ]
+
+    @pytest.mark.parametrize(
+        "arm", [pytest.param(0.5, id="first-arm"), pytest.param(-0.5, id="second-arm")]
+    )
+    def test_an_arm_that_loses_the_orbit_is_the_same_refusal(
+        self, served: _Served, arm: float
+    ) -> None:
+        refused = -1.0 + arm * dict(SWEEPS)[V_CORR]
+        reference = _losing(_held_off_zero(served.boot()), V_CORR, refused)
+        together = _losing(_held_off_zero(served.boot()), V_CORR, refused)
+
+        expected = [_bits(result) for result in _one_at_a_time(reference, served)]
+        got = [_bits(result) for result in _together(together, served)]
+
+        assert expected[1][0] == "refused"
+        assert got == expected
+        assert _state(together, served) == _state(reference, served)
+
+    def test_a_write_back_that_loses_the_orbit_is_the_same_refusal(self, served: _Served) -> None:
+        """The refused write-back is the actuator's own result; the next one is
+        still measured, from the state a sweep per actuator leaves it in."""
+        reference = _losing(_held_off_zero(served.boot()), V_CORR, -1.0)
+        together = _losing(_held_off_zero(served.boot()), V_CORR, -1.0)
+
+        expected = [_bits(result) for result in _one_at_a_time(reference, served)]
+        results = _together(together, served)
+
+        assert isinstance(results[1], OrbitSolveError)
+        assert not isinstance(results[2], OrbitSolveError)
+        assert [_bits(result) for result in results] == expected
+        assert _state(together, served) == _state(reference, served)
+
+    def test_a_failed_reading_writes_every_moved_setpoint_back(self, served: _Served) -> None:
+        model = _held_off_zero(served.boot())
+        before = _state(model, served)
+        monitor_addresses = {monitor.setpoint_address for monitor in served.monitors()}
+        original = model.get
+        reads = 0
+
+        def failing_third_read(names: list[str] | str) -> Any:
+            nonlocal reads
+            asked = {names} if isinstance(names, str) else set(names)
+            if asked & monitor_addresses:
+                reads += 1
+                if reads == 3:
+                    raise RuntimeError("the monitor read failed")
+            return original(names)
+
+        model.get = failing_third_read  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="the monitor read failed"):
+            _together(model, served)
+
+        model.get = original  # type: ignore[method-assign]
+        after = _state(model, served)
+        assert after["kicks"] == before["kicks"]
+        assert after["held"] == before["held"]
+
+    def test_an_actuator_swept_twice_is_refused_before_anything_is_written(
+        self, served: _Served
+    ) -> None:
+        model = served.boot()
+        written = _recording(model)
+
+        with pytest.raises(ValueError, match="swept twice"):
+            orbit_responses(
+                model,
+                [(served.bindings[H_CORR], DELTA_A), (served.bindings[H_CORR], DELTA_A)],
+                monitors=served.monitors(),
+            )
+
+        assert written == []
+
+    def test_a_refused_later_actuator_writes_nothing(self, served: _Served) -> None:
+        model = served.boot()
+        written = _recording(model)
+
+        with pytest.raises(ValueError, match="read only"):
+            orbit_responses(
+                model,
+                [
+                    (served.bindings[H_CORR], DELTA_A),
+                    (served.bindings[_monitor_address(1, "x")], DELTA_A),
+                ],
+                monitors=served.monitors(),
+            )
+
+        assert written == []
 
 
 # -- refusals ----------------------------------------------------------------

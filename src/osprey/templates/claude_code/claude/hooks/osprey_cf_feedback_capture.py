@@ -50,20 +50,10 @@ import json
 import os
 import sys
 import tempfile
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, get_repo_root, log_hook
-
-# The framework DEFAULT agent-data root, imported rather than spelled out here
-# so the two cannot drift apart. It does not follow a project that overrides
-# `agent_data.base_dir` — this hook and the channel-finder app write the same
-# two stores, and under an overridden root the capture would write where
-# nothing reads. The fallback covers a hook running with osprey off the path,
-# the one case where guessing beats crashing.
-try:
-    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _AGENT_DATA_ROOT
-except Exception:  # pragma: no cover - hooks must never crash the agent
-    _AGENT_DATA_ROOT = "var/agent_data"
+from osprey_hook_log import get_hook_input, get_repo_root, log_hook, repo_agent_data_root
 
 # Top-level guard: never crash the agent
 hook_input = None
@@ -139,8 +129,10 @@ try:
     if isinstance(tool_response, dict):
         if "row_count" in tool_response:
             graph_envelope = tool_response
-            total = tool_response.get("row_count")
-            if not isinstance(total, int) or isinstance(total, bool):
+            row_count = tool_response.get("row_count")
+            if isinstance(row_count, int) and not isinstance(row_count, bool):
+                total = row_count
+            else:
                 rows = tool_response.get("rows")
                 total = len(rows) if isinstance(rows, list) else 0
         else:
@@ -171,10 +163,12 @@ try:
         log_hook("cf-feedback-capture", hook_input, status="no-cwd")
         sys.exit(0)
 
-    # Runtime state lives under the agent-data root: a project's data/ tree is
-    # build-owned and checksummed into the manifest, and build/ is wiped and
-    # re-rendered by every build.
-    store_path = os.path.join(repo_root, _AGENT_DATA_ROOT, "feedback", "pending_reviews.json")
+    # Runtime state lives under agent_data.base_dir on the repo: a project's
+    # data/ tree is build-owned and checksummed into the manifest, and build/ is
+    # wiped and re-rendered by every build. The channel-finder app's
+    # pending-review store reads this file, and the two ends resolve it from the
+    # same key.
+    store_path = os.path.join(repo_agent_data_root(hook_input), "feedback", "pending_reviews.json")
 
     # ----------------------------------------------------------------
     # 5. Extract fields from hook input
@@ -291,7 +285,7 @@ try:
             fcntl.flock(lf, fcntl.LOCK_EX)
             try:
                 # Load existing data
-                data = {"version": 1, "items": {}}
+                data: dict[str, Any] = {"version": 1, "items": {}}
                 if os.path.exists(store_path):
                     try:
                         with open(store_path) as f:

@@ -21,10 +21,19 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.ownership import (
+    get_user_owned,
+    update_config_add_user_owned,
+    update_config_remove_user_owned,
+    update_manifest_add_user_owned,
+    update_manifest_remove_user_owned,
+)
 from osprey.audit.envelope import POSTURE_SOURCE_APP
 from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, record_protected_refusal
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.manifest import load_project_manifest, recorded_claude_md_template
 from osprey.interfaces.web_terminal.ownership import (
     OwnershipMode,
     OwnershipStore,
@@ -37,14 +46,6 @@ from osprey.interfaces.web_terminal.ownership import (
     rehydrate,
     reserved_write_channel,
     resolve_ownership,
-)
-from osprey.services.build_artifacts.catalog import BuildArtifact, BuildArtifactCatalog
-from osprey.services.build_artifacts.ownership import (
-    get_user_owned,
-    update_config_add_user_owned,
-    update_config_remove_user_owned,
-    update_manifest_add_user_owned,
-    update_manifest_remove_user_owned,
 )
 from osprey.utils.config import resolve_env_vars
 
@@ -152,7 +153,9 @@ class ScaffoldGalleryService:
 
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
-        self._registry = BuildArtifactCatalog.default()
+        self._registry = BuildArtifactCatalog.default(
+            claude_md_template=recorded_claude_md_template(load_project_manifest(project_dir))
+        )
         self._ownership = resolve_ownership(project_dir)
         self._manager: TemplateManager | None = None
         self._ctx: dict[str, Any] | None = None
@@ -163,7 +166,8 @@ class ScaffoldGalleryService:
         if not config_file.exists():
             return {}
         with open(config_file, encoding="utf-8") as f:
-            return resolve_env_vars(yaml.safe_load(f) or {})
+            config = resolve_env_vars(yaml.safe_load(f) or {})
+        return config if isinstance(config, dict) else {}
 
     # ── Ownership ─────────────────────────────────────────────────────
 
@@ -942,7 +946,8 @@ class ScaffoldGalleryService:
                 "message": still_supplied_by_profile_message(str(held.path)),
             }
 
-        is_custom = self._registry.get(name) is None
+        framework_art = self._registry.get(name)
+        is_custom = framework_art is None
         # The file the ownership record names — the one every read and save of
         # this artifact already uses — is the one judged and removed. Taken
         # before the release, which retires the record.
@@ -968,22 +973,21 @@ class ScaffoldGalleryService:
             if out.exists():
                 out.unlink()
                 deleted = True
-        elif delete_file and not is_custom:
+        elif delete_file and framework_art is not None:
             # Framework artifact — restore file to rendered template
             # The release above is durable and stands whatever happens here;
             # a failed write-back is reported, because the operator's text is
             # still on disk and a bare "removed" would say it is not.
-            art = self._get_artifact(name)
             try:
-                content = self._render_framework(art)
-                out = self.project_dir / art.output_path
+                content = self._render_framework(framework_art)
+                out = self.project_dir / framework_art.output_path
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(content, encoding="utf-8")
                 restored = True
             except Exception as exc:
                 logger.warning("Released %s but could not restore it: %s", name, exc)
                 message = (
-                    f"Released '{name}', but the framework copy of {art.output_path} "
+                    f"Released '{name}', but the framework copy of {framework_art.output_path} "
                     f"could not be restored ({exc}). The file on disk is still your "
                     "last saved version."
                 )
@@ -1394,9 +1398,11 @@ class ScaffoldGalleryService:
         if template_file.suffix == ".j2":
             template_rel = f"claude_code/{art.template_path}"
             template = manager.jinja_env.get_template(template_rel)
-            return template.render(**ctx)
+            rendered: str = template.render(**ctx)
+            return rendered
         else:
-            return template_file.read_text(encoding="utf-8")
+            text: str = template_file.read_text(encoding="utf-8")
+            return text
 
     def _read_user_file(self, art: BuildArtifact) -> str | None:
         """Read the user's copy of an artifact from the surface that holds it."""

@@ -27,6 +27,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -45,6 +46,7 @@ from osprey.agent_runner.artifact_resolve import (
     load_run_record,
     resolve_single_run_artifact,
 )
+from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.mcp_server.dispatch_worker import (
     counters,
     failure_class,
@@ -62,6 +64,7 @@ from osprey.mcp_server.dispatch_worker.prior_answers import (
     keep_run_ids,
 )
 from osprey.utils.bearer import credential_bytes
+from osprey.utils.owner_header import owner_from_header
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -176,25 +179,9 @@ def _inject_provider_env_once() -> None:
         logger.warning("No config.yml at %s — skipping provider env injection", config_path)
         return
 
-    # Managed (enterprise) policy settings outrank the process environment and
-    # setting_sources=["project"] alike, so a policy `env` block setting a
-    # provider variable would silently redirect the worker's agent to a backend
-    # the project did not configure. Refuse to start — checked before the try
-    # below so the broad except cannot swallow the refusal.
-    from osprey.build.claude_code_resolver import (
-        detect_managed_policy_conflicts,
-        format_managed_policy_conflicts,
-    )
-
-    policy_conflicts = detect_managed_policy_conflicts()
-    if policy_conflicts:
-        raise RuntimeError(
-            "Refusing to start the dispatch worker.\n"
-            + format_managed_policy_conflicts(policy_conflicts)
-        )
-
+    launch_env: Mapping[str, str] = {}
     try:
-        from osprey.build.claude_code_resolver import inject_provider_env, load_provider_spec
+        from osprey.agent_runner.provider_env import inject_provider_env, load_provider_spec
         from osprey.build.claude_code_telemetry import TelemetryConfigError
 
         # Read the spec from the render (the directory holding that config.yml)
@@ -230,21 +217,37 @@ def _inject_provider_env_once() -> None:
             # SDK CLI. Start the proxy from spec.upstream_base_url — the OpenAI
             # root *with* /v1 — NOT os.environ["ANTHROPIC_BASE_URL"], which the
             # resolver strips of /v1 for Claude Code; sourcing the upstream from
-            # the env var would forward to a /v1-less endpoint (issue #312).
+            # the env var would forward to a /v1-less endpoint.
             if spec.needs_proxy and spec.upstream_base_url:
-                from osprey.infrastructure.proxy.lifecycle import start_proxy
+                from osprey.infrastructure.proxy.lifecycle import start_proxy_for
 
-                port = start_proxy(
-                    spec.upstream_base_url,
-                    os.environ.get(spec.auth_env_var),
-                    provider=spec.provider,
-                )
+                port = start_proxy_for(spec, os.environ)
                 os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
                 logger.info("Translation proxy on :%d (provider=%s)", port, spec.provider)
+            launch_env = os.environ
         else:
             logger.warning("No provider configured in config.yml")
     except Exception:
         logger.exception("Failed to inject provider env from config.yml")
+
+    # Managed (enterprise) policy settings outrank the process environment and
+    # setting_sources=["project"] alike, so a policy value that differs from the
+    # deployment's would silently redirect the worker's agent. The check reads
+    # the finished environment, translation-proxy loopback included, and sits
+    # outside the try above so the broad except cannot swallow the refusal. A
+    # worker with no provider, or one whose injection failed, compares against
+    # nothing, so every policy provider key refuses.
+    from osprey.agent_runner.provider_env import (
+        detect_managed_policy_conflicts,
+        format_managed_policy_conflicts,
+    )
+
+    policy_conflicts = detect_managed_policy_conflicts(launch_env)
+    if policy_conflicts:
+        raise RuntimeError(
+            "Refusing to start the dispatch worker.\n"
+            + format_managed_policy_conflicts(policy_conflicts)
+        )
 
 
 @asynccontextmanager
@@ -298,38 +301,14 @@ async def _limit_request_body(request: Request, call_next):
 
 _bearer_scheme = HTTPBearer()
 
-# Server-side tool denylist — tools that must NEVER be used by headless dispatch.
-# Defense-in-depth: the event dispatcher already restricts tools via triggers.yml,
-# but the worker blocks dangerous tools regardless of what the trigger requests.
-DENIED_TOOLS: set[str] = {
-    "WebFetch",
-    "WebSearch",
-    "mcp__plugin_playwright_playwright__*",
-    # Arbitrary shell access from a headless, unattended run is never warranted —
-    # the safety story is the per-trigger allowlist + MCP tools, not a raw shell.
-    # ``Bash`` runs commands; ``BashOutput`` reads a background shell's output;
-    # ``KillShell`` (the current CLI name; older builds used ``KillBash``) kills
-    # one. Deny all three.
-    "Bash",
-    "BashOutput",
-    "KillShell",
-    "KillBash",
-    # A job may not fire jobs. ``trigger_config`` already refuses the whole
-    # ``mcp__event_dispatcher__`` prefix when the triggers file is loaded; this
-    # entry is the run-time floor, which holds whatever a dispatch request asks
-    # for and whether or not the dispatcher is wired into the render at all.
-    "mcp__event_dispatcher__manual_fire",
-}
-
 
 def _is_denied(tool: str) -> bool:
     """Return True if ``tool`` is on the denylist.
 
-    Entries ending in ``*`` match by prefix (e.g. the playwright entry blocks
-    every ``mcp__plugin_playwright_playwright__<name>`` tool); all other entries
-    match exactly.
+    Entries ending in ``*`` match by prefix (e.g. the ``mcp__plugin_*`` entry
+    blocks every plugin server's tools); all other entries match exactly.
     """
-    return matches_denylist(tool, DENIED_TOOLS)
+    return matches_denylist(tool, DISPATCH_DENIED_TOOLS)
 
 
 # ---------------------------------------------------------------------------
@@ -498,7 +477,13 @@ class DispatchRequest(BaseModel):
     Worker and dispatcher are separately deployed images, so the field must be
     declared here to survive at all — an undeclared key is dropped silently, and
     the run would be judged against nobody's narrowing while the fire was
-    attributed to a person.
+    attributed to a person. The worker applies the same allowlist the
+    dispatcher applied, because the value is written into the run record and
+    served to a browser. A refused value becomes ``None`` and the run goes ahead
+    owner-less; it is never a 422, since a malformed owner costs the
+    attribution and never the work. A dispatcher always sends a value that
+    already passed the guard, so the check binds only a caller posting
+    ``/dispatch`` directly.
 
     ``prior_answer_runs`` is additive and defaults to ``None``: the run ids of
     earlier answers the bridge replayed shortened, and the only runs
@@ -515,6 +500,11 @@ class DispatchRequest(BaseModel):
     input_files: list[InputFile] | None = None
     owner: str | None = None
     prior_answer_runs: list[str] | None = None
+
+    @field_validator("owner", mode="before")
+    @classmethod
+    def _guard_owner(cls, value: Any) -> str | None:
+        return owner_from_header(value)
 
     @field_validator("prior_answer_runs", mode="before")
     @classmethod
@@ -663,8 +653,39 @@ def _build_stamped_error(
     return result
 
 
+def _attributed(record: dict[str, Any], owner: str | None) -> dict[str, Any]:
+    """Name the run's owner on *record* and return it.
+
+    A run record carries ``owner`` only when a person was named; an absent key
+    means the fire was unattributed.
+    """
+    if owner is not None:
+        record["owner"] = owner
+    return record
+
+
+def _record_terminal(
+    run_id: str, accepted: Mapping[str, Any], outcome: dict[str, Any], owner: str | None
+) -> dict[str, Any]:
+    """Store and persist a run's terminal record, and return it.
+
+    A terminal record is the run's accepted record with the outcome laid over
+    it, so the fields stamped when the run was accepted (``created_at``,
+    ``prompt``, ``owner``) survive every outcome; the outcome's keys win. This
+    is the one place ``_run_dispatch_task`` stores and persists a terminal
+    record.
+    """
+    record = _attributed({**accepted, **outcome}, owner)
+    _runs[run_id] = record
+    _persist_run(run_id, record)
+    return record
+
+
 async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
-    queue = asyncio.Queue()
+    # The record dispatch() wrote, taken before the first await so every terminal
+    # record is built on it even if the sweep or the store cap replaces the entry.
+    accepted = dict(_runs.get(run_id) or {})
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     _queues[run_id] = queue
 
     logger.info(
@@ -688,7 +709,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 allowed_tools=request.allowed_tools,
                 max_turns=request.max_turns,
                 event_queue=queue,
-                denied_tools=DENIED_TOOLS,
+                denied_tools=DISPATCH_DENIED_TOOLS,
                 run_id=run_id,
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,
@@ -698,7 +719,6 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             timeout=DISPATCH_TIMEOUT_SEC,
         )
         result["completed_at"] = time.time()
-        result["prompt"] = request.prompt
         # Descriptors of the artifacts this run produced (created-by tag), for
         # consumers that republish them (see the /artifacts routes). Render-free:
         # computed once at completion from the store tag and persisted with the
@@ -707,8 +727,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # Caller-supplied inputs ingested for this run, kept separate from the
         # agent's produced ``artifacts`` (both read the same created-by store tag).
         result["input_artifacts"] = describe_run_input_artifacts(run_id)
-        _runs[run_id] = result
-        _persist_run(run_id, result)
+        result = _record_terminal(run_id, accepted, result, request.owner)
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
     except TimeoutError:
         logger.error("Dispatch %s timed out after %ds", run_id, DISPATCH_TIMEOUT_SEC)
@@ -718,8 +737,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             failure_class.FAILURE_INFRASTRUCTURE,
             extra={"duration_sec": DISPATCH_TIMEOUT_SEC},
         )
-        _runs[run_id] = err_result
-        _persist_run(run_id, err_result)
+        _record_terminal(run_id, accepted, err_result, request.owner)
         await queue.put({"type": "error", "message": f"Timed out after {DISPATCH_TIMEOUT_SEC}s"})
     except asyncio.CancelledError:
         existing = _runs.get(run_id)
@@ -747,8 +765,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             failure_class.FAILURE_RUN,
             extra={"cancelled": True},
         )
-        _runs[run_id] = err_result
-        _persist_run(run_id, err_result)
+        _record_terminal(run_id, accepted, err_result, request.owner)
         try:
             await queue.put({"type": "error", "message": "cancelled by user"})
         except Exception:
@@ -764,8 +781,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         # structurally an infrastructure fault (hence the literal class rather
         # than routing through classify_exception).
         err_result = _build_stamped_error(run_id, str(exc), failure_class.FAILURE_INFRASTRUCTURE)
-        _runs[run_id] = err_result
-        _persist_run(run_id, err_result)
+        _record_terminal(run_id, accepted, err_result, request.owner)
         await queue.put({"type": "error", "message": str(exc)})
     finally:
         _tasks.pop(run_id, None)
@@ -817,11 +833,14 @@ async def dispatch(request: DispatchRequest) -> DispatchResponse:
             _queues.pop(key, None)
 
     run_id = str(uuid.uuid4())
-    _runs[run_id] = {
-        "status": "pending",
-        "created_at": time.time(),
-        "prompt": request.prompt,
-    }
+    _runs[run_id] = _attributed(
+        {
+            "status": "pending",
+            "created_at": time.time(),
+            "prompt": request.prompt,
+        },
+        request.owner,
+    )
     # Use create_task (not BackgroundTasks) so we retain a handle for cancellation.
     _tasks[run_id] = asyncio.create_task(_run_dispatch_task(run_id, request))
     return DispatchResponse(status="accepted", run_id=run_id)
@@ -1069,6 +1088,9 @@ async def dashboard_runs() -> list[dict[str, Any]]:
                 # own telemetry; None for runs that predate the forcing or that
                 # never reached the SDK.
                 "session_id": run.get("session_id"),
+                # The person the fire was attributed to, or None for an
+                # owner-less fire (the key is always present, like session_id).
+                "owner": run.get("owner"),
                 "has_stream": run_id in _queues,
             }
         )

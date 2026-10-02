@@ -17,9 +17,11 @@ method               subject                                role                
 ``password``         the roster username, or the opener     the roster ``role:``   ``roster``
                      on a shared card
 ``oidc``, unbound    the asserted IdP subject               the roster ``role:``   ``roster``
-``oidc``, bound      the asserted IdP subject               the claim's role,      ``claim``
-                                                            cross-checked
-                                                            against the roster's
+``oidc``, bound      the asserted IdP subject               the card's roster      ``claim``
+                                                            role when the claim
+                                                            maps to it; the
+                                                            claim's one role on
+                                                            an entry naming none
 anything else        refused at mint; verify names the      — (refused)            — (refused)
                      locally verified identity
 ===================  =====================================  =====================  ==========
@@ -61,10 +63,12 @@ that mints a session:
 * Under ``oidc`` with **no** claim binding it is still the answer. The provider
   proves *who* this is; nothing in the deployment asked it about privilege, so
   the role is the one the deployment itself bound at render time.
-* Under ``oidc`` **with** a claim binding it becomes the cross-check target. The
-  validated ID token decides the role, and it must be the role the roster named
-  for the user whose card was clicked — otherwise the session would say one role
-  while sitting in another's container. A disagreement is refused
+* Under ``oidc`` **with** a claim binding the validated ID token decides which
+  roles are admissible, and the roster's role must be one of them — otherwise
+  the session would say one role while sitting in another's container. A token
+  mapping to several roles opens the card built for any one of them: the card
+  names the role and the token proves it, so no member is ever picked by the
+  order the provider listed groups in. A roster role outside the set is refused
   (:data:`~osprey.services.auth_sidecar.audit.REASON_ROLE_MISMATCH`), and
   refusing grants nothing: it turns away a login whose asserted privilege does
   not match the terminal behind the door.
@@ -75,7 +79,10 @@ cross-check nothing to compare against. Its container is not role-bound at all,
 so there is no rendered role for the claim to disagree with, and the claim's
 role is what the session carries. That is the honest reading: the deployment
 declined to bind this entry to a role, and the only authority left is the one
-that did.
+that did. Such an entry takes the claim's role only when the claim maps to
+exactly one; several are refused as ambiguous
+(:data:`~osprey.services.auth_sidecar.audit.REASON_AMBIGUOUS_ROLE_CLAIM`),
+because there is no card role to choose by.
 
 **Anti-lookup.** Nothing here searches. Every resolution is keyed by the
 username whose card was clicked — :meth:`RosterRoles.role_for` is a mapping
@@ -105,11 +112,10 @@ from dataclasses import dataclass, field
 
 from fastapi import Request
 
-from osprey.deployment.web_terminals.personas import env_var_suffix
-
 from .. import audit
 from ..identity_headers import is_header_safe
 from ..methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
+from ..roster_env import env_var_suffix
 from ..sessions import UnlockedUser
 
 logger = logging.getLogger(__name__)
@@ -118,6 +124,7 @@ __all__ = [
     "ENV_ROSTER_ROLE_PREFIX",
     "METHOD_OIDC",
     "METHOD_PASSWORD",
+    "REASON_AMBIGUOUS_ROLE_CLAIM",
     "REASON_METHOD_MISMATCH",
     "REASON_ROLE_MISMATCH",
     "REASON_UNSUPPORTED_METHOD",
@@ -165,10 +172,13 @@ REASON_ROLE_MISMATCH = audit.REASON_ROLE_MISMATCH
 """Likewise — the federated posture's cross-check: the claim resolved to a role
 other than the one this user's terminal was rendered from."""
 
+REASON_AMBIGUOUS_ROLE_CLAIM = audit.REASON_AMBIGUOUS_ROLE_CLAIM
+"""Likewise — the token maps to several roles and the card names none to choose among them."""
+
 ENV_ROSTER_ROLE_PREFIX = "OSPREY_AUTH_ROSTER_ROLE_"
 """Per-user static role: ``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>``.
 
-The suffix is :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`'s,
+The suffix is :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`'s,
 the same derivation that keys this user's password hash and mapped IdP subject,
 so one username cannot key three variables three ways.
 
@@ -310,7 +320,7 @@ def recheck_login(
     user: str,
     roster_roles: RosterRoles,
     asserted_subject: str | None = None,
-    claim_role: str | None = None,
+    claim_roles: frozenset[str] | None = None,
 ) -> LoginGrant:
     """Re-check one authenticated login against the identity matrix.
 
@@ -321,8 +331,8 @@ def recheck_login(
     The OIDC arguments are the seam that makes the matrix checkable. A password
     login has no IdP behind it, so supplying either of them is two flows having
     been confused — refused rather than ignored. An OIDC login must supply both:
-    ``claim_role=""`` says "this deployment binds no roles", which is an answer,
-    while ``None`` says "nobody asked", which is not one.
+    ``claim_roles=frozenset()`` says "this deployment binds no roles", which is
+    an answer, while ``None`` says "nobody asked", which is not one.
 
     Args:
         method: The deployment's auth method, as
@@ -332,16 +342,19 @@ def recheck_login(
             bound, which is what makes it the role under ``password`` and the
             cross-check target under ``oidc``. See the module docstring.
         asserted_subject: The IdP subject this login proved, under ``oidc``.
-        claim_role: The role the validated ID token resolved to, under ``oidc``.
+        claim_roles: Every role the validated ID token's claim maps to, under
+            ``oidc``. The card's rendered role is chosen from it; an entry
+            naming no role takes its one member.
 
     Returns:
         What the session may carry.
 
     Raises:
-        RecheckRefused: On any combination the matrix does not describe, on a
-            claim role that disagrees with the one this user's terminal was
-            rendered from, and on a role this deployment could not carry across
-            the identity-header boundary.
+        RecheckRefused: On any combination the matrix does not describe, on
+            claim roles that do not include the one this user's terminal was
+            rendered from, on several claim roles for an entry that names none,
+            and on a role this deployment could not carry across the
+            identity-header boundary.
     """
     if not user:
         # Not a defensive check: `record_login_refusal` cannot build an envelope
@@ -354,7 +367,7 @@ def recheck_login(
         raise RecheckRefused(REASON_UNSUPPORTED_METHOD, "this deployment mints no sessions")
 
     if method == METHOD_PASSWORD:
-        if asserted_subject is not None or claim_role is not None:
+        if asserted_subject is not None or claim_roles is not None:
             raise RecheckRefused(
                 REASON_METHOD_MISMATCH, "this login was decided by the wrong method"
             )
@@ -363,31 +376,42 @@ def recheck_login(
         )
 
     # METHOD_OIDC.
-    if not asserted_subject or claim_role is None:
+    if not asserted_subject or claim_roles is None:
         raise RecheckRefused(REASON_METHOD_MISMATCH, "this login was decided by the wrong method")
 
     rendered_role = roster_roles.role_for(user)
-    if not claim_role:
+    if not claim_roles:
         # This deployment binds no claims, so nothing asked the provider about
         # privilege. The role is the one the RENDER bound — the same roster
         # entry the persona behind this user's door was resolved from.
         return _grant(subject=asserted_subject, role=rendered_role, role_source=ROLE_SOURCE_ROSTER)
 
-    if rendered_role and claim_role != rendered_role:
-        # The cross-check. Refusing grants nothing: it turns away a login whose
-        # asserted privilege names a different role than the container this user
-        # would land in. Neither value goes in the message — the categories are
-        # what the browser is told, and the operator has both in their own
-        # config and their IdP.
-        raise RecheckRefused(
-            REASON_ROLE_MISMATCH, "this login's role is not the one this terminal was built as"
-        )
+    if rendered_role:
+        if rendered_role not in claim_roles:
+            # The cross-check. Refusing grants nothing: it turns away a login
+            # whose asserted privilege does not include the role of the
+            # container this user would land in. No value goes in the message —
+            # the categories are what the browser is told, and the operator has
+            # both in their own config and their IdP.
+            raise RecheckRefused(
+                REASON_ROLE_MISMATCH, "this login's role is not the one this terminal was built as"
+            )
+        # The card's rendered role, chosen from the set the token proved — never
+        # a member picked by the order the provider listed groups in. The token
+        # decided which roles are admissible, so the grant credits the claim.
+        return _grant(subject=asserted_subject, role=rendered_role, role_source=ROLE_SOURCE_CLAIM)
 
-    # Either the two agree, or the roster bound this entry no role at all — a
-    # `persona:` pin or the default persona, whose container is not role-bound,
-    # so there is nothing for the claim to disagree with. See the module
-    # docstring's "one gap".
-    return _grant(subject=asserted_subject, role=claim_role, role_source=ROLE_SOURCE_CLAIM)
+    # The roster bound this entry no role — a `persona:` pin or the default
+    # persona, whose container is not role-bound — so there is no card role to
+    # choose by: one mapped role is carried, several are refused. See the
+    # module docstring's "one gap".
+    if len(claim_roles) > 1:
+        raise RecheckRefused(
+            REASON_AMBIGUOUS_ROLE_CLAIM,
+            "this account's group membership maps to more than one role",
+        )
+    (only_role,) = claim_roles
+    return _grant(subject=asserted_subject, role=only_role, role_source=ROLE_SOURCE_CLAIM)
 
 
 def _grant(*, subject: str, role: str, role_source: str) -> LoginGrant:

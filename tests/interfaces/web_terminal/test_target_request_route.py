@@ -1,6 +1,6 @@
 """Tests for ``POST /api/terminal/target`` — the operator's switch gesture.
 
-A deployment has ONE control context: a record naming the target, the
+A login identity has ONE control context: a record naming the target, the
 generation the fleet coordinates on, and the terminus of the last switch. The
 web terminal owns that record while it runs, so this route does not file
 desired state for somebody else to apply — it takes the record, runs the switch
@@ -119,7 +119,7 @@ def render() -> dict:
             "writes_enabled": False,
             "connector": {
                 "epics": {
-                    "timeout": 5.0,
+                    "timeout_s": 5.0,
                     "probe_channel": "LIVE:PROBE:CHANNEL",
                     "gateways": {
                         "read_only": {
@@ -135,7 +135,7 @@ def render() -> dict:
                     },
                 },
                 "virtual_accelerator": {
-                    "timeout": 5.0,
+                    "timeout_s": 5.0,
                     "probe_channel": "VA:PROBE:CHANNEL",
                     "gateways": {
                         "read_only": {

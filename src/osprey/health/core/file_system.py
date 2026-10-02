@@ -26,8 +26,11 @@ Rows emitted:
   ``REGISTRY_PATH`` environment override, resolved by the loader's own
   :func:`osprey.registry.manager.resolve_registry_path`): ok when the file
   exists, error when configured but missing.
-* ``disk_space`` — warning when free space is below 1 GB or the filesystem is at
-  least 90% full, ok otherwise; warning when disk usage cannot be read.
+* ``disk_space`` — warning when free space is below ``health.disk.min_free_gb``
+  (default 1 GB) or the filesystem is at least ``health.disk.max_used_percent``
+  full (default 90%), ok otherwise; skip when those thresholds are invalid (the
+  ``configuration`` category reports why); warning when disk usage cannot be
+  read.
 
 Unlike the ``configuration`` category (which reports on config loading and so
 consumes a pre-built state), this category performs genuine live disk checks and
@@ -42,10 +45,12 @@ from __future__ import annotations
 
 import os
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.errors import ConfigurationError
+from osprey.health.config import DiskThresholds, parse_disk_thresholds
 from osprey.health.models import CheckResult, Status
 from osprey.utils.workspace import agent_data_base_dir
 
@@ -96,7 +101,8 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
       the file nor the chain sets is one they agree on, which is why this half
       is asked of the chain rather than of the comparison below;
     * agrees with the chain — ok;
-    * a provider secret differs — **error**, naming the variable and the
+    * a provider secret differs, or a credential the terminals authenticate
+      with is missing from the file — **error**, naming the variable and the
       remedy (values never appear);
     * a file OSPREY rendered is behind on something other than a secret —
       warning; the next ``osprey up`` re-renders it.
@@ -131,15 +137,26 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
         return [CheckResult("users_env", _CATEGORY, Status.ERROR, required)]
     if drift is None:
         return [CheckResult("users_env", _CATEGORY, Status.OK, ".env.users agrees with .env")]
-    if drift.stale_vars:
-        stale = ", ".join(drift.stale_vars)
+    if drift.stale_vars or drift.missing_vars:
+        findings = []
+        if drift.missing_vars:
+            missing = ", ".join(drift.missing_vars)
+            findings.append(
+                f"lacks {missing}, so web terminals start without the credential "
+                "they authenticate with"
+            )
+        if drift.stale_vars:
+            stale = ", ".join(drift.stale_vars)
+            findings.append(
+                f"is stale: {stale} differs from .env, so web terminals "
+                "authenticate with the old value"
+            )
         return [
             CheckResult(
                 "users_env",
                 _CATEGORY,
                 Status.ERROR,
-                f".env.users is stale: {stale} differs from .env, so web terminals "
-                "authenticate with the old value; run "
+                f".env.users {'; it also '.join(findings)}; run "
                 "`osprey users env --output .env.users`, then `osprey up`",
             )
         ]
@@ -219,11 +236,17 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     # store, which has no hard size cap) grow into this filesystem, so report
     # the percentage used and warn as it fills — the honest "how full" signal.
     try:
+        thresholds = _disk_thresholds(config)
+    except ConfigurationError as exc:
+        results.append(CheckResult("disk_space", _CATEGORY, Status.SKIP, f"Disk not graded: {exc}"))
+        return results
+
+    try:
         stat = shutil.disk_usage(cwd)
         free_gb = stat.free / (1024**3)
         pct_used = (stat.used / stat.total * 100) if stat.total else 0.0
 
-        if free_gb < 1.0 or pct_used >= 90.0:
+        if free_gb < thresholds.min_free_gb or pct_used >= thresholds.max_used_percent:
             results.append(
                 CheckResult(
                     "disk_space",
@@ -248,6 +271,16 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
         )
 
     return results
+
+
+def _disk_thresholds(config: Mapping[str, Any]) -> DiskThresholds:
+    """Resolve the ``disk_space`` thresholds from the config mapping.
+
+    A non-mapping ``health:`` section is already an error row of the
+    ``configuration`` category, so it resolves to the defaults here.
+    """
+    health = config.get("health")
+    return parse_disk_thresholds(health.get("disk") if isinstance(health, Mapping) else None)
 
 
 def _check_project_paths(config: dict[str, Any]) -> list[CheckResult]:

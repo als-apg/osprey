@@ -31,10 +31,11 @@ user's own terminal) must both read it, and ``.env.auth`` exists precisely to be
 mounted by neither.
 
 Username validity is enforced *here* as a hard raise rather than left to lint:
-``osprey up`` never runs lint, and two usernames that normalize onto one
-env-var suffix (``alice-b`` and ``alice_b``) would silently share a single hash
-— one operator's password opening the other's terminal, the exact isolation
-failure this feature exists to prevent.
+the deploy path runs lint but refuses only on the open-door codes, so a charset
+violation or an env-var collision would pass it, and two usernames that
+normalize onto one env-var suffix (``alice-b`` and ``alice_b``) would silently
+share a single hash — one operator's password opening the other's terminal, the
+exact isolation failure this feature exists to prevent.
 """
 
 from __future__ import annotations
@@ -65,11 +66,18 @@ from osprey.deployment.service_tokens import (
 # deploy-time gate and the other two drift apart.
 from osprey.deployment.web_terminals.personas import (
     USERNAME_CHARSET_RE,
+)
+from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
+from osprey.services.auth_sidecar.passwords import (
+    hash_password,
+    stored_hash_problem,
+    verify_password,
+)
+from osprey.services.auth_sidecar.roster_env import (
+    PW_HASH_VAR_PREFIX,
     env_var_suffix,
     env_var_suffix_collisions,
 )
-from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
-from osprey.services.auth_sidecar.passwords import hash_password, verify_password
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
@@ -88,9 +96,6 @@ logger = get_logger("deployment.lifecycle")
 #: Project-root file holding the per-user password hashes. Separate from the
 #: project ``.env`` so the sidecar can be the only service that mounts it.
 AUTH_ENV_FILENAME = ".env.auth"
-
-#: Env-var stem for a stored hash, completed by :func:`env_var_suffix`.
-PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 
 #: Env-var stem for an operator-supplied plaintext password in the project
 #: ``.env``. Consumed and hashed at preflight; never forwarded to a container.
@@ -351,7 +356,9 @@ def ensure_auth_credentials(
        count as established: that user falls through to the steps below and the
        freshly written entry, appended after the empty one, is the one the
        parser returns (last assignment wins). An empty value would otherwise
-       leave a roster user permanently unable to log in.
+       leave a roster user permanently unable to log in. An entry the login
+       service cannot evaluate is kept too, and named in a warning; this
+       function never replaces an operator's entry.
     2. Otherwise a plaintext ``OSPREY_AUTH_PW_<USER>`` in the project ``.env``
        is hashed in. Leading and trailing whitespace is trimmed before hashing,
        so a value padded by an editor or a copy-paste hashes to what the
@@ -416,8 +423,20 @@ def ensure_auth_credentials(
     for name in ordered:
         suffix = env_var_suffix(name)
         hash_var = f"{PW_HASH_VAR_PREFIX}{suffix}"
-        if stored.get(hash_var, "").strip():
+        existing = stored.get(hash_var, "").strip()
+        if existing:
             preexisting.append(name)
+            problem = stored_hash_problem(existing)
+            if problem is not None:
+                logger.warning(
+                    "%s for %r in %s cannot be evaluated by the login service (%s); it is "
+                    "kept as is, and `osprey users passwd %s` replaces it",
+                    hash_var,
+                    name,
+                    env_auth_path,
+                    problem,
+                    name,
+                )
             continue
         plaintext = project_env.get(f"{PW_PLAINTEXT_VAR_PREFIX}{suffix}", "").strip()
         if plaintext:
@@ -541,8 +560,9 @@ def seeded_logins_report(project_root: str | Path, usernames: Iterable[str]) -> 
     * No stored hash — printable. Nothing deployed disagrees, and the next
       deploy's :func:`ensure_auth_credentials` will hash exactly this value.
     * The stored hash verifies against the default — printable.
-    * The stored hash exists and does NOT verify — ``stale``. The card must
-      not print a password the sidecar will refuse.
+    * The stored hash exists and does NOT verify, or cannot be evaluated at
+      all — ``stale``. The card must not print a password the sidecar will
+      refuse.
 
     Advisory like :func:`seeded_logins` itself: an unreadable ``.env.auth``
     verifies nothing and demotes nothing, so a closing card can never be the
@@ -551,20 +571,18 @@ def seeded_logins_report(project_root: str | Path, usernames: Iterable[str]) -> 
     root = Path(project_root)
     try:
         declared = _profile_env_defaults(root)
-        if not declared:
-            return SeededLoginsReport()
-        env_path = root / ENV_LOCAL_FILENAME
-        project_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
     except Exception as exc:  # pragma: no cover - advisory read
         logger.debug(f"Seeded logins skipped: {exc}")
         return SeededLoginsReport()
+    if not declared:
+        return SeededLoginsReport()
 
-    try:
-        env_auth_path = root / AUTH_ENV_FILENAME
-        stored = parse_dotenv_file(env_auth_path) if env_auth_path.is_file() else {}
-    except Exception as exc:  # advisory read — verify nothing, demote nothing
-        logger.debug(f"Seeded-login verification skipped: {exc}")
-        stored = {}
+    project_env = _advisory_dotenv(root / ENV_LOCAL_FILENAME, "Seeded logins skipped")
+    # No plaintext in `.env` means no candidate: an empty or unreadable `.env` is the empty report.
+    if not project_env:
+        return SeededLoginsReport()
+    # An unreadable `.env.auth` verifies nothing and demotes nothing.
+    stored = _advisory_dotenv(root / AUTH_ENV_FILENAME, "Seeded-login verification skipped")
 
     printable: list[tuple[str, str]] = []
     stale: list[str] = []
@@ -583,6 +601,90 @@ def seeded_logins_report(project_root: str | Path, usernames: Iterable[str]) -> 
         else:
             printable.append((name, current))
     return SeededLoginsReport(printable=tuple(printable), stale=tuple(stale))
+
+
+def seeded_password_users(
+    project_root: str | Path,
+    usernames: Iterable[str],
+    *,
+    shared: frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    """The roster logins that would accept the password ``profile.yml`` publishes.
+
+    :func:`seeded_logins_report` decides what may be printed, so it requires the
+    ``.env`` value to still be the profile default. This function decides what
+    the login wall accepts, which is a stricter question: a stored hash outlives
+    its ``.env`` line (:func:`ensure_auth_credentials` rule 1), and a hash of
+    the published value keeps accepting it after that line is gone.
+
+    Per user whose ``OSPREY_AUTH_PW_<USER>`` ``profile.yml`` publishes under
+    ``env.defaults``:
+
+    * A stored ``OSPREY_AUTH_PW_HASH_<USER>`` in ``.env.auth`` decides alone:
+      the login is seeded when that hash verifies the published value. A hash
+      that cannot be evaluated verifies nothing, and such a login refuses every
+      password.
+    * With no stored hash, the login is seeded when it is not in ``shared`` and
+      the project ``.env`` value equals the published one, which is exactly
+      what the next :func:`ensure_auth_credentials` would hash. A shared card is
+      never handed to that function, so only a stored hash can seed it.
+
+    An absent or unparseable ``profile.yml`` publishes nothing, and the result
+    is empty. An unreadable ``.env.auth`` is read as holding no hashes, which
+    leans toward naming a login rather than clearing it. No password is ever
+    returned or logged.
+
+    :param project_root: The deployment repo holding ``profile.yml``, ``.env``
+        and ``.env.auth``.
+    :param usernames: Roster usernames, in the order they should be reported.
+    :param shared: The usernames that are shared cards.
+    :return: The seeded usernames, in ``usernames`` order.
+    """
+    root = Path(project_root)
+    try:
+        declared = _profile_env_defaults(root)
+    except Exception as exc:  # an unreadable profile publishes nothing
+        logger.debug(f"Seeded-password check skipped: {exc}")
+        return ()
+    if not declared:
+        return ()
+
+    # An unreadable `.env.auth` is read as holding no hashes.
+    stored = _advisory_dotenv(root / AUTH_ENV_FILENAME, "Seeded-password hashes unreadable")
+    project_env = _advisory_dotenv(root / ENV_LOCAL_FILENAME, "Seeded-password .env unreadable")
+
+    seeded: list[str] = []
+    for name in usernames:
+        if name in seeded:
+            continue
+        suffix = env_var_suffix(name)
+        variable = f"{PW_PLAINTEXT_VAR_PREFIX}{suffix}"
+        published = str(declared.get(variable, "")).strip()
+        if not published:
+            continue
+        stored_hash = stored.get(f"{PW_HASH_VAR_PREFIX}{suffix}", "").strip()
+        if stored_hash:
+            if verify_password(published, stored_hash):
+                seeded.append(name)
+        elif name not in shared and project_env.get(variable, "").strip() == published:
+            seeded.append(name)
+    return tuple(seeded)
+
+
+def _advisory_dotenv(path: Path, unreadable: str) -> dict[str, str]:
+    """``path`` parsed as a dotenv file, or an empty mapping.
+
+    For reads nothing depends on: an absent file and one that cannot be read
+    or parsed both read as holding no variables, so a report built from them
+    can never fail the command that asked for it. A failure is logged at
+    debug level as ``"<unreadable>: <error>"``, where ``unreadable`` is the
+    caller's words for what the empty read means to it.
+    """
+    try:
+        return parse_dotenv_file(path) if path.is_file() else {}
+    except Exception as exc:  # advisory read
+        logger.debug(f"{unreadable}: {exc}")
+        return {}
 
 
 def _profile_env_defaults(root: Path) -> dict[str, Any]:

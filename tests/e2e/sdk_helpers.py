@@ -90,6 +90,7 @@ from osprey.agent_runner import (
     combined_text as combined_text,  # re-exported for other e2e test modules
 )
 from osprey.agent_runner.primitives import (
+    MCP_READY_TIMEOUT_S,
     _ingest_tool_result,
     _resolve_project_spec,
 )
@@ -105,6 +106,29 @@ from osprey.utils.workspace import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def cli_mcp_ready_env() -> dict[str, str]:
+    """Env that holds a bare ``claude --print`` run's first turn for its MCP servers.
+
+    The CLI connects stdio servers in the background by default and proceeds
+    after its own short connect deadline. A subagent's toolset is fixed when it
+    is spawned, so a delegation that lands before a slow server connects runs
+    the whole session without that server's tools. These are the CLI's own
+    knobs for the readiness barrier the SDK path applies through
+    :func:`await_mcp_ready`, sized by the same ``MCP_READY_TIMEOUT_S``.
+
+    Returns:
+        ``MCP_CONNECTION_NONBLOCKING`` off, and the connect deadline
+        (``MCP_CONNECT_TIMEOUT_MS``) and stdio startup limit (``MCP_TIMEOUT``)
+        both set to the readiness ceiling in milliseconds.
+    """
+    ready_ms = str(int(MCP_READY_TIMEOUT_S * 1000))
+    return {
+        "MCP_CONNECTION_NONBLOCKING": "0",
+        "MCP_CONNECT_TIMEOUT_MS": ready_ms,
+        "MCP_TIMEOUT": ready_ms,
+    }
 
 
 def render_dir(repo: Path) -> Path:

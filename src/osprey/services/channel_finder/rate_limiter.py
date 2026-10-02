@@ -14,8 +14,8 @@ class _SlidingWindowLimiter:
     """Allow at most ``max_calls`` LiteLLM calls per ``window`` seconds.
 
     Tracks call timestamps in a deque; ``acquire()`` sleeps until the oldest
-    timestamp is outside the window if the bucket is full. Designed for the
-    CBORG free-tier 20 req/min cap — we set 18 to leave a small safety margin.
+    timestamp is outside the window if the bucket is full. ``max_calls`` is the
+    provider's catalog cap, ``api.providers.<name>.requests_per_minute``.
     """
 
     def __init__(self, max_calls: int, window: float) -> None:
@@ -48,7 +48,8 @@ class _SlidingWindowLimiter:
 
 
 # Module-level singleton, lazily configured by ``configure_rate_limiter`` or
-# left as None to disable throttling. The ReAct backend wires this on init.
+# left as None to disable throttling. The in-context channel finder and the
+# benchmark ReAct backend arm it from ``api.providers.<name>.requests_per_minute``.
 _RATE_LIMITER: _SlidingWindowLimiter | None = None
 
 

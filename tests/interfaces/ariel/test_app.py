@@ -34,6 +34,13 @@ def mock_ariel_service():
     service.get_status = AsyncMock()
     service.search = AsyncMock()
     service.repository = AsyncMock()
+    # What the open /health page reads: the store's two status facts and the
+    # configured module names.
+    service.repository.count_entries = AsyncMock(return_value=0)
+    service.repository.get_last_ingestion = AsyncMock(return_value=None)
+    service.config = MagicMock()
+    service.config.get_enabled_search_modules.return_value = []
+    service.config.get_enabled_enhancement_modules.return_value = []
     service.__aenter__ = AsyncMock(return_value=service)
     service.__aexit__ = AsyncMock(return_value=None)
     return service

@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 OLLAMA_OPENAI_BASE = os.environ.get("OLLAMA_OPENAI_BASE", "http://localhost:11434/v1")
 
 
-def _litellm_call_kwargs(model: str) -> dict:
+def _litellm_call_kwargs(model: str) -> dict[str, str]:
     """Resolve LiteLLM routing for the benchmark model string.
 
     Returns a kwargs dict with ``model`` and optionally ``api_base`` /
@@ -93,7 +93,6 @@ async def preflight_checks(model: str) -> None:
     Checks:
     1. Ollama reachability (if using an ``ollama/`` model).
     2. Tool-calling support for the remapped model name.
-    3. Availability of an API key for the LLM judge.
 
     Raises:
         RuntimeError: If Ollama is required but not reachable.
@@ -125,13 +124,6 @@ async def preflight_checks(model: str) -> None:
         logger.warning(
             "Could not determine supported params for model %r; proceeding anyway.",
             remapped,
-        )
-
-    # 3. Check for LLM judge API key
-    if "ANTHROPIC_API_KEY" not in os.environ and "CBORG_API_KEY" not in os.environ:
-        logger.warning(
-            "Neither ANTHROPIC_API_KEY nor CBORG_API_KEY found in environment — "
-            "LLM judge evaluation will not be available."
         )
 
 

@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import (
     BLOCK_SIZE,
     DEFAULT_PORT_BASE,
@@ -140,6 +141,9 @@ def _fresh_import_modules(*, without_git: bool = False) -> list[str]:
     expiring on a loaded machine -- resolves through the stamp instead. It is
     generated, stdlib-only and dependency-free, so reaching it changes nothing
     about whether ``port_layout`` is the leaf this asserts it is.
+    ``osprey.docs_links`` is allowed too: it is the import-free constant module
+    for docs links, so reaching it leaves ``port_layout`` the leaf it claims to
+    be.
 
     Args:
         without_git: Run the child with no ``git`` on its ``PATH``, so the
@@ -158,7 +162,7 @@ def _fresh_import_modules(*, without_git: bool = False) -> list[str]:
         "before = set(sys.modules);"
         "import osprey.port_layout;"
         "allowed = {'osprey', 'osprey.version', 'osprey._version', "
-        "'osprey.port_layout'};"
+        "'osprey.port_layout', 'osprey.docs_links'};"
         "delta = set(sys.modules) - before - allowed;"
         "print(json.dumps(sorted("
         "m for m in delta if m.split('.')[0] not in sys.stdlib_module_names)))"
@@ -251,6 +255,25 @@ class TestFamilyBands:
             assert default_port(name, INDEX_MAX) == first + INDEX_MAX
             with pytest.raises(ValueError, match=f"{name!r}"):
                 default_port(name, INDEX_MAX + 1)
+
+    def test_a_family_index_past_its_band_names_the_user_ceiling_not_an_escape(self):
+        """A family's override key moves its band, it does not widen it."""
+        for entry in _family_slots():
+            with pytest.raises(ValueError) as excinfo:
+                default_port(entry.name, INDEX_MAX + 1)
+            message = str(excinfo.value)
+            assert f"{INDEX_MAX + 1} users" in message
+            assert PERIMETER_LIMITS_URL in message
+            assert "absolute port" not in message
+
+    def test_a_non_family_band_keeps_its_override_escape(self):
+        """A worker slot really can be moved off the layout by its override key."""
+        with pytest.raises(ValueError) as excinfo:
+            default_port("worker", WORKER_MAX + 1)
+        message = str(excinfo.value)
+        assert "services.dispatch_worker.worker_port_base" in message
+        assert "absolute port" in message
+        assert PERIMETER_LIMITS_URL not in message
 
 
 class TestRegistryReconciliation:

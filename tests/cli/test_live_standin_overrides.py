@@ -65,7 +65,7 @@ STANDIN_PREFIX = "control_system.connector.live_standin"
 #: tests/cli/test_rendered_va_block.py pins it. The gateways ship commented
 #: out (authoring them is the go-live edit), so the shipped block is the
 #: timeout and nothing else.
-SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
+SHIPPED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 
 def _va(live_standin: int | None) -> VAConfig:
@@ -74,7 +74,7 @@ def _va(live_standin: int | None) -> VAConfig:
 
 def _rendered_with_probe(channel: str | None) -> dict[str, Any]:
     """A rendered config shaped like the template's, VA probe channel set or not."""
-    va_block: dict[str, Any] = {"timeout": 5.0}
+    va_block: dict[str, Any] = {"timeout_s": 5.0}
     if channel is not None:
         va_block["probe_channel"] = channel
     return {"control_system": {"connector": {"virtual_accelerator": va_block}}}

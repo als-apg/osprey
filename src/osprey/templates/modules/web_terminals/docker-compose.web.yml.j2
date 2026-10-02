@@ -71,6 +71,12 @@
                                         #   container_project_dir — the path this persona's own
                                         #   exporter writes. Pairs with the file-level
                                         #   `ariel_mirror_source`.
+          "phoebus_require_handle": bool,
+                                        # true when this user's project runs a Phoebus MCP
+                                        #   server and does not set
+                                        #   `phoebus.require_handle: false`; emits
+                                        #   PHOEBUS_REQUIRE_HANDLE=1. Resolved by render.py
+                                        #   from the persona set or the deploy config.
           "audit_identity": str,        # WHO this container's audit records are written as —
                                         #   the roster user name (OSPREY_AUDIT_IDENTITY).
           "container_audit_dir": str,   # where those records are written inside the container
@@ -190,7 +196,7 @@
       same `nginx_port`.
 
     nginx_image: str, optional, default "nginx:1.31-alpine"
-    facility_timezone: str, optional, default "UTC" -> TZ
+    facility_timezone: str, optional, default "UTC" -> TZ (from system.timezone)
 
     tls_host_cert_dir: str | None, tls_mount_target: str | None
       Together they render nginx's one optional volume: the operator's
@@ -238,6 +244,13 @@
       Emitted unconditionally because the container cannot know at build time
       which it is, and it cannot ride in the persona's `config.yml`, which is
       baked into the image at build time and so cannot see a deploy-time edit.
+    auth_throttle: dict[str, int | float], required (possibly empty)
+      -> OSPREY_AUTH_THROTTLE_{INITIAL_DELAY,MULTIPLIER,MAX_DELAY,FORGET_AFTER}
+      (sidecar only). The login throttle parameters the deployment authored
+      under `auth.throttle`, keyed by throttle parameter; render has already
+      refused any value the throttle cannot be built with. An unset key — absent,
+      or written with no value — emits nothing and the sidecar's own default
+      applies.
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
       `<facility_prefix>-assistant-auth:local` is referenced instead — the
@@ -283,7 +296,7 @@
       module sits inside the container; both the bind target and the
       OSPREY_CONTROL_IDENTITY_MODULE value, one spelling for both.
     services[].oidc_subject_env: str — the env-var name the above is emitted
-      under, pre-resolved by render.py through personas.env_var_suffix(). Always
+      under, pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `oidc_subject` is set. Pre-resolved on purpose:
       the username->env-var mapping has exactly one definition, and a template
       that re-derived it could key a subject differently from the password hash
@@ -300,7 +313,7 @@
       not the persona it binds: the persona already reached this file as the
       service's image and project.
     services[].role_env: str — the env-var name the above is emitted under,
-      pre-resolved by render.py through personas.env_var_suffix(). Always
+      pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `role` is set. Pre-resolved for the same reason
       `oidc_subject_env` is. The `ROSTER_` infix is load-bearing:
       OSPREY_AUTH_ROLE_CLAIM / OSPREY_AUTH_ROLE_MAP above are the deployment's
@@ -322,7 +335,7 @@
       BOTH login methods, ungated exactly like the role table and for the same
       structural reason: only the enclosing `sidecar_active` decides it.
     services[].access_env: str — the env-var name the above is emitted under,
-      pre-resolved by render.py through personas.env_var_suffix(). Always
+      pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `access_value` is non-empty. Pre-resolved for the
       same reason `oidc_subject_env` is, and the `ROSTER_` infix follows the
       `role_env` precedent above.
@@ -407,8 +420,8 @@
      remains the sidecar's only env file and rule 1 above is untouched. An
      operator who puts credentials in a proxy URL is opting that value into
      `docker inspect` like any other `environment:` value; see the EGRESS
-     comment on those three entries for the rest, including why they are
-     uppercase-only.
+     comment on those entries for the rest, including why each is written
+     under both spellings and only when it has a value.
 
   ----------------------------------------------------------------------------
   OPERATOR SECRET (the per-user carrier, and why no VALUE is rendered here)
@@ -706,6 +719,18 @@ services:
       - OSPREY_AUTH_AUDIT_DIR={{ auth_audit_dir }}
       - OSPREY_AUTH_METHOD={{ auth_method }}
       - OSPREY_AUTH_SESSION_LIFETIME={{ auth_session_lifetime }}
+{%- if auth_throttle.initial_delay is defined %}
+      - OSPREY_AUTH_THROTTLE_INITIAL_DELAY={{ auth_throttle.initial_delay }}
+{%- endif %}
+{%- if auth_throttle.multiplier is defined %}
+      - OSPREY_AUTH_THROTTLE_MULTIPLIER={{ auth_throttle.multiplier }}
+{%- endif %}
+{%- if auth_throttle.max_delay is defined %}
+      - OSPREY_AUTH_THROTTLE_MAX_DELAY={{ auth_throttle.max_delay }}
+{%- endif %}
+{%- if auth_throttle.forget_after is defined %}
+      - OSPREY_AUTH_THROTTLE_FORGET_AFTER={{ auth_throttle.forget_after }}
+{%- endif %}
       - OSPREY_AUTH_TLS_ENABLED={{ "true" if tls_enabled else "false" }}
       - OSPREY_AUTH_EXTERNAL_ORIGIN={{ external_origin }}
       {#- The roster the sidecar will answer for, in declaration order (the
@@ -721,24 +746,27 @@ services:
          `osprey init` writes the commented-out block that documents them);
          the `env_file` chain stays `.env.auth` and nothing else.
 
-         UPPERCASE ONLY, deliberately. httpx — Authlib's transport for every
-         fetch above, with `trust_env` left at its default — and requests read
-         the UPPERCASE names. CPython's own
-         `urllib.request.getproxies_environment` reads both, lowercase last and
-         winning: a present-but-EMPTY lowercase `http_proxy` reads as "this
-         scheme is configured, to nothing" and POPS the scheme the uppercase
-         pass just set, while an empty UPPERCASE variable is skipped. Adding
-         the lowercase pair here would therefore hand every stdlib caller a
-         cancelled proxy on any host that sets none — which is exactly what
-         `${VAR:-}` renders when the host has no proxy. No CA-bundle variable
-         joins them, and none is needed: a site CA is BAKED INTO the sidecar
-         image from `images.site_ca`, and the image sets `SSL_CERT_FILE` and
-         `REQUESTS_CA_BUNDLE` itself to the merged bundle it installs into. A
-         path named here instead could name a file the container does not
-         have, which crashes httpx at client construction. #}
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-}
+         BOTH SPELLINGS, and only with a value. httpx — Authlib's transport
+         for every fetch above, with `trust_env` left at its default — and
+         requests read the proxy through CPython's
+         `urllib.request.getproxies_environment`, which reads both spellings,
+         lowercase last and winning; curl reads the lowercase one alone. So each
+         setting is written under its UPPERCASE name and its lowercase twin,
+         both interpolated from the UPPERCASE name so the two cannot disagree.
+         A present-but-EMPTY lowercase name POPS the scheme, and an explicit
+         empty entry overrides whatever the container runtime injects itself,
+         so a setting with no value is written under neither spelling: the
+         deploy resolves which of the three hold a value where compose reads
+         them (artifacts.proxy_env_names_with_a_value) before this render. No
+         CA-bundle variable joins them, and none is needed: a site CA is BAKED
+         INTO the sidecar image from `images.site_ca`, and the image sets
+         `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` itself to the merged bundle
+         it installs into. A path named here instead could name a file the
+         container does not have, which crashes httpx at client construction. #}
+{%- for proxy_env in proxy_env_names %}
+      - {{ proxy_env }}={{ "${" ~ proxy_env ~ ":-}" }}
+      - {{ proxy_env | lower }}={{ "${" ~ proxy_env ~ ":-}" }}
+{%- endfor %}
 {#- Everything OIDC — issuer, credential-variable names, claim, and the per-user
    subject mapping — is gated on the mode, so a `password` deployment carries no
    OIDC settings at all even if a roster entry still declares an `oidc_subject`
@@ -813,7 +841,7 @@ services:
 {%- if svc.oidc_subject %}
       {#- This user's expected IdP identity — the non-secret half of the
          roster→identity mapping. The variable NAME arrives pre-resolved as
-         `svc.oidc_subject_env` (render.py, via personas.env_var_suffix()) and
+         `svc.oidc_subject_env` (render.py, via roster_env.env_var_suffix()) and
          is emitted verbatim: deriving `upper|replace` here would be a second
          copy of the username→env-var mapping, free to drift from the one that
          keys this user's password hash in `.env.auth`. tojson quotes the WHOLE
@@ -846,7 +874,7 @@ services:
    opener of a shared card, and its login does reach this table.
 
    The variable NAME arrives pre-resolved as `svc.role_env` (render.py, via
-   personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
+   roster_env.env_var_suffix()) and is emitted verbatim, for the reason spelled
    out on `oidc_subject_env` above. tojson quotes the WHOLE `KEY=value`, the
    same treatment: a role name is config, and `": "` in one would otherwise
    turn this list item into a YAML mapping and hand the sidecar a truncated
@@ -878,7 +906,7 @@ services:
    AUTHORED. A fixed token here would hand a `domain:` card to every login.
 
    The variable NAME arrives pre-resolved as `svc.access_env` (render.py, via
-   personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
+   roster_env.env_var_suffix()) and is emitted verbatim, for the reason spelled
    out on `oidc_subject_env` above; the `ROSTER_` infix follows the role
    table's precedent. tojson quotes the whole `KEY=value`, which is what keeps
    a JSON array — commas, colons and quotes of its own — one YAML string,
@@ -939,15 +967,13 @@ services:
          marks the file authored and trips the drift refusal.
 
          So they arrive the same way the login service's do: `${VAR:-}`
-         passthrough interpolated from the deploy env chain, uppercase only.
-         The uppercase-only rule is the login service's, for the same reason —
-         `urllib.request.getproxies_environment` reads lowercase last and lets
-         a present-but-EMPTY lowercase name POP the scheme the uppercase pass
-         set, which is exactly what `${VAR:-}` renders on a host with no proxy.
-         An empty UPPERCASE variable is skipped instead. #}
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-}
+         passthrough interpolated from the deploy env chain, each setting with
+         a value under both spellings and one with none under neither, for the
+         login service's reasons. #}
+{%- for proxy_env in proxy_env_names %}
+      - {{ proxy_env }}={{ "${" ~ proxy_env ~ ":-}" }}
+      - {{ proxy_env | lower }}={{ "${" ~ proxy_env ~ ":-}" }}
+{%- endfor %}
       {#- WHO this container's audit records are written as, and WHERE. Both
          rendered from the same roster name that names the mount below
          (render._audit_mount_source / _container_audit_dir), so the identity
@@ -1055,6 +1081,17 @@ services:
       - OSPREY_WEB_PERIMETER=open
       - OSPREY_WEB_PERIMETER_DENY_PORTS={{ perimeter_deny_ports }}
 {%- endif %}
+{%- if svc.phoebus_require_handle %}
+      {#- Every terminal on this host reaches the one Phoebus product through
+         the same loopback bridge, so the implicit "active" display is whichever
+         display another user focused last. The Phoebus MCP server this
+         container launches inherits this variable and refuses "active", so its
+         tools address a handle or a named display. Omitted when the project
+         sets `phoebus.require_handle: false`, because the variable would win
+         over that key. A plain `environment:` literal, not an `.env.users`
+         entry: it is not a secret. #}
+      - PHOEBUS_REQUIRE_HANDLE=1
+{%- endif %}
       {#- Where the telemetry store is from inside this container. The agent's
          launch derives its OTLP endpoint from `claude_code.telemetry` with the
          host chosen for the running context, and the context it would sniff
@@ -1138,6 +1175,18 @@ services:
          token fails where it is visible rather than shipping an agent whose
          telemetry is silently dropped. #}
       - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
+{%- for name in svc.telemetry_vars %}
+      {#- The variables this persona's telemetry block needs: the collector's
+         bearer token (`claude_code.telemetry.auth.token_env`) plus every
+         variable the block references, except the two every terminal already
+         receives by a fixed route (the ingest token above, the account name
+         through `.env.users`). Per-user because the names are the persona's
+         own. `${VAR:-}` keeps every value in the deploy `.env`, out of this
+         rendered file. An empty token is refused at agent start by name, and a
+         defaulted reference falls back to its default inside the container
+         exactly as it would on the host. #}
+      - {{ name }}={{ "${" ~ name ~ ":-}" }}
+{%- endfor %}
 {%- if svc.display_name %}
       {#- Human-facing window/tab title. tojson quotes the WHOLE `KEY=value` as
          one double-quoted YAML scalar (never just the value — the compose
@@ -1282,13 +1331,13 @@ services:
          string. #}
       - GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}
 {%- endif %}
-{%- if svc.archiver_password_env %}
-      {#- The archiver store's password, for a persona whose archiver connector
-         authenticates with one. The consumer is the connector inside this
+      {#- The archiver's credential variables, for a persona whose archiver
+         connector authenticates. The consumer is the connector inside this
          container — the `control_system` MCP server's archiver tools and the
          Python executor's `read_archiver` both open it — and it reads the
-         variable its own `archiver.<type>.password_env` names, which is why
-         this line carries a per-persona NAME rather than a fixed one: the
+         variables its own block names under `auth:` (`auth.token_env`, or
+         `auth.password_env`), one line per name, which is why these lines
+         carry per-persona NAMES rather than fixed ones: the
          control-assistant preset spells it MONGO_ROOT_PASSWORD (minted by
          `osprey up`), a facility-run store may spell it anything.
 
@@ -1302,10 +1351,11 @@ services:
          connector exactly as an unset one is — "Environment variable '…' is
          not set" — so a deploy that never minted it fails where it is visible
          rather than half-authenticating. #}
-      - {{ svc.archiver_password_env }}={{ "${" ~ svc.archiver_password_env ~ ":-}" }}
-{%- endif %}
+{%- for archiver_env in svc.archiver_credential_envs %}
+      - {{ archiver_env }}={{ "${" ~ archiver_env ~ ":-}" }}
+{%- endfor %}
     volumes:
-      - {{ svc.user }}-claude-config:/data/claude-config
+      - {{ svc.claude_config_volume }}:/data/claude-config
       {#- Mount target comes from render.py's _container_agent_data_dir, which
          reads `agent_data.base_dir` — the same key the agent inside this
          container resolves its own agent-data root from. Never a literal: a
@@ -1380,6 +1430,15 @@ services:
          which stats the mounted directory itself, so no gid is read back for
          it at render time. #}
       - {{ svc.control_context_mount_source }}:{{ svc.container_control_context_dir }}
+      {#- The CA file this user's archiver block names under `tls.ca_bundle`,
+         bind-mounted read-only at the same path, so the key names one file on
+         the host and here. Long syntax, so any path is carried whole. #}
+{%- for ca_bundle in svc.ca_bundle_mounts %}
+      - type: bind
+        source: {{ ca_bundle | replace("$", "$$") | tojson }}
+        target: {{ ca_bundle | replace("$", "$$") | tojson }}
+        read_only: true
+{%- endfor %}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- THE DEPLOYMENT BUNDLE SHADOWS THE PERSONA'S BAKED COPY. BY DESIGN.
 
@@ -1543,7 +1602,7 @@ services:
 
 volumes:
 {% for svc in services %}
-  {{ svc.user }}-claude-config:
+  {{ svc.claude_config_volume }}:
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
   {{ svc.user }}-agent-data:

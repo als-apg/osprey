@@ -138,8 +138,17 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
 #: the sandbox simulator now, so the frozen render holds the old value. The
 #: frozen value is asserted before the key is skipped, so the exception proves
 #: the freeze rather than blinding the comparison; the difference itself is
-#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``.
-_VALUE_MOVED_SINCE_THE_FREEZE = {"control_system.type": "live_standin"}
+#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``. The two presets
+#: that carry a text-embedding block now state each model's input window
+#: (``max_input_tokens``), so the frozen renders hold the models list as it was
+#: before that key existed; lists are leaves here, so the whole list is the
+#: frozen value.
+_VALUE_MOVED_SINCE_THE_FREEZE = {
+    "control_system.type": "live_standin",
+    "ariel.enhancement_modules.text_embedding.models": [
+        {"dimension": 768, "name": "nomic-embed-text"}
+    ],
+}
 
 #: The same, for a leaf one cell alone retired, keyed by fixture directory.
 #:
@@ -155,9 +164,22 @@ _RETIRED_PER_CELL: Mapping[str, frozenset[str]] = {
     "hello-world/unset": frozenset({"approval.tools.entry_create"}),
 }
 
+#: Leaves retired since the freeze from one persona document of every
+#: control-assistant cell. The logbook and knowledge personas drop the JUPYTER
+#: panel, whose kernels reach the control target, so the switch their frozen
+#: renders carry is no longer one their preset selects.
+_RETIRED_PER_DOCUMENT: Mapping[str, frozenset[str]] = {
+    "knowledge": frozenset({"web.panels.jupyter.enabled"}),
+    "logbook": frozenset({"web.panels.jupyter.enabled"}),
+}
+
 
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    retired = _RETIRED_SINCE_THE_FREEZE | _RETIRED_PER_CELL.get(directory, frozenset())
+    retired = (
+        _RETIRED_SINCE_THE_FREEZE
+        | _RETIRED_PER_CELL.get(directory, frozenset())
+        | _RETIRED_PER_DOCUMENT.get(document, frozenset())
+    )
     frozen = _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
     return {key: value for key, value in frozen if key not in retired}
 
@@ -309,7 +331,12 @@ def test_root_render_is_partitioned_between_its_sources(
     # the tool-content gate and the content limit, which the telemetry block
     # did not carry when the freeze ran; and every preset that turns on the
     # full tool-call record gains its two `audit.tool_call.*` keys, which
-    # did not exist when the freeze ran.
+    # did not exist when the freeze ran; and every preset that carries a
+    # keyword block gains its `fuzzy_threshold`, the fuzzy-fallback floor,
+    # which was a number fixed in the keyword module; and control-assistant
+    # gains the readiness-probe bound, which was a constant when the freeze ran;
+    # and every preset that reaches no machine gains
+    # `web.control_target_picker`, which did not exist when the freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -330,6 +357,12 @@ def test_root_render_is_partitioned_between_its_sources(
     for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
         if key in config:
             expected_gain = expected_gain | {key}
+    if "ariel.search_modules.keyword.settings.fuzzy_threshold" in config:
+        expected_gain = expected_gain | {"ariel.search_modules.keyword.settings.fuzzy_threshold"}
+    if "control_system.target_switch.probe_timeout_s" in config:
+        expected_gain = expected_gain | {"control_system.target_switch.probe_timeout_s"}
+    if "web.control_target_picker" in config:
+        expected_gain = expected_gain | {"web.control_target_picker"}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )

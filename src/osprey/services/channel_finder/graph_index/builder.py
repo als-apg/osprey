@@ -397,7 +397,7 @@ def parse_corpus(text: str) -> ParsedCorpus:
         }
         for cls in class_nodes
     ]
-    direct_by_uri = {row["uri"]: row["direct"] for row in raw_rows}
+    direct_by_uri = {str(cls): len(direct[cls]) for cls in class_nodes}
     class_rows = [
         ClassRow(
             uri=kept["uri"],

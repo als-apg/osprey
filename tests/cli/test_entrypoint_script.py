@@ -17,6 +17,8 @@ maintenance succeeding vs. failing) that a textual assertion cannot reach.
 
 from __future__ import annotations
 
+import ast
+import importlib
 import os
 import re
 import subprocess
@@ -187,6 +189,24 @@ class TestScriptShape:
         — and the copy running as root is the worst one to let drift."""
         assert "from osprey.interfaces.web_terminal.scaffold_gallery_service import" in text
         assert "restore_scaffold_bodies(render_dir)" in text
+
+    def test_every_maintenance_import_resolves(self, text: str):
+        """Each maintenance step imports inside ``try/except Exception`` and only
+        logs a warning on failure, so an import that stops resolving turns the
+        step off silently while the container still starts."""
+        bodies = re.findall(r"<<'PY'\n(.*?)\nPY\n", text, re.S)
+        assert len(bodies) == 1
+        imports = [
+            node
+            for node in ast.walk(ast.parse(bodies[0]))
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("osprey")
+        ]
+        assert len(imports) >= 3
+        for node in imports:
+            assert node.module is not None
+            module = importlib.import_module(node.module)
+            for alias in node.names:
+                assert hasattr(module, alias.name), f"{node.module}.{alias.name}"
 
     def test_render_dir_derived_from_the_script_location(self, text: str):
         """No baked path: the same script has to be correct at any

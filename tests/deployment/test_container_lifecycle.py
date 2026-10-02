@@ -1527,6 +1527,153 @@ def test_a_detached_non_dev_start_still_leaves_the_build_to_the_up(monkeypatch, 
     assert "--no-build" not in ups[-1], joined
 
 
+# ---------------------------------------------------------------------------
+# An image override keeps its service out of the build
+#
+# Compose tags a build with the service's `image:`, so building a service whose
+# `OSPREY_<SERVICE>_IMAGE` names another image would produce OSPREY's recipe
+# under the operator's name. The start reads the rendered `${VAR:-default}`
+# lines and holds such a service out of every build it makes.
+# ---------------------------------------------------------------------------
+
+_TWO_BUILDABLE_SERVICES = """\
+services:
+  event-dispatcher:
+    image: ${OSPREY_DISPATCH_IMAGE:-p-dispatch:local}
+    build:
+      context: ./build/services/event_dispatcher
+  virtual-accelerator:
+    image: ${OSPREY_VA_IMAGE:-p-va:local}
+    build:
+      context: ./build/services/virtual_accelerator
+  postgresql:
+    image: postgres:16
+  archiver-recorder:
+    image: ${OSPREY_VA_IMAGE:?set OSPREY_VA_IMAGE}
+"""
+
+_ONLY_THE_VA_BUILDS = """\
+services:
+  virtual-accelerator:
+    image: ${OSPREY_VA_IMAGE:-p-va:local}
+    build:
+      context: ./build/services/virtual_accelerator
+  postgresql:
+    image: postgres:16
+"""
+
+
+def _write_compose(root: Path, text: str, name: str = "docker-compose.yml") -> Path:
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_compose_build_selection_holds_a_service_whose_override_names_another_image(tmp_path):
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": "reg.example.org/va:1"}
+    )
+
+    assert selection.build == ("event-dispatcher",)
+    assert selection.held == {"virtual-accelerator": ("OSPREY_VA_IMAGE", "reg.example.org/va:1")}
+
+
+def test_compose_build_selection_builds_a_service_whose_override_is_its_own_image(tmp_path):
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": "p-va:local"}
+    )
+
+    assert selection.build == ("event-dispatcher", "virtual-accelerator")
+    assert selection.held == {}
+
+
+def test_compose_build_selection_reads_an_empty_override_as_unset(tmp_path):
+    """``:-`` substitutes the default for an empty value, so nothing is held."""
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": ""}
+    )
+
+    assert selection.build == ("event-dispatcher", "virtual-accelerator")
+    assert selection.held == {}
+
+
+def test_compose_build_selection_skips_an_unreadable_document(tmp_path):
+    _write_compose(tmp_path, "services: [unclosed\n", name="broken.yml")
+    _write_compose(tmp_path, _ONLY_THE_VA_BUILDS)
+
+    selection = container_lifecycle._compose_build_selection(
+        ["missing.yml", "broken.yml", "docker-compose.yml"], tmp_path, {}
+    )
+
+    assert selection.build == ("virtual-accelerator",)
+    assert selection.held == {}
+
+
+def test_an_attached_start_does_not_build_a_service_running_an_overridden_image(
+    monkeypatch, tmp_path
+):
+    """The build names every buildable service except the held one."""
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    joined = [" ".join(c) for c in runs]
+    builds = [c for c in runs if "build" in c and "up" not in c]
+    assert builds, joined
+    assert builds[-1][-2:] == ["build", "event-dispatcher"], joined
+    for c in runs:
+        if c is _EXEC_MARKER or "build" not in c:
+            continue
+        assert "virtual-accelerator" not in c[c.index("build") :], joined
+    assert "--no-build" in execd["args"], execd
+
+
+def test_a_detached_start_builds_in_its_own_step_when_an_override_holds_a_service(
+    monkeypatch, tmp_path
+):
+    """Compose's build-on-up cannot leave one service out, so the start builds."""
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    joined = [" ".join(c) for c in runs]
+    assert any(c[-2:] == ["build", "event-dispatcher"] for c in runs), joined
+    ups = [c for c in runs if "up" in c]
+    assert ups, joined
+    assert "--no-build" in ups[-1], joined
+
+
+def test_a_start_whose_every_build_is_held_runs_no_build_step(monkeypatch, tmp_path):
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+    _write_compose(tmp_path, _ONLY_THE_VA_BUILDS)
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    joined = [" ".join(c) for c in runs]
+    assert not any("build" in c and "up" not in c for c in runs), joined
+    ups = [c for c in runs if "up" in c]
+    assert ups, joined
+    assert "--no-build" in ups[-1], joined
+
+
 def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     """rebuild delegates its up phase to deploy_up, so --dev inherits the same
     build/up split (Defect A): standalone `build`, then exec'd `up --no-build`."""
@@ -1767,6 +1914,61 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     assert not any("up" in c and "--build" in c for c in svc)
     assert any(c[-1] == "build" for c in svc), [" ".join(c) for c in svc]
     assert any("up" in c and "--no-build" in c for c in svc), [" ".join(c) for c in svc]
+
+
+def test_web_services_start_does_not_build_a_service_running_an_overridden_image(
+    monkeypatch, tmp_path
+):
+    """The web path's services stack holds an overridden service out of its build.
+
+    Non-dev, so without the override this stack would have no build step at all.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
+    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES, name="build/services/docker-compose.yml")
+    monkeypatch.setenv("OSPREY_VA_IMAGE", "reg.example.org/va:1")
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {
+                "deployed_services": ["event_dispatcher", "virtual_accelerator"],
+                "modules": {"web_terminals": {"enabled": True}},
+            },
+            ["build/services/docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda *a, **k: [])
+    monkeypatch.setattr(provision, "enable_linger", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "run_verify_script", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    runs: list = []
+
+    def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
+        runs.append(list(cmd))
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: runs.append(list(cmd))),
+    )
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    svc = [c for c in runs if _addresses(c, "docker-compose.yml")]
+    joined = [" ".join(c) for c in svc]
+    builds = [c for c in svc if "build" in c and "up" not in c]
+    assert [c[-2:] for c in builds] == [["build", "event-dispatcher"]], joined
+    assert any("up" in c and "--no-build" in c for c in svc), joined
 
 
 # ---------------------------------------------------------------------------
@@ -2059,6 +2261,119 @@ def test_clear_staged_service_site_ca_ignores_a_document_it_cannot_read(tmp_path
     )
 
     assert not staged.exists()
+
+
+def test_stage_service_site_ca_restages_every_context_the_render_names(tmp_path):
+    """The staging half of the rule ``clear_staged_service_site_ca`` keeps, keyed
+    on the same record: a context whose rendered ``build.args`` names the staged
+    file gets a fresh copy of the bundle; one that does not is left alone."""
+    bundle = tmp_path / "site-ca.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\nfresh\n", encoding="utf-8")
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    (services / "docker-compose.graphdb.yml").write_text(
+        _service_compose("graphdb", "./build/services/graphdb", stages_ca=False),
+        encoding="utf-8",
+    )
+    (services / "qmd").mkdir()
+    (services / "graphdb").mkdir()
+
+    container_lifecycle.stage_service_site_ca(
+        {"images": {"site_ca": str(bundle)}},
+        ["build/services/docker-compose.qmd.yml", "build/services/docker-compose.graphdb.yml"],
+        tmp_path,
+    )
+
+    staged = services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert staged.read_text(encoding="utf-8") == bundle.read_text(encoding="utf-8")
+    assert not (services / "graphdb" / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
+
+
+def test_stage_service_site_ca_warns_when_the_bundle_is_not_on_this_host(tmp_path, caplog):
+    """The render's rule: a missing bundle is reported, not raised. Compose may
+    not build the context at all (the image is cached); when it does, the build
+    fails at the layer that installs the CA, which names the problem there."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    (services / "qmd").mkdir()
+
+    with caplog.at_level(logging.WARNING):
+        container_lifecycle.stage_service_site_ca(
+            {"images": {"site_ca": str(tmp_path / "gone.pem")}},
+            ["build/services/docker-compose.qmd.yml"],
+            tmp_path,
+        )
+
+    assert "gone.pem" in caplog.text
+    assert not (services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
+
+
+def test_a_second_deploy_restages_the_ca_the_first_one_cleared(tmp_path, monkeypatch):
+    """The regression: ``osprey up`` renders nothing, so the copy a render staged
+    is gone after the first deploy cleared it. The compose build of the next one
+    must still find the bundle in each context its rendered args name."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "qmd").mkdir()
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    bundle = tmp_path / "site-ca.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    # What each compose invocation would have found in the context.
+    seen: dict[str, bool] = {}
+
+    def record(cmd, **kwargs):
+        seen[list(cmd)[-1]] = staged.is_file()
+
+    monkeypatch.setattr(container_lifecycle, "run_captured", record)
+
+    config = {
+        "project_name": "proj",
+        "deployed_services": ["qmd"],
+        "images": {"site_ca": str(bundle)},
+    }
+    # `--dev` builds in a step of its own and starts with `--no-build`; a plain
+    # detached start leaves the build to compose's implicit build-on-up. Each
+    # shape twice: the second start is the one that used to find no CA.
+    for dev_mode, building_step in ((True, "build"), (True, "build"), (False, "-d"), (False, "-d")):
+        container_lifecycle._start_stack(
+            config,
+            ["build/services/docker-compose.0.yml"],
+            repo,
+            detached=True,
+            dev_mode=dev_mode,
+            env_path=repo / ".env",
+        )
+        assert seen.get(building_step) is True, f"`{building_step}` found no CA in its context"
+        assert not staged.exists(), "the context kept the operator's CA after the deploy"
+        seen.clear()
 
 
 def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
@@ -3200,10 +3515,12 @@ ARCHIVER_CONFIG = {
             "port": 27017,
             "name": "osprey_archiver",
             "collection": "pv_history",
-            "auth": "admin",
-            "username": "osprey",
-            "password_env": "MONGO_ROOT_PASSWORD",
-            "timeout": 5,
+            "auth": {
+                "source": "admin",
+                "username": "osprey",
+                "password_env": "MONGO_ROOT_PASSWORD",
+            },
+            "timeout_s": 5,
         }
     },
 }
@@ -4225,9 +4542,10 @@ def test_a_pinned_worker_image_builds_nothing_under_either_axis(monkeypatch, axe
 # ---------------------------------------------------------------------------
 #
 # Every container in the web-terminal stack is handed HTTP_PROXY / HTTPS_PROXY /
-# NO_PROXY from the chain and nothing else — neither the login service nor a
-# per-user terminal reads the chain wholesale — so a lowercase spelling misses
-# all of them. The advisory names the file and the variable, never the value,
+# NO_PROXY under both spellings, both taken from the UPPERCASE chain name, and
+# nothing else from the chain — neither the login service nor a per-user
+# terminal reads it wholesale — so a value the chain holds only under the
+# lowercase name misses all of them. The advisory names the file and the variable, never the value,
 # and fires wherever that stack is rendered.
 
 
@@ -4329,8 +4647,8 @@ def test_the_advisory_is_scoped_to_a_deployment_that_renders_web_terminals(
 def test_the_advisory_fires_without_an_oidc_login_service(tmp_path, caplog, config):
     """The per-user terminals miss the lowercase spelling under every auth
     method, not only OIDC: the agent inside one reaches the model provider
-    whether or not a login service exists, and the terminal is handed the same
-    three uppercase names and nothing else."""
+    whether or not a login service exists, and the terminal is handed each
+    proxy setting from its uppercase name only."""
     repo = _chain_repo(tmp_path, shared="https_proxy=http://proxy.example.com:8080\n")
 
     with caplog.at_level(logging.WARNING):
@@ -4340,6 +4658,32 @@ def test_the_advisory_fires_without_an_oidc_login_service(tmp_path, caplog, conf
     assert "HTTPS_PROXY" in caplog.text
     # Names only, never values.
     assert "proxy.example.com" not in caplog.text
+
+
+def test_a_lowercase_name_beside_an_empty_uppercase_twin_is_named(tmp_path, caplog):
+    """An uppercase line with no value is no twin: the stack writes neither
+    spelling for it, so the lowercase value still reaches no container."""
+    repo = _chain_repo(
+        tmp_path,
+        shared="HTTPS_PROXY=\nhttps_proxy=http://proxy.example.com:8080\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config())
+
+    assert findings == [(".env.shared", "https_proxy")]
+    assert "proxy.example.com" not in caplog.text
+
+
+def test_an_empty_lowercase_name_is_not_named(tmp_path, caplog):
+    """A lowercase line with no value carries nothing the stack could miss."""
+    repo = _chain_repo(tmp_path, shared="no_proxy=\n")
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config())
+
+    assert findings == []
+    assert "no_proxy" not in caplog.text
 
 
 def test_a_repo_with_no_chain_files_is_silent(tmp_path):
@@ -4401,6 +4745,19 @@ def test_deploy_up_removes_orphan_terminals_before_the_host_port_preflight(
     assert "ariel" in out
 
 
+def test_deploy_up_checks_the_store_port_right_after_the_host_port_preflight(monkeypatch, tmp_path):
+    order: list[str] = []
+    _record_web_deploy(monkeypatch, tmp_path, order, {"enabled": True, "image_source": "local"})
+    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
+    monkeypatch.setattr(
+        container_lifecycle, "_preflight_store_address", lambda config, files: order.append("store")
+    )
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert order == ["ports", "store", "web_up"]
+
+
 def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_path):
     order: list[str] = []
     monkeypatch.chdir(tmp_path)
@@ -4429,3 +4786,60 @@ def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     assert order == []
+
+
+def test_a_failed_start_still_clears_the_ca_it_staged(tmp_path, monkeypatch):
+    """A build that fails after staging must not leave the operator's bundle in
+    the context: the clear runs however the start ends."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    (services / "qmd").mkdir(parents=True)
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    bundle = tmp_path / "site-ca.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    seen: list[bool] = []
+
+    def failing_build(cmd, **kwargs):
+        if "build" in cmd:
+            seen.append(staged.is_file())
+            raise subprocess.CalledProcessError(1, list(cmd))
+
+    monkeypatch.setattr(container_lifecycle, "run_captured", failing_build)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        container_lifecycle._start_stack(
+            {
+                "project_name": "proj",
+                "deployed_services": ["qmd"],
+                "images": {"site_ca": str(bundle)},
+            },
+            ["build/services/docker-compose.0.yml"],
+            repo,
+            detached=True,
+            dev_mode=True,
+            env_path=repo / ".env",
+        )
+
+    assert seen == [True], "the build did not run with the CA staged"
+    assert not staged.exists(), "a failed start left the operator's CA in the context"

@@ -10,6 +10,7 @@ PyTango.
 import asyncio
 import sys
 import threading
+import time
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -245,6 +246,73 @@ class TestConnect:
                 "tango://db.example.org:10000/sr/power_supply/ps01"
             )
             await conn.disconnect()
+
+    async def test_timeout_s_defaults_to_five_seconds(self):
+        mock_tango = _make_tango()
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({})
+            assert conn._timeout_s == 5.0
+            await conn.disconnect()
+
+    async def test_timeout_s_bounds_every_device_proxy(self):
+        proxy = _make_proxy()
+        mock_tango = _make_tango(proxy)
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            await conn.connect({"timeout_s": 2.5})
+            conn._get_proxy("sr/power_supply/ps01")
+            proxy.set_timeout_millis.assert_called_once_with(2500)
+            await conn.disconnect()
+
+    @pytest.mark.parametrize("bad", [0, -1, "five", True, float("nan"), float("inf")])
+    async def test_a_timeout_s_that_is_not_a_positive_number_is_refused(self, bad):
+        mock_tango = _make_tango()
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            with pytest.raises(ValueError, match="control_system.connector.tango.timeout_s"):
+                await conn.connect({"timeout_s": bad})
+
+        assert conn._connected is False
+        mock_tango.Database.assert_not_called()
+
+    async def test_the_old_timeout_key_is_refused(self):
+        mock_tango = _make_tango()
+        with (
+            patch.dict(sys.modules, {"tango": mock_tango}),
+            patch(_LIMITS_PATCH, return_value=None),
+            patch(_TZ_PATCH, return_value=UTC),
+            patch("osprey.utils.config.get_config_value", return_value=False),
+        ):
+            from osprey.connectors.control_system.tango_connector import TangoConnector
+
+            conn = TangoConnector()
+            with pytest.raises(ValueError, match="renamed to timeout_s"):
+                await conn.connect({"timeout": 0.2})
+
+        assert conn._connected is False
+        mock_tango.Database.assert_not_called()
 
 
 class TestDisconnect:
@@ -662,6 +730,92 @@ class TestNonBlockingOffload:
         assert failed.notes == "TANGO did not take the value"
         proxy.read_attribute.assert_not_called()
         validator.resolve_confirm.assert_not_called()
+
+
+async def _bounded_tango(timeout):
+    """A connected TangoConnector, patched by the caller, with the block's ``timeout_s``."""
+    from osprey.connectors.control_system.tango_connector import TangoConnector
+
+    conn = TangoConnector()
+    await conn.connect({"timeout_s": timeout})
+    return conn
+
+
+class TestBoundedCalls:
+    """A read or write given no timeout of its own is bounded by the block's.
+
+    The fake's transport call does not honour the proxy timeout beneath it, so
+    only the connector's own ceiling can end the call. Every stall blocks on an
+    ``Event`` with a finite wait, released before the test returns.
+    """
+
+    async def test_a_stalled_read_raises_timeout_error_within_timeout(self):
+        release = threading.Event()
+        proxy = _make_proxy()
+        proxy.read_attribute.side_effect = lambda _attr: release.wait(10)
+        try:
+            with (
+                patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
+                patch(_LIMITS_PATCH, return_value=None),
+                patch(_TZ_PATCH, return_value=UTC),
+                patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+            ):
+                conn = await _bounded_tango(0.2)
+                start = time.monotonic()
+                with pytest.raises(TimeoutError) as raised:
+                    await conn.read_channel(_ADDRESS)
+                elapsed = time.monotonic() - start
+        finally:
+            release.set()
+
+        assert _ADDRESS in str(raised.value)
+        assert not isinstance(raised.value, ConnectionError)
+        assert elapsed < 2.0
+
+    async def test_a_per_call_timeout_wins_over_the_block_timeout(self):
+        release = threading.Event()
+        proxy = _make_proxy()
+        proxy.read_attribute.side_effect = lambda _attr: release.wait(10)
+        try:
+            with (
+                patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
+                patch(_LIMITS_PATCH, return_value=None),
+                patch(_TZ_PATCH, return_value=UTC),
+                patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+            ):
+                conn = await _bounded_tango(30)
+                start = time.monotonic()
+                with pytest.raises(TimeoutError):
+                    await conn.read_channel(_ADDRESS, timeout=0.2)
+                elapsed = time.monotonic() - start
+        finally:
+            release.set()
+
+        assert elapsed < 2.0
+
+    async def test_a_stalled_write_is_unconfirmed_not_failed(self):
+        release = threading.Event()
+        proxy = _make_proxy()
+        proxy.write_attribute.side_effect = lambda _attr, _value: release.wait(10)
+        try:
+            with (
+                patch.dict(sys.modules, {"tango": _make_tango(proxy)}),
+                patch(_LIMITS_PATCH, return_value=None),
+                patch(_TZ_PATCH, return_value=UTC),
+                patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+            ):
+                conn = await _bounded_tango(0.2)
+                start = time.monotonic()
+                result = await conn.write_channel(_ADDRESS, 10.0, confirm=True)
+                elapsed = time.monotonic() - start
+        finally:
+            release.set()
+
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.error_message is not None
+        assert result.observed_value is None
+        assert proxy.read_attribute.call_count == 0
+        assert elapsed < 2.0
 
 
 class TestWriteTextIsDisplayOnly:

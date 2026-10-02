@@ -11,11 +11,9 @@ over it) rather than reading the raw key. The normalized entry carries the
 authored value verbatim so both stay answerable from it.
 Callers that write the roster *back* to
 ``config.yml`` rather than render from it use :func:`freeze_user_indices`, which
-keeps the authored keys the normalizer projects away. Also home to the
-username→env-var-suffix mapping (:func:`env_var_suffix`) and its collision detector
-(:func:`env_var_suffix_collisions`), which credential provisioning, the auth
-sidecar and lint share so a user's credentials are keyed identically everywhere.
-Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`.
+keeps the authored keys the normalizer projects away.
+Port arithmetic lives in :mod:`osprey.deployment.web_terminals.ports`, and the
+username→env-var-suffix mapping in :mod:`osprey.services.auth_sidecar.roster_env`.
 
 One rule about the roster is *not* about identity at all and still lives here:
 which personas can edit the deployment they run in (:func:`persona_privileges`),
@@ -37,6 +35,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
 from osprey.bluesky_bridge_connection import (
     LANE_KEYS,
     LANE_ONE,
@@ -50,6 +49,7 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors import yaml_loader
+from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.types import (
     archiver_settings_key,
     baseline_target,
@@ -73,10 +73,9 @@ SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
 
 # Usernames become nginx `location` keys and URL path segments (`/<user>/...`), so
 # they're held to a stricter charset than a bare "no reserved collision" check.
-# Public and defined here, alongside `env_var_suffix`, because this module owns
-# what a roster username *is*: lint's scaffold-time rule, render's fail-closed
-# gate and `auth_credentials`' deploy-time gate all import it from here, so the
-# three cannot drift apart.
+# Public and defined here because this module owns what a roster username *is*:
+# lint's scaffold-time rule, render's fail-closed gate and `auth_credentials`'
+# deploy-time gate all import it from here, so the three cannot drift apart.
 #
 # Apply it with `.fullmatch()`, never `.match()`: Python's `$` also matches
 # *before* a trailing newline, so `.match()` accepts "alice\n" — a name that
@@ -140,7 +139,8 @@ def resolve_authorization_roles(web_terminals: Any) -> dict[str, str]:
     """
     from osprey.deployment.web_terminals.render import _authorization_context
 
-    return _authorization_context(as_dict(web_terminals))["authorization_roles"]
+    roles: dict[str, str] = _authorization_context(as_dict(web_terminals))["authorization_roles"]
+    return roles
 
 
 def effective_persona(
@@ -375,6 +375,54 @@ def bluesky_server_enabled(config: Any) -> bool:
     return FRAMEWORK_SERVERS["bluesky"].default_enabled
 
 
+def phoebus_server_runs(config: Any) -> bool:
+    """True if ``config`` starts a Phoebus MCP server.
+
+    The one answer to "does this project start a Phoebus MCP server", read
+    exactly the way :func:`osprey.registry.mcp.resolve_servers` reads
+    ``claude_code.servers``. The ``phoebus`` entry's ``enabled`` is an
+    override: a literal ``False`` switches the framework server off, a literal
+    ``True`` switches it on, and absence leaves the registry's own default,
+    taken from the registry rather than restated here for the reason
+    :func:`bluesky_server_enabled` gives.
+
+    Any other entry with ``extends: phoebus`` counts too, unless it says
+    ``enabled: false``: a declared clone is enabled, and every clone addresses a
+    bridge that all terminals share, the same as the framework server does. A
+    framework server name never counts as a clone, because the registry ignores
+    ``extends`` on one. A malformed entry is not a Phoebus server.
+    """
+    servers = as_dict(as_dict(as_dict(config).get("claude_code")).get("servers"))
+    for name, spec in servers.items():
+        if name in FRAMEWORK_SERVERS:
+            continue
+        entry = as_dict(spec)
+        if entry.get("extends") == "phoebus" and entry.get("enabled") is not False:
+            return True
+    value = as_dict(servers.get("phoebus")).get("enabled")
+    if value is False:
+        return False
+    if value is True:
+        return True
+    return FRAMEWORK_SERVERS["phoebus"].default_enabled
+
+
+def config_needs_phoebus_handles(config: Any) -> bool:
+    """True if ``config`` starts a Phoebus server without ``phoebus.require_handle: false``.
+
+    The entitlement for the ``PHOEBUS_REQUIRE_HANDLE`` stamp on a multi-user
+    terminal. An explicit ``false`` is honoured by emitting nothing: the server
+    reads the same ``false`` from its own config, and a stamped ``1`` would
+    override it, because the environment variable wins in the Phoebus tools'
+    resolution. An explicit ``true`` is stamped anyway, which is harmless and
+    keeps the predicate to one rule.
+    """
+    return (
+        phoebus_server_runs(config)
+        and as_dict(as_dict(config).get("phoebus")).get("require_handle") is not False
+    )
+
+
 #: Each second lane's control target, inverted from the keys that name them. A
 #: lane is named for the target it serves, never for its index, so the key
 #: itself answers what a block that never wrote ``target:`` leaves open.
@@ -562,23 +610,19 @@ def config_needs_graphdb_password(config: Any) -> bool:
     return as_dict(servers.get("graph")).get("enabled", True) is not False
 
 
-#: What a ``password_env`` name must look like to be emitted into a compose
-#: ``environment:`` line verbatim. Anything else is refused rather than rendered.
-_ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
+    """The variables ``config``'s archiver connector authenticates with, in order.
 
-
-def config_archiver_password_env(config: Any) -> str | None:
-    """The variable ``config``'s archiver connector authenticates with, or ``None``.
-
-    The archiver connector reads its password from the environment variable its
-    settings block names — ``archiver.settings.password_env`` — and raises on every
-    read when that variable is unset. For a store the project deploys itself,
+    The archiver connector reads its secret from the environment variable its
+    settings block names under ``auth:`` (``auth.token_env``, or
+    ``auth.password_env`` beside ``auth.username``) and raises on every read
+    when that variable is unset. For a store the project deploys itself,
     ``osprey up`` mints the value into the deploy ``.env`` under that name; for
     a facility-run store the operator puts it there. Either way the web
-    terminal's agent can only authenticate if its container is handed *that*
-    variable, which is why this returns the configured NAME rather than a
-    boolean: the grant carries it, so a project reading a store under any
-    spelling is served.
+    terminal's agent can only authenticate if its container is handed *those*
+    variables, which is why this returns the configured NAMES rather than a
+    boolean. The names come from the connection-settings reader, so the grant
+    matches what the connector will look up; an empty tuple is no grant.
 
     Only the SELECTED connector's block counts. The shipped ``config.yml``
     carries a filled-in ``mongodb_archiver:`` block under ``type:
@@ -587,26 +631,71 @@ def config_archiver_password_env(config: Any) -> str | None:
     gated on what its consumer actually reads.
 
     Raises:
-        ValueError: when the configured name is not a plain identifier. The
+        ValueError: when a configured name is not a plain identifier. The
             name is emitted into a compose ``environment:`` line verbatim, so
-            a value compose would mangle (a space, an ``=``, a ``${``) is
-            refused at the deploy gate rather than rendered broken.
+            a value compose would mangle (a space, an ``=``, a ``${``, or
+            surrounding whitespace) is refused at the deploy gate rather than
+            rendered broken; the connector reads the name as written, so a
+            padded name is refused here rather than granted under a spelling
+            the connector never looks up. A refusal of the block itself by the
+            connection-settings reader propagates.
     """
     archiver = as_dict(as_dict(config).get("archiver"))
     connector = archiver.get("type")
     if not isinstance(connector, str) or not connector:
-        return None
-    password_env = resolve_archiver_settings(archiver).get("password_env")
-    if not isinstance(password_env, str) or not password_env.strip():
-        return None
-    password_env = password_env.strip()
-    if not _ENV_VAR_NAME_RE.match(password_env):
-        raise ValueError(
-            f"{archiver_settings_key(archiver)}.password_env must name an environment variable "
-            f"(letters, digits and underscores, not starting with a digit), got "
-            f"{password_env!r}"
-        )
-    return password_env
+        return ()
+    where = archiver_settings_key(archiver)
+    names: list[str] = []
+    for key, raw in read_credential_env_names(resolve_archiver_settings(archiver), where=where):
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        if not ENV_NAME_RE.match(raw):
+            raise ValueError(
+                f"{where}.{key} must name an environment variable (letters, digits and "
+                f"underscores, not starting with a digit), got {raw!r}"
+            )
+        if raw not in names:
+            names.append(raw)
+    return tuple(names)
+
+
+def ca_bundle_mounts(block: Any, *, where: str) -> tuple[str, ...]:
+    """The host CA file ``block`` names under ``tls.ca_bundle``, when it is on this host.
+
+    The file is mounted read-only at this same path into each container that
+    reads the block, so the key names one file on the host and inside a
+    container. Two cases mount nothing: a ``tls:`` the connection-settings
+    reader refuses, and a named file that is not on this host. In both the
+    connector inside the container refuses at connect exactly as it does on the
+    host, naming the key, so the build adds no second report of the same fact.
+
+    :param block: The connection block, as the consumer reads it.
+    :param where: The block's dotted key.
+    :return: ``(path,)`` for a named file on this host, else ``()``.
+    """
+    try:
+        path = read_ca_bundle(block, where=where)
+    except ValueError:
+        return ()
+    if path is None or not path.exists():
+        return ()
+    return (path.as_posix(),)
+
+
+def config_archiver_ca_bundles(config: Any) -> tuple[str, ...]:
+    """The CA file ``config``'s SELECTED archiver block names, when it is on this host.
+
+    Only the selected connector's block counts, for the reason
+    :func:`config_archiver_credential_envs` gives. See :func:`ca_bundle_mounts`
+    for what is mounted and why nothing else is.
+    """
+    archiver = as_dict(as_dict(config).get("archiver"))
+    connector = archiver.get("type")
+    if not isinstance(connector, str) or not connector:
+        return ()
+    return ca_bundle_mounts(
+        resolve_archiver_settings(archiver), where=archiver_settings_key(archiver)
+    )
 
 
 def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
@@ -706,7 +795,7 @@ def _persona_configs(
     """Yield ``(persona_name, parsed config.yml)`` for every readable referenced persona.
 
     The one disk walk behind :func:`_personas_whose_config` and
-    :func:`personas_needing_archiver_password`; see the former for why a
+    :func:`personas_needing_archiver_credentials`; see the former for why a
     persona that cannot be read is skipped rather than guessed at.
 
     :param persona_root: The directory standing in for ``<project_root>/build``
@@ -945,6 +1034,18 @@ def personas_needing_ariel_mirror(config: Any, project_root: Any) -> set[str]:
     return _personas_whose_config(config, project_root, config_needs_ariel_mirror)
 
 
+def personas_needing_phoebus_handles(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project must address Phoebus displays by handle.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names whose container gets
+        ``PHOEBUS_REQUIRE_HANDLE=1`` (see :func:`config_needs_phoebus_handles`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_phoebus_handles)
+
+
 def personas_needing_launch_token_by_lane(config: Any, project_root: Any) -> dict[str, set[str]]:
     """Which personas may arm a queue start, per plan lane.
 
@@ -999,12 +1100,14 @@ def personas_needing_graphdb_password(config: Any, project_root: Any) -> set[str
     return _personas_whose_config(config, project_root, config_needs_graphdb_password)
 
 
-def personas_needing_archiver_password(config: Any, project_root: Any) -> dict[str, str]:
-    """Map each catalog persona whose archiver reads a password to the variable it reads.
+def personas_needing_archiver_credentials(
+    config: Any, project_root: Any
+) -> dict[str, tuple[str, ...]]:
+    """Map each catalog persona whose archiver names credentials to the variables it reads.
 
-    A map rather than a set because the grant carries the variable NAME (see
-    :func:`config_archiver_password_env`): two personas reading two stores each
-    get their own line, and the render emits exactly the name the connector
+    A map rather than a set because the grant carries the variable NAMES (see
+    :func:`config_archiver_credential_envs`): two personas reading two stores each
+    get their own lines, and the render emits exactly the names the connector
     will look up. Walks the same per-persona ``config.yml`` files the other
     grants walk, so this cannot disagree with them about which personas a
     roster deploys.
@@ -1012,16 +1115,39 @@ def personas_needing_archiver_password(config: Any, project_root: Any) -> dict[s
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
-    :return: ``{persona_name: env_var_name}`` for the referenced personas whose
-        selected archiver connector names a ``password_env``.
+    :return: ``{persona_name: (env_var_name, ...)}`` for the referenced personas
+        whose selected archiver connector names a credential variable.
     :raises ValueError: when a persona names a variable compose cannot carry
-        (see :func:`config_archiver_password_env`).
+        (see :func:`config_archiver_credential_envs`).
     """
-    grants: dict[str, str] = {}
+    grants: dict[str, tuple[str, ...]] = {}
     for persona_name, persona_config in _persona_configs(config, project_root):
-        password_env = config_archiver_password_env(persona_config)
-        if password_env is not None:
-            grants[persona_name] = password_env
+        names = config_archiver_credential_envs(persona_config)
+        if names:
+            grants[persona_name] = names
+    return grants
+
+
+def personas_needing_archiver_ca_bundles(
+    config: Any, project_root: Any
+) -> dict[str, tuple[str, ...]]:
+    """Map each catalog persona whose archiver names a CA file on this host to that file.
+
+    Walks the same per-persona ``config.yml`` files
+    :func:`personas_needing_archiver_credentials` walks, so the two grants agree
+    about which personas a roster deploys.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: ``{persona_name: (ca_path,)}`` for the referenced personas whose
+        selected archiver block names a CA file on this host.
+    """
+    grants: dict[str, tuple[str, ...]] = {}
+    for persona_name, persona_config in _persona_configs(config, project_root):
+        paths = config_archiver_ca_bundles(persona_config)
+        if paths:
+            grants[persona_name] = paths
     return grants
 
 
@@ -1075,7 +1201,8 @@ def normalize_users(users_raw: Any, *, strict: bool = True) -> list[dict[str, An
     missing or empty match a roster user. Dropping it instead leaves that user
     with no mapping at all, which the callback answers with 403. Only the
     *non-secret* side of the mapping ever lives in config.yml; password hashes
-    never do (they live in ``.env.auth``, keyed by :func:`env_var_suffix`).
+    never do (they live in ``.env.auth``, keyed by
+    :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`).
 
     An object entry's optional ``role`` (the name of a
     ``modules.web_terminals.authorization.roles`` entry, which names the persona
@@ -2433,55 +2560,6 @@ def control_identity_collision_warnings(
     return warnings
 
 
-def env_var_suffix(username: str) -> str:
-    """Map a roster username to the suffix its per-user env vars are keyed by.
-
-    Uppercase, with ``-`` replaced by ``_`` — so ``alice-b`` keys
-    ``OSPREY_AUTH_PW_HASH_ALICE_B``. This is the single definition of that
-    mapping; credential provisioning, the sidecar's env lookup, and lint all
-    route through it so a username can never be keyed one way at mint time and
-    another at verify time.
-
-    The mapping is intentionally total and lossy: it neither validates the
-    username charset nor rejects anything. Two distinct usernames can therefore
-    collide onto one suffix (``alice-b`` and ``alice_b``), which is exactly what
-    :func:`env_var_suffix_collisions` exists to detect — enforcement is the
-    caller's (a hard raise on the deploy preflight path, an ERROR in lint), not
-    this function's.
-    """
-    return username.upper().replace("-", "_")
-
-
-def env_var_suffix_collisions(usernames: Iterable[str]) -> dict[str, list[str]]:
-    """Find roster usernames that :func:`env_var_suffix` maps onto one suffix.
-
-    Without this check ``alice-b`` and ``alice_b`` would silently share a single
-    ``OSPREY_AUTH_PW_HASH_ALICE_B`` entry — one user's password would open the
-    other's terminal, which is precisely the isolation the auth feature exists to
-    establish.
-
-    A username repeated verbatim in the roster is *not* a collision here: it is
-    one user listed twice (a duplicate-name config error reported separately),
-    not two users sharing a credential. Only distinct names count.
-
-    Args:
-        usernames: Roster usernames — typically ``entry["name"]`` for each
-            :func:`normalize_users` entry. Non-string items are ignored, matching
-            this module's drop-don't-raise convention.
-
-    Returns:
-        ``{suffix: [colliding usernames]}`` for suffixes claimed by two or more
-        distinct usernames; empty when the roster is unambiguous. Suffix keys and
-        the names under each are sorted, so a lint or preflight message built
-        from this is byte-stable across runs.
-    """
-    by_suffix: dict[str, set[str]] = {}
-    for username in usernames:
-        if isinstance(username, str):
-            by_suffix.setdefault(env_var_suffix(username), set()).add(username)
-    return {suffix: sorted(names) for suffix, names in sorted(by_suffix.items()) if len(names) > 1}
-
-
 def roster_user_names(web_terminals: Any) -> list[str]:
     """The web-terminal user names a ``modules.web_terminals`` subtree declares.
 
@@ -2613,6 +2691,32 @@ def _persona_ref_by_name(
     return refs
 
 
+#: The refusal both the lint (``web_terminals.registry_mode_missing_url``) and
+#: the render raise for registry mode with no ``registry.url``.
+REGISTRY_MODE_MISSING_URL: str = (
+    "modules.web_terminals.image_source is 'registry' (the default) but registry.url is not "
+    "set, so no web-terminal image can be named; set the profile's deploy.registry.url, or "
+    "registry.url in its config: block"
+)
+
+
+def configured_registry_url(registry_cfg: Any) -> str:
+    """Return the top-level ``registry.url`` every registry-mode image is named under.
+
+    Args:
+        registry_cfg: The top-level ``registry`` section, in any shape.
+
+    Returns:
+        ``registry_cfg["url"]`` when the section is a mapping and the value is a
+        string; empty when the section, the key or a string value is missing.
+    """
+    if isinstance(registry_cfg, dict):
+        url = registry_cfg.get("url")
+        if isinstance(url, str):
+            return url
+    return ""
+
+
 def resolve_personas(
     web_terminals: dict[str, Any],
     registry_cfg: dict[str, Any],
@@ -2671,6 +2775,10 @@ def resolve_personas(
       clear of the dispatch worker's ``<project>:local`` tag;
       ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
+
+    The resolution stays total: an empty ``registry_url`` still yields a
+    leading-slash image name, and :func:`render_web_terminals` is where registry
+    mode without one is refused.
 
     Args:
         web_terminals: The already-dict-coerced ``modules.web_terminals`` section
@@ -2736,11 +2844,7 @@ def resolve_personas(
     image_source = effective_image_source(web_terminals)
     image_tag = resolve_image_tag(web_terminals)
 
-    registry_url = ""
-    if isinstance(registry_cfg, dict):
-        url = registry_cfg.get("url")
-        if isinstance(url, str):
-            registry_url = url
+    registry_url = configured_registry_url(registry_cfg)
 
     # The role table behind every entry's binding. Under `strict` an incoherent
     # `authorization` stanza stops the render here rather than resolving a
@@ -2933,12 +3037,6 @@ def resolve_personas(
 # ---------------------------------------------------------------------------
 
 
-#: The exact ``permissions.deny`` entry that blocks the agent's shell wholesale.
-#: A *scoped* deny (``Bash(rm:*)``) constrains one command family and leaves the
-#: shell otherwise usable, so only this literal counts as "Bash is denied".
-_BASH_DENY_ENTRY = "Bash"
-
-
 def settings_json_denies(project_dir: Any, tools: Iterable[str]) -> bool:
     """True if ``<project_dir>/.claude/settings.json`` denies every tool in *tools*.
 
@@ -2964,10 +3062,9 @@ def settings_json_denies(project_dir: Any, tools: Iterable[str]) -> bool:
 
     Matching is by **exact entry**, never by tool-name resolution: a scoped deny
     (``Bash(rm:*)``) constrains one command family and leaves the tool otherwise
-    usable, and a wildcard entry such as
-    ``mcp__plugin_playwright_playwright__*`` is compared as the literal string
-    the artifact carries. Callers therefore spell each tool exactly as
-    :data:`~osprey.cli.templates.claude_code.DENY_DEFAULTS` spells it, which is
+    usable, and a wildcard entry such as ``mcp__plugin_*`` is compared as
+    the literal string the artifact carries. Callers therefore spell each tool exactly as
+    :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS` spells it, which is
     what the ``settings.json.j2`` template writes.
 
     Fails **closed**: an artifact that cannot be read and parsed into a
@@ -3061,7 +3158,7 @@ def settings_json_denies_bash(project_dir: Any) -> bool:
     The one-tool case of :func:`settings_json_denies`, kept under its own name
     because the Bash/launch-token guard asks exactly this question in four
     places and reads better for saying so. Only the exact ``"Bash"`` entry
-    counts (see :data:`_BASH_DENY_ENTRY`); every other property — reading the
+    counts (see :data:`~osprey.agent_runner.tool_names.BASH_DENY_ENTRY`); every other property — reading the
     shipped artifact rather than the config, and failing closed on one it
     cannot parse — belongs to :func:`settings_json_denies` and is described
     there.
@@ -3074,7 +3171,7 @@ def settings_json_denies_bash(project_dir: Any) -> bool:
         ``True`` only when the artifact was read, parsed, and lists ``"Bash"``
         in ``permissions.deny``; ``False`` in every other case.
     """
-    return settings_json_denies(project_dir, (_BASH_DENY_ENTRY,))
+    return settings_json_denies(project_dir, (BASH_DENY_ENTRY,))
 
 
 def personas_not_denying(config: Any, project_root: Any, tools: Iterable[str]) -> set[str]:
@@ -3172,4 +3269,4 @@ def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
         The subset of referenced persona names whose rendered
         ``.claude/settings.json`` does not deny the shell.
     """
-    return personas_not_denying(config, project_root, (_BASH_DENY_ENTRY,))
+    return personas_not_denying(config, project_root, (BASH_DENY_ENTRY,))

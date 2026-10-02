@@ -4,7 +4,8 @@ The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
 ``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``) plus the
-environment-variable name pattern their validators share. Parsing, inheritance
+checkers that hold their environment-variable names to
+:data:`~osprey_connectors.connection.ENV_NAME_RE`. Parsing, inheritance
 merging, and validation live in
 :mod:`osprey.cli.build_profile_load`, :mod:`osprey.cli.build_profile_merge`,
 and :mod:`osprey.cli.build_profile_model`, respectively; this module is a
@@ -14,24 +15,15 @@ without importing the loader.
 
 from __future__ import annotations
 
-import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.deployment.host_binding import HostBinding, host_binding_of, osprey_owns_binding
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
-
-#: The shape of an environment-variable NAME wherever a profile names one
-#: (``services.<name>.env``, ``env.required``, ``env.pinned``, ...). Both cases
-#: are admitted: the proxy family (``http_proxy`` / ``https_proxy`` /
-#: ``no_proxy``) is conventionally lowercase, and a deployment behind a proxy
-#: must be able to pass or pin those spellings too — ``urllib``'s
-#: ``getproxies()`` (hence httpx and requests) reads whichever spelling comes
-#: LAST in the environment, so an uppercase-only passthrough is silently
-#: overruled by a lowercase twin the container runtime injects from the host
-#: after the compose ``environment:`` block (#783).
-_ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+from osprey_connectors.connection import ENV_NAME_RE
 
 NetworkMode = Literal["bridge", "host"]
 """How a deployed service attaches to the network."""
@@ -86,6 +78,12 @@ def env_names_errors(value: Any, key: str) -> list[str]:
     every bad entry rather than the first, so an author fixes the whole list in
     one pass.
 
+    Both cases are admitted: the proxy family (``http_proxy`` / ``https_proxy`` /
+    ``no_proxy``) is conventionally lowercase, and ``urllib``'s ``getproxies()``
+    (hence httpx and requests) reads whichever spelling comes last in the
+    environment, so an uppercase-only passthrough is overruled by a lowercase twin
+    the container runtime injects after the compose ``environment:`` block.
+
     Args:
         value: The declared list, exactly as it came out of the YAML.
         key: Dotted path of the declaration (e.g. ``"services.gchat_bridge.env"``),
@@ -93,7 +91,7 @@ def env_names_errors(value: Any, key: str) -> list[str]:
 
     Returns:
         Human-readable error messages; empty when ``value`` is a list of names
-        matching :data:`_ENV_VAR_RE`.
+        matching :data:`~osprey_connectors.connection.ENV_NAME_RE`.
     """
     if not isinstance(value, list):
         message = f"{key} must be a list of environment variable names (got {type(value).__name__})"
@@ -105,7 +103,7 @@ def env_names_errors(value: Any, key: str) -> list[str]:
 
     errors: list[str] = []
     for index, name in enumerate(value):
-        if isinstance(name, str) and _ENV_VAR_RE.match(name):
+        if isinstance(name, str) and ENV_NAME_RE.match(name):
             continue
         message = (
             f"{key}[{index}] must be an environment variable name matching "
@@ -287,9 +285,9 @@ class ServiceDef:
 
     :attr:`config` is a free-form pass-through: whatever a profile declares
     under ``services.<name>.config`` is written to the rendered ``config.yml``
-    and is visible to the service's compose template. Two keys in it are
+    and is visible to the service's compose template. Five keys in it are
     understood by the build itself, each validated by
-    :meth:`BuildProfile.validate` and read through its own accessor:
+    :meth:`BuildProfile.validate` and read through an accessor:
 
     - ``network:`` — the service's attachment, one of
       :data:`VALID_NETWORK_MODES` and defaulting to
@@ -299,6 +297,11 @@ class ServiceDef:
     - ``http:`` — whether the service answers HTTP on the port it publishes, so
       the deploy summary shows its address as a link; defaults to
       :data:`DEFAULT_SPEAKS_HTTP`, read through :meth:`speaks_http`.
+    - ``listens:`` — false when the service opens no listening socket;
+      defaults to true.
+    - ``bind_env:`` — the environment variable its compose template renders
+      the bind address into; defaults to none. With ``listens:``, read through
+      :meth:`host_binding`, and consulted only under ``network: host``.
     """
 
     template: str  # Path to template dir (relative to profile dir)
@@ -333,8 +336,9 @@ class ServiceDef:
 
         Returns:
             The declared names, or an empty list when the service declares
-            none. Every entry is guaranteed to match :data:`_ENV_VAR_RE` for
-            any profile that passed :meth:`BuildProfile.validate`.
+            none. Every entry is guaranteed to match
+            :data:`~osprey_connectors.connection.ENV_NAME_RE` for any profile
+            that passed :meth:`BuildProfile.validate`.
         """
         if not isinstance(self.config, dict):
             return []
@@ -365,6 +369,15 @@ class ServiceDef:
         declared = self.config.get("http", DEFAULT_SPEAKS_HTTP)
         return declared if isinstance(declared, bool) else DEFAULT_SPEAKS_HTTP
 
+    def host_binding(self) -> HostBinding:
+        """Return what the service declares it binds on the host network.
+
+        Returns:
+            The declaration read by :func:`host_binding_of`, which applies the
+            defaults and reads a malformed value as undeclared.
+        """
+        return host_binding_of(self.config)
+
 
 DEFAULT_SPEAKS_HTTP = False
 """Whether a declared service is fronted by HTTP when it says nothing.
@@ -394,6 +407,71 @@ def http_errors(value: Any, key: str) -> list[str]:
         f"{key} must be true or false — whether this service answers HTTP on the "
         f"port it publishes (got {value!r})"
     ]
+
+
+def listens_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``listens:`` declaration (empty when valid).
+
+    Args:
+        value: The declared value, exactly as it came out of the YAML.
+        key: Dotted path of the declaration, used verbatim in the message.
+
+    Returns:
+        Human-readable error messages; empty when *value* is a boolean.
+    """
+    if isinstance(value, bool):
+        return []
+    return [
+        f"{key} must be true or false — false says this service opens no listening "
+        f"socket (got {value!r})"
+    ]
+
+
+def bind_env_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``bind_env:`` declaration (empty when valid).
+
+    Args:
+        value: The declared value, exactly as it came out of the YAML.
+        key: Dotted path of the declaration, used verbatim in the message.
+
+    Returns:
+        Human-readable error messages; empty when *value* is a variable name
+        matching :data:`~osprey_connectors.connection.ENV_NAME_RE`.
+    """
+    if isinstance(value, str) and ENV_NAME_RE.match(value):
+        return []
+    return [
+        f"{key} must name the environment variable its compose template renders the "
+        f"bind address into (got {value!r})"
+    ]
+
+
+def osprey_declares_binding(
+    name: str, services: Mapping[str, ServiceDef], profile_dir: Path
+) -> bool:
+    """Whether OSPREY, not the profile, declares what service ``name`` binds.
+
+    The profile-side reading of
+    :func:`~osprey.deployment.host_binding.osprey_owns_binding`: the template
+    comes from the profile's ``services:`` entry (none for an injected
+    service), and a service is claimed when a ``services/<name>`` directory
+    sits beside the profile.
+
+    Args:
+        name: The ``services.<name>`` key.
+        services: The profile's ``services:`` entries.
+        profile_dir: Directory holding the profile, where a claimed service
+            lives.
+
+    Returns:
+        True when the build writes OSPREY's own declaration for ``name``.
+    """
+    entry = services.get(name)
+    return osprey_owns_binding(
+        name,
+        template=entry.template if entry is not None else None,
+        claimed=(profile_dir / "services" / name).is_dir(),
+    )
 
 
 @dataclass
@@ -454,6 +532,10 @@ class DispatchConfig:
     ``max_turns``; this is what a trigger that names none is given."""
 
     facility_name: str = ""
+    """Display name the dispatcher dashboard shows.
+
+    Empty means the deployment's ``facility.name``; set it only when the
+    dashboard should say something else."""
 
     channel_strip_prefix: str = ""
     """Leading prefix trimmed off a channel address before the dashboard shows it.
@@ -975,9 +1057,10 @@ class TeamsBridgeProfileConfig:
 
     The Azure credentials and destinations are deliberately *not* profile
     fields: ``TEAMS_APP_ID``, ``TEAMS_APP_SECRET``, ``TEAMS_TENANT_ID``,
-    ``TEAMS_SERVICEBUS_CONNECTION_STRING``, ``TEAMS_SERVICEBUS_QUEUE`` and the
-    optional ``TEAMS_CLOUD`` are user-supplied runtime env (declared via
-    ``env.required``), never baked into a build. Validated by
+    ``TEAMS_SERVICEBUS_CONNECTION_STRING``, ``TEAMS_SERVICEBUS_QUEUE``, the
+    optional ``TEAMS_CLOUD`` and the optional file-sharing pair
+    ``TEAMS_FILES_DRIVE_ID``/``TEAMS_FILES_FOLDER`` are user-supplied runtime env
+    (declared via ``env.required``), never baked into a build. Validated by
     :meth:`BuildProfile.validate`.
     """
 

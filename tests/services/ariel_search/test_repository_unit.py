@@ -24,7 +24,10 @@ import psycopg
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.database.repository import ARIELRepository
+from osprey.services.ariel_search.database.repository import (
+    MAX_ENHANCEMENT_ATTEMPTS,
+    ARIELRepository,
+)
 from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
     DatabaseQueryError,
@@ -706,8 +709,9 @@ class TestEnhancementStatus:
         sql, params = fake_pool.calls[0]
         body = _sql_body(sql)
         assert "NOT (enhancement_status ? %s)" in body
-        assert "enhancement_status->%s->>'status' IN ('failed', 'pending')" in body
-        assert params == ["text_embedding", "text_embedding", 100]
+        assert "enhancement_status->%s->>'status' = 'pending'" in body
+        assert "COALESCE((enhancement_status->%s->>'attempts')::int, 0) < %s" in body
+        assert params == ["text_embedding"] * 4 + [MAX_ENHANCEMENT_ATTEMPTS, 100]
 
     async def test_get_incomplete_entries_without_module_scans_all(self, fake_pool) -> None:
         """No module filter selects every entry, oldest first."""
@@ -825,7 +829,13 @@ class TestEnhancementStatus:
 
         params = fake_pool.calls[0][1]
         assert params[1] == "x" * 500
-        assert params == [["text_embedding"], "x" * 500, "e-1"]
+        assert params == [
+            ["text_embedding"],
+            "x" * 500,
+            "text_embedding",
+            "e-1",
+            "text_embedding",
+        ]
 
     async def test_mark_enhancement_failed_keeps_short_errors_intact(self, fake_pool) -> None:
         """An error under the cap is bound verbatim."""
@@ -834,6 +844,33 @@ class TestEnhancementStatus:
         await repo.mark_enhancement_failed("e-1", "text_embedding", "model timed out")
 
         assert fake_pool.calls[0][1][1] == "model timed out"
+
+    async def test_mark_enhancement_failed_counts_the_attempt(self, fake_pool) -> None:
+        """The failure adds one to the module's attempt count and reads it back."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.mark_enhancement_failed("e-1", "text_embedding", "nope")
+
+        body = _sql_body(fake_pool.calls[0][0])
+        assert "'attempts', COALESCE((enhancement_status->%s->>'attempts')::int, 0) + 1" in body
+        assert "RETURNING" in body
+
+    async def test_mark_enhancement_failed_returns_the_stored_count(
+        self, fake_pool_factory
+    ) -> None:
+        """The count the update stored is returned."""
+        pool = fake_pool_factory(rows_for={"RETURNING": [(2,)]})
+        repo = ARIELRepository(pool, _make_config())
+
+        assert await repo.mark_enhancement_failed("e-1", "text_embedding", "nope") == 2
+
+    async def test_mark_enhancement_failed_on_an_unknown_entry_returns_zero(
+        self, fake_pool
+    ) -> None:
+        """No row updated means no attempt stored."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        assert await repo.mark_enhancement_failed("missing", "text_embedding", "nope") == 0
 
 
 # ---------------------------------------------------------------------------

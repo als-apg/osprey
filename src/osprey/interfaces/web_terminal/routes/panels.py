@@ -14,7 +14,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from osprey.interfaces.common_middleware import (
@@ -27,8 +27,10 @@ from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
+    SIDECAR_PANELS,
     panel_id_refusal,
 )
+from osprey.registry.web import panel_url_state_attr
 
 logger = logging.getLogger(__name__)
 
@@ -129,12 +131,55 @@ async def lattice_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
+def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
+    """The config body of a sidecar panel: its proxy URL and its start outcome.
+
+    ``url``/``available`` follow the published backend URL, exactly as for a
+    companion panel. ``state`` is what the terminal recorded for the sidecar
+    (``None`` when it was never launched), and ``message`` the operator-facing
+    sentence for it, spelled once in :mod:`~osprey.interfaces.web_terminal.sidecar_status`.
+    """
+    from osprey.interfaces.web_terminal.sidecar_status import status_message
+
+    state = request.app.state
+    url = getattr(state, panel_url_state_attr(panel_id), None)
+    proxy_url = f"{compute_url_prefix()}/panel/{panel_id}" if url else None
+    status = getattr(state, "sidecar_status", {}).get(panel_id)
+    return {
+        "url": proxy_url,
+        "available": proxy_url is not None,
+        "state": status.state if status is not None else None,
+        "message": status_message(panel_id, status),
+    }
+
+
 @router.get("/api/jupyter-server")
 async def jupyter_server_config(request: Request):
-    """Return the notebook sidecar URL for iframe embedding."""
-    url = getattr(request.app.state, "jupyter_server_url", None)
-    proxy_url = f"{compute_url_prefix()}/panel/jupyter" if url else None
-    return {"url": proxy_url, "available": proxy_url is not None}
+    """Return the notebook sidecar URL for iframe embedding, and its start outcome."""
+    return _sidecar_panel_config(request, "jupyter")
+
+
+@router.post("/api/panels/{panel_id}/start")
+async def start_sidecar_panel(panel_id: str, request: Request):
+    """Start a panel sidecar again, one attempt at a time.
+
+    The operator's retry for a sidecar that failed to start or stopped later.
+    A request while an attempt is in flight joins it; a request for a running
+    sidecar changes nothing. Answers the sidecar's config body: 200 once it
+    runs, 202 while it is starting or after it failed.
+    """
+    from osprey.interfaces.web_terminal.app import request_sidecar_start
+
+    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
+    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+    status = await request_sidecar_start(request.app, panel_id)
+    return JSONResponse(
+        _sidecar_panel_config(request, panel_id),
+        status_code=200 if status.state == "running" else 202,
+    )
 
 
 @router.get("/api/okf-server")
@@ -439,6 +484,11 @@ async def get_panels(request: Request):
         "feedback_escalation_url": feedback_escalation_url,
         "config_panel_enabled": config_panel_enabled,
         "scaffold_write_enabled": scaffold_write_enabled,
+        # The config file that exists but could not be read, which closed both
+        # gates above; the browser names the file from this key and invents nothing.
+        "config_unreadable_path": (
+            str(p) if (p := getattr(request.app.state, "config_unreadable_path", None)) else None
+        ),
         "tour": tour,
     }
 
@@ -1028,7 +1078,7 @@ def _allowlist_matches(host: str, port: int | None, scheme: str, allowlist: list
     return False
 
 
-def _normalize_ip(raw_addr: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+def _normalize_ip(raw_addr: str | int) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse one resolved address into a comparable :mod:`ipaddress` object.
 
     A scope id (``fe80::1%en0``, as ``getsockname`` reports it on a link-local
@@ -1037,11 +1087,15 @@ def _normalize_ip(raw_addr: str) -> ipaddress.IPv4Address | ipaddress.IPv6Addres
     they meet.
 
     Args:
-        raw_addr: The address string from a ``sockaddr``.
+        raw_addr: The address from a ``sockaddr``, typed ``str | int`` as
+            ``getaddrinfo`` reports it.
 
     Returns:
-        The parsed address, or ``None`` when the string is not an IP literal.
+        The parsed address, or ``None`` when the value is not a string or the
+        string is not an IP literal.
     """
+    if not isinstance(raw_addr, str):
+        return None
     try:
         ip = ipaddress.ip_address(raw_addr.split("%", 1)[0])
     except ValueError:

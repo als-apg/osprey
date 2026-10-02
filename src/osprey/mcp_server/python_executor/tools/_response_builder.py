@@ -2,9 +2,9 @@
 
 import json
 import logging
+from typing import Any
 
 import nbformat
-from mcp.types import CallToolResult, TextContent
 
 from osprey.audit.call import note, write_stamps
 from osprey.mcp_server.errors import make_error
@@ -107,16 +107,20 @@ async def build_execution_response(
     patterns: dict,
     save_output: bool,
     tool_source: str = "execute",
-) -> CallToolResult:
-    """Build a CallToolResult response from an execution result.
+) -> str:
+    """Build the tool's reply from an execution result.
 
     Handles figure/artifact saving, notebook creation, summary building,
-    ArtifactStore persistence, and gallery URL injection. When the execution
-    reported errors, raises ``ToolError`` carrying the OSPREY error envelope
-    (via :func:`~osprey.mcp_server.errors.make_error`, see :func:`_raise_failure`
-    for how the run's ``failure_kind`` picks the type) so fastmcp produces a
-    wire-form ``CallToolResult(isError=True)`` (returning a CallToolResult with
-    ``isError`` set is silently dropped by fastmcp's ``convert_result``).
+    ArtifactStore persistence, and gallery URL injection. A successful run
+    returns the response dict as JSON text, which is the tool's declared
+    ``str`` reply: fastmcp passes only its own ``ToolResult`` through and
+    serializes any other return value as data against the declared schema.
+    When the execution reported errors, raises ``ToolError`` carrying the OSPREY
+    error envelope (via :func:`~osprey.mcp_server.errors.make_error`, see
+    :func:`_raise_failure` for how the run's ``failure_kind`` picks the type) so
+    fastmcp produces a wire-form ``CallToolResult(isError=True)`` (returning a
+    CallToolResult with ``isError`` set is silently dropped by fastmcp's
+    ``convert_result``).
 
     Args:
         code: Original source code (for notebook/metadata — not augmented).
@@ -128,8 +132,7 @@ async def build_execution_response(
         tool_source: Tool identifier for stored metadata ("execute" or "execute_file").
 
     Returns:
-        CallToolResult whose first content block carries the execution summary
-        as JSON; ``isError`` is True when the execution reported errors.
+        The execution summary as JSON text.
     """
     _note_writes(exec_result)
 
@@ -234,13 +237,10 @@ async def build_execution_response(
             result["artifact_ids"] = artifact_ids
         if has_errors:
             _raise_failure(exec_result, stderr_text, result)
-        return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps(result, default=str))],
-            isError=False,
-        )
+        return json.dumps(result, default=str)
 
     # Build compact summary inline
-    summary = {
+    summary: dict[str, Any] = {
         "description": description,
         "status": "Failed" if has_errors else "Success",
         "output": stdout_text[:_STDOUT_PREVIEW_LIMIT],
@@ -286,7 +286,4 @@ async def build_execution_response(
         response["notebook_artifact_id"] = notebook_artifact_id
     if has_errors:
         _raise_failure(exec_result, stderr_text, response)
-    return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(response, default=str))],
-        isError=False,
-    )
+    return json.dumps(response, default=str)

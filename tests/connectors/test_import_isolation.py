@@ -7,12 +7,20 @@ eagerly load the archiver stack (pandas) or any LLM/agent machinery.
 The control-context record and the acting-identity ladder are held to a
 stricter rule still: they are read inside connector-host children, executor
 sandboxes and notebook kernels, so they may not reach ``osprey`` at all.
+
+The connectors distribution as a whole runs with no ``osprey`` on the path.
+The mock archiver is the one connector that reads project config beyond its
+own block, so it is proven here by an actual ``connect``, not by an import.
 """
 
+import json
 import os
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
+
+import yaml
 
 SRC = str(Path(__file__).resolve().parents[2] / "src")
 
@@ -122,6 +130,103 @@ def test_identity_imports_no_osprey_module():
         capture_output=True,
         text=True,
         env=dict(os.environ, PYTHONPATH=SRC),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "CLEAN" in result.stdout
+
+
+def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
+    """The mock archiver serves the control-system machine file with ``osprey`` unimportable.
+
+    A finder at the front of ``sys.meta_path`` refuses ``osprey`` and its
+    submodules, because the dev environment has the framework installed and
+    no path setting can hide it. The child first proves the finder is live,
+    then connects the archiver against a project config whose control-system
+    block names a relative machine file, and reads the file's constant back.
+    """
+    root = tmp_path / "project"
+    (root / "data" / "simulation").mkdir(parents=True)
+    (root / "data" / "simulation" / "machine.json").write_text(
+        json.dumps(
+            {
+                "name": "Rig",
+                "description": "Single-channel machine",
+                "channels": {
+                    "T:Q1:CUR:SP": {
+                        "value": 42.0,
+                        "units": "A",
+                        "noise": 0.0,
+                        "description": "Test quad current setpoint",
+                    }
+                },
+                "scenarios": {"nominal": {"description": "All systems nominal."}},
+            }
+        )
+    )
+    config_path = root / "config.yml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "project_name": "project",
+                "project_root": str(root),
+                "control_system": {
+                    "type": "mock",
+                    "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
+                },
+                "archiver": {"type": "mock_archiver"},
+            }
+        )
+    )
+    code = textwrap.dedent(
+        """
+        import asyncio
+        import sys
+        from datetime import datetime
+
+
+        class _RefuseOsprey:
+            def find_spec(self, name, path=None, target=None):
+                if name == "osprey" or name.startswith("osprey."):
+                    raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+                return None
+
+
+        sys.meta_path.insert(0, _RefuseOsprey())
+        try:
+            import osprey  # noqa: F401
+        except ModuleNotFoundError:
+            pass
+        else:
+            sys.exit("blocker inert")
+
+        from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+
+
+        async def main():
+            connector = MockArchiverConnector()
+            await connector.connect({})
+            assert connector._sim_engine is not None, "no engine derived"
+            df = await connector.get_data(
+                channels=["T:Q1:CUR:SP"],
+                start_date=datetime(2024, 1, 1),
+                end_date=datetime(2024, 1, 1, 1),
+            )
+            values = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
+            assert values and all(v == 42.0 for v in values), values
+            await connector.disconnect()
+
+
+        asyncio.run(main())
+        bad = sorted(m for m in sys.modules if m == "osprey" or m.startswith("osprey."))
+        assert not bad, f"the mock archiver imported: {bad}"
+        print("CLEAN")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, CONFIG_FILE=str(config_path)),
     )
     assert result.returncode == 0, result.stderr
     assert "CLEAN" in result.stdout

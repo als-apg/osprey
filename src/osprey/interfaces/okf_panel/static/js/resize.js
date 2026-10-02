@@ -13,6 +13,7 @@
  */
 
 import { clampSize as clamp, initSplitter } from "/design-system/js/splitter.js";
+import { scopedStorageKey } from "/design-system/js/storage-scope.js";
 
 const STORAGE_KEY = "osprey-okf-sidebar-width";
 const MIN_WIDTH = 180;
@@ -37,7 +38,7 @@ export function initSidebarResize() {
   initSplitter({
     handle: document.getElementById("sidebar-resizer"),
     pane: document.getElementById("sidebar"),
-    storageKey: STORAGE_KEY,
+    storageKey: scopedStorageKey(STORAGE_KEY),
     min: MIN_WIDTH,
     max: MAX_WIDTH,
     step: KEY_STEP,

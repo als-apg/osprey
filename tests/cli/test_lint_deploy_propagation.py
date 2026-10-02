@@ -1,7 +1,8 @@
 """The web-stack lint reads the config a BUILD renders, not the raw ``config:``.
 
 ``image_source`` lives in the ``deploy:`` block and reaches the rendered config
-through ``deploy_config_overrides``. A lint run against the raw ``config:``
+through ``deploy_config_overrides``, and so does ``registry.url`` in registry
+mode when the ``config:`` block names none. A lint run against the raw ``config:``
 block therefore judges a profile on a view no deployment ever runs: a facility
 that correctly states ``image_source: local`` once, in the deploy block, gets
 told its defaulted ``registry`` mode is missing a ``registry.url`` it will never
@@ -25,6 +26,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import (
     IMAGE_SOURCE_CONFIG_KEY,
     deploy_aware_config_errors,
+    deploy_config_overrides,
     parse_deploy_block,
 )
 from osprey.cli.profile_cmd import profile as profile_group
@@ -50,9 +52,8 @@ POSTURE_FLOOR: dict[str, Any] = {
     "hooks.debug": False,
 }
 
-#: A roster that stands up the persona stack — which is what makes the
-#: mode-coherence check apply at all (a config with no catalog resolves through
-#: the pre-catalog path and is never asked about ``registry.url``).
+#: A roster that stands up the persona stack. Registry mode names every
+#: web-terminal image under ``registry.url``, with or without a catalog.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
     "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
@@ -127,25 +128,20 @@ def test_a_profile_that_runs_no_web_stack_is_unaffected() -> None:
     assert deploy_aware_config_errors(_deploy(), config) == profile_config_errors(config)
 
 
-def test_the_deploy_registrys_url_is_not_the_one_the_lint_reads() -> None:
-    """The propagated value is not a blanket pass, and this pins the edge of
-    what it covers.
-
-    ``deploy.registry.url`` is where CI pushes and the host pulls;
-    ``registry.url`` in the rendered config is what names each persona's image.
-    They are the same registry in practice, but only ``image_source`` is
-    propagated between them — so a registry-mode facility still has to state
-    the URL in the ``config:`` block, and the lint still says so. Documented
-    here rather than quietly fixed: propagating the second value is a schema
-    decision, not a lint one.
-    """
+def test_the_deploy_registry_satisfies_the_lint_and_an_explicit_config_url_wins() -> None:
+    """The deploy block names the registry once: in registry mode its
+    ``registry.url`` reaches the rendered ``registry.url`` the lint reads. A
+    ``config:`` value points the web tier elsewhere, and the build then
+    contributes nothing for that key."""
     pulls_images = _deploy(image_source="registry", registry={"url": "registry.example.org/demo"})
+    pointed_elsewhere = _config(**{"registry.url": "r.example"})
 
-    errors = deploy_aware_config_errors(pulls_images, _config())
-    satisfied = deploy_aware_config_errors(pulls_images, _config(**{"registry.url": "r.example"}))
+    filled = deploy_aware_config_errors(pulls_images, _config())
+    explicit = deploy_aware_config_errors(pulls_images, pointed_elsewhere)
 
-    assert any("registry.url is not set" in message for message in errors), _reported(errors)
-    assert satisfied == [], _reported(satisfied)
+    assert filled == [], _reported(filled)
+    assert explicit == [], _reported(explicit)
+    assert "registry.url" not in deploy_config_overrides(pulls_images, pointed_elsewhere)
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +278,53 @@ def test_a_profile_the_deploy_block_rescues_both_validates_and_builds(
 
     assert validated.exit_code == 0, validated.output
     assert built.exit_code == 0, built.output
+
+
+def test_a_registry_mode_profile_names_its_registry_once_on_both_surfaces(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A registry-mode profile that names its registry only in the deploy block
+    validates, builds, and renders that registry for the web tier."""
+    repo = tmp_path / "profile"
+    path = _write_profile(
+        repo,
+        deploy={
+            **DEPLOY_BLOCK,
+            "image_source": "registry",
+            "registry": {"url": "registry.example.org/demo"},
+        },
+        config=_config(),
+    )
+
+    validated = runner.invoke(profile_group, ["validate", str(path)])
+    built = _build(runner, path)
+
+    assert validated.exit_code == 0, validated.output
+    assert built.exit_code == 0, built.output
+    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    assert rendered["registry"] == {"url": "registry.example.org/demo"}
+
+
+def test_an_explicit_config_registry_url_reaches_the_render(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A ``config:`` registry wins over the deploy block's."""
+    repo = tmp_path / "profile"
+    path = _write_profile(
+        repo,
+        deploy={
+            **DEPLOY_BLOCK,
+            "image_source": "registry",
+            "registry": {"url": "registry.example.org/demo"},
+        },
+        config=_config(**{"registry": {"url": "mirror.example.org/demo"}}),
+    )
+
+    built = _build(runner, path)
+
+    assert built.exit_code == 0, built.output
+    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    assert rendered["registry"] == {"url": "mirror.example.org/demo"}
 
 
 def test_a_profile_neither_can_rescue_is_refused_by_both_with_one_message(

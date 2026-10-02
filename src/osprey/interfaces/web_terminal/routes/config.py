@@ -101,7 +101,9 @@ def _require_config_panel(request: Request) -> None:
     far as having a key to judge.
 
     The refusal names the key, so an operator who meets it knows which switch
-    produced it rather than suspecting a broken deployment.
+    produced it rather than suspecting a broken deployment. When the panel is
+    closed because the config file could not be read, the refusal names that
+    file and the fix instead.
 
     An app with no flag on its state has made no tier decision -- the lifespan
     always resolves one -- and the gate then refuses rather than opens.
@@ -114,6 +116,11 @@ def _require_config_panel(request: Request) -> None:
             when the app never resolved the flag.
     """
     if not getattr(request.app.state, "config_panel_enabled", False):
+        unreadable = getattr(request.app.state, "config_unreadable_path", None)
+        if unreadable:
+            from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+
+            raise HTTPException(status_code=403, detail=unreadable_config_refusal(unreadable))
         raise HTTPException(
             status_code=403,
             detail=(

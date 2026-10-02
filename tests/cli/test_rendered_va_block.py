@@ -54,7 +54,7 @@ PROBE_PROVEN_GATEWAY_SHAPE = {
 #: The Control Assistant preset's epics connector — the timeout and nothing
 #: else. The gateways ship commented out: authoring them is the go-live edit
 #: (same constant as tests/templates/test_preset_va_block.py pins).
-CONTROL_ASSISTANT_SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
+CONTROL_ASSISTANT_SHIPPED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 
 def _preset_text() -> str:

@@ -78,16 +78,16 @@ def test_phoebus_bridge_url_full_env_wins(patch_config, monkeypatch):
         assert http.phoebus_bridge_url() == "http://phoebus.box:8080"
 
 
-def test_phoebus_bridge_url_port_env_overrides(patch_config, monkeypatch):
+def test_phoebus_bridge_url_port_env_does_not_override(patch_config, monkeypatch):
+    """Only PHOEBUS_BRIDGE_URL outranks the config; a bare port variable does not."""
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
     monkeypatch.setenv("PHOEBUS_BRIDGE_PORT", "7000")
     with patch_config({"phoebus": {"host": "1.2.3.4", "port": 7979}}):
-        assert http.phoebus_bridge_url() == "http://1.2.3.4:7000"
+        assert http.phoebus_bridge_url() == "http://1.2.3.4:7979"
 
 
 def test_phoebus_bridge_url_default(patch_config, monkeypatch):
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
     with patch_config({}):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:7979"
 
@@ -95,7 +95,6 @@ def test_phoebus_bridge_url_default(patch_config, monkeypatch):
 def test_phoebus_bridge_url_config_values(patch_config, monkeypatch):
     """With no env overrides, phoebus.host/phoebus.port answer (#829)."""
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
     with patch_config({"phoebus": {"host": "127.0.0.1", "port": 19921}}):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:19921"
 

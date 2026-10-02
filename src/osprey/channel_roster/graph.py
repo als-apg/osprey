@@ -58,6 +58,9 @@ from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; the reader stays a lazy import
+    from rdflib import Graph
+    from rdflib.term import Node
+
     from osprey.services.channel_finder.graph_index.reader import GraphIndexAbsence
 
 logger = get_logger("channel_roster.graph")
@@ -299,7 +302,7 @@ def _binding_field(binding_id: str) -> str | None:
 
 
 def _corpus_readbacks(
-    graph: object, writes: set, reads: set, bindings: list[tuple[str, object]]
+    graph: Graph, writes: set, reads: set, bindings: list[tuple[str, object]]
 ) -> dict[str, str]:
     """Return ``setpoint address -> readback address`` for every pair the corpus states.
 
@@ -321,7 +324,7 @@ def _corpus_readbacks(
     from rdflib import URIRef
 
     address_of = {binding: address for address, binding in bindings}
-    fields_by_device: dict[object, dict[str, object]] = {}
+    fields_by_device: dict[Node, dict[str, Node]] = {}
     for device, binding in graph.subject_objects(URIRef(_HAS_BINDING_IRI)):
         binding_id = graph.value(binding, URIRef(_BINDING_ID_IRI))
         field = _binding_field(str(binding_id)) if binding_id is not None else None
