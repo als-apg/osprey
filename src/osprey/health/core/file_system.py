@@ -101,7 +101,8 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
       the file nor the chain sets is one they agree on, which is why this half
       is asked of the chain rather than of the comparison below;
     * agrees with the chain — ok;
-    * a provider secret differs — **error**, naming the variable and the
+    * a provider secret differs, or a credential the terminals authenticate
+      with is missing from the file — **error**, naming the variable and the
       remedy (values never appear);
     * a file OSPREY rendered is behind on something other than a secret —
       warning; the next ``osprey up`` re-renders it.
@@ -136,15 +137,26 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
         return [CheckResult("users_env", _CATEGORY, Status.ERROR, required)]
     if drift is None:
         return [CheckResult("users_env", _CATEGORY, Status.OK, ".env.users agrees with .env")]
-    if drift.stale_vars:
-        stale = ", ".join(drift.stale_vars)
+    if drift.stale_vars or drift.missing_vars:
+        findings = []
+        if drift.missing_vars:
+            missing = ", ".join(drift.missing_vars)
+            findings.append(
+                f"lacks {missing}, so web terminals start without the credential "
+                "they authenticate with"
+            )
+        if drift.stale_vars:
+            stale = ", ".join(drift.stale_vars)
+            findings.append(
+                f"is stale: {stale} differs from .env, so web terminals "
+                "authenticate with the old value"
+            )
         return [
             CheckResult(
                 "users_env",
                 _CATEGORY,
                 Status.ERROR,
-                f".env.users is stale: {stale} differs from .env, so web terminals "
-                "authenticate with the old value; run "
+                f".env.users {'; it also '.join(findings)}; run "
                 "`osprey users env --output .env.users`, then `osprey up`",
             )
         ]

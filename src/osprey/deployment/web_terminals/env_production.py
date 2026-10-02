@@ -1494,6 +1494,34 @@ def _write_users_env(users_env_path: Path, text: str) -> None:
     os.chmod(users_env_path, 0o600)
 
 
+def _provider_secret_vars(config: dict, project_root: Path) -> set[str]:
+    """Every variable a render could have written as some provider's auth secret.
+
+    The secret of each provider the registry or the built-in Claude Code table
+    knows, plus each ``api.providers`` entry of the deploy config and of every
+    referenced persona's rendered config. A variable in this set that a fresh
+    render no longer writes is the line an earlier render wrote for a provider
+    since switched away from — the one kind of extra line in an OSPREY-rendered
+    ``.env.users`` that is not an operator's edit. A custom provider removed
+    from every config is not in it, so its leftover key counts as the
+    operator's: the safe side, since a re-render would drop it.
+    """
+    from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS, provider_auth_secret_env
+    from osprey.models.provider_registry import get_provider_registry
+
+    names = set(get_provider_registry().list_providers()) | set(CLAUDE_CODE_PROVIDERS)
+    api_providers: dict = {}
+    for cfg in (
+        config,
+        *(loaded for _name, loaded in _readable_persona_configs(config, project_root)),
+    ):
+        declared = (cfg.get("api") or {}).get("providers")
+        if isinstance(declared, dict):
+            api_providers.update(declared)
+    names |= set(api_providers)
+    return {var for var in (provider_auth_secret_env(name, api_providers) for name in names) if var}
+
+
 def _expected_credential_vars(config: dict, project_root: Path) -> dict[str, str]:
     """The provider secrets this deploy's web terminals authenticate with.
 
@@ -1524,14 +1552,22 @@ class UsersEnvDrift:
     Attributes:
         path: The file.
         sources: The chain files it should agree with, in merge order.
-        generated: Whether the file is OSPREY's own render — it opens with the
-            banner and carries no variable the render would not write — and so
-            is OSPREY's to re-render. ``False`` means an operator authored or
-            edited it, and it is never rewritten.
+        generated: Whether the file is OSPREY's own render, and so OSPREY's
+            to re-render: it opens with the banner, and every variable in it
+            that the render would not write is a provider secret (see
+            :func:`_provider_secret_vars`) — one an earlier render wrote for a
+            provider no longer in play. ``False`` means an operator authored
+            the file or added a line of their own, and it is never rewritten.
         stale_vars: The provider secrets (see :func:`_expected_credential_vars`)
-            whose value in the file differs from the chain's. Non-empty for an
-            authored file by construction; may be empty for a generated one
-            whose drift is elsewhere (a timezone, a module variable).
+            present in both the file and a fresh render, with values that
+            differ.
+        missing_vars: The required ``claude_code`` auth secrets (the
+            ``required`` half of :func:`_claude_code_auth_secret_vars` — what a
+            deployed terminal actually authenticates with) that a fresh render
+            writes and the file lacks, as after a provider switch. An authored
+            file always has ``stale_vars`` or ``missing_vars``; a generated one
+            may have neither when its drift is elsewhere (a timezone, a module
+            variable).
         changed_vars: Every variable the file and the render disagree on —
             added, removed or changed. Names only, for the report line.
         subset: What a fresh render would carry.
@@ -1542,6 +1578,7 @@ class UsersEnvDrift:
     sources: tuple[Path, ...]
     generated: bool
     stale_vars: tuple[str, ...]
+    missing_vars: tuple[str, ...]
     changed_vars: tuple[str, ...]
     subset: dict[str, str]
     rendered: str
@@ -1560,8 +1597,9 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
     Answers ``None`` — nothing to report — when there is no ``.env.users``, no
     chain to compare it with (registry-mode hosts that were handed the file),
     the file is byte-for-byte what the chain renders, or the file is an
-    operator's own and agrees with the chain on every provider secret (whatever
-    else it carries is theirs).
+    operator's own, agrees with the chain on every provider secret it carries,
+    and lacks none of the credentials the terminals authenticate with
+    (whatever else it carries is theirs).
 
     Pure: reads the chain, the file and each referenced persona's rendered
     ``config.yml``; writes nothing. Values never leave it except inside the
@@ -1599,9 +1637,15 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
 
     present = parse_dotenv_file(users_env_path)
     # Ours to re-render only when nothing in it is the operator's: the banner
-    # says OSPREY wrote it, and a variable the render would not write is a
-    # hand edit that a re-render would silently drop.
-    generated = text.startswith(_USERS_ENV_MARKER) and set(present) <= set(subset)
+    # says OSPREY wrote it, and a variable the render would not write is a hand
+    # edit that a re-render would silently drop -- unless it is a provider
+    # secret. Those are what the render itself writes, one per provider in
+    # play, so after a provider switch the previous provider's key is the
+    # earlier render's line, not the operator's.
+    foreign = set(present) - set(subset)
+    generated = text.startswith(_USERS_ENV_MARKER) and (
+        not foreign or foreign <= _provider_secret_vars(config, root)
+    )
     expected = _expected_credential_vars(config, root)
     stale_vars = tuple(
         sorted(
@@ -1610,7 +1654,14 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
             if var in present and var in subset and present[var] != subset[var]
         )
     )
-    if not generated and not stale_vars:
+    # A credential the render writes and the file lacks: every terminal would
+    # start without it and fail authentication on its first prompt. Only the
+    # required secrets count -- an extra or keyless provider's var is not one a
+    # deployed terminal cannot run without.
+    missing_vars = tuple(
+        sorted(var for var in required_cc_vars if var in subset and var not in present)
+    )
+    if not generated and not stale_vars and not missing_vars:
         return None
     changed_vars = tuple(
         sorted(key for key in set(present) | set(subset) if present.get(key) != subset.get(key))
@@ -1620,6 +1671,7 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
         sources=tuple(sources),
         generated=generated,
         stale_vars=stale_vars,
+        missing_vars=missing_vars,
         changed_vars=changed_vars,
         subset=subset,
         rendered=rendered,
@@ -1627,22 +1679,33 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
 
 
 def _users_env_drift_refusal(drift: UsersEnvDrift) -> str:
-    """The sentence an authored, stale ``.env.users`` refuses the deploy with."""
+    """The sentence an authored ``.env.users`` with a stale or missing credential
+    refuses the deploy with. Names variables only, never a value."""
     sources_desc = " + ".join(str(path) for path in drift.sources)
-    stale = ", ".join(drift.stale_vars)
+    findings = []
+    consequences = []
+    if drift.missing_vars:
+        missing = ", ".join(drift.missing_vars)
+        findings.append(f"lacks {missing}, which the terminals authenticate with")
+        consequences.append("start without that credential")
+    if drift.stale_vars:
+        stale = ", ".join(drift.stale_vars)
+        findings.append(f"disagrees with {sources_desc} on {stale}")
+        consequences.append("authenticate with a value the rest of the deployment no longer uses")
     return (
-        f"{drift.path} disagrees with {sources_desc} on {stale}. Web terminals run "
-        f"with {USERS_ENV_FILENAME}, not .env, so every terminal would authenticate "
-        "with a value the rest of the deployment no longer uses and fail on its "
-        "first prompt. The file is not OSPREY's render (no banner, or lines the "
-        "render would not write), so it is treated as yours and was not rewritten: "
-        f"run `osprey users env --output {USERS_ENV_FILENAME}` to re-render it from "
-        "the chain, or change the line yourself."
+        f"{drift.path} {'; it also '.join(findings)}. Web terminals run with "
+        f"{USERS_ENV_FILENAME}, not .env, so every terminal would "
+        f"{' or '.join(consequences)} and fail on its first prompt. The file is "
+        "not OSPREY's render (no banner, or lines the render would not write), so "
+        "it is treated as yours and was not rewritten: run "
+        f"`osprey users env --output {USERS_ENV_FILENAME}` to re-render it from "
+        "the chain, or change the file yourself."
     )
 
 
 def users_env_drift_problem(config: dict, project_root: str | Path) -> str | None:
-    """Whether an authored ``.env.users`` would send the terminals a stale secret.
+    """Whether an authored ``.env.users`` would send the terminals a stale secret,
+    or none at all for a credential they authenticate with.
 
     The question :func:`ensure_env_production` refuses on, for the collect-all
     preflight — the same pairing as :func:`users_env_generation_problem`. Only
@@ -1673,11 +1736,13 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       the comparison below cannot see that case: a variable neither the file
       nor the chain sets is one they agree on. Otherwise the file is compared
       with what the chain renders now (:func:`users_env_drift`). A file OSPREY
-      rendered — banner, nothing added by hand — that the chain has moved away
-      from is re-rendered in place, so a key rotated in ``.env`` reaches the
-      terminals on the next ``up``. A file an operator authored or edited is
-      never rewritten; it is returned as-is unless a provider secret in it
-      disagrees with the chain, which raises (every terminal would fail
+      rendered — banner, nothing added by hand beyond a previous provider's
+      secret — that the chain has moved away from is re-rendered in place, so a
+      key rotated in ``.env`` or a switched provider reaches the terminals on
+      the next ``up``. A file an operator authored or edited is never
+      rewritten; it is returned as-is unless a provider secret in it disagrees
+      with the chain, or it lacks a credential the terminals authenticate with
+      and the render writes, either of which raises (every terminal would fail
       authentication on its first prompt, and ``.env`` would look fine). When
       such a file contains *none* of the credentials the config declares
       (``llm.api_key_env_var`` or any ``claude_code.provider`` in play — see
@@ -1862,14 +1927,14 @@ def _warn_if_env_production_lacks_credentials(
 ) -> None:
     """Warn when an existing ``.env.users`` is missing credentials the config names.
 
-    The never-clobber rule (see :func:`ensure_env_production`) means a file
-    generated before a provider change — or before the generator knew about
-    ``claude_code`` providers at all — keeps being shipped into every web
-    container verbatim. When the config declares LLM credentials and the file
-    contains none of them, the deploy would succeed with terminals that fail
-    authentication on their first prompt; this warning is the only breadcrumb.
-    Advisory by design: an operator-authored file may authenticate another
-    way, so nothing here blocks the deploy or touches the file.
+    The never-clobber rule (see :func:`ensure_env_production`) means an
+    operator's file keeps being shipped into every web container verbatim. A
+    *required* ``claude_code`` secret the chain sets and the file lacks never
+    reaches this point — :func:`users_env_drift` reports it and the deploy
+    refuses — so what is left here is the advisory remainder: the legacy
+    ``llm.api_key_env_var`` and the extra providers' secrets, which an
+    operator-authored file may legitimately do without. Nothing here blocks the
+    deploy or touches the file.
 
     Two arms, evaluated independently — either can fire on its own, and a file
     that satisfies one says nothing about the other:
