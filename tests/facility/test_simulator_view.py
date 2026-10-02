@@ -36,6 +36,7 @@ DECK = "data/simulator/decks/SR.json"
 LIMITS = "data/channel_limits.json"
 FACTS = ("data/facility_facts.json", "data/facility_facts.md")
 BLUESKY = "data/bluesky_devices.yml"
+GRAPH = "data/graph/facility.ttl"
 
 
 def _render(
@@ -53,7 +54,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
     assert built_control_assistant.outputs
     for outputs in built_control_assistant.outputs:
         assert sorted(set(outputs.files) - {BLUESKY}) == sorted(
-            [FACILITY_FILE, ADDRESSES, DECK, SERVED, LIMITS, *FACTS]
+            [FACILITY_FILE, ADDRESSES, DECK, SERVED, LIMITS, *FACTS, GRAPH]
         )
     # The deployment's render runs a Bluesky lane; a persona without one has no view.
     assert BLUESKY in built_control_assistant.outputs[0].files

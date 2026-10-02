@@ -145,6 +145,12 @@ def _write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_in_context(root, inputs)
 
 
+def _write_graph(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.graph import write_graph_view
+
+    return write_graph_view(root, inputs)
+
+
 #: Every view, in the order a render writes them.
 VIEWS: tuple[View, ...] = (
     View(
@@ -182,5 +188,12 @@ VIEWS: tuple[View, ...] = (
         reason="channel_finder.pipeline_mode",
         write=_write_in_context,
         selected_by="channel_finder.pipeline_mode",
+    ),
+    View(
+        name="graph",
+        path="graph",
+        written_when=_always,
+        reason="always written",
+        write=_write_graph,
     ),
 )
