@@ -2027,10 +2027,8 @@ def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
     """A build materializes the active paradigm's DB at the flat path and
     removes the ``tiers/`` subtree.
 
-    - rendered config.yml emits ``data/channel_databases/<paradigm>.json``
-      (no ``tiers/`` segment), except in_context and hierarchical, whose
-      database is the index the build writes at
-      ``data/channel_finder/<paradigm>.json``.
+    - rendered config.yml names the index the build writes at
+      ``data/channel_finder/<paradigm>.json`` (no ``tiers/`` segment).
     - the file exists at that flat path and byte-equals the preset's
       ``tiers/tier{N}/<paradigm>.json`` source.
     - the other paradigms' flat files are NOT created.
@@ -2050,11 +2048,7 @@ def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
     pipelines = config["channel_finder"]["pipelines"]
 
     # (a) Rendered config points to the FLAT path — no tiers/ segment.
-    expected_path = (
-        f"data/channel_finder/{paradigm}.json"
-        if paradigm in ("in_context", "hierarchical")
-        else f"data/channel_databases/{paradigm}.json"
-    )
+    expected_path = f"data/channel_finder/{paradigm}.json"
     assert pipelines[paradigm]["database"]["path"] == expected_path, (
         f"paradigm={paradigm} got {pipelines[paradigm]['database']['path']!r}"
     )

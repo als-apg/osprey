@@ -123,3 +123,40 @@ def test_an_unusable_cap_warns_and_keeps_the_default(tmp_path, monkeypatch, capl
 
     assert get_cf_ml_context().query_max_rows == DEFAULT_QUERY_MAX_ROWS
     assert any(QUERY_MAX_ROWS_CONFIG_KEY in record.getMessage() for record in caplog.records)
+
+
+def test_registry_loads_the_index_and_database_the_build_writes(tmp_path, monkeypatch):
+    """The index the middle-layer view writes loads, its ``schema`` key skipped."""
+    from pathlib import Path
+
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.channel_finder import write_middle_layer
+
+    monkeypatch.chdir(tmp_path)
+    doc = {
+        "devices": [{"id": "SR/BPM1", "place": "SR", "names": ["BPM 1"]}],
+        "groups": [{"id": "SR/BPM", "members": ["SR/BPM1"], "signals": {"X": "horizontal"}}],
+        "channels": [{"id": "SR:BPM1:X", "on": {"device": "SR/BPM1"}}],
+    }
+    inputs = ViewInputs(doc=doc, rendered_config={}, facility_dir=Path("."), served=[])
+    write_middle_layer(tmp_path / "data" / "channel_finder", inputs)
+    config = {
+        "channel_finder": {
+            "pipelines": {
+                "middle_layer": {
+                    "database": {
+                        "path": "data/channel_finder/middle_layer.json",
+                        "duckdb_path": "data/channel_finder/middle_layer.duckdb",
+                    }
+                }
+            }
+        }
+    }
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
+
+    initialize_cf_ml_context()
+    reg = get_cf_ml_context()
+
+    assert list(reg.database.channel_map) == ["SR:BPM1:X"]
+    assert [system["name"] for system in reg.database.list_systems()] == ["SR"]
+    assert reg.duckdb_path == str(tmp_path / "data" / "channel_finder" / "middle_layer.duckdb")
