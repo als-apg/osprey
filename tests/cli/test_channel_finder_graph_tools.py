@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.validate_claude_artifacts import (
     validate_agent_tools_against_permissions,

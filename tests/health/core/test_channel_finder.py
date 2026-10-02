@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.health.core.channel_finder import channel_finder
 from osprey.health.models import CheckResult, Status
 from osprey.services.channel_finder.core.exceptions import PipelineModeError

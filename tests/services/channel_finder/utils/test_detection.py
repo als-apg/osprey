@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from osprey.services.channel_finder.utils.detection import (
     configured_database,
@@ -24,7 +24,7 @@ from osprey.services.channel_finder.utils.detection import (
 #: The paradigms whose store is a database file, so the ones auto-detection can
 #: probe and the ones an explicit mode resolves to a ``database`` config block.
 #: ``graph`` is in the paradigm registry but is not one of them --- it answers on
-#: the mode alone. ``tests/build/test_mode_registry_single_source.py`` pins the
+#: the mode alone. ``tests/build/test_modes.py`` pins the
 #: same exclusion for the benchmark harness's paradigm map.
 FILE_PARADIGMS = tuple(m for m in VALID_CHANNEL_FINDER_MODES if m != "graph")
 

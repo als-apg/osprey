@@ -19,7 +19,7 @@ import json
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.benchmarks.generator import (
     TEMPLATE_DATA_DIR,
     TIER_PARADIGMS,

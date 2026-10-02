@@ -21,7 +21,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod

@@ -21,7 +21,7 @@ import re
 import pytest
 import yaml
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_profile import _KNOWN_PROFILE_KEYS, BuildProfile, list_presets
 from osprey.cli.build_profile_emit import (
     _BUILD_MECHANICS_KEYS,

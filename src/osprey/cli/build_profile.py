@@ -14,8 +14,8 @@ one per concern:
   trigger YAMLs, plus CLI-spelling normalization.
 - :mod:`osprey.cli.build_profile_merge` — ``extends`` chain resolution, deep
   merging, ``exclude:`` subtraction, and the manifest content hashes.
-- :mod:`osprey.cli.build_profile_model` — the :class:`BuildProfile` dataclass,
-  its tier default, and the consistency checks a profile must pass.
+- :mod:`osprey.cli.build_profile_model` — the :class:`BuildProfile` dataclass
+  and the consistency checks a profile must pass.
 - :mod:`osprey.cli.build_profile_load` — raw-mapping-to-dataclass parsing and
   the single-file :func:`load_profile` entry point.
 - :mod:`osprey.cli.build_profile_resolve` — the multi-source resolution the

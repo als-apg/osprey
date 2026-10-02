@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 from osprey.services.channel_finder.databases.template import ChannelDatabase

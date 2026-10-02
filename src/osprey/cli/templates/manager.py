@@ -10,10 +10,10 @@ from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_a
 
 from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.build.build_tiers import (
-    VALID_CHANNEL_FINDER_MODES,
     default_tier_for_mode,
     tier_mode_conflict,
 )
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
 from osprey.errors import BuildProfileError
@@ -30,7 +30,7 @@ def _enable_flags(channel_finder_mode: str) -> dict[str, bool]:
     """One ``enable_<paradigm>`` template flag per registered paradigm.
 
     Derived by iterating
-    :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`, so a paradigm
+    :data:`osprey.build.modes.VALID_CHANNEL_FINDER_MODES`, so a paradigm
     added to the registry gets its render flag without an edit here. An
     unregistered mode leaves every flag off; callers reject it before this
     point.

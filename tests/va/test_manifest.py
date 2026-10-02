@@ -6,7 +6,7 @@ from collections import Counter
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.virtual_accelerator.bindings import BindingsDocument, load_bindings
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
