@@ -50,7 +50,6 @@ __all__ = [
     "TEXTURE",
     "check_compute",
     "compute_ordinals",
-    "flatten_aliases",
     "resolve_groups",
 ]
 
@@ -688,36 +687,3 @@ def resolve_groups(groups: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]:
         for member in group.get("members") or []:
             membership[str(member)].add(str(group["id"]))
     return {device: sorted(ids) for device, ids in sorted(membership.items())}
-
-
-def flatten_aliases(
-    vocabulary: Mapping[str, Any], classes: Iterable[Mapping[str, Any]] = ()
-) -> list[dict[str, str]]:
-    """Flatten the vocabulary's and the facility's aliases into one record per term.
-
-    Args:
-        vocabulary: ``_generated/vocabulary.json``'s document, with
-            ``classes`` and ``signal_roles`` rows of ``{name, aliases}``.
-        classes: ``classes.yaml``'s facility-added classes, ``{class,
-            aliases?}``.
-
-    Returns:
-        ``{term, scope, target, source}`` records, each term lower-cased,
-        sorted by (scope, term, target, source) with repeats removed.
-    """
-    records: set[tuple[str, str, str, str]] = set()
-    for scope, rows in (
-        ("device_class", vocabulary.get("classes", [])),
-        ("signal_role", vocabulary.get("signal_roles", [])),
-    ):
-        for row in rows:
-            for alias in row.get("aliases") or []:
-                records.add((scope, str(alias).strip().lower(), str(row["name"]), "vocabulary"))
-    for row in classes:
-        for alias in row.get("aliases") or []:
-            records.add(("device_class", str(alias).strip().lower(), str(row["class"]), "facility"))
-    return [
-        {"term": term, "scope": scope, "target": target, "source": source}
-        for scope, term, target, source in sorted(records)
-        if term
-    ]
