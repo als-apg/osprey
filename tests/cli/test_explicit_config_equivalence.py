@@ -1099,6 +1099,42 @@ def _hierarchical_index_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _middle_layer_index_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The middle-layer database and its DuckDB copy, both written by the build.
+
+    The pipeline loads the build's index, so the block names its path, the
+    DuckDB copy ``run_sql`` queries, and no loader type. The fixtures were
+    frozen while the block named the hand-kept middle-layer database and bound
+    no DuckDB copy.
+
+    Args:
+        documents: The rendered documents that carry the middle-layer block.
+
+    Returns:
+        Three deltas per document.
+    """
+    prefix = "channel_finder.pipelines.middle_layer.database"
+    return tuple(
+        delta
+        for document in documents
+        for delta in (
+            Delta(document=document, path=f"{prefix}.type", fixture="middle_layer", live=ABSENT),
+            Delta(
+                document=document,
+                path=f"{prefix}.path",
+                fixture="data/channel_databases/middle_layer.json",
+                live="data/channel_finder/middle_layer.json",
+            ),
+            Delta(
+                document=document,
+                path=f"{prefix}.duckdb_path",
+                fixture=ABSENT,
+                live="data/channel_finder/middle_layer.duckdb",
+            ),
+        )
+    )
+
+
 def _standalone_picker_deltas() -> tuple[Delta, ...]:
     """The picker setting a standalone preset that reaches no machine states.
 
@@ -1154,7 +1190,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
-    + _standalone_picker_deltas(),
+    + _standalone_picker_deltas()
+    + _middle_layer_index_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1228,7 +1265,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
-    + _probe_timeout_deltas(),
+    + _probe_timeout_deltas()
+    + _middle_layer_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)

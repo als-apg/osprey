@@ -1909,7 +1909,6 @@ keys:
   channel_finder.pipelines.hierarchical.feedback.store_path: {evidence: 'store_path', default: var/agent_data/feedback/hierarchical_feedback.json}
   channel_finder.pipelines.middle_layer: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
-  channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database, default: template}
   channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
   channel_finder.pipelines.middle_layer.database.duckdb_path: {covered-by: channel_finder.pipelines.middle_layer.database, default: null}
   channel_finder.query_max_rows:
@@ -2966,6 +2965,8 @@ deleted:
 - channel_finder.pipelines.in_context.database.presentation_mode
   # The hierarchical index is the build's own file; there is no loader choice.
 - channel_finder.pipelines.hierarchical.database.type
+  # The middle-layer index is the build's own file; there is no loader choice.
+- channel_finder.pipelines.middle_layer.database.type
 - channel_finder.explicit_validation_mode
 - channel_finder.pipelines.hierarchical.tree_preview
 - channel_finder.benchmark.execution
@@ -3188,6 +3189,15 @@ orphan_sites:
     why: >-
       the rendered hierarchical `type:` line and its comment, absent from the
       project template and the app templates alike; no loader reads the key.
+  channel_finder.pipelines.middle_layer.database.type:
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'type: middle_layer\s+# Always "middle_layer"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the rendered middle_layer `type:` line and its comment, absent from the
+      project template and the app templates alike; no loader reads the key.
   channel_finder.benchmark.execution:
   - root: src/osprey
     regex: 'runs_per_query.*delay_between_runs|continue_on_error'
@@ -3313,7 +3323,6 @@ render_contexts:
     # no services, no deployed_services and no per-app blocks any more.
     channel_finder_mode: [in_context, hierarchical, middle_layer]
     ariel_server_on: [true, false]
-    middle_layer_duckdb: [true, false]
     web_selection:
     - panels: all          # every builtin the registry declares
       default_panel: ariel
@@ -3349,13 +3358,12 @@ render_contexts:
   self_test_keys:
     enable_in_context: channel_finder.pipelines.in_context.subagent_model
     enable_hierarchical: channel_finder.pipelines.hierarchical.feedback.store_path
-    enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
-    middle_layer_duckdb: channel_finder.pipelines.middle_layer.database.duckdb_path
+    enable_middle_layer: channel_finder.pipelines.middle_layer.database.duckdb_path
     ariel_server_on: ariel.enhancement_modules.semantic_processor.model.model_id
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 343
+  expected_union_size: 342
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

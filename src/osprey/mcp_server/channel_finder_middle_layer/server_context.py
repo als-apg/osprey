@@ -1,7 +1,10 @@
 """Middle Layer Channel Finder MCP Registry — singleton config and database management.
 
 Provides centralized configuration access and MiddleLayerDatabase lifecycle
-management for all Middle Layer channel finder MCP tools.
+management for all Middle Layer channel finder MCP tools. The database is the
+middle-layer index the build writes from the facility file, at
+``channel_finder.pipelines.middle_layer.database.path``; ``run_sql`` queries the
+DuckDB copy the build writes beside it, at ``…database.duckdb_path``.
 
 Usage in tools:
     from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
