@@ -310,8 +310,8 @@ def test_middle_layer_pipeline_values():
     pipeline = _config(**_mode_ctx("middle_layer"))["channel_finder"]["pipelines"]["middle_layer"]
     assert pipeline == {
         "database": {
-            "type": "middle_layer",
-            "path": "data/channel_databases/middle_layer.json",
+            "path": "data/channel_finder/middle_layer.json",
+            "duckdb_path": "data/channel_finder/middle_layer.duckdb",
         }
     }
 
