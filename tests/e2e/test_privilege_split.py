@@ -108,6 +108,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
@@ -966,15 +967,15 @@ def seeded_container(admin_image, preset_repo: Path, rendered_config: dict):
     The container is named the way the compose service names it, because
     ``seed_user_containers`` finds its target by that name and nothing else —
     so the name is made unique by giving the seeding a config whose
-    ``facility.prefix`` is unique to this run. The preset pins a FIXED prefix
-    (``ca``), which means the compose-dictated name ``ca-web-carol`` collides
-    with any real deployment of this preset on the developer's own machine; a
-    developer running one would otherwise silently lose this whole class to a
-    skip. Overriding the prefix keeps both properties: the test never touches a
-    container it did not create, and it always runs.
+    ``project_name`` is unique to this run. The render's own project name is
+    the one a real deployment of this preset on the developer's machine may
+    already use, so the compose-dictated ``<project>-web-carol`` could collide
+    with it; a developer running one would otherwise silently lose this whole
+    class to a skip. Overriding the project name keeps both properties: the
+    test never touches a container it did not create, and it always runs.
 
     Only carol's persona is seeded, and it names its own ``project``, so the
-    prefix override cannot reach the project path — ``facility.prefix`` feeds
+    override cannot reach the project path — the project name feeds
     ``resolve_personas`` solely as the default for a persona that names none.
     Asserted below rather than assumed.
     """
@@ -988,13 +989,12 @@ def seeded_container(admin_image, preset_repo: Path, rendered_config: dict):
         "roster no longer maps carol onto it"
     )
 
-    prefix = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
-    rendered_config.setdefault("facility", {})["prefix"] = prefix
+    rendered_config["project_name"] = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
     assert web_terminals["personas"][persona]["project"] == project, (
-        "the prefix override changed the persona's project; it is only supposed "
-        "to be the default for a persona that names none"
+        "the project-name override changed the persona's project; it is only "
+        "supposed to be the default for a persona that names none"
     )
-    name = web_container_name(prefix, user)
+    name = web_container_name(resolve_project_name(rendered_config), user)
     skill = "e2e-privsplit-probe"
 
     context_dir = preset_repo / "build" / "docker" / "web-terminal-context"
@@ -1008,13 +1008,13 @@ def seeded_container(admin_image, preset_repo: Path, rendered_config: dict):
     volume = f"{TAG_PREFIX}-seed-{uuid.uuid4().hex[:8]}"
     # Still refuse to reclaim a name that is somehow taken -- `docker rm -f`
     # here would delete somebody's running terminal to make room for a test --
-    # but with a run-unique prefix this is now a genuine "should never happen",
+    # but with a run-unique project name this is a genuine "should never happen",
     # so it fails rather than skipping. A skip here used to hide the entire
     # class on any host running this preset.
     existing = _docker("ps", "-aq", "--filter", f"name=^{name}$", timeout=60)
     assert not existing.stdout.strip(), (
         f"a container named {name} already exists on this host; the name carries "
-        "a per-run unique prefix, so this is a collision that should not be "
+        "a per-run unique project name, so this is a collision that should not be "
         "possible, and this test will not remove a container it did not create"
     )
     run = _docker(
