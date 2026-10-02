@@ -85,6 +85,7 @@ def _rendered_repo_id() -> str:
 FACILITY_NAME = "Demo Light Source"
 
 EXAMPLE_CONFIG: dict = {
+    "project_name": "dls",
     "facility": {
         "prefix": "dls",
     },

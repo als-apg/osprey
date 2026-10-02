@@ -29,6 +29,7 @@ from osprey.deployment.compose_generator import (
     configured_ariel_mirror_path,
     repo_identity,
     repo_relative_mount_source,
+    resolve_project_name,
     resolve_repo_root,
 )
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
@@ -1031,10 +1032,9 @@ def render_web_terminals(
     if auth_env_digest and not re.fullmatch(r"[0-9a-f]{64}", auth_env_digest):
         raise ValueError("auth_env_digest must be a sha256 hex digest")
     root = as_dict(config)
-    facility = as_dict(root.get("facility"))
     registry = as_dict(root.get("registry"))
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
-    facility_prefix = facility.get("prefix") or ""
+    project_name = resolve_project_name(root)
 
     _check_mcp_topology(web_terminals)
     if effective_image_source(web_terminals) == "registry" and not configured_registry_url(
@@ -1042,7 +1042,7 @@ def render_web_terminals(
     ):
         raise ValueError(REGISTRY_MODE_MISSING_URL)
 
-    resolved_users = resolve_personas(web_terminals, registry, facility_prefix, strict=True)
+    resolved_users = resolve_personas(web_terminals, registry, project_name, strict=True)
     # The other half of what a roster `role:` says. `resolve_personas` above
     # consumed it into each entry's persona (which image, which project); this
     # is the role NAME, which the auth sidecar carries on that user's password
@@ -1503,7 +1503,7 @@ def render_web_terminals(
     )
 
     compose_ctx = {
-        "facility_prefix": facility_prefix,
+        "project_name": project_name,
         "registry_url": registry.get("url") or "",
         "image_source": image_source,
         "services": services,
