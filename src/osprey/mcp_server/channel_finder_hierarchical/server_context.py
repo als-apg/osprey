@@ -1,7 +1,9 @@
 """Hierarchical Channel Finder MCP Registry — singleton config and database management.
 
 Provides centralized configuration access and HierarchicalChannelDatabase lifecycle
-management for all Hierarchical channel finder MCP tools.
+management for all Hierarchical channel finder MCP tools. The database is the
+hierarchical index the build writes from the facility file, at
+``channel_finder.pipelines.hierarchical.database.path``.
 
 Usage in tools:
     from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context

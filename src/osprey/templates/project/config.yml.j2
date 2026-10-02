@@ -144,9 +144,9 @@ channel_finder:
     # clean naming convention.
     hierarchical:
       database:
-        type: hierarchical            # Always "hierarchical" for this pipeline mode
-        path: data/channel_databases/hierarchical.json
-                                      # Nested: system -> family -> device -> field -> subfield
+        # Written by the build from the facility file. Levels: the facility's
+        # place level words, then class, device, leaf.
+        path: data/channel_finder/hierarchical.json
       # Feedback loop: records successful navigation paths so an identical
       # future query resolves from the prior path.
       feedback:

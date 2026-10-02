@@ -121,18 +121,25 @@ class TestTheReferenceDeploymentEmbedsItsHierarchy:
     def test_the_rendered_agent_carries_the_naming_pattern(
         self, runner: CliRunner, lifecycle_repo: Path
     ) -> None:
-        """The exemplar's own channel database has to load, or the prompt is poorer.
+        """The index the build writes has to load, or the prompt is poorer.
 
-        This fails the moment the exemplar ships a database the loader rejects,
+        This fails the moment the build writes an index the loader rejects,
         which is the failure the build itself only ever warned about.
         """
         _pin_hierarchical(lifecycle_repo)
         assert _build(runner, lifecycle_repo).exit_code == 0
 
-        agent = lifecycle_repo / "build" / ".claude" / "agents" / "channel-finder.md"
-        prompt = agent.read_text(encoding="utf-8")
+        build_dir = lifecycle_repo / "build"
+        index = json.loads(
+            (build_dir / "data" / "channel_finder" / "hierarchical.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        prompt = (build_dir / ".claude" / "agents" / "channel-finder.md").read_text(
+            encoding="utf-8"
+        )
         assert "naming_pattern" in prompt
-        assert "{ring}:{system}:{family}:{device}:{field}:{subfield}" in prompt
+        assert index["hierarchy"]["naming_pattern"] in prompt
 
     def test_the_build_log_holds_no_traceback(
         self, runner: CliRunner, lifecycle_repo: Path, caplog: pytest.LogCaptureFixture

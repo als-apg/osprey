@@ -1070,6 +1070,35 @@ def _in_context_index_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _hierarchical_index_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The hierarchical database the build writes from the facility file.
+
+    The pipeline loads the build's index, so the block names its path and no
+    loader type. The fixtures were frozen while the block named the hand-kept
+    hierarchical database.
+
+    Args:
+        documents: The rendered documents that carry the hierarchical block.
+
+    Returns:
+        Two deltas per document.
+    """
+    prefix = "channel_finder.pipelines.hierarchical.database"
+    return tuple(
+        delta
+        for document in documents
+        for delta in (
+            Delta(document=document, path=f"{prefix}.type", fixture="hierarchical", live=ABSENT),
+            Delta(
+                document=document,
+                path=f"{prefix}.path",
+                fixture="data/channel_databases/hierarchical.json",
+                live="data/channel_finder/hierarchical.json",
+            ),
+        )
+    )
+
+
 def _standalone_picker_deltas() -> tuple[Delta, ...]:
     """The picker setting a standalone preset that reaches no machine states.
 
@@ -1117,7 +1146,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
-    + _standalone_picker_deltas(),
+    + _standalone_picker_deltas()
+    + _hierarchical_index_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
     + _facility_name_deltas()
     + _facility_ontology_deltas("root")
@@ -1173,7 +1203,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
-    + _probe_timeout_deltas(),
+    + _probe_timeout_deltas()
+    + _hierarchical_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)

@@ -1903,7 +1903,6 @@ keys:
   channel_finder.pipelines.in_context.subagent_model: {evidence: 'subagent_model', default: derived, default_note: the outer agent's claude_code.provider and default_model}
   channel_finder.pipelines.hierarchical: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.hierarchical.database: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
-  channel_finder.pipelines.hierarchical.database.type: {covered-by: channel_finder.pipelines.hierarchical.database, default: template}
   channel_finder.pipelines.hierarchical.database.path: {covered-by: channel_finder.pipelines.hierarchical.database, default: ''}
   channel_finder.pipelines.hierarchical.feedback: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
   channel_finder.pipelines.hierarchical.feedback.enabled: {covered-by: channel_finder.pipelines.hierarchical.feedback, default: false}
@@ -2965,6 +2964,8 @@ deleted:
 - channel_finder.pipelines.in_context.database.type
   # The in_context index has one rendering; there is no preview mode to pick.
 - channel_finder.pipelines.in_context.database.presentation_mode
+  # The hierarchical index is the build's own file; there is no loader choice.
+- channel_finder.pipelines.hierarchical.database.type
 - channel_finder.explicit_validation_mode
 - channel_finder.pipelines.hierarchical.tree_preview
 - channel_finder.benchmark.execution
@@ -3152,8 +3153,7 @@ orphan_sites:
     back_test: {base_matches: 1, branch_matches: 0}
     why: >-
       the in_context server's loader choice. Rooted at the in_context server so
-      the hierarchical and middle_layer loaders, which still read their own
-      `database.type`, stay out of scope.
+      middle_layer's rendered `type:` line stays out of scope.
   - root:
     - src/osprey/templates/project
     - src/osprey/templates/apps
@@ -3179,6 +3179,15 @@ orphan_sites:
     why: >-
       the rendered in_context `presentation_mode:` line, absent from the
       project template and the app templates alike.
+  channel_finder.pipelines.hierarchical.database.type:
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'type: hierarchical\s+# Always "hierarchical"'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the rendered hierarchical `type:` line and its comment, absent from the
+      project template and the app templates alike; no loader reads the key.
   channel_finder.benchmark.execution:
   - root: src/osprey
     regex: 'runs_per_query.*delay_between_runs|continue_on_error'
@@ -3346,7 +3355,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 344
+  expected_union_size: 343
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

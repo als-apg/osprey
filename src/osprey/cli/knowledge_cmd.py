@@ -699,7 +699,9 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
     config follows the same rule every other configured path in this module
     follows: ``~`` expanded, relative values taken against the directory
     holding ``config.yml``.  In a rendered project that lands on
-    ``data/channel_databases/hierarchical.json``.
+    ``data/channel_finder/hierarchical.json``, the index the build writes,
+    whose levels are the facility's own and not this verb's grammar, so such
+    a project names its database with ``--channel-db``.
 
     Args:
         channel_db: The ``--channel-db`` value, or ``None``.
@@ -1161,8 +1163,8 @@ def build_ttl(
     \b
       --channel-db  channel_finder.pipelines.hierarchical.database.path from
                     the OSPREY config, resolved against the config file's own
-                    directory. In a rendered project that is
-                    data/channel_databases/hierarchical.json.
+                    directory. A rendered project's index uses the
+                    facility's own levels; name the database there.
       --descriptions
                     The in_context.json sitting beside the file --channel-db
                     named. That neighbour is how the OSPREY source tree keeps

@@ -359,14 +359,9 @@ class TemplateManager:
             system_config = rendered_config.get("system", {})
             ctx["system_timezone"] = system_config.get("timezone", "UTC")
 
-            cf_config = rendered_config.get("channel_finder", {})
-
-            # Embed hierarchy info for initial creation, through the same
-            # resolution every later re-render uses.
-            if cf_config.get("pipeline_mode") == "hierarchical":
-                hierarchy = claude_code.resolve_hierarchy_context(cf_config, project_dir)
-                if hierarchy is not None:
-                    ctx["channel_finder_hierarchy"] = hierarchy
+            # The hierarchical index is written by the build after this first
+            # render, and the build re-renders the agent files once it exists;
+            # that pass embeds its hierarchy.
             ctx.setdefault("channel_finder_hierarchy", None)
 
         # The facility's display name is the caller's: the build hands it the
