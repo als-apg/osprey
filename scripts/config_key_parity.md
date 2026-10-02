@@ -181,8 +181,8 @@ per-type entry carries `rendered: false`.
 
 ### Keys nothing ships (`rendered: false`)
 
-Seventy-five manifest keys have real readers, real spellings and no writer among
-the framework template or the four presets. They are marked `rendered: false` so
+The manifest keys marked `rendered: false` have real readers, real spellings and
+no writer among the framework template or the four presets. They are marked `rendered: false` so
 the phantom-key check does not read them as manifest rot.
 
 The flag is checked in **both** directions. A key carrying it that IS in the
