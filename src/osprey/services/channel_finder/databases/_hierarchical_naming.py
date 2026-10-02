@@ -284,6 +284,11 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
                 last_level_with_value = level_name
 
         channel = "".join(result_parts)
+        # A pattern of bare placeholders puts no separator of its own between
+        # the parts, so whatever separators the channel holds are the parts'
+        # own characters and stay as written.
+        if re.fullmatch(r"(?:\{\w+\})+", pattern):
+            return channel
         return self._clean_optional_separators(channel)
 
     def build_channels_from_selections(self, selections: dict[str, Any]) -> list[str]:
@@ -337,11 +342,54 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
         for combination in itertools.product(*selection_lists):
             # Build channel name with separator overrides
             params = dict(zip(pattern_levels, combination, strict=False))
+            params = self._resolve_channel_parts(params, selections)
             channel = self._build_channel_with_separators(params, separator_overrides)
 
             channels.append(channel)
 
         return channels
+
+    def _resolve_channel_parts(
+        self, params: dict[str, str], selections: dict[str, Any]
+    ) -> dict[str, str]:
+        """Replace each selected tree key with the channel part its node names.
+
+        A selection names tree keys, the names ``get_options_at_level`` offers;
+        the channel is built from the nodes' ``_channel_part`` values. The walk
+        follows tree-typed levels from the root while each selected key is a
+        child of the current node; an empty selection leaves the node in place,
+        and from the first level the walk cannot follow, values stay as given.
+
+        Args:
+            params: Pattern level names mapped to one selected value each.
+            selections: The full selections, which supply navigation-only levels.
+
+        Returns:
+            ``params`` with every followed tree key replaced by its channel part.
+        """
+        resolved = dict(params)
+        node: dict | None = self.tree
+        for level in self.hierarchy_levels:
+            if node is None:
+                break
+            if level in params:
+                value = params[level]
+            else:
+                value = self._get_single_value(selections.get(level, ""))
+            if not value:
+                continue
+            child = (
+                node.get(value) if isinstance(value, str) and not value.startswith("_") else None
+            )
+            if self.hierarchy_config["levels"][level]["type"] != "tree" or not isinstance(
+                child, dict
+            ):
+                node = None
+                continue
+            if level in params:
+                resolved[level] = self._get_channel_part(child, value)
+            node = child
+        return resolved
 
     def _build_channel_map(self) -> dict[str, dict]:
         """
