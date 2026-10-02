@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from osprey.utils.facility import facility_identity
+import pytest
+
+from osprey.utils.facility import FacilityFileError, facility_identity
 
 
 def _write_facility_file(render_root: Path, identity: object) -> None:
@@ -56,21 +58,39 @@ def test_no_file_and_no_project_name_is_no_identity(tmp_path: Path):
     assert facility_identity(tmp_path, "") is None
 
 
-def test_an_unreadable_file_falls_back_to_the_project_name(tmp_path: Path):
+def test_an_absent_file_falls_back_to_the_project_name(tmp_path: Path):
+    assert not (tmp_path / "facility.json").exists()
+
+    assert facility_identity(tmp_path, "demo") == {
+        "code": "demo",
+        "name": "demo",
+        "description": None,
+    }
+
+
+def test_an_unreadable_file_is_refused(tmp_path: Path):
+    (tmp_path / "facility.json").mkdir()
+
+    with pytest.raises(FacilityFileError, match=r"facility\.json.*cannot be read"):
+        facility_identity(tmp_path, "demo")
+
+
+def test_a_file_that_is_not_json_is_refused(tmp_path: Path):
     (tmp_path / "facility.json").write_text("{not json", encoding="utf-8")
 
-    assert facility_identity(tmp_path, "demo") == {
-        "code": "demo",
-        "name": "demo",
-        "description": None,
-    }
+    with pytest.raises(FacilityFileError, match=r"facility\.json.*not JSON"):
+        facility_identity(tmp_path, "demo")
 
 
-def test_a_file_without_an_identity_code_falls_back_to_the_project_name(tmp_path: Path):
+def test_a_file_without_an_identity_code_is_refused(tmp_path: Path):
     _write_facility_file(tmp_path, {"name": "Demo Lab"})
 
-    assert facility_identity(tmp_path, "demo") == {
-        "code": "demo",
-        "name": "demo",
-        "description": None,
-    }
+    with pytest.raises(FacilityFileError, match=r"facility\.json.*names no identity code"):
+        facility_identity(tmp_path, "demo")
+
+
+def test_a_file_that_is_not_an_object_is_refused(tmp_path: Path):
+    (tmp_path / "facility.json").write_text("[]", encoding="utf-8")
+
+    with pytest.raises(FacilityFileError, match=r"facility\.json.*names no identity code"):
+        facility_identity(tmp_path, "demo")

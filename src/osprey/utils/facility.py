@@ -8,7 +8,6 @@ cannot each pick their own spelling.
 from __future__ import annotations
 
 import json
-import logging
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, TypedDict
@@ -17,14 +16,13 @@ from zoneinfo import available_timezones
 __all__ = [
     "DEFAULT_FACILITY_ZONE",
     "SET_FACILITY_ZONE",
+    "FacilityFileError",
     "FacilityIdentity",
     "closest_zone_name",
     "facility_identity",
     "is_zone_name",
     "resolve_facility_name",
 ]
-
-logger = logging.getLogger(__name__)
 
 #: The zone every reader falls back to and every preset pins.
 DEFAULT_FACILITY_ZONE = "UTC"
@@ -34,6 +32,16 @@ SET_FACILITY_ZONE = (
     "Set system.timezone under `config:` in profile.yml to your facility's zone, "
     "for example America/New_York."
 )
+
+
+class FacilityFileError(ValueError):
+    """A render's facility file is present but names no usable identity.
+
+    Only an absent file falls back to the project name: a file that is there
+    and cannot be read, is not JSON, or names no identity code is a broken
+    render, and a reader that labelled it with the project name would hide
+    that.
+    """
 
 
 class FacilityIdentity(TypedDict):
@@ -56,9 +64,9 @@ def facility_identity(
     """Read the facility identity of a render.
 
     The facility file at the root of the render is the source. A render without
-    one (or with one that names no identity code) answers with the identity the
-    build would write for a project that authors none: the project name as the
-    display name and its fold as the code.
+    one answers with the identity the build would write for a project that
+    authors none: the project name as the display name and its fold as the
+    code.
 
     Args:
         render_root: The directory that holds the rendered ``config.yml``.
@@ -68,6 +76,10 @@ def facility_identity(
     Returns:
         FacilityIdentity | None: The identity, or ``None`` when there is neither
         a facility file nor a project name.
+
+    Raises:
+        FacilityFileError: The facility file is present but cannot be read, is
+            not JSON, or names no identity code.
     """
     recorded = _recorded_identity(render_root)
     if recorded is not None:
@@ -92,23 +104,28 @@ def _recorded_identity(render_root: Path) -> dict[str, Any] | None:
         render_root: The directory that holds the rendered ``config.yml``.
 
     Returns:
-        dict[str, Any] | None: The record, or ``None`` when the file is absent,
-        cannot be parsed, or carries no identity code.
+        dict[str, Any] | None: The record, or ``None`` when the file is absent.
+
+    Raises:
+        FacilityFileError: The file is present but cannot be read, is not
+            JSON, or names no identity code.
     """
     from osprey.facility.render import FACILITY_FILE
 
     path = Path(render_root) / FACILITY_FILE
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
-    except (OSError, ValueError):
-        logger.warning("The facility file %s could not be read", path, exc_info=True)
-        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise FacilityFileError(f"The facility file {path} cannot be read: {exc}") from exc
+    try:
+        document = json.loads(text)
+    except ValueError as exc:
+        raise FacilityFileError(f"The facility file {path} is not JSON: {exc}") from exc
     identity = document.get("identity") if isinstance(document, dict) else None
     if not isinstance(identity, dict) or not identity.get("code"):
-        logger.warning("The facility file %s names no identity code", path)
-        return None
+        raise FacilityFileError(f"The facility file {path} names no identity code")
     return identity
 
 
