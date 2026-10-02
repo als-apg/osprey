@@ -39,7 +39,6 @@ RENDERED_CONFIG = textwrap.dedent(
     """
     project_name: demo-project
     facility:
-      name: Demo Light Source
       prefix: dls
     system:
       timezone: UTC

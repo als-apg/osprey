@@ -19,7 +19,6 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 
 _CONFIG: dict = {
     "facility": {
-        "name": "Demo Light Source",
         "prefix": "dls",
     },
     "system": {"timezone": "America/Los_Angeles"},

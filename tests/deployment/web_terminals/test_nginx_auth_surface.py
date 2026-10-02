@@ -81,7 +81,6 @@ def _config(users: list) -> dict:
     """Minimal-but-complete facility config that exercises render_web_terminals()."""
     return {
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},

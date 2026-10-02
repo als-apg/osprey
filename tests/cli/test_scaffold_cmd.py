@@ -867,7 +867,7 @@ def _web_terminals_repo(root: Path, *, users=("alice", "bob")) -> Path:
     project.mkdir(parents=True)
     (repo / "profile.yml").write_text("name: demo\n", encoding="utf-8")
     config = {
-        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "facility": {"prefix": "dls"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "registry": {"url": "registry.example.org/demo"},
         "modules": {

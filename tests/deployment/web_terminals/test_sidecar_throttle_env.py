@@ -92,7 +92,7 @@ def _web_terminals(throttle: Any = None, *, authored: bool = True) -> dict:
 def _config(throttle: Any = None, *, authored: bool = True) -> dict:
     """A sidecar-bearing render config, optionally carrying an ``auth.throttle`` block."""
     return {
-        "facility": {"prefix": "dls", "name": "Demo Light Source"},
+        "facility": {"prefix": "dls"},
         "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
