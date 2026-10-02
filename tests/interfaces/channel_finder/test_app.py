@@ -16,6 +16,12 @@ _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _IC_INIT = "osprey.mcp_server.channel_finder_in_context.server_context.initialize_cf_ic_context"
 
 
+@pytest.fixture(autouse=True)
+def _no_config_env(monkeypatch):
+    """The app resolves its render root from the test's own setup, never the shell's."""
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+
 def _start_app(config):
     """Run the app's lifespan against ``config`` and return the started app."""
     with patch("osprey.utils.workspace.load_osprey_config", return_value=config):
@@ -127,10 +133,6 @@ class TestPipelineResolution:
 
 class TestFacilityName:
     """The app names the facility from the render its config sits in."""
-
-    @pytest.fixture(autouse=True)
-    def _no_config_env(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
     def test_repo_root_reports_the_facility_file_name(self, tmp_path, monkeypatch):
         render = tmp_path / "build"
