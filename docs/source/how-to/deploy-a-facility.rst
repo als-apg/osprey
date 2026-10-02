@@ -235,9 +235,8 @@ service to this list at build time. Naming ``openobserve`` explicitly is what
 keeps the packaged skeleton's ``postgresql`` *out* — declared is not deployed,
 and this list is what ``osprey up`` reads.
 
-``facility.prefix`` becomes the container-name prefix for the web tier
-(``demo-nginx``, ``demo-web-alice``), so keep it short and distinct from the
-project name.
+The web tier's container names follow the project name, here the
+directory's: ``demo-facility-nginx``, ``demo-facility-web-alice``.
 
 ``system.timezone`` is the zone operator times are read in and every timestamp
 is shown in. Spell it exactly as the IANA time zone database does, case

@@ -40,8 +40,8 @@ One key says which facility the deployment serves.
    * - Key
      - What it does
    * - ``facility.prefix``
-     - Short abbreviation the multi-user web stack puts in front of its
-       container names. Nothing else reads it.
+     - The facility token the knowledge graph's identifiers carry.
+       ``osprey knowledge`` reads it; nothing else does.
 
 .. _config-simulation:
 

@@ -1009,9 +1009,8 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    ``--facility``
       The facility token. Every IRI and identifier the corpus mints embeds it,
       and each device carries it as ``narad_p:facility``. Unnamed, it is the
-      project's own ``facility.prefix`` --- the key the rest of the deployment
-      already reads --- and ``demo`` only when no config names one, which is
-      what the shipped demo corpus carries. The token has to be usable inside
+      project's own ``facility.prefix``, and ``demo`` only when no config
+      names one, which is what the shipped demo corpus carries. The token has to be usable inside
       an identifier: a letter or underscore, then letters, digits and
       underscores. Every run reports the token it minted with and the ontology
       table it emitted against, and a run that falls back to ``demo`` against a
