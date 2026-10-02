@@ -39,8 +39,14 @@ from osprey.agent_runner.write_tools import read_only_disallowed_tools
 
 pytestmark = pytest.mark.slow
 
-#: Upper bound on the wait for the init line; it normally arrives in 2-4 s.
-_INIT_TIMEOUT_S = 60.0
+#: Upper bound on one probe server's startup. The CLI marks a server that has not
+#: connected within it ``failed`` and lists no tools for it, so on a loaded runner
+#: the CLI's own default turns a slow ``import mcp`` into a missing tool.
+_MCP_CONNECT_TIMEOUT_MS = 120_000
+
+#: Upper bound on the wait for the init line; it normally arrives in 2-4 s. It
+#: outlasts the connect bound, because the init line follows the connects.
+_INIT_TIMEOUT_S = 180.0
 
 #: The servers the project renders into ``.mcp.json``.
 _RENDERED = {"rendered", "plugin_spoof"}
@@ -69,12 +75,19 @@ class Init:
 
     servers: set[str]
     mcp_tools: set[str]
+    unconnected: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def _init_from(payload: dict) -> Init:
-    servers = {entry["name"] for entry in payload.get("mcp_servers", [])}
+    entries = payload.get("mcp_servers", [])
+    servers = {entry["name"] for entry in entries}
     tools = {tool for tool in payload.get("tools", []) if tool.startswith("mcp__")}
-    return Init(servers, tools)
+    unconnected = {
+        entry["name"]: entry.get("status", "?")
+        for entry in entries
+        if entry.get("status") != "connected"
+    }
+    return Init(servers, tools, unconnected)
 
 
 @pytest.fixture
@@ -136,6 +149,7 @@ def probe_env(tmp_path: Path) -> dict[str, str]:
         # Connect every server before the init line, so it lists their tools
         # rather than a server still pending.
         "MCP_CONNECTION_NONBLOCKING": "0",
+        "MCP_TIMEOUT": str(_MCP_CONNECT_TIMEOUT_MS),
         "PATH": os.pathsep.join([str(Path(sys.executable).parent), "/usr/bin", "/bin"]),
     }
 
@@ -206,6 +220,7 @@ def _read_init(argv: Sequence[str], cwd: Path, env: dict[str, str]) -> Init:
 
 def _assert_only_rendered(init: Init) -> None:
     assert init.servers == _RENDERED
+    assert not init.unconnected, f"servers that did not connect: {init.unconnected}"
     assert not any(name.startswith("plugin:") for name in init.servers)
 
 
@@ -267,6 +282,7 @@ def _unisolated_argv(cli: str, plugin: Path) -> list[str]:
 def _assert_plugin_tools_denied(init: Init) -> None:
     """The plugin's server loaded, a rendered tool survived, and no plugin tool did."""
     assert "plugin:fakeplug:browser" in init.servers
+    assert not init.unconnected, f"servers that did not connect: {init.unconnected}"
     assert "mcp__rendered__ping" in init.mcp_tools
     assert not any(tool.startswith("mcp__plugin_") for tool in init.mcp_tools)
 
