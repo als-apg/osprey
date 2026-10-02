@@ -380,7 +380,7 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 #. **The start builds each persona's image.** In the preset's local mode
    (``image_source: local``), ``osprey up`` builds each persona's image
    (tagged ``<project>:local`` after the persona's rendered project, e.g.
-   ``my-control-assistant-readwrite:local``) from that rendered project —
+   ``control-assistant-readwrite:local``) from that rendered project —
    no registry, no CI. Registry mode pulls them instead; see
    :ref:`multi-user-registry-images`.
 

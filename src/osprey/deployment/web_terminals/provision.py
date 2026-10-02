@@ -803,8 +803,9 @@ def auth_sidecar_local_tag(config: dict) -> str:
 
     Must equal what ``docker-compose.web.yml.j2`` renders when ``auth.image``
     is unset (``<project>-assistant-auth:local``, ``<project>`` being the name
-    ``resolve_project_name()`` returns) — a mismatch would leave compose referencing a tag nothing
-    built, failing at ``up`` with an opaque "no such image".
+    ``resolve_project_name()`` returns) — a mismatch would leave compose
+    referencing a tag nothing built, failing at ``up`` with an opaque "no such
+    image".
     """
     return f"{resolve_project_name(config)}-assistant-auth:local"
 

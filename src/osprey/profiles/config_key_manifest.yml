@@ -141,9 +141,8 @@ keys:
     evidence: 'FACILITY_PREFIX_CONFIG_KEY = "facility\.prefix"'
     note: >-
       cli/knowledge_cmd.py reads it as the facility token the knowledge
-      graph's identifiers carry. `control-assistant`
-      ships it live (`facility.prefix: ca`) because that preset is the one that
-      deploys the web-terminal stack; `ariel-standalone` and
+      graph's identifiers carry. `control-assistant` ships it live
+      (`facility.prefix: ca`); `ariel-standalone` and
       `channel-finder-standalone` carry it commented, and `hello-world` omits
       it. Nothing in the tree validates it: no emptiness, charset or length
       rule exists in code. See notes.prefix_rule_drift.
