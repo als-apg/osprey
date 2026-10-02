@@ -91,7 +91,8 @@ def render_facility_outputs(
             added. ``None`` names every omitted view.
 
     Each view whose predicate is false is named on stderr, one line each, once
-    per build.
+    per build, unless a selector picks it from among its alternatives: a view
+    the selector did not pick is not named.
 
     Returns:
         The files written, sorted.
@@ -115,6 +116,8 @@ def render_facility_outputs(
     for view in views.VIEWS:
         if view.written_when(inputs):
             written.extend(view.write(render_dir / "data" / view.path, inputs))
+        elif view.selected_by is not None:
+            continue
         elif omitted_reported is None or view.name not in omitted_reported:
             views.report_omitted(view)
             if omitted_reported is not None:

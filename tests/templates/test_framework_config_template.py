@@ -289,8 +289,7 @@ def test_in_context_pipeline_values():
     pipeline = _config(**_mode_ctx("in_context"))["channel_finder"]["pipelines"]["in_context"]
     assert pipeline == {
         "database": {
-            "type": "template",
-            "path": "data/channel_databases/in_context.json",
+            "path": "data/channel_finder/in_context.json",
             "presentation_mode": "template",
         },
         "subagent_model": None,

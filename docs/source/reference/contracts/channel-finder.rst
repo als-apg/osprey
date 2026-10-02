@@ -158,7 +158,7 @@ Key ``config.yml`` settings:
      pipeline_mode: in_context  # "in_context", "hierarchical", "middle_layer", or "graph"
      pipelines:
        in_context:
-         database: {type: template, path: data/channel_databases/in_context.json}
+         database: {path: data/channel_finder/in_context.json}
        hierarchical:
          database: {type: hierarchical, path: data/channel_databases/hierarchical.json}
        middle_layer:
