@@ -1962,8 +1962,11 @@ def build(outdir: Path) -> list[Path]:
 
 #: The relative tolerance a rebuilt model file's tracking-derived numbers are
 #: held to: tracking runs through the platform's libm and BLAS, which disagree
-#: in the last digits the model file writes.
-TRACKED_RTOL = 1.0e-6
+#: in the last digits the model file writes. Tunes and dispersion spread by
+#: about 2e-12 between macOS and Linux; the chromaticities, a finite difference
+#: of two tracked tunes, spread by up to 1.5e-6, and the tolerance holds that
+#: spread with a margin of six.
+TRACKED_RTOL = 1.0e-5
 
 #: The sections of the model file whose numbers come out of tracking.
 TRACKED_SECTIONS = ("tune", "chromaticity", "dispersion")
