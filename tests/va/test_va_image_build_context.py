@@ -1,10 +1,9 @@
-"""Every VA image's build context carries the uv workspace members.
+"""Every VA image that installs the project carries the uv workspace members.
 
 The root ``pyproject.toml`` depends on its workspace members by source
 (``[tool.uv.sources] ... = { workspace = true }``), so an image that installs
-the project, or only its dependency closure, needs each member directory on
-disk before its install step runs. Two things must hold for that, in two
-different files:
+the project needs each member directory on disk before its install step runs.
+Two things must hold for that, in two different files:
 
 * the script that builds the image stages the member into the scratch
   directory it hands to the build as its context, and
@@ -17,6 +16,12 @@ next builds the image by hand. This module reads the real staging code and the
 real Containerfile instructions, and the member set from ``pyproject.toml``
 cross-checked against ``uv.lock``, so adding a member or changing how a script
 stages its context is checked here without a build.
+
+The live Channel Access venue (``scripts/va/live_ca/``) is not such an image:
+its install step is ``uv sync --frozen --no-install-workspace``, so it needs
+only the dependency closure, reads every project's source over its bind mount
+and stages member metadata alone. ``tests/va/test_live_ca_venue_staging.py``
+pins that image's own assumptions.
 """
 
 from __future__ import annotations
@@ -40,10 +45,7 @@ class ImageBuild:
     containerfile: str
 
 
-IMAGE_BUILDS = (
-    ImageBuild("scripts/va/live_ca/run_live_ca.sh", "scripts/va/live_ca/Containerfile"),
-    ImageBuild("scripts/va/run_va.sh", "docker/virtual-accelerator/Containerfile"),
-)
+IMAGE_BUILDS = (ImageBuild("scripts/va/run_va.sh", "docker/virtual-accelerator/Containerfile"),)
 
 _ROOT_REF = re.compile(r'"?\$\{WORKTREE_ROOT\}/([^"\s]+)"?')
 
@@ -95,14 +97,6 @@ def staged_paths(script: Path) -> set[str]:
             path = PurePosixPath(match.group(1))
             staged.add(str(path))
     return staged
-
-
-def build_id_inputs(script: Path) -> set[str]:
-    """Repo paths the script's ``BUILD_ID=$(...)`` digest reads."""
-    for line in _logical_lines(script.read_text()):
-        if line.startswith("BUILD_ID="):
-            return {str(PurePosixPath(m.group(1))) for m in _ROOT_REF.finditer(line)}
-    return set()
 
 
 def _covers(path: str, member: str) -> bool:
@@ -206,17 +200,6 @@ class TestImageBuildContext:
             f"{build.containerfile}: the install step sets no "
             "SETUPTOOLS_SCM_PRETEND_VERSION, so the workspace members cannot build"
         )
-
-
-def test_live_ca_image_tag_digests_every_member(members: set[str]) -> None:
-    """A change to a member changes the live-CA image tag, so it rebuilds."""
-    inputs = build_id_inputs(REPO_ROOT / "scripts/va/live_ca/run_live_ca.sh")
-    assert inputs, "run_live_ca.sh: found no BUILD_ID digest"
-    missing = sorted(m for m in members if not any(_covers(p, m) for p in inputs))
-    assert not missing, (
-        f"run_live_ca.sh digests {sorted(inputs)} into the image tag, which leaves "
-        f"out the workspace members {missing}"
-    )
 
 
 class TestTheParsersSeeWhatTheyMustSee:
