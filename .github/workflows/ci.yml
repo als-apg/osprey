@@ -1539,7 +1539,7 @@ jobs:
           # split (privilege-split-e2e) each have their own job because they build
           # container images. Exclude them all here to avoid
           # double-execution — and because full-stack deploys leave
-          # host-global residue (fixed `<prefix>-web-<user>`/`<prefix>-nginx`
+          # host-global residue (fixed `<project>-web-<user>`/`<project>-nginx`
           # container names, the host-global openobserve data volume with
           # root creds pinned on first init) that breaks later tests sharing
           # this runner. NOTE: "--ignore" means "not in this secret-gated
@@ -3968,11 +3968,11 @@ jobs:
       if: always()
       run: |
         for user in alice bob carol dave erin; do
-          docker rm -f "e2e-web-${user}" || true
+          docker rm -f "osprey-e2e-mus-p3-web-${user}" || true
           docker volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
           docker volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
         done
-        docker rm -f e2e-nginx || true
+        docker rm -f osprey-e2e-mus-p3-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
         docker compose -p osprey-e2e-mus-p3 down || true
 
@@ -4047,14 +4047,14 @@ jobs:
       if: always()
       run: |
         for user in alice bob; do
-          docker rm -f "authe2e-web-${user}" || true
+          docker rm -f "osprey-e2e-auth-perimeter-web-${user}" || true
           docker volume rm "osprey-e2e-auth-perimeter_${user}-claude-config" || true
           docker volume rm "osprey-e2e-auth-perimeter_${user}-agent-data" || true
         done
-        docker rm -f authe2e-auth || true
-        docker rm -f authe2e-nginx || true
+        docker rm -f osprey-e2e-auth-perimeter-auth || true
+        docker rm -f osprey-e2e-auth-perimeter-nginx || true
         docker compose -p osprey-e2e-auth-perimeter down || true
-        docker rmi -f authe2e-assistant-auth:local || true
+        docker rmi -f osprey-e2e-auth-perimeter-assistant-auth:local || true
         docker rmi -f authe2e-operator:local || true
 
   terminal-auth-multiuser-e2e:
@@ -4162,18 +4162,18 @@ jobs:
       if: always()
       run: |
         for user in alice; do
-          docker rm -f "authtok-web-${user}" || true
+          docker rm -f "osprey-e2e-token-multiuser-web-${user}" || true
           docker volume rm "osprey-e2e-token-multiuser_${user}-claude-config" || true
           docker volume rm "osprey-e2e-token-multiuser_${user}-agent-data" || true
         done
-        docker rm -f authtok-nginx || true
+        docker rm -f osprey-e2e-token-multiuser-nginx || true
         docker compose -p osprey-e2e-token-multiuser down || true
         for user in alice kiosk; do
-          docker rm -f "authopen-web-${user}" || true
+          docker rm -f "osprey-e2e-open-multiuser-web-${user}" || true
           docker volume rm "osprey-e2e-open-multiuser_${user}-claude-config" || true
           docker volume rm "osprey-e2e-open-multiuser_${user}-agent-data" || true
         done
-        docker rm -f authopen-nginx || true
+        docker rm -f osprey-e2e-open-multiuser-nginx || true
         docker compose -p osprey-e2e-open-multiuser down || true
         # ONE image for both lanes: the persona catalog entry names its own
         # `project`, so the tag is `<project>:local` with no persona suffix.
@@ -4309,13 +4309,13 @@ jobs:
       run: |
         docker compose -p osprey-e2e-full-chain-auth down || true
         for user in alice bob carol kiosk dave; do
-          docker rm -f "fullchain-web-${user}" || true
+          docker rm -f "osprey-e2e-full-chain-auth-web-${user}" || true
         done
-        docker rm -f fullchain-auth || true
-        docker rm -f fullchain-nginx || true
+        docker rm -f osprey-e2e-full-chain-auth-auth || true
+        docker rm -f osprey-e2e-full-chain-auth-nginx || true
         docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
           | xargs -r docker volume rm -f || true
-        docker rmi -f fullchain-assistant-auth:local || true
+        docker rmi -f osprey-e2e-full-chain-auth-assistant-auth:local || true
         docker rmi -f fullchain-operator-operator:local || true
         docker rmi -f fullchain-probe-probe:local || true
 
@@ -4402,8 +4402,8 @@ jobs:
     - name: Clean up any stranded notebook-panel resources
       if: always()
       run: |
-        docker rm -f jnb-web-alice || true
-        docker rm -f jnb-nginx || true
+        docker rm -f osprey-e2e-jnb-web-alice || true
+        docker rm -f osprey-e2e-jnb-nginx || true
         docker compose -p osprey-e2e-jnb down || true
         docker volume ls -q --filter "name=^osprey-e2e-jnb_" \
           | xargs -r docker volume rm -f || true
@@ -4504,11 +4504,11 @@ jobs:
       if: always()
       run: |
         for user in alice bob carol dave erin; do
-          podman rm -f "e2e-web-${user}" || true
+          podman rm -f "osprey-e2e-mus-p3-web-${user}" || true
           podman volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
           podman volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
         done
-        podman rm -f e2e-nginx || true
+        podman rm -f osprey-e2e-mus-p3-nginx || true
         podman rm -f osprey-e2e-mus-p3-registry || true
         podman compose -p osprey-e2e-mus-p3 down || true
 
@@ -4930,11 +4930,11 @@ jobs:
       run: |
         docker rm -f osprey-e2e-mus-p3-qmd || true
         for user in alice bob; do
-          docker rm -f "e2e-web-${user}" || true
+          docker rm -f "osprey-e2e-mus-p3-web-${user}" || true
           docker volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
           docker volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
         done
-        docker rm -f e2e-nginx || true
+        docker rm -f osprey-e2e-mus-p3-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
         docker compose -p osprey-e2e-mus-p3 down || true
 
