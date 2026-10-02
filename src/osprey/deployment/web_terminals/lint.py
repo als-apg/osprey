@@ -28,7 +28,10 @@ from typing import Any, Literal, cast
 import yaml
 
 from osprey.config_guards import is_positive_int
-from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
+from osprey.deployment.compose_generator import (
+    DISPATCH_WORKER_SERVICE_PREFIX,
+    resolve_project_name,
+)
 from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
     ALL_PRIVILEGES,
@@ -1669,10 +1672,11 @@ def _check_privileged_persona_exposure(
     # Resolved only once there is something to say about an entry: this walks
     # the whole roster, and a clean config must not pay for a report nobody is
     # going to make.
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     resolved = (
-        list(resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False))
+        list(
+            resolve_personas(web_terminals, registry_cfg, resolve_project_name(root), strict=False)
+        )
         if users
         else []
     )
@@ -1964,10 +1968,11 @@ def _check_live_writer_without_control_identity(
     if not live_writers:
         return []
 
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     findings: list[Finding] = []
-    for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False):
+    for entry in resolve_personas(
+        web_terminals, registry_cfg, resolve_project_name(root), strict=False
+    ):
         persona = entry.get("persona")
         if not isinstance(persona, str) or persona not in live_writers:
             continue
@@ -2012,9 +2017,10 @@ def _check_unknown_persona_reference(
     if not users:
         return []
     personas_catalog = _persona_catalog(web_terminals)
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
-    resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    resolved = resolve_personas(
+        web_terminals, registry_cfg, resolve_project_name(root), strict=False
+    )
 
     findings: list[Finding] = []
     for entry in resolved:
@@ -2438,8 +2444,6 @@ def _check_persona_project_collisions(
 
     deployment_project = root.get("project_name")
     if isinstance(deployment_project, str) and deployment_project:
-        from osprey.deployment.compose_generator import resolve_project_name
-
         deployment_project = resolve_project_name(root)
 
     findings: list[Finding] = []

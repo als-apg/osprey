@@ -2371,7 +2371,32 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
 
 
-# --- empty facility.prefix (web container-name prefix) -----------------------
+# --- project name the persona checks resolve against -------------------------
+
+
+def test_lint_resolves_personas_against_the_project_name(monkeypatch) -> None:
+    """Lint resolves the roster under the same project name provisioning addresses,
+    so a `facility.prefix` that differs from the project name names nothing."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["project_name"] = "demo"
+    config["facility"] = {"prefix": "other"}
+    resolved: list[dict] = []
+    real_resolve = lint.resolve_personas
+
+    def _recording_resolve(*args, **kwargs):
+        entries = real_resolve(*args, **kwargs)
+        resolved.extend(entries)
+        return entries
+
+    monkeypatch.setattr(lint, "resolve_personas", _recording_resolve)
+
+    # Act
+    lint_web_terminals(config)
+
+    # Assert
+    assert resolved
+    assert {entry["project"] for entry in resolved} == {"demo-assistant"}
 
 
 def test_lint_users_with_absent_facility_prefix_is_an_error() -> None:
