@@ -166,7 +166,7 @@ def test_status_annotates_the_state_cell_from_a_fresh_preflight_marker(
         ["control writes are armed but no write token was minted"],
     )
 
-    _run_status(tmp_path, runtime_calls, [_ps_container("dls-web-alice", "restarting")])
+    _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "restarting")])
     output = rendered.export_text()
 
     assert "(preflight:" in output
@@ -180,7 +180,7 @@ def test_status_truncates_a_long_preflight_reason_to_keep_the_table_shape(
     finding = "the roster names a persona that the rendered compose file does not declare anywhere"
     _write_marker(tmp_path, "alice", (_STARTED_AT + timedelta(seconds=5)).isoformat(), [finding])
 
-    _run_status(tmp_path, runtime_calls, [_ps_container("dls-web-alice", "restarting")])
+    _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "restarting")])
     output = rendered.export_text()
 
     assert "(preflight:" in output
@@ -200,7 +200,7 @@ def test_status_joins_multiple_preflight_findings_into_one_reason(
         ["control writes armed with no token", "no archiver URL", "no roster grant"],
     )
 
-    _run_status(tmp_path, runtime_calls, [_ps_container("dls-web-alice", "restarting")])
+    _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "restarting")])
     output = rendered.export_text()
 
     assert "control writes armed with no token; no" in output
@@ -220,7 +220,9 @@ def test_status_reads_started_at_from_inspect_when_ps_omits_it(tmp_path, runtime
     )
 
     _run_status(
-        tmp_path, runtime_calls, [_ps_container("dls-web-alice", "restarting", started_at=None)]
+        tmp_path,
+        runtime_calls,
+        [_ps_container("demo-project-web-alice", "restarting", started_at=None)],
     )
     output = rendered.export_text()
 
@@ -237,7 +239,7 @@ def test_status_reads_started_at_from_inspect_when_ps_omits_it(tmp_path, runtime
 def test_status_leaves_the_row_unchanged_when_there_is_no_preflight_marker(
     tmp_path, runtime_calls, rendered
 ):
-    _run_status(tmp_path, runtime_calls, [_ps_container("dls-web-alice", "running")])
+    _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "running")])
     output = rendered.export_text()
 
     assert "● Running" in output
@@ -258,7 +260,7 @@ def test_status_ignores_a_preflight_marker_older_than_the_container(
         tmp_path, "alice", (_STARTED_AT - timedelta(hours=3)).isoformat(), ["no write token"]
     )
 
-    _run_status(tmp_path, runtime_calls, [_ps_container("dls-web-alice", "running")])
+    _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "running")])
     output = rendered.export_text()
 
     assert "● Running" in output
@@ -276,7 +278,7 @@ def test_status_ignores_an_unparseable_preflight_marker(
     """A torn or hand-edited marker is treated as no marker, never as a crash."""
     _write_marker(tmp_path, "alice", first_line, ["no write token"])
 
-    _run_status(tmp_path, runtime_calls, [_ps_container("dls-web-alice", "running")])
+    _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "running")])
     output = rendered.export_text()
 
     assert "● Running" in output
@@ -308,7 +310,7 @@ def test_status_survives_an_unreadable_preflight_marker_directory(
 
     monkeypatch.setattr(status_display, "audit_identity_dir", _boom)
 
-    _run_status(tmp_path, runtime_calls, [_ps_container("dls-web-alice", "running")])
+    _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "running")])
     output = rendered.export_text()
 
     assert "● Running" in output
