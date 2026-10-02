@@ -18,6 +18,9 @@ stdin --> Parse JSON
               |
              YES
               v
+         Saved-output notice?  --YES--> read the session's saved file
+              |                          (unreadable/untrusted: EXIT)
+              v
          Parse tool_response
               |
               v
@@ -48,12 +51,39 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import get_hook_input, get_repo_root, log_hook, repo_agent_data_root
+
+# The text Claude Code sends in place of an MCP answer past its tool-output
+# limit. The answer itself is saved to the file the notice names.
+SAVED_OUTPUT_NOTICE = re.compile(
+    r"Error: result \([\d,]+ characters\) exceeds maximum allowed tokens\. "
+    r"Output has been saved to (.+?)\.?(?:\n|$)"
+)
+
+
+def saved_output_file(path: str, transcript_path: str) -> str | None:
+    """Resolve *path* if it is a file Claude Code saved for this session, else None.
+
+    Claude Code saves an oversized answer directly inside ``tool-results/`` in
+    the session directory beside the transcript. The notice is only text, and
+    an answer can spell a notice-shaped string itself, so a path that resolves
+    anywhere else — through ``..``, a symlink or a subdirectory — is refused.
+    """
+    if not transcript_path or not os.path.isabs(transcript_path) or not os.path.isabs(path):
+        return None
+    session_dir = os.path.splitext(transcript_path)[0]
+    tool_results = os.path.realpath(os.path.join(session_dir, "tool-results"))
+    resolved = os.path.realpath(path)
+    if os.path.dirname(resolved) != tool_results:
+        return None
+    return resolved
+
 
 # Top-level guard: never crash the agent
 hook_input = None
@@ -90,6 +120,33 @@ try:
     if isinstance(tool_response_raw, list):
         texts = [b.get("text", "") for b in tool_response_raw if isinstance(b, dict)]
         tool_response_raw = texts[0] if texts else ""
+
+    # An oversized answer arrives as a notice naming its saved file, which holds
+    # the same text an inline answer carries, so the file stands in for it.
+    notice = (
+        SAVED_OUTPUT_NOTICE.match(tool_response_raw) if isinstance(tool_response_raw, str) else None
+    )
+    if notice:
+        saved_path = saved_output_file(notice.group(1), hook_input.get("transcript_path", ""))
+        if saved_path is None:
+            log_hook(
+                "cf-feedback-capture",
+                hook_input,
+                status="saved-output-untrusted",
+                detail=f"path={notice.group(1)}",
+            )
+            sys.exit(0)
+        try:
+            with open(saved_path, encoding="utf-8") as saved_file:
+                tool_response_raw = saved_file.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            log_hook(
+                "cf-feedback-capture",
+                hook_input,
+                status="saved-output-unreadable",
+                detail=f"path={saved_path} error={type(exc).__name__}",
+            )
+            sys.exit(0)
 
     try:
         tool_response = (
