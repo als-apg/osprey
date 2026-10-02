@@ -367,10 +367,9 @@ def init_args(
         f"bluesky.port={bridge_port}",
         "--set",
         "bluesky.tiled_enabled=true",
-        # `roster_records` enumerates the facility from a channel-finder
-        # DATABASE file before the render (see its docstring); the preset's
-        # graph paradigm stages its corpus at build time instead, so the plan
-        # stack pins the hierarchical database the bundle also ships.
+        # The preset defaults to graph mode; the plan stack pins the
+        # hierarchical database so the lane's channel finder serves the
+        # bundle's hierarchical index.
         "--set",
         "channel_finder_mode=hierarchical",
     ]
@@ -656,10 +655,7 @@ def build_project_subprocess(
 CHANNEL_LIMITS_RELATIVE = Path("data") / "channel_limits.json"
 """Where a deployment repo keeps the channel limits, relative to its root.
 
-One spelling for the two readers below: :func:`channel_limits`, which parses it
-for a lane that needs a channel's limit VALUES, and :func:`_roster_config`,
-which hands the path to the roster so channel directions are derived from the
-writability this deployment actually enforces.
+:func:`channel_limits` parses it for a lane that needs a channel's limit VALUES.
 """
 
 
