@@ -315,6 +315,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The agent facts the build wrote: the facts page and the channel-finder
         # terminology tables render from them.
         "facility_facts": facility_facts,
+        "middle_layer_families": _middle_layer_families(_read_facility(project_dir)),
         "pyaml_view_present": bool(facility_facts["measurement_models"]),
         "measurement": hook_measurement(facility_facts),
         # The interactive deny floor settings.json.j2 renders into
@@ -346,6 +347,54 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
         "transcripts_retention_days": _transcripts_retention_days(config),
     }
+
+
+def _read_facility(project_dir: Path) -> dict[str, Any]:
+    """The render's facility file, or an empty facility when it holds none.
+
+    Args:
+        project_dir: Root of the render.
+
+    Returns:
+        The parsed ``facility.json``; ``{}`` when the file is absent or cannot
+        be read as a JSON object.
+    """
+    from osprey.facility import FACILITY_FILE
+
+    path = project_dir / FACILITY_FILE
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        logger.warning("The facility file %s could not be read", path, exc_info=True)
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str, str | None]]]:
+    """Each class's families as the middle-layer index files and names them.
+
+    The pairs come from the middle-layer view itself, so a cell names only
+    what ``list_families`` returns. When one class has families under several
+    Systems, each name carries its System.
+
+    Args:
+        facility: The render's facility file.
+
+    Returns:
+        Class name -> ``[{"name", "system"}]``, ``system`` ``None`` where the
+        cell does not name it; a class no family holds is absent.
+    """
+    from osprey.facility.views.channel_finder import middle_layer_families
+
+    out: dict[str, list[dict[str, str | None]]] = {}
+    for name, pairs in middle_layer_families(facility).items():
+        qualified = len({system for system, _family in pairs}) > 1
+        out[name] = [
+            {"name": family, "system": system if qualified else None} for system, family in pairs
+        ]
+    return out
 
 
 def _phoebus_agent_access(config: dict) -> str:

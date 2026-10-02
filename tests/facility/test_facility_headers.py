@@ -39,9 +39,9 @@ FORMAT_EXEMPTIONS: dict[str, str] = {
     "*decks/*.json": "a deck copy is pyAT's own lattice format",
 }
 
-#: Binary files a view writes, relative to the render root; each must exist in
-#: the main render.
-BINARY_EXEMPTIONS: tuple[str, ...] = ()
+#: Binary files a view writes, relative to the render root; each is written by
+#: the view its render selects.
+BINARY_EXEMPTIONS: tuple[str, ...] = ("data/channel_finder/middle_layer.duckdb",)
 
 
 def _exempt(relative: str) -> bool:
@@ -141,11 +141,42 @@ def test_the_hierarchical_index_is_checked(
     assert header_problem("data/channel_finder/hierarchical.json", target.read_bytes()) is None
 
 
-def test_every_binary_exemption_is_written(built_control_assistant: BuiltProject) -> None:
-    build_dir = built_control_assistant.build_dir
-    assert [
-        relative for relative in BINARY_EXEMPTIONS if not (build_dir / relative).is_file()
-    ] == []
+def _middle_layer_render(built: BuiltProject, root: Path) -> dict[str, bytes]:
+    """The middle-layer index files of the demo, relative to a render root."""
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.channel_finder import write_middle_layer
+
+    inputs = ViewInputs(
+        doc=built.facility,
+        rendered_config={"channel_finder": {"pipeline_mode": "middle_layer"}},
+        facility_dir=built.facility_dir,
+        served=[],
+    )
+    written = write_middle_layer(root / "data" / "channel_finder", inputs)
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in written}
+
+
+def test_the_middle_layer_index_is_checked(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    files = _middle_layer_render(built_control_assistant, tmp_path)
+    problems = {
+        relative: problem
+        for relative, content in sorted(files.items())
+        if not _exempt(relative) and (problem := header_problem(relative, content))
+    }
+    assert sorted(files) == [
+        "data/channel_finder/middle_layer.duckdb",
+        "data/channel_finder/middle_layer.json",
+    ]
+    assert problems == {}
+
+
+def test_every_binary_exemption_is_written(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    files = _middle_layer_render(built_control_assistant, tmp_path)
+    assert [relative for relative in BINARY_EXEMPTIONS if relative not in files] == []
 
 
 @pytest.mark.parametrize(

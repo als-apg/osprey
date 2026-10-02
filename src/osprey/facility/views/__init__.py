@@ -8,7 +8,8 @@ views whose predicate holds and names each other one in a note on stderr, once
 per build — except a view a selector (``View.selected_by``) did not pick from
 among its alternatives, which is neither written nor named; ``osprey build`` and
 ``osprey facility validate`` both keep the notes while ``validate`` drops the
-render's stdout.
+render's stdout. A view that writes may add a note of its own through
+:func:`report_note`, also once per build.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from typing import Any
 
 from osprey.facility.build import FacilityDocument
 
-__all__ = ["VIEWS", "View", "ViewInputs", "report_omitted", "view_bytes"]
+__all__ = ["VIEWS", "View", "ViewInputs", "report_note", "report_omitted", "view_bytes"]
 
 
 @dataclass(frozen=True)
@@ -34,12 +35,15 @@ class ViewInputs:
             the files a view copies.
         served: The models the render serves, as ``resolve_served`` returned
             them.
+        reported: The notes this build has already printed; ``None`` prints
+            every note.
     """
 
     doc: FacilityDocument
     rendered_config: Mapping[str, Any]
     facility_dir: Path
     served: list[str]
+    reported: set[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +105,25 @@ def report_omitted(view: View) -> None:
     output._echo(Text(line, style=Styles.DIM), err=True)
 
 
+def report_note(inputs: ViewInputs, text: str) -> None:
+    """Print a written view's note on stderr, once per build.
+
+    Args:
+        inputs: The render's view inputs, which carry the notes already printed.
+        text: The note.
+    """
+    from rich.text import Text
+
+    from osprey.cli import output
+    from osprey.cli.styles import Styles
+
+    if inputs.reported is not None:
+        if text in inputs.reported:
+            return
+        inputs.reported.add(text)
+    output._echo(Text(f"{output._INDENT}{text}", style=Styles.DIM), err=True)
+
+
 def _always(_inputs: ViewInputs) -> bool:
     return True
 
@@ -159,6 +182,18 @@ def _write_hierarchical(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_hierarchical(root, inputs)
 
 
+def _middle_layer_selected(inputs: ViewInputs) -> bool:
+    from osprey.facility.views.channel_finder import middle_layer_selected
+
+    return middle_layer_selected(inputs)
+
+
+def _write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.channel_finder import write_middle_layer
+
+    return write_middle_layer(root, inputs)
+
+
 def _write_graph(root: Path, inputs: ViewInputs) -> list[Path]:
     from osprey.facility.views.graph import write_graph_view
 
@@ -209,6 +244,14 @@ VIEWS: tuple[View, ...] = (
         written_when=_hierarchical_selected,
         reason="channel_finder.pipeline_mode",
         write=_write_hierarchical,
+        selected_by="channel_finder.pipeline_mode",
+    ),
+    View(
+        name="middle_layer",
+        path="channel_finder",
+        written_when=_middle_layer_selected,
+        reason="channel_finder.pipeline_mode",
+        write=_write_middle_layer,
         selected_by="channel_finder.pipeline_mode",
     ),
     View(

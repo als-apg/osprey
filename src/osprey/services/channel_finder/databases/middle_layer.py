@@ -46,6 +46,9 @@ from ..core.base_database import BaseDatabase, DatabaseWriteError
 #: ``TangoNames`` Tango device attributes; a field may carry either or both.
 CHANNEL_KEYS: tuple[str, ...] = ("ChannelNames", "TangoNames")
 
+#: Top-level keys of an index that name the document, not a system.
+_DOCUMENT_KEYS = frozenset({"schema"})
+
 # Metadata keys to skip during tree traversal (not navigable families/fields)
 _ML_META_KEYS = frozenset(
     {
@@ -68,7 +71,7 @@ _ML_META_KEYS = frozenset(
 )
 
 
-def _get_setup(family_data: dict) -> dict:
+def get_setup(family_data: dict) -> dict:
     """Return the setup block from a family node.
 
     Checks for both ``"setup"`` (legacy MML exports) and ``"_setup"``
@@ -140,7 +143,7 @@ class MiddleLayerDatabase(BaseDatabase):
                 "Invalid database format: a middle-layer database is a dict of "
                 "systems -> families -> fields, keyed by name at every level; this "
                 f"file's root is a {type(self.data).__name__}. See "
-                "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                "data/channel_finder/middle_layer.json for the "
                 "expected format."
             )
 
@@ -152,7 +155,8 @@ class MiddleLayerDatabase(BaseDatabase):
         Flatten MML hierarchy into channel map for O(1) validation.
 
         Keys starting with ``_`` are metadata (``_description``, ``_meta``) at
-        any level and are skipped. Any other value that is not a mapping is a
+        any level and are skipped, as is the top-level ``schema`` key that
+        names the index's document. Any other value that is not a mapping is a
         shape error, and is named rather than skipped: a system or family that
         silently contributed nothing would read as a facility with fewer
         channels, not as a broken file.
@@ -166,13 +170,13 @@ class MiddleLayerDatabase(BaseDatabase):
         channels: dict[str, dict[str, Any]] = {}
 
         for system, families in self.data.items():
-            if system.startswith("_"):
+            if system.startswith("_") or system in _DOCUMENT_KEYS:
                 continue
             if not isinstance(families, dict):
                 raise ValueError(
                     f"Invalid database format: system '{system}' must map family "
                     f"names to their fields, got a {type(families).__name__}. See "
-                    "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                    "data/channel_finder/middle_layer.json for the "
                     "expected format."
                 )
 
@@ -184,7 +188,7 @@ class MiddleLayerDatabase(BaseDatabase):
                         f"Invalid database format: family '{system}:{family}' must "
                         f"map field names to their definitions, got a "
                         f"{type(fields).__name__}. See "
-                        "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                        "data/channel_finder/middle_layer.json for the "
                         "expected format."
                     )
 
@@ -586,7 +590,7 @@ class MiddleLayerDatabase(BaseDatabase):
         """
         # Get DeviceList from setup
         family_data = self.data[system][family]
-        setup = _get_setup(family_data)
+        setup = get_setup(family_data)
         device_list = setup.get("DeviceList")
 
         if not device_list:
@@ -644,7 +648,7 @@ class MiddleLayerDatabase(BaseDatabase):
             return None
 
         family_data = self.data[system][family]
-        setup = _get_setup(family_data)
+        setup = get_setup(family_data)
         return setup.get("CommonNames")
 
     def get_device_info(self, system: str, family: str) -> dict:
@@ -668,7 +672,7 @@ class MiddleLayerDatabase(BaseDatabase):
         if system not in self.data or family not in self.data[system]:
             return empty
 
-        setup = _get_setup(self.data[system][family])
+        setup = get_setup(self.data[system][family])
         common_names = setup.get("CommonNames")
         device_list = setup.get("DeviceList")
 

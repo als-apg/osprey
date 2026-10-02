@@ -373,12 +373,66 @@ def test_a_place_without_a_level_word_is_no_node(tmp_path: Path) -> None:
     _assert_every_channel_is_its_address(database, 4)
 
 
-def test_zero_channels_write_an_empty_tree(tmp_path: Path) -> None:
+def test_zero_channels_stop_with_view_unsupported(tmp_path: Path) -> None:
+    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.channel_finder import write_hierarchical
 
-    (target,) = write_hierarchical(tmp_path, _inputs({"channels": []}))
+    with pytest.raises(FacilityBuildError) as caught:
+        write_hierarchical(tmp_path / "channel_finder", _inputs({"channels": []}))
 
-    assert json.loads(target.read_bytes())["tree"] == {}
+    assert caught.value.format_message() == (
+        "facility: view-unsupported: path channel_finder.pipeline_mode — selects hierarchical "
+        "and the facility has no channel; fix: author at least one channel, or select another "
+        "channel_finder_mode"
+    )
+    assert not (tmp_path / "channel_finder").exists()
+
+
+@pytest.mark.parametrize(
+    ("doc", "record"),
+    [
+        (
+            {
+                "places": [{"id": "_M", "level": "machine"}],
+                "devices": [{"id": "D", "class": "Gauge", "place": "_M"}],
+                "channels": [{"id": "A", "on": {"device": "D"}}],
+            },
+            "place _M — its tree key `_M`",
+        ),
+        (
+            {
+                "devices": [{"id": "_D", "class": "Gauge"}],
+                "channels": [{"id": "A", "on": {"device": "_D"}}],
+            },
+            "device _D — its tree key `_D`",
+        ),
+        (
+            {
+                "devices": [{"id": "D", "class": "Gauge"}],
+                "channels": [{"id": "A", "on": {"device": "D"}, "signal": "_raw"}],
+            },
+            "channel A — its tree key `_raw`",
+        ),
+        (
+            {"channels": [{"id": "_A"}]},
+            "channel _A — its tree key `_A`",
+        ),
+    ],
+    ids=["place", "device", "signal", "address"],
+)
+def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
+    doc: dict[str, Any], record: str
+) -> None:
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.views.channel_finder import hierarchical_document
+
+    with pytest.raises(FacilityBuildError) as caught:
+        hierarchical_document(doc)
+
+    assert caught.value.kind == "view-unsupported"
+    message = caught.value.format_message()
+    assert message.startswith(f"facility: view-unsupported: {record} begins with `_`")
+    assert "a key beginning with `_` is a meta key of the hierarchical index" in message
 
 
 # --- the predicate and the registry ------------------------------------------------
