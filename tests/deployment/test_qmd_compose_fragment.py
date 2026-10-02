@@ -243,6 +243,7 @@ def test_explicit_service_image_replaces_the_built_default():
     service = compose_service(qmd={"image": "registry.example/osprey-qmd:2.5.3"})
 
     assert service["image"] == "${OSPREY_QMD_IMAGE:-registry.example/osprey-qmd:2.5.3}"
+    assert "build" not in service
 
 
 def test_build_context_is_repo_root_relative():

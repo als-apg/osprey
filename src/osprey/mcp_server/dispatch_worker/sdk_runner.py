@@ -38,6 +38,7 @@ from osprey.agent_runner.artifact_resolve import (
     deployed_render_dir,
     dispatch_claude_config_dir,
 )
+from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 from osprey.mcp_server.dispatch_worker.prior_answers import (
@@ -362,6 +363,17 @@ async def run_dispatch(
     render_dir = str(deployed_render_dir())
     stderr_lines: list[str] = []
 
+    # A dispatch run's config dir never marks the render trusted, so the agent
+    # CLI leaves the project's ``permissions.allow`` rules off and says so on
+    # stderr at every start. That is the intended posture: the trigger
+    # allow-list and the PreToolUse hook decide what a run may do. So the notice
+    # is not kept where it would sit above the line that explains a failure.
+    def _record_stderr(line: str) -> None:
+        if is_untrusted_allow_rules_notice(line):
+            logger.debug("The agent CLI left the render's allow rules off for this unattended run")
+            return
+        stderr_lines.append(line)
+
     # Build env the same way the OSPREY web server does for operator sessions:
     # build_clean_env() strips CLAUDECODE/CLAUDE_CODE_* vars and resolves auth
     # conflicts.  Provider env (auth token, base URL, model tier IDs) is already
@@ -416,6 +428,8 @@ async def run_dispatch(
     # which is what makes the directory writable here, and the CLI hangs on
     # startup if it can't write session data. A root that cannot be resolved or
     # created falls back to the user's home rather than failing the dispatch.
+    # Nothing marks the render trusted in this directory, on purpose: an
+    # unattended run keeps the project's allow rules off.
     try:
         claude_config_dir = dispatch_claude_config_dir()
         claude_config_dir.mkdir(parents=True, exist_ok=True)
@@ -539,7 +553,9 @@ async def run_dispatch(
     # inside subagents, so project settings cannot widen the trigger's surface.
     # Exact-name denied tools additionally go to disallowed_tools, which strips
     # them from the model's context entirely; prefix entries (``server__*``)
-    # become server-level rules (``server``).
+    # become server-level rules (``server``). In a dispatch run those settings
+    # allow rules are already off, because the config dir is untrusted; the hook
+    # is what keeps that from mattering if they ever load.
     #
     # ``max_budget_usd=None``: a dispatch run is bounded by ``max_turns``, the
     # inactivity watchdog and the worker's own timeout, never by a spend ceiling.
@@ -628,7 +644,7 @@ async def run_dispatch(
         # Force the session id = the value injected above so the OTEL emitter's
         # session.id matches what provenance_locator returns for this run.
         session_id=telemetry_session_id,
-        stderr=stderr_lines.append,
+        stderr=_record_stderr,
         # The barrier waits for the render's declared ``.mcp.json`` servers and
         # refuses the run before the prompt when one the allow-list names is
         # not connected.

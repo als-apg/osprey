@@ -252,7 +252,7 @@ class TestTypeLimitsPosture:
         A deployment that says nothing per type keeps exactly the posture it had
         when the deployment-wide block was the only one there was.
         """
-        section = _section(deployment_wide, connector={EPICS: {"timeout": 5.0}})
+        section = _section(deployment_wide, connector={EPICS: {"timeout_s": 5.0}})
         posture = type_limits_posture(section, EPICS)
         assert (posture.enabled, posture.mode) == expected
         assert posture.connector_type is None
@@ -296,7 +296,7 @@ class TestTypeLimitsPosture:
             {},
             {VIRTUAL_ACCELERATOR: {LIMITS_CHECKING_LEAF: _block(False, "optional")}},
             {EPICS: {}},
-            {EPICS: {"timeout": 5.0}},
+            {EPICS: {"timeout_s": 5.0}},
             {EPICS: "epics"},
             {EPICS: None},
             "epics",

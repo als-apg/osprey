@@ -560,9 +560,10 @@ Tool permissions
 ================
 
 By default OSPREY blocks a handful of general-purpose tools — ``Bash``,
-``Edit``, ``WebFetch``, ``WebSearch``, and every Claude Code plugin's and
-claude.ai connector's MCP tools (``mcp__plugin_*``, ``mcp__claude_ai_*``) — so a
-stock control-operator agent cannot shell out or browse the web. These defaults
+``Edit``, ``WebFetch``, ``WebSearch``, ``Monitor`` (background shell commands),
+``EnterWorktree`` (a new git worktree on disk), and every Claude Code plugin's
+and claude.ai connector's MCP tools (``mcp__plugin_*``, ``mcp__claude_ai_*``) —
+so a stock control-operator agent cannot shell out or browse the web. These defaults
 are overridable per facility from ``config:``, using dotted keys:
 
 .. code-block:: yaml
@@ -604,8 +605,8 @@ are overridable per facility from ``config:``, using dotted keys:
 .. admonition:: You cannot un-gate a tool that can write
    :class: warning
 
-   ``Bash``, ``Edit``, ``Write`` and ``NotebookEdit`` can write files or shell
-   out, so ``osprey build`` refuses a profile in which one of them is neither
+   ``Bash``, ``Edit``, ``Write``, ``NotebookEdit``, ``Monitor`` and
+   ``EnterWorktree`` can write files or shell out, so ``osprey build`` refuses a profile in which one of them is neither
    in ``permissions.deny`` nor matched by a ``PreToolUse`` hook matcher. A
    ``remove_deny: ["Bash"]`` with nothing put in its place is therefore a build
    failure, not a silent widening. (The shipped presets gate ``Write`` and

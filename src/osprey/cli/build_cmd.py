@@ -2000,6 +2000,7 @@ def _render_project(
     from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
+    from .build_profile_health import health_config_overrides
     from .build_profile_panels import apply_panel_selection, panel_selection_overrides
     from .build_profile_ports import layout_port_fill
     from .build_profile_reach import (
@@ -2194,10 +2195,14 @@ def _render_project(
         # the profile also spells is rejected at validation, so winning here can
         # never silently overwrite a facility's own value. `layout` is listed
         # first so that a block below, which does own its keys, still wins if
-        # the two ever name one key.
+        # the two ever name one key. The `modules.web_terminals` entry is
+        # REFUSE-IF-CONTRADICTED: a spelling that agrees with it is accepted, and
+        # health_url_key_errors refuses any other value at validation, so the
+        # overwrite never silently replaces a different value.
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
+            "modules.web_terminals": health_config_overrides(build_profile.config),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile

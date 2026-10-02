@@ -1847,8 +1847,9 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     notebook edits (NotebookEdit to the agent-data tree). The
     memory-guard ``PreToolUse`` rule is what legitimately gates them instead —
     allowing the good paths and denying the rest — so the lint takes a matcher as
-    sufficient. ``Bash`` and ``Edit`` have no such legitimate path and are gated
-    by :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`; the lint is what
+    sufficient. ``Bash``, ``Edit``, ``Monitor`` and ``EnterWorktree`` have no such
+    legitimate path and are gated by
+    :data:`~osprey.agent_runner.tool_names.DENY_DEFAULTS`; the lint is what
     makes removing them from that floor via
     ``claude_code.permissions.remove_deny`` a build failure rather than a silent
     widening.
@@ -1922,16 +1923,17 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         if covering:
             if all(src == _MATCHER_PROFILE for _, src in covering):
                 # The shell's reach is wider than the filesystem, so a facility
-                # weighing its own Bash gate has to weigh the dispatcher wire
-                # too: OSPREY_PANEL_TOKEN is in the agent's process env, which
-                # is all it takes to fire a job from a shell command.
+                # weighing its own Bash or Monitor gate has to weigh the
+                # dispatcher wire too: OSPREY_PANEL_TOKEN is in the agent's
+                # process env, which is all it takes to fire a job from a shell
+                # command, in the foreground or the background.
                 shell_note = (
                     " The shell also reaches the dispatcher wire: the panel "
                     "token sits in the agent's process env, so a shell command "
                     "can POST to /panel/events/mcp and fire a job without the "
                     "approval prompt — the job still runs as the real user "
                     "under their chip."
-                    if tool == "Bash"
+                    if tool in ("Bash", "Monitor")
                     else ""
                 )
                 logger.warning(

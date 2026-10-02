@@ -70,7 +70,7 @@ from osprey.port_layout import (
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
+from osprey_connectors.types import CONTROL_TARGETS, configured_targets, target_writes_enabled
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -551,13 +551,16 @@ class TestControlAssistantWebTier:
         assert "channel-finder" in base.web_panels
         assert "ariel" in base.web_panels
 
-    def test_notebook_tab_is_a_family_wide_default(self) -> None:
-        """The JUPYTER tab is declared once, in the base, and every tier gets it.
+    def test_notebook_tab_follows_the_control_surface(self) -> None:
+        """The JUPYTER tab is declared once, in the base, and reaches exactly
+        the children that keep the controls server.
 
-        Both groups are derived from the bundled presets on disk rather than
-        listed here, so a tier added later is covered without editing this
-        test: it fails if the tab is declared per tier instead of inherited,
-        and it fails if a tier subtracts it through ``exclude:``.
+        A notebook kernel reads and writes through the control target, so the
+        tab is machine reach. The children that switch the controls server off
+        (the logbook and knowledge personas) subtract it through ``exclude:``;
+        every other child inherits it. Both groups are derived from the bundled
+        presets on disk rather than listed here, so a child added later is
+        covered without editing this test.
 
         The standalone presets are the control group. They extend nothing and
         run no terminal session for a kernel to follow, so the tab must not
@@ -578,9 +581,17 @@ class TestControlAssistantWebTier:
         assert tiers, "no bundled preset extends control-assistant"
         assert standalone == ["ariel-standalone", "channel-finder-standalone", "hello-world"]
 
+        no_control_surface = sorted(
+            name
+            for name in tiers
+            if resolve_preset(name).config.get("claude_code.servers.controls.enabled") is False
+        )
+        assert no_control_surface == ["control-assistant-knowledge", "control-assistant-logbook"]
+
         assert "jupyter" in resolve_preset("control-assistant").web_panels
         for name in tiers:
-            assert "jupyter" in resolve_preset(name).web_panels, name
+            expected = name not in no_control_surface
+            assert ("jupyter" in resolve_preset(name).web_panels) is expected, name
         for name in standalone:
             assert "jupyter" not in resolve_preset(name).web_panels, name
 
@@ -1026,6 +1037,25 @@ class TestControlAssistantPersonas:
         tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
         assert _graph_entries(tools) == []
 
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "admin"))
+    def test_every_operator_tier_denies_monitor_and_enterworktree(
+        self, built_persona_stack: Path, persona: str
+    ) -> None:
+        """Every tier's session refuses a background shell and a new worktree.
+
+        ``Monitor`` runs shell commands in the background and ``EnterWorktree``
+        creates a git worktree on disk, so both sit on the interactive write
+        floor beside ``Bash`` and ``Edit``: the read-only tier refuses them, and
+        the write-capable tiers refuse them too.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
+        assert project.is_dir(), f"{persona} was never rendered"
+
+        settings = json.loads((project / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        deny = settings["permissions"]["deny"]
+        assert "Monitor" in deny, f"{persona} does not deny Monitor: {deny}"
+        assert "EnterWorktree" in deny, f"{persona} does not deny EnterWorktree: {deny}"
+
     @pytest.mark.parametrize("persona", ("readonly", "readwrite"))
     def test_projected_facts_land_inside_the_attached_renders_services_map(
         self, built_persona_stack: Path, persona: str
@@ -1168,6 +1198,9 @@ class TestControlAssistantPersonas:
         )
         assert hits == [], f"the logbook tier configures no graph store but rendered {hits}"
         assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert "jupyter" not in config["web"]["panels"]
+        assert config["web"]["control_target_picker"] is False
 
     def test_knowledge_persona_renders_the_knowledge_surface_and_nothing_else(
         self, built_persona_stack: Path
@@ -1194,12 +1227,21 @@ class TestControlAssistantPersonas:
         assert config["channel_finder"]["pipeline_mode"] == "graph"
         assert config["web"]["default_panel"] == "okf"
         assert "ariel" not in config["web"]["panels"]
+        assert "jupyter" not in config["web"]["panels"]
+        assert config["web"]["control_target_picker"] is False
 
         agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
         assert agents == ["channel-finder", "facility-knowledge", "facility-knowledge-graph"]
 
         settings = json.loads((project / ".claude" / "settings.json").read_text())
         assert "mcp__osprey_facility_knowledge__draft_concept" in settings["permissions"]["deny"]
+
+
+#: The two standalone personas, which reach no machine.
+STANDALONE_PERSONAS = ("control-assistant-knowledge", "control-assistant-logbook")
+
+#: ``control_system.connector.<type>.writes_enabled``, any type.
+_PER_TYPE_WRITE_KEY = re.compile(r"control_system\.connector\.[^.]+\.writes_enabled")
 
 
 # ---------------------------------------------------------------------------
@@ -1246,8 +1288,9 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     # flat key. One machine armed, the two hardware-shaped ones not.
     "control-assistant-admin": {"live": False, "va": True, "standin": False},
     "control-assistant-readwrite": {"live": False, "va": True, "standin": False},
-    # The standalone logbook tier pins the flat key off and writes no per-type
-    # block, so every target inherits the off.
+    # The standalone logbook persona pins the flat key off AND the epics and
+    # virtual_accelerator blocks, like the knowledge persona and the read-only
+    # tier, so a profile that arms either type cannot arm it here.
     "control-assistant-logbook": {"live": False, "va": False, "standin": False},
     # The standalone knowledge persona pins the flat key off AND the epics and
     # virtual_accelerator blocks, like the read-only tier: it has no control
@@ -1329,6 +1372,39 @@ class TestWritePostureMatrix:
         # would replace the rendered subtree and drop the sibling keys.
         assert "control_system" not in profile.config
 
+    def test_the_logbook_persona_pins_what_the_knowledge_persona_pins(self) -> None:
+        """The two standalone personas state the write boundary the same way:
+        the same write keys, every one off, so a profile that arms epics or
+        the simulator per type cannot arm it for either."""
+        pins = {
+            preset: {
+                key: value
+                for key, value in resolve_preset(preset).config.items()
+                if key == WRITES_KEY or _PER_TYPE_WRITE_KEY.fullmatch(str(key))
+            }
+            for preset in STANDALONE_PERSONAS
+        }
+
+        assert pins["control-assistant-logbook"] == pins["control-assistant-knowledge"]
+        assert pins["control-assistant-logbook"] == {
+            WRITES_KEY: False,
+            EPICS_WRITES_KEY: False,
+            VA_WRITES_KEY: False,
+        }
+
+    @pytest.mark.parametrize("preset", STANDALONE_PERSONAS)
+    def test_the_standalone_personas_keep_the_hosting_presets_targets(
+        self, tmp_path: Path, preset: str
+    ) -> None:
+        """The write pins change what a login may do, never which machines it
+        has: the persona's configured targets are the hosting preset's."""
+        (tmp_path / "persona").mkdir()
+        (tmp_path / "root").mkdir()
+        section = _rendered_control_system(tmp_path / "persona", preset)
+        hosting = _rendered_control_system(tmp_path / "root", "control-assistant")
+
+        assert configured_targets(section) == configured_targets(hosting)
+
     def test_readwrite_is_armed_on_the_simulator_alone(self, tmp_path: Path) -> None:
         """The same tool call writes on one machine and refuses on the other
         two, decided by the recorded control target rather than by a rebuild."""
@@ -1405,6 +1481,59 @@ class TestWritePostureMatrix:
         assert {key: delta.get(key) for key in posture_keys} == {
             key: shipped.get(key) for key in posture_keys
         }
+
+
+# ---------------------------------------------------------------------------
+# The title-bar control-target picker
+# ---------------------------------------------------------------------------
+
+#: preset name -> the ``web.control_target_picker`` it states, or None where it
+#: states nothing and the key's default (on) holds. Every shipped preset
+#: appears, so a new one has to state its answer here before it ships.
+PINNED_CONTROL_TARGET_PICKER: dict[str, bool | None] = {
+    "ariel-standalone": False,
+    "channel-finder-standalone": False,
+    "control-assistant": None,
+    "control-assistant-admin": None,
+    "control-assistant-knowledge": False,
+    "control-assistant-logbook": False,
+    "control-assistant-readonly": None,
+    "control-assistant-readwrite": None,
+    "hello-world": None,
+}
+
+
+class TestControlTargetPicker:
+    """Which shipped presets show the control-target picker, and why those
+    that do not may leave it out: nothing in them reaches the machine."""
+
+    @pytest.mark.parametrize("preset", sorted(PINNED_CONTROL_TARGET_PICKER))
+    def test_every_shipped_preset_states_the_picker_it_is_pinned_to(
+        self, tmp_path: Path, preset: str
+    ) -> None:
+        rendered = _render_config_overrides(tmp_path, {"system": {}}, preset=preset)
+
+        stated = (rendered.get("web") or {}).get("control_target_picker")
+
+        assert stated is PINNED_CONTROL_TARGET_PICKER[preset]
+
+    def test_the_shipped_preset_set_is_pinned(self) -> None:
+        assert list_presets() == sorted(PINNED_CONTROL_TARGET_PICKER)
+
+    @pytest.mark.parametrize(
+        "preset", sorted(name for name, on in PINNED_CONTROL_TARGET_PICKER.items() if on is False)
+    )
+    def test_a_preset_without_the_picker_reaches_no_machine(self, preset: str) -> None:
+        """The picker is off only where no tool server and no panel reaches the
+        control target: no controls, python or bluesky server, and no JUPYTER
+        tab, whose kernels read and write through the target."""
+        profile = resolve_preset(preset)
+
+        for server in ("controls", "python", "bluesky"):
+            stated = profile.config.get(f"claude_code.servers.{server}.enabled")
+            enabled = FRAMEWORK_SERVERS[server].default_enabled if stated is None else stated
+            assert enabled is False, server
+        assert "jupyter" not in profile.web_panels
 
 
 # ---------------------------------------------------------------------------

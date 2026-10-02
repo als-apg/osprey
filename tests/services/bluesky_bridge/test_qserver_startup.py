@@ -437,7 +437,7 @@ def test_epics_like_types_get_a_gateway_less_type_config(control_system_type: st
     config = qserver_startup.build_connector_config(control_system_type)
 
     assert config["type"] == control_system_type
-    assert config["connector"][control_system_type] == {"timeout": 5.0}
+    assert config["connector"][control_system_type] == {"timeout_s": 5.0}
     assert "gateways" not in config["connector"][control_system_type]
 
 

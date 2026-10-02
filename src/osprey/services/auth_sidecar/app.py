@@ -26,7 +26,7 @@ else shared across routes belongs here too, on the same pattern — built once i
 the factory, reached through an accessor.
 
 Per-user values are keyed by
-:func:`~osprey.deployment.web_terminals.personas.env_var_suffix` — the one
+:func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix` — the one
 definition of the username→env-var mapping, shared with credential
 provisioning and lint so a password can never be keyed one way at mint time and
 another at verify time.
@@ -66,7 +66,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from osprey.config_guards import is_positive_int
-from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suffix_collisions
 
 # The session-lifetime default is defined once, in the stdlib-only web_auth
 # module; the terminal cookie and this sidecar share it.
@@ -77,6 +76,7 @@ from .identity_headers import same_domain, same_identity
 from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from .passwords import stored_hash_problem
 from .revocation import RevocationStore
+from .roster_env import PW_HASH_VAR_PREFIX, env_var_suffix, env_var_suffix_collisions
 from .sessions import SessionCodec
 from .throttle import (
     DEFAULT_FORGET_AFTER,
@@ -158,9 +158,6 @@ class ThrottleParameters(TypedDict):
     max_delay: float
     forget_after: float
 
-
-ENV_PW_HASH_PREFIX = "OSPREY_AUTH_PW_HASH_"
-"""Per-user stored hash: ``OSPREY_AUTH_PW_HASH_<SUFFIX>``."""
 
 ENV_WEB_THEME = "OSPREY_WEB_THEME"
 ENV_WEB_APP_NAME = "OSPREY_WEB_APP_NAME"
@@ -593,7 +590,7 @@ class AuthSettings:
         roster_access: dict[str, frozenset[str]] = {}
         for user in users:
             suffix = env_var_suffix(user)
-            stored = (source.get(f"{ENV_PW_HASH_PREFIX}{suffix}") or "").strip()
+            stored = (source.get(f"{PW_HASH_VAR_PREFIX}{suffix}") or "").strip()
             if stored:
                 password_hashes[user] = stored
             subject = (source.get(f"{ENV_OIDC_SUBJECT_PREFIX}{suffix}") or "").strip()
@@ -736,7 +733,7 @@ class AuthSettings:
         Returns:
             ``{suffix: [colliding usernames]}``, empty when the roster is
             unambiguous. Detection is
-            :func:`~osprey.deployment.web_terminals.personas.env_var_suffix_collisions`,
+            :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix_collisions`,
             shared with lint and credential provisioning.
         """
         return env_var_suffix_collisions(self.users)
@@ -1240,7 +1237,7 @@ def _log_configuration(settings: AuthSettings, env: Mapping[str, str] | None) ->
             "auth sidecar refuses to serve an ambiguous roster: %s. Two usernames that "
             "map to one env-var suffix would share a single credential; rename one.",
             "; ".join(
-                f"{', '.join(names)} all key {ENV_PW_HASH_PREFIX}{suffix}"
+                f"{', '.join(names)} all key {PW_HASH_VAR_PREFIX}{suffix}"
                 for suffix, names in sorted(collisions.items())
             ),
         )
@@ -1262,7 +1259,7 @@ def _log_configuration(settings: AuthSettings, env: Mapping[str, str] | None) ->
                 "stored password hash cannot be evaluated for %s: no password will log them "
                 "in until it is replaced with `osprey users passwd <user>`",
                 "; ".join(
-                    f"{user} ({ENV_PW_HASH_PREFIX}{env_var_suffix(user)}: {problem})"
+                    f"{user} ({PW_HASH_VAR_PREFIX}{env_var_suffix(user)}: {problem})"
                     for user, problem in problems
                 ),
             )

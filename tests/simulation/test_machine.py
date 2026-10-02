@@ -613,8 +613,14 @@ class TestLogbookTimeRefusal:
 class TestReadMachineJson:
     def test_syntax_error_names_the_file_and_position(self, tmp_path):
         path = tmp_path / "machine.json"
-        path.write_text('{"channels": {"A": {"value": 1},}}')
-        with pytest.raises(ValueError, match=r"is not valid JSON: .*line 1 column 32") as info:
+        text = '{"channels": {"A": {"value": 1},}}'
+        path.write_text(text)
+        # The decoder's column for a trailing comma differs across Python
+        # versions; the message must carry whatever position this one reports.
+        with pytest.raises(json.JSONDecodeError) as decoded:
+            json.loads(text)
+        position = f"line {decoded.value.lineno} column {decoded.value.colno}"
+        with pytest.raises(ValueError, match=rf"is not valid JSON: .*{position}") as info:
             read_machine_json(path)
         assert str(path) in str(info.value)
         assert isinstance(info.value.__cause__, json.JSONDecodeError)

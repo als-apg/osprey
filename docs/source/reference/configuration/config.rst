@@ -272,7 +272,7 @@ you normally configure nothing.
      auto:
        mcp:
          enabled: true        # default true — set false to drop the category
-         url_key: host_url    # which URL to probe (see below)
+         url_key: host_url    # which URL to probe (see below; set by the build when web terminals are served)
 
 A server is included when its ``claude_code.servers`` block carries a ``url`` and
 a ``network`` block with a URL to reach it. Servers without those are skipped.
@@ -283,14 +283,19 @@ server seen from the machine, ``http://localhost:<port>/mcp``) and ``docker_url`
 category picks one automatically:
 
 - If you set ``url_key`` explicitly, that choice is always used.
+- A deployment that serves web terminals has the choice made for it. The
+  terminals run on the host's network, where a compose service name does not
+  resolve, so ``osprey build`` writes ``url_key: host_url`` into each render,
+  persona renders included. That is the same address the agent dials. Setting
+  the key to anything else in such a profile is refused at build time.
 - Otherwise the framework detects whether the health check is itself running
   inside a container — the runtime's own marker file, ``/.dockerenv`` under
   Docker or ``/run/.containerenv`` under Podman, or an ``OSPREY_IN_CONTAINER``
   environment variable you set yourself — and uses ``docker_url`` when
   containerized, ``host_url`` on a plain host. Nothing in the shipped
-  deployment sets that variable; set ``url_key`` explicitly when the automatic
-  answer is wrong for your network layout (a host-networked container is in a
-  container but cannot resolve compose service names).
+  deployment sets that variable. This detection decides only for a render
+  without web terminals; such a render sets ``url_key`` when the detected
+  answer is wrong for its network.
 
 **Expected tools.** If a server block declares ``permissions`` (its ``allow``
 and ``ask`` tool lists), the derived check also confirms the server actually
@@ -304,7 +309,9 @@ a plain reachability check.
    ``config.yml`` — a server named ``matlab`` is probed at ``http://matlab:…``.
    If your compose service is named differently, the probe points at a host that
    does not exist. Either rename the service to match the key, or set
-   ``url_key: host_url`` to probe the localhost URL instead.
+   ``url_key: host_url`` to probe the localhost URL instead. A deployment that
+   serves web terminals always probes ``host_url``, so this caveat applies only
+   where ``docker_url`` is in use.
 
 Timeouts
 ~~~~~~~~
@@ -668,8 +675,9 @@ Customize returns a user to.
 An item this deployment cannot show leaves the arrangement before it is served:
 ``system-health`` without the SYSTEM panel in ``web_panels``, ``bluesky-queue``
 without the Bluesky panel, ``identity`` with neither a terminal user nor an
-``app_name``. ``osprey build`` and ``osprey validate`` name each such entry you
-wrote, and the server logs the same line at start-up.
+``app_name``, ``control-target`` where ``web.control_target_picker`` is
+``false``. The server logs each such entry you wrote at start-up, and
+``osprey build`` and ``osprey validate`` name the two that need a panel.
 
 An item that needs an option takes a mapping instead of a bare name, for
 example ``- {type: clock, options: {zone: utc, format: 12h}}`` or
@@ -707,6 +715,28 @@ rendered. An option the item does not take, or a value it does not accept
 (``zone: UTC`` rather than ``utc``, a ``width`` past ``2000``), is reported the
 same way and dropped; the item keeps its default for that option. Twenty items
 per bar is the ceiling, and extras past it are dropped.
+
+.. _config-control-target-picker:
+
+The control-target picker
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   web:
+     control_target_picker: true
+
+The title bar's control-target chip names the machine this terminal stands on
+and opens the popover that switches it. The default is ``true``. Set it to
+``false`` only for a terminal that reaches no machine: no control-system tool
+server and no JUPYTER panel. The shipped ``ariel-standalone`` and
+``channel-finder-standalone`` presets and the ``control-assistant-logbook`` and
+``control-assistant-knowledge`` personas do.
+
+The setting changes what the page shows, not what the agent may do. With it
+off, the ``control-target`` item is left out of every arrangement this terminal
+serves and is not offered in Customize. A value that is not a boolean is
+reported in the log and ``true`` is used.
 
 .. _config-file-watch-reconcile:
 
@@ -1073,7 +1103,7 @@ Overriding Service Images
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Seventeen images, one row each:
+default. One row per image:
 
 .. list-table::
    :header-rows: 1
@@ -1158,10 +1188,11 @@ images.
 Which of these images a deploy builds, and what naming another image does to
 that, is in :ref:`deployment-image-builds`.
 
-Six of the seventeen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other eleven are **built by OSPREY**
-from your project, and their default reference is assembled rather than
-fixed: a project name, a per-service suffix, and the two axes below.
+A row whose packaged default reads *upstream pin* is an **upstream pin** — an
+image somebody else publishes, named exactly as they publish it. Every other
+row is **built by OSPREY** from your project, and its default reference is
+assembled rather than fixed: a project name, a per-service suffix, and the two
+axes below.
 
 ``dispatch_worker``, ``ariel_sync`` and ``archive`` share one row value on
 purpose: all three run the bare project image, so all three read
@@ -1233,7 +1264,7 @@ Two things about *when* and *where* this applies are worth having straight:
   is what it always was — ``<project>:local`` and its siblings — so a
   deployment that never heard of them is unaffected.
 
-The axes never touch the six upstream pins. Prefixing ``mongo:7`` with your
+The axes never touch an upstream pin. Prefixing ``mongo:7`` with your
 registry would name an image that exists in no registry; mirror those through
 their own row instead.
 

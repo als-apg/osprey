@@ -68,7 +68,7 @@ def _config(*, va_probe_channel: str | None = "VA:PROBE:CHANNEL") -> dict[str, A
     eligibility, not eligibility itself, which has its own suite.
     """
     va_block: dict[str, Any] = {
-        "timeout": 5.0,
+        "timeout_s": 5.0,
         "gateways": {
             "read_only": {"address": "localhost", "port": 5074, "use_name_server": True},
             "write_access": {"address": "localhost", "port": 5074, "use_name_server": True},
@@ -83,7 +83,7 @@ def _config(*, va_probe_channel: str | None = "VA:PROBE:CHANNEL") -> dict[str, A
             "limits_checking": {"enabled": True, "mode": "exclusive"},
             "connector": {
                 EPICS_TYPE: {
-                    "timeout": 5.0,
+                    "timeout_s": 5.0,
                     "probe_channel": "LIVE:PROBE:CHANNEL",
                     "gateways": {
                         "read_only": {

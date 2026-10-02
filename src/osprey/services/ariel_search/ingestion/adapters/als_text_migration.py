@@ -1,9 +1,10 @@
 """One-off rewrite of stored ``als_logbook`` rows as plain text.
 
 The ``als_logbook`` adapter stores entry text as plain text. Rows stored before
-it did hold the entity-encoded HTML the logbook sent. This migration cleans
-those rows once, with the same cleaner the adapter uses, so a stored row ends up
-as a fresh ingest of the same entry would store it.
+it did hold the entity-encoded HTML the logbook sent, and the backslash escaping
+it adds. This migration cleans those rows once, with the same cleaner the
+adapter uses, so a stored row ends up as a fresh ingest of the same entry would
+store it.
 """
 
 from typing import TYPE_CHECKING
@@ -21,11 +22,12 @@ if TYPE_CHECKING:
 
 logger = get_logger("ariel")
 
-# The ``[&<]`` predicate is the cleaner's fast path: no other row can change.
-_SELECT_CANDIDATES = """
+# The predicate is the cleaner's fast path (an ``&``, a ``<``, a backslash before
+# a quote mark, or a doubled backslash): no other row can change.
+_SELECT_CANDIDATES = r"""
     SELECT entry_id, raw_text, metadata->>'subject'
     FROM enhanced_entries
-    WHERE source_system = %s AND raw_text ~ '[&<]'
+    WHERE source_system = %s AND raw_text ~ '[&<]|\\[''"\\]'
 """
 
 _REWRITE_ROW = """
@@ -42,7 +44,7 @@ _REWRITE_ROW = """
 
 
 def _recleaned(raw_text: str, subject: str | None) -> tuple[str, str | None]:
-    """Recompute a stored row's text and subject as the adapter now stores them.
+    """Recompute a stored row's text and subject as the adapter stores them.
 
     Text that starts with its subject and a blank line is split, cleaned per
     part and merged again; text equal to its subject is the cleaned subject;

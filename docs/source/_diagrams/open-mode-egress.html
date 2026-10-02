@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 276" role="img" aria-labelledby="open-mode-egress-title open-mode-egress-desc">
   <title id="open-mode-egress-title">Why the open posture has conditions</title>
-  <desc id="open-mode-egress-desc">Under auth.method none an agent inside one terminal reaches nginx over loopback and looks like a browser, so nginx would stamp a neighbour's secret and serve that terminal. Two things stand in the way: every persona's deny defaults on Bash, WebFetch, WebSearch and Playwright, refused at osprey up otherwise, and — defence in depth behind them — the python executor's socket guard, which refuses connections from executed code to the deployment's own web ports.</desc>
+  <desc id="open-mode-egress-desc">Under auth.method none an agent inside one terminal reaches nginx over loopback and looks like a browser, so nginx would stamp a neighbour's secret and serve that terminal. Two things stand in the way: every persona's deny defaults on Bash, Monitor, WebFetch, WebSearch and Playwright, refused at osprey up otherwise, and — defence in depth behind them — the python executor's socket guard, which refuses connections from executed code to the deployment's own web ports.</desc>
   <defs>
     <marker id="open-mode-egress-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -36,7 +36,7 @@
   <rect class="mask" x="220" y="56" width="230" height="56" rx="6"/>
   <rect class="nb" x="220" y="56" width="230" height="56" rx="6"/>
   <text class="tn" x="335" y="80" text-anchor="middle">the agent's tools</text>
-  <text class="ts" x="335" y="96" text-anchor="middle">Bash · WebFetch · WebSearch · Playwright</text>
+  <text class="ts" x="335" y="96" text-anchor="middle" style="font-size:8px">Bash·Monitor·WebFetch·WebSearch·Playwright</text>
 
   <rect class="mask" x="220" y="156" width="230" height="56" rx="6"/>
   <rect class="nb" x="220" y="156" width="230" height="56" rx="6"/>

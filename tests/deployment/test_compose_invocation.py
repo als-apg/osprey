@@ -66,11 +66,9 @@ from osprey.deployment.web_terminals.artifacts import (
     web_compose_file,
     write_web_terminal_artifacts,
 )
-from osprey.deployment.web_terminals.auth_credentials import (
-    AUTH_ENV_FILENAME,
-    PW_HASH_VAR_PREFIX,
-)
+from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.services.auth_sidecar.passwords import verify_password
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey.utils.workspace import BUILD_DIR_NAME
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build

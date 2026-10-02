@@ -2,9 +2,11 @@
 # mentions of the bot account through the osprey.dispatch pair (see
 # src/osprey/bridges/nextcloud_talk/). It is a poller, not a server: it opens
 # no listening socket, so it publishes no ports and declares no healthcheck.
-# `osprey up` builds its image locally on first run; subsequent runs
-# reuse the local tag. To use a prebuilt/published image instead, set
-# OSPREY_NEXTCLOUD_BRIDGE_IMAGE (e.g. OSPREY_NEXTCLOUD_BRIDGE_IMAGE=my-registry/osprey-nextcloud-bridge:dev).
+# Its image is built from the Dockerfile beside this file unless
+# services.nextcloud_bridge.image names a different image, which this file then runs as
+# named with no build. OSPREY_NEXTCLOUD_BRIDGE_IMAGE names one for a single shell
+# (e.g. OSPREY_NEXTCLOUD_BRIDGE_IMAGE=my-registry/osprey-nextcloud-bridge:dev), and
+# a start that reads it builds nothing for this service.
 # Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 

@@ -43,8 +43,7 @@ from osprey.connectors.types import (
 )
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
-
-from .build_profile_schema import _ENV_VAR_RE
+from osprey_connectors.connection import ENV_NAME_RE
 
 #: Block compressors ``mongod`` accepts for a WiredTiger collection. The value
 #: reaches the container as a command flag and the collection inherits it at
@@ -409,7 +408,7 @@ def va_archiver_errors(
             f"forbids in a database name: {' '.join(illegal)}"
         )
 
-    if not _ENV_VAR_RE.match(cfg.password_env):
+    if not ENV_NAME_RE.match(cfg.password_env):
         errors.append(
             f"va_archiver.password_env must be an environment variable NAME "
             f"(letters, digits, underscores), got {cfg.password_env!r}. The "

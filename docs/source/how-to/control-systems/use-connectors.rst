@@ -90,7 +90,11 @@ Pick a control system
                  # the network layer as well).
                  read_only:   { address: cagw.facility.edu, port: 5064 }
                  write_access: { address: cagw.facility.edu, port: 5084 }
-               timeout: 5.0
+               timeout_s: 5.0
+
+      ``timeout_s`` bounds every Channel Access call given no timeout of its
+      own. A ``timeout_s`` that is not a positive number of seconds is refused
+      when the connector connects.
 
       .. rubric:: PVAccess channels (PVA)
 
@@ -106,7 +110,7 @@ Pick a control system
            type: epics
            connector:
              epics:
-               timeout: 5.0
+               timeout_s: 5.0
                pva_channels:
                  - "*:IMAGE*"
                  - "BL:CAM?:ARRAY"
@@ -201,7 +205,9 @@ Pick a control system
 
       A read that does not answer within ``timeout_s`` (or the call's own
       timeout) raises ``TimeoutError``. A set that does not return within it
-      is reported ``unconfirmed``, because the value may still arrive.
+      is reported ``unconfirmed``, because the value may still arrive. A
+      ``timeout_s`` that is not a positive number of seconds is refused when
+      the connector connects.
 
       The connector requires ``doocs4py``, which the DOOCS environment
       provides rather than PyPI. The import is deferred to ``connect()``, so
@@ -235,11 +241,13 @@ Pick a control system
            connector:
              tango:
                tango_host: db.facility.edu:10000   # optional; default TANGO_HOST
-               timeout: 5.0                        # seconds per device call
+               timeout_s: 5.0                      # seconds per device call
 
-      A read or write given no timeout of its own is bounded by ``timeout``
+      A read or write given no timeout of its own is bounded by ``timeout_s``
       too, with the same answers as DOOCS: a read that runs out raises
       ``TimeoutError``, and a write that runs out is reported ``unconfirmed``.
+      A ``timeout_s`` that is not a positive number of seconds is refused when
+      the connector connects.
 
       Only **attributes** are exposed. TANGO *commands* (``command_inout``)
       carry arbitrary payloads the limits database cannot bound, so they have
@@ -290,6 +298,11 @@ Pick a control system
       like the in-tree ones. The seam -- the class to subclass, the pinning
       test, and how registration works -- is documented in
       :doc:`/contributing/extending-osprey`.
+
+Every control-system connector block names its call bound ``timeout_s``, in
+seconds; a numeric string such as an interpolated ``${VAR}`` is read as one. A
+config whose connector block carries ``timeout`` instead is refused when the
+config is read, and again when the connector connects.
 
 Pick an archiver
 ----------------

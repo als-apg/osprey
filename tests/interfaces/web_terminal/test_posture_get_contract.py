@@ -1,8 +1,8 @@
-"""Tests for ``GET /api/terminal/posture`` — the deployment's control roster.
+"""Tests for ``GET /api/terminal/posture`` — this login's control roster.
 
 One route answers the whole of what the header chip and its popover render.
-There is one control context per deployment, so every answer here is the
-deployment's: which target it is standing on, at which generation, who owns the
+There is one control context per login identity, so every answer here is that
+login's: which target it is standing on, at which generation, who owns the
 record, what each running controls server has actually bound, what is executing
 right now, and one row per configured target carrying that machine's identity,
 its reachability, the persona's ceiling, the operator's narrowing, the effective

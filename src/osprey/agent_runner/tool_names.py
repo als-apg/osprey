@@ -58,7 +58,10 @@ def foreign_mcp_namespace(server_name: str) -> str | None:
 #: ``permissions.deny``, which Claude Code refuses without ever offering an
 #: approval prompt. ``Bash`` and ``Edit`` are the two that matter most — they
 #: are the unmediated shell-out and unmediated file-patch escape hatches around
-#: every other control the profile installs.
+#: every other control the profile installs. ``Monitor`` runs shell commands in
+#: the background and ``EnterWorktree`` creates a git worktree on disk, so both
+#: sit on the same floor and are denied in every session, whatever the
+#: control-system write posture.
 #:
 #: Three consumers share this one definition, and they must not fork:
 #:
@@ -83,6 +86,10 @@ DENY_DEFAULTS: tuple[str, ...] = (
     "WebSearch",
     "mcp__plugin_*",
     "mcp__claude_ai_*",
+    # Runs shell commands in the background.
+    "Monitor",
+    # Creates a git worktree on disk.
+    "EnterWorktree",
 )
 
 #: Built-in (non-MCP) Claude Code tools that can write to disk, execute shell
@@ -155,16 +162,19 @@ DISPATCH_DENIED_TOOLS: frozenset[str] = frozenset(
 #: The ``permissions.deny`` entries every persona must ship before a deployment
 #: may run OPEN (``modules.web_terminals.auth.method: none``). Each is a
 #: host-network egress path an agent can take from *outside* the python
-#: executor, which is where the open-mode socket guard sits: a shell, the two
-#: web tools, and every Claude Code plugin's MCP server. The Playwright browser
+#: executor, which is where the open-mode socket guard sits: a shell, the
+#: background shell ``Monitor`` (which reaches the host network exactly as
+#: ``Bash`` does), the two web tools, and every Claude Code plugin's MCP server.
+#: The Playwright browser
 #: server is a plugin, and ``mcp__plugin_*`` is the shipped entry that closes it.
 #:
 #: Every entry is spelled exactly as :data:`DENY_DEFAULTS` spells it — that
 #: tuple is what ``settings.json.j2`` writes into the artifact this gate reads,
 #: and the comparison is literal (see
 #: :func:`~osprey.deployment.web_terminals.personas.settings_json_denies`).
-#: A strict subset of it, deliberately: ``Edit`` writes files rather than
-#: reaching the network, and ``mcp__claude_ai_*`` is left out because a
+#: A strict subset of it, deliberately: ``Edit`` and ``EnterWorktree`` write
+#: files rather than reaching the network, and ``mcp__claude_ai_*`` is left out
+#: because a
 #: claude.ai connector runs in the provider's cloud, not on this host, so it is
 #: no route back to the deployment's own terminals. Written out rather than
 #: derived by filtering ``DENY_DEFAULTS``, so that a rename there fails a test
@@ -175,6 +185,8 @@ OPEN_MODE_EGRESS_TOOLS: tuple[str, ...] = (
     "WebFetch",
     "WebSearch",
     "mcp__plugin_*",
+    # Runs shell commands in the background.
+    "Monitor",
 )
 
 #: Built-in Claude Code tools that can write — to the filesystem, or (``Bash``)
@@ -185,11 +197,14 @@ OPEN_MODE_EGRESS_TOOLS: tuple[str, ...] = (
 #:
 #: ``Bash`` and ``Edit`` are here for the reason :data:`DENY_DEFAULTS` names
 #: them first: they are the unmediated shell-out and unmediated file-patch
-#: escape hatches around every other control the profile installs. Their only
-#: gate in a shipped preset is that :data:`DENY_DEFAULTS` denies them — and
+#: escape hatches around every other control the profile installs. ``Monitor``
+#: runs shell commands in the background and ``EnterWorktree`` creates a git
+#: worktree on disk, so they are here on the same grounds. The only gate of
+#: ``Bash``, ``Edit``, ``Monitor`` and ``EnterWorktree`` in a shipped preset is
+#: that :data:`DENY_DEFAULTS` denies them — and
 #: ``claude_code.permissions.remove_deny`` lets a facility take that away.
-#: Listing them here is what makes ``remove_deny: ["Bash"]`` a build failure
-#: unless something else actually gates the tool.
+#: Listing them here is what makes ``remove_deny`` of any one of them a build
+#: failure unless something else actually gates the tool.
 #:
 #: The memory-guard hook's ``Write|NotebookEdit`` matcher gates the other two
 #: in the shipped presets; see
@@ -201,6 +216,10 @@ WRITE_CAPABLE_BUILTINS: tuple[str, ...] = (
     "Edit",
     "Write",
     "NotebookEdit",
+    # Runs shell commands in the background.
+    "Monitor",
+    # Creates a git worktree on disk.
+    "EnterWorktree",
 )
 
 #: The exact ``permissions.deny`` entry that blocks the agent's shell wholesale.

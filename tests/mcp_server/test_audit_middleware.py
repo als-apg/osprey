@@ -1490,7 +1490,7 @@ class TestTheRefusalNamesItsOwnSource:
 
         envelope = _assert_posture_remedy(error, source="store")
         assert "'live' control target" in envelope["error_message"]
-        assert "applies deployment-wide" in envelope["error_message"]
+        assert "applies to every session of this login" in envelope["error_message"]
         assert "terminal session is in the sandbox posture" not in envelope["error_message"]
 
     @pytest.mark.usefixtures("project")

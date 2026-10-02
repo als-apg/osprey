@@ -333,6 +333,11 @@ Authoring Triggers
    holds fifty events waiting for a slot. A build writes both keys from the
    profile's ``dispatch:`` block, which starts at the same pair.
 
+   **Allowed tools.** ``action.allowed_tools`` is the list of tool names the run
+   may use, written as a list even for one tool (``[get_pv]``). Left out or
+   blank, it is empty. The dispatcher refuses the triggers file at load if it is
+   anything else.
+
    **Turn ceiling.** How many agentic turns one dispatched run may take is
    ``dispatch.max_turns`` in the build profile (default 25) — the third budget
    beside ``dispatch.timeout_sec`` and ``dispatch.inactivity_sec``, and the one
@@ -437,7 +442,7 @@ loads.
         - Meaning
       * - ``interval_sec``
         - none (required without ``at``)
-        - Seconds between fires, a number greater than zero.
+        - Seconds between fires, a finite number greater than zero.
       * - ``at``
         - none
         - A list of quoted 24-hour ``"HH:MM"`` times, read in the facility zone.
@@ -449,8 +454,9 @@ loads.
    dispatcher starts, then an interval after each fire is handed to the queue.
    Nothing aligns to the wall clock, and a restart starts the count again, so
    ``interval_sec: 86400`` means once a day counted from start, not at a set
-   hour. A trigger whose value is missing, not a number, a boolean, or not
-   greater than zero is not armed: the dispatcher logs a warning naming it, and
+   hour. A trigger whose value is missing, a boolean, or not a finite number
+   greater than zero is not armed (a quoted number such as ``"90"`` is read as
+   that number): the dispatcher logs a warning naming it, and
    the file still loads with every other trigger running. A tick on a disabled
    trigger is recorded in its history as ``ignored: disabled``. A tick that
    meets a full queue is dropped with a warning and not retried; the next one

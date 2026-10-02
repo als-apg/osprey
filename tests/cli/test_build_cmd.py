@@ -2372,8 +2372,8 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
     ctx = claude_code.build_claude_code_context(
         manager.template_root, manager.jinja_env, project, config
     )
-    # Drop every framework hook, so the widened memory-guard's
-    # 'Write|NotebookEdit' PreToolUse matcher is no longer rendered.
+    # Drop every framework hook, so the memory-guard's 'Write|NotebookEdit'
+    # PreToolUse matcher is not rendered.
     ctx["selected_hooks"] = []
 
     with pytest.raises(claude_code.BuildProfileError) as excinfo:
@@ -2480,13 +2480,15 @@ def test_write_capable_builtins_cover_the_shell_and_patch_escape_hatches() -> No
     other control the profile installs", yet their only gate is that they sit in
     that deny floor, which `claude_code.permissions.remove_deny` can take away.
     They belong to the linted set so removing them from the floor has to be
-    replaced by some other gate.
+    replaced by some other gate. Monitor is a background shell and EnterWorktree
+    a disk write, so both are gated the same way.
     """
     from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 
-    assert {"Bash", "Edit"} <= set(WRITE_CAPABLE_BUILTINS)
+    escape_hatches = {"Bash", "Edit", "Monitor", "EnterWorktree"}
+    assert escape_hatches <= set(WRITE_CAPABLE_BUILTINS)
     # And they are still what the deny floor gates them with today.
-    assert {"Bash", "Edit"} <= set(DENY_DEFAULTS)
+    assert escape_hatches <= set(DENY_DEFAULTS)
 
 
 def _project_with_permissions(tmp_path: Path, name: str, permissions: dict) -> tuple[object, Path]:
@@ -2523,7 +2525,7 @@ def _project_with_permissions(tmp_path: Path, name: str, permissions: dict) -> t
     return manager, project
 
 
-@pytest.mark.parametrize("tool", ["Bash", "Edit"])
+@pytest.mark.parametrize("tool", ["Bash", "Edit", "Monitor", "EnterWorktree"])
 def test_lint_rejects_remove_deny_of_an_ungated_escape_hatch(tmp_path: Path, tool: str) -> None:
     """`permissions.remove_deny: ["Bash"]` (or Edit) with nothing else gating it
     must fail the build.
@@ -2624,6 +2626,42 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     assert any("/panel/events/mcp" in message for message in gate_warnings), (
         f"the Bash warning must name the dispatcher wire the shell reaches: got {gate_warnings}"
     )
+
+
+@pytest.mark.parametrize("tool", ["Monitor", "EnterWorktree"])
+def test_a_declared_gate_lifts_a_write_floor_tool(tmp_path: Path, caplog, tool: str) -> None:
+    """A profile reaches Monitor or EnterWorktree only as it reaches Bash: by
+    lifting the deny and declaring its own PreToolUse gate, which builds with
+    the unverifiable-gate warning.
+
+    Monitor runs shell commands with the agent's process env, so its warning
+    names the dispatcher wire as the Bash warning does; EnterWorktree writes to
+    disk only, so its warning does not.
+    """
+    import logging
+
+    manager, project = _project_with_permissions(
+        tmp_path, f"declared-{tool.lower()}-gate", {"remove_deny": [tool]}
+    )
+    _ship_declared_pre_hook(project, f"facility_{tool.lower()}_gate.py", tool)
+
+    with caplog.at_level(logging.WARNING):
+        manager.regenerate_claude_code(project)
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    assert tool not in settings["permissions"]["deny"]
+    matchers = [rule["matcher"] for rule in settings["hooks"]["PreToolUse"]]
+    assert tool in matchers, f"{tool} is not a PreToolUse matcher: {matchers}"
+    gate_warnings = [
+        record.message
+        for record in caplog.records
+        if tool in record.message and "permissionDecision" in record.message
+    ]
+    assert gate_warnings, (
+        f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
+    )
+    names_the_wire = any("/panel/events/mcp" in message for message in gate_warnings)
+    assert names_the_wire is (tool == "Monitor"), gate_warnings
 
 
 def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -> None:

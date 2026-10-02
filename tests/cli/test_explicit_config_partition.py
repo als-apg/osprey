@@ -173,9 +173,22 @@ _RETIRED_PER_CELL: Mapping[str, frozenset[str]] = {
     "hello-world/unset": frozenset({"approval.tools.entry_create"}),
 }
 
+#: Leaves retired since the freeze from one persona document of every
+#: control-assistant cell. The logbook and knowledge personas drop the JUPYTER
+#: panel, whose kernels reach the control target, so the switch their frozen
+#: renders carry is no longer one their preset selects.
+_RETIRED_PER_DOCUMENT: Mapping[str, frozenset[str]] = {
+    "knowledge": frozenset({"web.panels.jupyter.enabled"}),
+    "logbook": frozenset({"web.panels.jupyter.enabled"}),
+}
+
 
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    retired = _RETIRED_SINCE_THE_FREEZE | _RETIRED_PER_CELL.get(directory, frozenset())
+    retired = (
+        _RETIRED_SINCE_THE_FREEZE
+        | _RETIRED_PER_CELL.get(directory, frozenset())
+        | _RETIRED_PER_DOCUMENT.get(document, frozenset())
+    )
     frozen = _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
     return {key: value for key, value in frozen if key not in retired}
 
@@ -336,7 +349,8 @@ def test_root_render_is_partitioned_between_its_sources(
     # which was a number fixed in the keyword module; and control-assistant
     # gains the readiness-probe bound, which was a constant when the freeze ran;
     # and every preset gains `simulation.models`, which did not exist when the
-    # freeze ran either.
+    # freeze ran either; and every preset that reaches no machine gains
+    # `web.control_target_picker`, which did not exist when the freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -363,6 +377,8 @@ def test_root_render_is_partitioned_between_its_sources(
         expected_gain = expected_gain | {"control_system.target_switch.probe_timeout_s"}
     if "simulation.models" in config:
         expected_gain = expected_gain | {"simulation.models"}
+    if "web.control_target_picker" in config:
+        expected_gain = expected_gain | {"web.control_target_picker"}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )

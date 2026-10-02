@@ -11,11 +11,9 @@ over it) rather than reading the raw key. The normalized entry carries the
 authored value verbatim so both stay answerable from it.
 Callers that write the roster *back* to
 ``config.yml`` rather than render from it use :func:`freeze_user_indices`, which
-keeps the authored keys the normalizer projects away. Also home to the
-username→env-var-suffix mapping (:func:`env_var_suffix`) and its collision detector
-(:func:`env_var_suffix_collisions`), which credential provisioning, the auth
-sidecar and lint share so a user's credentials are keyed identically everywhere.
-Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`.
+keeps the authored keys the normalizer projects away.
+Port arithmetic lives in :mod:`osprey.deployment.web_terminals.ports`, and the
+username→env-var-suffix mapping in :mod:`osprey.services.auth_sidecar.roster_env`.
 
 One rule about the roster is *not* about identity at all and still lives here:
 which personas can edit the deployment they run in (:func:`persona_privileges`),
@@ -75,10 +73,9 @@ SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
 
 # Usernames become nginx `location` keys and URL path segments (`/<user>/...`), so
 # they're held to a stricter charset than a bare "no reserved collision" check.
-# Public and defined here, alongside `env_var_suffix`, because this module owns
-# what a roster username *is*: lint's scaffold-time rule, render's fail-closed
-# gate and `auth_credentials`' deploy-time gate all import it from here, so the
-# three cannot drift apart.
+# Public and defined here because this module owns what a roster username *is*:
+# lint's scaffold-time rule, render's fail-closed gate and `auth_credentials`'
+# deploy-time gate all import it from here, so the three cannot drift apart.
 #
 # Apply it with `.fullmatch()`, never `.match()`: Python's `$` also matches
 # *before* a trailing newline, so `.match()` accepts "alice\n" — a name that
@@ -636,9 +633,12 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
     Raises:
         ValueError: when a configured name is not a plain identifier. The
             name is emitted into a compose ``environment:`` line verbatim, so
-            a value compose would mangle (a space, an ``=``, a ``${``) is
-            refused at the deploy gate rather than rendered broken. A refusal
-            of the block itself by the connection-settings reader propagates.
+            a value compose would mangle (a space, an ``=``, a ``${``, or
+            surrounding whitespace) is refused at the deploy gate rather than
+            rendered broken; the connector reads the name as written, so a
+            padded name is refused here rather than granted under a spelling
+            the connector never looks up. A refusal of the block itself by the
+            connection-settings reader propagates.
     """
     archiver = as_dict(as_dict(config).get("archiver"))
     connector = archiver.get("type")
@@ -649,14 +649,13 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
     for key, raw in read_credential_env_names(resolve_archiver_settings(archiver), where=where):
         if not isinstance(raw, str) or not raw.strip():
             continue
-        name = raw.strip()
-        if not ENV_NAME_RE.match(name):
+        if not ENV_NAME_RE.match(raw):
             raise ValueError(
                 f"{where}.{key} must name an environment variable (letters, digits and "
-                f"underscores, not starting with a digit), got {name!r}"
+                f"underscores, not starting with a digit), got {raw!r}"
             )
-        if name not in names:
-            names.append(name)
+        if raw not in names:
+            names.append(raw)
     return tuple(names)
 
 
@@ -1202,7 +1201,8 @@ def normalize_users(users_raw: Any, *, strict: bool = True) -> list[dict[str, An
     missing or empty match a roster user. Dropping it instead leaves that user
     with no mapping at all, which the callback answers with 403. Only the
     *non-secret* side of the mapping ever lives in config.yml; password hashes
-    never do (they live in ``.env.auth``, keyed by :func:`env_var_suffix`).
+    never do (they live in ``.env.auth``, keyed by
+    :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`).
 
     An object entry's optional ``role`` (the name of a
     ``modules.web_terminals.authorization.roles`` entry, which names the persona
@@ -2558,55 +2558,6 @@ def control_identity_collision_warnings(
             )
         )
     return warnings
-
-
-def env_var_suffix(username: str) -> str:
-    """Map a roster username to the suffix its per-user env vars are keyed by.
-
-    Uppercase, with ``-`` replaced by ``_`` — so ``alice-b`` keys
-    ``OSPREY_AUTH_PW_HASH_ALICE_B``. This is the single definition of that
-    mapping; credential provisioning, the sidecar's env lookup, and lint all
-    route through it so a username can never be keyed one way at mint time and
-    another at verify time.
-
-    The mapping is intentionally total and lossy: it neither validates the
-    username charset nor rejects anything. Two distinct usernames can therefore
-    collide onto one suffix (``alice-b`` and ``alice_b``), which is exactly what
-    :func:`env_var_suffix_collisions` exists to detect — enforcement is the
-    caller's (a hard raise on the deploy preflight path, an ERROR in lint), not
-    this function's.
-    """
-    return username.upper().replace("-", "_")
-
-
-def env_var_suffix_collisions(usernames: Iterable[str]) -> dict[str, list[str]]:
-    """Find roster usernames that :func:`env_var_suffix` maps onto one suffix.
-
-    Without this check ``alice-b`` and ``alice_b`` would silently share a single
-    ``OSPREY_AUTH_PW_HASH_ALICE_B`` entry — one user's password would open the
-    other's terminal, which is precisely the isolation the auth feature exists to
-    establish.
-
-    A username repeated verbatim in the roster is *not* a collision here: it is
-    one user listed twice (a duplicate-name config error reported separately),
-    not two users sharing a credential. Only distinct names count.
-
-    Args:
-        usernames: Roster usernames — typically ``entry["name"]`` for each
-            :func:`normalize_users` entry. Non-string items are ignored, matching
-            this module's drop-don't-raise convention.
-
-    Returns:
-        ``{suffix: [colliding usernames]}`` for suffixes claimed by two or more
-        distinct usernames; empty when the roster is unambiguous. Suffix keys and
-        the names under each are sorted, so a lint or preflight message built
-        from this is byte-stable across runs.
-    """
-    by_suffix: dict[str, set[str]] = {}
-    for username in usernames:
-        if isinstance(username, str):
-            by_suffix.setdefault(env_var_suffix(username), set()).add(username)
-    return {suffix: sorted(names) for suffix, names in sorted(by_suffix.items()) if len(names) > 1}
 
 
 def roster_user_names(web_terminals: Any) -> list[str]:

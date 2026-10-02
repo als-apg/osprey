@@ -97,7 +97,7 @@ Overriding Service Images
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
 default — and the two stack-wide axes assemble the default name of an
-OSPREY-built image. The thirteen images, the two axes and their precedence are
+OSPREY-built image. Every image, the two axes and their precedence are
 catalogued in :ref:`config-deployment`.
 
 .. _deployment-image-builds:
@@ -109,10 +109,12 @@ A service is built on the deploy host only when its rendered compose document
 carries a ``build:`` block. Upstream pins never do. The OSPREY-built services
 (the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
 Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
-accelerator) each do, with one exception: a virtual-accelerator instance whose
-``services.virtual_accelerator.image`` or ``services.live_standin.image`` names
-an image other than the one OSPREY builds renders without ``build:``, and that
-image is pulled and run as named.
+accelerator) each do while they run the image OSPREY builds. A service whose
+``services.<name>.image`` names any other image renders without ``build:``, and
+that image is pulled and run as named. Where one template renders several
+containers off one image (the virtual accelerator and its live stand-in, the
+Bluesky lanes), the first of them that runs OSPREY's image carries the build,
+and none does when every one names another image.
 
 Which start builds what:
 
@@ -143,11 +145,6 @@ reports ``<service> runs <image> (<variable>); not built``, builds the others
 in a step of its own even under ``-d``, and starts everything with
 ``up --no-build``, so an image that is neither on the host nor pullable fails
 with compose's own error naming it.
-
-For the services other than the virtual accelerator, ``services.<name>.image``
-does not remove the ``build:`` block, so a start that builds rebuilds OSPREY's
-recipe under the name given. Use the variable or ``prebuilt_images`` to run
-your own image for those.
 
 The project image (dispatch worker, ARIEL sync, record archive) has no
 ``build:`` block. The deploy builds it itself on every start unless the host
@@ -206,10 +203,10 @@ fails at ``up`` on the image it forgot:
 
    * - Images
      - How to point them at your mirror
-   * - The eight OSPREY-built images
+   * - The OSPREY-built images
      - Set the registry axis once — ``images.registry``, or
        ``OSPREY_IMAGE_REGISTRY`` for a single build.
-   * - The five upstream pins
+   * - The upstream pins
      - One row at a time: ``services.<name>.image`` (or the row's
        ``OSPREY_..._IMAGE`` variable) naming your mirrored copy.
    * - The web tier's images
@@ -237,6 +234,8 @@ fails at ``up`` on the image it forgot:
        image: registry.example.org/mirror/mongo:7
      openobserve:
        image: registry.example.org/mirror/openobserve:v0.92.2
+     graphdb:
+       image: registry.example.org/mirror/neo4j:5.26-community
      bluesky:
        tiled_image: registry.example.org/mirror/tiled:0.2.18
        redis_image: registry.example.org/mirror/redis:7.4-alpine

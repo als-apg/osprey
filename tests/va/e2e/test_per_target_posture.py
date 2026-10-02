@@ -411,7 +411,7 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
 
     def block(port: int) -> dict:
         return {
-            "timeout": CONNECTOR_TIMEOUT_S,
+            "timeout_s": CONNECTOR_TIMEOUT_S,
             "probe_channel": PROBE_CHANNEL,
             "writes_enabled": True,
             "gateways": gateways(port),

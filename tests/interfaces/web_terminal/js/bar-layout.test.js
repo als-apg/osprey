@@ -98,7 +98,7 @@ describe('a clean document', () => {
   });
 
   test('round-trips unchanged and is flagged clean', () => {
-    const result = normalize(clean, BAR_CATALOG, {});
+    const result = normalize(clean, BAR_CATALOG, { controlTargetAvailable: true });
     expect(result.changed).toBe(false);
     expect(result.readonly).toBe(false);
     expect(result.dropped).toEqual([]);
@@ -340,7 +340,10 @@ describe('an unknown version', () => {
   });
 
   test('falls back to the deployment default and goes read-only', () => {
-    const result = normalize(future, BAR_CATALOG, { defaultLayout: deploymentDefault });
+    const result = normalize(future, BAR_CATALOG, {
+      defaultLayout: deploymentDefault,
+      controlTargetAvailable: true,
+    });
     expect(result.layout.version).toBe(BAR_LAYOUT_VERSION);
     expect(types(result.layout.header)).toEqual(['logo', 'control-target', 'feedback']);
     expect(types(result.layout.status)).toEqual(['stopwatch']);

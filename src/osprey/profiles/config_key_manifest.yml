@@ -540,7 +540,10 @@ keys:
     evidence: 'OSPREY_DISPATCH_IMAGE:-\{\{ services\.event_dispatcher\.image'
     note: >-
       OSPREY-built image, so its packaged default is assembled from the two
-      `images.*` axes; this pin replaces the assembled name outright.
+      `images.*` axes; this pin replaces the assembled name outright. Naming
+      any image other than `osprey_images.dispatch` renders the service with
+      no `build:` block, so compose runs that image as named instead of
+      building the dispatcher recipe under its name.
     default: derived
     default_note: osprey_images.dispatch — <registry><project>-dispatch:<images.tag>
   services.dispatch_worker.worker_port_stride:
@@ -566,7 +569,9 @@ keys:
   services.nextcloud_bridge.image:
     rendered: false
     evidence: 'OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-\{\{ services\.nextcloud_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.nextcloud_bridge
   services.nextcloud_bridge.mentions:
@@ -579,7 +584,9 @@ keys:
   services.gchat_bridge.image:
     rendered: false
     evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.gchat_bridge
   services.gchat_bridge.mentions:
@@ -592,7 +599,9 @@ keys:
   services.teams_bridge.image:
     rendered: false
     evidence: 'OSPREY_TEAMS_BRIDGE_IMAGE:-\{\{ services\.teams_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.teams_bridge
   services.teams_bridge.mentions:
@@ -639,7 +648,10 @@ keys:
       OSPREY-built bridge image. The compose template reaches it through
       `svc = services[lane_key]` because both Bluesky lanes render from the one
       fragment, so the evidence anchors on that alias rather than on the dotted
-      path — the alias is what a rename would have to touch.
+      path — the alias is what a rename would have to touch. The first lane
+      whose own image is `osprey_images.bluesky_bridge` owns the `build:`
+      stanza (two services building one tag would race); a lane naming
+      another image renders none.
     default: derived
     default_note: osprey_images.bluesky_bridge
   services.bluesky.tiled_image:
@@ -657,7 +669,9 @@ keys:
   services.bluesky_web.image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_WEB_IMAGE:-\{\{ services\.bluesky_web\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.bluesky_web
   services.virtual_accelerator.image:
@@ -758,7 +772,9 @@ keys:
   services.qmd.image:
     rendered: false
     evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.qmd
 
@@ -1003,13 +1019,13 @@ keys:
       falls through to control_system.connector.mock.noise_level, and then to the
       entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
+  control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
     rendered: false
     evidence: 'config\.get\(STEP_READ_TIMEOUT_KEY\)'
     note: >-
       Ceiling on the fresh read a `max_step` check makes before a write, in
-      seconds. A facility-network fact like `timeout` beside it — a gateway two
+      seconds. A facility-network fact like `timeout_s` beside it — a gateway two
       hops away answers slower than a soft IOC on the deploy host — and read
       from the same connector block, by the connector and by the python
       executor's sandbox alike, so a script's step check and the connector's
@@ -1070,9 +1086,9 @@ keys:
     default: derived
     default_note: >-
       unset leaves PyTango reading the TANGO_HOST already in the container's environment
-  control_system.connector.tango.timeout: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
+  control_system.connector.tango.timeout_s: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
+  control_system.connector.virtual_accelerator.timeout_s: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
   # `super().connect()`, so the step-read budget above is read from this type's
   # block too; the evidence is that one site.
@@ -1174,8 +1190,9 @@ keys:
       presets that carry a virtual_accelerator block write it commented, so no
       preset's resolved config carries it and `rendered` stays false;
       the shipped presets `control-assistant-readwrite` and
-      `control-assistant-admin` (true) and `control-assistant-readonly` and
-      `control-assistant-knowledge` (false) DO write it into a project's real
+      `control-assistant-admin` (true) and `control-assistant-readonly`,
+      `control-assistant-knowledge` and `control-assistant-logbook` (false) DO
+      write it into a project's real
       config.yml when applied, so an audit of a built deployment will find it.
       Tri-state: absent inherits the global key, literally `true` arms writes
       for this type, and any other value leaves them unarmed without
@@ -2402,10 +2419,15 @@ keys:
       framework synthesizes from `claude_code.servers` so no facility has to
       re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
       `auto.mcp.url_key` are read; anything else under it is ignored by design,
-      which is why the leaves carry no entries of their own.
+      which is why the leaves carry no entries of their own. The build writes
+      `auto.mcp.url_key: host_url` into every render whose deployment serves
+      web terminals (`osprey.cli.build_profile_health`) and refuses a
+      contradicting `config:` spelling there.
     default: derived
     default_note: >-
-      the default AutoMcpSettings: mcp.enabled true, url_key host_url, not explicit
+      the default AutoMcpSettings: mcp.enabled true, url_key host_url, not
+      explicit; a render that serves web terminals carries url_key host_url,
+      written by the build
   health.disk:
     rendered: false
     evidence: 'disk = parse_disk_thresholds\(health\.get\("disk"\)\)'
@@ -2456,6 +2478,18 @@ keys:
       four presets because `once` is what a first deployment wants and a
       rendered value would only repeat the default.
     default: once
+  web.control_target_picker:
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"control_target_picker"\s*\)'
+    note: >-
+      Whether the title bar offers the control-target picker (the chip and its
+      switching popover). Display only: it grants and removes no access. Set
+      false by every shipped preset that reaches no machine (no control-system
+      tool server and no JUPYTER panel): ariel-standalone and
+      channel-finder-standalone, which render it, and the
+      control-assistant-logbook and control-assistant-knowledge personas.
+      Commented in control-assistant and hello-world. A value that is not a
+      boolean, or a file that cannot be read, keeps the default.
+    default: true
   web.file_watch_reconcile_interval_s:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'
@@ -2952,6 +2986,10 @@ deleted:
 - workspace
   # Ledger 18
 - control_system.connector.timeout
+  # The connector call bound: one spelling, timeout_s, on every connector type
+- control_system.connector.epics.timeout
+- control_system.connector.tango.timeout
+- control_system.connector.virtual_accelerator.timeout
   # Ledger 29
 - api.providers.ollama.host
 - api.providers.ollama.port
@@ -3279,7 +3317,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 345
+  expected_union_size: 346
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

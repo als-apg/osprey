@@ -204,10 +204,10 @@ def _record_available() -> bool:
 
 
 def _recorded_posture() -> dict[str, str]:
-    """The deployment's per-target narrowings — ``{target: "sandbox"}``.
+    """This login's per-target narrowings — ``{target: "sandbox"}``.
 
-    The record's ``posture`` field, which is the whole of what this deployment
-    has narrowed: there is one control context per deployment, and no
+    The record's ``posture`` field, which is the whole of what this login has
+    narrowed: there is one control context per login identity, and no
     per-session posture store behind it. A target that narrows nothing is
     ABSENT from the map — absence is how this field spells ``writes``, and a
     stored ``"writes"`` would be a second spelling of it.
@@ -1233,9 +1233,9 @@ def _context_write_rung(
       no location, or no tick has yet reached one, so there is nowhere to
       record a control context the agent would read back.
     * **409** ``context_owned_elsewhere`` — this terminal is following another
-      one. A deployment has a single control context and a single writer for
-      it; the refusal names the owner's pid and port so the operator can open
-      the terminal that does own it.
+      one. Each login identity has a single control context and a single
+      writer for it; the refusal names the owner's pid and port so the
+      operator can open the terminal that does own it.
 
     Placed where the old per-session ``store_unavailable`` rung was, ahead of
     every judgement about the target: a terminal that may not write must not go
@@ -1738,11 +1738,12 @@ def _target_refusal(
 
 @router.post("/api/terminal/target", status_code=202)
 async def request_terminal_target(body: TargetRequest, request: Request):
-    """Move this deployment's control target.
+    """Move this login's control target.
 
-    **One control context per deployment, and one writer for it.** The record
-    holds the target, the generation the fleet coordinates on and the terminus
-    of the last switch; a web terminal owns it while it is running. So this
+    **One control context per login identity, and one writer for it.** The
+    record (``control_target/<identity>/control_context.json``) holds the
+    target, the generation the fleet coordinates on and the terminus of the
+    last switch; a web terminal owns it while it is running. So this
     route does not file desired state for somebody else to apply — it takes the
     record, runs the switch gate against it and writes the answer, both halves
     inside one mutation, so no reader can ever see a target that moved without
@@ -2874,9 +2875,9 @@ def _posture_view(app: Any, config_path: Path | None) -> dict[str, Any]:
     frame, and closing it properly means letting that function take an
     already-read record rather than opening the file again.
 
-    **No session is involved.** There is one control context per deployment, so
-    every answer here is the deployment's: the caller's ``session_id`` names who
-    is asking and decides nothing about what they are told.
+    **No session is involved.** There is one control context per login
+    identity, so every answer here is that login's: the caller's ``session_id``
+    names who is asking and decides nothing about what they are told.
     """
     config = _rendered_config(config_path)
     section = _section_of(config)

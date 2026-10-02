@@ -1067,6 +1067,12 @@ _ENCODED_ROW_TEXT: dict[str, tuple[str, str]] = {
         "Orbit check\n\nOrbit within 5 um.\r\n     Horizontal x<y in sector 3, R&D tune 5 < 6",
         "Orbit check",
     ),
+    "20007": (
+        'Found spot on TV3 "smeared out"\n\nSupply tripped on "I" interlock; it didn\'t reset.'
+        "\r\nHe didn't find a leak.",
+        'Found spot on TV3 "smeared out"',
+    ),
+    "20008": ("Viewer won't start\n\nLog saved to Y:\\opstat\\run\\new.vi", "Viewer won't start"),
 }
 
 
@@ -1152,7 +1158,15 @@ class TestALSConvertEntry:
 
         entries = await _collect(adapter.fetch_entries())
 
-        assert [e["entry_id"] for e in entries] == ["20001", "20002", "20003", "20004", "20005"]
+        assert [e["entry_id"] for e in entries] == [
+            "20001",
+            "20002",
+            "20003",
+            "20004",
+            "20005",
+            "20007",
+            "20008",
+        ]
         assert adapter.unreadable_entries == 0
 
 
@@ -1225,6 +1239,67 @@ class TestCleanAlsText:
         once = clean_als_text(text)
 
         assert clean_als_text(once) == once
+
+
+class TestCleanAlsTextBackslashEscapes:
+    """The logbook's backslash escaping is undone.
+
+    A single backslash before any other character stays.
+    """
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            (r"it didn\'t reset", "it didn't reset"),
+            (r"tripped on \"I\"", 'tripped on "I"'),
+            (r"he didn\\\'t", "he didn't"),
+        ],
+        ids=["single", "double", "escaped-twice"],
+    )
+    def test_backslash_before_a_quote_is_dropped(self, text, expected):
+        """A run of backslashes before a quote mark becomes that quote mark."""
+        assert clean_als_text(text) == expected
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            (r"Y:\\opstat\\temp", r"Y:\opstat\temp"),
+            (r"twice: Y:\\\\opstat", r"twice: Y:\opstat"),
+        ],
+        ids=["doubled", "escaped-twice"],
+    )
+    def test_doubled_backslashes_collapse_to_one(self, text, expected):
+        """Any other run of two or more backslashes becomes one backslash."""
+        assert clean_als_text(text) == expected
+
+    def test_encoded_quote_after_a_backslash_becomes_one_quote(self):
+        """Entities are decoded before the escaping is undone."""
+        assert clean_als_text(r"TV3 \&quot;smeared out\&quot;") == 'TV3 "smeared out"'
+
+    def test_link_address_written_with_escaped_quotes_is_kept(self):
+        """The escaping is undone before the markup is converted."""
+        text = r"See &lt;a href=\&quot;https://tracker.example.org/x\&quot;&gt;rec&lt;/a&gt;"
+
+        assert clean_als_text(text) == "See rec (https://tracker.example.org/x)"
+
+    @pytest.mark.parametrize(
+        "text",
+        [r"Saved to C:\temp\new.txt", "a literal \\n stays", r"ends with \ "],
+        ids=["windows-path", "backslash-n", "trailing"],
+    )
+    def test_single_backslash_before_other_characters_is_kept(self, text):
+        """A single backslash before anything but a quote mark is text."""
+        assert clean_als_text(text) == text
+
+    def test_single_backslash_survives_alongside_undone_escapes(self):
+        """Undoing the escaping elsewhere in a field leaves a single backslash alone."""
+        assert clean_als_text(r"printf(\"done\n\") in C:\\temp") == r'printf("done\n") in C:\temp'
+
+    def test_text_without_any_artefact_is_the_same_object(self):
+        """Text with nothing to undo is returned as it was passed."""
+        text = r"C:\temp\new.txt"
+
+        assert clean_als_text(text) is text
 
 
 # ---------------------------------------------------------------------------

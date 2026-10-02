@@ -484,6 +484,32 @@ def _embedding_input_limit_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _mcp_health_address_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The MCP probe address a render that serves web terminals carries.
+
+    A web terminal runs on the host network, so the health check reaches each
+    MCP server at its host address. The build states that address by writing
+    ``health.auto.mcp.url_key: host_url`` into every document of a render that
+    serves web terminals. The fixtures were frozen before the key existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="health.auto.mcp.url_key",
+            fixture=ABSENT,
+            live="host_url",
+        )
+        for document in documents
+    )
+
+
 def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
     """The dispatch worker's turn ceiling, now written into its service block.
 
@@ -917,6 +943,53 @@ def _dispatcher_name_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
+    """The two standalone personas, now with nothing that reaches the machine.
+
+    ``logbook`` and ``knowledge`` drop the JUPYTER panel, whose kernels read and
+    write through the control target, and state
+    ``web.control_target_picker: false``; the logbook persona also pins the
+    epics and virtual_accelerator write keys off by name, as the knowledge
+    persona already did. The fixtures were frozen with the panel on, before the
+    picker key existed, and with the logbook persona stating the flat key alone.
+
+    Returns:
+        Two deltas per standalone persona, and two more for the logbook one.
+    """
+    return (
+        *(
+            delta
+            for document in ("knowledge", "logbook")
+            for delta in (
+                Delta(
+                    document=document,
+                    path="web.panels.jupyter.enabled",
+                    fixture=True,
+                    live=ABSENT,
+                ),
+                Delta(
+                    document=document,
+                    path="web.control_target_picker",
+                    fixture=ABSENT,
+                    live=False,
+                ),
+            )
+        ),
+        Delta(
+            document="logbook",
+            path="control_system.connector.epics.writes_enabled",
+            fixture=ABSENT,
+            live=False,
+        ),
+        Delta(
+            document="logbook",
+            path="control_system.connector.virtual_accelerator.writes_enabled",
+            fixture=ABSENT,
+            live=False,
+        ),
+    )
+
+
 def _facility_name_deltas() -> tuple[Delta, ...]:
     """The display name the two standalone presets no longer state.
 
@@ -962,6 +1035,15 @@ def _facility_ontology_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _standalone_picker_deltas() -> tuple[Delta, ...]:
+    """The picker setting a standalone preset that reaches no machine states.
+
+    Returns:
+        One delta for the root document.
+    """
+    return (Delta(document="root", path="web.control_target_picker", fixture=ABSENT, live=False),)
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -984,25 +1066,29 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _retired_upstream_link_deltas("root")
     + _fuzzy_threshold_deltas("root")
     + _embedding_input_limit_deltas("root")
-    + _simulation_models_deltas("root"),
+    + _simulation_models_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _facility_name_deltas()
     + _facility_ontology_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
-    + _simulation_models_deltas("root"),
+    + _simulation_models_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
     + _facility_name_deltas()
     + _facility_ontology_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
-    + _simulation_models_deltas("root"),
+    + _simulation_models_deltas("root")
+    + _standalone_picker_deltas(),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
     + _facility_name_deltas()
     + _facility_ontology_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
-    + _simulation_models_deltas("root"),
+    + _simulation_models_deltas("root")
+    + _standalone_picker_deltas(),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1023,7 +1109,10 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1044,7 +1133,10 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1065,7 +1157,10 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1086,7 +1181,10 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS),
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _standalone_persona_reach_deltas()
+    + _probe_timeout_deltas(),
 }
 
 

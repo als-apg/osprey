@@ -4402,7 +4402,8 @@ def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
-    fight over one image.
+    fight over one image. A config-declared image also renders no build, so
+    compose pulls and runs it as named.
     """
     assert _nextcloud_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-proj-a-nextcloud-bridge:local}"
@@ -4427,6 +4428,7 @@ def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-nextcloud-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_nextcloud_bridge_build_context_is_project_dir_relative() -> None:
@@ -5090,7 +5092,8 @@ def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
-    fight over one image.
+    fight over one image. A config-declared image also renders no build, so
+    compose pulls and runs it as named.
     """
     assert _gchat_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_GCHAT_BRIDGE_IMAGE:-proj-a-gchat-bridge:local}"
@@ -5115,6 +5118,7 @@ def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_GCHAT_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-gchat-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_gchat_bridge_build_context_is_project_dir_relative() -> None:
@@ -5901,7 +5905,8 @@ def test_teams_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it is a
     host-global docker tag, so a static default would make two projects fight
-    over one image.
+    over one image. A config-declared image also renders no build, so compose
+    pulls and runs it as named.
     """
     assert _teams_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_TEAMS_BRIDGE_IMAGE:-proj-a-teams-bridge:local}"
@@ -5926,6 +5931,7 @@ def test_teams_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_TEAMS_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-teams-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_teams_bridge_build_context_is_project_dir_relative() -> None:

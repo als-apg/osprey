@@ -6562,9 +6562,9 @@ def _start_stack(
     _preflight_pinned_overrides(repo_root)
     # Advisory sibling on the same chain: a proxy name spelled in lowercase
     # misses the whole web-terminal stack, which is handed each proxy setting
-    # from its uppercase name only. Warned here, beside the refusals that read the same two
-    # files, so the file and the variable are named while the operator still
-    # has them in front of them.
+    # from its uppercase name only. Warned here, beside the refusals that read
+    # the same two files, so the file and the variable are named while the
+    # operator still has them in front of them.
     _warn_lowercase_proxy_names(repo_root, config)
 
     # Self-provision fail-closed service tokens into .env (before the --env-file

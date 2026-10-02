@@ -131,7 +131,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     endpoint_is_live_standin,
     verify_child_report,
 )
-from osprey.utils.seconds import positive_seconds
+from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
@@ -1963,28 +1963,35 @@ class ConnectorHostManager:
         return switch.get(key) if isinstance(switch, dict) else None
 
     def _drain_timeout(self) -> float:
+        """The drain bound: the override, then the config key, then the default.
+
+        Zero is a bound, and the outgoing child is torn down without waiting. A
+        value that is not a number of seconds of zero or more is logged and
+        replaced by the default.
+        """
         if self._drain_override is not None:
             return max(float(self._drain_override), 0.0)
         value = self._target_switch_value(DRAIN_TIMEOUT_KEY)
         if value is None:
             return DEFAULT_DRAIN_TIMEOUT_S
-        try:
-            return max(float(value), 0.0)
-        except (TypeError, ValueError):
-            logger.warning(
-                "control_system.target_switch.%s is %r, which is not a number; using %ss",
-                DRAIN_TIMEOUT_KEY,
-                value,
-                DEFAULT_DRAIN_TIMEOUT_S,
-            )
-            return DEFAULT_DRAIN_TIMEOUT_S
+        seconds = non_negative_seconds(value)
+        if seconds is not None:
+            return seconds
+        logger.warning(
+            "control_system.target_switch.%s is %r, which is not a number of seconds of zero"
+            " or more; using %ss",
+            DRAIN_TIMEOUT_KEY,
+            value,
+            DEFAULT_DRAIN_TIMEOUT_S,
+        )
+        return DEFAULT_DRAIN_TIMEOUT_S
 
     def _probe_timeout(self) -> float:
         """The readiness-probe bound: the override, then the config key, then the default.
 
-        Unlike the drain, a value that is not positive is not clamped to zero:
-        the child refuses a probe bound that is not positive, so zero would make
-        every probed switch fail. It is logged and replaced by the default.
+        Unlike the drain, zero is refused: the child refuses a probe bound that
+        is not positive, so zero would make every probed switch fail. It is
+        logged and replaced by the default.
         """
         if self._probe_override is not None:
             return float(self._probe_override)

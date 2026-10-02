@@ -57,3 +57,23 @@ def test_the_perimeter_section_states_the_user_ceiling() -> None:
     """The documented ceiling is the one the allocator enforces."""
     text = (_DOCS_SOURCE / "how-to" / "deploy-a-facility.rst").read_text(encoding="utf-8")
     assert f"at most {INDEX_MAX + 1} users" in text
+
+
+def test_the_installer_remedy_is_one_action_then_one_fact() -> None:
+    """Every remedy that needs the installer ends with this one sentence."""
+    assert docs_links.installer_remedy("it converts the old layout") == (
+        f"Follow the installer guide at {docs_links.INSTALL_DOCS_URL}: it converts the old layout."
+    )
+
+
+def test_only_the_helper_words_the_installer_remedy() -> None:
+    """A surface that words the installer advice itself can drift from the others."""
+    root = Path(__file__).resolve().parents[1]
+    helper = root / "src" / "osprey" / "docs_links.py"
+    offenders = [
+        str(path.relative_to(root))
+        for tree in ("src", "packages")
+        for path in sorted((root / tree).rglob("*.py"))
+        if path != helper and "installer guide" in path.read_text(encoding="utf-8").lower()
+    ]
+    assert offenders == []

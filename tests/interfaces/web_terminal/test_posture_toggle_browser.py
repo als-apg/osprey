@@ -915,7 +915,7 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
             expect(row.locator(".ctc-switch-state")).to_have_text("on")
             expect(row.locator(".ctc-toggle")).to_be_visible()
             expect(row.locator(".ctc-switch")).to_be_visible()
-            expect(page.locator(FOOT_NOTE)).to_have_text("Applies deployment-wide")
+            expect(page.locator(FOOT_NOTE)).to_have_text("Applies to every session of this login")
 
             # --- the machine vocabulary stays behind the ⓘ, in either density ---
             tip = row.locator(".ctc-tip").text_content()

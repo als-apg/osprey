@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from osprey.port_layout import default_port
 from osprey.utils.config_paths import resolve_config_relative_path
+from osprey.utils.seconds import positive_seconds
 
 from .exceptions import ConfigurationError
 from .models import (
@@ -320,6 +321,36 @@ class EnhancementModuleConfig:
         )
 
 
+def _interval_seconds(data: Mapping[str, Any], key: str, default: float, *, path: str) -> float:
+    """Read an ARIEL interval as a positive, finite number of seconds.
+
+    An absent key or an explicit empty value takes ``default``.
+
+    Args:
+        data: The block that holds the key.
+        key: The key to read.
+        default: The interval used when the key is absent or empty.
+        path: The block's path under ``ariel``, e.g. ``"ingestion.watch"``.
+
+    Returns:
+        The interval in seconds.
+
+    Raises:
+        ConfigurationError: If the value is not a positive, finite number of
+            seconds.
+    """
+    raw = data.get(key)
+    if raw is None:
+        return default
+    seconds = positive_seconds(raw)
+    if seconds is None:
+        raise ConfigurationError(
+            f"ariel.{path}.{key} is {raw!r}; set a positive number of seconds",
+            config_key=f"{path}.{key}",
+        )
+    return seconds
+
+
 @dataclass
 class WatchConfig:
     """Configuration for the watch (live polling) mode.
@@ -328,13 +359,13 @@ class WatchConfig:
         require_initial_ingest: Require at least one successful ingest before watching
         max_consecutive_failures: Stop after this many consecutive poll failures
         backoff_multiplier: Multiply interval by this on consecutive failures
-        max_interval_seconds: Maximum poll interval after backoff
+        max_interval_seconds: Maximum poll interval after backoff, in seconds (positive, finite)
     """
 
     require_initial_ingest: bool = True
     max_consecutive_failures: int = 10
     backoff_multiplier: float = 2.0
-    max_interval_seconds: int = 3600
+    max_interval_seconds: float = 3600.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WatchConfig":
@@ -343,7 +374,9 @@ class WatchConfig:
             require_initial_ingest=data.get("require_initial_ingest", True),
             max_consecutive_failures=data.get("max_consecutive_failures", 10),
             backoff_multiplier=data.get("backoff_multiplier", 2.0),
-            max_interval_seconds=data.get("max_interval_seconds", 3600),
+            max_interval_seconds=_interval_seconds(
+                data, "max_interval_seconds", cls.max_interval_seconds, path="ingestion.watch"
+            ),
         )
 
 
@@ -437,7 +470,8 @@ class IngestionConfig:
     Attributes:
         adapter: Adapter name (e.g., "als_logbook", "generic_json")
         source_url: URL for source system API (optional)
-        poll_interval_seconds: Polling interval for incremental ingestion
+        poll_interval_seconds: Polling interval for incremental ingestion, in seconds
+            (positive, finite)
         proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:1080")
         verify_ssl: Whether to verify TLS certificates (default: True). Set false
             only as a deliberate opt-out for a logbook whose certificate cannot
@@ -454,7 +488,7 @@ class IngestionConfig:
 
     adapter: str
     source_url: str | None = None
-    poll_interval_seconds: int = 3600
+    poll_interval_seconds: float = 3600.0
     proxy_url: str | None = None
     verify_ssl: bool = True
     ca_bundle: str | None = None
@@ -480,6 +514,9 @@ class IngestionConfig:
                 default — the old one, ``"generic"``, is not a registered name
                 at all, so an ingestion block without an adapter never worked;
                 it just failed later, at the first ingest, instead of here.
+                Also if ``poll_interval_seconds`` or
+                ``watch.max_interval_seconds`` is not a positive, finite
+                number of seconds.
         """
         if not data.get("adapter"):
             available = ", ".join(_known_ingestion_adapters())
@@ -503,7 +540,9 @@ class IngestionConfig:
         return cls(
             adapter=data["adapter"],
             source_url=data.get("source_url"),
-            poll_interval_seconds=data.get("poll_interval_seconds", 3600),
+            poll_interval_seconds=_interval_seconds(
+                data, "poll_interval_seconds", cls.poll_interval_seconds, path="ingestion"
+            ),
             proxy_url=proxy_url,
             verify_ssl=data.get("verify_ssl", True),
             ca_bundle=data.get("ca_bundle"),

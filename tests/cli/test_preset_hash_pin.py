@@ -200,27 +200,40 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # build's facts. Neither leaf had a reader, so a rebuilt project behaves as
     # before. The five `extends` children inherit control-assistant's change;
     # hello-world stated neither leaf and stands still.
-    "ariel-standalone": ("sha256:aab40f04dfff465f7f12a5cdf810a5f9bf04a5119e1dab00be81259fc8d449d9"),
+    # The twenty-sixth move, and control-assistant's family alone: the root
+    # preset spells the EPICS and virtual-accelerator call bound `timeout_s`,
+    # the one key every control-system connector reads, and the five `extends`
+    # children inherit it; the other three stand still. The value is unchanged.
+    # The twenty-seventh move, and the four presets that reach no machine:
+    # control-assistant-logbook and control-assistant-knowledge drop the
+    # JUPYTER panel, whose kernels reach the control target, and they,
+    # ariel-standalone and channel-finder-standalone state
+    # `web.control_target_picker: false`; the logbook persona also pins the
+    # epics and virtual_accelerator write keys off, as the knowledge persona
+    # already did. A rebuilt project of any of the four has no picker, so the
+    # advisory firing is correct. control-assistant and hello-world gained a
+    # comment only, which moves no digest; the other five stand still.
+    "ariel-standalone": ("sha256:18121d9ec258c2ee24956728f75245fd5186e56b1fc18a5aadce7f3dff03dbc2"),
     "channel-finder-standalone": (
-        "sha256:ac6a51edd7b74dc0b9be29b5f3be7ea89b29cfef1db594cdb8df9baf48f8acf4"
+        "sha256:91e29784cba676d47fa479e63bd3ce03cf469d165b8cfd27aad32762e8c7bc87"
     ),
     "control-assistant": (
-        "sha256:79a6c31b0c41037c75871cebfe0e07ec3f966bfc7c16103bfc64fd0f06dbde90"
+        "sha256:b88fe2bfd8ea30f56f0f674649380771f9c11567682ffc3779bf44d5f5de8fa2"
     ),
     "control-assistant-admin": (
-        "sha256:622b90fea6dcd286ded24c52fea40815c976bbcfec9392d079c38248a5b62826"
+        "sha256:15f4e833b37ffc96228505d19827fbd6b34746e85d5ce7f23558419f08aa8e92"
     ),
     "control-assistant-knowledge": (
-        "sha256:6564427efba2b607b959d48f842773cbfa9ae9ceac37ccbe7c60bba7bc4977e7"
+        "sha256:d265190d6ffbb4b24644c5f554749f3ec24bff207ac35055cc5d96ff8bdac0a9"
     ),
     "control-assistant-logbook": (
-        "sha256:15d10eb318daed85e5569a3dfe312182efa573505ae7d8fad95df0ecafaeaf1b"
+        "sha256:f66a514e2b8652e386f67c6fa7a9f5c76cac05e7cada131d81e2bc01d933c615"
     ),
     "control-assistant-readonly": (
-        "sha256:4883413f345b4c7838f6001abfcf15da2a1ef771639725467e09e85e653e5dc6"
+        "sha256:ba3b73d79a812b3685953da066aa9fc5bde07da59c545a78669343ef2b4b82d6"
     ),
     "control-assistant-readwrite": (
-        "sha256:7100cfd8c6ffe7076280b3d5424e712816c405f9f3ff8be2aefdb5c900e03826"
+        "sha256:f7f25c373645f1be46a346f410a7955c2ede12bcbecd0af2f74ff395394a3c46"
     ),
     "hello-world": ("sha256:79ec0599628ed246440d6796191262c6ea844ce92ad2bb2e006b356f3a9a9ee7"),
 }

@@ -87,7 +87,7 @@ def _epics_raw(port: int = 5064) -> dict:
             "type": "epics",
             "connector": {
                 "epics": {
-                    "timeout": 1.0,
+                    "timeout_s": 1.0,
                     "gateways": {
                         "read_only": dict(gateway),
                         "write_access": dict(gateway),

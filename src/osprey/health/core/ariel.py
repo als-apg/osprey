@@ -32,7 +32,8 @@ no credential; the gated ``/api/status`` is never asked.
   :class:`~osprey.services.ariel_search.config.IngestionConfig` and
   :class:`~osprey.services.ariel_search.config.WatchConfig`; with no
   ``ingestion`` block the cadence is unknown, so any present timestamp is
-  ``ok``;
+  ``ok``. A block ARIEL itself refuses makes the row a ``warning`` whose
+  ``details`` names the key;
 * ``ariel_search_modules`` — the enabled search modules (count in the message,
   names in ``value``); ``warning`` when none are enabled, since search is core;
 * ``ariel_enhancement_modules`` — the enabled enhancement/enrichment modules
@@ -58,6 +59,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from osprey.errors import ConfigurationError
 from osprey.health.models import CheckResult, Status
 from osprey.registry.web import WebServerConfigDepthError, resolve_web_server_address
 
@@ -282,7 +284,17 @@ def _last_ingestion_row(facts: dict[str, Any], ariel_block: Mapping[str, Any]) -
         )
 
     age = _age_seconds(parsed)
-    threshold = _staleness_threshold_seconds(ariel_block)
+    try:
+        threshold = _staleness_threshold_seconds(ariel_block)
+    except ConfigurationError as exc:
+        return CheckResult(
+            "ariel_last_ingestion",
+            CATEGORY,
+            Status.WARNING,
+            "ARIEL refuses its ingestion config",
+            value=_humanize_age(parsed),
+            details=str(exc),
+        )
     if threshold is not None and age > threshold:
         return CheckResult(
             "ariel_last_ingestion",
@@ -307,12 +319,15 @@ def _staleness_threshold_seconds(ariel_block: Mapping[str, Any]) -> float | None
     The threshold is ``ingestion.poll_interval_seconds`` plus
     ``ingestion.watch.max_interval_seconds`` — the longest a live watcher goes
     between successful ingests once backoff has stretched its interval to the
-    cap. Absent or unusable keys fall back to the dataclass defaults so a
-    default change in the service config propagates here.
+    cap. The block is parsed the way ARIEL parses it, so absent keys take
+    ARIEL's defaults and the threshold is the value the scheduler runs with.
 
     Returns:
         The threshold in seconds, or ``None`` when there is no
         ``ariel.ingestion`` block and therefore no known cadence to judge.
+
+    Raises:
+        ConfigurationError: If ARIEL refuses the ``ingestion`` block.
     """
     ingestion = ariel_block.get("ingestion")
     if not isinstance(ingestion, dict):
@@ -320,24 +335,10 @@ def _staleness_threshold_seconds(ariel_block: Mapping[str, Any]) -> float | None
 
     # Imported lazily: the ariel_search package pulls the whole search service
     # in, and this category must stay importable without it.
-    from osprey.services.ariel_search.config import IngestionConfig, WatchConfig
+    from osprey.services.ariel_search.config import IngestionConfig
 
-    watch = ingestion.get("watch")
-    watch_block = watch if isinstance(watch, dict) else {}
-    poll_s = _as_seconds(
-        ingestion.get("poll_interval_seconds"), IngestionConfig.poll_interval_seconds
-    )
-    backoff_s = _as_seconds(
-        watch_block.get("max_interval_seconds"), WatchConfig.max_interval_seconds
-    )
-    return poll_s + backoff_s
-
-
-def _as_seconds(raw: Any, default: float) -> float:
-    """Coerce a configured interval to seconds, falling back to ``default``."""
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-        return float(default)
-    return float(raw)
+    parsed = IngestionConfig.from_dict(ingestion)
+    return parsed.poll_interval_seconds + parsed.watch.max_interval_seconds
 
 
 def _modules_row(name: str, modules: Any, *, noun: str, warn_when_empty: bool) -> CheckResult:

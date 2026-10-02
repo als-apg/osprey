@@ -25,10 +25,11 @@ from osprey.deployment.web_terminals.artifacts import (
     BashLaunchTokenConflictError,
     OpenModeEgressError,
 )
-from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME, PW_HASH_VAR_PREFIX
+from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.provision import AUTH_SERVICE_NAME
 from osprey.services.auth_sidecar.passwords import verify_password
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils import config_writer
 from osprey.utils.dotenv import parse_dotenv_file
 

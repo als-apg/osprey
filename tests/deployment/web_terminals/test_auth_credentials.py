@@ -13,7 +13,6 @@ import pytest
 from osprey.deployment.web_terminals.auth_credentials import (
     _HASH_HEADER,
     AUTH_ENV_FILENAME,
-    PW_HASH_VAR_PREFIX,
     PW_PLAINTEXT_VAR_PREFIX,
     SESSION_SECRET_VAR,
     STATE_SECRET_VAR,
@@ -38,6 +37,7 @@ from osprey.services.auth_sidecar.passwords import (
     hash_password,
     verify_password,
 )
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,

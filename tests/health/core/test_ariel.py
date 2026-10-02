@@ -242,6 +242,21 @@ async def test_no_ingestion_block_never_warns_on_age(tmp_path) -> None:
     assert row.value == "30 d ago"
 
 
+@pytest.mark.parametrize(
+    "value",
+    [float("inf"), float("nan"), 10**400, True],
+    ids=["inf", "nan", "10**400", "True"],
+)
+async def test_an_unreadable_ingestion_interval_warns_with_the_key(tmp_path, value) -> None:
+    cfg = _cfg(ingestion={"adapter": "generic_json", "watch": {"max_interval_seconds": value}})
+    row = (await _probe(tmp_path, _ingested(timedelta(minutes=5)), config=cfg))[
+        "ariel_last_ingestion"
+    ]
+    assert row.status is Status.WARNING
+    assert "ariel.ingestion.watch.max_interval_seconds" in (row.details or "")
+    assert row.value == "5 m ago"
+
+
 # --------------------------------------------------------------------------- #
 # Degradation
 # --------------------------------------------------------------------------- #

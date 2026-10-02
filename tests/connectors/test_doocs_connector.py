@@ -227,7 +227,7 @@ class TestConnect:
         conn, _ = connector
         assert conn._timeout_s == 5.0
 
-    @pytest.mark.parametrize("bad", [0, -1, "5", True, float("nan"), float("inf")])
+    @pytest.mark.parametrize("bad", [0, -1, "five", True, float("nan"), float("inf")])
     async def test_a_timeout_s_that_is_not_a_positive_number_is_refused(self, bad):
         mock_d4py = _make_doocs4py()
         with (

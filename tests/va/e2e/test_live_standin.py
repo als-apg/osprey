@@ -487,7 +487,7 @@ def raw_config(
 
     def block(port: int, *, writes_enabled: bool | None = None) -> dict:
         gateway_block: dict = {
-            "timeout": CONNECTOR_TIMEOUT_S,
+            "timeout_s": CONNECTOR_TIMEOUT_S,
             "probe_channel": PROBE_CHANNEL,
             "gateways": {
                 "read_only": {"address": "localhost", "port": port, "use_name_server": True},

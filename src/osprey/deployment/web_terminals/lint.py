@@ -32,7 +32,10 @@ from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     resolve_project_name,
 )
-from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
+from osprey.deployment.web_terminals.persona_images import (
+    PREDATES_DELTA_REMEDY,
+    persona_build_profile_shape_problem,
+)
 from osprey.deployment.web_terminals.personas import (
     ALL_PRIVILEGES,
     REGISTRY_MODE_MISSING_URL,
@@ -48,8 +51,6 @@ from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     effective_persona,
     entry_is_shared,
-    env_var_suffix,
-    env_var_suffix_collisions,
     normalize_users,
     persona_privileges,
     privilege_phrase,
@@ -84,11 +85,15 @@ from osprey.deployment.web_terminals.render import (
     _tls_enabled,
     deployment_origin,
 )
-from osprey.docs_links import INSTALL_DOCS_URL
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey.services.auth_sidecar.passwords import stored_hash_problem
+from osprey.services.auth_sidecar.roster_env import (
+    PW_HASH_VAR_PREFIX,
+    env_var_suffix,
+    env_var_suffix_collisions,
+)
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey_connectors.types import (
     TARGET_LIVE,
@@ -113,13 +118,10 @@ from osprey_connectors.types import (
 # for the same reason: the shapes it reads as unset are exactly the ones whose
 # scopes never reach the sidecar.
 
-# The credential env-var stem a roster username is keyed into
-# (`OSPREY_AUTH_PW_HASH_<SUFFIX>`) and the deployment-repo file those entries
-# live in, both quoted here rather than imported. Neither is imported from
-# `auth_credentials`, which owns them: this module is pure static validation,
-# and importing the credential provisioner to quote two strings would pull the
-# whole deploy-time secret-minting path in behind it.
-_PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
+# The deployment-repo file the per-user password hashes live in, quoted here
+# rather than imported from `auth_credentials`, which owns it: this module is
+# pure static validation, and importing the credential provisioner to quote one
+# string would pull the whole deploy-time secret-minting path in behind it.
 _AUTH_ENV_FILENAME = ".env.auth"
 
 
@@ -2570,9 +2572,7 @@ def _check_one_persona_project_path(
                         f"{problem} Set it to {f'personas/{persona_name}.yml'!r} — the "
                         "delta `osprey init` writes in this repo's personas/ directory, "
                         "which is what `osprey build` renders the persona project from. "
-                        "A variant build that predates the delta layout has no such file "
-                        "to point at yet; follow the installer guide at "
-                        f"{INSTALL_DOCS_URL} to convert it into one"
+                        + PREDATES_DELTA_REMEDY
                     ),
                 )
             ]
@@ -2922,7 +2922,7 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
 
     Imported at call time. This module is static validation of a config file,
     and ``artifacts`` pulls the deploy-time artifact writer — and the credential
-    provisioner behind it — in with it; the same reason ``_PW_HASH_VAR_PREFIX``
+    provisioner behind it — in with it; the same reason ``_AUTH_ENV_FILENAME``
     is quoted here rather than imported.
 
     Args:
@@ -3293,7 +3293,7 @@ def _check_seeded_passwords(
     if own:
         steps.append("run " + ", ".join(f"`osprey users passwd {name}`" for name in own))
     if cards:
-        hashes = ", ".join(f"`{_PW_HASH_VAR_PREFIX}{env_var_suffix(name)}`" for name in cards)
+        hashes = ", ".join(f"`{PW_HASH_VAR_PREFIX}{env_var_suffix(name)}`" for name in cards)
         steps.append(f"delete {hashes} from `{_AUTH_ENV_FILENAME}`, then run `osprey up`")
     remedy = " and ".join(steps)
     return [
@@ -3506,7 +3506,7 @@ def _check_auth_credential_collisions(
             code="web_terminals.auth_credential_collision",
             message=(
                 f"modules.web_terminals.users entries {colliding} all map onto the "
-                f"credential variable {_PW_HASH_VAR_PREFIX}{suffix}; they would share a "
+                f"credential variable {PW_HASH_VAR_PREFIX}{suffix}; they would share a "
                 "single password, so one user's credentials would open another's "
                 "terminal. Rename one of them"
             ),
@@ -3550,7 +3550,7 @@ def _check_auth_stored_hashes(
         if name is None:
             continue
         suffix = env_var_suffix(name)
-        value = parsed.get(f"{_PW_HASH_VAR_PREFIX}{suffix}", "").strip()
+        value = parsed.get(f"{PW_HASH_VAR_PREFIX}{suffix}", "").strip()
         if not value:
             continue
         problem = stored_hash_problem(value)
@@ -3561,7 +3561,7 @@ def _check_auth_stored_hashes(
                 severity="warn",
                 code="web_terminals.auth_credential_unevaluable",
                 message=(
-                    f"{_AUTH_ENV_FILENAME} holds a {_PW_HASH_VAR_PREFIX}{suffix} entry for "
+                    f"{_AUTH_ENV_FILENAME} holds a {PW_HASH_VAR_PREFIX}{suffix} entry for "
                     f"{name!r} that the login service cannot evaluate ({problem}), so no "
                     f"password will log {name!r} in. Run `osprey users passwd {name}` to "
                     "replace it"

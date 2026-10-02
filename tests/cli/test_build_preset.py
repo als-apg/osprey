@@ -582,6 +582,72 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
     assert servers["echo"]["args"] == ["hello"]
 
 
+def test_every_web_terminal_render_pins_the_mcp_health_address(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A web-terminal render probes each MCP server at the address the agent dials.
+
+    The terminals run on the host's network, where a compose service name does
+    not resolve, so every render the build writes (host, persona, image copy)
+    carries ``health.auto.mcp.url_key: host_url``. Inside a container, the
+    derived probe then dials exactly the URL the agent's ``.mcp.json`` names.
+    """
+    import json
+
+    from osprey.health.config import parse_health_config
+    from osprey.health.derive import derive_mcp_servers
+
+    repo = tmp_path / "pinned"
+    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    assert created.exit_code == 0, created.output
+    profile_path = repo / "profile.yml"
+    with profile_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            "mcp_servers:\n"
+            "  facility_tools:\n"
+            "    port: 19910\n"
+            "    permissions:\n"
+            "      allow: [read_thing]\n"
+        )
+    assert list(_profile_yaml(repo)["mcp_servers"]) == ["facility_tools"]
+
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert result.exit_code == 0, result.output
+
+    personas = sorted(path.stem for path in (repo / "personas").glob("*.yml"))
+    assert personas
+    images = sorted((repo / "build" / ".image").iterdir())
+    assert images
+    renders = [
+        repo / "build",
+        *(_persona_project(repo, persona) for persona in personas),
+        *(image / "build" for image in images),
+    ]
+    for render in renders:
+        assert _config_yaml(render)["health"]["auto"]["mcp"]["url_key"] == "host_url", render
+
+    monkeypatch.setattr("osprey.health.derive._in_container", lambda: True)
+    agent_url = json.loads((repo / "build" / ".mcp.json").read_text())["mcpServers"][
+        "facility_tools"
+    ]["url"]
+    for render in (repo / "build", _persona_project(repo, personas[0])):
+        cfg = _config_yaml(render)
+        category = derive_mcp_servers(parse_health_config(cfg.get("health")), cfg)
+        assert category is not None and category.checks is not None
+        checks = category.checks
+        assert [check.params["url"] for check in checks] == ["http://localhost:19910/mcp"]
+        assert checks[0].params["url"] == agent_url
+
+
+def test_a_render_without_web_terminals_leaves_the_mcp_health_address_to_the_runtime(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A deployment that serves no web terminal renders no ``health.auto`` key."""
+    result = _materialize(runner, str(tmp_path), "smoke", "hello-world")
+    assert result.exit_code == 0, result.output
+    assert "auto" not in (_config_yaml(_project(tmp_path, "smoke")).get("health") or {})
+
+
 def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Path) -> None:
     """A profile's custom artifact categories land in the built config.yml."""
     profile = tmp_path / "repo" / "profile.yml"

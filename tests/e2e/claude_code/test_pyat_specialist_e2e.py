@@ -12,10 +12,11 @@ Two halves share one deployment-build path:
 - **Grounding** (:func:`test_pyat_specialist_grounding`): grades the subagent's
   answer — the artifact it files and returns — against ground truth computed
   in-test from ``build_ring()`` with the *identical* 4D recipe (no pinned
-  numeric literals). One LLM judge checks both halves: every requested quantity
-  present and within tolerance, and the answer labeled as computed from the
-  simulated design lattice. The judge reads the numbers wherever the answer put
-  them, in prose or in a table.
+  numeric literals). Two checks: every requested quantity present and within
+  tolerance, and the answer labeled as computed from the
+  simulated design lattice. The judge model reads the numbers out of the
+  answer, wherever it put them, in prose or in a table; the comparison to
+  ground truth runs in code, and the judge model grades only the provenance.
 
 These tests use real API calls via the Claude Agent SDK — zero mocking.
 
@@ -35,8 +36,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel, Field
 
-from tests.e2e.judge import LLMJudge, WorkflowResult
+from tests.e2e.judge import LLMJudge, Reference, WorkflowResult, check_reported
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     SDKWorkflowResult,
@@ -186,14 +188,37 @@ async def test_pyat_specialist_delegation(tmp_path: Path) -> None:
 
 # Tolerances (pinned — do not loosen to pass):
 #   tunes:         compared modulo 1, ABSOLUTE 1e-3 (tests/simulation/test_fidelity.py convention)
-#   circumference: 1e-6 RELATIVE
+#   circumference: 1e-4 RELATIVE (the five significant figures an answer quotes a ring length to)
 #   beta:          1% RELATIVE at named elements
 _TUNE_ABS_TOL = 1e-3
-_CIRCUMFERENCE_REL_TOL = 1e-6
+_CIRCUMFERENCE_REL_TOL = 1e-4
 _BETA_REL_TOL = 0.01
 
 _X_TOKENS = ("x", "h", "horiz", "horizontal")
 _Y_TOKENS = ("y", "v", "vert", "vertical")
+
+
+class _ReportedOptics(BaseModel):
+    """The quantities the grounding prompt asks for, as the answer states them."""
+
+    tune_x: float | None = Field(default=None, description="horizontal tune")
+    tune_y: float | None = Field(default=None, description="vertical tune")
+    circumference_m: float | None = Field(default=None, description="ring circumference, m")
+    beta_x_bpm01: float | None = Field(default=None, description="horizontal beta at BPM01, m")
+    beta_y_bpm01: float | None = Field(default=None, description="vertical beta at BPM01, m")
+    beta_x_bpm03: float | None = Field(default=None, description="horizontal beta at BPM03, m")
+    beta_y_bpm03: float | None = Field(default=None, description="vertical beta at BPM03, m")
+
+
+_EXTRACTION_FIELDS = (
+    "- tune_x, tune_y: the horizontal and vertical betatron tunes (nu_x/Qx, nu_y/Qy), "
+    "with or without the integer part, exactly as written\n"
+    "- circumference_m: the ring circumference in meters\n"
+    "- beta_x_bpm01, beta_y_bpm01: the horizontal and vertical beta function at BPM01, "
+    "in meters (beta_x/βx, beta_y/βy)\n"
+    "- beta_x_bpm03, beta_y_bpm03: the same at BPM03\n"
+    "A value may appear in a sentence or a table, under any reasonable name or symbol."
+)
 
 
 def _ground_truth() -> dict:
@@ -254,11 +279,13 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     """The numbers in the subagent's answer match ground truth, and it says where
     they came from.
 
-    The answer is the deliverable, so the answer is what gets graded: the judge
-    is handed the reference values — recomputed in-test with the template's own
-    4D recipe, no pinned literals — and the tolerance each must hold to. It
-    fails the response for a wrong number as readily as for a missing
-    provenance statement, wherever in the prose or its tables the value appears.
+    The answer is the deliverable, so the answer is what gets graded. The judge
+    model only reads each quantity out of it, wherever in the prose or its
+    tables the value appears, and never sees the reference values; the
+    comparison against them — recomputed in-test with the template's own 4D
+    recipe, no pinned literals — runs in code, at the pinned tolerances. A
+    wrong or missing number fails as readily as a missing provenance statement,
+    which the judge model grades on its own.
     """
     repo = init_project(tmp_path, "pyat_grd", template="control_assistant", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
@@ -291,37 +318,34 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     bpm01_x, bpm01_y = truth["beta"]["BPM01"]
     bpm03_x, bpm03_y = truth["beta"]["BPM03"]
 
-    result_eval = await judge.evaluate(
-        _to_workflow_result(prompt, result),
+    workflow = _to_workflow_result(prompt, result)
+    reported = await judge.extract(workflow.response, _ReportedOptics, _EXTRACTION_FIELDS)
+    failures = check_reported(
+        reported.model_dump(),
+        {
+            "tune_x": Reference(nu_x % 1, _TUNE_ABS_TOL, modulo=1.0),
+            "tune_y": Reference(nu_y % 1, _TUNE_ABS_TOL, modulo=1.0),
+            "circumference_m": Reference(
+                truth["circumference"], _CIRCUMFERENCE_REL_TOL, relative=True
+            ),
+            "beta_x_bpm01": Reference(bpm01_x, _BETA_REL_TOL, relative=True),
+            "beta_y_bpm01": Reference(bpm01_y, _BETA_REL_TOL, relative=True),
+            "beta_x_bpm03": Reference(bpm03_x, _BETA_REL_TOL, relative=True),
+            "beta_y_bpm03": Reference(bpm03_y, _BETA_REL_TOL, relative=True),
+        },
+    )
+    assert not failures, "\n".join(failures) + f"\n\nanswer:\n{workflow.response}"
+
+    provenance = await judge.evaluate(
+        workflow,
         expectations=(
-            "Grade the response on TWO things.\n\n"
-            "(1) NUMERIC CORRECTNESS. The reference values below were computed "
-            "from the same lattice with the same recipe and are correct. Find "
-            "each quantity in the response — it may appear in a sentence or in "
-            "a table, under any reasonable name or symbol (nu_x/Qx/horizontal "
-            "tune; beta_x/βx) and in any order — and compare it to the "
-            "reference. FAIL if any is missing, or differs by more than its "
-            "tolerance. Tunes may be reported with or without the integer part; "
-            "compare only the FRACTIONAL part, modulo 1.\n"
-            f"  - horizontal tune: {nu_x!r} (fractional part; tolerance "
-            f"{_TUNE_ABS_TOL:.0e} absolute)\n"
-            f"  - vertical tune:   {nu_y!r} (fractional part; tolerance "
-            f"{_TUNE_ABS_TOL:.0e} absolute)\n"
-            f"  - circumference:   {truth['circumference']!r} m (tolerance "
-            f"{_CIRCUMFERENCE_REL_TOL:.0e} relative)\n"
-            f"  - beta at BPM01:   x={bpm01_x!r} m, y={bpm01_y!r} m (tolerance "
-            f"{_BETA_REL_TOL:.0%} relative)\n"
-            f"  - beta at BPM03:   x={bpm03_x!r} m, y={bpm03_y!r} m (tolerance "
-            f"{_BETA_REL_TOL:.0%} relative)\n\n"
-            "(2) PROVENANCE. The response explicitly states that the reported "
+            "PROVENANCE. The response explicitly states that the reported "
             "quantities were COMPUTED from the simulated design lattice this "
-            "deployment bundles — simulation-derived from the lattice/optics "
+            "deployment bundles -- simulation-derived from the lattice/optics "
             "model, not a live machine reading or measured data. It need not "
-            "name the ring or the facility.\n\n"
-            "FAIL on an unhandled error. Do not reward a confident tone: a "
-            "number outside tolerance fails no matter how it is presented. "
-            "In your reasoning, quote each value you found and the reference "
-            "you compared it to."
+            "name the ring or the facility. The numbers themselves are checked "
+            "elsewhere; do not grade their values.\n\n"
+            "FAIL on an unhandled error."
         ),
     )
-    assert result_eval.passed, result_eval.reasoning
+    assert provenance.passed, provenance.reasoning

@@ -7,6 +7,7 @@ then uses an LLM to evaluate whether the workflow succeeded.
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +22,8 @@ JUDGE_ATTEMPTS = 3
 #: is not the JSON the output model describes. That message, and only that
 #: message, means the judge should be asked again.
 UNPARSED_VERDICT = "Failed to parse structured output"
+
+_Reply = TypeVar("_Reply", bound=BaseModel)
 
 
 def _default_provider_config(provider: str) -> dict[str, str] | None:
@@ -54,6 +57,57 @@ class JudgeEvaluation(BaseModel):
     warnings: list[str] = Field(
         default_factory=list, description="Non-critical issues or concerns found"
     )
+
+
+@dataclass(frozen=True)
+class Reference:
+    """A reference value and the tolerance a reported value must hold to.
+
+    Attributes:
+        value: The correct value.
+        tolerance: The largest error that still passes.
+        relative: Measure the error relative to ``value`` instead of absolutely.
+        modulo: Compare on a circle of this period (a tune's fractional part is
+            ``modulo=1.0``), so 0.999 and 0.001 are 0.002 apart.
+    """
+
+    value: float
+    tolerance: float
+    relative: bool = False
+    modulo: float | None = None
+
+
+def check_reported(
+    reported: dict[str, float | None], references: dict[str, Reference]
+) -> list[str]:
+    """Compare reported values to their references in code; one line per miss.
+
+    Args:
+        reported: Values read from an answer, ``None`` where it stated none.
+        references: The value and tolerance each reported name must hold to.
+
+    Returns:
+        A line naming each reference that is missing or out of tolerance, with
+        the reported value, the reference and the error; empty when all hold.
+    """
+    failures: list[str] = []
+    for name, reference in references.items():
+        got = reported.get(name)
+        if got is None:
+            failures.append(f"{name}: not reported (reference {reference.value!r})")
+            continue
+        difference = got - reference.value
+        if reference.modulo is not None:
+            half = reference.modulo / 2
+            difference = (difference + half) % reference.modulo - half
+        error = abs(difference) / abs(reference.value) if reference.relative else abs(difference)
+        if not error <= reference.tolerance:
+            kind = "relative" if reference.relative else "absolute"
+            failures.append(
+                f"{name}: reported {got!r}, reference {reference.value!r}, "
+                f"{kind} error {error:.2e} exceeds {reference.tolerance:.0e}"
+            )
+    return failures
 
 
 @dataclass
@@ -109,7 +163,11 @@ class LLMJudge:
         self.provider_config = provider_config or _default_provider_config(provider)
 
     def _verdict(self, full_prompt: str) -> JudgeEvaluation:
-        """Ask the judge for its structured verdict, again if it cannot be read.
+        """Ask the judge for its structured verdict, again if it cannot be read."""
+        return self._structured(full_prompt, JudgeEvaluation)
+
+    def _structured(self, full_prompt: str, output_model: type[_Reply]) -> _Reply:
+        """Ask the judge model for a structured reply, again if it cannot be read.
 
         A verdict the adapter cannot parse says nothing about the run being
         judged: the model sampled a reply that is not the JSON it was asked
@@ -131,7 +189,7 @@ class LLMJudge:
                     provider=self.provider,
                     model_id=self.model,
                     provider_config=self.provider_config,
-                    output_model=JudgeEvaluation,
+                    output_model=output_model,
                     max_tokens=8096,
                 )
             except ValueError as error:
@@ -140,6 +198,35 @@ class LLMJudge:
                 if self.verbose:
                     print(f"judge verdict did not parse (attempt {attempt}), asking again")
         raise AssertionError("unreachable: the loop returns or raises")  # pragma: no cover
+
+    async def extract(self, text: str, output_model: type[_Reply], instructions: str) -> _Reply:
+        """Read values out of *text* into *output_model*, judging nothing.
+
+        Extraction is the half of grading a model does reliably: finding a
+        quantity under whatever name or layout an answer gave it. Comparing it
+        to a reference is not -- a judge that does its own arithmetic can
+        misjudge an order of magnitude -- so callers that hold reference values
+        and tolerances extract here and compare in code. The references are
+        never put in front of the extractor, so it cannot nudge a value toward
+        them.
+
+        Args:
+            text: The answer to read.
+            output_model: The fields to fill; a field the text does not state
+                should be optional so the extractor can leave it unset.
+            instructions: What each field means and how to read it from text.
+
+        Returns:
+            The filled-in *output_model*.
+        """
+        prompt = (
+            "Extract values from the TEXT below into the requested structure. "
+            "Copy each value exactly as the text states it -- do not compute, "
+            "round, convert, or correct anything -- and leave a field null when "
+            "the text does not state it.\n\n"
+            f"FIELDS:\n{instructions}\n\nTEXT:\n{text}"
+        )
+        return self._structured(prompt, output_model)
 
     async def evaluate(self, result: WorkflowResult, expectations: str) -> JudgeEvaluation:
         """Evaluate a workflow result against expectations.

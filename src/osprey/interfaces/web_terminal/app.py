@@ -731,6 +731,7 @@ BAR_ITEM_AVAILABILITY: dict[str, Callable[[dict], bool]] = {
     "identity": lambda ctx: ctx.get("identityAvailable") is True,
     "bluesky-queue": lambda ctx: ctx.get("blueskyAvailable") is True,
     "system-health": lambda ctx: ctx.get("systemHealthAvailable") is True,
+    "control-target": lambda ctx: ctx.get("controlTargetAvailable") is True,
 }
 
 #: What each gated item needs, in the words a ``web.bar_items`` warning uses to
@@ -741,6 +742,7 @@ BAR_ITEM_GATES: dict[str, str] = {
     "identity": "a terminal user or a deployment name",
     "bluesky-queue": "the Bluesky panel",
     "system-health": "the SYSTEM panel",
+    "control-target": "web.control_target_picker: true",
 }
 
 
@@ -807,6 +809,7 @@ def bar_availability_context(
     identity_available: bool,
     bluesky_available: bool,
     system_health_available: bool,
+    control_target_available: bool,
 ) -> dict:
     """What this deployment offers, in the vocabulary the catalog asks in.
 
@@ -826,6 +829,8 @@ def bar_availability_context(
             is where the plan-queue item reads the queue.
         system_health_available: Whether it enables the SYSTEM panel, whose
             proxy is where the system-health item reads the report.
+        control_target_available: Whether it offers the control-target picker
+            (``web.control_target_picker``).
 
     Returns:
         The context, JSON-serializable exactly as stamped.
@@ -834,7 +839,37 @@ def bar_availability_context(
         "identityAvailable": bool(identity_available),
         "blueskyAvailable": bool(bluesky_available),
         "systemHealthAvailable": bool(system_health_available),
+        "controlTargetAvailable": bool(control_target_available),
     }
+
+
+def control_target_picker_available(config_path: str | Path | None) -> bool:
+    """Whether this deployment's title bar offers the control-target picker.
+
+    Read from ``web.control_target_picker``, default ``True``. A persona whose
+    terminal reaches no machine sets it ``false``, and the chip, its popover and
+    the ``control-target`` bar item are then absent.
+
+    A config that cannot be read keeps the picker. This is a display setting,
+    not a privilege gate: it grants and removes no access, so the shipped
+    default is the honest answer when the file says nothing legible.
+    :func:`resolve_privilege_gates` closes on the same failure because it
+    guards edits.
+
+    Args:
+        config_path: The project config, or None for the default lookup.
+
+    Returns:
+        False only when the config says ``false``.
+    """
+    try:
+        raw = _load_web_ui_config(config_path).get("control_target_picker")
+    except Exception:
+        logger.warning(
+            "web.control_target_picker could not be read; showing the control-target picker."
+        )
+        return True
+    return coerce_config_flag("web.control_target_picker", raw, True)
 
 
 def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
@@ -874,7 +909,8 @@ def deployment_bar_context(app: FastAPI) -> dict:
     Args:
         app: The application, its lifespan far enough along to have resolved
             the panel set, the Bluesky declaration, the terminal user and the
-            deployment name. Anything not yet on state reads as absent.
+            deployment name. Anything not yet on state reads as absent, except
+            the picker setting, which reads as on: on is the key's default.
 
     Returns:
         The context :func:`bar_availability_context` builds.
@@ -887,6 +923,7 @@ def deployment_bar_context(app: FastAPI) -> dict:
         ),
         bluesky_available=bool(getattr(state, "bluesky_available", False)),
         system_health_available=SYSTEM_HEALTH_PANEL_ID in enabled_panels,
+        control_target_available=bool(getattr(state, "control_target_picker_available", True)),
     )
 
 
@@ -2596,6 +2633,13 @@ def _create_lifespan(
         # facts root() stamps on the page, evaluated here first. This is the
         # document effective_bar_layout() renders until a user's saved layout
         # is loaded ahead of it, and the rev-0 answer of GET /api/bar-items.
+        # Whether the title bar offers the control-target picker
+        # (web.control_target_picker). Resolved before the bar layout because
+        # the layout is filtered by it.
+        app.state.control_target_picker_available = control_target_picker_available(
+            resolved_config_path
+        )
+
         app.state.bar_layout = _load_bar_items(
             resolved_config_path, context=deployment_bar_context(app)
         )
@@ -2729,7 +2773,7 @@ def _create_lifespan(
         reaper_task = asyncio.create_task(_reap_idle_chats())
 
         # ── Control-context ownership ──
-        # This deployment keeps one control context, and it has one writer: the
+        # This login keeps one control context, and it has one writer: the
         # web terminal whenever there is one, a controls server otherwise. The
         # claim is made here and renewed once a second, because the owner is
         # also who answers the switch requests other processes file. Fail-open

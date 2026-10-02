@@ -454,6 +454,12 @@ def test_token_env_holding_a_value_is_refused_without_echoing_it():
     assert "claude_code.telemetry.auth.token_env" in str(excinfo.value)
 
 
+def test_token_env_with_a_trailing_newline_is_refused():
+    cfg = {**_COLLECTOR_CFG, "auth": {"token_env": "OTLP_TOKEN\n"}}
+    with pytest.raises(TelemetryConfigError, match="claude_code.telemetry.auth.token_env"):
+        telemetry_auth_token_env(cfg)
+
+
 def test_token_with_a_comma_is_refused_without_echoing_it():
     """A comma would split the comma-joined OTLP header list."""
     with pytest.raises(ObservabilityCredentialError) as excinfo:

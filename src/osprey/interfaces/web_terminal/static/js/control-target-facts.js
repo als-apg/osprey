@@ -463,8 +463,9 @@ export function identTitle(row) {
  * posture, not where the write this dialog allows would land.
 
  * The scope line is the first thing it says, because one control context per
- * deployment means arming writes here arms them for every session, notebook
- * kernel and hook — not for the page the click was made on.
+ * login identity means arming writes here arms them for every session,
+ * notebook kernel and hook of that login — not for the page the click was
+ * made on.
  * @param {any} row
  * @param {string} kind
  * @returns {{title: string, body: ConfirmRun[][], live: string|null, confirmLabel: string}}

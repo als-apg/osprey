@@ -54,7 +54,7 @@ CurrentValueReader = Callable[[str], Any]
 #: which refuses the write.
 #:
 #: How long that read takes is a property of the facility's control network,
-#: exactly like the connector's own ``timeout`` — a gateway two hops away
+#: exactly like the connector's own ``timeout_s`` — a gateway two hops away
 #: answers slower than a soft IOC on the same host — so a deployment overrides
 #: it with ``control_system.connector.<type>.step_read_timeout_s``.
 DEFAULT_STEP_READ_TIMEOUT_SECONDS = 2.0

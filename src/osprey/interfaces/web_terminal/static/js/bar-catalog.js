@@ -70,6 +70,8 @@
  *   whose proxy is where the plan queue is read
  * @property {boolean} [systemHealthAvailable] - deployment enables the SYSTEM
  *   panel, whose proxy is where the health report is read
+ * @property {boolean} [controlTargetAvailable] - deployment offers the
+ *   control-target picker (`web.control_target_picker`)
  */
 
 /**
@@ -204,7 +206,8 @@ export const BAR_CATALOG = Object.freeze({
     align: 'center',
     flex: NO_FLEX,
     overflowLabel: NEVER_FOLDS,
-    available: ALWAYS,
+    // A deployment can switch the picker off, and the item is then absent.
+    available: (ctx) => ctx.controlTargetAvailable === true,
   },
 
   display: {

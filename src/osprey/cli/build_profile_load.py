@@ -29,6 +29,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
+from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.types import (
     SET_CONTROL_SYSTEM_TYPES,
     TARGET_STANDIN,
@@ -1252,6 +1253,11 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     # no single permissions list to check the shape of.
     _reject_mixed_claude_code_spellings(config)
     _reject_permission_list_shapes(config)
+    if isinstance(config, dict):
+        try:
+            refuse_renamed_timeout_keys(config)
+        except ValueError as exc:
+            raise BuildProfileError(f"The profile's config: block: {exc}") from exc
 
     return BuildProfile(
         name=raw.get("name", ""),

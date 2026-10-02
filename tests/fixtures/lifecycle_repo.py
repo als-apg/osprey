@@ -414,7 +414,7 @@ config:
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
   #
   # Channel Access timeout in seconds.
-  control_system.connector.virtual_accelerator.timeout: 5.0
+  control_system.connector.virtual_accelerator.timeout_s: 5.0
   # Same machine model as the mock connector, so `osprey sim apply` stays
   # consistent whichever connector is active.
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
@@ -448,7 +448,7 @@ config:
   # edit; until then the live target shows as not configured.
   #
   # Channel Access timeout in seconds.
-  control_system.connector.epics.timeout: 5.0
+  control_system.connector.epics.timeout_s: 5.0
   # How long the pre-write `max_step` check waits for a channel's present
   # value, in seconds. Running out of budget refuses the write, so raise this
   # for a slow gateway — it buys room, never a weaker check.
@@ -496,7 +496,7 @@ config:
   # database, not a port this deployment publishes.
   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
-  # control_system.connector.tango.timeout: 5.0
+  # control_system.connector.tango.timeout_s: 5.0
   # The same two leaves as every other connector type, for the TANGO machine.
   # control_system.connector.tango.writes_enabled: false
   # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
@@ -1103,6 +1103,9 @@ config:
   # rail's Tour control and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
+  # Whether the title bar offers the control-target picker. `false` only for
+  # a persona that reaches no machine.
+  # web.control_target_picker: true
   # Target of the Documentation button. Point it at a locally hosted copy of
   # the docs when the control room has no route to the public site. Commented
   # rather than shipped live: a rendered value would put the OSPREY project's
@@ -1684,6 +1687,7 @@ exclude:
     - channel-finder
     - okf
     - system-health
+    - jupyter         # Notebook kernels read and write through the control target
 # The `safety` rule is deliberately NOT excluded, and this is the one place this
 # tier differs from the standalone preset. Its tools are gone, so the rule
 # governs nothing today and costs a few lines of prompt. It stays because this
@@ -1713,10 +1717,13 @@ config:
   # `services.graphdb` block is what makes the graph server render. Only a
   # server switched off is told nothing about the store.
   claude_code.servers.graph.enabled: false
-  # Pinned even though the server that would honour it is gone, for the same
-  # reason the other two tiers pin it: this key is the write boundary, and it
-  # must not drift if the base's default ever changes.
+  # Pinned even though every server that would honour it is gone, for the
+  # same reason the read-only tier pins it: this key is the write boundary,
+  # and it must not drift if the base's default ever changes. Three keys, not
+  # one — see the read-only preset for why.
   control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
   # Creating a logbook entry is this agent's only write of any kind, and it is
   # approval-gated like every other write in OSPREY. Publishing it is the half
   # that actually reaches the facility's logbook, so it is gated too.
@@ -1726,6 +1733,9 @@ config:
   # it needs the panel area. Pinned rather than left to the server default for
   # the same reason the other two tiers pin theirs.
   web.ui_mode: expert
+  # No control-target picker in the title bar: nothing in this persona reaches
+  # the machine, so the bar names none.
+  web.control_target_picker: false
   # No shipped example plot in this WORKSPACE: the example invites the reader
   # to ask the agent for a live plot, which this persona cannot produce.
   artifact_server.example_artifact: false
@@ -1811,6 +1821,7 @@ exclude:
   web_panels:
     - ariel
     - system-health
+    - jupyter         # Notebook kernels read and write through the control target
 # The `safety` rule is deliberately NOT excluded. Its tools are gone, so the
 # rule governs nothing today and costs a few lines of prompt. It stays because
 # this agent runs inside a deployment that does move hardware: if anyone ever
@@ -1845,6 +1856,9 @@ config:
   # so it needs the panel area. Pinned rather than left to the server default,
   # like the other tiers pin theirs.
   web.ui_mode: expert
+  # No control-target picker in the title bar: nothing in this persona reaches
+  # the machine, so the bar names none.
+  web.control_target_picker: false
   # No shipped example plot in this WORKSPACE: the example invites the reader
   # to ask the agent for a live plot, which this persona cannot produce.
   artifact_server.example_artifact: false

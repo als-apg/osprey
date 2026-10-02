@@ -783,7 +783,7 @@ async def run_watch(
         poll_secs = config.ingestion.poll_interval_seconds
         if progress:
             progress(f"Watching: {config.ingestion.source_url}")
-            progress(f"Poll interval: {poll_secs}s")
+            progress(f"Poll interval: {poll_secs:g}s")
             progress("Press Ctrl+C to stop\n")
 
         if install_signal_handlers:

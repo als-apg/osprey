@@ -87,7 +87,7 @@ def test_tool_allowlists_match_contract() -> None:
     _, triggers = _load()
     by_name = {t.name: t for t in triggers}
     for name, expected_tools in _EXPECTED_TRIGGERS.items():
-        got = by_name[name].action.get("allowed_tools", [])
+        got = by_name[name].allowed_tools
         assert sorted(got) == sorted(expected_tools), (
             f"{name}: allowed_tools drifted — expected {expected_tools}, got {got}"
         )
@@ -97,7 +97,7 @@ def test_denied_tool_demo_requests_a_denylisted_tool() -> None:
     """The safety demo must actually request a server-denylisted tool (WebFetch)."""
     _, triggers = _load()
     denied = next(t for t in triggers if t.name == "denied-tool-demo")
-    assert "WebFetch" in denied.action.get("allowed_tools", []), (
+    assert "WebFetch" in denied.allowed_tools, (
         "denied-tool-demo no longer requests WebFetch — it would no longer "
         "demonstrate the server-side denylist."
     )

@@ -560,10 +560,11 @@ class OperatorSession:
 
     async def send_prompt(self, prompt: str) -> None:
         """Send a prompt and start streaming the response into the queue."""
-        if self._agent_scope is None or self._agent is None:
+        agent = self._connected_agent
+        if agent is None:
             raise RuntimeError("Session not started")
 
-        await self._agent.submit(prompt)
+        await agent.submit(prompt)
         self._response_task = asyncio.create_task(self._stream_response())
 
     async def _stream_response(self) -> None:
@@ -684,8 +685,9 @@ class OperatorSession:
         Never drains the reader and never touches the turn guard — the consumer
         running the turn owns quiesce and release.
         """
-        if self._agent_scope is not None and self._agent is not None:
-            await self._agent.interrupt()
+        agent = self._connected_agent
+        if agent is not None:
+            await agent.interrupt()
 
     async def cancel(self) -> None:
         """Interrupt the in-flight turn and quiesce the reader.
@@ -704,9 +706,10 @@ class OperatorSession:
             return
 
         # 1. Interrupt the runner first so the CLI stops generating.
-        if self._agent_scope is not None and self._agent is not None:
+        agent = self._connected_agent
+        if agent is not None:
             try:
-                await self._agent.interrupt()
+                await agent.interrupt()
             except Exception:
                 pass
 
@@ -794,8 +797,18 @@ class OperatorSession:
         logger.info("OperatorSession stopped")
 
     @property
+    def _connected_agent(self) -> AgentSession | None:
+        """The runner while its scope is open, else ``None``.
+
+        The handle outlives the scope (:attr:`pid` and :attr:`process_exited`
+        read it after :meth:`stop`), so a call that reaches the runner keys on
+        the scope; :meth:`start` sets the two together.
+        """
+        return self._agent if self._agent_scope is not None else None
+
+    @property
     def is_active(self) -> bool:
-        return self._started and self._agent_scope is not None
+        return self._started and self._connected_agent is not None
 
     @property
     def pid(self) -> int | None:

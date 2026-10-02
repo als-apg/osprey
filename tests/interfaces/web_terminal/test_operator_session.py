@@ -656,6 +656,51 @@ class TestOperatorSessionCancel:
             assert session.last_activity > before
 
 
+class TestOperatorSessionConnectedAgent:
+    """The runner is reachable exactly while its scope is open.
+
+    The handle outlives the scope on purpose, so a retained handle alone
+    reaches nothing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_session_never_started_reaches_no_runner(self):
+        client = FakeStreamClient()
+        session = OperatorSession(cwd="/tmp")
+
+        assert session._connected_agent is None
+        await session.interrupt()
+        with pytest.raises(RuntimeError, match="Session not started"):
+            await session.send_prompt("hi")
+        assert client.interrupt_calls == 0
+        assert client.query_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_a_started_session_reaches_its_runner(self):
+        client = FakeStreamClient()
+        async with _started_session(client) as session:
+            assert session._connected_agent is not None
+            assert session._connected_agent is session._agent
+            await session.interrupt()
+            assert client.interrupt_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_a_stopped_session_keeps_the_handle_and_reaches_no_runner(self):
+        client = FakeStreamClient()
+        session = OperatorSession(cwd="/tmp")
+        with sdk_seam(client):
+            await session.start()
+            await session.stop()
+
+            assert session._agent is not None
+            assert session._connected_agent is None
+            await session.interrupt()
+            with pytest.raises(RuntimeError, match="Session not started"):
+                await session.send_prompt("hi")
+        assert client.interrupt_calls == 0
+        assert client.query_calls == 0
+
+
 # ---------------------------------------------------------------------------
 # OperatorRegistry
 # ---------------------------------------------------------------------------
