@@ -333,7 +333,7 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 # * ``deployed_services`` — the compose template reads its instance list from
 #   there, so a block that is not deployed conjures no container.
 #
-# The third write this injector used to make is now the thing it must NOT make:
+# One key this injector never writes:
 # ``control_system.target_switch.live_gateway_acknowledged``. ``live`` means the
 # machine the facility authored under ``epics:`` — on a stand-in deployment
 # exactly as on one without — so reaching it is ``control_target_set live``,

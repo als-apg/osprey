@@ -3001,7 +3001,7 @@ deleted:
 - applications
 - current_application
 - configurable
-  # Task 6.3 — retired facility spelling; no TEMPLATE may ship this key again.
+  # The top-level spelling of the facility's display name; no TEMPLATE may ship it.
 - facility_name
   # The facility's display name is the build's facility identity, its device
   # vocabulary is the build's facts, and the clock is system.timezone: none is

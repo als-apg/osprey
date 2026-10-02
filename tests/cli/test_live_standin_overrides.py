@@ -439,11 +439,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         """Take the pair out of the profile and nothing puts it back — nor is it required.
 
         The other half of the claim above, and the one that actually separates
-        "authored" from "derived". While the stand-in was ``live`` the build
-        flipped this key itself and then had to rewrite the comment beside it to
-        stop the rendered line contradicting its own value. Nothing does that
-        now — and there is no template default underneath to fall back to
-        either, because a deployment's declarative config is its own.
+        "authored" from "derived".
 
         Limits checking is opt-in per target, and the connector's per-write
         check is the enforcement point: a target whose posture is unstated

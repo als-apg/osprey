@@ -637,7 +637,7 @@ def _list_texture(document: dict[str, Any]) -> None:
     document["models"] = [*models, {"name": TEXTURE, "engine": TEXTURE}]
 
 
-# --- ported build steps --------------------------------------------------------------
+# --- lookups derived from the records ------------------------------------------------
 
 
 def compute_ordinals(devices: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
