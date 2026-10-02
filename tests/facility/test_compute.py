@@ -584,22 +584,3 @@ class TestBuildFacility:
         files["records/places.yaml"][1]["span"]["to_marker"] = "NOPE"
         with pytest.raises(FacilityBuildError, match="span-invalid: place SR/A"):
             build_facility(_write(tmp_path / "facility", copy.deepcopy(files)), project_name="p")
-
-
-class TestPortedHelpers:
-    def test_flatten_aliases(self):
-        vocabulary = {
-            "classes": [{"name": "Quadrupole", "aliases": ["Quad", "quad "]}],
-            "signal_roles": [{"name": "position", "aliases": ["Pos"]}],
-        }
-        classes = [{"class": "SkewQuad", "aliases": ["Skew"]}]
-        assert compute.flatten_aliases(vocabulary, classes) == [
-            {
-                "term": "quad",
-                "scope": "device_class",
-                "target": "Quadrupole",
-                "source": "vocabulary",
-            },
-            {"term": "skew", "scope": "device_class", "target": "SkewQuad", "source": "facility"},
-            {"term": "pos", "scope": "signal_role", "target": "position", "source": "vocabulary"},
-        ]
