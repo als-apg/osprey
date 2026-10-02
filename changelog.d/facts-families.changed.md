@@ -1,0 +1,1 @@
+The facility facts the agents read name as a device class's families only the groups that carry per-signal sentences, the same groups the middle-layer index lists as Families; system groups no longer appear there.
