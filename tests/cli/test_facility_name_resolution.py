@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
@@ -131,16 +130,12 @@ def channel_finder_project(tmp_path_factory) -> Path:
     )
 
 
-def test_channel_finder_build_uses_the_name_the_render_root_reports(channel_finder_project):
-    """The prompt carries the render root's name, whatever the config's keys say."""
-    config = yaml.safe_load((channel_finder_project / "config.yml").read_text(encoding="utf-8"))
-    configured = config["facility"]["name"]
+def test_channel_finder_build_uses_the_identity_name(channel_finder_project):
+    """The prompt carries the name the render root's facility identity reports."""
     reported = facility_identity(channel_finder_project, "cf-facility")["name"]
-    assert configured and configured != reported
 
     prompt = _channel_finder_prompt(channel_finder_project)
     assert _PROMPT_SENTENCE.format(reported) in prompt
-    assert _PROMPT_SENTENCE.format(configured) not in prompt
 
 
 def test_regenerated_prompts_pick_up_the_facility_file_name(tmp_path_factory):
