@@ -1039,14 +1039,14 @@ def _in_context_index_deltas(*documents: str) -> tuple[Delta, ...]:
     """The in_context database the build writes from the tagged channels.
 
     The pipeline loads the build's flat index, so the block names its path
-    and no loader type. The fixtures were frozen while the block named the
-    hand-kept template database.
+    and neither a loader type nor a preview mode. The fixtures were frozen
+    while the block named the hand-kept template database.
 
     Args:
         documents: The rendered documents that carry the in_context block.
 
     Returns:
-        Two deltas per document.
+        Three deltas per document.
     """
     prefix = "channel_finder.pipelines.in_context.database"
     return tuple(
@@ -1059,6 +1059,12 @@ def _in_context_index_deltas(*documents: str) -> tuple[Delta, ...]:
                 path=f"{prefix}.path",
                 fixture="data/channel_databases/in_context.json",
                 live="data/channel_finder/in_context.json",
+            ),
+            Delta(
+                document=document,
+                path=f"{prefix}.presentation_mode",
+                fixture="template",
+                live=ABSENT,
             ),
         )
     )

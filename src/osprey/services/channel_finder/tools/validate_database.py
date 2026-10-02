@@ -21,8 +21,8 @@ from osprey.services.channel_finder.core.exceptions import PipelineModeError
 from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     MiddleLayerDatabase,
-    TemplateChannelDatabase,
 )
+from osprey.services.channel_finder.databases.flat import ChannelDatabase
 from osprey.services.channel_finder.utils.detection import (
     configured_database,
     detect_pipeline_config,
@@ -32,11 +32,17 @@ _default_console = Console()
 
 
 def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
-    """Validate JSON file structure and schema.
+    """Validate the in_context index's structure.
+
+    The index is the object the build writes: ``schema`` names the
+    channel-finder document and ``channels`` holds one row per channel, each
+    with ``channel``, ``address`` and ``description``.
 
     Returns:
         (is_valid, errors, warnings)
     """
+    from osprey.facility.views.channel_finder import CHANNEL_FINDER_SCHEMA
+
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -54,24 +60,18 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
         errors.append(f"Error reading file: {e}")
         return False, errors, warnings
 
-    if isinstance(data, list):
-        warnings.append("Using legacy array format. Consider using dict format with metadata.")
-        channels = data
-    elif isinstance(data, dict):
-        if "channels" not in data:
-            errors.append("Missing 'channels' key in database dict")
-            return False, errors, warnings
-        channels = data["channels"]
-
-        if "presentation_mode" in data:
-            valid_modes = ["explicit", "template"]
-            if data["presentation_mode"] not in valid_modes:
-                warnings.append(
-                    f"Unknown presentation_mode: {data['presentation_mode']}. Valid: {valid_modes}"
-                )
-    else:
-        errors.append(f"Invalid top-level type: {type(data)}. Expected list or dict.")
+    if not isinstance(data, dict):
+        errors.append(f"Invalid top-level type: {type(data)}. Expected the index object.")
         return False, errors, warnings
+
+    if data.get("schema") != CHANNEL_FINDER_SCHEMA:
+        errors.append(f"'schema' must be {CHANNEL_FINDER_SCHEMA!r}, got {data.get('schema')!r}")
+        return False, errors, warnings
+
+    if "channels" not in data:
+        errors.append("Missing 'channels' key in database dict")
+        return False, errors, warnings
+    channels = data["channels"]
 
     if not isinstance(channels, list):
         errors.append(f"'channels' must be a list, got {type(channels)}")
@@ -86,53 +86,11 @@ def validate_json_structure(db_path: Path) -> tuple[bool, list[str], list[str]]:
             errors.append(f"Channel {i}: must be a dict, got {type(entry)}")
             continue
 
-        is_template = entry.get("template", False)
-
-        if is_template:
-            required = ["base_name", "instances", "description"]
-            for field in required:
-                if field not in entry:
-                    errors.append(f"Template {i}: missing required field '{field}'")
-
-            if "instances" in entry:
-                instances = entry["instances"]
-                if not isinstance(instances, list) or len(instances) != 2:
-                    errors.append(
-                        f"Template {i}: 'instances' must be [start, end], got {instances}"
-                    )
-                elif instances[0] > instances[1]:
-                    errors.append(
-                        f"Template {i}: instance start ({instances[0]}) > end ({instances[1]})"
-                    )
-
-            if "sub_channels" in entry:
-                if not isinstance(entry["sub_channels"], list):
-                    errors.append(f"Template {i}: 'sub_channels' must be a list")
-                elif len(entry["sub_channels"]) == 0:
-                    warnings.append(f"Template {i}: 'sub_channels' is empty")
-
-            if "axes" in entry:
-                if not isinstance(entry["axes"], list):
-                    errors.append(f"Template {i}: 'axes' must be a list")
-
-            if "address_pattern" not in entry:
-                warnings.append(
-                    f"Template {i}: missing 'address_pattern'. Will use default pattern."
-                )
-
-            if "channel_descriptions" not in entry:
-                warnings.append(
-                    f"Template {i}: missing 'channel_descriptions'. Will use generic descriptions."
-                )
-        else:
-            required = ["channel", "address", "description"]
-            for field in required:
-                if field not in entry:
-                    errors.append(f"Channel {i}: missing required field '{field}'")
-
-            for field in ["channel", "address", "description"]:
-                if field in entry and not entry[field]:
-                    warnings.append(f"Channel {i}: field '{field}' is empty")
+        for field in ("channel", "address", "description"):
+            if field not in entry:
+                errors.append(f"Channel {i}: missing required field '{field}'")
+            elif not entry[field]:
+                warnings.append(f"Channel {i}: field '{field}' is empty")
 
     is_valid = len(errors) == 0
     return is_valid, errors, warnings
@@ -143,8 +101,8 @@ def validate_database_loading(db_path: Path, pipeline_type: str) -> tuple[bool, 
 
     One arm per file-backed paradigm, so the check exercises the same class the
     running pipeline would use. ``in_context`` is the final arm rather than a
-    named one: it is the flat format, and reading an unrecognised file as a flat
-    channel list gives a more legible failure than a dispatch error would.
+    named one: its index is the flat format, and reading an unrecognised file as
+    a flat channel list gives a more legible failure than a dispatch error would.
 
     Args:
         db_path: Path to database file
@@ -164,7 +122,7 @@ def validate_database_loading(db_path: Path, pipeline_type: str) -> tuple[bool, 
         elif pipeline_type == "middle_layer":
             db = MiddleLayerDatabase(str(db_path))
         else:
-            db = TemplateChannelDatabase(str(db_path), presentation_mode="explicit")
+            db = ChannelDatabase(str(db_path))
 
         stats = db.get_statistics()
 

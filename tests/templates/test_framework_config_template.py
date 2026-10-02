@@ -290,7 +290,6 @@ def test_in_context_pipeline_values():
     assert pipeline == {
         "database": {
             "path": "data/channel_finder/in_context.json",
-            "presentation_mode": "template",
         },
         "subagent_model": None,
     }

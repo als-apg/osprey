@@ -16,6 +16,7 @@ import pytest
 from rich.console import Console
 
 from osprey.cli.styles import osprey_theme
+from osprey.facility.views.channel_finder import CHANNEL_FINDER_SCHEMA
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 from osprey.services.channel_finder.tools import preview_database as mod
@@ -112,15 +113,9 @@ def ml_db(ml_file: Path) -> MiddleLayerDatabase:
 @pytest.fixture()
 def in_context_file(tmp_path: Path) -> Path:
     data = {
-        "facility_name": "Test Facility",
+        "schema": CHANNEL_FINDER_SCHEMA,
         "channels": [
-            {
-                "template": True,
-                "base_name": "Dipole",
-                "instances": [1, 3],
-                "sub_channels": ["SP", "RB"],
-                "description": "Dipole {instance:02d}",
-            },
+            {"channel": "Dipole01", "address": "SR:DIPOLE:01", "description": "Dipole 01"},
             {
                 "channel": "STANDALONE:CH",
                 "address": "STANDALONE:CH",
@@ -377,29 +372,25 @@ class TestPreviewMiddleLayer:
 
 
 class TestPreviewInContext:
-    def test_template_mode_render(self, in_context_file: Path):
+    def test_the_index_renders(self, in_context_file: Path):
         console = _capture_console()
-        preview_in_context(str(in_context_file), presentation_mode="template", console=console)
+        preview_in_context(str(in_context_file), console=console)
         out = _text(console)
         assert "In-Context Database Preview" in out
         assert "Successfully loaded" in out
-        assert "LLM Presentation" in out
+        assert "Presentation Mode" not in out
         assert "Preview complete" in out
 
-    def test_explicit_mode_lists_channel_names(self, in_context_file: Path):
+    def test_the_rows_list_their_channel_names(self, in_context_file: Path):
         console = _capture_console()
-        preview_in_context(str(in_context_file), presentation_mode="explicit", console=console)
+        preview_in_context(str(in_context_file), console=console)
         out = _text(console)
         assert "STANDALONE:CH" in out
+        assert "Dipole01" in out
 
     def test_show_full_flag(self, in_context_file: Path):
         console = _capture_console()
-        preview_in_context(
-            str(in_context_file),
-            presentation_mode="explicit",
-            show_full=True,
-            console=console,
-        )
+        preview_in_context(str(in_context_file), show_full=True, console=console)
         out = _text(console)
         assert "all" in out  # "(all N channels)" title
 
@@ -514,7 +505,7 @@ class TestPreviewDatabaseDispatch:
             "detect_pipeline_config",
             lambda config: (
                 "in_context",
-                {"path": str(in_context_file), "presentation_mode": "template"},
+                {"path": str(in_context_file)},
             ),
         )
         console = _capture_console()
