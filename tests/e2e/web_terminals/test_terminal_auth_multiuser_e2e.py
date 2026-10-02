@@ -188,7 +188,7 @@ class Lane:
     ``users`` holds roster entries as they are authored in the profile. The
     ``open`` lane must use OBJECT entries: a bare-string entry runs no persona,
     so the open-mode deploy gate reads the DEPLOY project's settings.json for it
-    (the zero-migration sentinel) instead of the persona's, and refuses a
+    (the no-persona sentinel) instead of the persona's, and refuses a
     deployment whose persona is in fact clean.
     """
 

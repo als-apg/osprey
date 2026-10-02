@@ -1247,8 +1247,7 @@ def test_render_missing_web_base_port_uses_the_layout_default() -> None:
 
 def test_render_missing_companion_base_port_uses_layout_default() -> None:
     """A config omitting a companion family's base port (e.g. written before that
-    panel existed) must render with the layout default, not fail — the
-    zero-migration guarantee that keeps feature parity from breaking old configs."""
+    panel existed) must render with the layout default, not fail."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     del config["modules"]["web_terminals"]["lattice_base_port"]
@@ -1718,7 +1717,7 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
     resolve_personas()'s registry-mode default-persona branch must still produce the
     SAME unsuffixed `<registry_url>/web-terminal:latest` image and the SAME
     `/app/<project>-assistant` agent-data mount root a no-catalog config
-    produces — introducing a catalog is zero-migration until a user is actually
+    produces — introducing a catalog changes nothing until a user is actually
     reassigned to a non-default persona."""
     # Arrange
     baseline_config = copy.deepcopy(_MULTI_USER_CONFIG)
@@ -1807,7 +1806,7 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A no-personas config (the zero-migration default) emits exactly the four
+    """A no-personas config (the no-persona default) emits exactly the four
     framework per-user volume lines — claude-config, agent-data, this user's own
     audit subdirectory and its own control-context record directory — and the
     extra_mounts loop adds nothing."""
@@ -2498,7 +2497,7 @@ def test_nginx_seam_open_omits_auth_request_even_with_tls_enabled() -> None:
 
 def test_mcp_topology_omitted_renders_unchanged() -> None:
     """No `web_terminals.mcp` stanza at all -> today's behavior, byte-identical
-    to a config that has never heard of the topology key (zero migration)."""
+    to a config that has never heard of the topology key."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     assert "mcp" not in config["modules"]["web_terminals"]
@@ -4970,7 +4969,7 @@ def test_render_without_archiver_personas_emits_no_password_line() -> None:
 
 
 def test_persona_less_roster_entry_is_answered_from_the_deploy_config() -> None:
-    """The zero-migration path (no personas; the web image IS the deploy project)
+    """The no-persona path (no personas; the web image IS the deploy project)
     reads the grant straight from the deploy config, as the other grants do."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
@@ -5327,7 +5326,7 @@ def test_render_without_launch_token_personas_emits_no_token_line() -> None:
 
 
 def test_persona_less_roster_is_armed_from_the_config_itself() -> None:
-    """The zero-migration path -- roster entries that name no persona, where the web
+    """The no-persona path -- roster entries that name no persona, where the web
     image IS the deploy project -- has no persona to look up, so entitlement is read
     from this same config with no disk read. That keeps the determinism contract
     while still arming a deployment that never adopted personas.
@@ -5426,7 +5425,7 @@ def test_render_without_graphdb_personas_emits_no_store_password_line() -> None:
 
 
 def test_persona_less_roster_gets_graphdb_password_from_the_config_itself() -> None:
-    """The zero-migration path -- roster entries that name no persona, where the web
+    """The no-persona path -- roster entries that name no persona, where the web
     image IS the deploy project -- has no persona to look up, so entitlement is read
     from this same config with no disk read."""
     # Arrange
@@ -5593,7 +5592,7 @@ def test_the_collector_variables_are_interpolated_never_written() -> None:
 
 
 def test_a_persona_less_entry_is_answered_from_the_deploy_config() -> None:
-    """The zero-migration path reads the telemetry block of the deploy config itself."""
+    """The no-persona path reads the telemetry block of the deploy config itself."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     config["claude_code"] = {

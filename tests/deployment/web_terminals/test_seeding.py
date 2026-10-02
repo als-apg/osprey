@@ -459,7 +459,7 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
 
 
 def test_no_catalog_config_targets_hardcoded_default_dir(tmp_path, monkeypatch, fake_runtime):
-    """Zero-migration: a config with no personas catalog resolves to today's exact hardcoded
+    """The no-persona path: a config with no personas catalog resolves to today's exact hardcoded
     skills path (`resolve_personas` guarantees this default), so pre-existing rosters are
     unaffected by the switch to persona-derived paths."""
     calls, inputs, ready = fake_runtime

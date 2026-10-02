@@ -2173,7 +2173,7 @@ def _privileged_entries(
     same terms as :func:`_persona_configs`: a config that could not be read is
     not evidence of a privilege, and every way of failing to read one is already
     reported by the check that owns it. Neither is an entry with no persona in
-    effect — the zero-migration path has no tier to be privileged.
+    effect — the no-persona path has no tier to be privileged.
     """
     entries: list[tuple[Mapping[str, Any], str, Sequence[str]]] = []
     for entry in resolved_entries:
@@ -2750,7 +2750,7 @@ def resolve_personas(
       string the compose template names directly whenever ``<tag>`` is its
       ``latest`` default),
       ``project`` and ``container_project_dir`` are ``<project_name>-assistant``
-      / ``/app/<project_name>-assistant``. This is the zero-migration path: a
+      / ``/app/<project_name>-assistant``. This is the no-persona path: a
       config with no ``personas`` catalog at all resolves every entry here.
     * **Default persona** (resolved ``persona`` equals ``default_persona``, and
       a catalog entry exists for it): registry mode keeps the same un-suffixed
@@ -2786,7 +2786,7 @@ def resolve_personas(
         registry_cfg: The already-dict-coerced top-level ``registry`` section
             (only ``url`` is read).
         project_name: The project name ``resolve_project_name()`` returns, used
-            for the zero-migration / default-persona project dir and image
+            for the no-persona / default-persona project dir and image
             (``<project_name>-assistant``).
         strict: When ``True`` (render/build/seed callers), an unresolvable
             persona reference — an explicit or inherited ``persona:`` naming a
@@ -2794,7 +2794,7 @@ def resolve_personas(
             catalog/``default_persona`` configured at all — raises
             ``ValueError``. When ``False`` (lifecycle verbs), the same
             conditions degrade gracefully: an unresolved entry falls back to the
-            zero-migration values (so a stale/bad persona reference never blocks
+            no-persona values (so a stale/bad persona reference never blocks
             ``decommission``/``prune``/``nuke``) instead of raising.
 
     Returns:
@@ -2807,7 +2807,7 @@ def resolve_personas(
         defaulting to ``[]`` — both when no persona is in effect and when the
         catalog entry sets none. ``seed_base`` is the catalog entry's
         ``seed_base`` (a bool; anything else is defensively coerced to
-        ``True``), and always ``True`` for the zero-migration / lenient-degrade
+        ``True``), and always ``True`` for the no-persona / lenient-degrade
         paths — it controls whether the shared base context is prepended when
         seeding this entry's ``CLAUDE.md``. Optional ``"display_name"``,
         ``"theme"`` and ``"tour"`` keys are added — carried through from
@@ -2898,16 +2898,16 @@ def resolve_personas(
             entry["access"] = access
         return entry
 
-    def _zero_migration_entry(
+    def _no_persona_entry(
         name: str, index: int, persona: str | None, source: dict[str, Any]
     ) -> dict[str, Any]:
-        """The zero-migration resolution: the pre-persona values, with
+        """The no-persona resolution: the project defaults, with
         ``persona`` carried through for logging (``None`` when no persona is in
         effect, or the unresolvable reference on the lenient degrade path) and the
         optional per-user fields passed through unchanged. ``extra_mounts`` is
-        empty here — the zero-migration path has no catalog entry to read
+        empty here — the no-persona path has no catalog entry to read
         persona-level host mounts from. ``seed_base`` is ``True`` — the shared
-        base-context prepend is mandatory for a no-persona/zero-migration entry,
+        base-context prepend is mandatory for a no-persona entry,
         and opting out is only expressible through a catalog entry."""
         return _with_optional_fields(
             {
@@ -2930,8 +2930,8 @@ def resolve_personas(
         persona_ref = persona_ref_by_name.get(name) or default_persona_name
 
         if persona_ref is None:
-            # No persona system in effect for this entry — zero-migration path.
-            resolved.append(_zero_migration_entry(name, index, None, entry))
+            # No persona system in effect for this entry — the no-persona path.
+            resolved.append(_no_persona_entry(name, index, None, entry))
             continue
 
         catalog_entry = personas_catalog.get(persona_ref)
@@ -2942,9 +2942,9 @@ def resolve_personas(
                     "no entry in modules.web_terminals.personas"
                 )
             # Lenient degrade (lifecycle verbs): keep the requested persona name
-            # visible for logging, but fall back to the zero-migration values so
+            # visible for logging, but fall back to the no-persona values so
             # a stale/bad reference never blocks a lifecycle verb.
-            resolved.append(_zero_migration_entry(name, index, persona_ref, entry))
+            resolved.append(_no_persona_entry(name, index, persona_ref, entry))
             continue
 
         project = catalog_entry.get("project")

@@ -94,7 +94,7 @@ def test_no_bundle_configured_mounts_nothing():
 
 
 def test_every_persona_less_user_gets_the_bundle():
-    """The zero-migration roster: no persona catalog, so entitlement is answered
+    """The no-persona roster: no persona catalog, so entitlement is answered
     from this same config, and both users read the one deployment bundle."""
     mounts = _bundle_mounts(_config())
 

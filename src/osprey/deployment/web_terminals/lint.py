@@ -2938,7 +2938,7 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
     """
     from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
     from osprey.deployment.web_terminals.artifacts import (
-        ZERO_MIGRATION_OFFENDER,
+        NO_PERSONA_OFFENDER,
         open_mode_missing_by_persona,
     )
 
@@ -2955,11 +2955,11 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
         )
         for persona, tools in sorted(missing.items())
     )
-    zero_migration_note = (
-        f". {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run no persona "
+    no_persona_note = (
+        f". {NO_PERSONA_OFFENDER!r} stands for the roster entries that run no persona "
         "at all: they run the deploy project itself, so the settings.json read for them "
         "is the deploy project's own .claude/settings.json"
-        if ZERO_MIGRATION_OFFENDER in missing
+        if NO_PERSONA_OFFENDER in missing
         else ""
     )
     return [
@@ -2976,7 +2976,7 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
                 f"or unparseable settings.json counts the same). Set auth.method to "
                 f"'token' to keep the magic-link wall, or restore those deny entries, "
                 f"render with `osprey build` and rebuild the images this deployment "
-                f"runs{zero_migration_note}"
+                f"runs{no_persona_note}"
             ),
         )
     ]

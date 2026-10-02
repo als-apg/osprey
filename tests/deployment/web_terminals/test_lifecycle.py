@@ -49,8 +49,8 @@ def _config(
 
     ``personas``/``default_persona``/``image_source`` are only exercised by the
     nuke persona-image tests; omitted, ``resolve_personas`` resolves every
-    entry to the zero-migration (non-persona) path, exactly as it does for a
-    config predating persona catalogs.
+    entry to the no-persona path, exactly as it does for a config with no
+    persona catalog.
     """
     web_terminals = {
         "enabled": True,
@@ -1165,10 +1165,10 @@ def test_nuke_tolerates_absent_image_silently(tmp_path, monkeypatch, capsys, fak
     assert "SKIPPED" not in capsys.readouterr().out
 
 
-def test_nuke_zero_migration_config_performs_no_image_operations(
+def test_nuke_no_persona_config_performs_no_image_operations(
     tmp_path, monkeypatch, fake_runtime_nuke
 ):
-    """A config with no persona catalog at all (today's zero-migration roster)
+    """A config with no persona catalog at all (a no-persona roster)
     must never touch images: every entry resolves off the non-":local" default
     image, so there are no candidates to inspect or remove — pinned explicitly
     since this is the common case for every facility that hasn't adopted

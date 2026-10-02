@@ -626,7 +626,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
         volumes.extend(user_volumes)
 
     # Roster personas' locally-built images. Lenient resolution (strict=False)
-    # means a stale/bad persona reference degrades to the zero-migration
+    # means a stale/bad persona reference degrades to the no-persona
     # (non-":local") image rather than blocking nuke — see resolve_personas.
     registry_cfg = as_dict(config.get("registry"))
     personas_resolved = resolve_personas(web_terminals, registry_cfg, project, strict=False)
