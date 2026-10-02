@@ -33,12 +33,36 @@ def _ts(minute: int) -> str:
     return datetime(2026, 2, 19, 12, minute, 0, tzinfo=UTC).isoformat()
 
 
+def _zulu(hour: int) -> str:
+    """Generate a stamp in the transcript's own layout: UTC, milliseconds, ``Z`` suffix."""
+    return f"2026-02-19T{hour:02d}:00:00.000Z"
+
+
 def _patch_transcript_reader(events: list[dict]):
     """Return a context manager that patches TranscriptReader.read_current_session."""
     return patch(
         "osprey.mcp_server.workspace.tools.session_log.TranscriptReader",
         **{"return_value.read_current_session.return_value": events},
     )
+
+
+@pytest.fixture
+def zulu_events():
+    """Three tool calls stamped 18:00Z, 19:00Z and 20:00Z in the transcript's layout."""
+    return [
+        {
+            "type": "tool_call",
+            "timestamp": _zulu(hour),
+            "tool": f"tool_{hour}",
+            "full_tool_name": f"mcp__osprey_workspace__tool_{hour}",
+            "server": "osprey_workspace",
+            "is_error": False,
+            "session_id": None,
+            "arguments": {},
+            "result_summary": "ok",
+        }
+        for hour in (18, 19, 20)
+    ]
 
 
 @pytest.fixture
@@ -567,6 +591,119 @@ async def test_since_invalid_format(tmp_path):
 
     envelope = _exc_ctx["envelope"]
     assert "since" in envelope["error_message"]
+
+
+async def _call_session_log(events: list[dict], tmp_path, **kwargs) -> dict:
+    fn = _get_session_log()
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
+            return_value=tmp_path,
+        ),
+        _patch_transcript_reader(events),
+    ):
+        return json.loads(await fn(**kwargs))
+
+
+@pytest.mark.asyncio
+async def test_offset_since_admits_events_at_or_after_the_instant(zulu_events, tmp_path):
+    """A bound with a UTC offset is compared with the stamps as an instant."""
+    result = await _call_session_log(zulu_events, tmp_path, since="2026-02-19T12:00:00-07:00")
+    assert [e["timestamp"] for e in result["events"]] == [_zulu(19), _zulu(20)]
+    assert result["filters_applied"]["since"] == "2026-02-19T12:00:00-07:00"
+
+
+@pytest.mark.asyncio
+async def test_offset_before_keeps_events_at_or_before_the_instant(zulu_events, tmp_path):
+    """An upper bound with a UTC offset keeps every event up to and including that instant."""
+    result = await _call_session_log(zulu_events, tmp_path, before="2026-02-19T12:00:00-07:00")
+    assert [e["timestamp"] for e in result["events"]] == [_zulu(18), _zulu(19)]
+
+
+@pytest.mark.asyncio
+async def test_z_bound_admits_the_event_stamped_at_that_instant(zulu_events, tmp_path):
+    """A ``Z`` bound admits the event whose millisecond stamp is the same instant."""
+    result = await _call_session_log(zulu_events, tmp_path, since="2026-02-19T19:00:00Z")
+    assert [e["timestamp"] for e in result["events"]] == [_zulu(19), _zulu(20)]
+
+
+@pytest.mark.asyncio
+async def test_naive_bound_is_read_as_utc(zulu_events, tmp_path):
+    """A bound without an offset is read in the transcript's zone, UTC."""
+    since = await _call_session_log(zulu_events, tmp_path, since="2026-02-19T19:00:00")
+    assert [e["timestamp"] for e in since["events"]] == [_zulu(19), _zulu(20)]
+    before = await _call_session_log(zulu_events, tmp_path, before="2026-02-19T19:00:00")
+    assert [e["timestamp"] for e in before["events"]] == [_zulu(18), _zulu(19)]
+
+
+@pytest.mark.asyncio
+async def test_unparseable_stamp_is_outside_a_filtered_window(tmp_path):
+    """An event whose stamp cannot be placed in time is kept out of any window."""
+    events = [
+        {"type": "tool_call", "timestamp": _zulu(19), "tool": "placed", "is_error": False},
+        {"type": "tool_call", "timestamp": "not-a-time", "tool": "garbled", "is_error": False},
+        {"type": "tool_call", "tool": "unstamped", "is_error": False},
+    ]
+    filtered = await _call_session_log(events, tmp_path, since="2026-02-19T00:00:00Z")
+    assert [e["tool"] for e in filtered["events"]] == ["placed"]
+
+    unbounded = await _call_session_log(events, tmp_path)
+    assert unbounded["total_events"] == 3
+
+
+@pytest.mark.asyncio
+async def test_offset_bound_applies_in_list_agents_mode(tmp_path):
+    """list_agents sees only agents whose events lie inside the offset bound."""
+    events = [
+        {
+            "type": "agent_start",
+            "timestamp": _zulu(18),
+            "agent_id": "agent-A",
+            "agent_type": "data-visualizer",
+        },
+        {
+            "type": "agent_stop",
+            "timestamp": _zulu(18),
+            "agent_id": "agent-A",
+            "agent_type": "data-visualizer",
+        },
+        {
+            "type": "agent_start",
+            "timestamp": _zulu(20),
+            "agent_id": "agent-B",
+            "agent_type": "data-visualizer",
+        },
+        {
+            "type": "agent_stop",
+            "timestamp": _zulu(20),
+            "agent_id": "agent-B",
+            "agent_type": "data-visualizer",
+        },
+    ]
+    result = await _call_session_log(
+        events, tmp_path, list_agents=True, since="2026-02-19T12:00:00-07:00"
+    )
+    assert result["total_agents"] == 1
+    assert result["agents"][0]["agent_id"] == "agent-B"
+    assert result["filters_applied"]["since"] == "2026-02-19T12:00:00-07:00"
+
+
+@pytest.mark.asyncio
+async def test_before_invalid_format(tmp_path):
+    """Bad upper bound returns validation error, not crash."""
+    fn = _get_session_log()
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
+            return_value=tmp_path,
+        ),
+        _patch_transcript_reader([]),
+    ):
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(before="not-a-timestamp")
+
+    envelope = _exc_ctx["envelope"]
+    assert "before" in envelope["error_message"]
 
 
 @pytest.mark.asyncio

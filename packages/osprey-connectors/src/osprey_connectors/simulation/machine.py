@@ -8,8 +8,9 @@ validation that turns the decoded JSON into that model. All schema errors
 here at load time, so the runtime :class:`~osprey_connectors.simulation.engine.SimulationEngine`
 can assume a well-formed model.
 
-:func:`parse_machine` is the single entry point; the engine calls it once at
-construction and consumes the returned :class:`ParsedMachine`.
+:func:`read_machine_json` decodes the file, and :func:`parse_machine` is the
+single entry point that validates it; the engine calls it once at construction
+and consumes the returned :class:`ParsedMachine`.
 """
 
 import ast
@@ -176,6 +177,20 @@ class ParsedMachine:
     description: str
     channels: dict[str, SimChannel]
     scenarios: dict[str, Scenario]
+
+
+def read_machine_json(machine_path: Path) -> Any:
+    """Decode a bundle's ``machine.json``.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the file is not valid JSON; the message names the file
+            and the decoder's position.
+    """
+    try:
+        return json.loads(machine_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Machine file {machine_path} is not valid JSON: {exc}") from exc
 
 
 def parse_machine(machine: Any, machine_path: Path) -> ParsedMachine:
@@ -627,8 +642,9 @@ def _parse_relative_timestamp(prefix: str, raw: Any) -> RelativeTimestamp:
     if isinstance(days_ago, bool) or not isinstance(days_ago, int) or days_ago < 0:
         raise ValueError(f"{prefix}: 'days_ago' must be a non-negative integer, got {days_ago!r}")
     raw_time = raw.get("time")
-    _validate_at_time(prefix, raw_time)
-    return RelativeTimestamp(days_ago=days_ago, time=dtime.fromisoformat(raw_time))
+    return RelativeTimestamp(
+        days_ago=days_ago, time=_validate_at_time(prefix, raw_time, subject="'when.time'")
+    )
 
 
 def _parse_log_entry(scenario_name: str, raw: Any) -> ScenarioLogEntry:
@@ -729,24 +745,26 @@ def _validate_position_keys(prefix: str, event: dict[str, Any], shape: str) -> N
             raise ValueError(f"{prefix}: 'ramp' event missing keys ['{until_key}']")
 
 
-def _validate_at_time(prefix: str, raw_time: Any) -> None:
-    """Validate an ``at_time`` value: a tz-naive ``'HH:MM:SS'`` local time-of-day."""
+def _validate_at_time(prefix: str, raw_time: Any, *, subject: str) -> dtime:
+    """Validate a tz-naive ``'HH:MM:SS'`` local time-of-day under the ``at_time`` rules.
+
+    ``subject`` names the value the way its author wrote it, so a refusal points
+    at a key the entry has.
+    """
     if not isinstance(raw_time, str):
-        raise ValueError(
-            f"{prefix}: event key 'at_time' must be an 'HH:MM:SS' time string, got {raw_time!r}"
-        )
+        raise ValueError(f"{prefix}: {subject} must be an 'HH:MM:SS' time string, got {raw_time!r}")
     try:
         parsed_time = dtime.fromisoformat(raw_time)
     except ValueError:
         raise ValueError(
-            f"{prefix}: event key 'at_time' must be a valid 'HH:MM:SS' time of day, "
-            f"got {raw_time!r}"
+            f"{prefix}: {subject} must be a valid 'HH:MM:SS' time of day, got {raw_time!r}"
         ) from None
     if parsed_time.tzinfo is not None:
         raise ValueError(
-            f"{prefix}: event key 'at_time' is local time and must not carry a "
+            f"{prefix}: {subject} is local time and must not carry a "
             f"timezone offset, got {raw_time!r}"
         )
+    return parsed_time
 
 
 def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> None:
@@ -776,7 +794,7 @@ def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> 
     elif "at_offset" in event:
         _require_event_number(prefix, event, "at_offset")
     else:
-        _validate_at_time(prefix, event["at_time"])
+        _validate_at_time(prefix, event["at_time"], subject="event key 'at_time'")
     if shape == "ramp":
         if "at" in event:
             _require_event_number(prefix, event, "until", 0.0, 1.0)

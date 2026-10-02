@@ -547,37 +547,47 @@ class TestHostNetworkDerivation:
         assert bindings == []
         assert "my_ioc_gw" in caplog.text
         assert "preflight" in caplog.text
+        assert "listens: false" in caplog.text
 
-    def test_the_outbound_only_bridges_neither_derive_nor_warn(self, caplog):
-        """The bundled bridges legitimately run host-mode with no listening
-        socket; a warning for them would be noise on a valid config."""
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "nextcloud_bridge",
+            "gchat_bridge",
+            "teams_bridge",
+            "ariel_sync",
+            "archive",
+            "site_poller",
+        ],
+    )
+    def test_a_service_declaring_it_listens_on_nothing_neither_derives_nor_warns(
+        self, caplog, name
+    ):
+        """A service that opens no listening socket says so on its block; a
+        warning for it would be noise on a valid config, whoever wrote it."""
         with caplog.at_level("WARNING"):
             bindings = derive_host_network_bindings(
-                _host_config(
-                    nextcloud_bridge={"network": "host"},
-                    gchat_bridge={"network": "host"},
-                    teams_bridge={"network": "host"},
-                )
+                _host_config(**{name: {"network": "host", "listens": False}})
             )
         assert bindings == []
         assert "host network" not in caplog.text
 
-    def test_the_ariel_sync_poller_neither_derives_nor_warns(self, caplog):
-        """``ariel_sync`` is an outbound-only poller with no listening socket,
-        same as the bundled bridges; a warning for it would be noise on a
-        valid config."""
+    def test_an_undeclared_bundled_name_is_announced_like_any_other(self, caplog):
+        """No name list is left: a bundled name that declares nothing is
+        treated as any other portless host-mode service."""
         with caplog.at_level("WARNING"):
-            bindings = derive_host_network_bindings(_host_config(ariel_sync={"network": "host"}))
+            bindings = derive_host_network_bindings(_host_config(teams_bridge={"network": "host"}))
         assert bindings == []
-        assert "host network" not in caplog.text
+        assert "teams_bridge" in caplog.text
+        assert "preflight" in caplog.text
 
-    def test_the_archive_neither_derives_nor_warns(self, caplog):
-        """``archive`` copies volumes and opens no listening socket; a warning
-        for it would be noise on a valid config."""
-        with caplog.at_level("WARNING"):
-            bindings = derive_host_network_bindings(_host_config(archive={"network": "host"}))
-        assert bindings == []
-        assert "host network" not in caplog.text
+    def test_a_listening_service_declaring_bind_env_is_still_derived_from_its_port(self):
+        """``bind_env`` names where the address is rendered; it does not
+        exempt a listening service from the preflight."""
+        (binding,) = derive_host_network_bindings(
+            _host_config(my_ioc_gw={"network": "host", "port": 5075, "bind_env": "SITE_BIND"})
+        )
+        assert (binding.service, binding.host_port) == ("my_ioc_gw", 5075)
 
     def test_both_halves_on_host_derive_both(self):
         bindings = derive_host_network_bindings(

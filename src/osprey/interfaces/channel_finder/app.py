@@ -10,19 +10,30 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey.utils.workspace import agent_data_base_dir
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Callable, Mapping
+    from typing import Any
 
     from osprey.channel_roster import RosterResult
+    from osprey.mcp_server.channel_finder_hierarchical.server_context import (
+        ChannelFinderHierContext,
+    )
+    from osprey.mcp_server.channel_finder_in_context.server_context import (
+        ChannelFinderICContext,
+    )
+    from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+        ChannelFinderMLContext,
+    )
+    from osprey.services.channel_finder.core.base_database import BaseDatabase
     from osprey.services.channel_finder.graph_index.reader import (
         GraphIndex,
         GraphIndexAbsence,
@@ -32,19 +43,37 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-#: Repo-relative home of the feedback stores, used when the config names no
-#: ``store_path``. Both stores are written while the agent runs, so they belong
-#: in the durable STATE zone: ``data/`` is build-owned and checksummed into the
-#: manifest, and ``build/`` is wiped and re-rendered by every build.
-#:
-#: Derived from :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR`
-#: rather than spelled out, so this fallback cannot drift away from the root the
-#: rest of the framework resolves. It is only a fallback: a config that sets
-#: ``store_path`` wins, and the shipped templates set it.
-FEEDBACK_DIR = f"{DEFAULT_AGENT_DATA_BASE_DIR}/feedback"
+
+def feedback_dir(config: Mapping[str, Any] | None) -> str:
+    """Repo-relative home of both feedback stores under the configured agent-data root.
+
+    Used when the config names no ``store_path``. Both stores are written while
+    the agent runs, so they belong in the durable STATE zone: ``data/`` is
+    build-owned and checksummed into the manifest, and ``build/`` is wiped and
+    re-rendered by every build. The capture hook resolves the same
+    ``agent_data.base_dir`` key, so the pending-review file it writes is the one
+    this app reads.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The feedback directory, relative to the repo unless ``base_dir`` is absolute.
+    """
+    return f"{agent_data_base_dir(config)}/feedback"
 
 
-def _init_hierarchical_registry():
+class _PipelineRegistry(Protocol):
+    """What the app reads from a file-backed paradigm's registry."""
+
+    @property
+    def database(self) -> BaseDatabase: ...
+
+    @property
+    def facility_name(self) -> str: ...
+
+
+def _init_hierarchical_registry() -> ChannelFinderHierContext:
     """Build the hierarchical channel-finder registry."""
     from osprey.mcp_server.channel_finder_hierarchical.server_context import (
         initialize_cf_hier_context,
@@ -53,7 +82,7 @@ def _init_hierarchical_registry():
     return initialize_cf_hier_context()
 
 
-def _init_middle_layer_registry():
+def _init_middle_layer_registry() -> ChannelFinderMLContext:
     """Build the middle-layer channel-finder registry."""
     from osprey.mcp_server.channel_finder_middle_layer.server_context import (
         initialize_cf_ml_context,
@@ -62,7 +91,7 @@ def _init_middle_layer_registry():
     return initialize_cf_ml_context()
 
 
-def _init_in_context_registry():
+def _init_in_context_registry() -> ChannelFinderICContext:
     """Build the in-context channel-finder registry."""
     from osprey.mcp_server.channel_finder_in_context.server_context import (
         initialize_cf_ic_context,
@@ -227,7 +256,7 @@ def _read_channel_roster(config) -> RosterResult | None:
             "enumeration routes report this.",
             roster.absence.message(),
         )
-    else:
+    elif roster.source is not None:
         logger.info(
             "Channel roster read: %d channels from %s",
             len(roster.records),
@@ -263,7 +292,7 @@ def _roster_addresses(roster: RosterResult | None) -> tuple[str, ...]:
 #: The graph paradigm is deliberately absent: it opens no database file, so
 #: there is no registry to build and nothing here to name. The lifespan serves
 #: it from the resolved mode instead.
-_PIPELINE_REGISTRY_INITIALIZERS: tuple[tuple[str, Callable[[], object]], ...] = (
+_PIPELINE_REGISTRY_INITIALIZERS: tuple[tuple[str, Callable[[], _PipelineRegistry]], ...] = (
     ("hierarchical", _init_hierarchical_registry),
     ("middle_layer", _init_middle_layer_registry),
     ("in_context", _init_in_context_registry),
@@ -303,7 +332,7 @@ def _create_lifespan(project_cwd: str | None = None):
 
         # Initialize all available pipeline registries so the UI can switch
         available: list[str] = []
-        databases: dict[str, object] = {}
+        databases: dict[str, BaseDatabase] = {}
         facility_names: dict[str, str] = {}
 
         # The graph paradigm is store-backed rather than file-backed: its
@@ -401,7 +430,7 @@ def _create_lifespan(project_cwd: str | None = None):
                 from osprey.services.channel_finder.feedback.store import FeedbackStore
 
                 store_path = feedback_config.get(
-                    "store_path", f"{FEEDBACK_DIR}/hierarchical_feedback.json"
+                    "store_path", f"{feedback_dir(config)}/hierarchical_feedback.json"
                 )
                 # Anchored on the deployment REPO root, not on this process's
                 # working directory. `project_cwd` defaults to `Path.cwd()`,
@@ -422,7 +451,7 @@ def _create_lifespan(project_cwd: str | None = None):
             )
 
             # Same anchor as the feedback store above, for the same reason.
-            pr_path = Path(resolve_cf_state_path(f"{FEEDBACK_DIR}/pending_reviews.json"))
+            pr_path = Path(resolve_cf_state_path(f"{feedback_dir(config)}/pending_reviews.json"))
             app.state.pending_review_store = PendingReviewStore(str(pr_path))
             logger.info("Initialized pending review store at %s", pr_path)
         except Exception:

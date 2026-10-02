@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import threading
 from collections.abc import Iterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -32,7 +32,7 @@ from osprey.utils.identity import TERMINAL_USER_ENV
 from osprey.utils.owner_header import OWNER_HEADER
 from tests.conftest import dispatcher_route_registry
 
-from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, panel_app
+from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect, panel_app
 
 
 @pytest.fixture
@@ -199,8 +199,9 @@ class TestPanelLaunchCredentialInjection:
 
     @staticmethod
     def _connect(client, path):
+        """Open *path*; the one fake records whichever connect type the proxy used."""
         fake = _FakeConnect()
-        with patch("websockets.connect", fake):
+        with _patch_connect(fake):
             with client.websocket_connect(path):
                 pass
         return fake

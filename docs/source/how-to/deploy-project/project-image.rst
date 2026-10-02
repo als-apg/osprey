@@ -377,6 +377,13 @@ recorded ``project_root``, the agent artifacts (``.mcp.json``, ``CLAUDE.md``,
 ``.claude/``) and every path they name are already the container's before the
 first ``docker build`` layer runs.
 
+The repository's own Claude Code files — a root ``CLAUDE.md``,
+``CLAUDE.local.md``, ``.claude/`` and ``.mcp.json`` — stay out of the context.
+They are for whoever edits the repository, and the agent runs in ``build/``, so
+a root ``CLAUDE.md`` would be loaded into every session. The rest of the
+repository's source travels, which is what lets the container's drift check
+agree with the host.
+
 That is why the by-hand build below runs from ``build/.image/<name>/`` rather
 than from the repository root. ``osprey build --runtime-root PATH`` is the same
 mechanism exposed directly, for a render whose output will run somewhere other

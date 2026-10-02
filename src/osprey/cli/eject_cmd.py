@@ -9,7 +9,7 @@ Usage:
     osprey eject service channel_finder        # Copy service to local project
 """
 
-import importlib
+import importlib.util
 import shutil
 from pathlib import Path
 

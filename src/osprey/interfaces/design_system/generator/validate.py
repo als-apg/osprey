@@ -686,7 +686,7 @@ def _check_family_label_agreement(tree: TokenTree) -> list[TokenFinding]:
         One error per family whose declared labels disagree.
     """
     #: family -> {declared label: first source file that declared it}
-    by_family: dict[str, dict[str, str]] = {}
+    by_family: dict[str, dict[str, Path]] = {}
     for stem, metadata in tree.theme_metadata.items():
         family = metadata.get("family")
         family_label = metadata.get("family_label")

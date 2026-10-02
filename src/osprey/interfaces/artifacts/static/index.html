@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <!-- data-browse-orient: axis of the browse split (row = browser left /
      artifact right, column = stacked band). "row" is the shipped default;
-     browse-layout.js re-applies a persisted "column" choice at module load. -->
-<html lang="en" data-browse-orient="row"{% if web_theme_pin %} data-theme="{{ web_theme_pin }}"{% endif %}>
+     browse-layout.js re-applies a persisted "column" choice at module load.
+     data-facility-timezone: the IANA zone system.timezone names, read by
+     design_system/static/js/facility-time.js. -->
+<html lang="en" data-browse-orient="row" data-facility-timezone="{{ facility_timezone }}"{% if web_theme_pin %} data-theme="{{ web_theme_pin }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -45,6 +47,10 @@
        cannot call the vendor_url() template global — the resolved URL rides
        along here instead. -->
   <meta name="osprey-vendor-plotly" content="{{ vendor_url('Plotly.js', '/static/js/vendor/plotly-3.3.1.min.js') }}">
+
+  <!-- The directory the store writes artifacts to, as the agent should open it.
+       Read by types.js's artifactPath, which cannot see the server's config. -->
+  <meta name="osprey-artifact-dir" content="{{ artifact_dir }}">
 
   <!-- Stylesheet -->
   <link rel="stylesheet" href="/static/css/gallery.css">

@@ -103,7 +103,7 @@ def _snapshot_managed_env() -> dict[str, str | None]:
     Taken *before* the repo ``.env`` is overlaid, so it is the record of what
     the operator's shell — and nothing else — had to say about the backend.
     """
-    from osprey.build.claude_code_resolver import MANAGED_ENV_VARS
+    from osprey.agent_runner.provider_env import MANAGED_ENV_VARS
 
     return {var: os.environ.get(var) for var in MANAGED_ENV_VARS}
 
@@ -331,7 +331,8 @@ def chat(
 
     import yaml
 
-    from osprey.build.claude_code_resolver import (
+    from osprey.agent_runner.launcher import build_claude_launch_argv, build_session_argv
+    from osprey.agent_runner.provider_env import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
         inject_provider_env,
@@ -342,23 +343,12 @@ def chat(
         telemetry_creds_are_store_issued,
     )
     from osprey.deployment.staleness import BUILD_DIRNAME
-    from osprey.utils.claude_launcher import build_claude_launch_argv
 
     repo_root = find_repo_root(repo)
     build_dir = repo_root / BUILD_DIRNAME
 
     # ── Provider isolation: inject env block + auth, scrub managed vars ──
     #
-    # Managed (enterprise) policy settings outrank the process environment AND
-    # the --setting-sources project restriction below, so a policy `env` block
-    # setting a provider variable would silently redirect the agent to a backend
-    # the deployment did not configure. For a framework driving control systems,
-    # refuse to launch rather than start against the wrong provider.
-    policy_conflicts = detect_managed_policy_conflicts()
-    if policy_conflicts:
-        output.fail("Refusing to launch", format_managed_policy_conflicts(policy_conflicts))
-        raise SystemExit(1)
-
     # This call refuses when there is no build, so it has to run before anything
     # with a side effect — the proxy, the companion servers, the environment
     # overlay. Moving it below any of them would start something on behalf of a
@@ -429,11 +419,10 @@ def chat(
         # The repo root, not the render: `.env` is the durable SECRETS zone and
         # deliberately does not live in the disposable build output.
         #
-        # `os.environ` is a MutableMapping rather than a dict, and handing over
-        # the real one is the point — the overlay mutates the environment this
-        # process will hand to the agent.
+        # Handing over the real `os.environ` is the point — the overlay mutates
+        # the environment this process will hand to the agent.
         injected = inject_provider_env(
-            os.environ,  # type: ignore[arg-type]
+            os.environ,
             spec,
             project_dir=repo_root,
         )
@@ -444,35 +433,42 @@ def chat(
 
         # Start translation proxy for OpenAI-compatible providers
         if spec.needs_proxy and spec.upstream_base_url:
-            from osprey.infrastructure.proxy.lifecycle import start_proxy
+            from osprey.infrastructure.proxy.lifecycle import start_proxy_for
 
-            proxy_port = start_proxy(
-                spec.upstream_base_url,
-                os.environ.get(spec.auth_env_var),
-                provider=spec.provider,
-            )
+            proxy_port = start_proxy_for(spec, os.environ)
             os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
             output.note(f"Translation proxy on :{proxy_port} forwards to {spec.upstream_base_url}")
+
+    # Managed (enterprise) policy settings outrank this environment and the
+    # --setting-sources project restriction below, so a policy value that
+    # differs from the deployment's would silently redirect the agent. The check
+    # reads the finished environment, translation-proxy loopback included,
+    # because that is what the agent would otherwise run on. A build with no
+    # provider compares against nothing, so every policy provider key refuses.
+    # A refusal here leaves only the proxy daemon thread behind, which exits
+    # with the process.
+    policy_conflicts = detect_managed_policy_conflicts(os.environ if spec is not None else {})
+    if policy_conflicts:
+        output.fail("Refusing to launch", format_managed_policy_conflicts(policy_conflicts))
+        raise SystemExit(1)
 
     # Build the agent CLI args (it uses cwd as the project root — there is no
     # --project-dir flag). When claude_code.cli_version is set,
     # build_claude_launch_argv() returns an ``npx -y @anthropic-ai/claude-code@<v>``
     # prefix instead of a bare ``claude`` so each deployment can pin the CLI
-    # version (issue #218). ``--no-pin`` opts out of the pin but not the
-    # ``--setting-sources project`` provider isolation.
-    args = build_claude_launch_argv(cc_config, no_pin=no_pin)
-    if resume:
-        args.extend(["--resume", resume])
-    if print_mode:
-        args.append("--print")
-    if effort:
-        args.extend(["--effort", effort])
-    # Last, and positional: the agent CLI reads a single trailing argument as
-    # the opening message, so an unquoted `osprey chat what is the current?` is
-    # rejoined into the one message the operator meant rather than forwarded as
-    # four arguments of which only the first would be read.
-    if prompt:
-        args.append(" ".join(prompt))
+    # version. ``--no-pin`` opts out of the pin but not the
+    # ``--setting-sources project`` provider isolation. The agent CLI reads a
+    # single trailing argument as the opening message, so an unquoted
+    # `osprey chat what is the current?` is rejoined into the one message the
+    # operator meant rather than forwarded as four arguments of which only the
+    # first would be read.
+    args = build_session_argv(
+        build_claude_launch_argv(cc_config, no_pin=no_pin),
+        resume_id=resume,
+        print_mode=print_mode,
+        effort=effort,
+        prompt=" ".join(prompt) if prompt else None,
+    )
 
     # build/ IS the rendered project, and the agent CLI uses the working
     # directory as its project root — this is what points it at this

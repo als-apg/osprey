@@ -1,34 +1,33 @@
-"""A declared ``env:`` passthrough must survive the injector that rewrites its block.
+"""The author's per-service axes must survive the injector that rewrites their block.
 
 Eight deploy-time services are wired by a *dedicated* injector — bluesky,
 bluesky_web, gchat_bridge, nextcloud_bridge, teams_bridge, virtual_accelerator,
 mongodb and archiver_recorder. Each builds its ``services.<name>`` block from its own
 profile block and installs it with a whole-VALUE assignment, which runs AFTER
-both spellings of the env axis have already landed in ``config.yml``:
+both spellings of an author's per-service key have already landed in ``config.yml``:
 
-* nested — ``services.<name>.config.env``, written by ``_inject_profile_services``;
-* dotted — ``config: {"services.<name>.env": [...]}``, merged by
+* nested — ``services.<name>.config.<key>``, written by ``_inject_profile_services``;
+* dotted — ``config: {"services.<name>.<key>": ...}``, merged by
   ``build_cmd._apply_config_overrides``.
 
-So the axis was accepted at validation, written to the rendered config, and then
-silently dropped a few steps later: the author saw no error and no passthrough,
-which is precisely the failure mode the dispatch-pair rejection exists to
-prevent, one layer wider. The three services with no dedicated injector (qmd,
-openobserve, postgresql) honoured it all along, which is what made the gap so
-easy to miss.
+The keys that belong to the author rather than to any injector — ``env:`` (a
+name list), ``network:`` (the attachment the template renders) and ``http:``
+(what the deploy summary prints) — must therefore be carried across that
+replacement, or they are accepted at validation, written to the rendered config
+and then silently dropped a few steps later, with no error and no effect.
 
 What these tests pin:
 
-* every one of the eight carries a declared ``env:`` list through its injector,
-  in both spellings and in author order;
+* every one of the eight carries a declared ``env:`` list and a ``network:``
+  through its injector, in both spellings and in author order;
 * the keys the injector *derives* (a port, a trigger, a path) are still
   regenerated — carrying the authored key must not turn the block into an
   append-only accumulation of whatever a previous build left;
-* a service that declares nothing gets no ``env`` key at all, so a config.yml
-  that never carried one renders byte-for-byte what it did before;
+* a service that declares nothing gets none of the authored keys, so a
+  config.yml that never carried one renders byte-for-byte what it did before;
 * ``_inject_profile_services`` fills only the GAP: the nested spelling it builds
   its block from still outranks a dotted override sitting in the block being
-  replaced, exactly as it did before.
+  replaced.
 """
 
 from __future__ import annotations
@@ -152,6 +151,40 @@ def test_a_service_that_declares_nothing_gets_no_env_key(tmp_path, name, inject,
 
 
 @pytest.mark.parametrize(("name", "inject", "derived"), _INJECTORS, ids=_INJECTOR_IDS)
+def test_an_authored_network_survives_the_injector(tmp_path, name, inject, derived):
+    """A dotted ``network: host`` reaches the render beside the derived keys.
+
+    The network axis is read by each service's compose template off its own
+    block, so a dropped key leaves the service on the compose bridge while the
+    profile says host.
+    """
+    project = _project(tmp_path, {name: {"network": "host"}})
+
+    inject(project)
+
+    block = _services(project)[name]
+    assert block["network"] == "host", f"{name} dropped its authored network"
+    assert derived in block, f"{name} no longer writes its own derived {derived!r} key"
+
+
+@pytest.mark.parametrize(("name", "inject", "derived"), _INJECTORS, ids=_INJECTOR_IDS)
+def test_a_service_that_declares_nothing_gets_no_network_or_http_key(
+    tmp_path,
+    name,
+    inject,
+    derived,  # noqa: ARG001 - a column of the shared _INJECTORS table
+):
+    """Carrying the author's axes adds no key the author did not write."""
+    project = _project(tmp_path, {})
+
+    inject(project)
+
+    block = _services(project)[name]
+    assert "network" not in block
+    assert "http" not in block
+
+
+@pytest.mark.parametrize(("name", "inject", "derived"), _INJECTORS, ids=_INJECTOR_IDS)
 def test_the_derived_keys_are_still_regenerated(tmp_path, name, inject, derived):
     """A stale value from a previous build must not survive alongside the carry.
 
@@ -225,3 +258,49 @@ def test_the_nested_spelling_still_outranks_a_dotted_override(tmp_path):
     _inject_profile_services(tmp_path, project, services)
 
     assert _services(project)["qmd"]["env"] == ["NESTED_WINS"]
+
+
+def test_a_profile_service_carries_a_dotted_network_and_http(tmp_path):
+    """Both dotted axes sitting in the block survive the profile-service rewrite."""
+    project = _project(tmp_path, {"archive": {"network": "host", "http": True}})
+    services = {"archive": ServiceDef(template="osprey.archive", config={})}
+
+    _inject_profile_services(tmp_path, project, services)
+
+    block = _services(project)["archive"]
+    assert block["network"] == "host"
+    assert block["http"] is True
+
+
+def test_the_nested_spelling_still_outranks_a_dotted_network(tmp_path):
+    """The nested ``network:`` the injector builds from wins over a dotted one."""
+    project = _project(tmp_path, {"qmd": {"network": "host"}})
+    services = {"qmd": ServiceDef(template="osprey.qmd", config={"network": "bridge"})}
+
+    _inject_profile_services(tmp_path, project, services)
+
+    assert _services(project)["qmd"]["network"] == "bridge"
+
+
+def test_a_profile_service_carries_a_dotted_bind_declaration(tmp_path):
+    """A dotted ``listens`` / ``bind_env`` survives the profile-service rewrite."""
+    project = _project(
+        tmp_path,
+        {
+            "site_poller": {"network": "host", "listens": False},
+            "site_api": {"network": "host", "bind_env": "SITE_BIND"},
+        },
+    )
+    template = tmp_path / "profile" / "services" / "site"
+    template.mkdir(parents=True)
+    (template / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
+    services = {
+        "site_poller": ServiceDef(template="services/site", config={}),
+        "site_api": ServiceDef(template="services/site", config={}),
+    }
+
+    _inject_profile_services(tmp_path / "profile", project, services)
+
+    rendered = _services(project)
+    assert rendered["site_poller"]["listens"] is False
+    assert rendered["site_api"]["bind_env"] == "SITE_BIND"

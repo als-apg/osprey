@@ -1,5 +1,5 @@
 {
-  "_comment": "Machine state channels — a small representative set from the RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD namespace shared by all channel-finder pipelines (see channel_databases/). One canonical list regardless of pipeline mode.",
+  "_comment": "Machine-state addresses — a small representative set from the RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD namespace shared by all channel-finder pipelines (see channel_databases/). The build reconciles every key against the virtual-accelerator channel manifest; only the keys are read. One canonical list regardless of pipeline mode.",
   "_version": "2.0",
 
   "SR:DIAG:DCCT:01:CURRENT:RB": { "label": "Beam current (DCCT)", "group": "beam" },

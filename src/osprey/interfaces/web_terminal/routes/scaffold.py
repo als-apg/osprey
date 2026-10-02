@@ -63,7 +63,9 @@ def _require_scaffold_writes(request: Request) -> None:
 
     An app with no ``scaffold_write_enabled`` on its state never ran the
     lifespan that decides the tier, so it is refused like a closed one: a
-    privilege boundary that nobody resolved stays shut.
+    privilege boundary that nobody resolved stays shut. When writes are closed
+    because the config file could not be read, the refusal names that file and
+    the fix.
 
     Args:
         request: Incoming request carrying ``app.state``.
@@ -72,6 +74,11 @@ def _require_scaffold_writes(request: Request) -> None:
         HTTPException: 403 when gallery writes are disabled for this deployment.
     """
     if not getattr(request.app.state, "scaffold_write_enabled", False):
+        unreadable = getattr(request.app.state, "config_unreadable_path", None)
+        if unreadable:
+            from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+
+            raise HTTPException(status_code=403, detail=unreadable_config_refusal(unreadable))
         raise HTTPException(
             status_code=403,
             detail=(

@@ -26,8 +26,8 @@
  * `_esc` copy; that divergence has been consolidated away.
  *
  * Table cells apply magnitude-adaptive formatting: index cells go through
- * `_tsShortTime` (short month/day + hour:minute:second, no year, since the
- * backend's `index` is ISO timestamp strings — see
+ * `_tsShortTime` (short month/day + hour:minute:second on the facility clock,
+ * no year, since the backend's `index` is ISO timestamp strings — see
  * src/osprey/utils/timeseries.py's `extract_channel_series`), value cells
  * through `_tsFormatValue` (<=5 significant figures, scientific notation for
  * very large/small magnitudes). Both helpers fall back to raw `String(...)`
@@ -46,6 +46,12 @@ import {
 } from "/design-system/js/theme-manager.js";
 import { escapeHtml } from "/design-system/js/dom.js";
 import { isoToDate } from "./types.js";
+import {
+  facilityWallClock,
+  facilityZoneLabel,
+  formatFacilityTime,
+  viewerSharesFacilityClock,
+} from "/design-system/js/facility-time.js";
 
 // ---- Lazy Plotly Loader ---- //
 
@@ -108,7 +114,7 @@ function _tsFormatValue(num) {
 
 /**
  * Short index/time-cell formatter for ISO timestamp strings: month/day +
- * hour:minute:second, no year. Shares types.js's `isoToDate` guard, which
+ * hour:minute:second on the facility clock, no year. Shares types.js's `isoToDate` guard, which
  * rejects the null/number/numeric-string inputs that bare `Date` coercion
  * would otherwise turn into fabricated epoch/year-2000 timestamps: nullish
  * input renders "--", and any other non-ISO/invalid value falls back to
@@ -121,7 +127,7 @@ function _tsShortTime(iso) {
   if (iso === null || iso === undefined) return "--";
   const d = isoToDate(iso);
   if (!d) return String(iso);
-  return d.toLocaleString(undefined, {
+  return formatFacilityTime(d, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -149,6 +155,24 @@ function _tsIsNonNumeric(ch) {
  */
 function _tsHasNonNumeric(channels) {
   return (channels || []).some(_tsIsNonNumeric);
+}
+
+/**
+ * The latest last-sample instant across channels, for the axis's zone label.
+ * The label is taken where the data ends, so a winter chart viewed in summer
+ * is named for winter.
+ * @param {any[]} channels
+ * @returns {Date|undefined}
+ */
+function _tsLatestInstant(channels) {
+  /** @type {Date|undefined} */
+  let latest;
+  for (const ch of channels || []) {
+    const stamps = ch.timestamps || [];
+    const d = isoToDate(stamps[stamps.length - 1]);
+    if (d && (!latest || d > latest)) latest = d;
+  }
+  return latest;
 }
 
 /**
@@ -418,7 +442,7 @@ export async function renderTimeseriesChart(el, chartData) {
   const traces = channels.map((/** @type {any} */ ch) => {
     const numeric = !_tsIsNonNumeric(ch);
     return {
-      x: ch.timestamps,
+      x: ch.timestamps?.map((/** @type {any} */ ts) => (isoToDate(ts) ? facilityWallClock(ts) : ts)),
       y: ch.values,
       name: ch.channel,
       // scattergl (WebGL) is faster for the common numeric case; a
@@ -446,6 +470,7 @@ export async function renderTimeseriesChart(el, chartData) {
   });
 
   const t = _tsChartTheme();
+  const zoneLabel = facilityZoneLabel(_tsLatestInstant(channels));
 
   const layout = {
     paper_bgcolor: t.paper_bgcolor,
@@ -458,7 +483,14 @@ export async function renderTimeseriesChart(el, chartData) {
     // zerolinecolor too: chartRelayout() sets it on a live re-theme, so the
     // first render must as well or the zero line changes color on the
     // first theme flip.
-    xaxis: { gridcolor: t.xaxis.gridcolor, linecolor: t.line, zerolinecolor: t.line, tickfont: { size: 10 } },
+    xaxis: {
+      gridcolor: t.xaxis.gridcolor,
+      linecolor: t.line,
+      zerolinecolor: t.line,
+      tickfont: { size: 10 },
+      title: { text: `Time (${zoneLabel})`, font: { size: 10 } },
+      automargin: true,
+    },
     yaxis: { gridcolor: t.yaxis.gridcolor, linecolor: t.line, zerolinecolor: t.line, tickfont: { size: 10 } },
     ...(hasNonNumeric
       ? {
@@ -512,7 +544,8 @@ export async function renderTimeseriesTable(el, artifactId, offset) {
     // Header must come from THIS response: names from a separate format=chart
     // request can disagree for an artifact being written while it is viewed.
     let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
-    html += '<thead><tr><th>Index</th>';
+    const indexHeader = viewerSharesFacilityClock() ? "Index" : `Index (${facilityZoneLabel()})`;
+    html += `<thead><tr><th>${escapeHtml(indexHeader)}</th>`;
     tableData.columns.forEach((/** @type {string} */ c) => { html += `<th>${escapeHtml(c)}</th>`; });
     html += '</tr></thead><tbody>';
 

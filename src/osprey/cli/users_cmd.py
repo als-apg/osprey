@@ -24,7 +24,7 @@ lands in the zone it belongs in — see :func:`_users_session` for the list.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -263,6 +263,56 @@ def _roster_usernames(config_path: str) -> list[str]:
     config = load_project_config(config_path)
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+
+
+def _removal_outcome(
+    user: str,
+    *,
+    resuming: bool,
+    archive: bool,
+    purge: bool,
+    kept: Sequence[tuple[str, str]],
+) -> list[str]:
+    """Say what a removal did to the container and volumes, for an unwritten profile.
+
+    This decides what the failure block for an unwritten profile.yml says about
+    the container runtime. A line claiming removed volumes that the runtime
+    still holds sends the operator away from the resources they still have to
+    deal with, so every kept volume is named with its reason and the command
+    that removes it.
+
+    Args:
+        user: The username being removed.
+        resuming: True when this run skipped the engine because an earlier run
+            already took the user off the deployed roster.
+        archive: True when ``--archive`` was given.
+        purge: True when ``--purge`` was given.
+        kept: The ``(subject, reason)`` pairs of every volume the runtime
+            refused to remove, in the engine's order; empty when none was kept.
+
+    Returns:
+        The ``Done:``/``Not done:`` lines, in the order they are printed.
+    """
+    if resuming:
+        return [
+            "Done: nothing in the container runtime; an earlier run already took "
+            f"{user} off the deployed roster."
+        ]
+    if kept:
+        flag = "--archive" if archive else "--purge"
+        return [
+            "Done: the container was removed, and so was every volume not listed below.",
+            *(f"Not done: {subject} is still on the host: {reason}" for subject, reason in kept),
+            f"Stop whatever is using them, then `osprey users prune {flag}` removes them.",
+        ]
+    if archive:
+        return ["Done: the container was removed, and the volumes were archived and removed."]
+    if purge:
+        return ["Done: the container and volumes were removed."]
+    return [
+        "Done: the container was removed. The volumes were kept, as no --archive or "
+        "--purge was given."
+    ]
 
 
 def _mint_terminal_secrets(session: _Repo) -> None:
@@ -521,11 +571,13 @@ def users() -> None:
 #   - The engine succeeds but the profile write fails (unwritable file, full
 #     disk, a profile.yml that no longer parses): this does not fall to the
 #     generic "remove failed" handler, which would read as though nothing had
-#     happened. It reports the true state instead — the container and volumes
-#     were removed, profile.yml still lists the user, and the next build would
-#     put them back — followed by the two remedies, re-running the command
-#     (which converges via the branch above) or editing profile.yml by hand.
-#     The command still exits non-zero.
+#     happened. It reports what this run removed and what it kept — the
+#     container, each volume the policy removed or kept, and each volume the
+#     runtime refused, with the reason and the prune command that removes it —
+#     then that profile.yml still lists the user and the next build would put
+#     them back, followed by the two remedies, re-running the command (which
+#     converges via the branch above) or editing profile.yml by hand. The
+#     command still exits non-zero.
 #
 # So every partial state is reachable by re-running the same command, and no
 # partial state silently reverts: the one outcome that must never happen — a
@@ -551,9 +603,11 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
       • Decline the typed confirmation and nothing happens at all.
       • If the run is interrupted partway, re-run this command: it detects the
         half-finished removal and completes just the profile edit.
-      • If the workspace was removed but profile.yml could not be written, the
-        command says exactly that and exits non-zero. Re-run it, or drop the
-        entry from profile.yml by hand.
+      • If profile.yml could not be written, the command says what was removed
+        and what was kept, and exits non-zero. Re-run it, or drop the entry
+        from profile.yml by hand.
+      • If the runtime refuses to remove a volume, the removal still
+        finishes, names the volume and the reason, and exits non-zero.
 
     Containers or volumes an interrupted run left behind are removed by
     'osprey users prune'.
@@ -563,6 +617,7 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
     _check_archive_purge(archive, purge)
 
     with _users_session(repo) as session:
+        from osprey.deployment.errors import RemovalIncompleteError
         from osprey.deployment.staleness import check_drift
         from osprey.deployment.web_terminals.lifecycle import decommission_user
 
@@ -576,6 +631,7 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
         resuming = not _rendered_roster_lists(session.config, user) and _profile_roster_lists(
             profile_path, user
         )
+        incomplete: RemovalIncompleteError | None = None
         if resuming:
             warn(
                 f"{user} is already off the deployed roster",
@@ -588,7 +644,12 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
             # build/config.yml; that write is now redundant (the profile is what
             # the next build renders from) but harmless, since this command
             # makes the same removal in both files.
-            decommission_user(session.config, user, archive=archive, purge=purge, assume_yes=yes)
+            try:
+                decommission_user(
+                    session.config, user, archive=archive, purge=purge, assume_yes=yes
+                )
+            except RemovalIncompleteError as kept_error:
+                incomplete = kept_error
 
         # After the engine, never before it: the engine owns the typed
         # confirmation, and a declined gate must leave the deployment exactly as
@@ -607,10 +668,20 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
             # failed. Every way this write can fail — an unwritable file, a full
             # disk, a profile.yml that no longer parses — leaves the same true
             # state and has the same way forward, so they are caught together.
+            outcome = "\n".join(
+                _removal_outcome(
+                    user,
+                    resuming=resuming,
+                    archive=archive,
+                    purge=purge,
+                    kept=incomplete.left if incomplete is not None else (),
+                )
+            )
             fail(
-                f"{user}'s workspace WAS removed, but this repo's profile.yml could not be updated",
+                f"{user} is off the deployed roster, but this repo's profile.yml "
+                "could not be updated",
                 f"{exc}\n"
-                "Done: the container and volumes were removed.\n"
+                f"{outcome}\n"
                 f"Not done: profile.yml still lists {user}, so the next `osprey build` "
                 "would put them back on the roster.\n"
                 "Re-running notices the half-finished removal and only edits the "
@@ -648,6 +719,11 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
 
         report(check_drift(session.root).status_line)
 
+        # The workspace's other effects and the roster edit landed; the volumes
+        # the engine already named did not, and the exit status says so.
+        if incomplete is not None:
+            raise click.Abort()
+
 
 @users.command()
 @repo_option
@@ -668,9 +744,16 @@ def prune(repo: Path | None, archive: bool, purge: bool, yes: bool, dry_run: boo
     _check_archive_purge(archive, purge)
 
     with _users_session(repo) as session:
+        from osprey.deployment.errors import RemovalIncompleteError
         from osprey.deployment.web_terminals.lifecycle import prune_users
 
-        prune_users(session.config, dry_run=dry_run, archive=archive, purge=purge, assume_yes=yes)
+        incomplete: RemovalIncompleteError | None = None
+        try:
+            prune_users(
+                session.config, dry_run=dry_run, archive=archive, purge=purge, assume_yes=yes
+            )
+        except RemovalIncompleteError as kept_error:
+            incomplete = kept_error
         if not dry_run:
             # Asked of the roster rather than of the runtime, which is what
             # makes it answerable here at all: `prune_users` discovers orphans
@@ -679,6 +762,10 @@ def prune(repo: Path | None, archive: bool, purge: bool, yes: bool, dry_run: boo
             # not a container survived to be pruned. `--dry-run` touches
             # nothing, here as everywhere else in this verb.
             _purge_orphan_terminal_secrets(session)
+        # Every orphan was handled; the volumes the engine already named are
+        # still on the host, and the exit status says so.
+        if incomplete is not None:
+            raise click.Abort()
 
 
 @users.command()
@@ -797,7 +884,10 @@ def login_url(user: str, repo: Path | None) -> None:
                     "send them the login page, not a token URL",
                 )
             else:
-                terminal_url = f"{origin}/u/{user}/" if origin else f"this deployment's /u/{user}/"
+                from osprey.interfaces.common_middleware import url_mount_prefix
+
+                terminal = f"{url_mount_prefix(user)}/"
+                terminal_url = f"{origin}{terminal}" if origin else f"this deployment's {terminal}"
                 fail(
                     f"{user} is reached directly, so no token URL applies",
                     f"This deployment is open (auth.method: none): nginx vouches for "

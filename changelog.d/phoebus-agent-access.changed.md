@@ -1,0 +1,1 @@
+The agent's bridge to Phoebus is read-only unless the build profile sets `phoebus.agent_access: read_write`. With the default `read`, `phoebus_drive` is left out of the agent's tools and permissions and the phoebus server refuses a drive; `read_write` offers it behind the approval prompt and `control_system.writes_enabled`. Any other value is refused by name.

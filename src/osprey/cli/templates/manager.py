@@ -8,6 +8,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
+from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.build.build_tiers import (
     VALID_CHANNEL_FINDER_MODES,
     default_tier_for_mode,
@@ -341,7 +342,7 @@ class TemplateManager:
             cc_cfg = cc_config
             ctx["facility_permissions"] = cc_config.get("permissions", {})
             # Model provider resolution for init-time rendering
-            from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+            from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
             from osprey.build.claude_code_telemetry import openobserve_published_port
 
             api_providers = rendered_config.get("api", {}).get("providers", {})
@@ -401,7 +402,7 @@ class TemplateManager:
         # and it is auditable in the profile. Assigned, not setdefault, so the
         # framework wins; the build's own path (build_claude_code_context) gets
         # the same precedence from its ctx.update.
-        ctx["deny_defaults"] = list(claude_code.DENY_DEFAULTS)
+        ctx["deny_defaults"] = list(DENY_DEFAULTS)
 
         # Resolve servers and agents via the data-driven registry.
         from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
@@ -501,7 +502,8 @@ class TemplateManager:
             return artifacts
         tmpl_manifest = manifest.load_template_manifest(data_bundle)
         if tmpl_manifest:
-            return tmpl_manifest.get("artifacts", {})
+            selection: dict[str, list[str]] = tmpl_manifest.get("artifacts", {})
+            return selection
         return None
 
     def _project_context(
@@ -783,7 +785,7 @@ class TemplateManager:
         preset_name: str | None = None,
         profile_path: str | None = None,
     ) -> dict[str, Any]:
-        """Generate a project manifest for migration support.
+        """Generate ``.osprey-manifest.json`` for a freshly built project.
 
         Args:
             project_dir: Root directory of the created project.

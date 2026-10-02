@@ -78,7 +78,8 @@ def _config(users: list[str], **auth: object) -> dict:
             stanza.setdefault("allow_insecure_http", True)
         web_terminals["auth"] = stanza
     return {
-        "facility": {"name": "Demo Light Source", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "modules": {"web_terminals": web_terminals},

@@ -895,11 +895,12 @@ describe('Turn all writes off', () => {
   });
 
   test('the foot states the popover’s scope, once', async () => {
-    // One control context per deployment, so a narrowing recorded here reaches
-    // every session, notebook kernel and hook — not the page it was made on.
+    // One control context per login identity, so a narrowing recorded here
+    // reaches every session, notebook kernel and hook of that login — not only
+    // the page it was made on.
     await bootOpen();
     expect(document.querySelector('.ctc-all-off')?.textContent).toBe('Turn all writes off');
-    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe('Applies deployment-wide');
+    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe('Applies to every session of this login');
   });
 });
 

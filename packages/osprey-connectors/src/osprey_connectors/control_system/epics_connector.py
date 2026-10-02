@@ -25,6 +25,7 @@ from osprey_connectors.control_system.base import (
     is_readonly_run,
     values_match,
 )
+from osprey_connectors.control_system.call_timeout import call_timeout_s
 from osprey_connectors.control_system.limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     step_read_timeout_seconds,
@@ -275,10 +276,10 @@ class EPICSConnector(ControlSystemConnector):
     Example:
         Direct gateway connection:
         >>> config = {
-        >>>     'timeout': 5.0,
+        >>>     'timeout_s': 5.0,
         >>>     'gateways': {
         >>>         'read_only': {
-        >>>             'address': 'cagw-alsdmz.als.lbl.gov',
+        >>>             'address': 'gw.example.org',
         >>>             'port': 5064
         >>>         }
         >>>     }
@@ -290,7 +291,7 @@ class EPICSConnector(ControlSystemConnector):
 
         SSH tunnel connection:
         >>> config = {
-        >>>     'timeout': 5.0,
+        >>>     'timeout_s': 5.0,
         >>>     'gateways': {
         >>>         'read_only': {
         >>>             'address': 'localhost',
@@ -328,7 +329,7 @@ class EPICSConnector(ControlSystemConnector):
 
         Args:
             config: Configuration with keys:
-                - timeout: Default timeout in seconds (default: 5.0)
+                - timeout_s: Default timeout in seconds (default: 5.0)
                 - gateways: Gateway configuration dict with:
                     - read_only: {address, port, use_name_server} for read operations
                     - write_access: {address, port, use_name_server} for write operations
@@ -361,6 +362,8 @@ class EPICSConnector(ControlSystemConnector):
         Raises:
             ImportError: If pyepics is not installed, or if PVA channels are
                 configured and p4p is not installed
+            ValueError: If the block still carries ``timeout``, or if
+                ``timeout_s`` is not a positive, finite number
         """
         # Ensure pyepics loads a correct-architecture libca before first CA use.
         _configure_pyepics_libca()
@@ -386,6 +389,10 @@ class EPICSConnector(ControlSystemConnector):
         # is taken out as well.
         epics.ca.AUTO_CLEANUP = False
         atexit.unregister(epics.ca.finalize_libca)
+
+        # Refused before the gateway selection below rewrites the process-wide
+        # EPICS_CA_* environment, so an unusable bound never repoints CA.
+        self._timeout = call_timeout_s(config, self._connector_type)
 
         # Select the CA gateway. EPICS uses one process-wide context, so the
         # connector points at a single gateway. A read-only gateway rejects
@@ -456,9 +463,8 @@ class EPICSConnector(ControlSystemConnector):
             logger.debug(f"Configured EPICS gateway: {address}:{port}")
             self._epics_configured = True
 
-        self._timeout = config.get("timeout", 5.0)
         # The ceiling on the fresh read a `max_step` check makes before a
-        # write. A facility-network fact like `timeout` above, and read from
+        # write. A facility-network fact like `timeout_s`, and read from
         # the same block: a gateway two hops away answers slower than a soft
         # IOC on this host. Running out of budget answers None, which refuses
         # the write — raising it buys a slow channel more room, never a
@@ -1183,14 +1189,7 @@ class EPICSConnector(ControlSystemConnector):
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        tasks = [self.read_channel(ch_addr, timeout) for ch_addr in channel_addresses]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        return {
-            ch_addr: result
-            for ch_addr, result in zip(channel_addresses, results, strict=False)
-            if not isinstance(result, Exception)
-        }
+        return await self._read_concurrently(channel_addresses, timeout)
 
     async def subscribe(
         self, channel_address: str, callback: Callable[[ChannelValue], None]

@@ -7,7 +7,9 @@ silent skip). When deployed it emits two rows:
 
 * ``openobserve_healthz`` — ``GET /healthz`` against
   ``deployment.bind_address`` + ``services.openobserve.port`` (with no such key,
-  the layout's ``openobserve`` slot at this deployment's ``deployment.port_base``);
+  the layout's ``openobserve`` slot at this deployment's ``deployment.port_base``),
+  the port being
+  :func:`~osprey.build.claude_code_telemetry.openobserve_published_port`'s;
   ``ok`` on HTTP 200, ``warning`` on any other status or when the store is
   unreachable (``running`` is not ``ready``);
 * ``openobserve_retention`` — ``warning`` when ``services.openobserve.retention_days``
@@ -23,9 +25,9 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_REMEDY, openobserve_published_port
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
 from osprey.health.models import CheckResult, Status
-from osprey.port_layout import default_port, resolve_port_base
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -67,18 +69,23 @@ def openobserve(
             return []
 
         oo = (cfg.get("services", {}) or {}).get("openobserve", {}) or {}
-        # No key means the store sits where the layout puts it in THIS
-        # deployment's block. A fixed default would probe whatever holds that
-        # number on the host — on a two-deployment host, the other store — and
-        # report its health as this one's.
-        port = oo.get("port", default_port("openobserve", base=resolve_port_base(cfg)))
         bind = (cfg.get("deployment", {}) or {}).get("bind_address", DEFAULT_BIND_ADDRESS)
         retention = oo.get("retention_days", _DEFAULT_RETENTION_DAYS)
 
-        return [
-            await _check_healthz(bind, port, transport),
-            _check_retention(retention),
-        ]
+        try:
+            port = openobserve_published_port(cfg)
+        except ValueError as exc:
+            healthz = CheckResult(
+                "openobserve_healthz",
+                CATEGORY,
+                Status.WARNING,
+                str(exc),
+                details=OPENOBSERVE_PORT_REMEDY,
+            )
+        else:
+            healthz = await _check_healthz(bind, port, transport)
+
+        return [healthz, _check_retention(retention)]
 
     return _run
 

@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.deployment.runtime_helper import get_runtime_command
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.docker_desktop")
@@ -53,6 +54,11 @@ HOST_NETWORKING_REMEDY = (
     "in Docker Desktop, turn on Settings -> Resources -> Network -> "
     "'Enable host networking', then Apply & restart"
 )
+
+#: The limit a disabled forwarder breaks, with the page that states it. Shared
+#: so the preflight warning and the post-up warning name the limit in the same
+#: words.
+HOST_NETWORK_LIMIT = f"The web tier needs the host network. See {PERIMETER_LIMITS_URL}"
 
 #: Seconds to wait on the backend socket. Generous enough for a busy Docker
 #: Desktop and short enough that a wedged one cannot hold up a deploy: the

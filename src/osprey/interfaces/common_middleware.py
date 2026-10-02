@@ -44,6 +44,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.interfaces.web_auth import Tier, WebCredentials, classify, get_web_credentials
 from osprey.utils.owner_header import OWNER_HEADER
 
@@ -63,6 +64,7 @@ __all__ = [
     "AUDIT_SUBJECT_HEADER",
     "EXEMPT_PATHS",
     "EXTERNAL_ORIGIN_ENV",
+    "FACILITY_TIMEZONE_ATTRIBUTE",
     "HTTP_MUTATION_POSTURE",
     "HTTP_MUTATION_SURFACE",
     "MAX_BODY_PEEK_BYTES",
@@ -78,9 +80,11 @@ __all__ = [
     "SAFE_METHODS",
     "SESSION_COOKIE_BASE",
     "STATIC_MOUNT_PREFIXES",
+    "STORAGE_SCOPE_ATTRIBUTE",
     "TERMINAL_USER_ENV",
     "TOKEN_EXCHANGE_PATHS",
     "UNSAFE_FORWARDED_VALUE",
+    "URL_MOUNT_ROOT",
     "WEBSOCKET_REFUSAL_CODE",
     "WEB_AUTH_POSTURE",
     "WEB_AUTH_SURFACE",
@@ -96,7 +100,9 @@ __all__ = [
     "is_exempt_path",
     "read_cookie_candidates",
     "read_cookies",
+    "resolve_storage_scope",
     "session_cookie_name",
+    "url_mount_prefix",
 ]
 
 
@@ -185,6 +191,42 @@ TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
 #: each), this one asks which names this process can spell. A rendered
 #: deployment clears both; a hand-set variable is what this one is here for.
 MOUNT_SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+#: The URL path every per-user container is mounted under: user ``alice``'s
+#: container is served at ``<URL_MOUNT_ROOT>/alice/``.
+#:
+#: This is the one spelling of the root. nginx's locations and its return-to
+#: allowlist, the landing cards, the login URLs, the auth sidecar's default
+#: return-to and :func:`compute_url_prefix` all derive from it; the logout
+#: script reads the user from the prefix's last segment and restates nothing.
+#: Changing the value moves every mount and every URL an operator has saved.
+#:
+#: No trailing slash: the prefix form ``<root>/<user>`` is what
+#: :func:`compute_url_prefix` returns and what every caller appends to.
+URL_MOUNT_ROOT = "/u"
+
+
+def url_mount_prefix(user: str) -> str:
+    """Return the URL prefix of ``user``'s mount.
+
+    The prefix is :data:`URL_MOUNT_ROOT` plus one path segment, with no
+    trailing slash.
+
+    ``user`` is spliced unescaped, so callers pass a name that has already
+    cleared :data:`MOUNT_SEGMENT_RE` (as :func:`compute_url_prefix` checks) or
+    the roster's
+    :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`. The
+    helper validates nothing, because each caller already refuses a bad name
+    with its own message.
+
+    Args:
+        user: The mount segment naming the user.
+
+    Returns:
+        ``<URL_MOUNT_ROOT>/<user>``.
+    """
+    return f"{URL_MOUNT_ROOT}/{user}"
+
 
 #: How many same-named session cookies the gate will weigh before giving up.
 #: A page on a neighbouring host under the same registrable domain can set a
@@ -525,9 +567,9 @@ def compute_url_prefix() -> str:
     boots, serves its own pages, and answers 500 for every panel.
 
     Returns:
-        ``"/u/<user>"`` when :data:`TERMINAL_USER_ENV` is set and non-empty;
-        otherwise ``""``, which makes every application of it a no-op and
-        preserves single-origin/dev behaviour exactly.
+        :func:`url_mount_prefix` of the user when :data:`TERMINAL_USER_ENV` is
+        set and non-empty; otherwise ``""``, which makes every application of
+        it a no-op and preserves single-origin/dev behaviour exactly.
 
     Raises:
         ValueError: If the variable holds a name outside
@@ -547,7 +589,7 @@ def compute_url_prefix() -> str:
             "fails the panel hop. Rename the account, or unset the variable to serve "
             "at the root."
         )
-    return f"/u/{user}"
+    return url_mount_prefix(user)
 
 
 def apply_url_prefix(prefix: str, path: str) -> str:
@@ -564,6 +606,51 @@ def apply_url_prefix(prefix: str, path: str) -> str:
     if not prefix or path.startswith(("http://", "https://", "//")):
         return path
     return f"{prefix}{path}"
+
+
+#: The ``<html>`` attribute a served document carries its storage scope in.
+#: ``design_system/static/js/storage-scope.js`` (and the three boot scripts that
+#: mirror it) is the reader.
+STORAGE_SCOPE_ATTRIBUTE = "data-osprey-storage-scope"
+
+#: The ``<html>`` attribute a served document carries the facility time zone in.
+#: ``design_system/static/js/facility-time.js`` is the reader.
+FACILITY_TIMEZONE_ATTRIBUTE = "data-facility-timezone"
+
+
+def resolve_storage_scope(terminal_user: str | None) -> str:
+    """Resolve the per-user namespace for the browser's ``localStorage``.
+
+    Multi-user deployments put one container per user behind a shared nginx
+    front door at ``/u/<user>/`` — **same origin**, so every user shares one
+    ``localStorage``. Without a namespace, one user's dock layout, rail
+    position, palette history and active PTY session id are read and
+    overwritten by the next user to log in on that browser.
+
+    The namespace is decided here rather than in the browser: the served
+    documents stamp it onto ``<html data-osprey-storage-scope>`` and every JS
+    storage site reads it from there, so no client-side code has to parse
+    ``location.pathname`` to work out which mount it is running under (a page
+    fetched through a rewriting proxy, or opened at a path nginx normalised,
+    would parse the wrong answer out of it).
+
+    Reads the same value :func:`compute_url_prefix` reads, with the same
+    blank-means-unset rule, so the scope and the ``/u/<user>`` prefix can never
+    name different users. The hub's own pages and the panel proxy both stamp
+    from this function, so every document on a mount names the same person.
+
+    Args:
+        terminal_user: The deployment's mount user (``OSPREY_TERMINAL_USER``,
+            as captured on ``app.state.terminal_user``). ``None``, empty or
+            blank is a single-user/dev deployment.
+
+    Returns:
+        The namespace token, or ``""`` when there is no mount user. Callers
+        must render the attribute **only** for a truthy result: an empty
+        ``data-osprey-storage-scope=""`` reads as "scoped to nothing" rather
+        than "unscoped", and single-user markup must stay exactly as it was.
+    """
+    return str(terminal_user or "").strip()
 
 
 def is_exempt_path(path: str) -> bool:
@@ -1506,6 +1593,7 @@ class WebAuthMiddleware:
         JSON detail says only that the request was cross-origin. Neither origin
         is a credential and neither is echoed to the browser, so both can be
         named. No rate limiting: this fires only on requests already refused.
+        The line names the one-origin limit and links where it is documented.
         """
         origin = headers.get("origin")
         received = (
@@ -1516,13 +1604,15 @@ class WebAuthMiddleware:
         method = WEBSOCKET_METHOD if scope["type"] == "websocket" else (scope.get("method") or "?")
         logger.warning(
             "Refusing %s %s: Origin %s does not match this app's own origin %r. "
-            "If the two differ only in how this deployment is addressed, %s is "
-            "what the app was told to expect.",
+            "This deployment accepts writes from one origin only, so every browser "
+            "has to reach it on that address. If the two differ only in how this "
+            "deployment is addressed, %s is what the app was told to expect. See %s",
             method,
             scope.get("path") or "?",
             received,
             self._resolve_external_origin(scope, headers),
             EXTERNAL_ORIGIN_ENV,
+            PERIMETER_LIMITS_URL,
         )
 
     def _origin_check_applies(self, scope: Scope) -> bool:

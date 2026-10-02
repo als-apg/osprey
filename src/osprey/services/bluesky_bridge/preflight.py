@@ -23,7 +23,7 @@ Two properties are deliberate:
 
 **The bound is the probe's own.** Each ``validate_channel`` call is wrapped in
 ``asyncio.wait_for(..., timeout_s)`` even though some connectors bound
-themselves — the EPICS connector probes with its configured ``timeout``, the
+themselves — the EPICS connector probes with its configured ``timeout_s``, the
 DOOCS one is unbounded — because a pre-flight gate that inherits a per-connector
 timeout gives a different, and sometimes infinite, worst case per lane. The
 constants here bound every lane alike, and the refusal quotes whichever of them

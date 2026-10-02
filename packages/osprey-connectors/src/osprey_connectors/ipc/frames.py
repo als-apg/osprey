@@ -189,7 +189,10 @@ def _npy_bytes(array: np.ndarray) -> bytes:
 def _npy_load(data: bytes) -> np.ndarray:
     """Read ``.npy`` bytes back, never enabling pickle."""
     buffer = BytesIO(data)
-    return np.load(buffer, allow_pickle=False)
+    loaded = np.load(buffer, allow_pickle=False)
+    if not isinstance(loaded, np.ndarray):
+        raise FrameDecodeError("frame blob is not a single .npy array")
+    return loaded
 
 
 # --------------------------------------------------------------------------

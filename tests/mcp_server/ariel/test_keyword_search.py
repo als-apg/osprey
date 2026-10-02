@@ -462,3 +462,13 @@ async def test_pattern_error_from_the_real_service_reaches_the_envelope(tmp_path
     data = _exc_ctx["envelope"]
     assert "SR0[1-4" in data["error_message"]
     assert data["details"]["expanded_terms"] == [TSLASH_GROUP]
+
+
+def test_tool_docstring_names_every_operator():
+    """The tool docstring, the agent's only statement of the operators, names each one."""
+    from osprey.services.ariel_search.search.keyword import ALLOWED_OPERATORS
+
+    doc = _get_keyword_search().__doc__
+    assert doc is not None
+    for word in ALLOWED_OPERATORS:
+        assert word in doc

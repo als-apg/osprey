@@ -34,6 +34,7 @@ def is_ollama_available() -> bool:
 
 
 @pytest.mark.requires_ollama
+@pytest.mark.usefixtures("litellm_callback_pool")
 class TestEnhancementWithOllama:
     """Test enhancement modules with real Ollama service."""
 
@@ -207,6 +208,7 @@ class TestEnhancementWithOllama:
 
 
 @pytest.mark.requires_ollama
+@pytest.mark.usefixtures("litellm_callback_pool")
 class TestMultipleEmbeddingModels:
     """Test enhancement with multiple embedding models."""
 
@@ -282,6 +284,84 @@ class TestMultipleEmbeddingModels:
 
         assert row1 is not None, "nomic-embed-text embedding not stored"
         assert row2 is not None, "all-minilm embedding not stored"
+
+
+#: Ollama endpoint the served-limit checks ask, and the model they ask about.
+OLLAMA_URL = "http://localhost:11434"
+SERVED_MODEL = "nomic-embed-text"
+
+
+def _served_context_length() -> int:
+    """Return the input window Ollama serves ``SERVED_MODEL`` with, or skip.
+
+    Only ``/api/show`` is asked; no model is pulled.
+    """
+    try:
+        import requests
+
+        response = requests.post(f"{OLLAMA_URL}/api/show", json={"model": SERVED_MODEL}, timeout=5)
+    except Exception as exc:
+        pytest.skip(f"Ollama not reachable at {OLLAMA_URL}: {exc}")
+    if response.status_code != 200:
+        pytest.skip(f"Ollama does not serve {SERVED_MODEL} (/api/show {response.status_code})")
+    model_info = response.json()["model_info"]
+    return int(model_info[f"{model_info['general.architecture']}.context_length"])
+
+
+@pytest.mark.requires_ollama
+class TestServedInputLimit:
+    """The presets' input limit is the served window, and the cut fits it."""
+
+    @pytest.mark.parametrize("preset", ["control-assistant", "ariel-standalone"])
+    async def test_preset_limit_is_the_served_window(self, preset):
+        """A preset states the window the server reports, never a remembered number."""
+        import importlib.resources
+
+        import yaml
+
+        served = _served_context_length()
+        path = importlib.resources.files("osprey.profiles") / "presets" / f"{preset}.yml"
+        config = yaml.safe_load(path.read_text(encoding="utf-8"))["config"]
+        models = config["ariel.enhancement_modules.text_embedding.models"]
+        (entry,) = [m for m in models if m["name"] == SERVED_MODEL]
+
+        assert entry["max_input_tokens"] == served
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("!?.,;:" * 4000, id="punctuation"),
+            pytest.param(
+                " ".join(f"SR{s:02d}C:BPM{b}:SA:X" for s in range(1, 13) for b in range(1, 9)) * 20,
+                id="device-names",
+            ),
+            pytest.param("加速器光束電流安定" * 3000, id="cjk"),
+            pytest.param("&lt;p&gt;Beam &amp; RF&lt;/p&gt; " * 1000, id="html-escaped"),
+        ],
+    )
+    async def test_a_cut_entry_fits_without_server_truncation(self, text):
+        """A cut text embeds with server truncation off, within the served window."""
+        import requests
+
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            fit_to_input_limit,
+        )
+
+        served = _served_context_length()
+        assert len(text) >= 20_000
+
+        response = requests.post(
+            f"{OLLAMA_URL}/api/embed",
+            json={
+                "model": SERVED_MODEL,
+                "input": fit_to_input_limit(text, served),
+                "truncate": False,
+            },
+            timeout=60,
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["prompt_eval_count"] <= served
 
 
 class TestEnhancementWithoutOllama:

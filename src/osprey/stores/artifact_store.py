@@ -171,7 +171,8 @@ class ArtifactEntry:
     the agent generated."""
 
     def to_dict(self) -> dict[str, Any]:
-        return _sanitize_for_json(asdict(self))
+        sanitized: dict[str, Any] = _sanitize_for_json(asdict(self))
+        return sanitized
 
     def to_tool_response(self, gallery_url: str | None = None) -> dict[str, Any]:
         """Compact response returned to Claude after artifact creation.

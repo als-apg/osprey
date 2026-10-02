@@ -77,9 +77,11 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NoReturn
 
+from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
 from osprey.cli.output import fail, note, report
 from osprey.deployment.compose_generator import (
     compose_base_cmd,
@@ -88,9 +90,10 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     resolve_user_volume_names,
 )
-from osprey.deployment.errors import CapturedProcessError
+from osprey.deployment.errors import CapturedProcessError, RemovalIncompleteError
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
+    removal_refusal,
     runtime_env,
     verify_runtime_is_running,
 )
@@ -112,13 +115,13 @@ from osprey.deployment.web_terminals.personas import (
     as_dict,
     effective_image_source,
     entry_is_shared,
-    env_var_suffix,
     freeze_user_indices,
     normalize_users,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.postup_hooks import reload_nginx_config
 from osprey.deployment.web_terminals.render import _auth_tls_context
+from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
 from osprey.utils.dotenv import parse_dotenv_file
@@ -150,6 +153,12 @@ def _require_running_runtime(config: dict[str, Any]) -> None:
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
+
+
+_KEPT_VOLUMES_REMEDY = (
+    "Stop whatever is using them, then run `osprey users prune` with the same "
+    "--archive or --purge flag."
+)
 
 
 def decommission_user(
@@ -189,7 +198,8 @@ def decommission_user(
     5. Force-remove the user's exact-named container.
     6. Per ``archive``/``purge``, handle the user's two named volumes: retain
        (default, no confirmation needed), archive-then-remove, or purge (remove
-       without archiving).
+       without archiving). Every volume is attempted, and each one the runtime
+       kept is named with its reason.
 
     Args:
         config_path: Path to the facility ``config.yml``.
@@ -209,6 +219,8 @@ def decommission_user(
             permit ``Bash``. Raised before ``config.yml`` is touched, so nothing
             is half-applied; removing the offending persona's own last user is
             unaffected, because the check reads the post-removal roster.
+        RemovalIncompleteError: If every other step finished but a volume the
+            policy should have removed is still there.
     """
     config_path = Path(config_path)
     config = ConfigBuilder(str(config_path)).raw_config
@@ -275,6 +287,7 @@ def decommission_user(
     # Authentication (no-op when off): purge the departed user's credentials,
     # reload the freshly rendered nginx routes, and recreate the sidecar so its
     # roster and hashes are re-read and the user's session dies now.
+    kept: list[tuple[str, str]] = []
     try:
         _reconcile_auth_after_user_removal(
             updated_config, [user], rerendered=True, repo_root=repo_root
@@ -288,7 +301,9 @@ def decommission_user(
         # reports, and it is cleanup the operator cannot easily finish by hand.
         # The reconcile's error still surfaces afterwards, so a failure to close
         # access stays fatal. Do NOT "simplify" this back to a plain call.
-        _apply_volume_policy(
+        # Kept volumes are printed here and raised only after the `finally`, so
+        # they can never mask the reconcile's error.
+        kept = _apply_volume_policy(
             runtime,
             volumes,
             archive=archive,
@@ -297,6 +312,14 @@ def decommission_user(
             repo_root=repo_root,
             archive_container=_archive_container_name(config),
         )
+        if kept:
+            _report_kept(
+                f"{len(kept)} volume(s) of {user!r} could not be removed",
+                kept,
+                _KEPT_VOLUMES_REMEDY,
+            )
+    if kept:
+        raise RemovalIncompleteError(kept)
 
 
 # =============================================================================
@@ -336,7 +359,9 @@ def prune_users(
        removes containers unconditionally (retain only protects volumes), so it
        is destructive even in the default retain mode.
     5. Force-remove each orphan's exact-named container, then apply the
-       retain/archive/purge policy to each orphan's exact-named volumes.
+       retain/archive/purge policy to each orphan's exact-named volumes. Every
+       volume is attempted, and each one the runtime kept is named with its
+       reason before the authentication reconcile runs.
 
     Args:
         config_path: Path to the facility ``config.yml``.
@@ -351,6 +376,8 @@ def prune_users(
         RuntimeError: If the container runtime daemon is not running (orphan
             discovery against a downed daemon would misreport "nothing to do"),
             or pruning was requested but not confirmed.
+        RemovalIncompleteError: If every other step finished but a volume the
+            policy should have removed is still there.
     """
     config_path = Path(config_path)
     config = ConfigBuilder(str(config_path)).raw_config
@@ -396,18 +423,26 @@ def prune_users(
     if not confirm_destroy(prompt, assume_yes, expected="prune"):
         raise RuntimeError("Prune aborted: confirmation did not match.")
 
+    kept: list[tuple[str, str]] = []
     for user in orphan_users:
         container = orphan_containers.get(user)
         if container:
             remove_container(runtime, container, env=env)
-        _apply_volume_policy(
-            runtime,
-            orphan_volumes.get(user, []),
-            archive=archive,
-            purge=purge,
-            env=env,
-            repo_root=repo_root,
-            archive_container=_archive_container_name(config),
+        kept.extend(
+            _apply_volume_policy(
+                runtime,
+                orphan_volumes.get(user, []),
+                archive=archive,
+                purge=purge,
+                env=env,
+                repo_root=repo_root,
+                archive_container=_archive_container_name(config),
+            )
+        )
+    # Named before the reconcile, so they are printed even if it raises.
+    if kept:
+        _report_kept(
+            f"prune: {len(kept)} volume(s) could not be removed", kept, _KEPT_VOLUMES_REMEDY
         )
 
     # Authentication (no-op when off): an orphan is already off the roster, so
@@ -418,6 +453,8 @@ def prune_users(
     # the artifacts first, so the fresh sidecar's digest label matches the
     # purged file it bakes.
     _reconcile_auth_after_user_removal(config, orphan_users, rerendered=False, repo_root=repo_root)
+    if kept:
+        raise RemovalIncompleteError(kept)
 
 
 # =============================================================================
@@ -552,8 +589,11 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
        proceeding would just fail again downstream (volume "in use") while
        masking the real error, and the CLI would report success on a failed
        teardown.
-    6. Remove each exact-named volume from the teardown set.
-    7. Remove each label-verified exact-named image tag from the teardown set.
+    6. Remove each exact-named volume from the teardown set. Every volume is
+       attempted; a volume already gone counts as removed.
+    7. Remove each label-verified exact-named image tag from the teardown set,
+       even after a refused volume, since the two are independent. Then print
+       each resource the runtime kept, with its reason.
 
     Args:
         config_path: Path to the facility ``config.yml``.
@@ -563,6 +603,8 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     Raises:
         RuntimeError: If the container runtime daemon is not running, the
             teardown was not confirmed, or ``compose down`` exits non-zero.
+        RemovalIncompleteError: If every removal was attempted and a volume or
+            image the runtime refused to remove is still there.
     """
     config_path = Path(config_path)
     config = ConfigBuilder(str(config_path)).raw_config
@@ -670,11 +712,24 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
             f"{result.returncode}); no volumes were removed."
         )
 
+    left: list[tuple[str, str]] = []
     for volume in volumes:
-        remove_volume(runtime, volume, env=env)
+        reason = removal_refusal(remove_volume(runtime, volume, env=env))
+        if reason:
+            left.append((f"volume {volume!r}", reason))
 
     for image in images_to_remove:
-        remove_image(runtime, image, env=env)
+        reason = removal_refusal(remove_image(runtime, image, env=env))
+        if reason:
+            left.append((f"image {image!r}", reason))
+
+    if left:
+        _report_kept(
+            f"nuke: {len(left)} resource(s) could not be removed",
+            left,
+            "Everything else was removed. Stop whatever is using them, then run nuke again.",
+        )
+        raise RemovalIncompleteError(left)
 
 
 # =============================================================================
@@ -893,7 +948,7 @@ def _warn_if_plaintext_password_survives(removed: list[str], project_root: Path)
     Warn rather than edit: ``.env`` is operator-owned and full of unrelated
     configuration, and silently deleting lines from it is a worse failure mode
     than the one being closed. The variable name is derived through
-    :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`, the same
+    :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`, the same
     mapping that keyed the credential in the first place, so the warning can
     never name a variable the provisioner would not read.
     """
@@ -1255,7 +1310,7 @@ def _discover_orphan_volumes(
         env=env,
     )
     prefix = f"{project}_"
-    suffixes = ("-claude-config", "-agent-data")
+    suffixes = (CLAUDE_CONFIG_VOLUME_SUFFIX, "-agent-data")
     orphans: dict[str, list[str]] = {}
     for line in result.stdout.splitlines():
         name = line.strip()
@@ -1360,6 +1415,9 @@ def remove_volume(
 
     Returns:
         The completed subprocess, for callers that want to inspect the outcome.
+        The caller must pass it to
+        :func:`~osprey.deployment.runtime_helper.removal_refusal`, because the
+        runtime refuses to remove a volume any container references.
     """
     return subprocess.run([runtime, "volume", "rm", name], capture_output=True, text=True, env=env)
 
@@ -1385,8 +1443,18 @@ def remove_image(
 
     Returns:
         The completed subprocess, for callers that want to inspect the outcome.
+        The caller must pass it to
+        :func:`~osprey.deployment.runtime_helper.removal_refusal`, because the
+        runtime refuses to remove an image a container still uses.
     """
     return subprocess.run([runtime, "image", "rm", tag], capture_output=True, text=True, env=env)
+
+
+def _report_kept(summary: str, left: Sequence[tuple[str, str]], remedy: str) -> None:
+    """Print one failure block naming each resource the runtime kept, and log each."""
+    fail(summary, "\n".join(f"{subject}: {reason}" for subject, reason in left), remedy)
+    for subject, reason in left:
+        logger.warning("Could not remove %s: %s", subject, reason)
 
 
 def archive_volume(
@@ -1469,12 +1537,15 @@ def _apply_volume_policy(
     repo_root: Path,
     env: dict[str, str] | None = None,
     archive_container: str | None = None,
-) -> None:
+) -> list[tuple[str, str]]:
     """Apply the retain(default)/archive/purge policy to exact-named volumes.
 
     Shared by :func:`decommission_user` and :func:`prune_users` so both verbs
     agree on volume-destruction semantics. Confirmation is the caller's
     responsibility — by the time this runs, destruction (if any) is authorized.
+    It never raises for a refused removal or a failed archive, because
+    :func:`decommission_user` calls it from a ``finally``: every volume is
+    attempted, and the ones the runtime kept are returned.
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
@@ -1493,28 +1564,45 @@ def _apply_volume_policy(
             when it deploys one. That container mounts every user's volumes, so
             a volume any container references cannot be removed: before any
             removal it gets one last pass (best effort) and is removed.
+
+    Returns:
+        The volumes still on the host that the policy should have removed, in
+        order, as ``(subject, reason)`` pairs. Empty for retain. A volume whose
+        archive failed is kept on purpose and is listed with that reason.
     """
     if not (archive or purge):
-        return  # retain (default): volumes are left in place
+        return []  # retain (default): volumes are left in place
 
     removed_archive = bool(volumes) and _remove_archive_container(
         runtime, archive_container, env=env
     )
 
+    kept: list[tuple[str, str]] = []
     if archive:
         archive_dir = repo_root / _ARCHIVE_DIR_NAME
         for volume in volumes:
-            archive_volume(runtime, volume, archive_dir, env=env)
-            remove_volume(runtime, volume, env=env)
+            subject = f"volume {volume!r}"
+            try:
+                tarball = archive_volume(runtime, volume, archive_dir, env=env)
+            except subprocess.CalledProcessError as exc:
+                why = (exc.stderr or "").strip() or f"exit {exc.returncode}"
+                kept.append((subject, f"not archived, so not removed: {why}"))
+                continue
+            reason = removal_refusal(remove_volume(runtime, volume, env=env))
+            if reason:
+                kept.append((subject, f"archived to {tarball}, but not removed: {reason}"))
     else:  # purge
         for volume in volumes:
-            remove_volume(runtime, volume, env=env)
+            reason = removal_refusal(remove_volume(runtime, volume, env=env))
+            if reason:
+                kept.append((f"volume {volume!r}", reason))
 
     if removed_archive:
         report(
             "The archive container was removed because it held the removed volumes. "
             "Run `osprey build`, then `osprey up`, to start it without them."
         )
+    return kept
 
 
 def _remove_archive_container(

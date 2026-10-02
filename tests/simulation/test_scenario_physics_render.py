@@ -373,6 +373,15 @@ class TestComputeIsPure:
 
         assert not (project / ".env").is_file()
 
+    def test_a_machine_file_that_is_not_json_is_refused_by_name(self, tmp_path):
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        (project / "data" / "simulation" / "machine.json").write_text("{")
+
+        with pytest.raises(ValueError, match="Machine file .* is not valid JSON"):
+            compute_scenario_physics_env(project, ["nominal"])
+
+        assert not (project / ".env").is_file()
+
 
 class TestChangedSignal:
     """The writer reports whether ``.env`` *content* changed, not that it wrote.

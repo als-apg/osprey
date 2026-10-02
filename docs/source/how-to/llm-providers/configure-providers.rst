@@ -18,60 +18,86 @@ Available Providers
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 35 15 25
+   :widths: 12 30 16 18 10 10
 
    * - Name
      - Description
      - API Key Env Var
      - Protocol
+     - Images
+     - Thinking
    * - ``anthropic``
      - Anthropic direct API
      - ``ANTHROPIC_API_KEY``
      - Anthropic (native)
+     - Yes
+     - Yes
    * - ``cborg``
      - LBNL CBorg proxy
      - ``CBORG_API_KEY``
      - Anthropic (native)
+     - Yes
+     - Yes
    * - ``als-apg``
      - ALS Accelerator Physics Group gateway
      - ``ALS_APG_API_KEY``
      - Anthropic (native)
+     - Yes
+     - Yes
    * - ``stanford``
      - Stanford AI Playground
      - ``STANFORD_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``amsc-i2``
      - American Science Cloud proxy
      - ``AMSC_I2_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``argo``
      - ANL Argo proxy
      - ``ARGO_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``asksage``
      - AskSage proxy
      - ``ASKSAGE_API_KEY``
      - OpenAI (proxied)
+     - No
+     - No
    * - ``openai``
      - OpenAI (GPT models)
      - ``OPENAI_API_KEY``
      - OpenAI (proxied)
+     - Yes
+     - No
    * - ``google``
      - Google (Gemini models)
      - ``GOOGLE_API_KEY``
      - OpenAI (proxied)
+     - Yes
+     - No
    * - ``ollama``
      - Ollama (local models)
      - *(none)*
      - OpenAI (proxied)
+     - No
+     - No
    * - ``vllm``
      - vLLM inference server
      - *(none)*
      - OpenAI (proxied)
+     - No
+     - No
    * - ``ds4``
      - DwarfStar local server
      - *(none)*
      - OpenAI (proxied)
+     - No
+     - No
 
 **Protocol** indicates how the provider communicates with the OSPREY agent:
 
@@ -79,6 +105,18 @@ Available Providers
   translation needed.
 - **OpenAI (proxied)**: Speaks the OpenAI Chat Completions API. Osprey
   automatically starts a local translation proxy to bridge the protocols.
+
+The Protocol column is what each provider's adapter class declares as
+``api_protocol``. A class registered through ``ProviderRegistration`` declares
+its own. An ``api_protocol`` key in the provider's ``providers.yml`` entry
+overrides the declaration either way.
+
+**Images** and **Thinking** say whether images and the model's thinking reach
+the model on that route. An Anthropic-native route carries both. A proxied
+route carries images when the provider declares it, and never carries
+thinking. A site whose model sees images turns them on for a provider marked
+*No* with ``supports_images: true`` in its ``providers.yml`` entry (see
+:ref:`what-the-translated-route-does-not-carry`).
 
 Setting Up API Keys
 -------------------
@@ -100,6 +138,9 @@ Set the API key as an environment variable before running Osprey:
    export STANFORD_API_KEY="..."
 
 Ollama and vLLM run locally and do not require an API key.
+``osprey web`` checks the provider's key before launch and stops when it is
+missing, unless the provider needs none or, like direct ``anthropic``, offers
+an interactive login. That case launches with a warning.
 
 ``als-apg`` ships the endpoint of the gateway it fronts,
 ``https://llm.als.lbl.gov``, so the key is all a deployment needs. A site that
@@ -217,6 +258,7 @@ see what the two source files become. The whole catalog appears under
            - claude-opus-5
            - claude-sonnet-5
            - claude-haiku-4-5
+         requests_per_minute: 18
 
        stanford:
          api_key: ${STANFORD_API_KEY}
@@ -230,8 +272,9 @@ see what the two source files become. The whole catalog appears under
 Each entry in ``providers.yml`` takes ``base_url``, ``default_model`` and
 ``models`` — a list of the model ids the gateway serves, spelled as the gateway
 spells them, which must contain ``default_model`` — plus optional ``api_key``,
-``health_model`` (the cheapest served id, used by ``osprey health``) and
-``claude_code_aliases`` (see :ref:`claude-code-alias-names` below). Use the
+``health_model`` (the cheapest served id, used by ``osprey health``),
+``claude_code_aliases`` (see :ref:`claude-code-alias-names` below) and
+``requests_per_minute`` (see below). Use the
 versioned ids a gateway serves: an unversioned alias such as
 ``anthropic/claude-sonnet`` carries no version for the agent's capability
 detection to match.
@@ -251,6 +294,12 @@ agent's own requests have it stripped automatically.
 completion. A LiteLLM gateway that uses client-side auth reads a per-user
 upstream key from it, so ``api_key`` stays the gateway credential while
 ``extra_body: {api_key: ${UPSTREAM_KEY}}`` carries the user's own.
+
+``requests_per_minute`` is an optional positive whole number: the in-context
+channel finder's subagent and the benchmark ReAct loop send the provider at most
+that many model calls a minute and wait when they reach it. The shipped
+``cborg`` entry sets 18, because its free tier allows 20 a minute per key; raise
+it or delete the line on a paid tier. An entry without it is not paced.
 
 **Select the active provider** with the profile's two top-level fields:
 
@@ -333,6 +382,9 @@ own background calls ask for ``haiku``. OSPREY fills all three at build:
    one line naming the substitution — on a gateway that serves no Claude
    models, all three.
 
+A key other than ``haiku``, ``sonnet`` or ``opus`` in either map is ignored, and
+``osprey build`` and ``osprey status`` each name it once.
+
 .. code-block:: yaml
 
    config:
@@ -350,7 +402,8 @@ translation.
 
 Osprey handles this automatically: when an OpenAI-only provider is selected,
 a local translation proxy starts on a random port before the OSPREY agent launches.
-No manual configuration is required — you never invoke the proxy yourself.
+You never invoke the proxy yourself. What it
+carries follows the provider's declarations in the table above.
 
 The path is identical whether the endpoint is self-hosted (``ollama``, ``vllm``
 — local, so no API key) or a remote service that speaks only the OpenAI
@@ -375,8 +428,53 @@ proxy in Anthropic mode), add ``api_protocol: anthropic`` to its
 ``api_protocol`` takes exactly two values, ``anthropic`` and ``openai``.
 Anything else — including a capitalised ``Anthropic`` — is refused when the
 provider is resolved, naming the provider and the two accepted values. Leave
-the key out and the provider is treated as OpenAI, which is what all but the
-Anthropic-native built-ins are.
+the key out, and a provider with an adapter class follows the class's
+declaration (the Protocol column above); a config-only entry is treated as
+OpenAI. ``api_protocol: openai`` on an Anthropic-native built-in sends it
+through the translation proxy, for a gateway whose Claude models are served
+only on its OpenAI route.
+
+.. _what-the-translated-route-does-not-carry:
+
+What the translated route does not carry
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The proxy sends images as OpenAI ``image_url`` parts on a route whose
+**Images** column says *Yes*, including images a tool returns, such as a
+screenshot the agent reads. An image inside a tool result follows that result
+in a user message, because OpenAI tool messages carry text only.
+
+What a route cannot take is replaced, where it stood, by a note the model
+reads, such as ``[image not sent: this provider's route does not carry it]``:
+
+* images, on a route marked *No*, and images given by file reference on any
+  route;
+* documents (PDF blocks) and any other content block the OpenAI protocol has
+  no counterpart for.
+
+Two request settings are left out with no note: the model's thinking, and a
+temperature the model refuses (see :ref:`provider-configuration`). The proxy
+logs one warning per conversation for each kind it leaves out, on the
+``osprey.infrastructure.proxy`` logger.
+
+A local model server (``ollama``, ``vllm``, ``ds4``) takes no images until its
+entry says so, because that depends on the model the site serves:
+
+.. code-block:: yaml
+
+   providers:
+     ollama:
+       base_url: ${OLLAMA_HOST:-http://localhost:11434}
+       default_model: qwen2.5vl:7b
+       models:
+         - qwen2.5vl:7b
+       supports_images: true
+
+``supports_images: false`` turns images off for a provider marked *Yes*
+whose chosen model takes none. The build refuses any value but ``true`` or
+``false``. When the upstream refuses a request that carries images, the
+agent receives an ``invalid_request_error`` that names the images and this
+key.
 
 Spend Attribution on a LiteLLM Gateway
 --------------------------------------
@@ -397,6 +495,12 @@ The agent carries them through Claude Code's ``ANTHROPIC_CUSTOM_HEADERS``
 LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
 ``user`` field. Nothing is sent to a direct vendor.
 
+On the OpenAI route the translation proxy forwards exactly the headers named in
+``ANTHROPIC_CUSTOM_HEADERS`` (the two above and any you set) and no other header
+of the agent's request. It never forwards a header it sets itself
+(``Authorization``, ``Content-Type``, ``Host``, ``Content-Length``,
+``x-api-key``) or a hop-by-hop header, and it logs any such name you declared.
+
 The built-in ``als-apg`` and ``cborg`` providers are LiteLLM proxies and get
 this automatically; a ``gateway:`` key on one of those names overrides that
 default, and ``gateway: none`` turns attribution off for an entry that points
@@ -416,6 +520,55 @@ On the gateway, read the result per person with ``/customer/info?end_user_id=``
 or from the ``end_user`` and ``request_tags`` columns of ``/spend/logs``. Both
 need the gateway to run with a database (virtual keys enabled); a stateless
 LiteLLM ignores the headers.
+
+.. _managed-policy-settings:
+
+Managed Policy Settings
+-----------------------
+
+Claude Code reads managed policy settings that an administrator installs for
+the whole machine. Their ``env`` block outranks everything a deployment sets,
+including the provider OSPREY configures.
+
+Before ``osprey chat``, the Web Terminal or the dispatch worker starts the
+agent, OSPREY reads the provider variables in that block (the ``ANTHROPIC_*``
+and ``CLAUDE_CODE_*`` variables that choose the endpoint, key, model or
+backend) and compares each one with the value the agent is launched with. An
+equal value is fine. A different value, or a variable the deployment does not
+set, refuses the start and names both values. The launched value is the
+provider's endpoint without a trailing ``/v1``, or, for a provider behind the
+translation proxy (see *Protocol Translation* above), the local proxy address,
+whose port changes at every launch. A policy can therefore only agree with a
+proxied provider by leaving ``ANTHROPIC_BASE_URL`` out.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 45
+
+   * - Platform
+     - Policy directory
+   * - macOS
+     - ``/Library/Application Support/ClaudeCode/``
+   * - Linux
+     - ``/etc/claude-code/``
+   * - Windows
+     - ``C:\Program Files\ClaudeCode\``
+
+Each directory holds ``managed-settings.json`` plus ``managed-settings.d/*.json``
+fragments, read in name order, with a later fragment winning and files whose
+names start with a dot ignored. See Claude Code's `settings reference
+<https://code.claude.com/docs/en/settings>`_ for the policy format.
+
+A policy that agrees with a native gateway provider whose ``base_url`` is
+``https://gateway.example.org/v1``:
+
+.. code-block:: json
+
+   {
+     "env": {
+       "ANTHROPIC_BASE_URL": "https://gateway.example.org"
+     }
+   }
 
 Verifying Connectivity
 ----------------------
@@ -454,7 +607,7 @@ deployment unhealthy. The rendered result in ``build/config.yml``:
 
 The framework automatically:
 
-- Detects that ``my-provider`` is not a built-in Anthropic-native provider.
+- Finds no adapter class and no ``api_protocol`` for ``my-provider``, so treats it as OpenAI.
 - Starts the translation proxy to bridge Anthropic → OpenAI protocols.
 - Reads the OSPREY agent's auth token from ``MY_PROVIDER_API_KEY``. The launcher
   derives that variable name from the provider's own name — uppercased, dashes to
@@ -475,3 +628,10 @@ The framework automatically:
    is the one named by ``registry_path`` in the project's ``config.yml`` (set
    it in your profile's ``config:`` block) or by the ``REGISTRY_PATH``
    environment variable; see :doc:`/contributing/extending-osprey`.
+
+The same registry can remove a built-in provider:
+``extend_framework_registry(exclude_providers=["openai"])`` takes ``openai`` out
+of the provider registry, so a config or tool call that names it fails with
+``Unknown provider`` and ``osprey registry`` no longer lists it. A
+``ProviderRegistration`` under the same name is kept, which is how an
+application replaces a built-in with its own class.

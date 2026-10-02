@@ -24,6 +24,8 @@ from osprey.utils.logger import get_logger
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from osprey.interfaces.web_terminal.app import PrivilegeGates
+
 logger = get_logger("ariel")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -48,6 +50,41 @@ REMEDY_NO_CONFIG_FILE = "set CONFIG_FILE to this deployment's config.yml, then r
 #: wins over one somebody left mounted.
 _CONTAINER_CONFIG_PATH = Path("/app/config.yml")
 REMEDY_NAMED_KEY = "fix the named key in config.yml and restart"
+
+#: ``/health`` messages. Fixed sentences: the page answers without a
+#: credential, so it never carries a driver's error text, which can name the
+#: store's host, port or login. ``osprey ariel status`` and the signed-in
+#: ``/api/status`` carry the error itself.
+HEALTH_OK = "ARIEL service healthy"
+HEALTH_NO_SERVICE = "Database unavailable — drafts, UI, and settings work"
+HEALTH_STORE_NOT_ANSWERING = (
+    "Database is not answering status queries; run osprey ariel status for the error"
+)
+
+
+def _find_config_file(config_path: str | Path | None) -> Path | None:
+    """Return the config file this panel reads, without reading it.
+
+    The candidates, in order: *config_path*, ``CONFIG_FILE``,
+    :data:`_CONTAINER_CONFIG_PATH`, then ``config.yml`` in the working
+    directory. The first that exists and is a regular file wins.
+
+    Args:
+        config_path: Optional explicit path to config file.
+
+    Returns:
+        The first candidate that is a regular file, or None when none is.
+    """
+    candidates = [
+        Path(config_path) if config_path else None,
+        Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
+        _CONTAINER_CONFIG_PATH,
+        Path("config.yml"),
+    ]
+    for candidate in candidates:
+        if candidate and candidate.exists() and candidate.is_file():
+            return candidate
+    return None
 
 
 def load_ariel_config_with_path(
@@ -87,51 +124,44 @@ def load_ariel_config_with_path(
     Raises:
         RuntimeError: If no config file is found.
     """
-    config_paths = [
-        Path(config_path) if config_path else None,
-        Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
-        _CONTAINER_CONFIG_PATH,
-        Path("config.yml"),
-    ]
+    path = _find_config_file(config_path)
+    if path is None:
+        raise RuntimeError(
+            "No config.yml found. Set the CONFIG_FILE environment variable to this "
+            f"deployment's config.yml, or mount one at {_CONTAINER_CONFIG_PATH}"
+        )
 
-    for path in config_paths:
-        if path and path.exists() and path.is_file():
-            logger.info(f"Loading config from {path}")
-            with open(path) as f:
-                # resolve_env_vars matches the framework's ConfigBuilder
-                # behavior (load_osprey_config): a DSN written out in config.yml
-                # may carry a ${ARIEL_DB_PASSWORD:-ariel} placeholder that must
-                # expand here too, or the web interface would hand psycopg a
-                # literal `${…}` password.
-                from osprey.utils.config import resolve_env_vars
+    logger.info(f"Loading config from {path}")
+    with open(path) as f:
+        # resolve_env_vars matches the framework's ConfigBuilder
+        # behavior (load_osprey_config): a DSN written out in config.yml
+        # may carry a ${ARIEL_DB_PASSWORD:-ariel} placeholder that must
+        # expand here too, or the web interface would hand psycopg a
+        # literal `${…}` password.
+        from osprey.utils.config import resolve_env_vars
 
-                config = resolve_env_vars(yaml.safe_load(f))
-                ariel_config = config.get("ariel", {})
-                services = config.get("services") or {}
+        config = resolve_env_vars(yaml.safe_load(f))
+        ariel_config = config.get("ariel", {})
+        services = config.get("services") or {}
 
-            if ariel_config:
-                # One rung owns the store address. `resolve_ariel_dsn` derives
-                # the DSN from `services.postgresql` and applies the container
-                # overrides itself, so the panel does no surgery on the result:
-                # a project that wrote its own `uri` pointing at a database it
-                # does not run keeps reaching that one.
-                from osprey.port_layout import resolve_port_base
-                from osprey.services.ariel_search.config import resolve_ariel_dsn
+    if ariel_config:
+        # One rung owns the store address. `resolve_ariel_dsn` derives
+        # the DSN from `services.postgresql` and applies the container
+        # overrides itself, so the panel does no surgery on the result:
+        # a project that wrote its own `uri` pointing at a database it
+        # does not run keeps reaching that one.
+        from osprey.port_layout import resolve_port_base
+        from osprey.services.ariel_search.config import resolve_ariel_dsn
 
-                database = ariel_config.get("database") or {}
-                database["uri"] = resolve_ariel_dsn(
-                    ariel_config,
-                    services.get("postgresql") or {},
-                    base=resolve_port_base(config),
-                )
-                ariel_config["database"] = database
+        database = ariel_config.get("database") or {}
+        database["uri"] = resolve_ariel_dsn(
+            ariel_config,
+            services.get("postgresql") or {},
+            base=resolve_port_base(config),
+        )
+        ariel_config["database"] = database
 
-            return ariel_config, path
-
-    raise RuntimeError(
-        "No config.yml found. Set the CONFIG_FILE environment variable to this "
-        f"deployment's config.yml, or mount one at {_CONTAINER_CONFIG_PATH}"
-    )
+    return ariel_config, path
 
 
 def load_ariel_config(config_path: str | Path | None = None) -> dict[str, Any]:
@@ -204,6 +234,8 @@ class _ConfigState:
         remedy: The class-derived operator action, None when ok.
         config_panel_enabled: Whether ``web.config_panel.enabled`` leaves the
             Config panel reachable on this deployment.
+        config_unreadable_path: The config file that exists but could not be
+            read, which closed the Config panel, or None.
     """
 
     config: Any
@@ -212,43 +244,32 @@ class _ConfigState:
     status: str
     remedy: str | None
     config_panel_enabled: bool = True
+    config_unreadable_path: Path | None = None
 
 
-def _resolve_config_panel_enabled(config_path: Path | None) -> bool:
-    """Whether this deployment lets its operators reach the Config panel.
+def _resolve_privilege_gates(config_path: Path | None) -> PrivilegeGates:
+    """Resolve this deployment's privilege gates out of the file this panel found.
 
     ``web.config_panel.enabled`` is one key with one meaning across both
-    surfaces, so this resolves it with the Web Terminal's own
-    :func:`resolve_config_flag`, pointed at the config.yml this panel resolved.
-    One reader of one key: a value written as a ``${VAR}`` reference expands
-    here exactly as it does there, and an unset reference with no default is
-    uninterpretable on both.
+    surfaces, so this delegates to the Web Terminal's own
+    :func:`~osprey.interfaces.web_terminal.app.resolve_privilege_gates`: one
+    reader of one key on both surfaces. A value written as a ``${VAR}``
+    reference expands here exactly as it does there, and an unset reference
+    with no default is uninterpretable on both.
 
-    Fails OPEN, exactly as the terminal's lifespan does: an unreadable or
-    unparseable config leaves the panel at the shipped posture rather than
-    silently taking an operator's config editor away.
+    No file found means the shipped defaults, read out of nothing. The gates
+    are closed on a resolved file that cannot be read, whether or not the
+    ARIEL load of the same file then fails.
 
     Args:
-        config_path: The config.yml that was read, or None when none was found.
+        config_path: The config file this panel found, or None when none was.
 
     Returns:
-        The configured boolean, or True when the key is absent or unreadable.
+        The gates, and the unreadable file when there is one.
     """
-    from osprey.interfaces.web_terminal.app import resolve_config_flag
+    from osprey.interfaces.web_terminal.app import resolve_privilege_gates
 
-    if config_path is None:
-        # No file was resolved, so there is nothing to read: the shipped posture
-        # answers. Deliberately not the process default config — that knows only
-        # CONFIG_FILE and the working directory, and a privilege gate answered out
-        # of a file this panel was not pointed at is worse than one at its default.
-        return True
-
-    return resolve_config_flag(
-        "web.config_panel.enabled",
-        True,
-        "Could not read web.config_panel.enabled; leaving the Config panel enabled",
-        config_path=config_path,
-    )
+    return resolve_privilege_gates(config_path)
 
 
 def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
@@ -270,6 +291,10 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
     ariel_config: Any = None
     resolved_path: Path | None = None
     parse_failed = False
+    # The gates follow the file that exists, even when the ARIEL load of it
+    # then fails: a broken file must close the panel, not open it at defaults.
+    config_file = _find_config_file(config_path)
+    gates = _resolve_privilege_gates(config_file)
     try:
         from osprey.services.ariel_search import ARIELConfig
 
@@ -283,6 +308,11 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         parse_failed = True
         ariel_config = None
         config_errors = [str(e)]
+
+    if gates.config_unreadable_path is not None:
+        from osprey.interfaces.web_terminal.app import unreadable_config_refusal
+
+        config_errors.insert(0, unreadable_config_refusal(gates.config_unreadable_path))
 
     # A test-double config is not a list — only a real list counts as
     # vocabulary errors, so the classification cannot misfire on one.
@@ -301,7 +331,8 @@ def _resolve_config_state(config_path: str | Path | None) -> _ConfigState:
         errors=config_errors,
         status=status,
         remedy=remedy,
-        config_panel_enabled=_resolve_config_panel_enabled(resolved_path),
+        config_panel_enabled=gates.config_panel_enabled,
+        config_unreadable_path=gates.config_unreadable_path,
     )
 
 
@@ -379,6 +410,8 @@ def _create_lifespan(config_path: str | Path | None = None):
         # returns carries the provider base_urls and every path the safety
         # layers derive their allow and deny areas from.
         app.state.config_panel_enabled = state.config_panel_enabled
+        # The refusal names the file when an unreadable config closed the panel.
+        app.state.config_unreadable_path = state.config_unreadable_path
 
         if state.errors:
             logger.warning(_config_banner(state.status, state.errors, state.remedy))
@@ -466,6 +499,8 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     """
     from osprey.interfaces.ariel.api.drafts import draft_router
     from osprey.interfaces.ariel.api.routes import router as api_router
+    from osprey.interfaces.ariel.api.schemas import HealthFacts, HealthResponse
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
     app = FastAPI(
         title="ARIEL Search Interface",
@@ -482,23 +517,37 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         """Serve main index.html."""
         return FileResponse(STATIC_DIR / "index.html")
 
-    @app.get("/health")
-    async def health():
-        """Simple health check endpoint."""
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        """Report liveness and the status facts that are safe without a credential."""
         config_status = getattr(app.state, "config_status", None)
         service = getattr(app.state, "ariel_service", None)
-        if service is not None:
-            healthy, message = await service.health_check()
-            return {
-                "status": "healthy" if healthy else "degraded",
-                "message": message,
-                "config_status": config_status,
-            }
-        return {
-            "status": "degraded",
-            "message": "Database unavailable — drafts, UI, and settings work",
-            "config_status": config_status,
-        }
+        if service is None:
+            return HealthResponse(
+                status="degraded",
+                message=HEALTH_NO_SERVICE,
+                config_status=config_status,
+            )
+        try:
+            entry_count = await service.repository.count_entries()
+            last_ingestion = await service.repository.get_last_ingestion()
+        except DatabaseQueryError:
+            return HealthResponse(
+                status="degraded",
+                message=HEALTH_STORE_NOT_ANSWERING,
+                config_status=config_status,
+            )
+        return HealthResponse(
+            status="healthy",
+            message=HEALTH_OK,
+            config_status=config_status,
+            service=HealthFacts(
+                entry_count=entry_count,
+                last_ingestion=last_ingestion,
+                enabled_search_modules=service.config.get_enabled_search_modules(),
+                enabled_enhancement_modules=service.config.get_enabled_enhancement_modules(),
+            ),
+        )
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 

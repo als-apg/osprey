@@ -25,7 +25,7 @@ def _config(**epics: Any) -> dict[str, Any]:
     return {
         "control_system": {
             "type": "epics",
-            "connector": {"mock": {"response_delay_ms": 0}, "epics": {"timeout": 5.0, **epics}},
+            "connector": {"mock": {"response_delay_ms": 0}, "epics": {"timeout_s": 5.0, **epics}},
         }
     }
 

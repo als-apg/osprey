@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import time
+import threading
 from pathlib import Path
 
 import httpx
@@ -280,40 +280,55 @@ async def test_slow_search_does_not_block_the_rest_of_the_panel():
     30 s timeout when one hangs, and seconds at a time with ``rerank: true`` in
     a perfectly healthy deployment. On the event loop that stalls every other
     request in the process, so ``/api/search`` is a sync route and Starlette
-    runs it in a threadpool. Both halves are asserted: the shape, which cannot
-    flake, and the behaviour it exists for.
+    runs it in a threadpool. Both halves are asserted: the shape, and the
+    behaviour it exists for, as an ordering fact rather than a latency. The
+    search is held inside ``bundle.search`` until the concept request has
+    answered, so the concept answering at all proves it did not wait.
     """
     app = create_app(str(BUNDLE))
     route = next(r for r in app.routes if getattr(r, "path", "") == "/api/search")
     assert not inspect.iscoroutinefunction(route.endpoint)  # type: ignore[attr-defined]
 
-    blocked = 1.0
+    loop = asyncio.get_running_loop()
+    loop_thread = threading.get_ident()
+    entered = asyncio.Event()
+    release = threading.Event()
+    search_threads: list[int] = []
     real_search = app.state.bundle.search
 
-    def slow_search(query, **kwargs):
-        time.sleep(blocked)
+    def held_search(query, **kwargs):
+        search_threads.append(threading.get_ident())
+        loop.call_soon_threadsafe(entered.set)
+        # Held only off the loop's thread: holding the loop itself would wedge
+        # this test instead of failing it.
+        if search_threads[-1] != loop_thread:
+            release.wait()
         return real_search(query, **kwargs)
 
-    app.state.bundle.search = slow_search
+    app.state.bundle.search = held_search
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://panel") as client:
-        started = time.monotonic()
+        search = asyncio.create_task(
+            client.get("/api/search", params={"q": "Example Research Facility"})
+        )
+        # A search that fails before reaching the bundle must fail the
+        # assertion below, not leave this wait pending.
+        search.add_done_callback(lambda _: entered.set())
+        try:
+            await entered.wait()
+            assert search_threads, "the search answered without calling bundle.search"
+            assert search_threads[0] != loop_thread, "the search ran on the event loop"
 
-        async def search():
-            await client.get("/api/search", params={"q": "Example Research Facility"})
-            return time.monotonic() - started
+            concept = await client.get("/api/concept", params={"id": "devices/bpm"})
+            assert concept.status_code == 200
+            assert not search.done()  # answered while the search was still held
+        finally:
+            release.set()
+        found = await search
 
-        async def concept():
-            await client.get("/api/concept", params={"id": "devices/bpm"})
-            return time.monotonic() - started
-
-        search_done, concept_done = await asyncio.gather(search(), concept())
-
-    assert search_done >= blocked  # the stub really did block
-    # Generous margin: the point is "did not wait for the search", not a
-    # latency budget. A blocking handler lands at ~1.0 s here.
-    assert concept_done < blocked / 2
+    assert found.status_code == 200
+    assert found.json()["results"]  # the held search still returns real hits
 
 
 # ---------------------------------------------------------------------------

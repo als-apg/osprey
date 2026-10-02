@@ -5,10 +5,10 @@ a transport stub, so each asserts OSPREY's half of a two-party contract against 
 own idea of the wire format. This module is the instrument for the rest of the stack: a
 real ``osprey.dispatch`` dispatcher/worker pair as subprocesses, the bridge itself booted
 **through its own entrypoint seams** — the same ``build_wiring``/``run`` the container's
-``main`` calls — and the other party made concrete by the three fakes in
+``main`` calls — and the other party made concrete by the fakes in
 ``tests/e2e/fixtures/teams_fakes.py``: an in-process queue the serve loop pulls from, a
-loopback login host the token exchange authenticates against, and a loopback Bot
-Connector the replies land on. What it proves is that the adapter's conversation-type
+loopback login host the token exchange authenticates against, a loopback Bot Connector
+the replies land on, and a loopback Graph file library documents are uploaded into. What it proves is that the adapter's conversation-type
 rules, its mention filter, its exactly-once claim and its settlement ordering hold when
 the whole engine is running behind them.
 
@@ -40,9 +40,9 @@ dispatcher and worker are subprocesses of this interpreter, and the token and Co
 fakes are ``http.server`` instances on ephemeral loopback ports.
 
 ----------------------------------------------------------------------------
-The four injected seams, and why all four are needed
+The five injected seams, and why all five are needed
 ----------------------------------------------------------------------------
-:func:`~osprey.bridges.teams.__main__.build_wiring` exposes exactly four seams, and this
+:func:`~osprey.bridges.teams.__main__.build_wiring` exposes exactly five seams, and this
 module supplies every one — which is what lets the lane run with no tenant, no bot
 credentials and no reachable Microsoft endpoint while still executing the adapter's real
 wiring:
@@ -64,6 +64,11 @@ wiring:
 ``worker_http``
     One ``httpx.Client`` for the WORKER's artifact byte route: an internal service,
     reached with the dispatch token, and not the Connector's client.
+``graph_http``
+    ``FakeGraphServer.http_client()``. Graph's host comes from the closed cloud table
+    like the login host, so this seam rewrites the product's own Graph URL onto the
+    fake. The file-library proofs drive ``deliver_files`` over the real wiring directly
+    and need neither the dispatcher nor a model.
 
 ``TEAMS_SERVICEBUS_CONNECTION_STRING`` therefore names a namespace that is deliberately
 **unreachable** (:data:`CONNECTION_STRING`, pointing at loopback): with the receiver seam
@@ -135,6 +140,7 @@ pytest.importorskip("azure.servicebus")
 import azure.servicebus
 from azure.servicebus import AutoLockRenewer, ServiceBusClient, ServiceBusReceiveMode
 
+from osprey.bridges.core import CoreConfig
 from osprey.bridges.teams.__main__ import Wiring, build_wiring, config_from_env, run
 from osprey.bridges.teams.config import TeamsBridgeConfig
 from osprey.bridges.teams.events import (
@@ -144,7 +150,12 @@ from osprey.bridges.teams.events import (
     MS_SERVICE_URL,
     MS_TENANT_ID,
 )
-from osprey.bridges.teams.ops import ack_text, quote_prefix
+from osprey.bridges.teams.ops import (
+    FILE_CARD_CONTENT_TYPE,
+    ack_text,
+    quote_prefix,
+    skipped_files_note,
+)
 from osprey.bridges.teams.receiver import (
     SETTLE_MARGIN_SEC,
     ServiceBusQueueReceiver,
@@ -154,10 +165,12 @@ from tests.e2e.fixtures.teams_fakes import (
     ACCESS_TOKEN,
     APP_ID,
     CHANNEL_ID,
+    FILES_WEB_ROOT,
     PERSONAL_CONVERSATION_ID,
     SENDER_ID,
     TENANT_ID,
     FakeConnectorServer,
+    FakeGraphServer,
     FakeQueueMessage,
     FakeQueueReceiver,
     FakeTokenServer,
@@ -1118,6 +1131,142 @@ def test_a_redelivered_activity_is_a_duplicate_and_is_acked_once(
 
         _assert_settled_once(receiver, first, min_posts=1)
         _assert_settled_once(receiver, again, max_posts=0)
+
+
+# ---------------------------------------------------------------------------
+# The file library: a document over the real wiring, no dispatcher, no model
+# ---------------------------------------------------------------------------
+
+FILES_DRIVE_ID = "b!e2e-library"
+FILES_FOLDER = "osprey/answers"
+FILE_RUN_ID = "run-e2e-files"
+CSV_BYTES = b"time,state\n10:00,OPEN\n"
+
+
+@pytest.fixture
+def graph() -> Iterator[FakeGraphServer]:
+    """The Graph file library documents are uploaded into."""
+    with FakeGraphServer() as server:
+        yield server
+
+
+def _file_wiring(
+    tmp_path: Path,
+    token: FakeTokenServer,
+    connector: FakeConnectorServer,
+    graph: FakeGraphServer,
+) -> Wiring:
+    """The real wiring with a library configured and every seam aimed at a fake; the
+    worker's byte route serves one CSV from an in-process transport."""
+
+    def worker(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/dispatch/{FILE_RUN_ID}/artifacts/t1":
+            return httpx.Response(200, content=CSV_BYTES, headers={"content-type": "text/csv"})
+        return httpx.Response(404)
+
+    connector.add_member(CHANNEL_ID, "29:alice", "Alice", aad_object_id="oid-alice")
+    connector.add_member(
+        CHANNEL_ID, "29:carol", "Carol", aad_object_id="oid-carol", tenant_id=TENANT_ID
+    )
+    cfg = TeamsBridgeConfig(
+        app_id=APP_ID,
+        app_secret=APP_SECRET,
+        tenant_id=TENANT_ID,
+        files_drive_id=FILES_DRIVE_ID,
+        files_folder=FILES_FOLDER,
+        core=CoreConfig(
+            worker_url="http://worker.invalid",
+            dispatch_worker_token=DISPATCH_TOKEN,
+            dedup_path=str(tmp_path / "dedup.json"),
+            history_path=str(tmp_path / "history.json"),
+        ),
+    )
+    return build_wiring(
+        cfg,
+        token_http=token.http_client(),
+        connector_http=httpx.Client(timeout=30.0, trust_env=False),
+        graph_http=graph.http_client(),
+        worker_http=httpx.Client(transport=httpx.MockTransport(worker)),
+    )
+
+
+def _channel_entry(connector: FakeConnectorServer) -> dict[str, Any]:
+    """A persisted channel entry addressed at the Connector fake."""
+    return {
+        MS_SERVICE_URL: connector.base_url,
+        MS_CONVERSATION_ID: f"{CHANNEL_ID};messageid=1700000000001",
+        MS_ACTIVITY_ID: "1700000000001",
+        MS_CONVERSATION_TYPE: "channel",
+        MS_TENANT_ID: TENANT_ID,
+    }
+
+
+def _csv_result() -> dict[str, Any]:
+    return {
+        "status": "completed",
+        "text_output": "The transitions are attached.",
+        "run_id": FILE_RUN_ID,
+        "artifacts": [
+            {"artifact_id": "t1", "filename": "transitions.csv", "delivered_mime": "text/csv"}
+        ],
+    }
+
+
+def test_a_document_travels_the_real_wiring_into_the_library_and_back_as_a_card(
+    tmp_path: Path,
+    token: FakeTokenServer,
+    connector: FakeConnectorServer,
+    graph: FakeGraphServer,
+) -> None:
+    wiring = _file_wiring(tmp_path, token, connector, graph)
+
+    assert wiring.ops.deliver_files(_channel_entry(connector), _csv_result()) == {}
+
+    assert sorted(request.scope for request in token.requests) == [
+        "https://api.botframework.com/.default",
+        "https://graph.microsoft.com/.default",
+    ]
+    folder = f"{FILES_FOLDER}/{FILE_RUN_ID}"
+    (upload,) = graph.uploads
+    assert (upload.drive, upload.path, upload.data) == (
+        FILES_DRIVE_ID,
+        f"{folder}/transitions.csv",
+        CSV_BYTES,
+    )
+    assert upload.auth == f"Bearer {ACCESS_TOKEN}"
+    (invite,) = graph.invites
+    assert invite.item_id == graph.folder_id(folder)
+    assert invite.body == {
+        "recipients": [{"objectId": "oid-alice"}, {"objectId": "oid-carol"}],
+        "requireSignIn": True,
+        "sendInvitation": False,
+        "roles": ["read"],
+    }
+    (card,) = connector.posted
+    (attachment,) = card.attachments
+    assert attachment["contentType"] == FILE_CARD_CONTENT_TYPE
+    assert attachment["content"]["actions"][0]["url"] == (
+        f"{FILES_WEB_ROOT}/{folder}/transitions.csv"
+    )
+    assert card.text == ""
+
+
+def test_a_refused_share_posts_no_card_and_names_the_file(
+    tmp_path: Path,
+    token: FakeTokenServer,
+    connector: FakeConnectorServer,
+    graph: FakeGraphServer,
+) -> None:
+    wiring = _file_wiring(tmp_path, token, connector, graph)
+    graph.fail_invite()
+
+    assert wiring.ops.deliver_files(_channel_entry(connector), _csv_result()) == {}
+
+    assert len(graph.uploads) == 1
+    assert [activity.text for activity in connector.posted] == [
+        skipped_files_note(["transitions.csv"])
+    ]
+    assert not any(activity.attachments for activity in connector.posted)
 
 
 # ---------------------------------------------------------------------------

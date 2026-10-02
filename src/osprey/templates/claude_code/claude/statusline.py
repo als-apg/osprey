@@ -20,9 +20,10 @@ from pathlib import Path
 
 def _read_input() -> dict:
     try:
-        return json.load(sys.stdin)
+        data = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _model_short(data: dict) -> str:

@@ -26,7 +26,7 @@ def _safe_file_size(path: str | Path) -> int:
 
 def _extract_channels(entry) -> list[str]:
     """Extract channel names from an artifact entry's summary or access_details."""
-    channels = []
+    channels: list[str] = []
     summary = entry.summary or {}
     access = entry.access_details or {}
 

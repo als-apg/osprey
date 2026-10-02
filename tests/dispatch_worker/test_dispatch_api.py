@@ -9,6 +9,7 @@ SDK and tests never assert a timing-dependent terminal status.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -18,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.mcp_server.dispatch_worker import dispatch_api
 
 _TOKEN = "test-secret-token"
@@ -31,6 +33,19 @@ _CANNED_RESULT: dict[str, Any] = {
     "cost_usd": 0.0,
     "num_turns": 1,
 }
+
+
+@pytest.fixture(autouse=True)
+def _no_managed_policy(monkeypatch: pytest.MonkeyPatch):
+    """Pin the policy read to an empty policy.
+
+    It reads OS-standard policy files, so on a machine that has one every
+    provider-injection test here would refuse for a reason none of them is about.
+    """
+    monkeypatch.setattr(
+        "osprey.agent_runner.provider_env.read_managed_policy_env",
+        lambda paths=None: {},
+    )
 
 
 @pytest.fixture
@@ -168,9 +183,8 @@ def test_dispatch_rejects_wildcard_denied_tool(client):
         ("WebFetch", True),
         ("WebSearch", True),
         ("Bash", True),
-        ("BashOutput", True),
-        ("KillShell", True),
-        ("KillBash", True),
+        ("TaskOutput", True),
+        ("TaskStop", True),
         ("mcp__plugin_playwright_playwright__browser_click", True),
         ("mcp__plugin_playwright_playwright__", True),  # bare prefix still matches
         ("Read", False),
@@ -183,6 +197,29 @@ def test_dispatch_rejects_wildcard_denied_tool(client):
 def test_is_denied_matrix(tool, expected):
     """The server-side denylist matcher: exact entries + '*'-suffix prefixes."""
     assert dispatch_api._is_denied(tool) is expected
+
+
+@pytest.mark.parametrize(
+    ("tool", "expected"),
+    [
+        ("mcp__plugin_anything_srv__x", True),
+        ("mcp__plugin_playwright_playwright__browser_click", True),
+        ("mcp__claude_ai_Gmail__search", True),
+        ("mcp__controls__channel_read", False),
+        ("mcp__pluginx__ping", False),
+    ],
+)
+def test_plugin_and_connector_tools_are_denied(tool, expected):
+    """Every plugin server's and claude.ai connector's tools are refused; a server
+    whose name only resembles the namespace is not."""
+    assert dispatch_api._is_denied(tool) is expected
+
+
+@pytest.mark.parametrize("entry", sorted(DISPATCH_DENIED_TOOLS))
+def test_the_worker_denies_every_entry_of_the_dispatch_floor(entry):
+    """The worker reads the shared dispatch floor, not a copy of it."""
+    probe = entry[:-1] + "probe" if entry.endswith("*") else entry
+    assert dispatch_api._is_denied(probe)
 
 
 def test_dispatch_denied_tool_schedules_no_run(client):
@@ -478,6 +515,77 @@ def test_dashboard_runs_session_id_is_none_when_unrecorded(client, monkeypatch):
     assert legacy["session_id"] is None
 
 
+def test_dashboard_runs_carries_the_owner(client, monkeypatch):
+    """The feed projects the owner, so the dashboard can say who fired the run."""
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "seeded-run",
+        {
+            "status": "completed",
+            "created_at": 1785744790.0,
+            "owner": "alice",
+            "text_output": "done",
+            "tool_calls": [],
+        },
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    assert resp.status_code == 200
+    seeded = next(r for r in resp.json() if r["run_id"] == "seeded-run")
+    assert seeded["owner"] == "alice"
+
+
+def test_dashboard_runs_owner_is_none_when_unattributed(client, monkeypatch):
+    """An owner-less run projects None rather than omitting the key."""
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "legacy-run",
+        {"status": "completed", "created_at": 1785744790.0, "tool_calls": []},
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    legacy = next(r for r in resp.json() if r["run_id"] == "legacy-run")
+    assert "owner" in legacy
+    assert legacy["owner"] is None
+
+
+def test_dashboard_runs_dates_and_orders_finished_runs_by_when_they_were_fired(client, monkeypatch):
+    """Finished runs keep their accepted time, so the feed dates and orders them."""
+
+    async def _run(**kwargs):
+        await kwargs["event_queue"].put({"type": "done"})
+        await asyncio.sleep(0.01)
+        if kwargs["prompt"] == "fail":
+            raise ValueError("boom")
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _run)
+    persisted = _capture_persisted(monkeypatch)
+
+    completed_id = client.post(
+        "/dispatch", json={"prompt": "ok", "allowed_tools": ["Read"]}, headers=_auth()
+    ).json()["run_id"]
+    _wait_for_terminal(client, completed_id)
+    failed_id = client.post(
+        "/dispatch", json={"prompt": "fail", "allowed_tools": ["Read"]}, headers=_auth()
+    ).json()["run_id"]
+    _wait_for_terminal(client, failed_id)
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert [r["run_id"] for r in rows[:2]] == [failed_id, completed_id]
+    assert [r["status"] for r in rows[:2]] == ["error", "completed"]
+    for row in rows[:2]:
+        created_at = row["created_at"]
+        assert created_at == persisted[row["run_id"]]["created_at"]
+        assert isinstance(created_at, float)
+        assert created_at > 0
+        assert isinstance(row["age_sec"], (int, float))
+        assert row["age_sec"] >= 0
+    assert persisted[failed_id]["prompt"] == "fail"
+
+
 # ---------------------------------------------------------------------------
 # Startup lifecycle: provider-env injection, no artifact regeneration
 # ---------------------------------------------------------------------------
@@ -676,7 +784,7 @@ def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
     """Custom provider: ${VAR} base_url is expanded, proxy started, base URL repointed."""
     _render_config(tmp_path, _ARGO_CONFIG)
     (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
-    fake = _isolated_environ(monkeypatch, tmp_path)
+    fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_CUSTOM_HEADERS="X-Corp-Trace: abc123")
     proxy = MagicMock(return_value=7777)
     monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
 
@@ -686,6 +794,9 @@ def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
     upstream, api_key = proxy.call_args[0]
     assert upstream == "https://argo.example/v1"
     assert api_key == "sk-argo"
+    assert proxy.call_args.kwargs["forward_headers"] == frozenset({"x-corp-trace"})
+    # The argo entry declares nothing, so the adapter decides at proxy start.
+    assert proxy.call_args.kwargs["supports_images"] is None
     assert fake["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:7777"
 
 
@@ -726,18 +837,73 @@ def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypat
     )
 
 
-def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):
-    """A managed-policy env override aborts worker startup rather than starting
-    the agent against a backend the project did not configure (#355).
+def _pin_policy(monkeypatch, **env: str) -> None:
+    """Make the managed-policy read return ``env`` from a fixed source file."""
+    policy = {var: (value, "/etc/claude-code/managed-settings.json") for var, value in env.items()}
+    monkeypatch.setattr(
+        "osprey.agent_runner.provider_env.read_managed_policy_env",
+        lambda paths=None: policy,
+    )
 
-    The refusal must propagate — it is raised before the broad ``except`` that
+
+def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):
+    """A managed-policy value that differs from the deployment's aborts worker
+    startup rather than starting the agent against a backend the project did
+    not configure.
+
+    The refusal must propagate: it is raised outside the broad ``except`` that
     otherwise swallows provider-injection errors."""
     _render_config(tmp_path, _CBORG_CONFIG)
     _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://evil.example")
+
+    with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
+        dispatch_api._inject_provider_env_once()
+
+
+def test_inject_provider_env_accepts_a_managed_policy_equal_to_the_launch_value(
+    tmp_path, monkeypatch
+):
+    from osprey.agent_runner.provider_env import load_provider_spec
+
+    _render_config(tmp_path, _CBORG_CONFIG)
+    fake = _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    spec = load_provider_spec(tmp_path / "build", include_telemetry=False)
+    assert spec is not None
+    deployed = spec.env_block["ANTHROPIC_BASE_URL"]
+    _pin_policy(monkeypatch, ANTHROPIC_BASE_URL=deployed)
+
+    dispatch_api._inject_provider_env_once()
+
+    assert fake["ANTHROPIC_BASE_URL"] == deployed
+
+
+def test_inject_provider_env_compares_the_policy_with_the_proxy_loopback(tmp_path, monkeypatch):
+    """The upstream origin the env holds before the proxy rewrite is not what the
+    agent runs on, so a policy pinning it still refuses."""
+    _render_config(tmp_path, _ARGO_CONFIG)
+    (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
+    _isolated_environ(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "osprey.build.claude_code_resolver.detect_managed_policy_conflicts",
-        lambda: {"ANTHROPIC_BASE_URL": ("https://evil.example", "/etc/.../managed-settings.json")},
+        "osprey.infrastructure.proxy.lifecycle.start_proxy", MagicMock(return_value=7777)
     )
+    _pin_policy(monkeypatch, ANTHROPIC_BASE_URL="https://argo.example")
+
+    with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
+        dispatch_api._inject_provider_env_once()
+
+
+def test_inject_provider_env_refuses_on_presence_after_a_failed_injection(tmp_path, monkeypatch):
+    """A failed injection compares against nothing, so any policy key refuses even
+    though the broad ``except`` swallowed the injection error."""
+    _render_config(tmp_path, _CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+
+    def _broken(*args, **kwargs):
+        raise ValueError("unreadable provider")
+
+    monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _broken)
+    _pin_policy(monkeypatch, ANTHROPIC_MODEL="anything")
 
     with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
         dispatch_api._inject_provider_env_once()
@@ -861,6 +1027,91 @@ def test_dispatch_request_owner_is_additive() -> None:
     would turn every fire from an older dispatcher into a 422.
     """
     request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
+
+    assert request.owner is None
+
+
+def _capture_persisted(monkeypatch) -> dict[str, dict[str, Any]]:
+    """Replace ``_persist_run`` with a stub that keeps the last dict written per run."""
+    persisted: dict[str, dict[str, Any]] = {}
+
+    def _capturing_persist_run(run_id: str, run: dict[str, Any]) -> None:
+        persisted[run_id] = dict(run)
+
+    monkeypatch.setattr(dispatch_api, "_persist_run", _capturing_persist_run)
+    return persisted
+
+
+def test_run_record_names_the_owner_from_the_body(client, monkeypatch):
+    """The finished run record, in memory and on disk, names who fired it.
+
+    The persisted dict is what ``load_run_record`` serves once the run has aged
+    out of memory, so it must carry the owner as well.
+    """
+    persisted = _capture_persisted(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"], "owner": "alice"},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    record = _wait_for_terminal(client, run_id)
+
+    assert record["owner"] == "alice"
+    assert persisted[run_id]["owner"] == "alice"
+
+
+def test_owner_less_run_record_has_no_owner_key(client, monkeypatch):
+    """A run nobody is attributed to is stored without an owner key."""
+    persisted = _capture_persisted(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    record = _wait_for_terminal(client, run_id)
+
+    assert "owner" not in record
+    assert "owner" not in persisted[run_id]
+
+
+def test_pending_record_names_the_owner(client, monkeypatch):
+    """The record of a run still in flight already names who fired it."""
+    release = asyncio.Event()
+
+    async def _blocking_run_dispatch(**kwargs):
+        await release.wait()
+        queue = kwargs.get("event_queue")
+        if queue is not None:
+            await queue.put({"type": "done"})
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _blocking_run_dispatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"], "owner": "alice"},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    try:
+        assert dispatch_api._runs[run_id]["status"] == "pending"
+        assert dispatch_api._runs[run_id]["owner"] == "alice"
+    finally:
+        client.portal.call(release.set)
+    _wait_for_terminal(client, run_id)
+
+
+@pytest.mark.parametrize("bad", ["${OSPREY_TERMINAL_USER}", "a/b", "x" * 65, ""])
+def test_dispatch_request_refuses_a_malformed_owner_to_none(bad: str) -> None:
+    """The worker routes the body's owner through the shared guard; a refusal names nobody."""
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[], owner=bad)
 
     assert request.owner is None
 

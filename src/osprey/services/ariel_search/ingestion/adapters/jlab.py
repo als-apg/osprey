@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import IngestionError
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
@@ -62,6 +62,7 @@ class JLabLogbookAdapter(FacilityAdapter):
         Yields:
             EnhancedLogbookEntry objects
         """
+        self.unreadable_entries = 0
         data = await self._load_data()
 
         # JLab API returns entries in data.entries
@@ -94,6 +95,7 @@ class JLabLogbookAdapter(FacilityAdapter):
                     break
 
             except Exception as e:
+                self.unreadable_entries += 1
                 logger.warning(f"Failed to convert entry: {e}")
                 continue
 
@@ -130,14 +132,11 @@ class JLabLogbookAdapter(FacilityAdapter):
         """Convert JLab JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
-        # Parse timestamp from created.timestamp (Unix epoch string)
+        # created.timestamp is a Unix epoch string
         created = data.get("created", {})
-        timestamp_str = created.get("timestamp", "0") if isinstance(created, dict) else "0"
-        try:
-            timestamp_epoch = int(timestamp_str)
-            timestamp = datetime.fromtimestamp(timestamp_epoch, tz=UTC)
-        except (ValueError, TypeError):
-            timestamp = now
+        timestamp = parse_entry_time(
+            created.get("timestamp") if isinstance(created, dict) else None
+        )
 
         title = data.get("title", "")
         body = data.get("body", {})

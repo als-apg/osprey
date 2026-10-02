@@ -617,17 +617,15 @@ def _probe_companion_ports() -> list[str]:
 def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], list[str]]:
     """Probe 2: the resolved provider's auth secret must be resolvable before launch.
 
-    A proxy provider (als-apg, cborg, a custom ``api.providers`` entry, ...)
-    that can't authenticate upstream is a hard failure — the terminal would
-    launch straight into an auth error. Direct Anthropic (subscription/OAuth)
-    has no such requirement, so a missing ``ANTHROPIC_API_KEY`` there is only
-    a warning, not an abort. Nor is a key required by every proxy provider:
-    when the models adapter registry knows the provider and its adapter
-    declares ``requires_api_key = False`` (ollama, vllm, ds4 — local servers
-    with no auth), a missing secret is likewise only a warning, worded with
-    the adapter's own ``api_key_note``. Providers the registry does not know
-    keep the strict behavior — an unknown custom proxy without a secret is
-    still an abort.
+    With the secret missing, the provider's adapter class decides, not the
+    launch route. A provider no adapter class describes is a hard failure on
+    either route, because nothing declares a login or a keyless endpoint for
+    it. A class that declares ``requires_api_key = False`` gets a warning
+    worded with its own ``api_key_note``. A class that declares
+    ``supports_interactive_login`` (direct Anthropic) gets a warning, because
+    the launch can still sign in. Every other provider, including a gateway
+    that speaks the Anthropic API natively, is a hard failure, because the
+    terminal would launch straight into an auth error.
 
     The two directories are genuinely different files: the provider is declared
     in the render (``build/config.yml``), while the secret it needs lives in
@@ -647,7 +645,7 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     duplicating that diagnosis.
 
     A provider that resolves no gateway endpoint
-    (:class:`~osprey.build.claude_code_resolver.ProviderEndpointError`) is the
+    (:class:`~osprey.agent_runner.provider_env.ProviderEndpointError`) is the
     other refusal this probe reports rather than skips, and it aborts: the
     server's own startup resolves the same spec and exits on it.
 
@@ -659,7 +657,7 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     going (telemetry credentials are orthogonal to whether the terminal can
     authenticate) while saying why the auth check never ran.
     """
-    from osprey.build.claude_code_resolver import ProviderEndpointError, load_provider_spec
+    from osprey.agent_runner.provider_env import ProviderEndpointError, load_provider_spec
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
     try:
@@ -705,20 +703,22 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
         return [], []
 
     preamble = f"auth secret ${spec.auth_secret_env} not found in environment or .env "
-    if spec.needs_proxy:
-        # Imported only on this failure path: resolving an adapter class pulls
-        # in the LiteLLM stack, which the healthy launch never needs to load.
-        from osprey.models.provider_registry import get_provider_registry
+    # Imported only on this failure path: resolving an adapter class pulls
+    # in the LiteLLM stack, which the healthy launch never needs to load.
+    from osprey.models.provider_registry import get_provider_registry
 
-        adapter = get_provider_registry().get_provider(spec.provider)
-        if adapter is not None and adapter.requires_api_key is False:
-            note = f": {adapter.api_key_note}" if adapter.api_key_note else ""
-            return [], [f"{preamble}(provider {spec.provider} does not require one{note})"]
+    adapter = get_provider_registry().get_provider(spec.provider)
+    if adapter is None:
         return [f"{preamble}(provider {spec.provider} requires it)"], []
-    return (
-        [],
-        [f"{preamble}(provider {spec.provider}); falling back to subscription/OAuth login"],
-    )
+    if adapter.requires_api_key is False:
+        note = f": {adapter.api_key_note}" if adapter.api_key_note else ""
+        return [], [f"{preamble}(provider {spec.provider} does not require one{note})"]
+    if adapter.supports_interactive_login:
+        return (
+            [],
+            [f"{preamble}(provider {spec.provider}); falling back to subscription/OAuth login"],
+        )
+    return [f"{preamble}(provider {spec.provider} requires it)"], []
 
 
 def _probe_config_validity(build_dir: Path, config_path: Path) -> list[str]:
@@ -767,9 +767,8 @@ def _preflight(repo_root: Path, build_dir: Path, config_path: Path) -> tuple[lis
     Each probe appends its findings to one shared failures/warnings pair so
     later probes bolt on without reworking this orchestrator. Returns
     ``([], [])`` on a clean pass. Failures abort the launch; warnings are
-    printed but don't (e.g. a direct-Anthropic provider with no
-    ``ANTHROPIC_API_KEY`` in env — subscription/OAuth login is still
-    launchable).
+    printed but don't (e.g. a provider whose adapter declares an interactive
+    login, such as direct Anthropic, with no key in env).
 
     ``repo_root``/``build_dir``/``config_path`` are what ``_resolve_render()``
     settled on — every probe sees the SAME deployment the server will serve.
@@ -888,27 +887,25 @@ def _resolve_web_shell_command(
     Both are argv, written as a string or as a list, and both go through
     :func:`~osprey.utils.shell_resolver.normalize_shell_command`, which resolves
     argv[0] and passes the harness's own arguments through.
-      3. ``claude_code.cli_version`` pin via ``build_claude_launch_argv()``
-      4. bare ``claude`` (current default)
+      3. ``claude_code.cli_version`` pin: the launcher's pinned default
+      4. the launcher's unpinned default
 
-    For the default (bare ``claude``) case, ``claude`` is resolved to an
-    absolute path so a stripped PATH (systemd unit / container entrypoint) still
-    finds it, while the launcher's appended flags — notably
-    ``--setting-sources project`` — are preserved. A pinned ``npx …`` prefix is
-    left to PATH lookup unchanged. Always returns ``list[str]`` so downstream
-    consumers can unpack safely.
+    The launcher builds the default
+    (:func:`~osprey.agent_runner.launcher.build_claude_launch_argv`) and
+    resolves its bare program name
+    (:func:`~osprey.agent_runner.launcher.resolve_cli_name`), so a stripped
+    PATH still finds the CLI and the launcher's appended flags are preserved;
+    a pinned ``npx …`` prefix is left to PATH lookup. Always returns
+    ``list[str]`` so downstream consumers can unpack safely.
     """
-    from osprey.utils.claude_launcher import build_claude_launch_argv
-    from osprey.utils.shell_resolver import normalize_shell_command, resolve_shell_command
+    from osprey.agent_runner.launcher import build_claude_launch_argv, resolve_cli_name
+    from osprey.utils.shell_resolver import normalize_shell_command
 
     if shell_override:
         return normalize_shell_command(shell_override)
     if wt_config.get("shell"):
         return normalize_shell_command(wt_config["shell"])
-    argv = build_claude_launch_argv(cc_config)
-    if argv[0] == "claude":
-        return [resolve_shell_command(argv[0]), *argv[1:]]
-    return argv  # pinned ["npx", "-y", ...] — leave to PATH lookup
+    return resolve_cli_name(build_claude_launch_argv(cc_config))
 
 
 # -- CLI -------------------------------------------------------------------

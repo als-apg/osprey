@@ -9,6 +9,7 @@ Tests the Click command group including:
 """
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import click
@@ -120,6 +121,80 @@ class TestConfigResolution:
         import os
 
         assert os.environ["CONFIG_FILE"] == str(repo / "build" / "config.yml")
+
+
+class TestWebBindAddress:
+    """``osprey channel-finder web`` binds the address its project's config names."""
+
+    CONFIGURED_HOST = "192.0.2.20"
+    CONFIGURED_PORT = 18400
+
+    @staticmethod
+    def _project(root, *, host, port):
+        import yaml
+
+        root.mkdir(parents=True)
+        section: dict = {"pipeline_mode": "in_context"}
+        if host is not None:
+            section["web"] = {"host": host, "port": port}
+        (root / "config.yml").write_text(
+            yaml.safe_dump({"project_name": "demo", "channel_finder": section})
+        )
+        return root
+
+    @pytest.fixture
+    def bound(self, monkeypatch):
+        seen: dict = {}
+        monkeypatch.setattr("osprey.interfaces.channel_finder.app.create_app", lambda: object())
+        monkeypatch.setattr("uvicorn.run", lambda *a, **kw: seen.update(kw))
+        for name in ("OSPREY_CHANNEL_FINDER_PORT", "OSPREY_TERMINAL_SECRET", "OSPREY_WEB_PORT"):
+            monkeypatch.delenv(name, raising=False)
+        return seen
+
+    def test_host_option_has_no_frozen_default(self):
+        web = channel_finder.commands["web"]
+        host = next(p for p in web.params if p.name == "host")
+        assert host.default is None
+
+    def test_the_named_projects_address_is_bound(self, runner, tmp_path, monkeypatch, bound):
+        decoy = self._project(tmp_path / "decoy", host="192.0.2.99", port=18499)
+        project = self._project(
+            tmp_path / "named", host=self.CONFIGURED_HOST, port=self.CONFIGURED_PORT
+        )
+        monkeypatch.chdir(decoy)
+
+        result = runner.invoke(channel_finder, ["--project", str(project), "web"])
+
+        assert result.exit_code == 0, result.output
+        assert (bound["host"], bound["port"]) == (self.CONFIGURED_HOST, self.CONFIGURED_PORT)
+        assert f"http://{self.CONFIGURED_HOST}:{self.CONFIGURED_PORT}" in result.output
+
+    def test_explicit_host_and_port_win(self, runner, tmp_path, bound):
+        project = self._project(
+            tmp_path / "named", host=self.CONFIGURED_HOST, port=self.CONFIGURED_PORT
+        )
+
+        result = runner.invoke(
+            channel_finder,
+            ["--project", str(project), "web", "--host", "127.0.0.1", "--port", "18999"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (bound["host"], bound["port"]) == ("127.0.0.1", 18999)
+
+    def test_no_configured_host_binds_loopback(self, runner, tmp_path, monkeypatch, bound):
+        from osprey.registry.web import framework_web_port_default
+
+        project = self._project(tmp_path / "named", host=None, port=None)
+        monkeypatch.chdir(project)
+
+        result = runner.invoke(channel_finder, ["--project", str(project), "web"])
+
+        assert result.exit_code == 0, result.output
+        assert (bound["host"], bound["port"]) == (
+            "127.0.0.1",
+            framework_web_port_default("channel_finder"),
+        )
 
 
 # ============================================================================
@@ -598,6 +673,66 @@ class TestValidateSubcommand:
                 )
         assert result.exit_code == 1
         assert "INVALID" in result.output
+
+    def test_validate_pipeline_reads_that_pipelines_configured_database(self, runner, tmp_path):
+        """``--pipeline X`` without ``--database`` validates X's configured file."""
+        hier = tmp_path / "hier.json"
+        hier.write_text(
+            json.dumps(
+                {
+                    "hierarchy": {
+                        "levels": [
+                            {"name": "system", "type": "tree"},
+                            {"name": "signal", "type": "tree"},
+                        ],
+                        "naming_pattern": "{system}:{signal}",
+                    },
+                    "tree": {"SR": {"X": {}}},
+                }
+            )
+        )
+        config = {
+            "channel_finder": {
+                "pipeline_mode": "in_context",
+                "pipelines": {
+                    "in_context": {"database": {"path": str(tmp_path / "ctx.json")}},
+                    "hierarchical": {"database": {"path": str(hier)}},
+                },
+            }
+        }
+
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                with patch("osprey.utils.config.load_config", return_value=config):
+                    with patch("osprey.utils.workspace.resolve_path", side_effect=Path):
+                        result = runner.invoke(
+                            channel_finder, ["validate", "--pipeline", "hierarchical"]
+                        )
+
+        printed = " ".join(result.output.split())
+        assert result.exit_code == 0
+        assert "Hierarchical" in printed
+        assert "ctx.json" not in printed
+
+    def test_validate_pipeline_without_its_database_names_the_key(self, runner, tmp_path):
+        """``--pipeline X`` with no database configured for X refuses, naming the key."""
+        config = {
+            "channel_finder": {
+                "pipelines": {"in_context": {"database": {"path": str(tmp_path / "ctx.json")}}},
+            }
+        }
+
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                with patch("osprey.utils.config.load_config", return_value=config):
+                    result = runner.invoke(
+                        channel_finder, ["validate", "--pipeline", "middle_layer"]
+                    )
+
+        assert result.exit_code == 1
+        assert "channel_finder.pipelines.middle_layer.database.path" in " ".join(
+            result.output.split()
+        )
 
 
 # ============================================================================

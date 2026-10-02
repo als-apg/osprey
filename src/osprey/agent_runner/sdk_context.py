@@ -75,7 +75,7 @@ def make_tool_allowlist(
     allowed → deny). Entries ending in ``*`` match by prefix (e.g. a
     ``mcp__plugin_playwright_playwright__*`` entry blocks every playwright tool);
     all other entries match exactly. The dispatch worker threads its
-    server-side ``DENIED_TOOLS`` here as defense-in-depth; the default empty
+    ``DISPATCH_DENIED_TOOLS`` here as defense-in-depth; the default empty
     denylist leaves other call sites unaffected.
     """
     allowed_set = frozenset(allowed)

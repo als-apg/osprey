@@ -113,6 +113,26 @@ time has nothing to rewrite and is unaffected.
 
 ## Bundle authoring
 
+The full schema — every channel key, the expression grammar, the `physics` block
+and every refusal — is
+https://als-apg.github.io/osprey/reference/contracts/simulation-bundle.html.
+The rules you need to author or apply a bundle:
+
+- A bundle is a directory under `scenarios/` named for the scenario, and it
+  needs a `scenario.json`. Once `scenarios/` exists, a `scenarios` block inside
+  `machine.json` is ignored.
+- `scenario.json` takes `description`, `overrides` (channel → number or
+  string), `archiver` (a list of `{channel, events}`) and `physics`. Every
+  channel it names must exist in `machine.json`; other keys are ignored.
+- An `archiver` entry claims its channel for the disjointness rule even with an
+  empty `events` list. `nominal` is always active, so a channel `nominal`
+  touches is off limits to every other scenario.
+- `physics` names lattice device ids (`BPM17`, `HCM01`), not channel names.
+  Each `bpm_errors` field except `roll` applies to both transverse planes. Two
+  active scenarios may not name one device under the same field. The fault
+  takes effect at the next `osprey up` (the notice described under "Switch /
+  compose scenarios").
+
 ### Archiver event format (`scenario.json`)
 
 A scenario's `archiver` entries attach events to a channel's history. Each event
@@ -125,17 +145,19 @@ written into a stored archive.
   past); ramps use `until_offset`. Spike `width` is a Gaussian sigma in seconds.
   The style to reach for: an offset becomes an absolute instant the moment the
   anchor is known.
-- `at_time` — daily wall-clock recurrence (`"HH:MM:SS"`, local time): the event
-  fires at that time of day on every calendar date inside the requested window.
+- `at_time` — daily wall-clock recurrence (`"HH:MM:SS"`, in the facility time
+  zone — `system.timezone`, UTC when unset): the event fires at that time of day
+  on every calendar date inside the requested window.
   `step` and `spike` only (no ramps). Spike `width` is in seconds. Also
   seedable — each occurrence is a real instant — as long as the archive covers
   at least a day, so there is an occurrence inside it.
 - `at` — fraction (0..1) of whatever time window is requested; ramps use
   `until`. Spike `width` is a window fraction. **Read-time only**: a fraction
   names a position in the reader's window, not an instant, so there is no honest
-  timestamp to write it at. On a project with a stored archive `apply` rejects
-  it by name and tells you to use `at_offset`; a contract test keeps the shipped
-  bundles free of it.
+  timestamp to write it at. `osprey sim apply` refuses it by name on every
+  project unless the archive rewrite is skipped (`--no-seed-archiver` or
+  `--no-seed`), and tells you to use `at_offset`; a contract test keeps the
+  shipped bundles free of it.
 
 The anchor T0 is the same instant for the telemetry, the logbook and the
 archive: the apply-time anchor written into the scenario state file. The

@@ -91,6 +91,9 @@ async def test_screenshot_full_mode(tmp_path, monkeypatch):
     assert data["summary"]["mode"] == "full"
     assert data["summary"]["dimensions"] == "2560x1440"
     assert "screenshots" in data["summary"]["filepath"]
+    assert data["access_details"]["view_hint"] == (
+        f"Open {filepath_holder[0]} with your file-reading tool to view the screenshot."
+    )
 
 
 async def test_screenshot_region_mode(tmp_path, monkeypatch):
@@ -515,3 +518,46 @@ async def test_screenshot_region_missing_target(tmp_path, monkeypatch):
 
     data = _exc_ctx["envelope"]
     assert "x,y,w,h" in data["error_message"]
+
+
+# ---------------------------------------------------------------------------
+# output directory
+# ---------------------------------------------------------------------------
+
+
+def _project_with_config(tmp_path, monkeypatch, body):
+    """Write a config under ``tmp_path/repo`` and run from a sibling directory."""
+    repo = tmp_path / "repo"
+    elsewhere = tmp_path / "elsewhere"
+    repo.mkdir()
+    elsewhere.mkdir()
+    config = repo / "config.yml"
+    config.write_text(f"project_root: '{repo}'\n" + body)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
+    monkeypatch.chdir(elsewhere)
+    return repo, elsewhere
+
+
+def test_screenshots_default_to_the_agent_data_root(tmp_path, monkeypatch):
+    """Unset, screenshots go under the agent-data root, never under the launching cwd."""
+    repo, elsewhere = _project_with_config(
+        tmp_path, monkeypatch, "agent_data:\n  base_dir: state/agent\n"
+    )
+    from osprey.mcp_server.workspace.tools.screen_capture import _get_output_dir
+
+    output_dir = _get_output_dir()
+
+    assert output_dir == repo / "state" / "agent" / "screenshots"
+    assert output_dir.is_dir()
+    assert not (elsewhere / "state").exists()
+
+
+def test_a_relative_output_dir_is_anchored_on_the_project_root(tmp_path, monkeypatch):
+    """A relative output_dir resolves against the project root, never the launching cwd."""
+    repo, elsewhere = _project_with_config(
+        tmp_path, monkeypatch, "screen_capture:\n  output_dir: captures/ops\n"
+    )
+    from osprey.mcp_server.workspace.tools.screen_capture import _get_output_dir
+
+    assert _get_output_dir() == repo / "captures" / "ops"
+    assert not (elsewhere / "captures").exists()

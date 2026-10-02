@@ -23,10 +23,10 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from osprey.agent_runner import HAS_SDK, AgentRunError
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionTerminatedError
 from osprey.interfaces.web_terminal.operator_session import (
-    CLAUDE_SDK_AVAILABLE,
     POSTURE_SOURCE_LIVE,
     OperatorSession,
     TurnInProgressError,
@@ -256,7 +256,7 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
         stream  If true (default), return an SSE event stream.
                 If false, buffer the full response and return JSON.
     """
-    if not CLAUDE_SDK_AVAILABLE:
+    if not HAS_SDK:
         raise HTTPException(status_code=503, detail="Claude Agent SDK is not available")
 
     prompt = body.prompt.strip()
@@ -318,10 +318,9 @@ async def _stream_events(
         raise
     except Exception as exc:
         logger.exception("Chat stream error")
+        error_type = exc.error_type if isinstance(exc, AgentRunError) else type(exc).__name__
         yield _sse(
-            _strip_for_chat(
-                {"type": "error", "message": str(exc), "error_type": type(exc).__name__}
-            )
+            _strip_for_chat({"type": "error", "message": str(exc), "error_type": error_type})
         )
     finally:
         if session.release_turn(token):

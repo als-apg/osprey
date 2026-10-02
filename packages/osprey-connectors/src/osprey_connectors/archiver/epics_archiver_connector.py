@@ -8,6 +8,7 @@ Refactored from existing archiver integration code.
 
 import asyncio
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,6 +24,7 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.connection import read_connection_settings, urllib_opener
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("epics_archiver_connector")
@@ -41,8 +43,8 @@ class EPICSArchiverConnector(ArchiverConnector):
 
     Example:
         >>> config = {
-        >>>     'url': 'https://archiver.als.lbl.gov:8443',
-        >>>     'timeout': 60,
+        >>>     'url': 'https://archiver.example.org:8443',
+        >>>     'timeout_s': 60,
         >>>     'retrieval_path': '/retrieval',  # the default; a proxy may rename it
         >>> }
         >>> connector = EPICSArchiverConnector()
@@ -57,10 +59,14 @@ class EPICSArchiverConnector(ArchiverConnector):
     #: Where a bare Archiver Appliance mounts its retrieval servlet.
     DEFAULT_RETRIEVAL_PATH = "/retrieval"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected = False
-        self._url = None
+        self._url: str | None = None
         self._retrieval_path = self.DEFAULT_RETRIEVAL_PATH
+        self._opener: urllib.request.OpenerDirector | None = None
+        # The login's key and variable name, for messages; never the secret.
+        self._login_key: str | None = None
+        self._login_env: str | None = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -69,23 +75,35 @@ class EPICSArchiverConnector(ArchiverConnector):
         Args:
             config: Configuration with keys:
                 - url: Archiver URL (required)
-                - timeout: Default timeout in seconds (default: 60)
+                - timeout_s: Default timeout in seconds (default: 60)
                 - retrieval_path: Prefix under which the appliance's retrieval
                   servlet is reached (default: ``/retrieval``). Set it when a
                   reverse proxy in front of the appliance publishes the servlet
                   under another name.
+                - auth: The login a proxy in front of the appliance asks for:
+                  ``token_env`` (sent as a bearer token), or ``username`` and
+                  ``password_env`` (sent as HTTP Basic). The secret is read from
+                  the named environment variable here, at connect, and is sent
+                  only to the configured origin.
+                - tls: ``ca_bundle``, the absolute path of the CA file the
+                  appliance's certificate is checked against.
 
         Raises:
-            ValueError: If URL is not provided
+            ValueError: If URL is not provided, or the block breaks the shape
+            ConnectionError: If the variable a login names is unset
         """
-        archiver_url = config.get("url")
-        if not archiver_url:
+        settings = read_connection_settings(config, where="archiver.settings")
+        if not settings.url:
             raise ValueError("archiver URL is required for EPICS archiver")
 
-        self._url = archiver_url.rstrip("/")
-        self._timeout = config.get("timeout", 60)
+        self._url = settings.url.rstrip("/")
+        self._timeout = settings.timeout_or(60)
         retrieval_path = config.get("retrieval_path") or self.DEFAULT_RETRIEVAL_PATH
         self._retrieval_path = "/" + retrieval_path.strip("/")
+        self._opener = urllib_opener(settings)
+        if settings.login is not None:
+            self._login_key = settings.login.env_key
+            (self._login_env,) = settings.login.env_names
         self._connected = True
 
         logger.debug(
@@ -95,6 +113,9 @@ class EPICSArchiverConnector(ArchiverConnector):
     async def disconnect(self) -> None:
         """Cleanup archiver connection."""
         self._url = None
+        self._opener = None
+        self._login_key = None
+        self._login_env = None
         self._connected = False
         logger.debug("EPICS Archiver connector disconnected")
 
@@ -119,11 +140,26 @@ class EPICSArchiverConnector(ArchiverConnector):
         )
         url = f"{self._url}{self._retrieval_path}/data/getData.json?{params}"
         req = urllib.request.Request(url, method="GET")
+        opener = self._opener
+        if opener is None:
+            raise RuntimeError("Archiver not connected")
 
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            # Every request this connector makes goes through the opener built at
+            # connect, which carries the login and the CA.
+            with opener.open(req, timeout=self._timeout) as resp:
                 payload = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise ConnectionError(self._refused_login_message(e.code)) from e
+            raise ConnectionError(f"Cannot connect to archiver at {self._url}: {e}") from e
         except urllib.error.URLError as e:
+            if isinstance(e.reason, ssl.SSLCertVerificationError):
+                raise ConnectionError(
+                    f"The archiver at {self._url} presented a certificate this process does "
+                    "not trust: name its CA in `archiver.settings.tls.ca_bundle`, or add it "
+                    "to the image with `images.site_ca`."
+                ) from e
             raise ConnectionError(f"Cannot connect to archiver at {self._url}: {e}") from e
 
         # Empty response: [] or [{"meta": ..., "data": []}]
@@ -144,13 +180,27 @@ class EPICSArchiverConnector(ArchiverConnector):
 
         return pd.Series(values, index=timestamps, name=pv)
 
+    def _refused_login_message(self, code: int) -> str:
+        """Name the login the appliance refused, or the keys that would supply one."""
+        if self._login_key is not None:
+            return (
+                f"The archiver at {self._url} refused the login from "
+                f"`archiver.settings.auth.{self._login_key}` (HTTP {code}). "
+                f"Check the credential in {self._login_env}."
+            )
+        return (
+            f"The archiver at {self._url} asks for a login (HTTP {code}) and "
+            "`archiver.settings.auth` names none: set `auth.token_env`, or "
+            "`auth.username` and `auth.password_env`."
+        )
+
     async def get_data(
         self,
         channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
+        timeout: float | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """

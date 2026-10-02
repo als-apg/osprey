@@ -54,12 +54,19 @@ import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from starlette.websockets import WebSocketState
+from websockets.asyncio.client import connect as _WebSocketConnect
 
 from osprey.dispatch import DISPATCHER_MCP_PATH
-from osprey.interfaces.common_middleware import compute_url_prefix
+from osprey.interfaces.common_middleware import (
+    FACILITY_TIMEZONE_ATTRIBUTE,
+    STORAGE_SCOPE_ATTRIBUTE,
+    compute_url_prefix,
+    resolve_storage_scope,
+)
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.identity import acting_identity
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
@@ -130,14 +137,20 @@ _PANEL_STATE_MAP = {
 } | {panel_id: panel_url_state_attr(panel_id) for panel_id in SIDECAR_PANELS}
 
 
-def _resolve_panel_url(request: Request, panel_id: str) -> str | None:
-    """Map a panel ID to its internal server URL, or ``None`` if unavailable."""
+def _resolve_panel_url(scope: Request | WebSocket, panel_id: str) -> str | None:
+    """Map a panel ID to its internal server URL, or ``None`` if unavailable.
+
+    Args:
+        scope: The request or websocket being proxied; only ``app.state`` is
+            read, so both connection kinds answer the same way.
+        panel_id: The panel id from the proxied URL.
+    """
     attr = _PANEL_STATE_MAP.get(panel_id)
     if attr:
-        return getattr(request.app.state, attr, None)
+        return getattr(scope.app.state, attr, None)
 
     # Custom panels: look up by ID in the custom panels list.
-    for cp in getattr(request.app.state, "custom_panels", []):
+    for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             url = cp.get("url", "")
             return url if url else None
@@ -161,6 +174,20 @@ def _panel_is_config_defined(scope: Request | WebSocket, panel_id: str) -> bool:
         if cp.get("id") == panel_id:
             return bool(cp.get("configDefined"))
     return False
+
+
+class _RedirectRefusingConnect(_WebSocketConnect):
+    """An upstream websocket handshake that follows no redirect.
+
+    A handshake carrying the operator secret or a panel credential follows no
+    redirect: ``websockets`` re-sends ``additional_headers`` verbatim to every
+    redirect target, so following one could carry the credential off the host
+    the gate vouched for. The redirect surfaces as the exception it raised.
+    """
+
+    def process_redirect(self, exc: Exception) -> Exception | str:
+        """Decline every redirect by returning the exception unchanged."""
+        return exc
 
 
 #: The panel id the event dispatcher is published under.
@@ -861,6 +888,11 @@ def _rewrite_content(
 #: ``_app_setup.mount_shared_static()`` serves at ``/design-system``.
 _DESIGN_SYSTEM_DIR = Path(__file__).resolve().parents[2] / "design_system" / "static"
 
+#: The hub's shared fonts — the same directory ``_app_setup`` mounts at
+#: ``/static/fonts`` — served to an embedded panel by
+#: :func:`proxy_panel_shared_fonts`.
+_SHARED_FONTS_DIR = Path(__file__).resolve().parents[2] / "shared_fonts"
+
 #: The hub's own ``web_terminal/static`` tree, served to an embedded panel by
 #: :func:`proxy_panel_terminal_static`.
 _TERMINAL_STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -892,6 +924,11 @@ _STATIC_TEXT_TYPES = {
     ".json": "application/json",
     ".map": "application/json",
 }
+
+#: Font suffixes, mapped to the content type to serve them as. The hub's shared
+#: fonts are served with a font type that does not depend on the host's mime
+#: table.
+_STATIC_FONT_TYPES = {".ttf": "font/ttf"}
 
 
 def _contained_asset(root: Path, asset_path: str) -> Path | None:
@@ -936,7 +973,8 @@ def _asset_media_type(candidate: Path) -> str:
     ``mimetypes`` for images and fonts, then a bytes-shaped fallback so an
     unknown suffix is still served rather than guessed wrong as text.
     """
-    mapped = _STATIC_TEXT_TYPES.get(candidate.suffix.lower())
+    suffix = candidate.suffix.lower()
+    mapped = _STATIC_TEXT_TYPES.get(suffix) or _STATIC_FONT_TYPES.get(suffix)
     if mapped is not None:
         return mapped
     guessed, _ = mimetypes.guess_type(candidate.name)
@@ -1197,6 +1235,127 @@ def _inject_control_target_bar(
     return f"{text[: head.end()]}{markup}{text[head.end() :]}"
 
 
+#: The opening of the document's root tag.
+#:
+#: The lookahead refuses a longer tag name such as ``<htmlx>`` or
+#: ``<html-embed>``. The FIRST match wins; as with :data:`_HEAD_OPEN_RE`, a
+#: backend that put the string in a comment ahead of the real tag would be
+#: stamped there instead.
+_HTML_OPEN_RE = re.compile(r"<html(?=[\s/>])", re.IGNORECASE)
+
+
+def _stamp_storage_scope(text: str, base_type: str, scope: str) -> str:
+    """Stamp the mount's storage scope on a relayed document's ``<html>`` tag.
+
+    Why the proxy: every panel page reaches the browser through this hop, and
+    only the hub knows whose mount it is. A companion server may be shared by
+    the whole roster, so it cannot name the person it renders for.
+
+    Why first: an HTML parser keeps the first of two same-named attributes, so
+    a backend that spelled its own scope cannot outrank the hub's.
+
+    Why an empty scope relays byte for byte: single-user serving stays exactly
+    as it is, so the absent attribute keeps meaning "use the bare key"
+    (``storage-scope.js``).
+
+    What the stamp is not: it separates preferences, not secrets. Any script
+    on the origin can read every key.
+
+    Args:
+        text: The relayed body, already rewritten for this deployment.
+        base_type: The response's media type without parameters.
+        scope: The mount's storage scope, ``""`` when there is no mount user.
+
+    Returns:
+        ``text`` with the attribute as the root tag's first attribute, or
+        ``text`` unchanged when there is no scope, the body is not HTML, or it
+        has no root tag.
+    """
+    if not scope or base_type != "text/html":
+        return text
+    match = _HTML_OPEN_RE.search(text)
+    if match is None:
+        return text
+    stamp = f' {STORAGE_SCOPE_ATTRIBUTE}="{html.escape(scope, quote=True)}"'
+    return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
+
+
+def _stamp_facility_timezone(text: str, base_type: str, zone: str) -> str:
+    """Stamp the facility time zone on a relayed document's ``<html>`` tag.
+
+    Why the proxy: a panel's own server may not know the zone. The Bluesky
+    sidecar reads no configuration, and some companions serve a static file.
+    Every panel page reaches the browser through this hop, and the hub resolves
+    the zone the agent is told.
+
+    Why a document's own stamp stands: the zone is one deployment's
+    configuration, so a companion that stamps its own names the same zone, and
+    the root tag carries the attribute once.
+
+    Why it is always present: the resolver degrades to ``UTC`` rather than
+    failing, so every relayed page names a zone.
+
+    Args:
+        text: The relayed body, already rewritten for this deployment.
+        base_type: The response's media type without parameters.
+        zone: The facility's IANA zone name.
+
+    Returns:
+        ``text`` with the attribute as the root tag's first attribute, or
+        ``text`` unchanged when there is no zone, the body is not HTML, it has
+        no root tag, or the root tag already names a zone.
+    """
+    if not zone or base_type != "text/html":
+        return text
+    match = _HTML_OPEN_RE.search(text)
+    if match is None:
+        return text
+    tag_end = text.find(">", match.end())
+    tag = text[match.end() :] if tag_end == -1 else text[match.end() : tag_end]
+    if f"{FACILITY_TIMEZONE_ATTRIBUTE}=" in tag.lower():
+        return text
+    stamp = f' {FACILITY_TIMEZONE_ATTRIBUTE}="{html.escape(zone, quote=True)}"'
+    return f"{text[: match.end()]}{stamp}{text[match.end() :]}"
+
+
+@router.api_route(
+    "/panel/{panel_id}/static/fonts/{asset_path:path}",
+    methods=["GET", "HEAD"],
+)
+async def proxy_panel_shared_fonts(
+    panel_id: str,  # noqa: ARG001 - route path parameter; fonts are served verbatim
+    asset_path: str,
+):
+    """Serve the HUB's shared fonts to an embedded panel.
+
+    MUST stay declared above :func:`proxy_panel` — that route's
+    ``{path:path}`` is a catch-all and Starlette matches in declaration
+    order, so moving this below it makes it unreachable.
+
+    Every panel links ``/static/fonts/fonts.css`` root-absolute, which
+    :func:`_rewrite_content` turns into ``/panel/<id>/static/fonts/fonts.css``.
+    Left to the generic proxy that request reaches the panel's own backend,
+    and a URL-backed panel does not ship OSPREY's fonts, so the link would
+    404 and the panel would render in system fonts. Answered here, every
+    embedded panel gets the hub's typeface.
+
+    ``fonts.css`` names its font files relatively, so it is served verbatim.
+    A missing font 404s here and never reaches the backend.
+    """
+    if not _SHARED_FONTS_DIR.is_dir():  # pragma: no cover - packaging guard
+        return Response(content="shared fonts unavailable", status_code=404)
+
+    candidate = _contained_asset(_SHARED_FONTS_DIR, asset_path)
+    if candidate is None:
+        return Response(content="Not found", status_code=404)
+
+    return Response(
+        content=candidate.read_bytes(),
+        headers={"cache-control": _DEFAULT_NO_CACHE},
+        media_type=_asset_media_type(candidate),
+    )
+
+
 @router.api_route(
     "/panel/{panel_id}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
@@ -1425,6 +1584,14 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         # fully formed for this deployment, and a second pass over it would
         # aim the bar's own URLs into the panel's namespace.
         text = _inject_control_target_bar(text, panel_id, path, base_type, outer_prefix)
+        text = _stamp_storage_scope(
+            text,
+            base_type,
+            resolve_storage_scope(getattr(request.app.state, "terminal_user", "")),
+        )
+        # Resolved per request, like the storage scope, by the call the hub's own pages use.
+        if base_type == "text/html":
+            text = _stamp_facility_timezone(text, base_type, get_facility_timezone().key)
         return Response(
             content=text,
             status_code=resp.status_code,
@@ -1534,17 +1701,13 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     # each target — the ws↔ws analogue of the httpx redirect leak the HTTP path
     # guards against. When the secret is being carried, refuse to follow any
     # redirect so it cannot ride one off the loopback host the gate vouched for.
-    connector = websockets.connect(
+    connect_type = _RedirectRefusingConnect if upstream_headers else websockets.connect
+    connector = connect_type(
         target,
         additional_headers=upstream_headers or None,
         subprotocols=offered or None,
         open_timeout=UPSTREAM_OPEN_TIMEOUT,
     )
-    if upstream_headers:
-        # ``process_redirect`` returns the new URI to follow a redirect, or the
-        # exception to refuse it; returning the exception unchanged declines
-        # every redirect and surfaces it instead of chasing it with the secret.
-        connector.process_redirect = lambda exc: exc
 
     client_gone = False
     try:

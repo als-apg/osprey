@@ -15,7 +15,6 @@ on demand via ``osprey sim apply``.
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -23,21 +22,21 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation.engine import (
-    ACTIVE_SCENARIO_FILENAME,
     ACTIVE_SCENARIOS_FILENAME,
     SimulationEngine,
     resolve_active_scenarios,
     resolve_state_dir,
 )
-from osprey.simulation.machine import parse_machine
+from osprey.simulation.machine import parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
+from osprey_connectors.simulation.engine import resolve_simulation_file
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
@@ -48,6 +47,8 @@ if TYPE_CHECKING:
     from osprey.simulation.machine import BpmErrorSpec, Scenario, ScenarioLogEntry
 
 logger = get_logger("simulation_apply")
+
+_T = TypeVar("_T")
 
 
 def _config_file(project_dir: Path) -> Path:
@@ -65,44 +66,6 @@ def _config_file(project_dir: Path) -> Path:
 
     rendered = rendered_config_path(project_dir)
     return rendered if rendered.is_file() else project_dir / "config.yml"
-
-
-def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:
-    """Resolve the simulation-model file for the active control-system type.
-
-    Looks up ``control_system.connector.<type>.simulation_file`` for the active
-    ``control_system.type`` (defaulting to ``mock`` when unset). Non-mock types
-    fall back to ``connector.mock.simulation_file`` when their own key is unset;
-    for the mock type itself this fallback is a no-op (it's the same key it
-    already tried), so mock resolution is unaffected by the fallback.
-
-    Shared by :func:`apply_scenarios` and the ``sim`` CLI so the two call sites
-    agree on exactly which config keys back a simulation-backed project.
-
-    Returns:
-        A 4-tuple ``(path, active_type, type_key, mock_key)``. ``path`` is the
-        resolved file path (made absolute against ``project_dir`` if relative),
-        or ``None`` if neither key had a value. ``type_key``/``mock_key`` are
-        the dotted config paths that were tried, for error messages.
-    """
-    control_system = config.get("control_system", {})
-    active_type = control_system.get("type", MOCK)
-    connector = control_system.get("connector", {})
-
-    type_key = f"control_system.connector.{active_type}.simulation_file"
-    mock_key = "control_system.connector.mock.simulation_file"
-
-    sim_file = connector.get(active_type, {}).get("simulation_file")
-    if not sim_file and active_type != MOCK:
-        sim_file = connector.get(MOCK, {}).get("simulation_file")
-
-    if not sim_file:
-        return None, active_type, type_key, mock_key
-
-    machine_path = Path(sim_file)
-    if not machine_path.is_absolute():
-        machine_path = Path(project_dir) / machine_path
-    return machine_path, active_type, type_key, mock_key
 
 
 def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Path:
@@ -127,7 +90,7 @@ def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Pat
     return machine_path
 
 
-def _run_coro(make_coro: Callable[[], Coroutine]):
+def _run_coro(make_coro: Callable[[], Coroutine[Any, Any, _T]]) -> _T:
     """Run an async coroutine to completion from this sync function.
 
     ``apply_scenarios`` is a sync API (the CLI calls it directly), but it is also
@@ -430,21 +393,33 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         config: The project's loaded ``config.yml``.
         project_dir: Root of the built project; supplies the ``.env``.
 
+    A store named by ``url`` is one this deployment reads, never one it writes.
+
     Returns:
         The parameters, or ``None`` when the project declares no MongoDB
         archive — a project whose history is synthesized at read time has
-        nothing to rewrite, which is a normal configuration, not a fault.
+        nothing to rewrite, which is a normal configuration, not a fault — or
+        names its store by ``url``.
     """
     archiver = config.get("archiver") or {}
     store = archiver.get(ARCHIVER_CONFIG_PREFIX)
-    if not isinstance(store, dict) or not store.get("host"):
+    if not isinstance(store, dict) or not store.get("host") or store.get("url"):
         return None
 
     from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.connection import read_connection_settings
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    password_env = str(store.get("password_env") or "MONGO_ROOT_PASSWORD")
+    connection = read_connection_settings(
+        store,
+        where=f"archiver.{ARCHIVER_CONFIG_PREFIX}",
+        logins=frozenset({"password"}),
+        unsupported_because="the archive store takes a username and auth.password_env",
+        extra_auth_keys=frozenset({"source"}),
+    )
+    auth = store.get("auth") or {}
+    password_env = str(auth.get("password_env") or "MONGO_ROOT_PASSWORD")
 
     return {
         "host": store["host"],
@@ -455,11 +430,12 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
         "port": int(store.get("port", default_port("mongo", base=resolve_port_base(config)))),
         "database": str(store.get("name") or "osprey_archiver"),
         "collection": str(store.get("collection") or "pv_history"),
-        "auth_database": str(store.get("auth") or "admin"),
-        "username": str(store.get("username") or "osprey"),
+        "auth_source": str(auth.get("source") or "admin"),
+        "username": str(auth.get("username") or "osprey"),
         "password": env.get(password_env),
         "password_env": password_env,
-        "timeout_s": int(store.get("timeout", 5)),
+        "timeout_s": connection.timeout_or(5),
+        "ca_bundle": str(connection.ca_bundle) if connection.ca_bundle is not None else None,
     }
 
 
@@ -485,19 +461,16 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         anchor is the right answer.
     """
     state_dir = resolve_state_dir(config, project_dir)
-    for name in (ACTIVE_SCENARIOS_FILENAME, ACTIVE_SCENARIO_FILENAME):
-        path = state_dir / name
-        if not path.is_file():
-            continue
-        # The engine's own parser, not a second one: the anchor line's format
-        # (and its naive-value timezone rule) is the engine's to define, and a
-        # copy here would be free to drift from the file the engine actually
-        # reads. Private only because nothing outside the engine needed it
-        # before.
-        _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
-        if anchor_epoch is not None:
-            return datetime.fromtimestamp(anchor_epoch, UTC)
+    path = state_dir / ACTIVE_SCENARIOS_FILENAME
+    if not path.is_file():
         return None
+    # The engine's own parser, not a second one: the anchor line's format
+    # (and its naive-value timezone rule) is the engine's to define, and a
+    # copy here would be free to drift from the file the engine actually
+    # reads. This is the one reader of it outside the engine.
+    _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
+    if anchor_epoch is not None:
+        return datetime.fromtimestamp(anchor_epoch, UTC)
     return None
 
 
@@ -519,13 +492,19 @@ def archiver_collection(store: dict):
     _require_pymongo()
     from pymongo import MongoClient
 
+    from osprey.connectors.archiver.mongodb_archiver_connector import mongo_client_kwargs
+
     client: Any = MongoClient(
-        host=store["host"],
-        port=store["port"],
-        username=store["username"],
-        password=store["password"],
-        authSource=store["auth_database"],
-        serverSelectionTimeoutMS=store["timeout_s"] * 1000,
+        **mongo_client_kwargs(
+            url=None,
+            host=store["host"],
+            port=store["port"],
+            username=store["username"],
+            password=store["password"],
+            auth_source=store["auth_source"],
+            ca_bundle=store.get("ca_bundle"),
+            timeout_s=store["timeout_s"],
+        )
     )
     try:
         yield client[store["database"]][store["collection"]]
@@ -542,8 +521,7 @@ def active_archiver_events(machine_path: Path, names: Sequence[str]) -> dict[str
     user what is about to change while an abort still leaves the project
     untouched.
     """
-    with open(machine_path) as handle:
-        model = parse_machine(json.load(handle), machine_path)
+    model = parse_machine(read_machine_json(machine_path), machine_path)
 
     resolved = resolve_active_scenarios(names)
     unknown = [name for name in resolved if name not in model.scenarios]
@@ -1435,9 +1413,7 @@ def compute_scenario_physics_env(
         project_dir,
         "physics-fault rendering only applies to simulation-backed projects.",
     )
-    with open(machine_path) as f:
-        machine = json.load(f)
-    model = parse_machine(machine, machine_path)
+    model = parse_machine(read_machine_json(machine_path), machine_path)
 
     resolved = resolve_active_scenarios(names)
     unknown = [n for n in resolved if n not in model.scenarios]

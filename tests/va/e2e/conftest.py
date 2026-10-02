@@ -263,7 +263,7 @@ BURST_VALUE = 3.0e-6  # nominal machine.json baseline is 5e-8 Torr (3% noise) --
 # block), so gateway selection is inert here -- writes_enabled is gated purely
 # by the base-class guard tested by test_approval_smoke.py.
 VA_GATEWAY_CONFIG: dict[str, Any] = {
-    "timeout": 5.0,
+    "timeout_s": 5.0,
     "gateways": {
         "read_only": {"address": "localhost", "port": CA_PORT, "use_name_server": True},
         "write_access": {"address": "localhost", "port": CA_PORT, "use_name_server": True},

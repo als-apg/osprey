@@ -1,12 +1,50 @@
 """Tests for the lightweight ProviderRegistry."""
 
+import subprocess
+import sys
+
 import pytest
 
 from osprey.models.provider_registry import (
+    _BUILTIN_PROVIDERS,
+    PROVIDER_API_KEYS,
     ProviderRegistry,
     get_provider_registry,
     reset_provider_registry,
 )
+from osprey.models.providers.base import BaseProvider
+
+#: The built-in providers in the order ``.env.example`` and the build's key
+#: summary list them.
+BUILTIN_ORDER = [
+    "anthropic",
+    "openai",
+    "google",
+    "cborg",
+    "amsc-i2",
+    "argo",
+    "stanford",
+    "als-apg",
+    "ollama",
+    "asksage",
+    "vllm",
+    "ds4",
+]
+
+
+class _SiteGatewayAdapter(BaseProvider):
+    name = "site-gateway"
+    description = "A gateway a site registers for itself"
+    requires_api_key = True
+    api_key_env_var = "SITE_GATEWAY_TOKEN"
+
+
+class _SiteCborgAdapter(BaseProvider):
+    name = "cborg"
+    description = "A site's own class registered under a built-in name"
+    requires_api_key = True
+    api_key_env_var = "SITE_CBORG_TOKEN"
+    api_protocol = "anthropic"
 
 
 @pytest.fixture(autouse=True)
@@ -77,14 +115,41 @@ class TestProviderRegistry:
         result = reg.load_providers(configured_names={"anthropic", "cborg"})
         assert set(result.keys()) == {"anthropic", "cborg"}
 
-    def test_load_providers_exclusion_filtered(self):
-        """load_providers with excluded_names skips those."""
+    def test_exclude_removes_the_entry_and_the_cached_class(self):
+        """An excluded name is gone from lookup, listing, the cache and the bulk load."""
         reg = ProviderRegistry()
-        result = reg.load_providers(excluded_names={"anthropic", "openai"})
-        assert "anthropic" not in result
-        assert "openai" not in result
-        # All others should be present (may fail if import fails on CI)
-        assert "cborg" in result
+        reg.get_provider("openai")
+        assert "openai" in reg._providers
+
+        reg.exclude("openai")
+
+        assert reg.get_provider("openai") is None
+        assert "openai" not in reg.list_providers()
+        assert "openai" not in reg._providers
+        assert "openai" not in reg.load_providers()
+        assert reg.get_provider("anthropic") is not None
+
+    def test_exclude_of_an_unknown_name_changes_nothing(self):
+        """Excluding a name the table does not carry is a no-op."""
+        reg = ProviderRegistry()
+        before = reg.list_providers()
+
+        reg.exclude("does_not_exist")
+
+        assert reg.list_providers() == before
+
+    def test_register_after_exclude_restores_the_name(self):
+        """A registration under an excluded name adds it back."""
+        reg = ProviderRegistry()
+        reg.exclude("anthropic")
+
+        reg.register_provider(
+            "anthropic", "osprey.models.providers.openai", "OpenAIProviderAdapter"
+        )
+
+        provider = reg.get_provider("anthropic")
+        assert provider is not None
+        assert provider.name == "openai"
 
     def test_load_providers_skips_failed_imports(self):
         """A configured provider whose module can't be imported is silently
@@ -119,22 +184,6 @@ class TestProviderRegistry:
         assert cls.name == "ds4"
         assert PROVIDER_API_KEYS.get("ds4", "MISSING") is None
 
-    def test_the_key_table_agrees_with_every_adapter(self):
-        """A provider that authenticates names the variable its key arrives in.
-
-        And the converse: a provider that names a variable authenticates. The
-        credential gate reads the table while the launch path reads the
-        adapter, so a disagreement makes a run read as ready and then fail
-        inside the build.
-        """
-        from osprey.models.provider_registry import PROVIDER_API_KEYS
-
-        reg = ProviderRegistry()
-        for name, key_var in sorted(PROVIDER_API_KEYS.items()):
-            cls = reg.get_provider(name)
-            assert cls is not None, name
-            assert (key_var is not None) == cls.requires_api_key, name
-
     def test_register_override_evicts_cache(self):
         """Overwriting an existing entry clears the cache for that name."""
         reg = ProviderRegistry()
@@ -153,3 +202,63 @@ class TestProviderRegistry:
         cls = reg.get_provider("anthropic")
         assert cls is not None
         assert cls.name == "openai"
+
+    def test_the_registry_answer_agrees_with_every_adapter(self):
+        """A key variable is named exactly when the adapter requires a key.
+
+        The credential gate and the launch both read the registry's answer.
+        """
+        reg = ProviderRegistry()
+        for name, var in reg.api_key_env_vars().items():
+            cls = reg.get_provider(name)
+            assert cls is not None, name
+            assert (var is not None) == cls.requires_api_key, name
+
+    def test_the_key_view_is_read_from_the_builtin_entries(self):
+        assert dict(PROVIDER_API_KEYS) == {
+            name: entry.key_env_var for name, entry in _BUILTIN_PROVIDERS.items()
+        }
+        with pytest.raises(TypeError):
+            PROVIDER_API_KEYS["openai"] = "X"  # type: ignore[index]
+
+    def test_key_variables_keep_the_builtin_order(self):
+        assert list(ProviderRegistry().api_key_env_vars()) == BUILTIN_ORDER
+
+    def test_a_builtin_answers_without_importing_its_adapter(self):
+        code = (
+            "import sys\n"
+            "from osprey.models.provider_registry import get_provider_registry\n"
+            "reg = get_provider_registry()\n"
+            f"for name in {BUILTIN_ORDER!r}:\n"
+            "    reg.api_key_env_var(name)\n"
+            "reg.api_key_env_vars()\n"
+            "print('litellm' in sys.modules,"
+            " [m for m in sys.modules if m.startswith('osprey.models.providers.')])\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+        assert result.stdout.strip() == "False []"
+
+    def test_a_registered_provider_answers_from_its_class(self):
+        reg = ProviderRegistry()
+        reg.register_provider("site-gateway", __name__, "_SiteGatewayAdapter")
+        assert reg.api_key_env_var("site-gateway") == "SITE_GATEWAY_TOKEN"
+        answers = list(reg.api_key_env_vars().items())
+        assert [name for name, _ in answers[:-1]] == BUILTIN_ORDER
+        assert answers[-1] == ("site-gateway", "SITE_GATEWAY_TOKEN")
+
+    def test_a_registration_that_replaces_a_builtin_answers_from_its_class(self):
+        reg = ProviderRegistry()
+        reg.register_provider("cborg", __name__, "_SiteCborgAdapter")
+        assert reg.api_key_env_var("cborg") == "SITE_CBORG_TOKEN"
+        assert reg.api_key_env_vars()["cborg"] == "SITE_CBORG_TOKEN"
+
+    def test_unknown_and_unloadable_names_have_no_key_variable(self):
+        reg = ProviderRegistry()
+        assert reg.api_key_env_var("does_not_exist") is None
+        reg.register_provider(
+            "broken", "osprey.models.providers.does_not_exist_xyz", "NoSuchAdapter"
+        )
+        assert reg.api_key_env_var("broken") is None
+        assert "broken" not in reg.api_key_env_vars()

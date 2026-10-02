@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from osprey.services.ariel_search.database.repository import MAX_ENHANCEMENT_ATTEMPTS
+
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
 # reaper starts race the Docker daemon's port mapper. It also serializes the shared
@@ -345,6 +347,88 @@ class TestRepositoryEnhancementFailure:
         assert updated is not None
         status = updated.get("enhancement_status", {})
         assert "test_module" in status
+
+
+#: Module name the attempt-count checks write status under.
+ATTEMPTS_MODULE = "attempts_module"
+
+
+async def _backfill_ids(repository) -> set[str]:
+    """Ids of this class's rows that ``ATTEMPTS_MODULE``'s backfill selects.
+
+    The limit is large because every row in the shared test database lacks the
+    module's key, and so is selected ahead of or beside this class's rows.
+    """
+    entries = await repository.get_incomplete_entries(module_name=ATTEMPTS_MODULE, limit=100_000)
+    return {e["entry_id"] for e in entries if e["entry_id"].startswith(f"{INTEG_PREFIX}attempts-")}
+
+
+@pytest.mark.usefixtures("_seed_integ_prefix")
+class TestRepositoryEnhancementAttempts:
+    """A failing enhancement is counted and leaves the backfill at the cap."""
+
+    async def test_each_failure_counts_one_attempt(self, repository, seed_entry_factory):
+        """Three marks return 1, 2, 3 and keep the last error."""
+        entry_id = f"{INTEG_PREFIX}attempts-count"
+        await repository.upsert_entry(seed_entry_factory(entry_id=entry_id))
+
+        counts = [
+            await repository.mark_enhancement_failed(entry_id, ATTEMPTS_MODULE, f"error {i}")
+            for i in range(1, 4)
+        ]
+
+        assert counts == [1, 2, 3]
+        stored = (await repository.get_entry(entry_id))["enhancement_status"][ATTEMPTS_MODULE]
+        assert stored["attempts"] == 3
+        assert stored["status"] == "failed"
+        assert stored["error"] == "error 3"
+
+    async def test_an_entry_leaves_the_backfill_at_the_cap(self, repository, seed_entry_factory):
+        """Selected below the cap, not selected at it."""
+        entry_id = f"{INTEG_PREFIX}attempts-cap"
+        await repository.upsert_entry(seed_entry_factory(entry_id=entry_id))
+
+        for _ in range(MAX_ENHANCEMENT_ATTEMPTS - 1):
+            await repository.mark_enhancement_failed(entry_id, ATTEMPTS_MODULE, "boom")
+        assert entry_id in await _backfill_ids(repository)
+
+        await repository.mark_enhancement_failed(entry_id, ATTEMPTS_MODULE, "boom")
+        assert entry_id not in await _backfill_ids(repository)
+
+    async def test_a_success_clears_the_count(self, repository, seed_entry_factory):
+        """A failure after a success starts counting again from one."""
+        entry_id = f"{INTEG_PREFIX}attempts-clear"
+        await repository.upsert_entry(seed_entry_factory(entry_id=entry_id))
+
+        await repository.mark_enhancement_failed(entry_id, ATTEMPTS_MODULE, "boom")
+        await repository.mark_enhancement_failed(entry_id, ATTEMPTS_MODULE, "boom")
+        await repository.mark_enhancement_complete(entry_id, ATTEMPTS_MODULE)
+
+        assert await repository.mark_enhancement_failed(entry_id, ATTEMPTS_MODULE, "boom") == 1
+
+    async def test_a_failure_recorded_without_a_count_is_retried(
+        self, repository, seed_entry_factory
+    ):
+        """A failed status with no count reads as no attempts."""
+        entry_id = f"{INTEG_PREFIX}attempts-legacy"
+        await repository.upsert_entry(
+            seed_entry_factory(
+                entry_id=entry_id,
+                enhancement_status={ATTEMPTS_MODULE: {"status": "failed", "error": "old"}},
+            )
+        )
+
+        assert entry_id in await _backfill_ids(repository)
+        assert await repository.mark_enhancement_failed(entry_id, ATTEMPTS_MODULE, "boom") == 1
+
+    async def test_an_unknown_entry_returns_zero(self, repository):
+        """Marking an id no entry has stores nothing and returns 0."""
+        assert (
+            await repository.mark_enhancement_failed(
+                f"{INTEG_PREFIX}attempts-missing", ATTEMPTS_MODULE, "boom"
+            )
+            == 0
+        )
 
 
 class TestRepositoryEmbeddings:

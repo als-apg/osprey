@@ -19,10 +19,9 @@ def make_error(
 
     fastmcp converts a raised ``ToolError`` into a ``CallToolResult`` with
     ``isError=True`` and the exception message verbatim as a ``TextContent``
-    block. Returning a ``CallToolResult`` directly does *not* set ``isError``
-    correctly under fastmcp's structured-output wrapping (see PR for the
-    reproduction); raising is the only path that produces a clean
-    error response on the wire.
+    block. A ``CallToolResult`` returned from a tool does *not* come out with
+    ``isError`` set when fastmcp wraps the tool's structured output, so raising
+    is the only path that produces a clean error response on the wire.
 
     Args:
         error_type: Machine-readable error category (e.g. "limits_violation").

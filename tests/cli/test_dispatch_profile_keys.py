@@ -209,3 +209,31 @@ def test_the_retired_spelling_is_refused_and_points_at_the_new_one() -> None:
     message = str(caught.value)
     assert "pv_strip_prefix" in message, "the refusal must name what was written"
     assert "channel_strip_prefix" in message, "and the key that replaced it"
+
+
+# ── the emitted commented example ────────────────────────────────────────────
+
+
+def _emitted_dispatch_example() -> dict[str, Any]:
+    """Parse the commented ``dispatch:`` example ``osprey init`` emits."""
+    from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
+
+    lines = _COMMENTED_TEMPLATES["dispatch"].splitlines()
+    start = lines.index("# dispatch:")
+    body = "\n".join(line.removeprefix("#").removeprefix(" ") for line in lines[start:])
+    return yaml.safe_load(body)
+
+
+def test_the_emitted_example_names_the_conventional_trigger_file() -> None:
+    """The example names the trigger file `osprey init` writes at the profile root."""
+    from osprey.cli.profile_conventions import KNOWN_ROOT_ENTRIES, PROFILE_TRIGGERS_FILENAME
+
+    assert _emitted_dispatch_example()["dispatch"]["triggers"] == PROFILE_TRIGGERS_FILENAME
+    assert PROFILE_TRIGGERS_FILENAME in KNOWN_ROOT_ENTRIES
+
+
+def test_the_emitted_example_calls_facility_name_an_override() -> None:
+    """The example points the dashboard name at facility.name."""
+    from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
+
+    assert "facility.name" in _COMMENTED_TEMPLATES["dispatch"]

@@ -84,7 +84,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
          When multiple components are present (e.g. terms *and* phrases), they are combined with ``&&`` (tsquery AND).
 
       4. Executes full-text search against the ``raw_text`` column with ``ts_rank`` scoring, applying any field filters (``author ILIKE``, date range) and time range constraints
-      5. If no results and fuzzy fallback is enabled, falls back to ``pg_trgm`` trigram similarity (default threshold: 0.3)
+      5. If no results and fuzzy fallback is enabled, falls back to ``pg_trgm`` trigram similarity at or above ``fuzzy_threshold`` (default: 0.3)
       6. Returns results as ``(entry, score, highlights)`` tuples --- highlights are generated via ``ts_headline``
 
       **Configuration:**
@@ -98,6 +98,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
                settings:
                  patterns_enabled: true          # default: true
                  pattern_timeout_seconds: 10.0   # default: 10.0
+                 fuzzy_threshold: 0.3            # default: 0.3
 
    .. tab-item:: Semantic Search
 
@@ -512,6 +513,7 @@ Configuration
          settings:
            patterns_enabled: true          # default: true
            pattern_timeout_seconds: 10.0   # default: 10.0
+           fuzzy_threshold: 0.3            # default: 0.3
 
 A relative ``path`` resolves against the project root of the ``config.yml``
 that was loaded (the deployment repo, not its ``build/`` render) --- the same
@@ -520,12 +522,12 @@ so the panel, the CLI and the MCP server all read the same file no matter
 where the process was started.
 
 ``enabled: true`` with no ``path``, an ``expand_modes`` entry naming a module
-that is unknown or not enabled, and a malformed pattern knob are all
+that is unknown or not enabled, and a malformed keyword knob are all
 configuration errors that name the offending key. Nothing is quietly defaulted.
 
 .. warning::
 
-   The two keyword knobs **must** stay under ``settings:``. ARIEL's
+   The keyword knobs **must** stay under ``settings:``. ARIEL's
    search-config loader keeps only ``enabled``, ``provider``, ``model`` and
    ``settings``, and drops every other key without a word. A knob written as a
    sibling of ``enabled`` is inert forever --- no error, no warning, just the

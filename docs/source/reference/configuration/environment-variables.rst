@@ -102,6 +102,68 @@ deployment, which is why none of them is a config key.
 managed or a hand-run ``docker build``. What they configure is the build — a
 container that is already running reads nothing from them.
 
+Virtual accelerator source
+==========================
+
+Three variables in the deployment's ``.env`` decide what the virtual
+accelerator container runs and serves.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``VA_ENTRYPOINT_MODULE``
+     - The Python module the container runs. Operator-set. Empty or unset runs
+       ``osprey.services.virtual_accelerator.entrypoint``. It must be
+       importable inside the image; see :ref:`va-serving-your-own-model`.
+   * - ``VA_CHANNELS_FILE``
+     - The generated channel manifest's file name, which ``osprey build``
+       writes. Required by the container, which refuses to boot without it.
+   * - ``VA_LATTICE``
+     - The served tree's lattice file name, or ``none``, which
+       ``osprey build`` writes.
+
+How the build writes the last two --- append-only, with a value already on
+file winning --- is in :doc:`/how-to/deploy-project/env-chain`.
+
+The Phoebus server's overrides
+==============================
+
+The ``phoebus`` MCP server reads these three from its own environment each
+time a tool runs, and each one outranks a config key. They reach the server
+from the environment of the process that starts the agent;
+:doc:`/how-to/deploy-project/env-chain` covers how a deployment's ``.env``
+gets there.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``PHOEBUS_BRIDGE_URL``
+     - The agent bridge's full base URL, outranking ``phoebus.host`` /
+       ``phoebus.port``. The build renders it into the server's entry as a
+       ``${PHOEBUS_BRIDGE_URL:-…}`` reference whose fallback is the configured
+       host and port, so a value in the environment of the process that
+       starts the agent wins and an unset one leaves the keys in charge. A
+       second instance declared with ``extends`` sets its own value in its
+       ``env:``.
+   * - ``PHOEBUS_REQUIRE_HANDLE``
+     - ``1``/``true``/``yes``/``on`` or ``0``/``false``/``no``/``off``,
+       outranking ``phoebus.require_handle`` either way. Any other value falls
+       through to the key. A multi-user web-terminal deployment stamps ``1`` on
+       every terminal whose project runs a Phoebus server. Elsewhere it is
+       unset, so the switch is off by default and is turned on with
+       ``phoebus.require_handle: true`` or this variable set to ``1``.
+       ``phoebus.require_handle: false`` keeps ``"active"`` in a multi-user
+       deployment too.
+   * - ``PHOEBUS_ARCHIVER_URL``
+     - The archiver bound into generated Data Browser plots, outranking
+       ``phoebus.archiver_url``.
+
 Names the framework stamps
 ==========================
 

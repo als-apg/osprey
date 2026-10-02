@@ -10,12 +10,32 @@ Experiment branch: experiment/cborg-claude-code (issue #259).
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 
+import pytest
+
+from osprey.infrastructure.proxy import translator
 from osprey.infrastructure.proxy.translator import (
+    _IMAGE_SOURCE_NOT_CARRIED,
     anthropic_to_openai_request,
     openai_to_anthropic_response,
 )
+
+
+def _png_block(data: str = "iVBORw0KGgo=") -> dict:
+    """A base64 ``image/png`` content block."""
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
+
+
+def _tool_use_turn(*ids: str) -> dict:
+    """An assistant turn calling ``read_screen`` once per id."""
+    return {
+        "role": "assistant",
+        "content": [{"type": "tool_use", "id": i, "name": "read_screen", "input": {}} for i in ids],
+    }
+
 
 # ── Request translation: Anthropic → OpenAI ──────────────────────────
 
@@ -27,7 +47,7 @@ def test_system_and_user_text_request():
         "messages": [{"role": "user", "content": "What is a PV?"}],
         "max_tokens": 64,
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     assert out["model"] == "cborg-coder"
     assert out["max_tokens"] == 64
     assert out["messages"][0] == {
@@ -46,7 +66,7 @@ def test_system_as_block_list_is_flattened():
         ],
         "messages": [{"role": "user", "content": "hi"}],
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     assert out["messages"][0] == {"role": "system", "content": "Line one.\nLine two."}
 
 
@@ -66,7 +86,7 @@ def test_embedded_system_message_is_hoisted_not_dropped():
             {"role": "user", "content": "find PV X"},
         ],
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     roles = [m["role"] for m in out["messages"]]
     assert roles == ["system", "user"]
     assert out["messages"][0] == {
@@ -92,7 +112,7 @@ def test_embedded_system_block_list_is_flattened():
             {"role": "user", "content": "hi"},
         ],
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     assert out["messages"][0] == {"role": "system", "content": "Line one.\nLine two."}
     assert out["messages"][1] == {"role": "user", "content": "hi"}
 
@@ -108,7 +128,7 @@ def test_top_level_and_embedded_system_both_preserved():
             {"role": "user", "content": "go"},
         ],
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     assert [m["role"] for m in out["messages"]] == ["system", "system", "user"]
     assert out["messages"][0]["content"] == "Top-level system."
     assert out["messages"][1]["content"] == "Embedded system."
@@ -131,7 +151,7 @@ def test_tool_definitions_become_openai_functions():
         ],
         "tool_choice": {"type": "any"},
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     assert out["tool_choice"] == "required"  # any → required
     assert out["tools"][0]["type"] == "function"
     fn = out["tools"][0]["function"]
@@ -147,7 +167,7 @@ def test_tool_choice_specific_tool_maps_to_function():
         "tools": [{"name": "read_pv", "input_schema": {}}],
         "tool_choice": {"type": "tool", "name": "read_pv"},
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     assert out["tool_choice"] == {"type": "function", "function": {"name": "read_pv"}}
 
 
@@ -175,7 +195,7 @@ def test_assistant_tool_use_and_user_tool_result_roundtrip():
             },
         ],
     }
-    out = anthropic_to_openai_request(body)
+    out = anthropic_to_openai_request(body).body
     roles = [m["role"] for m in out["messages"]]
     assert roles == ["user", "assistant", "tool"]
 
@@ -206,8 +226,9 @@ def test_thinking_blocks_are_stripped():
         ],
     }
     out = anthropic_to_openai_request(body)
-    assert out["messages"][0]["content"] == "answer"
-    assert "thinking" not in json.dumps(out)
+    assert out.body["messages"][0]["content"] == "answer"
+    assert "thinking" not in json.dumps(out.body)
+    assert out.dropped == {"thinking"}
 
 
 def test_the_request_keeps_max_tokens_and_temperature_by_default():
@@ -218,9 +239,10 @@ def test_the_request_keeps_max_tokens_and_temperature_by_default():
         "temperature": 0.0,
     }
     out = anthropic_to_openai_request(body)
-    assert out["max_tokens"] == 64
-    assert out["temperature"] == 0.0
-    assert "max_completion_tokens" not in out
+    assert out.body["max_tokens"] == 64
+    assert out.body["temperature"] == 0.0
+    assert "max_completion_tokens" not in out.body
+    assert out.dropped == frozenset()
 
 
 def test_the_token_cap_goes_out_under_the_declared_parameter():
@@ -230,7 +252,7 @@ def test_the_token_cap_goes_out_under_the_declared_parameter():
         "messages": [{"role": "user", "content": "hi"}],
         "max_tokens": 64,
     }
-    out = anthropic_to_openai_request(body, max_tokens_param="max_completion_tokens")
+    out = anthropic_to_openai_request(body, max_tokens_param="max_completion_tokens").body
     assert out["max_completion_tokens"] == 64
     assert "max_tokens" not in out
 
@@ -245,8 +267,262 @@ def test_no_temperature_goes_out_where_the_upstream_refuses_one():
     out = anthropic_to_openai_request(
         body, max_tokens_param="max_completion_tokens", accepts_temperature=False
     )
-    assert "temperature" not in out
-    assert out["max_completion_tokens"] == 64
+    assert "temperature" not in out.body
+    assert out.body["max_completion_tokens"] == 64
+    assert "temperature" in out.dropped
+
+
+# ── Images, and what the route does not carry ────────────────────────
+
+#: The note the model reads in place of a kind of content the route does not carry.
+_NOT_CARRIED_NOTE = "[{kind} not sent: this provider's route does not carry it]"
+
+_PDF = {
+    "type": "document",
+    "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0="},
+}
+
+
+def test_a_text_only_request_translates_as_before():
+    body = {
+        "model": "m",
+        "messages": [
+            _tool_use_turn("toolu_1"),
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}],
+                    },
+                    {"type": "text", "text": "one"},
+                    {"type": "text", "text": "two"},
+                ],
+            },
+        ],
+    }
+    out = anthropic_to_openai_request(body, supports_images=True)
+    assert out.body["messages"][1:] == [
+        {"role": "tool", "tool_call_id": "toolu_1", "content": "a\nb"},
+        {"role": "user", "content": "one\ntwo"},
+    ]
+    assert out.dropped == frozenset()
+    assert out.images_sent == 0
+
+
+def test_a_user_image_becomes_a_data_url_part_where_the_route_takes_images():
+    body = {
+        "model": "m",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "before"},
+                    _png_block(),
+                    {"type": "text", "text": "after"},
+                ],
+            }
+        ],
+    }
+    out = anthropic_to_openai_request(body, supports_images=True)
+    assert out.body["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "before"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+                {"type": "text", "text": "after"},
+            ],
+        }
+    ]
+    assert out.images_sent == 1
+    assert out.dropped == frozenset()
+
+
+def test_a_url_image_passes_its_url_through():
+    block = {"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}}
+    body = {"model": "m", "messages": [{"role": "user", "content": [block]}]}
+    out = anthropic_to_openai_request(body, supports_images=True)
+    assert out.body["messages"][0]["content"] == [
+        {"type": "image_url", "image_url": {"url": "https://example.test/a.png"}}
+    ]
+    assert out.images_sent == 1
+
+
+def test_a_tool_result_image_rides_the_next_user_message():
+    body = {
+        "model": "m",
+        "messages": [
+            _tool_use_turn("toolu_1"),
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [{"type": "text", "text": "shot"}, _png_block()],
+                    },
+                    {"type": "text", "text": "look"},
+                ],
+            },
+        ],
+    }
+    out = anthropic_to_openai_request(body, supports_images=True)
+    messages = out.body["messages"]
+    assert [m["role"] for m in messages] == ["assistant", "tool", "user"]
+    assert messages[1] == {
+        "role": "tool",
+        "tool_call_id": "toolu_1",
+        "content": "shot\n[image: sent in the next user message]",
+    }
+    assert messages[2]["content"] == [
+        {"type": "text", "text": "Images returned by tool call toolu_1:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}},
+        {"type": "text", "text": "look"},
+    ]
+    assert out.images_sent == 1
+
+
+def test_images_from_two_tool_results_follow_both_tool_messages():
+    body = {
+        "model": "m",
+        "messages": [
+            _tool_use_turn("toolu_1", "toolu_2"),
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [_png_block("QQ==")],
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_2",
+                        "content": [_png_block("Qg==")],
+                    },
+                ],
+            },
+        ],
+    }
+    out = anthropic_to_openai_request(body, supports_images=True)
+    messages = out.body["messages"]
+    assert [m["role"] for m in messages] == ["assistant", "tool", "tool", "user"]
+    assert messages[3]["content"] == [
+        {"type": "text", "text": "Images returned by tool call toolu_1:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,QQ=="}},
+        {"type": "text", "text": "Images returned by tool call toolu_2:"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,Qg=="}},
+    ]
+    assert out.images_sent == 2
+
+
+@pytest.mark.parametrize("where", ["user", "tool_result"])
+def test_an_image_on_a_route_without_images_is_named_in_the_turn(where):
+    if where == "user":
+        messages = [{"role": "user", "content": [{"type": "text", "text": "see"}, _png_block()]}]
+    else:
+        messages = [
+            _tool_use_turn("toolu_1"),
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": [_png_block()]}
+                ],
+            },
+        ]
+    out = anthropic_to_openai_request({"model": "m", "messages": messages})
+    assert _NOT_CARRIED_NOTE.format(kind="image") in json.dumps(out.body)
+    assert "image_url" not in json.dumps(out.body)
+    assert "image" in out.dropped
+    assert out.images_sent == 0
+
+
+def test_an_image_by_file_reference_is_named_as_not_carried():
+    block = {"type": "image", "source": {"type": "file", "file_id": "file_1"}}
+    body = {"model": "m", "messages": [{"role": "user", "content": [block]}]}
+    out = anthropic_to_openai_request(body, supports_images=True)
+    assert out.body["messages"] == [{"role": "user", "content": _IMAGE_SOURCE_NOT_CARRIED}]
+    assert "image reference" in out.dropped
+    assert out.images_sent == 0
+
+
+def test_a_document_is_named_in_the_turn():
+    body = {
+        "model": "m",
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "read"}, _PDF]}],
+    }
+    out = anthropic_to_openai_request(body, supports_images=True)
+    assert out.body["messages"][0]["content"] == "read\n" + _NOT_CARRIED_NOTE.format(
+        kind="document"
+    )
+    assert "document" in out.dropped
+
+
+@pytest.mark.parametrize(
+    ("block", "kind"),
+    [
+        (_png_block(), "image"),
+        (_PDF, "document"),
+        ({"type": "container_upload"}, "container_upload"),
+    ],
+)
+@pytest.mark.parametrize("where", ["user", "tool_result"])
+def test_every_kind_the_route_does_not_carry_reads_the_same_note(block, kind, where):
+    if where == "user":
+        messages = [{"role": "user", "content": [block]}]
+    else:
+        messages = [
+            _tool_use_turn("toolu_1"),
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": [block]}],
+            },
+        ]
+    out = anthropic_to_openai_request({"model": "m", "messages": messages})
+    assert out.body["messages"][-1]["content"] == _NOT_CARRIED_NOTE.format(kind=kind)
+    assert kind in out.dropped
+
+
+def test_one_producer_writes_every_not_carried_note():
+    tree = ast.parse(inspect.getsource(translator))
+    producer = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_not_carried"
+    )
+    inside = {id(node) for node in ast.walk(producer)}
+    others = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and " not sent:" in node.value
+        and id(node) not in inside
+        and node.value != _IMAGE_SOURCE_NOT_CARRIED
+    ]
+    assert others == []
+
+
+def test_a_thinking_request_is_named_as_dropped():
+    body = {
+        "model": "m",
+        "messages": [{"role": "user", "content": "hi"}],
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+    }
+    out = anthropic_to_openai_request(body)
+    assert "thinking" not in out.body
+    assert out.dropped == {"thinking"}
+
+
+def test_disabled_thinking_is_not_a_drop():
+    body = {
+        "model": "m",
+        "messages": [{"role": "user", "content": "hi"}],
+        "thinking": {"type": "disabled"},
+    }
+    assert anthropic_to_openai_request(body).dropped == frozenset()
 
 
 # ── Response translation: OpenAI → Anthropic ─────────────────────────

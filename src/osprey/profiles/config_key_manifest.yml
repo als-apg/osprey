@@ -12,6 +12,15 @@
 # presets and value-equality across them are separate properties, and neither
 # may be inferred from the other.
 #
+# `same-value: true` is the other property: every root preset that states the
+# key states the same value. The value is written only in the presets; the mark
+# says they agree, and failure mode 6 compares them. With `all-templates: true`
+# beside it the claim is "the same value in all four"; alone it is "the same
+# value wherever stated". The mark applies to leaves only and needs at least two
+# presets stating the key, so a mark on a block, a derived key or a key only one
+# preset ships is refused instead of passing with nothing compared. The reason
+# each key carries it is in scripts/config_key_parity.md.
+#
 # Each key carries exactly one disposition:
 #
 #   evidence: <regex>   A regex that MUST match at least once under src/osprey/.
@@ -160,6 +169,7 @@ keys:
   # ── Container runtime / deployment ──────────────────────────────────
   container_runtime:
     all-templates: true
+    same-value: true
     evidence: 'config\.get\("container_runtime", "auto"\) if config else None'
     note: >-
       An absent key behaves identically to "auto" (runtime_helper `_runtimes_to_try`),
@@ -547,7 +557,10 @@ keys:
     evidence: 'OSPREY_DISPATCH_IMAGE:-\{\{ services\.event_dispatcher\.image'
     note: >-
       OSPREY-built image, so its packaged default is assembled from the two
-      `images.*` axes; this pin replaces the assembled name outright.
+      `images.*` axes; this pin replaces the assembled name outright. Naming
+      any image other than `osprey_images.dispatch` renders the service with
+      no `build:` block, so compose runs that image as named instead of
+      building the dispatcher recipe under its name.
     default: derived
     default_note: osprey_images.dispatch — <registry><project>-dispatch:<images.tag>
   services.dispatch_worker.worker_port_stride:
@@ -573,7 +586,9 @@ keys:
   services.nextcloud_bridge.image:
     rendered: false
     evidence: 'OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-\{\{ services\.nextcloud_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.nextcloud_bridge
   services.nextcloud_bridge.mentions:
@@ -586,7 +601,9 @@ keys:
   services.gchat_bridge.image:
     rendered: false
     evidence: 'OSPREY_GCHAT_BRIDGE_IMAGE:-\{\{ services\.gchat_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.gchat_bridge
   services.gchat_bridge.mentions:
@@ -599,7 +616,9 @@ keys:
   services.teams_bridge.image:
     rendered: false
     evidence: 'OSPREY_TEAMS_BRIDGE_IMAGE:-\{\{ services\.teams_bridge\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.teams_bridge
   services.teams_bridge.mentions:
@@ -646,7 +665,10 @@ keys:
       OSPREY-built bridge image. The compose template reaches it through
       `svc = services[lane_key]` because both Bluesky lanes render from the one
       fragment, so the evidence anchors on that alias rather than on the dotted
-      path — the alias is what a rename would have to touch.
+      path — the alias is what a rename would have to touch. The first lane
+      whose own image is `osprey_images.bluesky_bridge` owns the `build:`
+      stanza (two services building one tag would race); a lane naming
+      another image renders none.
     default: derived
     default_note: osprey_images.bluesky_bridge
   services.bluesky.tiled_image:
@@ -664,16 +686,18 @@ keys:
   services.bluesky_web.image:
     rendered: false
     evidence: 'OSPREY_BLUESKY_WEB_IMAGE:-\{\{ services\.bluesky_web\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.bluesky_web
   services.virtual_accelerator.image:
     rendered: false
     evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
     note: >-
-      OSPREY-built image. The VA image is large and platform-sensitive, so a
-      published multi-arch pin here is the usual way to skip the local build.
-      The compose template reaches it through `svc = services[instance_key]`
+      OSPREY-built image. Naming any image other than `osprey_images.va`
+      renders the instance with no `build:` block, so compose runs that image
+      as named instead of building the VA recipe under its name. The compose template reaches it through `svc = services[instance_key]`
       because the baseline VA and the live stand-in render from the one
       fragment, so the evidence anchors on that alias rather than on the dotted
       path — the alias is what a rename would have to touch. Same shape as
@@ -757,14 +781,17 @@ keys:
       purpose: one compose fragment renders both instances through
       `svc = services[instance_key]`, so there is one `svc.image` read and no
       per-instance reader to anchor on separately. Both instances also share
-      the OSPREY_VA_IMAGE override, and instance 1 alone owns the `build:`
-      stanza — two services building one tag would race.
+      the OSPREY_VA_IMAGE override, and the first instance whose own image is
+      `osprey_images.va` owns the `build:` stanza — two services building one
+      tag would race.
     default: derived
     default_note: osprey_images.va — the stand-in runs the VA image
   services.qmd.image:
     rendered: false
     evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
-    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    note: >-
+      OSPREY-built image, same layering and build rule as
+      `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.qmd
 
@@ -775,6 +802,7 @@ keys:
     default: {}
   approval.enabled:
     all-templates: true
+    same-value: true
     covered-by: approval
     default: required
     default_note: >-
@@ -783,6 +811,7 @@ keys:
       those tools to the rendered settings.json permissions alone.
   approval.default_policy:
     all-templates: true
+    same-value: true
     evidence: 'default_policy'
     default: required
     default_note: >-
@@ -797,7 +826,10 @@ keys:
       (setup_patch and the three panel-rail verbs) is covered by
       default_policy. See governed_sets.
     default: {}
+  # A tool's policy follows what the tool does, not which deployment serves it, so every
+  # preset that lists a tool lists it at one policy; an unlisted tool falls to default_policy.
   approval.tools.channel_write:
+    same-value: true
     evidence: 'approval\.tools\.channel_write'
     note: >-
       Anchored for the same reason as channel_read below: `channel_write`
@@ -808,6 +840,7 @@ keys:
     default: derived
     default_note: falls through to approval.default_policy
   approval.tools.channel_read:
+    same-value: true
     evidence: 'approval\.tools\.channel_read'
     note: >-
       Anchored on the settings-panel schema that serves this key rather than
@@ -816,11 +849,12 @@ keys:
       vacuity guard -- a match that no longer proved a reader existed.
     default: derived
     default_note: falls through to approval.default_policy
-  approval.tools.archiver_read: {evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.execute: {covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.setup_patch: {evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.entry_create: {evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.archiver_read: {same-value: true, evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.execute: {same-value: true, covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.setup_patch: {same-value: true, evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
+  approval.tools.entry_create: {same-value: true, evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.entry_publish:
+    same-value: true
     evidence: 'entry_publish'
     note: >-
       The second half of the logbook write: entry_create drafts, entry_publish
@@ -833,13 +867,13 @@ keys:
   # because the reader is the same approval table `execute` is read from, and a
   # bare literal would pin the tool name instead of the policy key.
   approval.tools.add_panel_to_rail:
-    {covered-by: approval.tools, default: derived,
+    {same-value: true, covered-by: approval.tools, default: derived,
      default_note: falls through to approval.default_policy}
   approval.tools.remove_panel_from_rail:
-    {covered-by: approval.tools, default: derived,
+    {same-value: true, covered-by: approval.tools, default: derived,
      default_note: falls through to approval.default_policy}
   approval.tools.register_panel:
-    {covered-by: approval.tools, default: derived,
+    {same-value: true, covered-by: approval.tools, default: derived,
      default_note: falls through to approval.default_policy}
   hooks:
     all-templates: true
@@ -989,13 +1023,13 @@ keys:
       falls through to control_system.connector.mock.noise_level, and then to the
       entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
+  control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
     rendered: false
     evidence: 'config\.get\(STEP_READ_TIMEOUT_KEY\)'
     note: >-
       Ceiling on the fresh read a `max_step` check makes before a write, in
-      seconds. A facility-network fact like `timeout` beside it — a gateway two
+      seconds. A facility-network fact like `timeout_s` beside it — a gateway two
       hops away answers slower than a soft IOC on the deploy host — and read
       from the same connector block, by the connector and by the python
       executor's sandbox alike, so a script's step check and the connector's
@@ -1042,6 +1076,7 @@ keys:
   # `control-assistant` documents both as commented examples — so the parents
   # and every leaf below them are `rendered: false` together.
   control_system.connector.doocs: {rendered: false, covered-by: control_system.connector, default: n/a}
+  control_system.connector.doocs.timeout_s: {rendered: false, covered-by: control_system.connector.doocs, default: 5.0}
   control_system.connector.tango: {rendered: false, covered-by: control_system.connector, default: n/a}
   control_system.connector.tango.tango_host:
     rendered: false
@@ -1055,9 +1090,9 @@ keys:
     default: derived
     default_note: >-
       unset leaves PyTango reading the TANGO_HOST already in the container's environment
-  control_system.connector.tango.timeout: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
+  control_system.connector.tango.timeout_s: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
+  control_system.connector.virtual_accelerator.timeout_s: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
   # `super().connect()`, so the step-read budget above is read from this type's
   # block too; the evidence is that one site.
@@ -1159,8 +1194,9 @@ keys:
       presets that carry a virtual_accelerator block write it commented, so no
       preset's resolved config carries it and `rendered` stays false;
       the shipped presets `control-assistant-readwrite` and
-      `control-assistant-admin` (true) and `control-assistant-readonly` and
-      `control-assistant-knowledge` (false) DO write it into a project's real
+      `control-assistant-admin` (true) and `control-assistant-readonly`,
+      `control-assistant-knowledge` and `control-assistant-logbook` (false) DO
+      write it into a project's real
       config.yml when applied, so an audit of a built deployment will find it.
       Tri-state: absent inherits the global key, literally `true` arms writes
       for this type, and any other value leaves them unarmed without
@@ -1393,6 +1429,13 @@ keys:
       How long a target switch waits for the outgoing connector host to drain
       before it is killed. Read by the connector host manager.
     default: 5.0
+  control_system.target_switch.probe_timeout_s:
+    evidence: 'PROBE_TIMEOUT_KEY = "probe_timeout_s"'
+    note: >-
+      How long a target switch waits for the newly started connector host to
+      read the destination's probe_channel before refusing the switch. Read by
+      the connector host manager.
+    default: 5.0
   control_system.target_switch.probe_interval_s:
     evidence: 'PROBE_INTERVAL_KEY = "control_system\.target_switch\.probe_interval_s"'
     note: >-
@@ -1457,10 +1500,30 @@ keys:
       `url`, which keeps the unauthored state honest.
     default: {}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false, default: 'no-fallback', default_note: "the connector raises ValueError('archiver URL is required for EPICS archiver')"}
-  archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
+  archiver.epics_archiver.timeout_s: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
   # The appliance mounts its retrieval servlet at /retrieval; a reverse proxy in
   # front of it may publish the servlet under another prefix.
   archiver.epics_archiver.retrieval_path: {covered-by: archiver.epics_archiver, rendered: false, default: '/retrieval'}
+  archiver.epics_archiver.auth:
+    rendered: false
+    covered-by: archiver.epics_archiver
+    note: >-
+      the login a proxy in front of the appliance asks for — a bearer token or
+      a user and password, each secret named by environment variable; unset
+      sends no login
+    default: null
+  archiver.epics_archiver.auth.token_env: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.auth.username: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.auth.password_env: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.tls: {covered-by: archiver.epics_archiver, rendered: false, default: null}
+  archiver.epics_archiver.tls.ca_bundle:
+    rendered: false
+    covered-by: archiver.epics_archiver
+    note: >-
+      absolute path of the PEM CA the appliance's certificate is checked
+      against, replacing the default trust store for this endpoint; unset keeps
+      the image trust store `images.site_ca` extends
+    default: null
   archiver.doocs_archiver:
     rendered: false
     evidence: 'doocs_archiver'
@@ -1477,7 +1540,7 @@ keys:
       Centered moving average, in seconds, applied to the samples a read
       returns. Unset returns the raw samples.
     default: null
-  archiver.doocs_archiver.timeout: {rendered: false, covered-by: archiver.doocs_archiver, default: 60}
+  archiver.doocs_archiver.timeout_s: {rendered: false, covered-by: archiver.doocs_archiver, default: 60}
   archiver.mya_archiver:
     rendered: false
     evidence: 'mya_archiver'
@@ -1503,7 +1566,7 @@ keys:
       Which MYA deployment answers. `ops` is the production archive; a site may
       serve others alongside it.
     default: 'ops'
-  archiver.mya_archiver.timeout: {rendered: false, covered-by: archiver.mya_archiver, default: 60}
+  archiver.mya_archiver.timeout_s: {rendered: false, covered-by: archiver.mya_archiver, default: 60}
   archiver.mya_archiver.timezone:
     rendered: false
     covered-by: archiver.mya_archiver
@@ -1525,15 +1588,39 @@ keys:
   archiver.mongodb_archiver.port: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "deliberately none: osprey-connectors cannot compute the mongo layout slot, so a missing key is an authoring error rather than a number to guess"}
   archiver.mongodb_archiver.name: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
   archiver.mongodb_archiver.collection: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.auth: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.username: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.password_env: {rendered: false, covered-by: archiver.mongodb_archiver, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
-  archiver.mongodb_archiver.timeout: {rendered: false, covered-by: archiver.mongodb_archiver, default: 60}
+  archiver.mongodb_archiver.auth:
+    rendered: false
+    covered-by: archiver.mongodb_archiver
+    note: >-
+      the login the store checks — the database the user is defined in, the
+      user, and the environment variable that holds its password
+    default: {}
+  archiver.mongodb_archiver.auth.source: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.auth.username: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.auth.password_env: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.timeout_s: {rendered: false, covered-by: archiver.mongodb_archiver, default: 60}
+  archiver.mongodb_archiver.url:
+    rendered: false
+    covered-by: archiver.mongodb_archiver
+    note: >-
+      a MongoDB connection string; it wins over host, port and the
+      OSPREY_ARCHIVER_MONGODB_* overrides, and the recorder and the archive
+      rewrite never write to the store it names
+    default: null
+  archiver.mongodb_archiver.tls: {rendered: false, covered-by: archiver.mongodb_archiver, default: {}}
+  archiver.mongodb_archiver.tls.ca_bundle:
+    rendered: false
+    covered-by: archiver.mongodb_archiver.tls
+    note: >-
+      an absolute path to a CA file the store's certificate is checked against;
+      unset uses the image trust store
+    default: null
 
   # ── Execution ───────────────────────────────────────────────────────
   execution: {all-templates: true, evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None', default: null}
   execution.execution_method:
     all-templates: true
+    same-value: true
     evidence: 'execution\.get\("execution_method"\) if isinstance\(execution, dict\) else None'
     default: subprocess
   execution.environment:
@@ -1587,6 +1674,7 @@ keys:
     default: {}
   system.timezone:
     all-templates: true
+    same-value: true
     evidence: '"facility_timezone": self\.get\("system\.timezone", "UTC"\)'
     note: >-
       Anchored on the read that SUPPLIES the value (the loader's configurable
@@ -1623,6 +1711,20 @@ keys:
     default: derived
     default_note: >-
       the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
+  screen_capture.output_dir:
+    rendered: false
+    evidence: 'get\("screen_capture", \{\}\) or \{\}\)\.get\("output_dir"\)'
+    note: >-
+      Hidden key, unset in the framework template and the four presets. The
+      directory the workspace server's screenshot_capture tool writes its PNG
+      files to, read in one place (mcp_server/workspace/tools/screen_capture
+      `_get_output_dir`). A relative value is anchored on the project root,
+      never on the working directory of whatever launched the server. Unset
+      means `screenshots` under agent_data.base_dir, which is why nothing
+      ships the key: a rendered value would be a second place that path lives.
+    default: derived
+    default_note: >-
+      screenshots under agent_data.base_dir, anchored on the project root
 
   # ── API providers ───────────────────────────────────────────────────
   api:
@@ -1641,7 +1743,7 @@ keys:
       guard checks SHAPE per provider (base_url present, default_model
       present and in the models list, models a non-empty list of ids), never
       membership. A provider that names no default_model and lists no models
-      hard-errors in build/claude_code_resolver.py, which is the quoted
+      hard-errors in agent_runner/provider_env.py, which is the quoted
       evidence.
     default: {}
 
@@ -1689,7 +1791,7 @@ keys:
     evidence: 'claude_code_config\.get\("servers", \{\}\)'
     note: >-
       Server enable/disable overrides, consumed by registry.mcp.resolve_servers.
-      Anchored because EIGHT covered-by children terminate here — a weak regex
+      Anchored because FOURTEEN covered-by children terminate here — a weak regex
       at this node would silently hollow out all of them.
     default: {}
   claude_code.servers.controls: {covered-by: claude_code.servers, default: n/a}
@@ -1706,6 +1808,8 @@ keys:
   claude_code.servers.bluesky.enabled: {covered-by: claude_code.servers.bluesky, default: derived, default_note: the bluesky server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.health: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.health.enabled: {covered-by: claude_code.servers.health, default: derived, default_note: the health server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.phoebus: {covered-by: claude_code.servers, rendered: false, default: n/a}
+  claude_code.servers.phoebus.enabled: {covered-by: claude_code.servers.phoebus, rendered: false, default: derived, default_note: the phoebus server's FRAMEWORK_SERVERS default_enabled}
   claude_code.permissions:
     evidence: 'claude_code_config\.get\("permissions", \{\}\)'
     note: >-
@@ -1728,8 +1832,9 @@ keys:
     covered-by: claude_code.telemetry
     default: required
     default_note: >-
-      true or false. true emits the agent's OTLP logs and metrics to the
-      backend named below; false emits none and the rest of the block is inert.
+      true or false. true exports the agent's OTLP metrics, logs and traces
+      (the ones claude_code.telemetry.signals names) to the backend named
+      below; false exports none and the rest of the block is inert.
   claude_code.telemetry.backend:
     evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
     default: null
@@ -1738,10 +1843,35 @@ keys:
   claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve, default: null}
   claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve, default: default}
-  claude_code.telemetry.log_user_prompts: {evidence: 'log_user_prompts', default: true}
-  claude_code.telemetry.log_assistant_responses: {evidence: 'log_assistant_responses', default: true}
-  claude_code.telemetry.log_tool_details: {evidence: 'log_tool_details', default: true}
-  claude_code.telemetry.log_raw_api_bodies: {evidence: 'log_raw_api_bodies', default: true}
+  claude_code.telemetry.auth:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("auth"\)'
+    note: Documented as a commented example in the control-assistant preset.
+    default: {}
+  claude_code.telemetry.auth.token_env:
+    rendered: false
+    covered-by: claude_code.telemetry.auth
+    default: null
+    note: >-
+      The environment variable holding the collector's bearer token; the agent
+      sends `Authorization: Bearer <value>`. Web terminals receive it through
+      their own compose environment, never `.env.users`.
+  claude_code.telemetry.signals:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("signals"\)'
+    note: >-
+      Which of metrics, logs and traces the agent exports. A signal left out
+      is exported as `none`, so no inherited setting turns it back on. Empty
+      or an unknown name is refused at build; `enabled: false` exports
+      nothing. Documented as a commented example in the control-assistant
+      preset.
+    default: [metrics, logs, traces]
+  # Every preset that ships the bundled store opens its gate block "Content gates, all on",
+  # so the capture posture is one claim about one store.
+  claude_code.telemetry.log_user_prompts: {same-value: true, evidence: 'log_user_prompts', default: true}
+  claude_code.telemetry.log_assistant_responses: {same-value: true, evidence: 'log_assistant_responses', default: true}
+  claude_code.telemetry.log_tool_details: {same-value: true, evidence: 'log_tool_details', default: true}
+  claude_code.telemetry.log_raw_api_bodies: {same-value: true, evidence: 'log_raw_api_bodies', default: true}
   claude_code.transcripts: {evidence: '\.get\("transcripts"\)', default: {}}
   claude_code.transcripts.retention_days:
     evidence: '_transcripts_retention_days'
@@ -1862,6 +1992,39 @@ keys:
       shipped default (the image trust store) is the right answer for a
       deployment that has none.
     default: null
+  ariel.entry_url_template:
+    rendered: false
+    evidence: 'get_config_value\("ariel\.entry_url_template"'
+    note: >-
+      The logbook's own URL for one entry, with a single `{entry_id}`
+      placeholder filled with the URL-encoded id. Commented in the two presets
+      that ship an `ariel:` block, because the URL is facility content. Read
+      per entry on egress by `build_entry_url`, not by ARIELConfig.from_dict;
+      unset, or a template that does not format, emits no `entry_url` (the
+      second is logged once) and the read itself never fails.
+    default: null
+  ariel.entry_text:
+    rendered: false
+    evidence: 'config_dict\.get\("entry_text"\)'
+    default: {}
+  ariel.entry_text.listing_chars:
+    rendered: false
+    evidence: '_entry_text_chars\(data, "listing_chars"'
+    note: >-
+      Characters of each entry's text a listing carries: the three search tools
+      and `browse`. Commented in the two presets that ship an `ariel:` block,
+      because the number that fits depends on how long a facility's entries run.
+      A cut entry carries `raw_text_truncated` and `raw_text_length`; a value
+      that is not a positive integer is refused at config parse.
+    default: 500
+  ariel.entry_text.read_chars:
+    rendered: false
+    evidence: '_entry_text_chars\(data, "read_chars"'
+    note: >-
+      Characters of each entry's text `entries_by_ids` carries; `entry_get` is
+      never cut. Refused at config parse when it is not a positive integer or
+      is below `ariel.entry_text.listing_chars`.
+    default: 1000
   ariel.default_search_mode: {evidence: 'default_search_mode', default: derived, default_note: the implicit mode for whichever search modules are enabled}
   # The facility vocabulary: shorthand the operators type, mapped to the words
   # the logbook prose actually uses. Read ONCE at config parse — the file is
@@ -1954,6 +2117,15 @@ keys:
       configured `0` means the deployment believes it disabled the envelope,
       and answering that with a silent ten seconds is worse than naming the key.
     default: 10.0
+  ariel.search_modules.keyword.settings.fuzzy_threshold:
+    evidence: '_SETTINGS_PREFIX\}\.fuzzy_threshold must be a number in \[0, 1\]'
+    note: >-
+      Shipped as `0.3`, matching DEFAULT_FUZZY_THRESHOLD. Both fuzzy-fallback
+      probes read it: the one on the text the operator typed and the one on the
+      expanded text. The fallback runs only when the exact search returned
+      nothing and the query carried no pattern. A value outside [0, 1] is
+      refused, never clamped, because pg_trgm similarity has no other range.
+    default: 0.3
   ariel.search_modules.semantic: {covered-by: ariel.search_modules, default: n/a}
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic, default: false}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic, default: null}
@@ -2110,9 +2282,9 @@ keys:
       None is derived: a facility_knowledge section naming no bundle has
       nothing to serve, so the knowledge commands refuse rather than guess.
   artifact_server: {all-templates: true, evidence: 'config\.get\("artifact_server"\) or \{\}', default: {}}
-  artifact_server.host: {all-templates: true, covered-by: artifact_server, default: 127.0.0.1}
+  artifact_server.host: {all-templates: true, same-value: true, covered-by: artifact_server, default: 127.0.0.1}
   artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}
-  artifact_server.auto_launch: {all-templates: true, evidence: 'auto_launch', default: derived, default_note: the artifact server's registry auto_launch_default}
+  artifact_server.auto_launch: {all-templates: true, same-value: true, evidence: 'auto_launch', default: derived, default_note: the artifact server's registry auto_launch_default}
   artifact_server.categories:
     rendered: false
     data-map: true
@@ -2154,11 +2326,82 @@ keys:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
     default: false
 
+  # ── Phoebus display bridge ──────────────────────────────────────────
+  # The `phoebus` server is off in every preset, so nothing renders these keys;
+  # a deployment that enables the server states them in its profile's `config:` block.
+  phoebus.host:
+    rendered: false
+    evidence: 'ph\.get\("host", "127\.0\.0\.1"\)'
+    note: >-
+      Host of the Phoebus agent bridge the phoebus server talks to, and half of
+      the fallback the build renders into its PHOEBUS_BRIDGE_URL. No preset
+      carries it.
+    default: 127.0.0.1
+  phoebus.port:
+    rendered: false
+    evidence: 'ph\.get\("port", 7979\)'
+    note: >-
+      Port of the Phoebus agent bridge; it must match the bridge's own port
+      preference. No preset carries it.
+    default: 7979
+  phoebus.panels:
+    rendered: false
+    data-map: true
+    evidence: 'config\.get\("phoebus", \{\}\)\.get\("panels", \{\}\)'
+    note: >-
+      Panel name to display-file path, the names phoebus_open_panel opens. The
+      names are the deployment's own vocabulary, so this is a data map; no
+      preset carries it.
+    default: {}
+  phoebus.require_handle:
+    rendered: false
+    evidence: 'config\.get\("phoebus", \{\}\)\.get\("require_handle", False\)'
+    note: >-
+      Refuses the implicit "active" display, so callers on a shared Phoebus
+      pass a handle or a display name; PHOEBUS_REQUIRE_HANDLE outranks it. No
+      preset carries it.
+    default: false
+  phoebus.agent_access:
+    rendered: false
+    evidence: 'phoebus\.get\("agent_access", READ\)'
+    note: >-
+      read offers the perceive, snapshot, open-panel and lookup tools only, and
+      the server refuses a drive. read_write also offers phoebus_drive, still
+      behind the approval prompt and control_system.writes_enabled. Any other
+      value is refused by name at build and by the server. No preset carries it.
+    default: read
+  phoebus.snapshot_dir:
+    rendered: false
+    evidence: '\(config\.get\("phoebus", \{\}\) or \{\}\)\.get\("snapshot_dir"\)'
+    note: >-
+      Directory phoebus_snapshot writes its PNG files to. No preset carries it.
+    default: derived
+    default_note: <agent_data.base_dir>/screenshots, anchored on the project root
+  phoebus.plot_dir:
+    rendered: false
+    evidence: '\(config\.get\("phoebus", \{\}\) or \{\}\)\.get\("plot_dir"\)'
+    note: >-
+      Directory phoebus_open_databrowser writes its .plt files to. No preset
+      carries it.
+    default: derived
+    default_note: <agent_data.base_dir>/plots, anchored on the project root
+  phoebus.archiver_url:
+    rendered: false
+    evidence: 'config\.get\("phoebus", \{\}\)\.get\("archiver_url"\)'
+    note: >-
+      Archiver bound into the Data Browser plots phoebus_open_databrowser
+      generates. No preset carries it.
+    default: no-fallback
+    default_note: >-
+      unset, the generated .plt binds no archiver and plots show live values
+      only; PHOEBUS_ARCHIVER_URL outranks the key when set
+
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
   # have usable defaults, so a facility writes a block only to ADD its own
-  # checks or retune the timing. Only the two sub-blocks the configuration
-  # reference names as dotted paths are carried here; the scalar suite settings
+  # checks or retune the timing. Only the three sub-blocks the configuration
+  # reference names as dotted paths (`categories`, `auto`, `disk`) are carried
+  # here; the scalar suite settings
   # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
   # bare leaf names and read straight off the same mapping.
   health.categories:
@@ -2193,10 +2436,40 @@ keys:
       framework synthesizes from `claude_code.servers` so no facility has to
       re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
       `auto.mcp.url_key` are read; anything else under it is ignored by design,
-      which is why the leaves carry no entries of their own.
+      which is why the leaves carry no entries of their own. The build writes
+      `auto.mcp.url_key: host_url` into every render whose deployment serves
+      web terminals (`osprey.cli.build_profile_health`) and refuses a
+      contradicting `config:` spelling there.
     default: derived
     default_note: >-
-      the default AutoMcpSettings: mcp.enabled true, url_key host_url, not explicit
+      the default AutoMcpSettings: mcp.enabled true, url_key host_url, not
+      explicit; a render that serves web terminals carries url_key host_url,
+      written by the build
+  health.disk:
+    rendered: false
+    evidence: 'disk = parse_disk_thresholds\(health\.get\("disk"\)\)'
+    note: >-
+      Holds the two thresholds of the `file_system.disk_space` row. Parsed by
+      `osprey.health.config.parse_disk_thresholds`, which both
+      `parse_health_config` and the row itself call, so the load-time refusal
+      and the grading cannot drift. Unknown keys under it are refused.
+    default: {}
+  health.disk.min_free_gb:
+    rendered: false
+    evidence: 'value\["min_free_gb"\], "disk\.min_free_gb"'
+    note: >-
+      The `disk_space` row warns while free space is below this many GB (1024³
+      bytes, as the row prints it); a positive number. A facility raises it when
+      its container volumes grow faster than 1 GB can absorb.
+    default: 1.0
+  health.disk.max_used_percent:
+    rendered: false
+    evidence: 'value\["max_used_percent"\], "disk\.max_used_percent"'
+    note: >-
+      The `disk_space` row warns once usage reaches this percentage; greater
+      than 0 and at most 100. A deployment on a large shared volume that runs
+      full by design raises it so hundreds of GB free do not grade as a warning.
+    default: 90.0
 
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
@@ -2222,6 +2495,18 @@ keys:
       four presets because `once` is what a first deployment wants and a
       rendered value would only repeat the default.
     default: once
+  web.control_target_picker:
+    evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"control_target_picker"\s*\)'
+    note: >-
+      Whether the title bar offers the control-target picker (the chip and its
+      switching popover). Display only: it grants and removes no access. Set
+      false by every shipped preset that reaches no machine (no control-system
+      tool server and no JUPYTER panel): ariel-standalone and
+      channel-finder-standalone, which render it, and the
+      control-assistant-logbook and control-assistant-knowledge personas.
+      Commented in control-assistant and hello-world. A value that is not a
+      boolean, or a file that cannot be read, keeps the default.
+    default: true
   web.file_watch_reconcile_interval_s:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'
@@ -2294,7 +2579,7 @@ keys:
       pushes an unrelated call past the margin.
     default: https://als-apg.github.io/osprey
   web.config_panel:
-    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.'
+    evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -2304,7 +2589,7 @@ keys:
       this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
-    evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
+    evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
     note: >-
       Tier gate for the Config panel, and a SERVER-side one: false makes
       /api/config and /api/claude-setup refuse every verb with 403 and takes
@@ -2313,12 +2598,12 @@ keys:
       client-only gate would be undone by typing the route's URL. Shipped
       true — the panel every single-user deployment has always had — and
       pinned false by the multi-user persona presets that are not the admin
-      tier. The default is spelled in the evidence because it is the
-      fail-open posture: an unreadable config must not silently take an
-      operator's own config editor away.
+      tier. The default is spelled in the evidence because it is the posture
+      for a key the file does not mention; a config file that exists but
+      cannot be read closes the gate instead.
     default: true
   web.scaffold_gallery:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.'
+    evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.'
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
@@ -2328,7 +2613,7 @@ keys:
       this is deliberately not all-templates, same as `web.config_panel`.
     default: {}
   web.scaffold_gallery.write_enabled:
-    evidence: '(?:get_config_value|resolve_config_flag)\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
+    evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
     note: >-
       Tier gate for the Scaffold gallery, and a SERVER-side one: false makes
       every write and delete verb under /api/scaffold refuse with 403 (create,
@@ -2339,10 +2624,10 @@ keys:
       simple` was. Shipped true — the gallery every single-user deployment has
       always had — and pinned false by the multi-user persona presets that are
       not the admin tier. The default is spelled in the evidence because it is
-      the fail-open posture: a config-read error must not silently revoke an
-      operator's own gallery. The `\s*` between the call's parts is
-      load-bearing for the same reason `web.docs_url` carries it: the formatter
-      wraps this call across lines on length alone.
+      the posture for a key the file does not mention; a config file that
+      exists but cannot be read closes the gate instead. The `\s*` between the
+      call's parts is load-bearing for the same reason `web.docs_url` carries
+      it: the formatter wraps this call across lines on length alone.
     default: true
   web.feedback:
     evidence: 'get_config_value\("web\.feedback\.'
@@ -2496,6 +2781,17 @@ keys:
       default 5. Third of the trio, same lifespan block and same `\s*` rule as
       `web.chat_turn_timeout_s`.
     default: 5
+  web.sidecar_ready_timeout_s:
+    rendered: false
+    evidence: 'SIDECAR_READY_TIMEOUT_KEY = "web\.sidecar_ready_timeout_s"'
+    note: >-
+      Hidden key, commented in control-assistant, unset in the other presets.
+      Seconds the web terminal waits, at startup and on every relaunch, for a
+      panel sidecar (the JUPYTER tab's server) to answer before it greys the
+      tab; resolved once in the lifespan; a value that is not a positive number
+      is refused with a warning and the default applies. Documented in
+      reference/configuration/config.rst.
+    default: 60.0
   web.bar_items:
     rendered: false
     evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"bar_items"\s*\)'
@@ -2570,6 +2866,34 @@ keys:
       Seconds a browser stays signed in. The literal below is
       interfaces.web_auth.DEFAULT_SESSION_LIFETIME, twelve hours.
     default: 43200
+  modules.web_terminals.auth.throttle.initial_delay_s:
+    rendered: false
+    evidence: '"initial_delay_s": "initial_delay"'
+    note: >-
+      Seconds a username waits after its first wrong password before the next
+      attempt is checked; no preset ships the key live.
+    default: 1.0
+  modules.web_terminals.auth.throttle.multiplier:
+    rendered: false
+    evidence: '"multiplier": "multiplier"'
+    note: >-
+      Factor each further failed password login multiplies the wait by; no
+      preset ships the key live.
+    default: 2.0
+  modules.web_terminals.auth.throttle.max_delay_s:
+    rendered: false
+    evidence: '"max_delay_s": "max_delay"'
+    note: >-
+      Ceiling on the wait after a failed password login, in seconds; the wait
+      always lifts within it, so nobody is locked out.
+    default: 30.0
+  modules.web_terminals.auth.throttle.forget_after_s:
+    rendered: false
+    evidence: '"forget_after_s": "forget_after"'
+    note: >-
+      Seconds of quiet after a wait lifts before a username's escalation
+      starts over; 0 gives a fixed delay.
+    default: 300.0
   modules.web_terminals.auth.allow_insecure_http:
     evidence: 'bool\(auth\.get\("allow_insecure_http", False\)\)'
     default: false
@@ -2611,6 +2935,15 @@ keys:
   modules.web_terminals.landing.groups:
     evidence: 'groups_raw = \[\{"type": "users"\}\]'
     default: [{type: users}]
+  modules.web_terminals.landing.groups.names:
+    rendered: false
+    evidence: 'entry\.get\("names"\) == "hidden"'
+    note: >-
+      Per entry of the `groups` list, on a `type: users` entry only. `hidden`
+      replaces that section's name cards with one sign-in button; lint refuses
+      it unless auth.method is password or oidc. The dotted path elides the
+      list index, which no rendered config carries, so no source renders it.
+    default: shown
   modules.web_terminals.personas:
     data-map: true
     evidence: 'web_terminals\.get\("personas"\)'
@@ -2636,6 +2969,9 @@ keys:
 # in any preset `config:` dotted key, or in the loader's synthesized defaults.
 # ---------------------------------------------------------------------------
 deleted:
+  # A collector's token is named by claude_code.telemetry.auth.token_env; there
+  # is no free-form header map.
+- claude_code.telemetry.headers
   # Ledger 1 / 5 / — : the whole write_verification block. The three inert
   # knobs went first; `default_level` and `default_tolerance_percent` followed
   # when confirmation became a per-channel `confirm: true|false` in the limits
@@ -2667,6 +3003,10 @@ deleted:
 - workspace
   # Ledger 18
 - control_system.connector.timeout
+  # The connector call bound: one spelling, timeout_s, on every connector type
+- control_system.connector.epics.timeout
+- control_system.connector.tango.timeout
+- control_system.connector.virtual_accelerator.timeout
   # Ledger 29
 - api.providers.ollama.host
 - api.providers.ollama.port
@@ -2721,6 +3061,10 @@ deleted:
   # The embedding index is HNSW, which takes no list count, so there is no
   # number left for a deployment to author.
 - ariel.enhancement_modules.text_embedding.index_lists
+  # The MongoDB archiver's login moved under `auth:` and its wait became `timeout_s`.
+- archiver.mongodb_archiver.username
+- archiver.mongodb_archiver.password_env
+- archiver.mongodb_archiver.timeout
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -2957,7 +3301,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 346
+  expected_union_size: 350
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3210,9 +3554,3 @@ notes:
       Deliberately holds every retired key so the loader's tolerance stays
       tested. If the guard is ever pointed at tests/, this file MUST be
       allowlisted or every `deleted` entry will fire on it.
-  facility_timezone_unshipped:
-    detail: >-
-      facility.timezone is READ (deployment/web_terminals/env_production.py,
-      deployment/web_terminals/render.py) but shipped by no preset, and is
-      distinct from system.timezone. A hidden-key stanza candidate for phase 6,
-      not a guard rule.

@@ -117,8 +117,8 @@ class TestConfigBlockRouting:
 
         monkeypatch.setattr(VirtualAcceleratorConnector, "connect", fake_connect)
 
-        va_only_config = {"timeout": 1.23}
-        epics_config = {"timeout": 9.99}
+        va_only_config = {"timeout_s": 1.23}
+        epics_config = {"timeout_s": 9.99}
         config = {
             "type": VIRTUAL_ACCELERATOR,
             "connector": {

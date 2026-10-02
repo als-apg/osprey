@@ -25,7 +25,7 @@ import pytest
 import yaml
 
 import osprey
-from osprey.build.claude_code_resolver import (
+from osprey.agent_runner.provider_env import (
     CLAUDE_CODE_PROVIDERS,
     ClaudeCodeModelResolver,
     _without_unresolved_base_urls,

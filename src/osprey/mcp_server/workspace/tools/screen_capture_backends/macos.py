@@ -76,7 +76,8 @@ class MacOSBackend(ScreenCaptureBackend):
                 f"Swift window listing failed (rc={proc.returncode}): {stderr.decode().strip()}"
             )
 
-        return json.loads(stdout.decode())
+        windows: list[dict] = json.loads(stdout.decode())
+        return windows
 
     async def _get_image_info(self, filepath: str) -> ImageInfo:
         """Get image dimensions via sips and file size."""

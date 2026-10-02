@@ -40,7 +40,7 @@ import { initFeedback } from './feedback-boot.js';
 import './bar-items.js';
 import './bar-item-queue.js';
 import './bar-item-health.js';
-import './bar-sync.js';
+import { deploymentContext } from './bar-sync.js';
 import './bar-customize.js';
 import { watchCrowding } from './bar-overflow.js';
 
@@ -89,11 +89,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // whether a write there would land. Mounts itself into `.header-actions`
   // ahead of the palette trigger and stays hidden until the terminal reports
   // a session, so boot order only needs the static header markup.
-  initControlTargetChip();
+  // With the picker switched off neither mounts, so no chip lands in the
+  // header-actions fallback and nothing reads the posture route.
+  const controlTargetAvailable = deploymentContext(document).controlTargetAvailable;
+  if (controlTargetAvailable) initControlTargetChip();
   // Its popover — the roster and every gesture that changes where this session
   // writes. Mounts under the chip's own positioning context, so it has to
   // follow the chip's init and no-ops on a page that renders no chip.
-  initControlTargetPopover();
+  if (controlTargetAvailable) initControlTargetPopover();
   // Last of the bar wiring, and deliberately after the chip: the ladder's first
   // pass MEASURES the bars, and a bar measured before its widest item mounted
   // would report room it does not have.

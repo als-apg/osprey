@@ -21,28 +21,34 @@ one helper makes that class of drift impossible.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_env_prefix
 from osprey.deployment.errors import DeploymentError
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     terminal_secret_var,
 )
+from osprey.deployment.web_terminals.env_production import personas_needing_telemetry_vars
 from osprey.deployment.web_terminals.personas import (
     as_dict,
+    config_archiver_ca_bundles,
     config_needs_launch_token_for,
     launch_token_writes_key,
     normalize_users,
-    personas_needing_archiver_password,
+    personas_needing_archiver_ca_bundles,
+    personas_needing_archiver_credentials,
     personas_needing_ariel_mirror,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_facility_bundle,
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
+    personas_needing_phoebus_handles,
     personas_not_denying_bash,
     referenced_persona_project_dirs,
     rendered_persona_configs,
@@ -51,11 +57,12 @@ from osprey.deployment.web_terminals.personas import (
     settings_json_is_rendered,
 )
 from osprey.deployment.web_terminals.render import (
+    PROXY_ENV_NAMES,
     _auth_tls_context,
     clear_nginx_templates_dir,
     render_web_terminals,
 )
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from osprey.utils.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors.types import WRITES_ENABLED_KEY
 
@@ -500,30 +507,6 @@ def _roster_has_personaless_entries(config: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
-#: The ``permissions.deny`` entries every persona must ship before a deployment
-#: may run OPEN (``modules.web_terminals.auth.method: none``). Each is a
-#: host-network egress path an agent can take from *outside* the python
-#: executor, which is where the open-mode socket guard sits: a shell, the two
-#: web tools, and the Playwright browser server.
-#:
-#: Every entry is spelled exactly as
-#: :data:`~osprey.cli.templates.claude_code.DENY_DEFAULTS` spells it — that
-#: tuple is what ``settings.json.j2`` writes into the artifact this gate reads,
-#: and the comparison is literal (see
-#: :func:`~osprey.deployment.web_terminals.personas.settings_json_denies`).
-#: A strict subset of it, deliberately: ``Edit`` writes files rather than
-#: reaching the network, and the context7 MCP server reaches a documentation
-#: host rather than this deployment's own terminals. Written out rather than
-#: derived by filtering ``DENY_DEFAULTS``, so that a rename there fails a test
-#: loudly instead of silently dropping an entry from this gate and weakening it
-#: (``test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them``).
-OPEN_MODE_EGRESS_TOOLS: tuple[str, ...] = (
-    "Bash",
-    "WebFetch",
-    "WebSearch",
-    "mcp__plugin_playwright_playwright__*",
-)
-
 #: The :func:`open_mode_missing_by_persona` value meaning "there is no rendered
 #: ``.claude/settings.json`` for this offender on this host at all" — as opposed
 #: to a rendered artifact that lifts particular entries, which is reported as
@@ -555,9 +538,9 @@ class OpenModeEgressError(DeploymentError):
     ``WebFetch``/``WebSearch`` or a Playwright browser reaches those ports
     straight past it, in-process guard or not. So open mode is refused unless
     every persona's shipped settings deny all of
-    :data:`OPEN_MODE_EGRESS_TOOLS` — the deploy stops before a single
-    web-terminal artifact is written, while the operator still has the context
-    to choose between the two real remedies.
+    :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` — the deploy
+    stops before a single web-terminal artifact is written, while the operator
+    still has the context to choose between the two real remedies.
 
     Deliberately not a ``ValueError``, for the reason
     :class:`BashLaunchTokenConflictError` spells out:
@@ -586,9 +569,9 @@ class OpenModeEgressError(DeploymentError):
 
     Args:
         missing_by_persona: :func:`open_mode_missing_by_persona`'s answer — the
-            subset of :data:`OPEN_MODE_EGRESS_TOOLS` each offender fails to
-            deny, keyed by offender, with :data:`ZERO_MIGRATION_OFFENDER`
-            standing for the persona-less entries and
+            subset of :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS`
+            each offender fails to deny, keyed by offender, with
+            :data:`ZERO_MIGRATION_OFFENDER` standing for the persona-less entries and
             :data:`UNRENDERED_SETTINGS` for an offender with no rendered
             artifact at all (which gets the render remedy instead of a deny
             list it cannot edit). Every offender is named, so an operator
@@ -728,7 +711,7 @@ def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
         OpenModeEgressError: The deployment is open and at least one referenced
             persona — or the deploy project itself, on behalf of the
             persona-less entries — ships settings that do not deny every tool in
-            :data:`OPEN_MODE_EGRESS_TOOLS`.
+            :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS`.
     """
     if missing := open_mode_missing_by_persona(config, project_root):
         raise OpenModeEgressError(missing)
@@ -755,10 +738,11 @@ def open_mode_offenders(config: Any, project_root: Path | str) -> set[str]:
 
     Returns:
         Every persona whose shipped settings do not deny the whole of
-        :data:`OPEN_MODE_EGRESS_TOOLS` — including one with no rendered
-        settings artifact at all — plus :data:`ZERO_MIGRATION_OFFENDER` when the
-        roster's persona-less entries are in that state. Empty when the
-        deployment is not open, and empty when it is open and clean.
+        :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` — including
+        one with no rendered settings artifact at all — plus
+        :data:`ZERO_MIGRATION_OFFENDER` when the roster's persona-less entries
+        are in that state. Empty when the deployment is not open, and empty when
+        it is open and clean.
     """
     return set(open_mode_missing_by_persona(config, project_root))
 
@@ -775,7 +759,7 @@ def open_mode_missing_by_persona(
     ``missing_by_persona`` so its message names the same entries the raising
     gate would have named. Asking :func:`open_mode_offenders` instead and
     phrasing the refusal against the whole set is supported, but sends the
-    operator through four entries to find the one that is lifted.
+    operator through every entry of the set to find the one that is lifted.
 
     Pure in the same sense as :func:`open_mode_offenders`, which is derived from
     this.
@@ -787,10 +771,11 @@ def open_mode_missing_by_persona(
             roster entries ship.
 
     Returns:
-        ``{offender: entries}``, each tuple in :data:`OPEN_MODE_EGRESS_TOOLS`
-        order, and :data:`UNRENDERED_SETTINGS` (the empty tuple) for an offender
-        with no rendered artifact on this host. ``{}`` when the deployment is
-        not open, or when every offender-to-be denies the whole set.
+        ``{offender: entries}``, each tuple in
+        :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` order,
+        and :data:`UNRENDERED_SETTINGS` (the empty tuple) for an offender with
+        no rendered artifact on this host. ``{}`` when the deployment is not
+        open, or when every offender-to-be denies the whole set.
     """
     if not deployment_is_open(config):
         return {}
@@ -832,9 +817,11 @@ def _open_mode_gap(project_dir: Path | None) -> tuple[str, ...] | None:
             is.
 
     Returns:
-        ``None`` when every entry in :data:`OPEN_MODE_EGRESS_TOOLS` is denied;
+        ``None`` when every entry in
+        :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` is denied;
         :data:`UNRENDERED_SETTINGS` when there is no artifact on this host; else
-        the entries that are missing, in :data:`OPEN_MODE_EGRESS_TOOLS` order.
+        the entries that are missing, in
+        :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` order.
     """
     if project_dir is None or not settings_json_is_rendered(project_dir):
         return UNRENDERED_SETTINGS
@@ -985,6 +972,25 @@ def _terminal_secrets(config: Any, root: Path) -> dict[str, str] | None:
     return secrets or None
 
 
+def proxy_env_names_with_a_value(root: Path) -> tuple[str, ...]:
+    """The members of :data:`PROXY_ENV_NAMES` compose will interpolate to a value.
+
+    Read where compose reads them, in its order: this process's environment
+    first, then the merged env chain. A name that resolves to nothing there
+    is left out, so the render writes it under neither spelling.
+
+    Args:
+        root: The deployment repo root, which holds the env chain.
+
+    Returns:
+        The names with a non-blank value, in :data:`PROXY_ENV_NAMES` order.
+    """
+    chain = merge_chain(root)
+    return tuple(
+        name for name in PROXY_ENV_NAMES if os.environ.get(name, chain.get(name, "")).strip()
+    )
+
+
 def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     """Every disk-derived input the deploy hands :func:`render_web_terminals`.
 
@@ -997,7 +1003,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     per-user environment block; which name a facility-knowledge bundle or run
     a qmd export and so get the deployment's bundle or mirror bind-mounted,
     and the groups those shared directories (and every user's audit zone)
-    were provisioned with; and the roster's operator secrets.
+    were provisioned with; the roster's operator secrets; and which proxy
+    settings hold a value where compose will read them (this process's
+    environment, then the chain).
 
     The one seam between "what is on disk" and "what the render is told", so a
     test that wants the render the deploy actually produces asks this rather
@@ -1046,7 +1054,11 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # cleared every lane, so no grant reaches the render unchecked.
         "launch_token_personas": launch_token_personas_by_lane,
         "graphdb_personas": personas_needing_graphdb_password(config, root),
-        "archiver_password_personas": personas_needing_archiver_password(config, root),
+        "archiver_credential_personas": personas_needing_archiver_credentials(config, root),
+        "archiver_ca_bundle_personas": personas_needing_archiver_ca_bundles(config, root),
+        # Persona-less entries' CA file, answered here because the render reads no filesystem.
+        "archiver_ca_bundles": config_archiver_ca_bundles(config),
+        "telemetry_vars_personas": personas_needing_telemetry_vars(config, root),
         "facility_bundle_personas": personas_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see
@@ -1061,12 +1073,15 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # inside the container by the entrypoint, off the mounted directory.
         "ariel_mirror_personas": personas_needing_ariel_mirror(config, root),
         "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
+        # A pure read of each persona's rendered config, like the grants above.
+        "phoebus_handle_personas": personas_needing_phoebus_handles(config, root),
         # The roster's operator secrets, read back off the deploy .env (see
         # _terminal_secrets for the None case and why it is not an open door).
         # Without this the render emits no per-user snippet at all, while
         # nginx.conf.j2 still emits the `include` that reads one — an nginx that
         # refuses to start, pointing at a path nothing ever wrote.
         "terminal_secrets": _terminal_secrets(config, root),
+        "proxy_env_names": proxy_env_names_with_a_value(root),
     }
 
 
@@ -1134,7 +1149,8 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
             makes the property hold for all of them.
         OpenModeEgressError: The deployment is open (``auth.method: none``) and
             some referenced persona's shipped ``.claude/settings.json`` does not
-            deny every tool in :data:`OPEN_MODE_EGRESS_TOOLS` — including the
+            deny every tool in
+            :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` — including the
             case where there is no rendered artifact to read at all, which open
             mode requires on this host. Raised before the render on every
             writer, for the same reason and with the same backstop role as the

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
+from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 

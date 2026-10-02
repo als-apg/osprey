@@ -71,6 +71,7 @@ exclude:
   web_panels:
     - ariel
     - system-health
+    - jupyter         # Notebook kernels read and write through the control target
 # The `safety` rule is deliberately NOT excluded. Its tools are gone, so the
 # rule governs nothing today and costs a few lines of prompt. It stays because
 # this agent runs inside a deployment that does move hardware: if anyone ever
@@ -105,6 +106,9 @@ config:
   # so it needs the panel area. Pinned rather than left to the server default,
   # like the other tiers pin theirs.
   web.ui_mode: expert
+  # No control-target picker in the title bar: nothing in this persona reaches
+  # the machine, so the bar names none.
+  web.control_target_picker: false
   # No shipped example plot in this WORKSPACE: the example invites the reader
   # to ask the agent for a live plot, which this persona cannot produce.
   artifact_server.example_artifact: false

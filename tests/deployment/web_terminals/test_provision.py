@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.templates.claude_code import DENY_DEFAULTS
+from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.deployment.web_terminals import provision
 from osprey.deployment.web_terminals.artifacts import (
     BashLaunchTokenConflictError,
@@ -28,13 +28,13 @@ from osprey.deployment.web_terminals.artifacts import (
 )
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
-    PW_HASH_VAR_PREFIX,
     SESSION_SECRET_VARS,
     TERMINAL_SECRET_VAR_PREFIX,
     AuthCredentialsResult,
     AuthSecretsResult,
     TerminalSecretsResult,
 )
+from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
 # The unwritable-path cases below rely on the OS honoring a read-only mode.
@@ -1474,6 +1474,71 @@ def test_a_walled_registry_deployment_is_not_asked_for_a_render(monkeypatch, tmp
     config["modules"]["web_terminals"]["auth"] = {"method": "token"}
 
     assert provision.persona_render_problem(config, root) is None
+
+
+def _seeded_password_repo(root: Path, *, fqdn: str) -> dict:
+    """A registry-mode password deployment whose profile publishes alice's password."""
+    (root / "profile.yml").write_text(
+        "name: demo\nenv:\n  defaults:\n    OSPREY_AUTH_PW_ALICE: demo-pw-alice\n",
+        encoding="utf-8",
+    )
+    (root / ".env").write_text("OSPREY_AUTH_PW_ALICE=demo-pw-alice\n", encoding="utf-8")
+    return {
+        "facility": {"prefix": "als"},
+        "deploy": {"fqdn": fqdn},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "image_source": "registry",
+                "auth": {"method": "password", "image": "reg/osprey-auth:1"},
+                "tls": {
+                    "enabled": True,
+                    "cert": "/etc/osprey/tls/facility.crt",
+                    "key": "/etc/osprey/tls/facility.key",
+                },
+                "users": [{"name": "alice", "index": 0}],
+            }
+        },
+    }
+
+
+def test_up_refuses_a_networked_deployment_that_keeps_a_seeded_password(monkeypatch, tmp_path):
+    """A published password on a host browsers reach from elsewhere refuses the start."""
+    root = tmp_path.resolve()
+    monkeypatch.chdir(root)
+
+    findings, _advisories = provision.web_terminal_preflight_report(
+        _seeded_password_repo(root, fqdn="ops.example.org"), repo_root=root
+    )
+
+    assert any(
+        "'alice'" in problem and "osprey users passwd alice" in problem
+        for problem, _remedy in findings
+    )
+
+
+def test_up_starts_a_loopback_deployment_that_keeps_a_seeded_password(monkeypatch, tmp_path):
+    """The demo on this machine keeps its demo logins."""
+    root = tmp_path.resolve()
+    monkeypatch.chdir(root)
+
+    findings, _advisories = provision.web_terminal_preflight_report(
+        _seeded_password_repo(root, fqdn="127.0.0.1"), repo_root=root
+    )
+
+    assert not any("osprey users passwd" in problem for problem, _remedy in findings)
+
+
+def test_the_seeded_password_refusal_is_blocking_not_advisory(monkeypatch, tmp_path):
+    """The finding refuses the start; it is never printed and walked past."""
+    root = tmp_path.resolve()
+    monkeypatch.chdir(root)
+
+    _findings, advisories = provision.web_terminal_preflight_report(
+        _seeded_password_repo(root, fqdn="ops.example.org"), repo_root=root
+    )
+
+    assert not any("osprey users passwd" in advisory for advisory in advisories)
 
 
 def test_preflight_passes_a_persona_that_denies_bash(monkeypatch, tmp_path):

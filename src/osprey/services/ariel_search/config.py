@@ -14,9 +14,15 @@ from typing import Any, Literal
 
 from osprey.port_layout import default_port
 from osprey.utils.config_paths import resolve_config_relative_path
+from osprey.utils.seconds import positive_seconds
 
 from .exceptions import ConfigurationError
-from .models import normalize_search_mode, resolve_implicit_search_mode
+from .models import (
+    DEFAULT_LISTING_TEXT_CHARS,
+    DEFAULT_READ_TEXT_CHARS,
+    normalize_search_mode,
+    resolve_implicit_search_mode,
+)
 from .vocabulary.loader import load_vocabulary
 from .vocabulary.model import Vocabulary
 
@@ -231,7 +237,9 @@ class ModelConfig:
     Attributes:
         name: Model name (e.g., "nomic-embed-text")
         dimension: Embedding dimension (must match model output)
-        max_input_tokens: Maximum input tokens for the model (optional)
+        max_input_tokens: Input window, in tokens, that the embedding server applies to this
+            model (optional). Unset means the text embedding module's
+            ``DEFAULT_MAX_INPUT_TOKENS``.
     """
 
     name: str
@@ -313,6 +321,36 @@ class EnhancementModuleConfig:
         )
 
 
+def _interval_seconds(data: Mapping[str, Any], key: str, default: float, *, path: str) -> float:
+    """Read an ARIEL interval as a positive, finite number of seconds.
+
+    An absent key or an explicit empty value takes ``default``.
+
+    Args:
+        data: The block that holds the key.
+        key: The key to read.
+        default: The interval used when the key is absent or empty.
+        path: The block's path under ``ariel``, e.g. ``"ingestion.watch"``.
+
+    Returns:
+        The interval in seconds.
+
+    Raises:
+        ConfigurationError: If the value is not a positive, finite number of
+            seconds.
+    """
+    raw = data.get(key)
+    if raw is None:
+        return default
+    seconds = positive_seconds(raw)
+    if seconds is None:
+        raise ConfigurationError(
+            f"ariel.{path}.{key} is {raw!r}; set a positive number of seconds",
+            config_key=f"{path}.{key}",
+        )
+    return seconds
+
+
 @dataclass
 class WatchConfig:
     """Configuration for the watch (live polling) mode.
@@ -321,13 +359,13 @@ class WatchConfig:
         require_initial_ingest: Require at least one successful ingest before watching
         max_consecutive_failures: Stop after this many consecutive poll failures
         backoff_multiplier: Multiply interval by this on consecutive failures
-        max_interval_seconds: Maximum poll interval after backoff
+        max_interval_seconds: Maximum poll interval after backoff, in seconds (positive, finite)
     """
 
     require_initial_ingest: bool = True
     max_consecutive_failures: int = 10
     backoff_multiplier: float = 2.0
-    max_interval_seconds: int = 3600
+    max_interval_seconds: float = 3600.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WatchConfig":
@@ -336,7 +374,9 @@ class WatchConfig:
             require_initial_ingest=data.get("require_initial_ingest", True),
             max_consecutive_failures=data.get("max_consecutive_failures", 10),
             backoff_multiplier=data.get("backoff_multiplier", 2.0),
-            max_interval_seconds=data.get("max_interval_seconds", 3600),
+            max_interval_seconds=_interval_seconds(
+                data, "max_interval_seconds", cls.max_interval_seconds, path="ingestion.watch"
+            ),
         )
 
 
@@ -430,7 +470,8 @@ class IngestionConfig:
     Attributes:
         adapter: Adapter name (e.g., "als_logbook", "generic_json")
         source_url: URL for source system API (optional)
-        poll_interval_seconds: Polling interval for incremental ingestion
+        poll_interval_seconds: Polling interval for incremental ingestion, in seconds
+            (positive, finite)
         proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:1080")
         verify_ssl: Whether to verify TLS certificates (default: True). Set false
             only as a deliberate opt-out for a logbook whose certificate cannot
@@ -447,7 +488,7 @@ class IngestionConfig:
 
     adapter: str
     source_url: str | None = None
-    poll_interval_seconds: int = 3600
+    poll_interval_seconds: float = 3600.0
     proxy_url: str | None = None
     verify_ssl: bool = True
     ca_bundle: str | None = None
@@ -473,6 +514,9 @@ class IngestionConfig:
                 default — the old one, ``"generic"``, is not a registered name
                 at all, so an ingestion block without an adapter never worked;
                 it just failed later, at the first ingest, instead of here.
+                Also if ``poll_interval_seconds`` or
+                ``watch.max_interval_seconds`` is not a positive, finite
+                number of seconds.
         """
         if not data.get("adapter"):
             available = ", ".join(_known_ingestion_adapters())
@@ -496,7 +540,9 @@ class IngestionConfig:
         return cls(
             adapter=data["adapter"],
             source_url=data.get("source_url"),
-            poll_interval_seconds=data.get("poll_interval_seconds", 3600),
+            poll_interval_seconds=_interval_seconds(
+                data, "poll_interval_seconds", cls.poll_interval_seconds, path="ingestion"
+            ),
             proxy_url=proxy_url,
             verify_ssl=data.get("verify_ssl", True),
             ca_bundle=data.get("ca_bundle"),
@@ -685,6 +731,78 @@ class VocabularyConfig:
         )
 
 
+_ENTRY_TEXT_PREFIX = "ariel.entry_text"
+
+
+def _entry_text_chars(data: dict[str, Any], key: str, default: int) -> int:
+    """Read one character budget from the ``ariel.entry_text`` block.
+
+    A *present* key of the wrong type is refused rather than defaulted or
+    clamped, for the same reason :func:`_vocab_bool` refuses one: silently
+    ignoring it would leave the deployment on the behavior it explicitly asked
+    to leave.
+
+    Args:
+        data: The ``ariel.entry_text`` mapping.
+        key: Leaf key to read.
+        default: Value to use when the key is absent.
+
+    Returns:
+        The budget, a positive whole number of characters.
+
+    Raises:
+        ValueError: If the key is present but not a positive integer.
+    """
+    value = data.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(
+            f"{_ENTRY_TEXT_PREFIX}.{key} must be a positive whole number of characters, "
+            f"got {value!r}"
+        )
+    return value
+
+
+@dataclass(frozen=True)
+class EntryTextConfig:
+    """The ``ariel.entry_text`` block: how much of each entry's text the agent sees.
+
+    Attributes:
+        listing_chars: Characters of each entry's text a listing carries:
+            ``keyword_search``, ``semantic_search``, ``hybrid_search`` and ``browse``.
+        read_chars: Characters of each entry's text a batch read carries:
+            ``entries_by_ids``. Never below ``listing_chars``.
+
+    ``entry_get`` is never cut.
+    """
+
+    listing_chars: int = DEFAULT_LISTING_TEXT_CHARS
+    read_chars: int = DEFAULT_READ_TEXT_CHARS
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EntryTextConfig":
+        """Create EntryTextConfig from the ``ariel.entry_text`` mapping.
+
+        Args:
+            data: The ``ariel.entry_text`` mapping.
+
+        Returns:
+            EntryTextConfig instance.
+
+        Raises:
+            ValueError: If a budget is not a positive integer, or ``read_chars``
+                is below ``listing_chars``.
+        """
+        listing = _entry_text_chars(data, "listing_chars", cls.listing_chars)
+        read = _entry_text_chars(data, "read_chars", cls.read_chars)
+        if read < listing:
+            raise ValueError(
+                f"{_ENTRY_TEXT_PREFIX}.read_chars ({read}) is below "
+                f"{_ENTRY_TEXT_PREFIX}.listing_chars ({listing}): reading an entry must "
+                "show at least what a search result shows"
+            )
+        return cls(listing_chars=listing, read_chars=read)
+
+
 @dataclass
 class ARIELConfig:
     """Root configuration for ARIEL service.
@@ -710,16 +828,19 @@ class ARIELConfig:
             classes leave a working service.
         vocabulary_warnings: Loader warnings — a vocabulary that loads but may
             not behave as its author expects. Never blocks anything.
+        entry_text: The ``ariel.entry_text`` block — how much of each entry's text
+            the agent-facing tools return.
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
-            entry URL, e.g. ``"https://logbook.example/olog.php?id={entry_id}"``.
+            entry URL, e.g. ``"https://logbook.example.org/entry/{entry_id}"``.
             Read at egress time via ``get_config_value("ariel.entry_url_template")``
             (see ``mcp_server.ariel.server.build_entry_url``), NOT parsed by
             ``from_dict`` — the ARIEL read tools render it with the URL-encoded
-            ``entry_id`` so the agent links entries verbatim. Facility-neutral by
-            default (unset -> no ``entry_url`` emitted); a facility supplies the
-            value in its own sibling base file.
+            ``entry_id`` so the agent links entries verbatim. Unset by default (no
+            ``entry_url`` emitted); a deployment sets it in its profile's
+            ``config:`` block, where the presets that ship an ``ariel:`` block
+            carry it as a commented example.
     """
 
     database: DatabaseConfig
@@ -732,6 +853,7 @@ class ARIELConfig:
     loaded_vocabulary: Vocabulary | None = None
     vocabulary_errors: list[str] = field(default_factory=list)
     vocabulary_warnings: list[str] = field(default_factory=list)
+    entry_text: EntryTextConfig = field(default_factory=EntryTextConfig)
 
     @classmethod
     def from_dict(
@@ -768,6 +890,7 @@ class ARIELConfig:
         Raises:
             ConfigurationError: If the deprecated 'pipelines' section is present.
             ValueError: If the ``vocabulary`` block is malformed.
+            ValueError: If the ``entry_text`` block is malformed.
         """
         if "pipelines" in config_dict:
             raise ConfigurationError(
@@ -799,6 +922,14 @@ class ARIELConfig:
         default_search_mode = config_dict.get("default_search_mode")
         if default_search_mode is not None:
             default_search_mode = normalize_search_mode(default_search_mode)
+
+        entry_text_data = config_dict.get("entry_text")
+        if entry_text_data is None:
+            entry_text = EntryTextConfig()
+        elif isinstance(entry_text_data, dict):
+            entry_text = EntryTextConfig.from_dict(entry_text_data)
+        else:
+            raise ValueError(f"{_ENTRY_TEXT_PREFIX} must be a mapping, got {entry_text_data!r}")
 
         vocabulary_data = config_dict.get("vocabulary")
         if vocabulary_data is None:
@@ -841,6 +972,7 @@ class ARIELConfig:
             loaded_vocabulary=loaded_vocabulary,
             vocabulary_errors=vocabulary_errors,
             vocabulary_warnings=vocabulary_warnings,
+            entry_text=entry_text,
         )
 
     @property

@@ -207,6 +207,41 @@ def test_stop_leaves_no_process_and_removes_the_tempdir(shared_root: Path) -> No
 # ---------------------------------------------------------------------------
 
 
+def test_a_stop_during_wait_ready_ends_the_wait(shared_root: Path) -> None:
+    """A stop that lands while the sidecar is still coming up ends the wait at once.
+
+    No Jupyter is spawned: a sleeping interpreter stands in for a server that
+    never answers.
+    """
+    sidecar = JupyterSidecar(shared_root, "", None)
+    sidecar._process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
+    )
+    failures: list[BaseException] = []
+
+    def _wait() -> None:
+        try:
+            sidecar.wait_ready(30)
+        except BaseException as exc:  # the test inspects whatever it raised
+            failures.append(exc)
+
+    waiter = threading.Thread(target=_wait, daemon=True)
+    waiter.start()
+    try:
+        time.sleep(0.2)
+        stopper = threading.Thread(target=sidecar.stop, daemon=True)
+        stopper.start()
+        waiter.join(2.0)
+        assert not waiter.is_alive(), "wait_ready kept waiting after stop()"
+        stopper.join(10.0)
+    finally:
+        sidecar.stop()
+
+    assert len(failures) == 1
+    assert isinstance(failures[0], RuntimeError)
+    assert "stopped before it was ready" in str(failures[0])
+
+
 def test_preflight_names_the_missing_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
@@ -597,6 +632,7 @@ def test_a_sidecar_that_dies_later_is_reported_once_with_its_stderr_tail(
     tail = sidecar.stderr_tail
     assert tail, "the sidecar wrote nothing to stderr before it was killed"
     assert message.endswith(tail)
+    assert sidecar.exit_status == -signal.SIGKILL
 
 
 @spawns

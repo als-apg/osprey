@@ -18,7 +18,9 @@ is one uvicorn app under ``/app``: there is no ``osprey.yml`` to anchor on, and
 :func:`osprey.audit.writer.audit_dir`'s resolver would either raise here or
 point at a directory the container does not bind. An unset or blank variable
 degrades to the log line below — a sidecar rendered before the audit mount
-existed still says what it decided, it simply cannot store it.
+existed still says what it decided, it simply cannot store it. The same
+directory holds the login service's revoked-session file (see
+:mod:`~osprey.services.auth_sidecar.revocation`).
 
 **The record is the user's, the directory is the service's.** The sidecar is
 the ``actor`` (it decided, under its own container identity) and the roster user
@@ -43,9 +45,11 @@ the next record filed for that user names how many were folded into it (see
 :data:`~osprey.services.auth_sidecar.routes.oidc.FOLDED_DETAIL_KEY`). The
 post-exchange OIDC categories are unbounded on purpose — reaching one costs a
 full IdP round trip, so they are not free to generate, and they are the records
-that describe a login that actually authenticated. The distinction matters
-because this file is root-owned in a directory nothing else in the deployment
-binds: nobody inside it can rotate or truncate what an unbounded append filled.
+that describe a login that actually authenticated. Card-less sign-in refusals
+are all post-credential or post-exchange, so they are unbounded on the same
+terms. The distinction matters because this file is root-owned in a directory
+nothing else in the deployment binds: nobody inside it can rotate or truncate
+what an unbounded append filled.
 
 **An audit failure never costs the decision.** Both record functions swallow
 everything the write can raise: a refusal that was audited and a refusal that
@@ -60,6 +64,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from osprey.audit import writer
@@ -81,12 +86,14 @@ __all__ = [
     "REASON_AMBIGUOUS_IDENTITY",
     "REASON_AMBIGUOUS_ROLE_CLAIM",
     "REASON_BAD_CREDENTIAL",
+    "REASON_CREDENTIAL_UNEVALUABLE",
     "REASON_HOSTED_DOMAIN_MISMATCH",
     "REASON_IDENTITY_MISMATCH",
     "REASON_METHOD_MISMATCH",
     "REASON_MISSING_ROLE_CLAIM",
     "REASON_NON_ASCII_SUBJECT",
     "REASON_NO_ASSERTED_IDENTITY",
+    "REASON_NO_CARD",
     "REASON_NO_COVERING_PRINCIPAL",
     "REASON_OIDC_LOGIN",
     "REASON_PASSWORD_LOGIN",
@@ -99,7 +106,9 @@ __all__ = [
     "REASON_UNVALIDATED_TOKEN",
     "REASON_UNVERIFIED_EMAIL",
     "SIDECAR_POSTURE",
+    "SIGN_IN_SUBJECT",
     "SURFACE",
+    "audit_directory",
     "ledger_path",
     "record_login_refusal",
     "record_login_success",
@@ -151,8 +160,20 @@ REASON_BAD_CREDENTIAL = "bad_credential"
 **One category on purpose.** A wrong password, a roster user with no provisioned
 credential, and a name that was never on the roster all arrive here — the same
 anti-lookup discipline the login page keeps, extended to the ledger, so a reader
-of the file cannot use it to enumerate accounts either. What varies between
-those cases is nothing the record could say without saying who exists.
+of the file cannot use it to enumerate accounts either. A provisioned credential
+the service cannot read is not one of these cases and files
+:data:`REASON_CREDENTIAL_UNEVALUABLE`. What varies between those cases is nothing
+the record could say without saying who exists.
+"""
+
+REASON_CREDENTIAL_UNEVALUABLE = "credential_unevaluable"
+"""A password attempt reached a stored credential the service cannot evaluate.
+
+A malformed or unusable ``OSPREY_AUTH_PW_HASH_<USER>`` entry: a configuration
+fault, not a guess, so no password could have unlocked the user. Its own
+category even though it tells a reader that the name holds a provisioned
+credential: only an operator's own ``.env.auth`` can produce it, and the
+sidecar's startup log already names that user.
 """
 
 REASON_UNMAPPED_USER = "unmapped_user"
@@ -250,12 +271,17 @@ REASON_UNMAPPED_ROLE_CLAIM = "unmapped_role_claim"
 """No value in the group claim is mapped to a role by this deployment."""
 
 REASON_AMBIGUOUS_ROLE_CLAIM = "ambiguous_role_claim"
-"""The group claim maps to more than one distinct role.
+"""The group claim maps to more than one distinct role, on a card that names none.
 
-Refused rather than resolved. The alternative — take the first — would make the
-privilege granted depend on the order the provider listed the groups in, or on
-the order the roles were declared in YAML, which is exactly how an operator ends
-up with a privilege nobody decided to give them."""
+Refused only where the clicked card's roster entry names no role; where it names
+one, the card's role is granted if the claim maps to it, and refused as
+:data:`REASON_ROLE_MISMATCH` otherwise.
+
+With no card role to anchor on it is refused rather than resolved. The
+alternative — take the first — would make the privilege granted depend on the
+order the provider listed the groups in, or on the order the roles were declared
+in YAML, which is exactly how an operator ends up with a privilege nobody
+decided to give them."""
 
 REASON_ROLE_MISMATCH = "role_mismatch"
 """The claim's role is not the role this user's terminal was rendered into.
@@ -269,12 +295,12 @@ session that names one role while sitting in another's container, and taking the
 roster's would grant a privilege the login never proved.
 
 Distinct from :data:`REASON_UNMAPPED_ROLE_CLAIM` (the claim maps to nothing at
-all) and from :data:`REASON_AMBIGUOUS_ROLE_CLAIM` (it maps to several): here the
-provider asserted exactly one role, and the disagreement is with the deployment
-rather than inside the token. A run of these is a roster and an IdP that have
-drifted apart — someone moved between groups without their roster entry
-following — which is the one refusal in this set an operator fixes in *both*
-places.
+all) and from :data:`REASON_AMBIGUOUS_ROLE_CLAIM` (it maps to several on a card
+naming none): here none of the roles the claim maps to is the card's, and the
+disagreement is with the deployment rather than inside the token. A run of these
+is a roster and an IdP that have drifted apart — someone moved between groups
+without their roster entry following — which is the one refusal in this set an
+operator fixes in *both* places.
 """
 
 REASON_UNSAFE_ROLE = "unsafe_role"
@@ -307,6 +333,22 @@ REASON_PASSWORD_LOGIN = "password_login"
 REASON_OIDC_LOGIN = "oidc_login"
 """An OIDC login succeeded — how the subject proved who they were."""
 
+REASON_NO_CARD = "no_card"
+"""A login proved who arrived, but no card on this deployment admits them.
+
+Nothing was unlocked. Its own category because it is reached only after the
+credential or token was accepted: the fix is the roster or a card's ``access:``
+rule, never the password or the provider."""
+
+SIGN_IN_SUBJECT = "(sign-in)"
+"""The record subject for a card-less sign-in refused before any card is known.
+
+That is an OIDC token that did not validate, asserted no identity, or matched no
+card. The envelope refuses an empty subject, and the asserted identity is a
+claim value, which the ledger does not take. The parentheses keep it from ever
+colliding with a roster name, which ``USERNAME_CHARSET_RE`` confines to
+``[a-z0-9_-]``."""
+
 
 _SUCCESS_REASONS: dict[str, str] = {
     METHOD_PASSWORD: REASON_PASSWORD_LOGIN,
@@ -326,12 +368,14 @@ LOGIN_REASONS: frozenset[str] = frozenset(
         REASON_AMBIGUOUS_IDENTITY,
         REASON_AMBIGUOUS_ROLE_CLAIM,
         REASON_BAD_CREDENTIAL,
+        REASON_CREDENTIAL_UNEVALUABLE,
         REASON_HOSTED_DOMAIN_MISMATCH,
         REASON_IDENTITY_MISMATCH,
         REASON_METHOD_MISMATCH,
         REASON_MISSING_ROLE_CLAIM,
         REASON_NON_ASCII_SUBJECT,
         REASON_NO_ASSERTED_IDENTITY,
+        REASON_NO_CARD,
         REASON_NO_COVERING_PRINCIPAL,
         REASON_OIDC_LOGIN,
         REASON_PASSWORD_LOGIN,
@@ -358,6 +402,36 @@ one — but pinned by a test, which is the layer that can fail loudly without
 costing a decision."""
 
 
+def audit_directory(env: Mapping[str, str] | None = None) -> Path | None:
+    """The directory :data:`AUDIT_DIR_ENV` names, or ``None``.
+
+    Read from *env*, or from :data:`os.environ` when *env* is ``None``, per
+    call. ``None`` means the variable is missing or blank, or names a relative
+    path.
+
+    **A relative value is refused like a blank one.** Resolved against the
+    process's working directory it would name ``/app/<something>`` inside the
+    image — a path the host binds nothing at — and the records would accumulate
+    in the container's writable layer and vanish with it, while this function
+    kept returning a path that says they were durably stored. The documented
+    degrade (the log line in :func:`write_envelope`) is the honest answer to a
+    value this service cannot write anything durable under.
+    """
+    source = os.environ if env is None else env
+    raw = source.get(AUDIT_DIR_ENV)
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    directory = Path(raw.strip())
+    if not directory.is_absolute():
+        logger.warning(
+            "%s is not an absolute path; this service stores nothing under it until it names "
+            "the directory compose binds for it",
+            AUDIT_DIR_ENV,
+        )
+        return None
+    return directory
+
+
 def ledger_path() -> Path | None:
     """The file this service's records are appended to, or ``None``.
 
@@ -371,14 +445,6 @@ def ledger_path() -> Path | None:
     environment, and a value captured at import would be whatever the first
     importer happened to see.
 
-    **A relative value is refused like a blank one.** Resolved against the
-    process's working directory it would name ``/app/<something>`` inside the
-    image — a path the host binds nothing at — and the records would accumulate
-    in the container's writable layer and vanish with it, while this function
-    kept returning a path that says they were durably stored. The documented
-    degrade (the log line in :func:`write_envelope`) is the honest answer to a
-    value this service cannot write anything durable under.
-
     **The stem is the surface literal, not a routed name.**
     :func:`osprey.audit.writer.ledger_name` consults
     :func:`~osprey.audit.writer.writer_context` first, so an
@@ -389,16 +455,8 @@ def ledger_path() -> Path | None:
     :data:`~osprey.audit.writer.LEDGER_SUFFIX` is still the writer's, because
     that one *is* shared vocabulary.
     """
-    raw = os.environ.get(AUDIT_DIR_ENV)
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    directory = Path(raw.strip())
-    if not directory.is_absolute():
-        logger.warning(
-            "%s is not an absolute path; this service files no records until it names the "
-            "directory compose binds for it",
-            AUDIT_DIR_ENV,
-        )
+    directory = audit_directory()
+    if directory is None:
         return None
     return directory / f"{SURFACE}{writer.LEDGER_SUFFIX}"
 
@@ -422,7 +480,9 @@ def record_login_success(
             names the category the success is recorded under.
         detail: Optional supplementary context — identifiers and config keys
             only, on the same terms as a refusal's ``detail``. A shared-card
-            login records the opener here (``opener=<name>``).
+            login records the opener here (``opener=<name>``), and an OIDC
+            login whose token mapped to several roles records them
+            (``mapped_roles=<a>,<b>``).
         role: The role the session was minted with, where the deployment binds
             one. Empty is the deny-safe value and is recorded as no role at all,
             never as a role named ``""``.

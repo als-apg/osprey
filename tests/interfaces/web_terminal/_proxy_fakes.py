@@ -2,7 +2,8 @@
 
 The proxy route suites each carried their own copy of the same upstream
 doubles and the same app boot. This module centralizes them: the websocket
-upstream (:class:`_FakeConnect` standing in for ``websockets.connect`` and the
+upstream (:class:`_FakeConnect` standing in for either connect type the proxy
+picks from, :func:`_patch_connect` installing it for both, and the
 :class:`_FakeUpstreamSocket` it opens), the streamed HTTP upstream
 (:class:`_FakeStreamResponse`), the header-case helper :func:`_lower`, and
 :func:`panel_app`, the whole app booted over a watched directory with the
@@ -12,6 +13,7 @@ universal panels plus the custom panels a test declares.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
@@ -45,11 +47,12 @@ class _FakeUpstreamSocket:
 
 
 class _FakeConnect:
-    """Stands in for ``websockets.connect``, recording the handshake arguments."""
+    """Stands in for a websocket connect type, recording the handshake arguments."""
 
     def __init__(self):
         self.target = None
         self.kwargs = None
+        self.refuses_redirects = False
 
     def __call__(self, target, **kwargs):
         self.target = target
@@ -61,6 +64,16 @@ class _FakeConnect:
 
     async def __aexit__(self, *exc_info):
         return False
+
+
+@contextlib.contextmanager
+def _patch_connect(fake):
+    """Replace both connect types the WS proxy picks from with one *fake*."""
+    with (
+        patch("websockets.connect", fake),
+        patch("osprey.interfaces.web_terminal.routes.proxy._RedirectRefusingConnect", fake),
+    ):
+        yield fake
 
 
 class _FakeStreamResponse:

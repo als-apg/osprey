@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from itertools import chain
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -25,6 +26,7 @@ from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import html_has_plotly_bundle, vendor_url
 from osprey.port_layout import default_port
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
@@ -375,6 +377,39 @@ def _resolve_pinned_web_theme() -> str | None:
     return resolved.id if resolved.pinned_mode else None
 
 
+def _agent_artifact_dir(artifact_dir: Path, repo_root: Path, base_dir: str) -> str:
+    """The spelling of the store's artifact directory handed to the agent.
+
+    Repo-relative exactly when the configured ``agent_data.base_dir`` is
+    relative and the directory, taken relative to ``repo_root``, begins with
+    that base directory; the absolute directory otherwise. ``~`` counts as
+    absolute, because the agent-data root expands it.
+
+    ``artifact_dir.relative_to(repo_root)`` alone is not the test: when the
+    base directory does not match the root's tail, ``repo_root_for_agent_data``
+    falls back to the root's parent, an ancestor of everything under the root,
+    so ``relative_to`` succeeds and yields a wrong-but-plausible path such as
+    ``agent/artifacts``. An absolute path is always openable; a relative one is
+    only honest when it starts with the configured base directory.
+
+    Args:
+        artifact_dir: The directory the store writes artifact files to.
+        repo_root: The repo root the store anchors its relative pointers at.
+        base_dir: The configured ``agent_data.base_dir``.
+
+    Returns:
+        A POSIX repo-relative path, or the absolute directory.
+    """
+    tail = Path(base_dir).parts
+    if (
+        not Path(base_dir).expanduser().is_absolute()
+        and artifact_dir.is_relative_to(repo_root)
+        and artifact_dir.relative_to(repo_root).parts[: len(tail)] == tail
+    ):
+        return artifact_dir.relative_to(repo_root).as_posix()
+    return str(artifact_dir)
+
+
 def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
     """Inject an HTML snippet (CSS/JS) into HTML content, before </head>."""
     html = html_bytes.decode("utf-8", errors="replace")
@@ -629,13 +664,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     Args:
         workspace_root: Agent-data root containing the ``artifacts/`` dir.
-            REQUIRED in practice despite the ``None`` default: the store would
-            resolve the deployment's configured root on its own, but this
-            function also joins ``workspace_root`` directly (the focus file
-            below), so passing ``None`` raises ``TypeError`` rather than
-            defaulting. Every launch path passes it. Documented as-is rather
-            than papered over with a default that would change which directory
-            an existing caller's focus file lands in.
+            Omitted, it is the deployment's shared agent-data root, the same
+            one the store would resolve, so the store, the index watcher and
+            the focus file share one directory.
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.stores.artifact_store import (
@@ -647,8 +678,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         unregister_artifact_delete_listener,
         unregister_artifact_listener,
     )
+    from osprey.utils.workspace import resolve_shared_data_root
 
-    store = ArtifactStore(workspace_root=workspace_root)
+    data_root: Path = workspace_root if workspace_root is not None else resolve_shared_data_root()
+    store = ArtifactStore(workspace_root=data_root)
 
     # Prime config and load custom artifact categories (if available).
     #
@@ -677,6 +710,18 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # opened outside the hub.
     web_theme_pin = _resolve_pinned_web_theme()
 
+    # Resolved once, after config priming like the theme pin: the spelling of
+    # the artifact directory that the page's artifactPath hands the agent.
+    from osprey.utils.workspace import agent_data_base_dir, load_osprey_config
+
+    artifact_dir_for_agent = _agent_artifact_dir(
+        store.artifact_dir, store.repo_root, agent_data_base_dir(load_osprey_config())
+    )
+
+    # Resolved once, after config priming like the theme pin, because the
+    # priming above is what points the resolver at this deployment's config.
+    facility_timezone = get_facility_timezone().key
+
     # Resolved once, after config priming like the theme pin, because the
     # listing route's own ``limit`` default is built from it when the route is
     # defined.
@@ -697,7 +742,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     broadcaster = _SSEBroadcaster()
 
     index_watcher = StoreIndexWatcher(
-        workspace_root=workspace_root,
+        workspace_root=data_root,
         broadcaster=broadcaster,
         artifact_store=store,
     )
@@ -740,7 +785,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     app.state.agent_project_dir = deployed_render_dir()
     app.state.focused_artifact_id = None  # None = show latest
 
-    focus_file = workspace_root / "focus_state.txt"
+    focus_file = data_root / "focus_state.txt"
 
     def _write_focus_file() -> None:
         """Write current focus state to a plain-text file for the CLI hook."""
@@ -767,7 +812,15 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         # A pinned web.theme reaches the gallery shell too. Embedded, the hub's
         # ?theme= outranks it in theme-boot.js's ladder, so this only shows up
         # on a first standalone visit.
-        return templates.TemplateResponse(request, "index.html", {"web_theme_pin": web_theme_pin})
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "web_theme_pin": web_theme_pin,
+                "facility_timezone": facility_timezone,
+                "artifact_dir": artifact_dir_for_agent,
+            },
+        )
 
     @app.get("/health")
     async def health():
@@ -975,7 +1028,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
         app.state.focused_artifact_id = req.artifact_id
         _write_focus_file()
-        event = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
+        event: dict[str, Any] = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
         if req.fullscreen:
             event["fullscreen"] = True
         broadcaster.broadcast(event)
@@ -1119,7 +1172,8 @@ def run_server(
             deployment's ``deployment.port_base``. A multi-user deployment does
             not come through here at all: its launcher builds the app from the
             registry's factory and serves it itself.
-        workspace_root: Workspace root dir.
+        workspace_root: Agent-data root containing the ``artifacts/`` dir.
+            Omitted, it is the deployment's shared agent-data root.
     """
     import os
 

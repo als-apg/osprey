@@ -42,7 +42,9 @@ def extend_framework_registry(
         services: Application services to add to framework defaults
         providers: Application AI model providers to add to framework defaults
         connectors: Application control system/archiver connectors to add
-        exclude_providers: Names of framework providers to exclude
+        exclude_providers: Names of built-in providers to remove from the provider
+            registry; a name also registered through `providers` or
+            `override_providers` keeps that registration.
         exclude_connectors: Names of framework connectors to exclude
         override_providers: Providers that replace framework versions (by name)
         override_connectors: Connectors that replace framework versions (by name)
@@ -88,7 +90,7 @@ def extend_framework_registry(
         ariel_search_modules=list(ariel_search_modules or []),
         ariel_enhancement_modules=list(ariel_enhancement_modules or []),
         ariel_ingestion_adapters=list(ariel_ingestion_adapters or []),
-        framework_exclusions=framework_exclusions if framework_exclusions else None,
+        framework_exclusions=framework_exclusions,
     )
 
 

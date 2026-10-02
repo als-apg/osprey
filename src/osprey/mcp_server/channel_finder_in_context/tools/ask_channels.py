@@ -110,6 +110,8 @@ async def ask_channels(question: str) -> AskChannelsResult:
             output_tokens=0,
         )
 
+    if not isinstance(text, str):
+        raise TypeError(f"ask_channels expected a text reply, got {type(text).__name__}")
     output_tokens = _safe_token_count(ctx.subagent_model_id, text)
     return AskChannelsResult(
         text=text,

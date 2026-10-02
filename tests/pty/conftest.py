@@ -511,6 +511,32 @@ def _free_host_ports(count: int) -> list[int]:
             probe.close()
 
 
+def _move_configured_port(config_path: Path, service: str, old: int, new: int) -> bool:
+    """Rewrite ``services.<service>.port`` from *old* to *new* in a rendered config.
+
+    Edited as text so the rest of the file stays byte for byte what the build
+    wrote. Returns False when the service carries no such port line, which is a
+    service whose address the deploy never reads from the config.
+    """
+    lines = config_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    section = block = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if not stripped or stripped.startswith("#"):
+            continue
+        if indent == 0:
+            section = stripped == "services:"
+            block = False
+        elif section and indent == 2:
+            block = stripped == f"{service}:"
+        elif block and indent == 4 and stripped == f"port: {old}":
+            lines[index] = line.replace(f"port: {old}", f"port: {new}", 1)
+            config_path.write_text("".join(lines), encoding="utf-8")
+            return True
+    return False
+
+
 @pytest.fixture
 def startable_repo(exemplar_copy: Path) -> Path:
     """An ``exemplar_copy`` whose published ports are free on this host.
@@ -523,6 +549,12 @@ def startable_repo(exemplar_copy: Path) -> Path:
     policy. So each published binding is moved to a free port in *this copy's*
     rendered compose file, which is the same edit ``osprey up``'s own refusal
     asks the operator for.
+
+    A service the deploy also dials (the telemetry store, which ``osprey up``
+    provisions over HTTP) has its configured port moved with it, in the
+    rendered config. Nothing listens on the free port, so every run meets the
+    same refused connection instead of whatever store this host runs at the
+    rendered default.
 
     Rendered output only: nothing in ``profile.yml`` changes, so the build
     fingerprint still matches and the start is not a stale one.
@@ -549,4 +581,10 @@ def startable_repo(exemplar_copy: Path) -> Path:
         )
         assert moved != text, f"could not move {binding.service}'s published port in {path}"
         path.write_text(moved, encoding="utf-8")
+        configured = (config.get("services") or {}).get(binding.service)
+        if isinstance(configured, dict) and configured.get("port") == binding.host_port:
+            config_path = as_built_config_path(exemplar_copy)
+            assert _move_configured_port(config_path, binding.service, binding.host_port, port), (
+                f"could not move {binding.service}'s configured port in {config_path}"
+            )
     return exemplar_copy

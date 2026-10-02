@@ -69,7 +69,8 @@ async def _dashboard_request(
         else:
             raise ValueError(f"Unsupported method: {method}")
         resp.raise_for_status()
-        return resp.json()
+        body: dict = resp.json()
+        return body
 
 
 async def _notify_lattice(tool: str, detail: str) -> None:

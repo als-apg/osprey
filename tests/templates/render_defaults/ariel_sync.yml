@@ -41,21 +41,8 @@ services:
     # migrated), then the process stays in the ingestion loop.
     command: ["osprey", "ariel", "sync", "--watch"]
     labels:
-      osprey.project.name: "golden-project"
-      com.osprey.repo-id: "0123456789ab"
-      osprey.project.root: "/deploy/golden-project"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). Compose recreates a container when the compose
-      # DOCUMENT changes, and it never diffs a running container against the
-      # files that container reads its settings from — so without this label an
-      # `osprey set` that moves the poll interval would leave this daemon
-      # running on the settings it parsed at startup, indefinitely. Empty when
-      # the invocation did not set the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
-      # The same recreate trigger for the other file this container reads its
-      # settings from: the env chain (runtime_helper's env_chain_digest, carried
-      # in by OSPREY_ENV_DIGEST). Rotating the store password or a proxy
+      # Content fingerprint of the env chain (runtime_helper's env_chain_digest,
+      # carried in by OSPREY_ENV_DIGEST). Rotating the store password or a proxy
       # variable in the chain is a document change with this label and an
       # invisible one without it.
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"

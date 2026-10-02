@@ -329,17 +329,10 @@ class MockConnector(ControlSystemConnector):
     async def read_multiple_channels(
         self,
         channel_addresses: list[str],
-        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; a mock read never blocks
+        timeout: float | None = None,
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
-        tasks = [self.read_channel(ch) for ch in channel_addresses]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        return {
-            ch: result
-            for ch, result in zip(channel_addresses, results, strict=True)
-            if not isinstance(result, Exception)
-        }
+        return await self._read_concurrently(channel_addresses, timeout)
 
     async def subscribe(
         self, channel_address: str, callback: Callable[[ChannelValue], None]

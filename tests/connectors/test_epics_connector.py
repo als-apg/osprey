@@ -124,6 +124,60 @@ class TestShutdownHook:
         assert ca.finalize_libca in unregistered
 
 
+_GATEWAYS = {"read_only": {"address": "ro", "port": 5064}}
+
+
+class TestTimeoutKey:
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_connect_reads_timeout_s(self, monkeypatch):
+        _patch_writes_enabled(monkeypatch, False)
+        _fake_pyepics(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect({"timeout_s": 7.5, "gateways": _GATEWAYS})
+
+        assert connector._timeout == 7.5
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_connect_defaults_to_five_seconds(self, monkeypatch):
+        _patch_writes_enabled(monkeypatch, False)
+        _fake_pyepics(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect({"gateways": _GATEWAYS})
+
+        assert connector._timeout == 5.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_the_old_timeout_key_is_refused(self, monkeypatch):
+        _patch_writes_enabled(monkeypatch, False)
+        _fake_pyepics(monkeypatch)
+
+        connector = EPICSConnector()
+        connector._connector_type = "epics"
+        with pytest.raises(ValueError, match="renamed to timeout_s"):
+            await connector.connect({"timeout": 7.5, "gateways": _GATEWAYS})
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    @pytest.mark.parametrize("bad", [0, -1, "five", True, float("nan"), float("inf")])
+    async def test_a_timeout_s_that_is_not_a_positive_number_is_refused(self, monkeypatch, bad):
+        _patch_writes_enabled(monkeypatch, False)
+        _fake_pyepics(monkeypatch)
+
+        connector = EPICSConnector()
+        connector._connector_type = "epics"
+        with pytest.raises(ValueError, match="control_system.connector.epics.timeout_s"):
+            await connector.connect({"timeout_s": bad, "gateways": _GATEWAYS})
+
+        assert connector._connected is False
+        assert connector._epics_configured is False
+        assert "EPICS_CA_ADDR_LIST" not in os.environ
+
+
 def _connector(*, epics=None, limits_validator=None, timeout=5.0):
     """Build a connector that skips connect() by injecting its runtime state."""
     connector = EPICSConnector()

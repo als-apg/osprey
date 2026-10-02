@@ -62,7 +62,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 from osprey_connectors.control_system.base import ChannelValue, ChannelWriteResult
 from osprey_connectors.ipc import frames
@@ -78,6 +78,21 @@ CHILD = "connector-host child"
 #: Read size for the pipe. A frame is reassembled by ``frames.FrameReader``, so
 #: this only trades syscalls against buffer size.
 _READ_CHUNK = 65536
+
+
+_T = TypeVar("_T")
+
+
+def _unexpected(reply: object, method: str) -> frames.FrameDecodeError:
+    """The decode error for a reply whose type does not match ``method``'s result."""
+    return frames.FrameDecodeError(f"the {CHILD} answered {method!r} with a {type(reply).__name__}")
+
+
+def _expect(reply: object, kind: type[_T], method: str) -> _T:
+    """Return ``reply`` when it is a ``kind``; otherwise raise a decode error."""
+    if not isinstance(reply, kind):
+        raise _unexpected(reply, method)
+    return reply
 
 
 class ConnectorHostProxy:
@@ -143,11 +158,12 @@ class ConnectorHostProxy:
         self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
         """Read one channel. Returns the ``ChannelValue`` the child produced."""
-        return await self._call(
+        reply = await self._call(
             "read_channel",
             {"channel_address": channel_address, "timeout": timeout},
             timeout=timeout,
         )
+        return _expect(reply, ChannelValue, "read_channel")
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
@@ -158,11 +174,17 @@ class ConnectorHostProxy:
         child's connector decides how to fan it out, exactly as it would
         in-process, and one pipe round trip covers the lot.
         """
-        return await self._call(
+        reply = await self._call(
             "read_multiple_channels",
             {"channel_addresses": list(channel_addresses), "timeout": timeout},
             timeout=timeout,
         )
+        if not isinstance(reply, dict):
+            raise _unexpected(reply, "read_multiple_channels")
+        return {
+            address: _expect(value, ChannelValue, "read_multiple_channels")
+            for address, value in reply.items()
+        }
 
     async def write_channel(
         self,
@@ -186,7 +208,8 @@ class ConnectorHostProxy:
             "value": value,
             "timeout": timeout,
         }
-        return await self._call("write_channel", _with_confirm(kwargs, confirm), timeout)
+        reply = await self._call("write_channel", _with_confirm(kwargs, confirm), timeout)
+        return _expect(reply, ChannelWriteResult, "write_channel")
 
     async def write_multiple_channels(
         self,
@@ -205,7 +228,10 @@ class ConnectorHostProxy:
             "operations": [list(operation) for operation in operations],
             "timeout": timeout,
         }
-        return await self._call("write_multiple_channels", _with_confirm(kwargs, confirm), timeout)
+        reply = await self._call("write_multiple_channels", _with_confirm(kwargs, confirm), timeout)
+        if not isinstance(reply, list):
+            raise _unexpected(reply, "write_multiple_channels")
+        return [_expect(item, ChannelWriteResult, "write_multiple_channels") for item in reply]
 
     async def disconnect(self, *, ack_timeout: float = 2.0) -> None:
         """Ask the child to release its connector, then close the pipe.

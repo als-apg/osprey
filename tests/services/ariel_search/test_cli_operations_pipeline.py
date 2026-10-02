@@ -40,10 +40,12 @@ import signal
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
+from osprey.services.ariel_search.database.repository import MAX_ENHANCEMENT_ATTEMPTS
 from osprey.services.ariel_search.ingestion.scheduler import StopReason
 from tests.services.ariel_search._cli_ops_doubles import (
     _Adapter,
@@ -413,6 +415,54 @@ class TestRunIngestStoring:
         )
 
         assert adapter.fetch_calls == [{"since": since, "limit": 7}]
+
+    async def test_unreadable_entries_reach_the_result_and_the_run(
+        self, monkeypatch, mock_repository
+    ):
+        _patch_adapter(monkeypatch, _Adapter(_entries(2), unreadable=3))
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+
+        result = await ops.run_ingest(
+            dict(_DB),
+            source=_SOURCE,
+            adapter="generic_json",
+            since=None,
+            limit=None,
+            dry_run=False,
+        )
+
+        assert result.count == 2
+        assert result.failed_count == 0
+        assert result.unreadable_count == 3
+        mock_repository.complete_ingestion_run.assert_awaited_once_with(
+            mock_repository.start_ingestion_run.return_value,
+            entries_added=2,
+            entries_updated=0,
+            entries_failed=3,
+        )
+
+    async def test_a_naive_since_is_read_in_the_facility_zone(self, monkeypatch, mock_repository):
+        monkeypatch.setattr(
+            "osprey.utils.config.get_facility_timezone", lambda: ZoneInfo("Europe/Berlin")
+        )
+        adapter = _Adapter(_entries(1))
+        _patch_adapter(monkeypatch, adapter)
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+
+        await ops.run_ingest(
+            dict(_DB),
+            source=_SOURCE,
+            adapter="generic_json",
+            since=datetime(2026, 5, 5),
+            limit=7,
+            dry_run=False,
+        )
+
+        assert adapter.fetch_calls == [
+            {"since": datetime(2026, 5, 4, 22, 0, tzinfo=UTC), "limit": 7}
+        ]
 
     async def test_enhancer_failure_is_recorded_per_entry_and_does_not_abort(
         self, monkeypatch, mock_repository
@@ -945,7 +995,7 @@ class TestRunEnhance:
         )
         assert other.seen == []
 
-    async def test_all_modules_dedupes_entries_incomplete_for_more_than_one(
+    async def test_each_enhancer_runs_only_on_the_entries_it_has_not_finished(
         self, monkeypatch, mock_repository
     ):
         from unittest.mock import AsyncMock
@@ -965,11 +1015,56 @@ class TestRunEnhance:
         out = await ops.run_enhance(dict(_DB), module=None, force=False, limit=50)
 
         assert out.entries_processed == 3
-        assert first.seen == ["E1", "E2", "E3"]
-        # Every collected entry is offered to every enhancer, not just the one
-        # whose query produced it.
-        assert second.seen == ["E1", "E2", "E3"]
+        # Each enhancer runs only on the entries its own query returned, so a
+        # module that finished an entry, or set it aside, never runs on it again.
+        assert first.seen == ["E1", "E2"]
+        assert second.seen == ["E2", "E3"]
         assert mock_repository.get_incomplete_entries.await_count == 2
+
+    async def test_force_offers_every_entry_to_every_enhancer(self, monkeypatch, mock_repository):
+        first = _Enhancer("text_embedding")
+        second = _Enhancer("semantic_processor")
+        _patch_enhancers(monkeypatch, [first, second])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.search_by_time_range = _async_return(_entries(2))
+
+        await ops.run_enhance(dict(_DB), module=None, force=True, limit=10)
+
+        assert first.seen == ["E0", "E1"]
+        assert second.seen == ["E0", "E1"]
+
+    async def test_reaching_the_cap_is_logged_naming_the_entry(
+        self, monkeypatch, mock_repository, caplog
+    ):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding", fails_on={"E0"})])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return(_entries(1))
+        mock_repository.mark_enhancement_failed = AsyncMock(return_value=MAX_ENHANCEMENT_ATTEMPTS)
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await ops.run_enhance(dict(_DB), module=None, force=False, limit=10)
+
+        records = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "left out of later passes" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert "E0" in records[0]
+        assert "text_embedding" in records[0]
+
+    async def test_a_failure_below_the_cap_is_not_logged_as_set_aside(
+        self, monkeypatch, mock_repository, caplog
+    ):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding", fails_on={"E0"})])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return(_entries(1))
+        mock_repository.mark_enhancement_failed = AsyncMock(return_value=1)
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await ops.run_enhance(dict(_DB), module=None, force=False, limit=10)
+
+        assert not any("left out of later passes" in r.getMessage() for r in caplog.records)
 
     async def test_enhancement_failure_is_recorded_and_the_loop_continues(
         self, monkeypatch, mock_repository
@@ -985,6 +1080,40 @@ class TestRunEnhance:
             "E0", "text_embedding", "enhance failed on E0"
         )
         mock_repository.mark_enhancement_complete.assert_awaited_once_with("E1", "text_embedding")
+
+    async def test_completion_line_counts_the_pass(self, monkeypatch, mock_repository):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding", fails_on={"E0"})])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return(_entries(2))
+        mock_repository.mark_enhancement_failed = AsyncMock(return_value=3)
+
+        messages: list[str] = []
+        out = await ops.run_enhance(
+            dict(_DB), module=None, force=False, limit=10, progress=messages.append
+        )
+
+        assert messages[-1] == (
+            "Enhancement complete: 2 entries, 1 succeeded, 1 failed, "
+            "1 set aside after 3 failed attempts"
+        )
+        assert (out.succeeded, out.failed, out.set_aside) == (1, 1, 1)
+
+    async def test_completion_line_is_reported_when_nothing_is_incomplete(
+        self, monkeypatch, mock_repository
+    ):
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding")])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        mock_repository.get_incomplete_entries = _async_return([])
+
+        messages: list[str] = []
+        await ops.run_enhance(
+            dict(_DB), module=None, force=False, limit=10, progress=messages.append
+        )
+
+        assert messages[-1] == (
+            "Enhancement complete: 0 entries, 0 succeeded, 0 failed, "
+            "0 set aside after 3 failed attempts"
+        )
 
     async def test_progress_reports_the_batch_and_every_tenth_entry(
         self, monkeypatch, mock_repository

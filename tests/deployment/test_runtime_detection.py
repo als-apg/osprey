@@ -13,7 +13,9 @@ docker/podman) between tests.
 
 from __future__ import annotations
 
+import logging
 import subprocess
+import threading
 
 import pytest
 
@@ -33,6 +35,41 @@ from osprey.deployment.runtime_helper import (
 def clear_container_runtime_env(monkeypatch):
     """Drop any host ``CONTAINER_RUNTIME`` override so detection is deterministic."""
     monkeypatch.delenv("CONTAINER_RUNTIME", raising=False)
+
+
+class _NoticeHandler(logging.Handler):
+    """Sets ``event`` when a "still waiting" notice is emitted."""
+
+    def __init__(self, event: threading.Event) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.event = event
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.getMessage().startswith("Still waiting for"):
+            self.event.set()
+
+
+@pytest.fixture
+def notice_seen():
+    """An event set once a "Still waiting for" notice reaches the runtime logger.
+
+    A fake probe that must answer *after* the notice blocks on this event, so
+    the order is proven by the notice itself rather than by a clock.
+    """
+    event = threading.Event()
+    handler = _NoticeHandler(event)
+    runtime_logger = logging.getLogger("deployment.runtime")
+    runtime_logger.addHandler(handler)
+    try:
+        yield event
+    finally:
+        runtime_logger.removeHandler(handler)
+
+
+def _await_notice(event: threading.Event) -> None:
+    """Block a fake probe until the notice has been emitted."""
+    event.wait(30)
+    assert event.is_set()
 
 
 def _make_run(exit_map):
@@ -150,18 +187,148 @@ class TestGetRuntimeCommandDetection:
         with pytest.raises(RuntimeError, match="installed but not running"):
             get_runtime_command()
 
-    def test_timeout_during_probe_is_swallowed_then_reported_missing(self, monkeypatch):
+    def test_runtimes_that_never_answer_are_refused_as_not_answering(self, monkeypatch):
         monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
 
         def _run(cmd, **kwargs):
-            raise subprocess.TimeoutExpired(cmd, 5)
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
         monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
 
-        # Both runtimes time out during probing → falls through to the
-        # installed-but-not-running branch (both are on PATH).
-        with pytest.raises(RuntimeError, match="installed but not running"):
+        # Both runtimes are on PATH and neither answers: the refusal says so,
+        # and says nothing about whether either one runs.
+        with pytest.raises(RuntimeError, match="did not answer") as excinfo:
             get_runtime_command()
+        assert "not running" not in str(excinfo.value)
+
+
+class TestSlowRuntimeIsWaitedFor:
+    """A runtime is judged by its answer, never by how long the answer took."""
+
+    @staticmethod
+    def _notices(caplog) -> list[str]:
+        return [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and r.getMessage().startswith("Still waiting for")
+        ]
+
+    def test_a_runtime_that_answers_after_the_notice_is_chosen_and_the_wait_is_announced(
+        self, monkeypatch, caplog, notice_seen
+    ):
+        monkeypatch.setattr(runtime_helper, "_RUNTIME_ANSWER_NOTICE_S", 0)
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        timeouts: list[object] = []
+
+        def _run(cmd, **kwargs):
+            timeouts.append(kwargs["timeout"])
+            if (cmd[0], cmd[1]) == ("docker", "compose"):
+                # Consume this probe's own notice so the `ps` below can only be
+                # released by the notice its own wait produces.
+                _await_notice(notice_seen)
+                notice_seen.clear()
+            elif (cmd[0], cmd[1]) == ("docker", "ps"):
+                _await_notice(notice_seen)
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
+            assert get_runtime_command() == ["docker", "compose"]
+
+        assert any("`docker ps`" in notice for notice in self._notices(caplog))
+        assert timeouts
+        assert all(t == runtime_helper._RUNTIME_ANSWER_CEILING_S for t in timeouts)
+
+    def test_a_prompt_answer_announces_nothing(self, monkeypatch, caplog):
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            runtime_helper.subprocess,
+            "run",
+            _make_run({("docker", "compose"): 0, ("docker", "ps"): 0}),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
+            assert get_runtime_command() == ["docker", "compose"]
+
+        assert self._notices(caplog) == []
+
+    def test_a_pinned_runtime_that_never_answers_is_refused_as_not_answering(self, monkeypatch):
+        monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+        def _run(cmd, **kwargs):
+            if (cmd[0], cmd[1]) == ("docker", "ps"):
+                raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            get_runtime_command()
+
+        message = str(excinfo.value)
+        assert (
+            f"`docker ps` did not answer within {runtime_helper._RUNTIME_ANSWER_CEILING_S}s"
+            in message
+        )
+        assert "Container runtime installed but did not answer:" in message
+        # The pinned call never probed podman, so the refusal never names it.
+        for absent in ("not running", "Podman", "podman"):
+            assert absent not in message
+
+    def test_a_runtime_that_answers_no_is_refused_as_not_running_with_its_reason(self, monkeypatch):
+        monkeypatch.setattr(
+            runtime_helper.shutil,
+            "which",
+            lambda name: "/usr/bin/docker" if name == "docker" else None,
+        )
+        monkeypatch.setattr(
+            runtime_helper.subprocess,
+            "run",
+            _make_run({("docker", "compose"): 0, ("docker", "ps"): 1}),
+        )
+
+        with pytest.raises(RuntimeError) as excinfo:
+            get_runtime_command()
+
+        message = str(excinfo.value)
+        assert "Container runtime installed but not running:" in message
+        assert "`docker ps` exited 1" in message
+        assert runtime_helper._get_docker_not_running_message().splitlines()[0] in message
+
+    def test_one_silent_and_one_stopped_runtime_are_each_named_for_what_they_did(self, monkeypatch):
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+        def _run(cmd, **kwargs):
+            key = (cmd[0], cmd[1])
+            if key == ("docker", "ps"):
+                raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+            rc = 1 if key == ("podman", "ps") else 0
+            return subprocess.CompletedProcess(cmd, rc, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            get_runtime_command()
+
+        message = str(excinfo.value)
+        assert message.startswith("No installed container runtime is usable:")
+        docker_lines = [line for line in message.splitlines() if "`docker ps`" in line]
+        assert docker_lines and "did not answer" in docker_lines[0]
+        assert "`podman ps` exited 1" in message
+        assert runtime_helper._get_podman_not_running_message().splitlines()[0] in message
+
+    def test_the_hang_guard_is_never_the_verdict_clock(self):
+        """The bound only stops a wedged runtime; it never decides a slow one.
+
+        A runtime that answers at all answers well inside the hang guard, and
+        the notice fires strictly before it so a long wait is never silent.
+        """
+        assert runtime_helper._RUNTIME_ANSWER_CEILING_S >= 60
+        assert (
+            0 < runtime_helper._RUNTIME_ANSWER_NOTICE_S < runtime_helper._RUNTIME_ANSWER_CEILING_S
+        )
 
 
 #: Real banners, as the providers print them. ``podman compose`` announces the
@@ -377,12 +544,25 @@ class TestDetectComposeProvider:
 
     def test_timeout_fails_closed(self, monkeypatch):
         def _run(cmd, **kwargs):
-            raise subprocess.TimeoutExpired(cmd, 15)
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
         monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
 
-        with pytest.raises(UnsupportedComposeProviderError, match="timed out"):
+        with pytest.raises(UnsupportedComposeProviderError, match="did not answer"):
             detect_compose_provider(["podman", "compose"])
+
+    def test_a_slow_version_probe_is_waited_for(self, monkeypatch, notice_seen):
+        monkeypatch.setattr(runtime_helper, "_RUNTIME_ANSWER_NOTICE_S", 0)
+        answer = _fake_version_probe(stdout="podman-compose version 1.5.0\n")
+
+        def _run(cmd, **kwargs):
+            _await_notice(notice_seen)
+            assert kwargs["timeout"] == runtime_helper._RUNTIME_ANSWER_CEILING_S
+            return answer(cmd, **kwargs)
+
+        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+
+        assert detect_compose_provider(["podman", "compose"]).version == (1, 5, 0)
 
     def test_missing_binary_fails_closed(self, monkeypatch):
         def _run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
@@ -458,19 +638,35 @@ class TestVerifyRuntimeIsRunning:
         assert ok is False
         assert "something weird happened" in msg
 
-    def test_timeout_returns_timeout_message(self, monkeypatch):
+    def test_a_ps_that_never_answers_is_reported_as_not_answering(self, monkeypatch):
         monkeypatch.setattr(
             runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
         )
 
         def _run(cmd, **kw):
-            raise subprocess.TimeoutExpired(cmd, 5)
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
 
         monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
 
         ok, msg = verify_runtime_is_running()
         assert ok is False
-        assert "timed out" in msg
+        assert "`docker ps` did not answer" in msg
+        assert "not running" not in msg
+
+    def test_a_slow_ps_is_waited_for(self, monkeypatch, notice_seen):
+        monkeypatch.setattr(runtime_helper, "_RUNTIME_ANSWER_NOTICE_S", 0)
+        monkeypatch.setattr(
+            runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
+        )
+
+        def _run(cmd, **kwargs):
+            _await_notice(notice_seen)
+            assert kwargs["timeout"] == runtime_helper._RUNTIME_ANSWER_CEILING_S
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+
+        assert verify_runtime_is_running() == (True, "")
 
     def test_no_runtime_returns_runtime_error_text(self, monkeypatch):
         def _raise(_config=None):
@@ -583,7 +779,7 @@ class TestFallThroughIsAnnounced:
 
         warnings = self._warnings(caplog)
         assert len(warnings) == 1, warnings
-        assert "timed out" in warnings[0]
+        assert "did not answer" in warnings[0]
 
     def test_an_absent_runtime_is_not_a_fall_through(self, monkeypatch, caplog):
         """Only docker on PATH is not a choice between two; nothing is warned."""

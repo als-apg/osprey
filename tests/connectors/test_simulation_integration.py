@@ -188,7 +188,7 @@ class TestMockConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_scenario_override_visible_through_connector(self, machine_file, state_dir):
-        (state_dir / "active_scenario").write_text("quad-drift\n")
+        (state_dir / "active_scenarios").write_text("quad-drift\n")
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
@@ -275,7 +275,7 @@ class TestMockArchiverSimulation:
 
     @pytest.mark.asyncio
     async def test_scenario_step_and_pointwise_expr(self, machine_file, state_dir):
-        (state_dir / "active_scenario").write_text("quad-drift\n")
+        (state_dir / "active_scenarios").write_text("quad-drift\n")
         connector = MockArchiverConnector()
         await connector.connect({"simulation_file": str(machine_file)})
 

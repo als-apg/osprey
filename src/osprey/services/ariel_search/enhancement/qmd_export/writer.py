@@ -19,6 +19,8 @@ that rewrote unchanged entries would turn qmd's free "nothing changed" scan into
 a full reindex and re-embed pass on every tick — at ~135k entries
 that is tens of minutes of work per tick instead of ~12 seconds. Rendering is
 therefore fully deterministic: no wall-clock stamps, no dict-iteration order.
+The body depends on the configured facility zone, so changing that zone
+rewrites the mirror once.
 
 **Lossless, invertible filenames.** ``entry_id`` is percent-encoded so that any
 identifier — including ``a/b``, ``..``, unicode, and control characters — maps
@@ -41,6 +43,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
+
+from osprey.utils.config import to_facility_iso
 
 # Maximum size of one rendered document, including the truncation marker.
 BODY_CAP_BYTES = 256 * 1024
@@ -324,18 +328,19 @@ def _shard(timestamp: Any) -> tuple[str, ...]:
 
 
 def _format_timestamp(timestamp: Any) -> str:
-    """Render an entry timestamp as UTC prose for the document body.
+    """Render an entry timestamp for the document body.
 
     Args:
         timestamp: A ``datetime``, an ISO-8601 string, or anything else.
 
     Returns:
-        ``YYYY-MM-DD HH:MM:SS UTC``, or ``unknown time`` when unusable.
+        Facility-local ISO-8601 with its offset, through the same transform as
+        the ARIEL web API and MCP output, or ``unknown time`` when unusable.
     """
     moment = _coerce_datetime(timestamp)
     if moment is None:
         return "unknown time"
-    return moment.strftime("%Y-%m-%d %H:%M:%S UTC")
+    return str(to_facility_iso(moment))
 
 
 def _coerce_datetime(timestamp: Any) -> datetime | None:

@@ -112,7 +112,7 @@ def _load_key_manifest() -> dict[str, dict]:
             f"The configuration key manifest at {path} is not readable YAML: {exc}. "
             "This points at a broken installation, not at anything in your deployment."
         ) from exc
-    keys = document.get("keys")
+    keys: dict[str, dict] | None = document.get("keys")
     if not keys:
         raise click.ClickException(
             f"The configuration key manifest at {path} declares no keys. "

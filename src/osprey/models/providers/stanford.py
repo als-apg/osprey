@@ -37,6 +37,14 @@ class StanfordProviderAdapter(LiteLLMDelegatingProvider):
     ]
     api_key_note = "Access restricted to Stanford community"
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = "STANFORD_API_KEY"
+    api_protocol = "openai"
+    supports_interactive_login = False
+    # The OpenAI route documents no image input, so none is assumed.
+    supports_images = False
+    supports_thinking = False
+
     # LiteLLM integration - Stanford is an OpenAI-compatible proxy
     is_openai_compatible = True
     supports_native_structured_output = True  # proxies to models with native json_schema support

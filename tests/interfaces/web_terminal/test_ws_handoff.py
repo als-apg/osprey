@@ -86,6 +86,7 @@ class Spawn:
     rows: int
     cols: int
     session: ObservedPty
+    cwd: str | None = None
 
 
 class ChatRegistry:
@@ -131,11 +132,11 @@ def _patch_spawn(app, *, failing: str | None = None) -> list[Spawn]:
     """
     spawns: list[Spawn] = []
 
-    def tracked_spawn(command, rows, cols, _extra_env, _cwd=None):
+    def tracked_spawn(command, rows, cols, _extra_env, cwd=None):
         if failing is not None and failing in command:
             raise OSError("cannot spawn")
         session = ObservedPty()
-        spawns.append(Spawn(list(command), rows, cols, session))
+        spawns.append(Spawn(list(command), rows, cols, session, cwd))
         return session
 
     app.state.pty_registry._spawn_session = tracked_spawn
@@ -240,6 +241,20 @@ def test_a_key_with_no_transcript_starts_fresh_under_the_key(app):
     command = spawns[0].command
     assert command[command.index("--session-id") + 1] == sid
     assert "--resume" not in command
+
+
+@pytest.mark.usefixtures("sessions_dir")
+def test_the_spawn_runs_in_the_project_directory(app):
+    """The launch argv names ``.mcp.json`` relative to the working directory."""
+    sid = _uuid()
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        _chats(app).hold(sid)
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            _recv_json(ws, "session_info")
+
+    assert spawns[0].cwd == app.state.project_cwd
 
 
 def test_the_spawn_resumes_the_keys_current_transcript(app, sessions_dir):

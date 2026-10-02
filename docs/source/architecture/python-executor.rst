@@ -521,7 +521,7 @@ change made mid-conversation applies to the next run --- and a ``readwrite``
 whatever the deployment itself permits:
 
    Writes are off for the '<target>' control target --- turned off from the
-   control-target chip in the header; applies deployment-wide.
+   control-target chip in the header; applies to every session of this login.
 
 Where the run's target cannot be identified, the most restrictive state
 recorded for the deployment decides, and the message says so --- *"Writes are off

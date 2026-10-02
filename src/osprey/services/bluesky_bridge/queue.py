@@ -223,7 +223,7 @@ async def shutdown() -> None:
     _stop_poller()
 
 
-def _http_error(exc: QueueBackendError) -> HTTPException:
+def _http_error(exc: QueueBackendError, *, extra: Mapping[str, Any] | None = None) -> HTTPException:
     """Map one typed backend failure to the HTTP refusal the wire contract promises.
 
     - `ExecutionUnavailableError` carries the capability record in the body so
@@ -242,8 +242,11 @@ def _http_error(exc: QueueBackendError) -> HTTPException:
     - `QueueItemInvalidError` is 400 — the request itself is malformed, and the
       fix is in the caller's hands, the same reading `_refuse_unknown_devices`
       gives an item naming a device that does not exist.
+
+    *extra* carries caller-side facts the backend exception cannot, merged into
+    the body beside ``code`` and ``detail``.
     """
-    detail: dict[str, Any] = {"code": exc.reason, "detail": str(exc)}
+    detail: dict[str, Any] = {"code": exc.reason, "detail": str(exc), **(extra or {})}
     if isinstance(exc, QueueItemInvalidError):
         return HTTPException(status_code=400, detail=detail)
     if isinstance(exc, ExecutionUnavailableError):
@@ -1234,11 +1237,12 @@ async def add_queue_item(
                         # unarmed item must not stay behind — and if the
                         # withdrawal itself fails, the wire says so.
                         removed = await _remove_item_best_effort(backend, added_uid)
-                        error = _http_error(exc)
-                        if not removed:
-                            error.detail["item_left_behind"] = True
-                            error.detail["item_uid"] = added_uid
-                        raise error from exc
+                        raise _http_error(
+                            exc,
+                            extra=None
+                            if removed
+                            else {"item_left_behind": True, "item_uid": added_uid},
+                        ) from exc
                     if _requires_arming(recheck):
                         removed = await _remove_item_best_effort(backend, added_uid)
                         _refuse_unarmed(

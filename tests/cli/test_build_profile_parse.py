@@ -427,3 +427,19 @@ def test_emptied_and_bracketed_web_panels_agree_in_a_delta(tmp_path: Path) -> No
     emptied = load_profile(_write_persona_repo(tmp_path / "a", "web_panels:\n"))
     bracketed = load_profile(_write_persona_repo(tmp_path / "b", "web_panels: []\n"))
     assert emptied.web_panels == bracketed.web_panels
+
+
+# ── config: ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"control_system.connector.tango.timeout": 5.0},
+        {"control_system": {"connector": {"epics": {"timeout": 5.0}}}},
+    ],
+)
+def test_a_connector_block_that_still_spells_timeout_is_refused(config) -> None:
+    """The connector call bound is ``timeout_s``; the build refuses the old key."""
+    with pytest.raises(BuildProfileError, match=r"timeout is renamed to timeout_s"):
+        _parse_profile({"name": "x", "data": "data", "config": config})

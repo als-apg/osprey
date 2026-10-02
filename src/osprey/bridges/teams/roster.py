@@ -8,6 +8,11 @@ conversation, else unknown. A name is never guessed.
 
 It mirrors the Google Chat bridge's roster shape for shape; the constants carry
 the same values and are restated here because one bridge never imports another.
+
+The roster names people; :func:`share_audience` says who may open a file the bot
+shares into a conversation. That audience is read from a fresh, complete listing on
+every delivery and never from the roster's cache: a cached list could share with
+someone just removed, and a capped one would leave people out.
 """
 
 from __future__ import annotations
@@ -129,16 +134,9 @@ class ConversationRoster:
         members, more = self._list_members(service_url, conversation, ROSTER_MAX_MEMBERS)
         listed: dict[str, str | None] = {}
         for member in members:
-            if not isinstance(member, Mapping):
+            if not _is_person(member, self._bot) or member["id"] in listed:
                 continue
-            ident = member.get("id")
-            if not isinstance(ident, str) or not ident.startswith(USER_ID_PREFIX):
-                continue
-            if ident == self._bot or ident in listed:
-                continue
-            role = member.get("role")
-            if isinstance(role, str) and role.lower() == BOT_ROLE:
-                continue
+            ident = member["id"]
             name = member.get("name")
             listed[ident] = name if isinstance(name, str) and name else None
         entry: _Listed = (self._now(), listed, bool(more))
@@ -148,3 +146,49 @@ class ConversationRoster:
             while len(self._cache) > ROSTER_MAX_CONVERSATIONS:
                 self._cache.popitem(last=False)
         return entry
+
+
+def _is_person(member: Any, bot_id: str) -> bool:
+    """Whether a listed member is a person: a mapping with a ``29:`` id that is not
+    the bot and whose role is not ``bot``."""
+    if not isinstance(member, Mapping):
+        return False
+    ident = member.get("id")
+    if not isinstance(ident, str) or not ident.startswith(USER_ID_PREFIX):
+        return False
+    if ident == bot_id:
+        return False
+    role = member.get("role")
+    return not (isinstance(role, str) and role.lower() == BOT_ROLE)
+
+
+def share_audience(members: Sequence[Any], app_id: str, tenant_id: str) -> tuple[str, ...]:
+    """The directory ids a file shared into a conversation is shared with.
+
+    Every person's ``aadObjectId``, in listing order, without repeats. A member with
+    no string ``aadObjectId`` is left out, and so is one whose listing carries a
+    ``tenantId`` other than ``tenant_id``: a shared-channel member from another
+    directory, whose id names nobody in this one.
+
+    Args:
+        members: One complete member listing of the conversation.
+        app_id: The bot's app id; the bot is never in the audience.
+        tenant_id: The directory the bot and its file library live in.
+
+    Returns:
+        The directory ids, possibly empty.
+    """
+    bot_id = bot_actor_id(app_id)
+    audience: list[str] = []
+    for member in members:
+        if not _is_person(member, bot_id):
+            continue
+        oid = member.get("aadObjectId")
+        if not isinstance(oid, str) or not oid:
+            continue
+        tenant = member.get("tenantId")
+        if tenant is not None and tenant != tenant_id:
+            continue
+        if oid not in audience:
+            audience.append(oid)
+    return tuple(audience)

@@ -18,19 +18,16 @@ one scenario name per line (``nominal`` is always implicitly first). It is
 re-read whenever its mtime changes, and switching (or re-asserting) the set
 clears all session-written state (fresh machine). Simultaneously active
 scenarios must touch disjoint channel sets (see :meth:`validate_composition`);
-their overrides and archiver scripts are merged into one composed view. The
-legacy single-name ``active_scenario`` file is still read (one-element list)
-for backward compatibility, but writes always target ``active_scenarios``.
+their overrides and archiver scripts are merged into one composed view.
 """
 
-import json
 import os
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypeGuard
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -45,6 +42,7 @@ from osprey_connectors.simulation.machine import (
     SimChannel,
     TextureSpec,
     parse_machine,
+    read_machine_json,
 )
 from osprey_connectors.simulation.series import (
     apply_events,
@@ -56,6 +54,7 @@ from osprey_connectors.simulation.series import (
     string_series,
     wander,
 )
+from osprey_connectors.types import MOCK
 from osprey_connectors.workspace import (
     SIMULATION_STATE_DIR_CONFIG_KEY,
     SIMULATION_STATE_DIR_NAME,
@@ -65,8 +64,6 @@ from osprey_connectors.workspace import (
 logger = get_logger("simulation_engine")
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
-# Legacy single-name state file; read for back-compat, never written.
-ACTIVE_SCENARIO_FILENAME = "active_scenario"
 
 #: Config key naming the state directory explicitly (relative paths resolve
 #: against the project root). Unset — the normal case — puts it under the
@@ -260,9 +257,7 @@ class SimulationEngine:
         self._state_dir = (
             Path(state_dir).expanduser() if state_dir is not None else default_state_dir()
         )
-        # Canonical (write) state file plus the legacy single-name file (read-only).
         self._state_path = self._state_dir / ACTIVE_SCENARIOS_FILENAME
-        self._legacy_state_path = self._state_dir / ACTIVE_SCENARIO_FILENAME
         self._channels: dict[str, SimChannel] = channels
         self._scenarios: dict[str, Scenario] = model.scenarios
 
@@ -307,9 +302,7 @@ class SimulationEngine:
         cached = cls._cache.get(cache_key)
         if cached is not None and cached[0] == mtime_ns:
             return cached[1]
-        with open(resolved) as f:
-            machine = json.load(f)
-        engine = cls(machine, resolved, state_dir=resolved_state_dir)
+        engine = cls(read_machine_json(resolved), resolved, state_dir=resolved_state_dir)
         cls._cache[cache_key] = (mtime_ns, engine)
         logger.debug(
             f"Simulation engine loaded: {engine.name!r} ({len(engine._channels)} channels)"
@@ -374,8 +367,8 @@ class SimulationEngine:
 
         ``nominal`` is always implicitly active and prepended. The requested set
         must touch disjoint channel sets (see :meth:`validate_composition`).
-        Writing the state file clears session writes (fresh machine). Always
-        writes the canonical ``active_scenarios`` file.
+        Writing the state file clears session writes (fresh machine). Writes the
+        ``active_scenarios`` state file.
 
         Args:
             names: Scenario names to activate (order preserved, deduped).
@@ -651,12 +644,8 @@ class SimulationEngine:
         return channel
 
     def _active_state_file(self) -> Path | None:
-        """The state file to read: canonical ``active_scenarios``, else legacy."""
-        if self._state_path.exists():
-            return self._state_path
-        if self._legacy_state_path.exists():
-            return self._legacy_state_path
-        return None
+        """The ``active_scenarios`` state file, or ``None`` before any set is activated."""
+        return self._state_path if self._state_path.exists() else None
 
     def _refresh_scenario(self) -> None:
         """Re-read and recompose the active-scenario set when the state file changes."""
@@ -889,7 +878,48 @@ def engine_from_connector_config(config: dict[str, Any]) -> SimulationEngine | N
     return engine
 
 
-def engine_serves(engine: SimulationEngine | None, channel: str) -> bool:
+def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:
+    """Resolve the simulation-model file for the active control-system type.
+
+    Looks up ``control_system.connector.<type>.simulation_file`` for the active
+    ``control_system.type`` (defaulting to ``mock`` when unset). Non-mock types
+    fall back to ``connector.mock.simulation_file`` when their own key is unset;
+    for the mock type itself this fallback is a no-op (it's the same key it
+    already tried), so mock resolution is unaffected by the fallback.
+
+    Shared by :mod:`osprey.simulation.apply`, the ``sim`` CLI, the archiver
+    seed and the mock archiver's derivation, so every consumer agrees on
+    exactly which config keys back a simulation-backed project. It lives in the
+    connectors package so the mock archiver resolves it without the osprey
+    framework installed.
+
+    Returns:
+        A 4-tuple ``(path, active_type, type_key, mock_key)``. ``path`` is the
+        resolved file path (made absolute against ``project_dir`` if relative),
+        or ``None`` if neither key had a value. ``type_key``/``mock_key`` are
+        the dotted config paths that were tried, for error messages.
+    """
+    control_system = config.get("control_system", {})
+    active_type = control_system.get("type", MOCK)
+    connector = control_system.get("connector", {})
+
+    type_key = f"control_system.connector.{active_type}.simulation_file"
+    mock_key = "control_system.connector.mock.simulation_file"
+
+    sim_file = connector.get(active_type, {}).get("simulation_file")
+    if not sim_file and active_type != MOCK:
+        sim_file = connector.get(MOCK, {}).get("simulation_file")
+
+    if not sim_file:
+        return None, active_type, type_key, mock_key
+
+    machine_path = Path(sim_file)
+    if not machine_path.is_absolute():
+        machine_path = Path(project_dir) / machine_path
+    return machine_path, active_type, type_key, mock_key
+
+
+def engine_serves(engine: SimulationEngine | None, channel: str) -> TypeGuard[SimulationEngine]:
     """Return True if an engine is present and serves this channel.
 
     Centralises the optional-engine guard used by the mock connectors: the

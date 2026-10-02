@@ -39,6 +39,7 @@ from osprey.simulation.apply import (
     DENSIFIED_FIELD,
     active_archiver_events,
     apply_scenarios,
+    archiver_collection,
     archiver_store_config,
     event_subwindows,
     event_window,
@@ -202,10 +203,12 @@ def _write_project(root: Path, store: dict | None, *, password: str | None) -> P
                 "port": store["port"],
                 "name": store["database"],
                 "collection": store["collection"],
-                "auth": "admin",
-                "username": store["username"],
-                "password_env": "MONGO_ROOT_PASSWORD",
-                "timeout": 10,
+                "auth": {
+                    "source": "admin",
+                    "username": store["username"],
+                    "password_env": "MONGO_ROOT_PASSWORD",
+                },
+                "timeout_s": 10,
             },
         }
     (root / "config.yml").write_text(yaml.safe_dump(config))
@@ -355,6 +358,42 @@ class TestStoreResolution:
         store = archiver_store_config(yaml.safe_load((root / "config.yml").read_text()), root)
         assert store is not None
         assert store["password"] is None
+
+    def test_a_store_named_by_url_is_never_written(self, tmp_path):
+        """A store named by url is one this deployment reads, never one it writes."""
+        root = _write_project(
+            tmp_path / "proj",
+            {
+                "host": "127.0.0.1",
+                "port": 27017,
+                "database": "db",
+                "collection": "c",
+                "username": "u",
+            },
+            password="the-project-password",
+        )
+        config = yaml.safe_load((root / "config.yml").read_text())
+        config["archiver"]["mongodb_archiver"]["url"] = "mongodb://archive.example.org/"
+
+        assert archiver_store_config(config, root) is None
+
+    def test_archiver_collection_builds_its_client_from_the_shared_function(self, tmp_path):
+        """A bundled store gets the same six-keyword client the agent's connector builds."""
+        from unittest.mock import patch
+
+        from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
+
+        root = tmp_path / "proj"
+        root.mkdir()
+        (root / ".env").write_text("MONGO_ROOT_PASSWORD=pw\n")
+        config = {"archiver": {"type": "mongodb_archiver", "mongodb_archiver": bundled_block()}}
+        store = archiver_store_config(config, root)
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            with archiver_collection(store):
+                pass
+
+        assert mock_client_cls.call_args.kwargs == BUNDLED_CLIENT_KWARGS
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +581,17 @@ class TestPersistedAnchor:
 
         assert persisted_scenario_anchor(config, root) == later
 
+    def test_a_single_name_state_file_is_not_read(self, tmp_path):
+        from osprey.simulation.engine import resolve_state_dir
+
+        root = _write_project(tmp_path / "proj", None, password=None)
+        config = yaml.safe_load((root / "config.yml").read_text())
+        state_dir = resolve_state_dir(config, root)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "active_scenario").write_text("anchor=2026-01-01T00:00:00+00:00\nburst\n")
+
+        assert persisted_scenario_anchor(config, root) is None
+
 
 class TestComposedEvents:
     def test_the_active_set_s_scripts_are_composed(self, tmp_path):
@@ -556,6 +606,14 @@ class TestComposedEvents:
 
         with pytest.raises(ValueError, match="Unknown scenario"):
             active_archiver_events(root / "data" / "simulation" / "machine.json", ["nope"])
+
+    def test_a_machine_file_that_is_not_json_is_refused_by_name(self, tmp_path):
+        root = _write_project(tmp_path / "proj", None, password=None)
+        machine = root / "data" / "simulation" / "machine.json"
+        machine.write_text("{")
+
+        with pytest.raises(ValueError, match="Machine file .* is not valid JSON"):
+            active_archiver_events(machine, ["nominal"])
 
 
 # ---------------------------------------------------------------------------

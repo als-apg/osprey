@@ -1,0 +1,1 @@
+Web terminal: `web.sidecar_ready_timeout_s` sets how long the terminal waits for a panel that runs its own server, such as the JUPYTER tab, to answer before it greys the tab (default 60 s). A value that is not a positive number is refused with a warning naming the key, and the default applies.

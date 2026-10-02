@@ -1,0 +1,1 @@
+`osprey ariel sync` and the other ARIEL commands no longer open the agent's read-only SQL pool or log `SQL tool is running on the ingestion role`. Only the ARIEL MCP server, which hosts the SQL tool, opens that pool.

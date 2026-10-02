@@ -1,0 +1,1 @@
+The event dispatcher's dashboard now shows the deployment's `facility.name` when the profile's `dispatch.facility_name` is unset, instead of an empty name. `dispatch.facility_name` still overrides it.

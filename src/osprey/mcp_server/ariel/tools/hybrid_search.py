@@ -6,6 +6,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 
 import json
 import logging
+from collections.abc import Iterable
 
 from fastmcp.exceptions import ToolError
 
@@ -221,7 +222,8 @@ def _mode_error(result: object) -> object | None:
     """
     from osprey.services.ariel_search.models import DiagnosticLevel
 
-    for diagnostic in getattr(result, "diagnostics", None) or ():
+    reported: Iterable[object] = getattr(result, "diagnostics", None) or ()
+    for diagnostic in reported:
         if (
             getattr(diagnostic, "level", None) is DiagnosticLevel.ERROR
             and getattr(diagnostic, "source", "") == _QMD_DIAGNOSTIC_SOURCE

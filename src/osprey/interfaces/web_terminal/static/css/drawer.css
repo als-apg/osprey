@@ -178,6 +178,21 @@
   border-bottom: 1px solid var(--border-default);
 }
 
+/* ---- Drawer Notice ----
+   Names a config file the server could not read, under the drawer header.
+   Same shape as the tab subtitle, in the error colour. */
+
+.drawer-notice {
+  margin: 0;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--color-error);
+  border-bottom: 1px solid var(--border-default);
+}
+
 /* ---- Drawer Close ---- */
 
 .drawer-close-btn {

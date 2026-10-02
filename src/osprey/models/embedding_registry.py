@@ -90,7 +90,7 @@ class EmbeddingProviderRegistry:
         """Import the embedding provider module and cache the class."""
         try:
             module = importlib.import_module(entry.module_path)
-            cls = getattr(module, entry.class_name)
+            cls: type[BaseEmbeddingProvider] = getattr(module, entry.class_name)
             self._providers[name] = cls
             logger.debug(
                 "Loaded embedding provider: %s (%s.%s)",
