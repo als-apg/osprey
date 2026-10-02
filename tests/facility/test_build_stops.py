@@ -1581,14 +1581,26 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", PROJECT)
 
 
-def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
-    """A copy of the initialised repo whose ``data/facility`` is the case's tree.
+def _clear_facility_records(facility: Path) -> None:
+    """Remove every entry of ``facility`` except its ``knowledge`` pages."""
+    for entry in facility.iterdir():
+        if entry.name == "knowledge":
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
 
-    The case's ``project/`` mirror files and profile edit are applied beside it.
+
+def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
+    """A copy of the initialised repo whose facility records are the case's tree.
+
+    The ``data/facility/knowledge`` pages are kept. The case's ``project/`` mirror
+    files and profile edit are applied beside it.
     """
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
-    shutil.rmtree(repo / "data" / "facility")
+    _clear_facility_records(repo / "data" / "facility")
     _write(repo / "data", case)
     for rel in MIRRORED.get(case, ()):
         mirrored = repo / "project" / rel
@@ -1709,7 +1721,7 @@ def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
 ) -> None:
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
-    shutil.rmtree(repo / "data" / "facility")
+    _clear_facility_records(repo / "data" / "facility")
     make, _line = CASES["seed_missing__band_excludes_zero"]
     tree = make()
     tree["seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
