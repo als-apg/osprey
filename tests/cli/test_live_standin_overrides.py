@@ -462,11 +462,12 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        limits = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
+        control_system = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
             "control_system"
-        ]["limits_checking"]
-        assert "enabled" not in limits, "an unstated posture must not be filled in by the build"
-        assert "mode" not in limits
+        ]
+        assert "limits_checking" not in control_system, (
+            "an unstated posture must not be filled in by the build"
+        )
 
     def test_live_standin_overrides_leave_the_sandbox_gateways_portless(
         self, runner, lifecycle_repo
