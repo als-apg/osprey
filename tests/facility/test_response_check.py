@@ -250,22 +250,30 @@ def test_the_figures_are_mml_verifys_on_spear3(spear3_blocks: tuple[Block, ...])
 
 
 def test_spear3_holds_the_counts_mml_verify_reports(spear3_blocks: tuple[Block, ...]) -> None:
-    """The orbit-response table ``osprey mml verify`` writes for the same export."""
-    table = {
-        block.name: (
+    """The orbit-response table ``osprey mml verify`` writes for the same export.
+
+    A cross-plane block's model entries are coupling noise whose sign the
+    platform's float arithmetic decides, so an unjudged block's sign count is
+    left out of the table; every other figure is pinned for every block.
+    """
+
+    def row(block: Block) -> tuple[Any, ...]:
+        full = figures(block.entries)
+        agreed = full.agreed if block.judged else None
+        return (
             block.judged,
-            (full := figures(block.entries)).compared,
+            full.compared,
             full.passed,
-            full.agreed,
+            agreed,
             full.checked,
             len(block.reversed_columns),
         )
-        for block in spear3_blocks
-    }
+
+    table = {block.name: row(block) for block in spear3_blocks}
     assert table == {
         "BPMx/HCM": (True, 3306, 795, 3064, 3231, 3),
-        "BPMx/VCM": (False, 3192, 387, 0, 11, 0),
-        "BPMy/HCM": (False, 3306, 753, 0, 0, 0),
+        "BPMx/VCM": (False, 3192, 387, None, 11, 0),
+        "BPMy/HCM": (False, 3306, 753, None, 0, 0),
         "BPMy/VCM": (True, 3192, 1358, 3007, 3007, 0),
     }
     assert {block.origin for block in spear3_blocks} == {"measured"}
