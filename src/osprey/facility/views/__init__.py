@@ -4,7 +4,7 @@ Every view is one row of :data:`VIEWS`: its name, its directory under the
 render's ``data/``, the predicate that decides whether a render carries it and
 the writer that writes it. :func:`osprey.facility.render.render_facility_outputs`
 is the only caller: it asks each view's predicate of every render, writes the
-views whose predicate holds and names each other one on stderr, which
+views whose predicate holds and names each other one in a note on stderr, which
 ``osprey build`` and ``osprey facility validate`` both keep while ``validate``
 drops the render's stdout.
 """
@@ -82,14 +82,21 @@ def view_bytes(document: Mapping[str, Any]) -> bytes:
 
 
 def report_omitted(view: View) -> None:
-    """Name a view a render does not carry, and why, on stderr.
+    """Name a view a render does not carry, and why, as a note on stderr.
+
+    An omitted view is a fact about the render, not a fault: the line is in
+    the note register, indented one step and dim on a terminal.
 
     Args:
         view: The view whose predicate was false.
     """
-    from osprey.cli.output import warn
+    from rich.text import Text
 
-    warn(f"view {view.name} not written: {view.reason}")
+    from osprey.cli import output
+    from osprey.cli.styles import Styles
+
+    line = f"{output._INDENT}view {view.name} not written: {view.reason}"
+    output._echo(Text(line, style=Styles.DIM), err=True)
 
 
 def _always(_inputs: ViewInputs) -> bool:

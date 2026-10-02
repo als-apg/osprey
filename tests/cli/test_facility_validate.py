@@ -180,6 +180,8 @@ def test_an_omitted_view_is_named_on_stderr_and_the_run_passes(
     assert result.exit_code == 0, result.output
     assert result.stdout == ""
     assert "view stub not written: stub.enabled" in result.stderr
+    (line,) = [line for line in result.stderr.splitlines() if "view stub" in line]
+    assert line == "  view stub not written: stub.enabled"
 
 
 def test_a_stale_fix_prints_the_block_to_paste(repo: Path) -> None:
