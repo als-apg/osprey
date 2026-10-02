@@ -604,6 +604,17 @@ def test_a_gateway_in_the_other_mode_is_not_a_match():
     assert role is None
 
 
+@pytest.mark.parametrize("off", ["false", "False", "0", "no", ""])
+def test_a_resolved_off_placeholder_matches_the_address_list_mode(off):
+    gateways = {"read_only": {"address": "localhost", "port": 5064, "use_name_server": off}}
+
+    role = host._selected_role(
+        gateways, "addr_list", "localhost", 5064, writes_enabled=False, readonly_run=False
+    )
+
+    assert role == "read_only"
+
+
 # ------------------------------------------------ write posture (unit)
 
 

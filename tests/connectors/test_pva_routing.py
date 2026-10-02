@@ -405,6 +405,25 @@ class TestPvaGatewayEnv:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
+    @pytest.mark.parametrize("off", ["false", "False", "0", "no", ""])
+    async def test_a_resolved_off_placeholder_routes_by_address_list(self, monkeypatch, off):
+        """``${USE_NS:-false}`` resolves to a string, which must not pick name servers."""
+        _patch_writes_enabled(monkeypatch, False)
+        _install_fake_p4p(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect(
+            {
+                "pva_channels": ["SR:CAM1:IMAGE"],
+                "pva_gateway": {"address": "pvagw", "port": 5086, "use_name_server": off},
+            }
+        )
+
+        assert os.environ["EPICS_PVA_ADDR_LIST"] == "pvagw:5086"
+        assert "EPICS_PVA_NAME_SERVERS" not in os.environ
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
     async def test_auto_addr_list_disabled_whenever_gateway_present(self, monkeypatch):
         """Containment parity with EPICS_CA_AUTO_ADDR_LIST.
 
