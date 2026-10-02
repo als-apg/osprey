@@ -1501,7 +1501,7 @@ class TestWebTerminalContextShipped:
             encoding="utf-8"
         )
 
-        container = "dls-web-alice"
+        container = "ctx-seed-hello-web-alice"
         seeded: list[bytes | None] = []
 
         def _fake_run(argv, capture_output=True, text=False, env=None, check=False, input=None):  # noqa: ARG001 - the keywords subprocess.run is called with
