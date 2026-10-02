@@ -697,8 +697,9 @@ def derive_host_network_bindings(config):
 def _web_terminal_service(user):
     """Return the binding label of one user's terminal.
 
-    ``web-<user>`` is the container name (``<facility_prefix>-web-<user>``,
-    see :mod:`osprey.deployment.web_terminals.naming`) with the facility prefix
+    ``web-<user>`` is the container name (``<project>-web-<user>``, the project
+    being the name ``resolve_project_name()`` returns; see
+    :mod:`osprey.deployment.web_terminals.naming`) with that project prefix
     dropped, which is exactly the suffix :func:`_runs_service` matches a running
     container's name against — so this deployment's own terminal, still up from
     the previous deploy, is read as the idempotent redeploy it is.
