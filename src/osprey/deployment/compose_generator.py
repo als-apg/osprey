@@ -3627,9 +3627,6 @@ _BLUESKY_DEVICES_SERVICE = "bluesky"
 #: so the staged name is part of the contract.
 BLUESKY_DEVICES_FILENAME = "bluesky_devices.yml"
 
-#: The Bluesky devices view ``osprey build`` writes, relative to the render root.
-_BLUESKY_DEVICES_VIEW = f"data/{BLUESKY_DEVICES_FILENAME}"
-
 #: Mode the staged device file carries, matching
 #: ``substrate_devices.write_devices_file``: the queueserver worker reads it
 #: bind-mounted read-only, as a container user that is not the host user who
@@ -3765,25 +3762,26 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
         return False
 
     from osprey.connectors.types import MOCK, resolve_control_system_type
+    from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
+    view_path = f"data/{BLUESKY_DEVICES_FILE}"
 
     if resolve_control_system_type(config.get("control_system")) == MOCK:
         _discard_staged_devices(staged_path)
         _report_fact("bluesky plans browse-only: a mock control system drives no channels")
         return False
 
-    view = _render_anchor_dir(config) / _BLUESKY_DEVICES_VIEW
+    view = _render_anchor_dir(config) / view_path
     if not view.is_file():
         _discard_staged_devices(staged_path)
-        _report_fact(f"bluesky plans browse-only: this render has no {_BLUESKY_DEVICES_VIEW}")
+        _report_fact(f"bluesky plans browse-only: this render has no {view_path}")
         return False
 
     _write_staged_devices(view, staged_path)
     settables, readables = _document_counts(yaml.safe_load(view.read_text(encoding="utf-8")))
     _report_fact(
-        f"bluesky plan devices: {settables} settable / {readables} readable "
-        f"from {_BLUESKY_DEVICES_VIEW}"
+        f"bluesky plan devices: {settables} settable / {readables} readable from {view_path}"
     )
     logger.debug(f"Staged the bluesky devices view {view} to {staged_path}")
     return True
