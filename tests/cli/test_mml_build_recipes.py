@@ -6,10 +6,17 @@ tells an operator to type -- ``init``, the chain, one ``osprey set`` line,
 ``validate``, ``build`` -- and the assertions are the claims that sequence
 makes:
 
-* **hello-world, middle layer.** The emitted channel database is the one the
-  rendered config binds, and a ``--duckdb`` emit is what puts ``duckdb_path``
-  beside it. The set line never spells ``channel_finder.pipelines.*``: those
-  keys are build-derived and ``validate`` refuses a profile that states them.
+* **hello-world, middle layer.** The export enters the facility description
+  first, past the stop ``osprey facility import mml`` makes over the preset's
+  authored record sources, so the build writes the middle-layer index and its
+  DuckDB copy from the imported family groups. The export reads one corrector
+  readback for two setpoints, so the build stops ``pair-invalid``; the recipe
+  applies the printed remedy as a ``fixes.yaml`` entry, pairing each later
+  setpoint the line names with itself, and builds again. The rendered config
+  binds the index and its copy, and ``run_sql`` answers from the copy. The set
+  line never spells
+  ``channel_finder.pipelines.*``: those keys are build-derived and ``validate``
+  refuses a profile that states them.
 * **hello-world, graph.** The same emit feeds the other paradigm through a
   single ``services.graphdb.ttl_path`` key, with no channel-finder wiring.
 * **control-assistant.** The preset ships demo material emit would contradict,
@@ -75,6 +82,11 @@ SOURCE = FIXTURES / "paired"
 AO_INPUT = "quokka.ring.ao.json"
 AD_INPUT = "quokka.ring.ad.json"
 
+#: Where the build writes the middle-layer index and its DuckDB copy, relative
+#: to the render.
+INDEX_PATH = "data/channel_finder/middle_layer.json"
+INDEX_DUCKDB_PATH = "data/channel_finder/middle_layer.duckdb"
+
 #: ``facility.token`` of that fixture's committed mapping, which names the
 #: corpus (``data/Quokka.ttl``) and the ontology schema.
 TOKEN = "Quokka"
@@ -86,7 +98,6 @@ PREFIX = "quokka"
 BUNDLE_PATH = "data/facility/knowledge"
 ONTOLOGY_PATH = "data/facility_ontology.json"
 DATABASE_PATH = "data/channel_databases/middle_layer.json"
-DUCKDB_PATH = "data/channel_databases/middle_layer.duckdb"
 TIERED_DATABASE = "data/channel_databases/tiers/tier3/middle_layer.json"
 
 #: Tier the middle-layer paradigm derives when no profile pins one.
@@ -202,6 +213,16 @@ SEED_INVALID = re.compile(
     r"(?P<side>above|below) `(?P<edge>min_value|max_value)` \S+; "
     r"fix: .*widen the limits record$"
 )
+
+#: The line a build stage prints for a readback two setpoints name as their
+#: pair: the readback, then the setpoints in the order the line lists them.
+PAIR_SHARED = re.compile(
+    r"^facility: pair-invalid: channel (?P<readback>.+?) — the pair of setpoints "
+    r"(?P<setpoints>.+?); fix: pair each setpoint with its own readback$"
+)
+
+#: The corrections file of a deployment's facility description, relative to the repo.
+FACILITY_FIXES = f"{FACILITY_DIR}/fixes.yaml"
 
 #: The response-check line of the synthetic tree's one model.
 SYNTHETIC_RESPONSE_LINES = ("response check SR: model BPMx/HC inside band 1.000 (pass at 0.99)",)
@@ -371,6 +392,54 @@ def apply_seed_invalid_remedies(
     return tuple(stops)
 
 
+def apply_shared_pair_remedies(runner: CliRunner, repo: Path) -> dict[str, tuple[str, ...]]:
+    """Pair every setpoint after the first of each shared-readback stop with itself.
+
+    ``osprey facility validate`` prints one ``pair-invalid`` line per readback
+    that several setpoints name as their pair. Its remedy, each setpoint with
+    its own readback, is written as one ``fixes.yaml`` ``set`` entry per later
+    setpoint the line names: the export holds no other readback for it, so it
+    pairs with itself, and its ``was`` is the pair the mml layer states. The
+    verb then runs once more and must stop on nothing.
+
+    Returns:
+        Each shared readback, mapped to the setpoints its line named.
+    """
+    from osprey.facility.combine import FIXES_HEADER
+
+    where = ["facility", "validate", "--repo", str(repo)]
+    stopped = runner.invoke(cli, where, catch_exceptions=False)
+    stops = {
+        match["readback"]: tuple(match["setpoints"].split(", "))
+        for match in map(PAIR_SHARED.match, stopped.stderr.splitlines())
+        if match is not None
+    }
+    assert stops, stopped.stderr
+    assert stopped.exit_code == 1, stopped.output
+
+    fixes = [
+        {
+            "op": "set",
+            "kind": "channel",
+            "id": setpoint,
+            "fields": {"pair": setpoint},
+            "was": {"pair": {"mml": readback}},
+            "why": f"{readback} reads back {setpoints[0]}; {setpoint} has no readback of its own.",
+        }
+        for readback, setpoints in stops.items()
+        for setpoint in setpoints[1:]
+    ]
+    target = repo / FACILITY_FIXES
+    target.write_text(
+        yaml.safe_dump({"schema": FIXES_HEADER, "fixes": fixes}, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    clean = runner.invoke(cli, where, catch_exceptions=False)
+    assert clean.exit_code == 0, clean.output
+    return stops
+
+
 def expected_seed_stops(tree: str) -> frozenset[str]:
     """The setpoints a fixture tree's build stops on once its exports are imported.
 
@@ -536,18 +605,26 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     repo = tmp_path_factory.mktemp("recipe-middle-layer") / "demo"
 
     invoke(runner, "init", str(repo), "--preset", "hello-world", "--no-git")
+    exports = [str(export)]
+    clear_authored(runner, repo, exports)
+    import_facility(runner, repo, exports, facility_mapping(SOURCE))
     harvest(runner, repo, export)
-    emitted = emit(runner, repo, "--duckdb")
+    emitted = emit(runner, repo)
     assert emitted.exit_code == 0, emitted.output
     invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
+    arguments = ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
+    stopped = runner.invoke(cli, arguments, catch_exceptions=False)
+    remedied = apply_shared_pair_remedies(runner, repo)
+    build = invoke(runner, *arguments)
 
     return {
         "repo": repo,
         "emit": emitted.output,
         "validate": validate.output,
+        "stopped": stopped,
+        "remedied": remedied,
         "build": build.output,
     }
 
@@ -690,23 +767,65 @@ class TestHelloWorldMiddleLayer:
         assert "Profile is valid" in middle_layer_repo["validate"]
         assert (middle_layer_repo["repo"] / "build" / "config.yml").is_file()
 
-    def test_the_build_binds_the_emitted_database(self, middle_layer_repo: dict) -> None:
-        database = rendered_config(middle_layer_repo["repo"])["channel_finder"]["pipelines"][
-            "middle_layer"
-        ]["database"]
+    def test_the_first_build_stops_on_the_shared_readback_the_fix_remedies(
+        self, middle_layer_repo: dict
+    ) -> None:
+        stopped = middle_layer_repo["stopped"]
+        lines = [line for line in stopped.stderr.splitlines() if line.startswith("facility: ")]
 
-        assert database["path"] == DATABASE_PATH
-        assert (middle_layer_repo["repo"] / "build" / DATABASE_PATH).is_file()
+        assert stopped.exit_code == 1, stopped.output
+        assert lines == [
+            f"facility: pair-invalid: channel {readback} — the pair of setpoints "
+            f"{', '.join(setpoints)}; fix: pair each setpoint with its own readback"
+            for readback, setpoints in middle_layer_repo["remedied"].items()
+        ]
+        assert middle_layer_repo["remedied"] == {
+            "QK:R12:HCM:RB": ("QK:R1:HCM1:SP", "QK:R2:HCM1:SP")
+        }
 
-    def test_a_duckdb_emit_puts_duckdb_path_in_the_rendered_config(
+    def test_the_build_binds_the_index_and_database_it_writes(
         self, middle_layer_repo: dict
     ) -> None:
         database = rendered_config(middle_layer_repo["repo"])["channel_finder"]["pipelines"][
             "middle_layer"
         ]["database"]
+        build = middle_layer_repo["repo"] / "build"
 
-        assert database["duckdb_path"] == DUCKDB_PATH
-        assert (middle_layer_repo["repo"] / DUCKDB_PATH).is_file()
+        assert (database["path"], database["duckdb_path"]) == (INDEX_PATH, INDEX_DUCKDB_PATH)
+        assert (build / INDEX_PATH).is_file()
+        assert (build / INDEX_DUCKDB_PATH).is_file()
+
+    def test_run_sql_answers_from_the_database_the_build_writes(
+        self, middle_layer_repo: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import osprey.utils.config as config
+        from osprey.mcp_server.channel_finder_middle_layer.server_context import (
+            initialize_cf_ml_context,
+            reset_cf_ml_context,
+        )
+        from osprey.mcp_server.channel_finder_middle_layer.tools.run_sql import run_sql
+        from osprey.utils.workspace import reset_config_cache
+
+        def reset() -> None:
+            reset_cf_ml_context()
+            reset_config_cache()
+            config._default_config = None
+            config._default_configurable = None
+            config._config_cache.clear()
+
+        monkeypatch.setenv("OSPREY_CONFIG", str(middle_layer_repo["repo"] / "build" / "config.yml"))
+        reset()
+        try:
+            context = initialize_cf_ml_context()
+            answer = json.loads(
+                getattr(run_sql, "fn", run_sql)(sql="SELECT count(*) AS n FROM channels")
+            )
+            channels = len(context.database.channel_map)
+        finally:
+            reset()
+
+        assert channels > 0
+        assert answer["rows"] == [{"n": channels}]
 
     def test_the_profile_states_no_build_derived_pipeline_key(
         self, middle_layer_repo: dict
