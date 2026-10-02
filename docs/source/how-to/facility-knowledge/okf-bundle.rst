@@ -337,9 +337,9 @@ Working with a Bundle
       only after the import succeeds, so a run that dies partway is caught as
       ``unmanaged-partial`` on the next one instead of passing for a good seed.
 
-      The deploy already runs this for you on a first bring-up (see
-      :doc:`../deploy-project/index`); you need the verb when that step warned, or when
-      the corpus changed.  For the full list of outcomes and flags, see
+      The deploy already runs this for you whenever the store's marker differs
+      from the corpus (see :doc:`../deploy-project/index`); you need the verb
+      when that step warned.  For the full list of outcomes and flags, see
       ``osprey knowledge seed-graph --help``.
 
       **build-ttl** — generates the corpus ``seed-graph`` loads, deriving it

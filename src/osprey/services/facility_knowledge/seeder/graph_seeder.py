@@ -144,7 +144,10 @@ _IMPORT_CYPHER = (
     "RETURN terminationStatus, triplesLoaded, triplesParsed, extraInfo"
 )
 
-_WIPE_CYPHER = "MATCH (n) DETACH DELETE n"
+#: Deletes in transactions of bounded size, so wiping a large store stays inside
+#: the server's transaction heap. Needs an auto-commit transaction, which is what
+#: ``session.run`` opens.
+_WIPE_CYPHER = "CALL { MATCH (n) DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS"
 
 #: Server identity, read only to name the version in the missing-plugin error.
 _COMPONENTS_CYPHER = "CALL dbms.components() YIELD name, versions, edition"
@@ -522,7 +525,7 @@ def read_marker(session: Session) -> str | None:
         The stored sha256 hex digest, or ``None`` when no marker exists.  A
         ``None`` marker on a store with a non-zero :func:`resource_count` is the
         unmanaged-partial state — a crashed import or an adopted pre-osprey
-        store — which callers refuse without ``--force``.
+        store — which ``osprey knowledge seed-graph`` refuses without ``--force``.
     """
     record = session.run(_READ_MARKER_CYPHER).single()
     if record is None:
@@ -619,10 +622,11 @@ def import_ttl(session: Session, text: str) -> ImportResult:
 def wipe(session: Session) -> None:
     """Delete every node and relationship in the store.
 
-    This is the first step of a ``--force`` re-seed.  It removes the n10s
-    ``_GraphConfig``/``_NsPrefDef`` bookkeeping and the ``(:_OspreySeed)`` marker
-    along with the data, which is exactly why ``--force`` re-runs
-    :func:`bootstrap` afterwards rather than going straight to the import.
+    This is the first step of every re-seed, a deploy's on a marker mismatch and
+    ``--force``'s alike.  It removes the n10s ``_GraphConfig``/``_NsPrefDef``
+    bookkeeping and the ``(:_OspreySeed)`` marker along with the data, which is
+    exactly why both callers re-run :func:`bootstrap` afterwards rather than
+    going straight to the import.
 
     Args:
         session: An open driver session.
