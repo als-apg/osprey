@@ -38,6 +38,13 @@ class TestMachineFileLoading:
         with pytest.raises(FileNotFoundError):
             SimulationEngine.from_file(tmp_path / "missing.json")
 
+    def test_invalid_json_names_the_file(self, tmp_path):
+        path = tmp_path / "machine.json"
+        path.write_text("{")
+        with pytest.raises(ValueError, match="is not valid JSON") as info:
+            SimulationEngine.from_file(path)
+        assert str(path) in str(info.value)
+
     def test_nominal_injected_when_absent(self, machine_dict, make_machine_file):
         del machine_dict["scenarios"]
         engine = SimulationEngine.from_file(make_machine_file(machine_dict))
@@ -401,7 +408,7 @@ class TestActiveScenarioStateFile:
         engine = SimulationEngine.from_file(machine_file)
         assert engine.active_scenario() == "nominal"
 
-        state_file = state_dir / "active_scenario"
+        state_file = state_dir / "active_scenarios"
         state_file.write_text("quad-drift\n")
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.active_scenario() == "quad-drift"
@@ -413,7 +420,7 @@ class TestActiveScenarioStateFile:
 
     def test_unknown_name_falls_back_to_nominal_with_warning(self, machine_file, state_dir, caplog):
         engine = SimulationEngine.from_file(machine_file)
-        state_file = state_dir / "active_scenario"
+        state_file = state_dir / "active_scenarios"
         state_file.write_text("bogus-scenario\n")
         os.utime(state_file, ns=(10**9, 10**9))
         with caplog.at_level("WARNING"):
@@ -424,18 +431,23 @@ class TestActiveScenarioStateFile:
         engine = SimulationEngine.from_file(machine_file)
         engine.write("T:Q1:CUR:SP", 10.0)
 
-        state_file = state_dir / "active_scenario"
+        state_file = state_dir / "active_scenarios"
         state_file.write_text("quad-drift\n")
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.read("T:Q1:CUR:SP").value == 28.4
 
-    def test_set_active_scenario_writes_canonical_state_file(self, machine_file, state_dir):
+    def test_set_active_scenario_writes_the_state_file(self, machine_file, state_dir):
         engine = SimulationEngine.from_file(machine_file)
         engine.set_active_scenario("vac-leak")
-        # Writes always target the canonical multi-scenario file (nominal implicit).
         state_file = state_dir / "active_scenarios"
         assert state_file.read_text().strip() == "vac-leak"
         assert engine.active_scenarios() == ("nominal", "vac-leak")
+
+    def test_single_name_state_file_is_not_read(self, machine_file, state_dir):
+        (state_dir / "active_scenario").write_text("quad-drift\n")
+        engine = SimulationEngine.from_file(machine_file)
+        assert engine.active_scenarios() == ("nominal",)
+        assert engine.read("T:Q1:CUR:SP").value == 42.0
 
 
 class TestWriteCoercion:
@@ -473,7 +485,7 @@ class TestSameScenarioReset:
 
     def test_state_file_reassert_clears_writes(self, machine_file, state_dir):
         engine = SimulationEngine.from_file(machine_file)
-        state_file = state_dir / "active_scenario"
+        state_file = state_dir / "active_scenarios"
         state_file.write_text("quad-drift\n")
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.active_scenario() == "quad-drift"

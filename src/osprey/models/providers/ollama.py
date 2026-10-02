@@ -33,6 +33,14 @@ class OllamaProviderAdapter(BaseProvider):
     api_key_instructions = []
     api_key_note = "Ollama runs locally and does not require an API key"
 
+    # Provider facts (see BaseProvider)
+    api_key_env_var = None
+    api_protocol = "openai"
+    supports_interactive_login = False
+    # Image input depends on the model each site serves, so none is assumed.
+    supports_images = False
+    supports_thinking = False
+
     # LiteLLM integration
     litellm_prefix = "ollama"
 

@@ -221,6 +221,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "QmdResyncMigration",
         "qmd_export",
     ),
+    (
+        "als_logbook_plain_text",
+        "osprey.services.ariel_search.ingestion.adapters.als_text_migration",
+        "ALSPlainTextMigration",
+        None,  # Always runs
+    ),
 ]
 
 
@@ -377,12 +383,13 @@ class MigrationRunner:
                     #
                     # Every migration in KNOWN_MIGRATIONS is transactional DDL
                     # (CREATE/DROP INDEX, CREATE TABLE, ALTER TABLE ... ADD
-                    # COLUMN, CREATE EXTENSION, CREATE FUNCTION). Nothing here
-                    # uses CREATE INDEX CONCURRENTLY, VACUUM or CREATE
-                    # DATABASE, which are the statements PostgreSQL forbids
-                    # inside a transaction block -- so a migration that needs
-                    # one of those cannot simply be added here; it needs its
-                    # own escape from this block, deliberately.
+                    # COLUMN, CREATE EXTENSION, CREATE FUNCTION), except one
+                    # that rewrites rows with UPDATE, which is transactional
+                    # DML. Nothing here uses CREATE INDEX CONCURRENTLY, VACUUM
+                    # or CREATE DATABASE, which are the statements PostgreSQL
+                    # forbids inside a transaction block -- so a migration that
+                    # needs one of those cannot simply be added here; it needs
+                    # its own escape from this block, deliberately.
                     async with conn.transaction():
                         await migration.up(conn)
                         await migration.mark_applied(conn)

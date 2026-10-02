@@ -1,0 +1,1 @@
+A deployment whose chat bridges, logbook sync or record archive run on the host network is no longer reported as reachable from other machines on their account, because they open no listening socket. A host-network service that declares neither `listens: false` nor `bind_env:` is still counted as reachable.

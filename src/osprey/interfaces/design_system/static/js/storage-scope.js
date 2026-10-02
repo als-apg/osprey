@@ -9,11 +9,12 @@
  * serves under such a mount, and every browser-side reader and writer derives
  * its key from that attribute.
  *
- * The attribute is ABSENT — never empty — for single-user serving, and the
- * other interfaces (artifacts, ariel, channel_finder, the dispatch dashboard)
- * load these same scripts and never stamp it at all. Absent therefore has to
- * mean "use the legacy bare key", which is exactly what keeps those pages, and
- * every existing single-user browser profile, working unchanged.
+ * The attribute is ABSENT — never empty — for single-user serving. On a
+ * multi-user mount the hub stamps its own two pages, and the panel proxy stamps
+ * every panel page it relays, so a companion server never needs to know whose
+ * mount it is served on. Absent therefore means "use the legacy bare key",
+ * which is what keeps every existing single-user browser profile working
+ * unchanged.
  *
  * NO LEGACY FALLBACK WHEN SCOPED. A scoped read must NOT fall back to the bare
  * key when its own key is missing. The bare key is precisely the polluted slot

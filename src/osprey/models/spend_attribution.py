@@ -19,7 +19,8 @@ those two headers and delivers them on both LLM call paths:
   paths set that variable through :func:`apply_attribution_env`. It merges into
   an operator's own value rather than replacing it — that variable is also the
   one way to carry corporate-proxy headers, which is why the resolver never
-  scrubs it.
+  scrubs it. On the OpenAI route the translation proxy forwards exactly the
+  headers named there (:func:`declared_header_names`).
 * **The LiteLLM SDK path** (structured completions from MCP servers and
   services) sets the same identity as the OpenAI ``user`` field plus
   ``extra_headers``; see ``providers/litellm_adapter.py``.
@@ -119,6 +120,11 @@ def attribution_headers() -> dict[str, str]:
     }
 
 
+def _header_name(line: str) -> str:
+    """The lower-cased header name of one ``Name: Value`` line."""
+    return line.split(":", 1)[0].strip().lower()
+
+
 def render_custom_headers(headers: Mapping[str, str]) -> str:
     """Render *headers* in Claude Code's ``ANTHROPIC_CUSTOM_HEADERS`` format."""
     return "\n".join(f"{name}: {value}" for name, value in headers.items())
@@ -137,12 +143,30 @@ def merge_custom_headers(existing: str | None, headers: Mapping[str, str]) -> st
         line = line.strip()
         if not line:
             continue
-        name = line.split(":", 1)[0].strip().lower()
-        if name in ours:
+        if _header_name(line) in ours:
             continue
         kept.append(line)
     kept.append(render_custom_headers(headers))
     return "\n".join(kept)
+
+
+def declared_header_names(environ: Mapping[str, str]) -> frozenset[str]:
+    """The lower-cased names of the ``ANTHROPIC_CUSTOM_HEADERS`` lines in *environ*.
+
+    These are the headers the agent adds to every request of this launch, so
+    they are the client headers the translation proxy forwards. Once
+    :func:`apply_attribution_env` has run for a LiteLLM gateway they include
+    :data:`END_USER_HEADER` and :data:`TAGS_HEADER`. Blank lines, lines with no
+    ``:`` and lines with an empty name declare nothing.
+    """
+    names: set[str] = set()
+    for line in (environ.get(CUSTOM_HEADERS_ENV) or "").splitlines():
+        if ":" not in line:
+            continue
+        name = _header_name(line)
+        if name:
+            names.add(name)
+    return frozenset(names)
 
 
 def apply_attribution_env(environ: MutableMapping[str, str], gateway: str | None) -> None:

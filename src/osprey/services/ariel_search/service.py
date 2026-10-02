@@ -126,9 +126,10 @@ class ARIELSearchService:
             pool: Database connection pool
             repository: Database repository
             readonly_pool: The same store reached as its SELECT-only role, for
-                the agent's raw-SQL path. ``None`` where this deployment has no
-                such role -- an explicit DSN, or a data volume older than the
-                role -- and the raw-SQL path then shares ``pool``.
+                the agent's raw-SQL path. ``None`` for a build that does not
+                host the raw-SQL tool, a project pointing at a database osprey
+                did not provision, or a data volume older than the role -- and
+                the raw-SQL path, where there is one, then shares ``pool``.
         """
         self.config = config
         self.pool = pool
@@ -871,6 +872,8 @@ class ARIELSearchService:
 
 async def create_ariel_service(
     config: ARIELConfig,
+    *,
+    serves_sql_tool: bool = False,
 ) -> ARIELSearchService:
     """Create and initialize an ARIEL search service.
 
@@ -878,6 +881,11 @@ async def create_ariel_service(
 
     Args:
         config: ARIEL configuration
+        serves_sql_tool: True for the build that hosts the agent's raw-SQL
+            tool: it alone opens the SELECT-only pool that tool queries
+            through, and it alone reports when that pool falls back to the
+            ingestion role. Every other build -- ingestion, enhancement, the
+            web app -- opens the ingestion pool only.
 
     Returns:
         Initialized ARIELSearchService
@@ -891,7 +899,7 @@ async def create_ariel_service(
 
     pool = await create_connection_pool(config.database)
     repository = ARIELRepository(pool, config)
-    readonly_pool = await _open_readonly_pool(config)
+    readonly_pool = await _open_readonly_pool(config) if serves_sql_tool else None
 
     return ARIELSearchService(
         config=config,

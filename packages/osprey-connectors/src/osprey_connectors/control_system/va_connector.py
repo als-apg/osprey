@@ -107,7 +107,7 @@ class VirtualAcceleratorConnector(EPICSConnector):
 
     Example:
         >>> config = {
-        >>>     'timeout': 5.0,
+        >>>     'timeout_s': 5.0,
         >>>     'gateways': {
         >>>         'read_only': {
         >>>             'address': 'localhost',

@@ -312,7 +312,7 @@ connector, which makes it on the write itself.
 
 That read is bounded: ``control_system.connector.<type>.step_read_timeout_s``
 (default 2.0 seconds) is how long it waits, beside the connector's own
-``timeout`` and for the same reason — a gateway two hops away answers more
+``timeout_s`` and for the same reason — a gateway two hops away answers more
 slowly than an IOC on the deploy host. The bound is fail-closed: a channel that
 does not answer inside it reads as "could not be measured", which refuses the
 write. Raising it buys a slow channel room, never a weaker check. The python

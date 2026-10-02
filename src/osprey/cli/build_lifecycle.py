@@ -52,6 +52,16 @@ _DRAIN_SHUTDOWN_SECONDS = 5.0
 
 _DRAIN_THREAD_NAME = "osprey-lifecycle-drain"
 
+JUNIT_RESULTS_FILENAME = "check_results.xml"
+"""File a lifecycle step writes JUnit XML to, at the project root, to get a results table.
+
+Checked after every step of every phase, from the project root whatever the
+step's ``cwd``, and printed as the Integration Test Results table when that
+step wrote it and it parses. Nothing removes it between steps, so a later step
+can read the results an earlier one wrote. The build profile reference states
+this name to profile authors, so renaming it is a documented change.
+"""
+
 
 def _format_junit_summary(xml_path: Path) -> None:
     """Parse JUnit XML and print a summary table of the test results.
@@ -111,6 +121,46 @@ def _format_junit_summary(xml_path: Path) -> None:
         current_reporter().out().print(table)
 
 
+def _results_fingerprint(xml_path: Path) -> tuple[int, int, int, int] | None:
+    """Identify the state of the results file, so a step's write can be told apart.
+
+    Inode, size and the modification and change times: an in-place rewrite
+    moves the times, a write-and-rename moves the inode, and a step that leaves
+    the file alone moves none of them. Content is not compared, because a step
+    that re-ran the same tests and wrote identical XML still ran them. On a
+    filesystem with coarse timestamps, a same-size in-place rewrite within one
+    timestamp tick of the previous write reads as no write.
+
+    Args:
+        xml_path: The results file a step may write.
+
+    Returns:
+        ``(st_ino, st_size, st_mtime_ns, st_ctime_ns)``, or ``None`` when there
+        is no file.
+    """
+    try:
+        st = xml_path.stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+def _report_results_written(xml_path: Path, before: tuple[int, int, int, int] | None) -> None:
+    """Print the results table when the step that just ran wrote the results file.
+
+    The file is left where it is, because a later step may read it. A file the
+    step did not touch holds an earlier step's results, already reported.
+
+    Args:
+        xml_path: The results file a step may write.
+        before: Its fingerprint from before the step ran.
+    """
+    after = _results_fingerprint(xml_path)
+    if after is None or after == before:
+        return
+    _format_junit_summary(xml_path)
+
+
 def _drain_stdout(stdout: IO[str], stop: threading.Event) -> None:
     """Emit a streaming step's stdout, line by line, until ``stop`` is set.
 
@@ -133,7 +183,9 @@ def _drain_stdout(stdout: IO[str], stop: threading.Event) -> None:
 
     Args:
         stdout: The child's piped stdout, in text mode.
-        stop: Set by :func:`_stop_drain` once the step's result is decided.
+        stop: Set once the step's result is decided: before the kill for a
+            step that outlived its exit grace, and by :func:`_stop_drain`
+            otherwise.
     """
     try:
         while not stop.is_set():
@@ -163,7 +215,9 @@ def _stop_drain(reader: threading.Thread, stop: threading.Event, stdout: IO[str]
     The flag alone would not do either, since a reader blocked in a read that
     never returns never sees it. Together they bound the thread's life at
     ``_DRAIN_SHUTDOWN_SECONDS`` and, whether or not it ever ends, guarantee it
-    emits nothing once its step has been reported.
+    emits nothing once its step has been reported. A caller that killed the
+    step has already set the flag before the kill, and setting it again here
+    is harmless.
 
     Args:
         reader: The drain thread for the step that just finished.
@@ -201,7 +255,8 @@ def _run_lifecycle_phase(
         phase_name: Phase name for display (pre_build, post_build, validate).
         steps: List of LifecycleStep objects.
         default_cwd: Default working directory for steps without explicit cwd.
-        project_path: Project root path for {project_root} substitution.
+        project_path: Project root path, substituted for `{project_root}` and the
+            directory the JUnit results file is read from.
         abort_on_failure: If True, raise BuildProfileError on failure.
             If False, warn and continue (used for validate phase).
         stream: If True, stream stdout/stderr in real-time instead of capturing.
@@ -238,6 +293,8 @@ def _run_lifecycle_phase(
         )
         logger.info("Prepended _mcp_servers to lifecycle PYTHONPATH: %s", mcp_servers_dir)
 
+    junit_results = project_path / JUNIT_RESULTS_FILENAME
+
     # Phase record: what the build is doing right now, in the same voice as the
     # phases around it, and silenced with the rest of the record under
     # `--verbose` (where the logger below is carrying the detail instead).
@@ -255,6 +312,7 @@ def _run_lifecycle_phase(
         # Detect shell metacharacters
         use_shell = any(meta in cmd_str for meta in _SHELL_METACHARACTERS)
 
+        results_before = _results_fingerprint(junit_results)
         t0 = time.monotonic()
         try:
             cmd = cmd_str if use_shell else shlex.split(cmd_str)
@@ -291,6 +349,9 @@ def _run_lifecycle_phase(
                 try:
                     proc.wait(timeout=_EXIT_GRACE_SECONDS)
                 except subprocess.TimeoutExpired:
+                    # Killing the step decides it, so its reader is silenced first: nothing
+                    # the step leaves behind on the inherited pipe prints once the kill starts.
+                    stop_drain.set()
                     proc.kill()
                     proc.wait()
                 # The step is decided: retire its reader before the result line
@@ -303,14 +364,14 @@ def _run_lifecycle_phase(
                         # No cause under the summary: the child's own output is
                         # already on the screen above it, streamed line by line.
                         fail(msg)
-                        _format_junit_summary(project_path / "check_results.xml")
+                        _report_results_written(junit_results, results_before)
                         raise BuildProfileError(msg)
                     else:
                         warn(msg)
                 else:
                     report(f"  ✓ {step.name} ({elapsed:.1f}s)", style=Styles.SUCCESS)
-                # Show JUnit summary if test results were produced
-                _format_junit_summary(project_path / "check_results.xml")
+                # Show the JUnit summary if this step wrote test results
+                _report_results_written(junit_results, results_before)
             else:
                 # Quiet mode: capture output, show one-line summary
                 result = subprocess.run(
@@ -333,7 +394,7 @@ def _run_lifecycle_phase(
                         # summary rather than run into it: nobody streamed it,
                         # so this is the operator's only sight of it.
                         fail(headline, output)
-                        _format_junit_summary(project_path / "check_results.xml")
+                        _report_results_written(junit_results, results_before)
                         raise BuildProfileError(msg)
                     else:
                         warn(headline, output)
@@ -345,8 +406,8 @@ def _run_lifecycle_phase(
                         if summary:
                             success_msg += f": {summary}"
                     report(success_msg, style=Styles.SUCCESS)
-                # Show JUnit summary if test results were produced
-                _format_junit_summary(project_path / "check_results.xml")
+                # Show the JUnit summary if this step wrote test results
+                _report_results_written(junit_results, results_before)
 
         except subprocess.TimeoutExpired as e:
             elapsed = time.monotonic() - t0
@@ -372,11 +433,11 @@ def _run_lifecycle_phase(
                 msg += f"\n  {cause}"
             if abort_on_failure:
                 fail(headline, cause)
-                _format_junit_summary(project_path / "check_results.xml")
+                _report_results_written(junit_results, results_before)
                 raise BuildProfileError(msg) from None
             else:
                 warn(headline, cause)
-            _format_junit_summary(project_path / "check_results.xml")
+            _report_results_written(junit_results, results_before)
         except OSError as exc:
             msg = f"Lifecycle {phase_name} step '{step.name}' failed to start"
             if abort_on_failure:

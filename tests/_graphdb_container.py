@@ -30,17 +30,17 @@ half and its content does not depend on the lane. The *store* is deliberately
 not shared: the lanes that wipe it between corpora start their own
 module-scoped container from this same recipe.
 
-**A store that stops answering.** A started store can still stop answering
-mid-module, most often because the host is saturated. The driver then raises
-``ServiceUnavailable`` from its socket layer, and a test that reads through
-the raw session reports that as its own failure. :class:`WatchedStore` and
-:class:`WatchedSession` make each such read fail as
-:class:`GraphStoreUnavailable`, naming the store. They do not stop later
-reads from contacting it: a stalled store can come back, and a later read
-that gets an answer is a real result. A store started by
-:func:`watched_graphdb_store` also says what state its container was in when
-the read failed, which is what tells a stalled store on a loaded host from one
-that exited.
+**A store that stops answering.** A started store can stall mid-module, most
+often because the host is saturated, and come back. The driver then raises
+``ServiceUnavailable`` from its socket layer. A read through
+:meth:`WatchedStore.read` or :class:`WatchedSession` that gets no answer waits
+for the store to answer a query again, or for its container to exit, for up to
+:data:`STORE_RECOVERY_S`, then runs once more; the answer it then gets is a
+real result. A store that does not answer again fails the read as
+:class:`GraphStoreUnavailable`, naming the store and saying what state its
+container was in, which is what tells a stalled store on a loaded host from one
+that exited. A seeding block inside :meth:`WatchedStore.reading` never waits:
+it fails at once.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
 import requests
@@ -66,9 +66,12 @@ from tests._container_support import (
     start_or_fail,
     start_or_skip,
     stop_quietly,
+    wait_until_ready,
 )
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +327,91 @@ def graphdb_store_published_port(
 
 
 # ---------------------------------------------------------------------------
+# Waiting for a lost store
+# ---------------------------------------------------------------------------
+
+#: Connect and connection-acquisition deadline of one readiness probe, in
+#: seconds. Short because the probe is repeated. The acquisition deadline is
+#: the one that matters: a stalled store accepts the TCP connection and never
+#: sends the four-byte bolt handshake, and the driver's default acquisition
+#: deadline is 60 s, which is what a lost read spends by default.
+STORE_PROBE_TIMEOUT_S = 5.0
+
+#: Seconds between readiness probes.
+STORE_PROBE_INTERVAL_S = 1.0
+
+#: Seconds a lost store may take to answer again. The wait ends the moment the
+#: store answers, so a healthy run never pays it. The store's log is quiet once
+#: it has booted, and during a stall the daemon does not answer either, so
+#: there is no progress signal to extend on: this is a plain window that ends
+#: early only on an answer or an exited container. The window, the lost read
+#: before it (up to the driver's 60 s acquisition deadline) and one liveness
+#: read that a stalled daemon can hold for its client's default minute must
+#: all fit together inside a 300 s per-test cap.
+STORE_RECOVERY_S = 120.0
+
+
+def _store_answers(uri: str) -> None:
+    """Ask the store at *uri* to serve ``RETURN 1`` on the test database.
+
+    This is the readiness question: a bolt handshake alone would not show that
+    the database is online. A fresh driver is built per call, with short
+    connect and acquisition deadlines, and closed whatever happens.
+
+    ``max_transaction_retry_time=0.0`` is load-bearing. Without it the driver's
+    ``execute_query`` retries internally for about half a minute against a
+    port nothing answers on before it raises; with it, it raises at once. A
+    probe that retried internally would turn the wait around it into a fixed
+    sleep.
+
+    Args:
+        uri: The bolt URI the store is reached on.
+
+    Raises:
+        Exception: Whatever the driver raises when the store does not answer.
+    """
+    from neo4j import GraphDatabase
+
+    driver = GraphDatabase.driver(
+        uri,
+        auth=(GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD),
+        connection_timeout=STORE_PROBE_TIMEOUT_S,
+        connection_acquisition_timeout=STORE_PROBE_TIMEOUT_S,
+        max_transaction_retry_time=0.0,
+    )
+    try:
+        driver.execute_query("RETURN 1", database_=GRAPHDB_TEST_DATABASE)
+    finally:
+        driver.close()
+
+
+def _wait_for_store(container: object, uri: str, label: str) -> None:
+    """Return once the store at *uri* answers a query again.
+
+    Waits on *container* as well, so a container that has exited ends the wait
+    at once, quoting its exit code and the tail of its log.
+
+    Args:
+        container: The started container the store runs in.
+        uri: The bolt URI the store is reached on.
+        label: Human-readable name for the store, used in the failure.
+
+    Raises:
+        ContainerExitedError: At once, when the container has exited.
+        AssertionError: When :data:`STORE_RECOVERY_S` passes with no answer.
+            Both are reported by the caller, never swallowed.
+    """
+    wait_until_ready(
+        partial(_store_answers, uri),
+        f"{label} at {uri}",
+        timeout=STORE_RECOVERY_S,
+        interval=STORE_PROBE_INTERVAL_S,
+        container=container,
+        ceiling=STORE_RECOVERY_S,
+    )
+
+
+# ---------------------------------------------------------------------------
 # A store that stops answering
 # ---------------------------------------------------------------------------
 
@@ -339,7 +427,7 @@ class GraphStoreUnavailable(AssertionError):
 
 
 class WatchedStore:
-    """Watches a started store's reads and turns ``ServiceUnavailable`` into
+    """Watches a started store's reads and turns a lost store into
     :class:`GraphStoreUnavailable`.
 
     It keeps a count of losses for the message and does not stop later reads
@@ -352,41 +440,140 @@ class WatchedStore:
             in. Called once per read that gets no answer, and its line added to
             the failure. Without it the failure says nothing about the
             container.
+        wait_for_store: Returns once the store answers again, and raises
+            ``AssertionError`` when it does not. Called at most once per read,
+            after the read lost the store. Without it a lost read fails at once.
     """
 
-    def __init__(self, uri: str, *, label: str, inspect: Callable[[], str] | None = None) -> None:
+    def __init__(
+        self,
+        uri: str,
+        *,
+        label: str,
+        inspect: Callable[[], str] | None = None,
+        wait_for_store: Callable[[], None] | None = None,
+    ) -> None:
         self.uri = uri
         self.label = label
         self.losses: list[str] = []
         self._inspect = inspect
+        self._wait_for_store = wait_for_store
 
     @contextmanager
     def reading(self) -> Iterator[None]:
         """Run the block as a read of this store.
 
+        It never waits. A block that writes, such as seeding, cannot be run a
+        second time.
+
         Raises:
-            GraphStoreUnavailable: When the block raises ``ServiceUnavailable``.
-                Every other exception passes through untouched.
+            GraphStoreUnavailable: When the block raises ``ServiceUnavailable``,
+                or an error raised from one. Every other exception passes
+                through untouched.
         """
         try:
             yield
-        except ServiceUnavailable as exc:
-            where = os.environ.get("PYTEST_CURRENT_TEST", "a read outside any test")
-            self.losses.append(f"{where}: {type(exc).__name__}: {exc}")
-            message = (
-                f"{self.label} at {self.uri} stopped answering during {self.losses[-1]}\n"
-                "No answer came back to compare, so this is not a parity result. The "
-                "container started before this read; look at the container and the host "
-                "it runs on (docker ps -a, daemon load), not at the code under test."
+        except Exception as exc:
+            if _lost_store(exc) is None:
+                raise
+            raise self._unavailable(exc) from exc
+
+    def read(self, fetch: Callable[[], T]) -> T:
+        """Run *fetch* as a read of this store and return what it returns.
+
+        A read that loses the store waits for the store to answer again, then
+        runs *fetch* once more: one wait and one re-read per call, only for a
+        loss. The answer the re-read gets is a real result.
+
+        Args:
+            fetch: The read, fetching its records in full before it returns.
+
+        Returns:
+            What *fetch* returned.
+
+        Raises:
+            GraphStoreUnavailable: When the store was lost and either did not
+                answer again or was lost a second time by the re-read. Every
+                other exception passes through untouched.
+        """
+        try:
+            return fetch()
+        except Exception as exc:
+            if _lost_store(exc) is None:
+                raise
+            if self._wait_for_store is None:
+                raise self._unavailable(exc) from exc
+            lost = exc
+
+        logger.warning(f"{self.label} at {self.uri} stopped answering; waiting for it")
+        try:
+            self._wait_for_store()
+        except AssertionError as waited:
+            raise self._unavailable(
+                lost,
+                after=(
+                    f"It was waited on for up to {STORE_RECOVERY_S:g}s and did not "
+                    f"answer again: {waited}"
+                ),
+            ) from lost
+
+        self._record(lost)
+        logger.info(f"{self.label} at {self.uri} answered again; reading once more")
+        try:
+            return fetch()
+        except Exception as again:
+            if _lost_store(again) is None:
+                raise
+            raise self._unavailable(
+                again,
+                after="It answered again, and the same read then got no answer a second time.",
+            ) from again
+
+    def _record(self, exc: BaseException) -> None:
+        """Add the loss *exc* to :attr:`losses`, naming the test that was reading."""
+        where = os.environ.get("PYTEST_CURRENT_TEST", "a read outside any test")
+        self.losses.append(f"{where}: {type(exc).__name__}: {exc}")
+
+    def _unavailable(self, exc: BaseException, *, after: str = "") -> GraphStoreUnavailable:
+        """Record the loss *exc* and build the failure that reports it."""
+        self._record(exc)
+        message = (
+            f"{self.label} at {self.uri} stopped answering during {self.losses[-1]}\n"
+            "No answer came back to compare, so this is not a parity result. The "
+            "container started before this read; look at the container and the host "
+            "it runs on (docker ps -a, daemon load), not at the code under test."
+        )
+        if after:
+            message += f"\n{after}"
+        if self._inspect is not None:
+            message += f"\nContainer state when the read failed: {_read_state(self._inspect)}"
+        if len(self.losses) > 1:
+            message += (
+                f"\nThis store has stopped answering {len(self.losses)} times in this "
+                f"module; the first was during {self.losses[0]}"
             )
-            if self._inspect is not None:
-                message += f"\nContainer state when the read failed: {_read_state(self._inspect)}"
-            if len(self.losses) > 1:
-                message += (
-                    f"\nThis store has stopped answering {len(self.losses)} times in this "
-                    f"module; the first was during {self.losses[0]}"
-                )
-            raise GraphStoreUnavailable(message) from exc
+        return GraphStoreUnavailable(message)
+
+
+def _lost_store(exc: BaseException) -> ServiceUnavailable | None:
+    """The ``ServiceUnavailable`` *exc* is or was raised from, if any.
+
+    Walks the ``__cause__``/``__context__`` chain because the graph context
+    maps the driver's ``ServiceUnavailable`` to its own unreachable-store error
+    and raises that ``from`` the original, so the type alone decides nothing.
+    A :class:`GraphStoreUnavailable` is a loss already recorded and reported,
+    so it is none.
+    """
+    if isinstance(exc, GraphStoreUnavailable):
+        return None
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ServiceUnavailable):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
 
 
 def _read_state(inspect: Callable[[], str]) -> str:
@@ -400,7 +587,7 @@ def _read_state(inspect: Callable[[], str]) -> str:
 
 class WatchedSession:
     """A driver session whose every read, record fetch included, runs inside
-    :meth:`WatchedStore.reading`.
+    :meth:`WatchedStore.read`.
 
     The records are fetched inside the guard because the driver pulls them
     lazily: a result handed back unread would fail outside it.
@@ -416,13 +603,11 @@ class WatchedSession:
 
     def single(self, cypher: str, params: Mapping[str, Any] | None = None) -> Any:
         """Run *cypher* and return the driver's ``.single()`` of its result."""
-        with self._store.reading():
-            return self._session.run(cypher, dict(params or {})).single()
+        return self._store.read(lambda: self._session.run(cypher, dict(params or {})).single())
 
     def records(self, cypher: str, params: Mapping[str, Any] | None = None) -> list[Any]:
         """Run *cypher* and return every record of its result."""
-        with self._store.reading():
-            return list(self._session.run(cypher, dict(params or {})))
+        return self._store.read(lambda: list(self._session.run(cypher, dict(params or {}))))
 
 
 @contextmanager
@@ -436,7 +621,8 @@ def watched_graphdb_store(
     :func:`graphdb_store` for a lane that reads through :class:`WatchedStore`:
     the same start, skip and teardown, but the store it yields can say what
     state its container was in when a read got no answer, because this is the
-    one place that holds both the container and the URI.
+    one place that holds both the container and the URI. The store it yields
+    waits for its own container when a read loses it.
 
     Args:
         plugin_dir: Directory holding n10s + APOC, from :func:`resolve_plugin_dir`.
@@ -450,11 +636,13 @@ def watched_graphdb_store(
         Skipped: Via ``pytest.skip`` when the container will not start.
     """
     container = start_or_skip(lambda: _neo4j_container(plugin_dir), label=label)
+    uri = container.get_connection_url()
     try:
         yield WatchedStore(
-            container.get_connection_url(),
+            uri,
             label=label,
             inspect=partial(container_state, container),
+            wait_for_store=partial(_wait_for_store, container, uri, label),
         )
     finally:
         stop_quietly(container)

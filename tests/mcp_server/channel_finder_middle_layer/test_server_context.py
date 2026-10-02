@@ -59,6 +59,26 @@ def test_registry_loads_database(tmp_path, monkeypatch):
     assert reg.database is not None
 
 
+def test_registry_loads_database_from_an_env_placeholder_path(tmp_path, monkeypatch):
+    """A database path spelled as an environment placeholder resolves before loading."""
+    monkeypatch.chdir(tmp_path)
+    db_data = {"SR": {"BPM": {"Monitor": {"ChannelNames": ["SR:BPM1"]}}}}
+    db_file = tmp_path / "test_db.json"
+    db_file.write_text(json.dumps(db_data))
+    monkeypatch.setenv("CF_ML_DB", str(db_file))
+    config = (
+        "channel_finder:\n"
+        "  pipelines:\n"
+        "    middle_layer:\n"
+        "      database:\n"
+        '        path: "${CF_ML_DB}"'
+    )
+    (tmp_path / "config.yml").write_text(config)
+    initialize_cf_ml_context()
+    reg = get_cf_ml_context()
+    assert reg.database is not None
+
+
 def test_query_max_rows_defaults_when_unset(tmp_path, monkeypatch):
     """A config naming no cap gets the shipped one."""
     monkeypatch.chdir(tmp_path)

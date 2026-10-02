@@ -16,9 +16,11 @@ Panels come from three places and are probed accordingly:
   host/port resolved by ``registry.web.resolve_web_server_address``, the one
   resolver ``server_launcher`` itself is bound to, then ``GET /health``.
 * **Sidecar panels** (``web.panels.<id>`` enabled, id in ``SIDECAR_PANELS``) —
-  not probed at all. The web terminal starts them and they are reached only
-  through its panel proxy, so they have no address this category could fetch;
-  each enabled one gets a ``skip`` row naming where the answer lives.
+  never fetched. The web terminal starts them and they are reached only
+  through its panel proxy, so they have no address this category could fetch.
+  Each enabled one gets a row reporting the start outcome the terminal
+  recorded under the shared agent-data root: a recorded failure is a warning
+  carrying the terminal's sentence, anything else is a ``skip``.
 * **Custom panels** (any other ``web.panels.<id>`` with a ``url``) — ``GET
   url + health_endpoint`` when one is configured. When it isn't (the scan
   ``plan``/``results`` panels declare none), the panel's own entry ``path`` is
@@ -41,11 +43,17 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 
 from osprey.health.models import CheckResult, Status
+from osprey.interfaces.web_terminal.sidecar_status import (
+    SidecarStatus,
+    read_status,
+    status_message,
+)
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -58,6 +66,7 @@ from osprey.registry.web import (
     WebServerConfigDepthError,
     resolve_web_server_address,
 )
+from osprey.utils.workspace import resolve_shared_data_root
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -94,6 +103,7 @@ def web_panels(
     context: HealthRuntime | None = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
     *,
     transport: httpx.AsyncBaseTransport | None = None,
+    shared_root: Path | None = None,
 ) -> CategoryCallable:
     """Build the ``web_panels`` category callable.
 
@@ -104,6 +114,9 @@ def web_panels(
             control-system connector is needed.
         transport: Optional httpx transport for dependency injection in tests
             (e.g. :class:`httpx.MockTransport`); ``None`` uses httpx's default.
+        shared_root: The shared agent-data root the web terminal records its
+            sidecars' start outcomes under, for tests; ``None`` derives it
+            from *config*.
 
     Returns:
         A no-argument async callable returning the category's check results.
@@ -111,7 +124,7 @@ def web_panels(
     cfg: Mapping[str, Any] = config or {}
 
     async def _run() -> list[CheckResult]:
-        targets, config_rows = _resolve_targets(cfg)
+        targets, config_rows = _resolve_targets(cfg, shared_root)
         if not targets:
             return config_rows
         # Probe concurrently: a facility can enable half a dozen panels, and
@@ -123,7 +136,9 @@ def web_panels(
     return _run
 
 
-def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckResult]]:
+def _resolve_targets(
+    cfg: Mapping[str, Any], shared_root: Path | None = None
+) -> tuple[list[_Target], list[CheckResult]]:
     """Enumerate the enabled panels and the URL each should be probed at.
 
     Reads ``web.panels`` through the same predicate as
@@ -131,6 +146,11 @@ def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckR
     block is on unless it says ``enabled: false``, builtin or custom alike;
     an enabled non-builtin is a custom panel carrying its own url. Universal
     panels (``artifacts``) are always on, exactly as the terminal treats them.
+
+    Args:
+        cfg: Parsed config mapping.
+        shared_root: Where the sidecars' start records live; ``None`` derives
+            it from *cfg*.
 
     Returns:
         ``(targets, config_rows)`` — the panels to probe, plus ready-made rows
@@ -162,7 +182,9 @@ def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckR
 
     for panel_id in sorted(enabled_builtin):
         if panel_id in SIDECAR_PANELS:
-            config_rows.append(_sidecar_row(panel_id))
+            root = shared_root if shared_root is not None else _recorded_root(cfg)
+            status = read_status(root, panel_id) if root is not None else None
+            config_rows.append(_sidecar_row(panel_id, status))
             continue
         try:
             target = _builtin_target(panel_id, cfg)
@@ -199,23 +221,61 @@ def _builtin_target(panel_id: str, cfg: Mapping[str, Any]) -> _Target | None:
     return _Target(panel_id, label, f"http://{host}:{port}/health", contract=True)
 
 
-def _sidecar_row(panel_id: str) -> CheckResult:
-    """Report a sidecar panel as skipped rather than probing it.
+def _recorded_root(cfg: Mapping[str, Any]) -> Path | None:
+    """The shared agent-data root the web terminal writes under, or ``None``.
+
+    The same derivation the terminal uses, fed the config this category already
+    holds. Any failure reads as "no record": the row degrades, never the suite.
+    """
+    try:
+        return resolve_shared_data_root(cfg)
+    except Exception:  # an unresolvable root means no record, not a broken category
+        return None
+
+
+def _sidecar_row(panel_id: str, status: SidecarStatus | None) -> CheckResult:
+    """Report a sidecar panel from the start outcome the web terminal recorded.
 
     A sidecar has no address of its own: the web terminal starts it and it is
     reached only through the terminal's panel proxy, so there is nothing here to
-    fetch when the terminal is not running. An OK row would claim a liveness
-    this category never established, and a warning row would call every
-    terminal-less host broken. A skip says what is true and names the one place
-    the answer lives.
+    fetch. What this category can read is the terminal's record of the start. A
+    recorded failure is a warning carrying the terminal's own sentence. Every
+    other outcome is a skip: an OK row would claim a liveness this category
+    never established — a ``running`` record is the terminal's claim, and can
+    outlive a terminal that crashed — and a warning with no record would call
+    every terminal-less host broken.
     """
+    name = f"{CATEGORY}.{panel_id.replace('-', '_')}"
     label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
+    if status is None:
+        return CheckResult(
+            name,
+            CATEGORY,
+            Status.SKIP,
+            f"{label}: not probed — served inside the web terminal, which has recorded no start",
+        )
+    if status.state == "failed":
+        return CheckResult(
+            name,
+            CATEGORY,
+            Status.WARNING,
+            status_message(panel_id, status) or f"{label} failed to start",
+            value="failed",
+            details=(
+                f"Recorded by the web terminal at {status.recorded_at}. Opening the {label} "
+                "tab starts it again; the terminal log has the sidecar's last error lines."
+            ),
+        )
+    if status.state == "starting":
+        return CheckResult(
+            name, CATEGORY, Status.SKIP, f"{label}: starting — reported by the web terminal"
+        )
     return CheckResult(
-        f"{CATEGORY}.{panel_id.replace('-', '_')}",
+        name,
         CATEGORY,
         Status.SKIP,
-        f"{label}: not probed — served inside the web terminal; a grey tab means "
-        "the sidecar did not start, see the terminal log",
+        f"{label}: started — not probed, served inside the web terminal",
+        details=f"Recorded by the web terminal at {status.recorded_at}.",
     )
 
 

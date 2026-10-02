@@ -27,12 +27,6 @@ from osprey.utils.facility import resolve_facility_name
 
 logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.server_context")
 
-PROVIDER_RPM: dict[str, int | None] = {
-    "cborg": 18,
-    "anthropic": None,
-    "als-apg": None,
-}
-
 
 class ChannelFinderICContext:
     """Singleton registry for in-context channel finder MCP server state.
@@ -73,16 +67,17 @@ class ChannelFinderICContext:
         if db_path:
             db_path = resolve_cf_path(db_path)
 
-            if db_type == "template":
-                from osprey.services.channel_finder.databases.template import (
-                    ChannelDatabase,
-                )
-            else:
-                from osprey.services.channel_finder.databases.flat import (
-                    ChannelDatabase,
-                )
+            from osprey.services.channel_finder.databases.flat import (
+                ChannelDatabase as FlatChannelDatabase,
+            )
+            from osprey.services.channel_finder.databases.template import (
+                ChannelDatabase as TemplateChannelDatabase,
+            )
 
-            self._database = ChannelDatabase(db_path)
+            database_class: type[FlatChannelDatabase] = (
+                TemplateChannelDatabase if db_type == "template" else FlatChannelDatabase
+            )
+            self._database = database_class(db_path)
             logger.info(
                 "ChannelFinderICContext: loaded %s database from %s (%d channels)",
                 db_type,
@@ -119,7 +114,7 @@ class ChannelFinderICContext:
             self._subagent_model_id = ic_model
             self._subagent_provider = ic_provider if ic_provider else cc_config.get("provider", "")
         else:
-            from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+            from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
 
             api_providers = self._raw_config.get("api", {}).get("providers", {})
             # Model-id reader only (consumes default_model_id); a telemetry
@@ -139,8 +134,11 @@ class ChannelFinderICContext:
             self._subagent_model_id = spec.default_model_id
             self._subagent_provider = ic_provider if ic_provider else spec.provider
 
-        # Arm rate limiter for providers with a known RPM cap
-        rpm_cap = PROVIDER_RPM.get(self._subagent_provider)
+        # Pace the subagent to its provider's catalog cap; a provider without one is
+        # not paced.
+        from osprey.models.config import provider_requests_per_minute
+
+        rpm_cap = provider_requests_per_minute(self._raw_config, self._subagent_provider)
         if rpm_cap is not None:
             configure_rate_limiter(rpm_cap, window=60.0)
             logger.info(

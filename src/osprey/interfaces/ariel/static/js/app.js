@@ -9,6 +9,7 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded, onModeChange } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { capabilitiesApi } from './api.js';
+import { applyFacilityTimezone } from './components.js';
 import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
@@ -97,6 +98,9 @@ async function init() {
     } catch (e) {
       console.warn('Failed to fetch capabilities, using fallback:', e);
     }
+
+    // Before anything renders a time: entry times read in the facility zone.
+    applyFacilityTimezone(capabilities);
 
     // Search first, and with the payload: a degraded-configuration banner has
     // to be on screen before anything else renders.

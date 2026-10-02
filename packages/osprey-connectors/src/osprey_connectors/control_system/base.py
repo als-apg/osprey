@@ -6,6 +6,7 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 """
 
+import asyncio
 import functools
 import logging
 import math
@@ -638,7 +639,8 @@ def _chip_reason(control_target: str | None, *, deployment_arms: bool) -> str:
         # denied as the gate.
         return f"{narrowing}. The store answered narrowing."
     return (
-        f"{narrowing}; applies deployment-wide. {remedy} if the write is intended; "
+        f"{narrowing}; applies to every session of this login. {remedy} if the write "
+        "is intended; "
         "config.yml is not the gate here. The store answered narrowing."
     )
 
@@ -1262,6 +1264,23 @@ class ControlSystemConnector(ABC):
             raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
 
         return raise_for_write_result(result)
+
+    async def _read_concurrently(
+        self, channel_addresses: list[str], timeout: float | None
+    ) -> dict[str, ChannelValue]:
+        """Read channels concurrently, omitting failed reads and re-raising cancellations."""
+        results = await asyncio.gather(
+            *(self.read_channel(address, timeout) for address in channel_addresses),
+            return_exceptions=True,
+        )
+        values: dict[str, ChannelValue] = {}
+        for address, result in zip(channel_addresses, results, strict=True):
+            if isinstance(result, Exception):
+                continue
+            if isinstance(result, BaseException):
+                raise result
+            values[address] = result
+        return values
 
     @abstractmethod
     async def read_multiple_channels(

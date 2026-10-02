@@ -41,7 +41,7 @@ from osprey.mcp_server.sandbox_env import (
     scrub_sandbox_child_env,
 )
 from osprey.stores.artifact_manifest import collect_artifacts
-from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
+from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
 from osprey_connectors import posture_store
 
 if TYPE_CHECKING:
@@ -380,13 +380,13 @@ def resolve_agent_interpreter(project_root: Path | None = None) -> Path:
 
 
 def _create_execution_folder() -> Path:
-    """Create a timestamped execution folder under the workspace."""
+    """Create a folder under the workspace, named for the facility-zone start time."""
     from osprey.utils.workspace import resolve_workspace_root
 
     base = resolve_workspace_root() / "data" / "python_executions"
     base.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
     folder_name = f"{timestamp}_{uuid.uuid4().hex[:8]}"
     folder = base / folder_name
     folder.mkdir(parents=True, exist_ok=True)

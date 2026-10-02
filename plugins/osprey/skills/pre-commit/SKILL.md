@@ -42,8 +42,8 @@ that would clutter `git log`.
 If you want to do this manually:
 
 ```bash
-ruff check src/ tests/ --fix --quiet
-ruff format src/ tests/ --quiet
+ruff check . --fix --quiet
+ruff format . --quiet
 pytest tests/ --ignore=tests/e2e -x --tb=line -q
 ```
 

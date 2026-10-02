@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+from osprey.agent_runner.provider_env import CLAUDE_CODE_PROVIDERS
 from osprey.cli import deploy_cmd
 from osprey.utils.dotenv import parse_dotenv_file
 

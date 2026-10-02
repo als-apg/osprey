@@ -19,13 +19,15 @@ from osprey.cli.build_profile import DispatchConfig
 from osprey.errors import BuildProfileError
 
 
-def _write_config(project_path: Path) -> None:
+def _write_config(project_path: Path, *, facility: dict | None = None) -> None:
     """Write a minimal config.yml with a pre-existing deployed service."""
     yaml = YAML()
-    config = {
+    config: dict = {
         "deployed_services": ["postgresql"],
         "services": {"postgresql": {}},
     }
+    if facility is not None:
+        config["facility"] = facility
     with open(project_path / "config.yml", "w") as fh:
         yaml.dump(config, fh)
 
@@ -299,3 +301,43 @@ def test_inject_dispatch_omits_the_env_axis_when_nothing_is_declared(tmp_path: P
     services = _read_config(project_path)["services"]
     assert "env" not in services["event_dispatcher"]
     assert "env" not in services["dispatch_worker"]
+
+
+def _inject_facility_name(tmp_path: Path, *, facility: dict | None, facility_name: str) -> str:
+    """Inject a bundled dispatch block and return the dispatcher's facility name."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    _write_config(project_path, facility=facility)
+
+    _inject_dispatch(
+        _dispatch(facility_name=facility_name),
+        profile_dir=profile_dir,
+        project_path=project_path,
+    )
+
+    return _read_config(project_path)["services"]["event_dispatcher"]["facility_name"]
+
+
+def test_inject_dispatch_shows_facility_name_by_default(tmp_path: Path) -> None:
+    """Without an override the dispatcher shows the deployment's facility.name."""
+    name = _inject_facility_name(
+        tmp_path, facility={"name": "Example Research Facility"}, facility_name=""
+    )
+
+    assert name == "Example Research Facility"
+
+
+def test_inject_dispatch_facility_name_overrides_facility_name(tmp_path: Path) -> None:
+    """dispatch.facility_name wins over facility.name."""
+    name = _inject_facility_name(
+        tmp_path, facility={"name": "Example Research Facility"}, facility_name="ERF"
+    )
+
+    assert name == "ERF"
+
+
+def test_inject_dispatch_renders_an_empty_name_when_neither_is_set(tmp_path: Path) -> None:
+    """Neither set renders an empty name."""
+    assert _inject_facility_name(tmp_path, facility=None, facility_name="") == ""

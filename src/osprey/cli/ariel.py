@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import click
 
 # Import get_config_value at module level for easier patching in tests
-from osprey.utils.config import get_config_value
+from osprey.utils.config import get_config_builder, get_config_value
 
 from . import output
 
@@ -51,7 +51,7 @@ def _emit_json_document(payload: object) -> None:
 def _load_ariel_config() -> dict:
     """Load ARIEL config dict, raising SystemExit if missing."""
     config_dict = get_config_value("ariel", {})
-    if not config_dict:
+    if not isinstance(config_dict, dict) or not config_dict:
         output.fail(
             "ARIEL is not configured in config.yml",
             None,
@@ -374,6 +374,15 @@ def sync_command(limit: int | None, watch: bool) -> None:
         raise
 
 
+def _warn_unreadable(count: int) -> None:
+    """Warn about the entries an ingest pass skipped because it could not read them."""
+    if count:
+        output.warn(
+            f"Skipped {count} entries that could not be read",
+            "The ingest log names each one.",
+        )
+
+
 @ariel_group.command("ingest")
 @click.option("--source", "-s", required=True, help="Source file path or URL")
 @click.option(
@@ -383,7 +392,9 @@ def sync_command(limit: int | None, watch: bool) -> None:
     default=None,
     help="Adapter type (overrides config)",
 )
-@click.option("--since", type=click.DateTime(), help="Only ingest entries after this date")
+@click.option(
+    "--since", type=click.DateTime(), help="Only ingest entries after this date (facility time)"
+)
 @click.option("--limit", type=int, help="Maximum entries to ingest")
 @click.option("--dry-run", is_flag=True, help="Parse entries without storing")
 def ingest_command(
@@ -411,10 +422,12 @@ def ingest_command(
         output.report("")
         if result.dry_run:
             output.report(f"Dry run complete: {result.count} entries would be ingested")
+            _warn_unreadable(result.unreadable_count)
             if result.enhancer_names:
                 output.note(f"Enhancement modules would run: {result.enhancer_names}")
         else:
             output.report(f"Ingestion complete: {result.count} entries stored")
+            _warn_unreadable(result.unreadable_count)
             if result.enhancer_names:
                 output.note(f"Enhancement complete: {result.enhanced_count} enhancements applied")
     except DatabaseQueryError as e:
@@ -513,10 +526,7 @@ def enhance_command(module: str | None, force: bool, limit: int) -> None:
     from osprey.services.ariel_search.cli_operations import run_enhance
 
     config_dict = _load_ariel_config()
-    result = asyncio.run(run_enhance(config_dict, module, force, limit, progress=output.report))
-    if result.entries_processed > 0:
-        output.report("")
-        output.report(f"Enhancement complete: {result.entries_processed} entries processed")
+    asyncio.run(run_enhance(config_dict, module, force, limit, progress=output.report))
 
 
 @ariel_group.command("models")
@@ -677,30 +687,29 @@ def quickstart_command(source: str | None) -> None:
     default=None,
     help="Port to run on (default: OSPREY_ARIEL_PORT, then config, then this deployment's layout port)",
 )
-@click.option("--host", "-h", default="127.0.0.1", help="Host to bind to")
+@click.option(
+    "--host", "-h", default=None, help="Host to bind to (default: from config or 127.0.0.1)"
+)
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
-def web_command(port: int | None, host: str, reload: bool) -> None:
+def web_command(port: int | None, host: str | None, reload: bool) -> None:
     """Launch the ARIEL web interface.
 
     Starts a FastAPI server providing a web-based search interface
     for ARIEL with support for search, browsing, and entry creation.
 
     Example:
-        osprey ariel web                    # Start on this deployment's ARIEL port
+        osprey ariel web                    # Start on this deployment's ARIEL address
         osprey ariel web --port 8080        # Custom port
         osprey ariel web --host 0.0.0.0     # Bind to all interfaces
         osprey ariel web --reload           # Development mode with auto-reload
     """
-    from osprey.registry.web import resolve_web_server_address
+    from osprey.registry.web import resolve_web_server_bind
 
     _load_ariel_config()
 
-    if port is None:
-        # The framework's shared derivation: the OSPREY_ARIEL_PORT override a
-        # multi-user deployment exports, then the config section's own port,
-        # then ARIEL's slot at the base this deployment resolved. An explicit
-        # --port wins over all of it.
-        _, port = resolve_web_server_address("ariel")
+    host, port = resolve_web_server_bind(
+        "ariel", get_config_builder().raw_config, host=host, port=port
+    )
 
     output.report(f"Starting ARIEL Web Interface on http://{host}:{port}")
     output.note("Press Ctrl+C to stop")

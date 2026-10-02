@@ -138,10 +138,9 @@ def assert_raises_error(*, error_type: str | None = None):
 def extract_response_dict(result) -> dict:
     """Pull the structured response dict from a tool result.
 
-    Handles both legacy JSON-string returns and the new
-    ``CallToolResult(content=[TextContent(...)])`` shape used by the python
-    executor's response builder. Useful for tests that assert on shape keys
-    like ``has_errors``, ``status``, or ``summary``.
+    Handles both JSON-string returns and the
+    ``CallToolResult(content=[TextContent(...)])`` shape. Useful for tests that
+    assert on shape keys like ``has_errors``, ``status``, or ``summary``.
     """
     if isinstance(result, str):
         return json.loads(result)

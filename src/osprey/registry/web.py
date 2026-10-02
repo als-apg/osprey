@@ -415,6 +415,57 @@ def resolve_web_server_address(
     return host, port
 
 
+def resolve_web_server_bind(
+    key: str,
+    config: Mapping[str, Any] | None,
+    *,
+    host: str | None,
+    port: int | None,
+) -> tuple[str, int]:
+    """Settle the ``(host, port)`` a web verb binds from its flags and the config.
+
+    An explicit flag always wins and is used as given — ``0`` and ``""`` are
+    values, not absences. A flag left as ``None`` is filled from
+    :func:`resolve_web_server_address`, which runs at most once and not at all
+    when both flags are given, so a verb whose operator named the whole address
+    never reads the config for it.
+
+    The host is the server's config section's own ``host``, else the
+    definition's loopback default. The port is the server's
+    ``OSPREY_<KEY>_PORT`` override, then the section's ``port``, then the
+    server's slot at the ``deployment.port_base`` the config resolves; see
+    :func:`resolve_web_server_address` for the detail.
+
+    Args:
+        key: Key into :data:`FRAMEWORK_WEB_SERVERS`, e.g. ``"artifact"``.
+        config: The config the verb serves from, or ``None`` to load it on
+            demand, as :func:`resolve_web_server_address` does.
+        host: The verb's ``--host`` flag, ``None`` when not given.
+        port: The verb's ``--port`` flag, ``None`` when not given.
+
+    Returns:
+        The ``(host, port)`` pair to bind.
+
+    Raises:
+        KeyError: *key* is not a known companion web server, whether or not
+            both flags are given.
+        ValueError: A flag is missing and the config sets a
+            ``deployment.port_base`` whose block cannot exist.
+        WebServerConfigDepthError: A flag is missing and the config writes
+            ``host``/``port``/``auto_launch`` at the depth this server does not
+            read.
+    """
+    if key not in FRAMEWORK_WEB_SERVERS:
+        raise KeyError(key)
+    if host is not None and port is not None:
+        return host, port
+    default_host, default_port = resolve_web_server_address(key, config)
+    return (
+        default_host if host is None else host,
+        default_port if port is None else port,
+    )
+
+
 def resolve_web_server_base_url(
     key: str,
     config: Mapping[str, Any] | None = None,

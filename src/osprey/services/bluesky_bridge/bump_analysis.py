@@ -242,8 +242,8 @@ def solve_offsets(
             non-finite, or does not resolve every corrector independently at
             *rcond*; or *rcond* is not finite and positive.
     """
-    matrix = np.asarray(response, dtype=float)
-    demand = np.asarray(desired, dtype=float)
+    matrix = np.asarray(response, dtype=np.float64)
+    demand = np.asarray(desired, dtype=np.float64)
 
     if not np.isfinite(rcond) or rcond <= 0.0:
         raise DegenerateBumpError(f"rcond must be finite and positive, got {rcond!r}")

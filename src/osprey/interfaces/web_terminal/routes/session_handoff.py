@@ -48,9 +48,9 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from osprey.agent_runner import HAS_SDK
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionTerminatedError
 from osprey.interfaces.web_terminal.operator_session import (
-    CLAUDE_SDK_AVAILABLE,
     POSTURE_SOURCE_LIVE,
     OperatorRegistry,
     OperatorSession,
@@ -122,7 +122,7 @@ async def hand_off_session(key: str, body: HandoffRequest, request: Request) -> 
                 "message": "session_id must be a Claude session UUID.",
             },
         )
-    if not CLAUDE_SDK_AVAILABLE:
+    if not HAS_SDK:
         # Before the acquire, not after: a hand-off that tears the terminal
         # down and then finds it has nothing to start would leave the key with
         # no live process at all.

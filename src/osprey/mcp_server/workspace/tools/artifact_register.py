@@ -128,6 +128,7 @@ async def artifact_register(
 
             filename = f"{_slugify(title)}{ext}"
 
+            assert content is not None  # exactly one of file_path/content, checked above
             entry = store.save_file(
                 file_content=content.encode(),
                 filename=filename,

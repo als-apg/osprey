@@ -11,6 +11,7 @@ import asyncio
 import threading
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -235,6 +236,8 @@ class TestFirstReadSuppression:
         assert payload["pv"] == "SIM:SETPOINT"
         assert payload["value"] == 2.0
         assert payload["previous_value"] == 0.0
+        assert isinstance(payload["timestamp"], datetime)
+        assert payload["timestamp"].utcoffset() == timedelta(0)
 
 
 class TestCoolDown:
@@ -507,6 +510,103 @@ class TestEpicsCaSourceLifecycle:
 
         assert len(source._watchers) == 1
         assert source._watchers[0]._edge == "rising"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("threshold", "high"),
+            ("threshold", True),
+            ("threshold", float("nan")),
+            ("threshold", float("inf")),
+            ("cool_down_sec", "soon"),
+            ("cool_down_sec", -1),
+        ],
+    )
+    async def test_start_skips_a_trigger_with_an_unusable_number(self, caplog, key, value) -> None:
+        """A threshold or cool-down the watcher cannot compare against is not armed."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+        trigger = TriggerConfig(
+            name="bad-number",
+            source="epics_ca",
+            action={"prompt": "test"},
+            source_config={"pv": "SIM:PV", key: value},
+        )
+
+        with patch("osprey.dispatch.sources.epics_ca.epics.PV") as mock_pv:
+            await source.start([trigger], fire_cb)
+
+        mock_pv.assert_not_called()
+        assert len(source._watchers) == 0
+        assert "bad-number" in caplog.text
+        assert f"'{key}'" in caplog.text
+        assert repr(value) in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_bad_number_leaves_its_siblings_armed(self) -> None:
+        """One unusable threshold takes down that trigger, not the dispatcher's set."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+        triggers = [
+            TriggerConfig(
+                name="bad",
+                source="epics_ca",
+                action={"prompt": "test"},
+                source_config={"pv": "SIM:PV:1", "threshold": "high"},
+            ),
+            _trigger(name="good", pv="SIM:PV:2"),
+        ]
+
+        created = []
+
+        def _fake_pv(pvname, callback=None, **kw):
+            pv = _FakePV(pvname, callback)
+            created.append(pv)
+            return pv
+
+        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_fake_pv):
+            await source.start(triggers, fire_cb)
+
+        assert len(source._watchers) == 1
+        assert [pv.pvname for pv in created] == ["SIM:PV:2"]
+
+    @pytest.mark.asyncio
+    async def test_a_blank_number_takes_its_default(self) -> None:
+        """A blank threshold or cool-down (YAML null) means the documented default."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+        trigger = TriggerConfig(
+            name="blank",
+            source="epics_ca",
+            action={"prompt": "test"},
+            source_config={"pv": "SIM:PV", "threshold": None, "cool_down_sec": None},
+        )
+
+        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_FakePV):
+            await source.start([trigger], fire_cb)
+
+        assert len(source._watchers) == 1
+        assert source._watchers[0]._threshold == 0.0
+        assert source._watchers[0]._cool_down == 60.0
+
+    @pytest.mark.asyncio
+    async def test_an_exponent_yaml_reads_as_a_string_is_still_a_number(self) -> None:
+        """YAML reads ``1e-3`` as a string; it still arms as the number it spells."""
+        source = EpicsCaSource()
+        fire_cb = AsyncMock(return_value=None)
+        trigger = TriggerConfig(
+            name="exponent",
+            source="epics_ca",
+            action={"prompt": "test"},
+            source_config={"pv": "SIM:PV", "threshold": "1e-3"},
+        )
+
+        with patch("osprey.dispatch.sources.epics_ca.epics.PV", side_effect=_FakePV):
+            await source.start([trigger], fire_cb)
+
+        assert len(source._watchers) == 1
+        assert source._watchers[0]._threshold == 0.001
 
     @pytest.mark.asyncio
     async def test_stop_clears_watchers(self) -> None:

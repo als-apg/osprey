@@ -2,7 +2,7 @@
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Literal
 
 from osprey_connectors.config import is_unresolved_placeholder
 
@@ -45,6 +45,26 @@ class BaseProvider(ABC):
         api_key_url: URL where users can obtain an API key (e.g., "https://console.anthropic.com/")
         api_key_instructions: Step-by-step instructions for obtaining an API key
         api_key_note: Additional notes or requirements (e.g., "Requires affiliation")
+
+    Provider Facts (stated by every built-in adapter):
+        api_key_env_var: The environment variable a deployment keeps this
+            provider's key in; None exactly when requires_api_key is False.
+        api_protocol: The protocol a Claude Code launch speaks to this
+            provider's endpoint, one of the catalog's api_protocol values —
+            "anthropic" (Messages API, no translation proxy) or "openai" (Chat
+            Completions, through the translation proxy). Not the same fact as
+            is_openai_compatible, which names the route LiteLLM calls: a
+            gateway that speaks both answers "anthropic" here and True there.
+        supports_interactive_login: Whether a launch that finds no key can sign
+            in interactively instead of failing.
+        supports_images: Whether this provider's OpenAI-protocol route accepts
+            image input as image_url content parts. That is the route the
+            translation proxy calls; a launch that speaks Anthropic to the
+            provider carries images regardless. False where the vendor
+            documents no such support, and for a local server, whose image
+            input depends on the model each site serves.
+        supports_thinking: Whether this provider's OpenAI-protocol route takes
+            the request's thinking setting and returns the model's thinking.
 
     LiteLLM Integration Attributes:
         litellm_prefix: LiteLLM provider prefix (e.g., "anthropic", "gemini"). If None,
@@ -96,10 +116,30 @@ class BaseProvider(ABC):
     # max_tokens to each route's own parameter for the models it recognises; an
     # endpoint that refuses max_tokens outright declares the parameter it takes.
     max_tokens_param: str = "max_tokens"
-    # Whether the endpoint takes a caller-chosen sampling temperature. An endpoint
-    # whose models refuse every temperature but their own default declares False,
-    # and its requests carry none.
-    accepts_temperature: bool = True
+
+    # Provider facts. Every built-in adapter states each one in its own class body.
+    api_key_env_var: str | None = None
+    api_protocol: Literal["anthropic", "openai"] = "openai"
+    supports_interactive_login: bool = False
+    supports_images: bool = False
+    supports_thinking: bool = False
+
+    @classmethod
+    def accepts_temperature(cls, model_id: str) -> bool:
+        """Whether a request for *model_id* carries the caller's sampling temperature.
+
+        True on every model unless the adapter says otherwise. A provider whose
+        models differ overrides this and decides from the model id. A request for
+        a model that answers False carries no temperature and samples at the
+        model's default.
+
+        Args:
+            model_id: The provider's bare model identifier.
+
+        Returns:
+            True when the request carries the caller's temperature.
+        """
+        return True
 
     @classmethod
     def effective_base_url(cls, base_url: str | None) -> str | None:

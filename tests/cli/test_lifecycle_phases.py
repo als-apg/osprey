@@ -328,6 +328,9 @@ class TestBuildPhases:
             # Hand-written, not materialized: nothing for the preset-drift lint
             # to compare with.
             provenance = None
+            # No extends: chain reached a bundled preset, so the build copies
+            # the framework's default bundle.
+            inherited_preset = None
             # No panel selection: nothing for the bar-items warning to check.
             web_panels: list[str] = []
 

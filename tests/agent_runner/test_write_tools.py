@@ -16,8 +16,8 @@ import json
 from pathlib import Path
 
 import osprey
+from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
 from osprey.agent_runner.write_tools import (
-    _BUILTIN_UNSAFE_TOOLS,
     _FALLBACK_WRITE_TOOLS,
     load_write_tools,
     read_only_disallowed_tools,
@@ -262,7 +262,7 @@ def test_read_only_disallowed_tools_unions_mcp_and_builtins(tmp_path: Path) -> N
     assert "mcp__controls__channel_write" in result
     assert "mcp__python__execute" in result
     # Built-in unsafe tools
-    for builtin in _BUILTIN_UNSAFE_TOOLS:
+    for builtin in READ_ONLY_DENIED_BUILTINS:
         assert builtin in result, f"{builtin} must be disallowed in the read-only path"
 
 
@@ -704,29 +704,54 @@ def test_python_server_registers_only_execute_tools_we_block(tmp_path: Path) -> 
         )
 
 
-def test_builtin_unsafe_tools_cover_interactive_deny_defaults() -> None:
-    """Drift guard: every built-in (non-mcp) tool OSPREY denies interactively
-    (DENY_DEFAULTS, rendered into settings.json's permissions.deny) must also be
-    in the headless read-only floor — the headless path must never be more
-    permissive than interactive, since its permission/deny layer is inert under
-    bypassPermissions.
+def test_read_only_denied_builtins_cover_interactive_deny_defaults(tmp_path: Path) -> None:
+    """Drift guard: every entry OSPREY denies interactively (DENY_DEFAULTS,
+    rendered into settings.json's permissions.deny) must also be in the headless
+    read-only floor — the headless path must never be more permissive than
+    interactive, since its permission/deny layer is inert under
+    bypassPermissions. Built-in entries live in READ_ONLY_DENIED_BUILTINS; the
+    ``mcp__`` entries reach the floor through read_only_disallowed_tools.
 
     Reads the constant the renderer itself consumes rather than regex-parsing
     the Jinja source: the template now takes the list from the render context,
     so a scrape of the .j2 file would guard a copy nothing ships.
     """
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
-    # Built-in tools are the non-mcp__ entries (mcp__ entries are plugin/facility
-    # servers, absent from a built project's query path).
     builtin_denies = [d for d in DENY_DEFAULTS if not d.startswith("mcp__")]
     assert builtin_denies, "expected at least one built-in tool in DENY_DEFAULTS"
     for tool in builtin_denies:
-        assert tool in _BUILTIN_UNSAFE_TOOLS, (
+        assert tool in READ_ONLY_DENIED_BUILTINS, (
             f"{tool!r} is denied interactively (DENY_DEFAULTS) but missing from "
-            f"_BUILTIN_UNSAFE_TOOLS — the headless read-only floor would be more "
+            f"READ_ONLY_DENIED_BUILTINS — the headless read-only floor would be more "
             f"permissive than the interactive policy"
         )
+
+    mcp_denies = [d for d in DENY_DEFAULTS if d.startswith("mcp__")]
+    assert mcp_denies, "expected at least one mcp__ entry in DENY_DEFAULTS"
+    headless = set(read_only_disallowed_tools(tmp_path))
+    for entry in mcp_denies:
+        assert entry in headless, (
+            f"{entry!r} is denied interactively (DENY_DEFAULTS) but missing from "
+            f"read_only_disallowed_tools — the headless read-only floor would be more "
+            f"permissive than the interactive policy"
+        )
+
+
+def test_every_floor_names_every_foreign_mcp_namespace(tmp_path: Path) -> None:
+    """The plugin and connector namespaces are the second line behind the strict
+    MCP launch, so no floor may drop them: not the interactive deny, not the
+    dispatch denylist, not the headless read-only set."""
+    from osprey.agent_runner.tool_names import (
+        DENY_DEFAULTS,
+        DISPATCH_DENIED_TOOLS,
+        FOREIGN_MCP_NAMESPACES,
+    )
+
+    namespaces = set(FOREIGN_MCP_NAMESPACES)
+    assert namespaces <= set(DENY_DEFAULTS)
+    assert namespaces <= set(DISPATCH_DENIED_TOOLS)
+    assert namespaces <= set(read_only_disallowed_tools(tmp_path))
 
 
 def test_deny_defaults_reaches_the_render_context() -> None:
@@ -739,7 +764,8 @@ def test_deny_defaults_reaches_the_render_context() -> None:
     what keeps that from happening. Order matters too: the rendered array
     follows DENY_DEFAULTS, and reordering churns every built project's diff.
     """
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS, config_derived_context
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
+    from osprey.cli.templates.claude_code import config_derived_context
 
     ctx = config_derived_context({}, Path(osprey.__file__).parent)
     assert ctx["deny_defaults"] == list(DENY_DEFAULTS)
@@ -756,7 +782,7 @@ def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
     whose permissions.deny is empty. Facilities adjust the floor through
     config.yml's claude_code.permissions instead, which is auditable.
     """
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
     from osprey.cli.templates.manager import TemplateManager
 
     project_dir = _create_project(

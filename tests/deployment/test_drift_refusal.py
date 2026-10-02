@@ -198,6 +198,40 @@ def test_convention_directory_edit_names_that_directory(repo):
     assert report.changed_keys == ("agents/",)
 
 
+def _name_triggers(repo: Path, triggers: str) -> None:
+    """Give the repo's profile a ``dispatch:`` block naming ``triggers``."""
+    _write(repo / "profile.yml", PROFILE_YAML + f"dispatch:\n  triggers: {triggers}\n")
+
+
+def test_named_trigger_file_edit_names_that_file(repo):
+    """The trigger file the dispatch block names is its own input, named by its path."""
+    _write(repo / "triggers" / "x.yml", "triggers: []\n")
+    _name_triggers(repo, "triggers/x.yml")
+    _write_manifest(repo)
+
+    _write(repo / "triggers" / "x.yml", "triggers:\n  - name: alarm\n")
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.DRIFT
+    assert report.changed_keys == ("triggers/x.yml",)
+
+
+def test_bundled_trigger_file_change_is_not_drift(repo, tmp_path, monkeypatch):
+    """Upgrading the package's bundled trigger file does not mark a build out of date."""
+    from osprey.cli import build_profile_presets
+
+    bundled_dir = tmp_path / "bundled"
+    bundled = _write(bundled_dir / "bundled.yml", "triggers: []\n")
+    monkeypatch.setattr(build_profile_presets, "_triggers_dir", lambda: bundled_dir)
+    _name_triggers(repo, "bundled.yml")
+    _write_manifest(repo)
+
+    bundled.write_text("triggers:\n  - name: upgraded\n", encoding="utf-8")
+
+    assert staleness.check_drift(repo).state is DriftState.CLEAN
+
+
 def test_material_change_is_named_once(repo):
     """The combined digest moves with every material edit; it is not a second name.
 

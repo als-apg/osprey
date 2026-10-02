@@ -29,7 +29,8 @@
       than the app that reads it.
     tls_enabled: bool, required (defaults to False)
       When true, emit TWO server blocks: a redirect-only one on nginx_port
-      whose entire content is `return 301 https://$host$request_uri;`, and the
+      whose entire content is `return 301 <external_origin>$request_uri;`
+      (`https://$host$request_uri` when external_origin is empty), and the
       real content server on `listen <tls_port> ssl` with
       `ssl_certificate`/`ssl_certificate_key` pointing at tls_cert/tls_key.
       When false, nothing TLS-related is emitted and the single server listens
@@ -44,11 +45,21 @@
       and the deny-list are one number and not three.
     https_default_port: int, required (render.py's _HTTPS_DEFAULT_PORT, 443)
       The port a browser already goes to for an `https://` URL with no port in
-      it. At that port the redirect below stays a bare `$host`; on any other
-      port the redirect must name it (`$host:<tls_port>`), or the bounce lands
-      on a port nothing listens on. Passed in rather than restated here so the
-      redirect and render.py's `external_origin` decide "is a port needed"
-      against the same constant.
+      it. Read only by the plain redirect's `$host` arm, which renders when
+      external_origin is empty: at that port the target stays a bare `$host`;
+      on any other port it must name it (`$host:<tls_port>`), or the bounce
+      lands on a port nothing listens on. Passed in rather than restated here
+      so the redirect and render.py's `external_origin` decide "is a port
+      needed" against the same constant.
+    external_origin: str, required ("" when the render derives none)
+      The one origin every per-user terminal accepts actions from (render.py's
+      _external_origin). Derived whenever the roster has a user or a sidecar is
+      active; a roster-less, sidecar-less render has none.
+    origin_host: str, required ("" alongside an empty external_origin)
+      The host of external_origin, without scheme or port. When set, the
+      content server's `server_name` is origin_host, and a `default_server` on
+      the same listener returns `301 <external_origin>$request_uri` for every
+      other name. When empty, one `server_name _` server answers every name.
     tls_cert, tls_key: str | None
       Absolute paths inside the nginx container. Only read when tls_enabled
       is true; render.py already refuses to render (ValueError) if
@@ -223,9 +234,12 @@
     rootless nginx needs — carrying `ssl_certificate`/`ssl_certificate_key`
     from the configured paths and speaking HTTP/2, becomes the sole content
     server. The redirect
-    names that port too whenever it is not 443. render.py refuses to render at
+    targets the external origin, which names that port whenever it is not
+    443. render.py refuses to render at
     all if either path is missing, so this template never has to guard against
-    an incoherent pair.
+    an incoherent pair. A render with an external origin adds a third server:
+    the `default_server` on the content listener that redirects every name
+    other than the origin's host to the origin.
   - without `sidecar_active` ("token", the default, and "none") the login
     wall emits nothing. When a sidecar method is set,
     every proxied `/u/<user>/` location gets an `auth_request` naming that
@@ -355,7 +369,7 @@ map $http_upgrade$http_accept $osprey_auth_wants_login_page {
 # path ending in `%0a` would otherwise still be emitted, newline and all.
 map $uri $osprey_auth_next {
     default "";
-    "~^/u/[A-Za-z0-9._-]+/[A-Za-z0-9._~/-]*\z" $uri;
+    "~^{{ url_mount_root_pattern }}/[A-Za-z0-9._-]+/[A-Za-z0-9._~/-]*\z" $uri;
 }
 {% endif -%}
 {% if tls_enabled %}
@@ -365,21 +379,18 @@ map $uri $osprey_auth_next {
 # the clear, which is the whole thing TLS was turned on to prevent. Splitting
 # the listeners means there is no plain-http code path left to issue one.
 #
-# The redirect target is `$host` — the name the client actually asked for —
-# and NOT the render-time external origin, deliberately. A deployment is
-# reachable under more names than the one config knows about (an alias, an
-# internal DNS name, a bare IP), and rewriting the host on the way to https
-# would bounce those clients to a name they may not resolve or whose
-# certificate they cannot match. `external_origin` is for values that must be
-# fixed at render time (env-baked links, an IdP-registered redirect_uri); a
-# per-request redirect is not one of them.
+# The redirect target is the external origin: the plain port's only job is to
+# send a browser to the one origin the terminals accept actions from. A `$host`
+# target would send it to whatever name it arrived on, whose pages load and
+# whose every write is refused.
 #
-# The PORT, unlike the host, does come from render time: `$host` carries the
-# name a client asked for but never the port it should be sent to, and on a
-# non-default `tls.port` a bare `$host` would bounce every client to 443,
-# where this deployment has nothing listening. So the target names the TLS
-# listener whenever it is not 443 — and at 443 says nothing, because that is
-# the port an `https://` URL with no port already means.
+# A render with no origin (no roster, no sidecar) falls back to `$host`. There
+# the PORT still comes from render time: `$host` carries the name a client
+# asked for but never the port it should be sent to, and on a non-default
+# `tls.port` a bare `$host` would bounce every client to 443, where this
+# deployment has nothing listening. So that target names the TLS listener
+# whenever it is not 443 — and at 443 says nothing, because that is the port
+# an `https://` URL with no port already means.
 server {
     listen {{ nginx_port }};
     listen [::]:{{ nginx_port }};
@@ -390,7 +401,7 @@ server {
     # sanitizing next door.
     access_log /dev/stdout osprey_sanitized;
 
-    return 301 https://$host{% if tls_port != https_default_port %}:{{ tls_port }}{% endif %}$request_uri;
+    return 301 {% if external_origin %}{{ external_origin }}{% else %}https://$host{% if tls_port != https_default_port %}:{{ tls_port }}{% endif %}{% endif %}$request_uri;
 }
 {% endif %}
 server {
@@ -411,7 +422,7 @@ server {
     listen {{ nginx_port }};
     listen [::]:{{ nginx_port }};
 {% endif %}
-    server_name _;
+    server_name {{ origin_host or "_" }};
 
     # Server level, which is what makes it REPLACE the base image's http-level
     # `access_log ... main;` rather than run alongside it (see the log_format
@@ -455,7 +466,7 @@ server {
     # `web` family, bound to loopback only). Trailing slashes on both the
     # location and proxy_pass target strip /u/{{ svc.user }} before the
     # request reaches the upstream.
-    location /u/{{ svc.user }}/ {
+    location {{ url_mount_root }}/{{ svc.user }}/ {
 {% if sidecar_active %}
         # Authentication is on (web_terminals.auth.method is "{{ auth_method }}"):
         # every request that reaches this location — page load, panel API call,
@@ -713,8 +724,8 @@ server {
     }
 
     # Stable bookmark for {{ svc.user }} without a trailing slash.
-    location = /u/{{ svc.user }} {
-        return 301 /u/{{ svc.user }}/;
+    location = {{ url_mount_root }}/{{ svc.user }} {
+        return 301 {{ url_mount_root }}/{{ svc.user }}/;
     }
 {% if sidecar_active %}
 
@@ -837,3 +848,34 @@ server {
     }
 {% endif %}
 }
+{%- if origin_host %}
+
+# The terminals accept actions only from the one origin, so a page served under
+# another name would load and then refuse every write. This server sends every
+# name the content server does not claim to the origin instead, path and query
+# intact. `server_name` matches the host alone, so the origin's host on any port
+# still reaches the content server.
+{%- if tls_enabled %}
+#
+# The certificate is repeated because nginx needs one to complete a handshake
+# for a name the content server does not claim. A client that sent no SNI, or a
+# different one, sees this certificate and then the redirect.
+{%- endif %}
+server {
+{%- if tls_enabled %}
+    listen {{ tls_port }} ssl default_server;
+    listen [::]:{{ tls_port }} ssl default_server;
+    ssl_certificate {{ tls_cert }};
+    ssl_certificate_key {{ tls_key }};
+{%- else %}
+    listen {{ nginx_port }} default_server;
+    listen [::]:{{ nginx_port }} default_server;
+{%- endif %}
+    server_name _;
+
+    # The sanitized format applies here too.
+    access_log /dev/stdout osprey_sanitized;
+
+    return 301 {{ external_origin }}$request_uri;
+}
+{%- endif %}

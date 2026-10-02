@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import httpx
+import pytest
 
 from osprey.bridges.core import MENTION_RULE, CoreConfig, RoomMember
 from osprey.bridges.core.dedup import DedupStore
@@ -21,6 +22,7 @@ from osprey.bridges.teams.roster import (
     ROSTER_TTL_SECONDS,
     SEEN_MAX_PER_CONVERSATION,
     ConversationRoster,
+    share_audience,
 )
 from tests.bridges.teams.test_posting import RecordingConnector
 
@@ -271,3 +273,49 @@ def test_the_room_reaches_the_dispatch_payload(tmp_path):
         "members": [{"id": "29:111", "name": "Alice"}, {"id": "29:222", "name": "Carol"}],
         "mentions": MENTION_RULE,
     }
+
+
+# --- who may open a file ------------------------------------------------------
+
+TENANT = "66666666-7777-8888-9999-000000000000"
+
+
+def member(ident: str, oid: str | None, **extra: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {"id": ident, "name": ident, **extra}
+    if oid is not None:
+        entry["aadObjectId"] = oid
+    return entry
+
+
+def test_share_audience_is_every_persons_directory_id_in_listing_order():
+    members = [member("29:b", "oid-b"), member("29:a", "oid-a", tenantId=TENANT)]
+    assert share_audience(members, APP_ID, TENANT) == ("oid-b", "oid-a")
+
+
+def test_share_audience_leaves_out_the_bot_and_other_bots():
+    members = [
+        member(BOT, "oid-bot"),
+        member("28:other-bot", "oid-other"),
+        member("29:helper", "oid-helper", role="bot"),
+        member("29:a", "oid-a"),
+    ]
+    assert share_audience(members, APP_ID, TENANT) == ("oid-a",)
+
+
+@pytest.mark.parametrize("oid", [None, "", 7])
+def test_share_audience_leaves_out_a_member_with_no_directory_id(oid):
+    members = [member("29:a", "oid-a"), {"id": "29:b", "aadObjectId": oid}, "junk"]
+    assert share_audience(members, APP_ID, TENANT) == ("oid-a",)
+
+
+def test_share_audience_leaves_out_a_member_of_another_directory():
+    members = [
+        member("29:a", "oid-a", tenantId=TENANT),
+        member("29:b", "oid-b", tenantId="other-tenant"),
+    ]
+    assert share_audience(members, APP_ID, TENANT) == ("oid-a",)
+
+
+def test_share_audience_names_each_person_once():
+    members = [member("29:a", "oid-a"), member("29:a", "oid-a"), member("29:c", "oid-a")]
+    assert share_audience(members, APP_ID, TENANT) == ("oid-a",)

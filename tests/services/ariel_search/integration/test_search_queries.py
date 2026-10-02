@@ -214,6 +214,7 @@ class TestSemanticSearchWithRealEmbeddings:
         repository,
         seed_entry_factory,
         seeded_prefixes,
+        litellm_callback_pool,  # noqa: ARG002 - the embeddings below run their callbacks on it
     ):
         """Repository seeded with three entries and their embeddings.
 

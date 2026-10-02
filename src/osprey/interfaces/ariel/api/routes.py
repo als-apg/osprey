@@ -9,9 +9,10 @@ import json as _json
 import os
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 from osprey.interfaces.ariel.api.schemas import (
     DiagnosticResponse,
+    EmbeddingTableStatus,
     EntriesListResponse,
     EntryCreateRequest,
     EntryCreateResponse,
@@ -29,11 +31,12 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchResponse,
     StatusResponse,
 )
-from osprey.utils.config import to_facility_iso
+from osprey.utils.config import get_facility_timezone, to_facility_iso
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
+    from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 
 router = APIRouter(prefix="/api")
 logger = get_logger("ariel")
@@ -80,11 +83,11 @@ def _require_service(request: Request) -> ARIELSearchService:
         if errors:
             detail = f"{detail} Configuration errors: " + "; ".join(errors)
         raise HTTPException(status_code=503, detail=detail)
-    return service
+    return cast("ARIELSearchService", service)
 
 
 def _entry_to_response(
-    entry: dict,
+    entry: Mapping[str, Any],
     score: float | None = None,
     highlights: list[str] | None = None,
 ) -> EntryResponse:
@@ -252,8 +255,10 @@ async def get_capabilities(request: Request) -> dict:
     working service, so it returns the normal payload with the three
     configuration keys added; if that service is missing the database really
     is down and ``_require_service`` raises 503 as it does everywhere else.
-    An app whose state carries no configuration fields at all behaves exactly
-    as it did before this endpoint learned about them.
+    An app whose state carries no configuration fields at all answers with the
+    normal payload, with ``config_panel_enabled`` False. The payload names the
+    zone every entry timestamp in this API is rendered in, so the page can read
+    those times in it.
     """
     from osprey.interfaces.ariel.app import CONFIG_STATUS_INVALID, CONFIG_STATUS_WARNING
     from osprey.services.ariel_search.capabilities import get_capabilities as _get_caps
@@ -268,12 +273,23 @@ async def get_capabilities(request: Request) -> dict:
     # gate; this is its other half, never the only half. An app whose state
     # carries no flag is refused by that gate, so absence reads as False here.
     panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", False))
+    # Never raises: an invalid configuration answers UTC, which is also the
+    # zone to_facility_iso renders in then.
+    facility_timezone = get_facility_timezone().key
 
     if status == CONFIG_STATUS_INVALID or (errors and status is None and service is None):
-        return {**_invalid_capabilities(errors, remedy), "config_panel_enabled": panel_enabled}
+        return {
+            **_invalid_capabilities(errors, remedy),
+            "config_panel_enabled": panel_enabled,
+            "facility_timezone": facility_timezone,
+        }
 
     service = _require_service(request)
-    payload = {**_get_caps(service.config), "config_panel_enabled": panel_enabled}
+    payload = {
+        **_get_caps(service.config),
+        "config_panel_enabled": panel_enabled,
+        "facility_timezone": facility_timezone,
+    }
     if errors:
         payload = {
             **payload,
@@ -592,7 +608,7 @@ async def _publish_or_local(
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
-        entry = {
+        entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
             "timestamp": now,
@@ -719,7 +735,7 @@ async def _store_and_link_attachments(
     """
     from osprey.services.ariel_search.attachments import generate_attachment_id
 
-    attachment_infos: list[dict[str, Any]] = []
+    attachment_infos: list[AttachmentInfo] = []
     for filename, mime_type, data in staged:
         attachment_id = generate_attachment_id()
         await service.repository.store_attachment(
@@ -871,12 +887,12 @@ async def get_status(request: Request) -> StatusResponse:
             database_uri=status.database_uri,
             entry_count=status.entry_count,
             embedding_tables=[
-                {
-                    "table_name": t.table_name,
-                    "entry_count": t.entry_count,
-                    "dimension": t.dimension,
-                    "is_active": t.is_active,
-                }
+                EmbeddingTableStatus(
+                    table_name=t.table_name,
+                    entry_count=t.entry_count,
+                    dimension=t.dimension,
+                    is_active=t.is_active,
+                )
                 for t in status.embedding_tables
             ],
             active_embedding_model=status.active_embedding_model,

@@ -29,7 +29,6 @@ from urllib.parse import urljoin
 
 import httpx
 import pytest
-import websockets
 from fastapi.testclient import TestClient
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
@@ -41,6 +40,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     JupyterSidecar,
     kernel_notebook_path,
 )
+from osprey.interfaces.web_terminal.routes import proxy as proxy_module
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
 pytestmark = pytest.mark.slow
@@ -383,10 +383,10 @@ def _run_cell(socket: Any, code: str, session_id: str) -> str:
 
 
 class _RecordingConnect:
-    """``websockets.connect``, wrapped to record the handshake it then performs."""
+    """A websocket connect type, wrapped to record the handshake it then performs."""
 
-    def __init__(self) -> None:
-        self._connect = websockets.connect
+    def __init__(self, connect: Any) -> None:
+        self._connect = connect
         self.target: str | None = None
         self.headers: dict[str, str] = {}
 
@@ -466,6 +466,83 @@ def test_a_session_starts_on_the_osprey_kernelspec(
     )
 
 
+#: A kernelspec every sidecar can resolve unless something refuses it: ``ipykernel``
+#: ships it with the sidecar's own interpreter.
+UNLISTED_KERNEL = "python3"
+
+
+def _running_kernel_names(proxied: TestClient) -> list[str]:
+    response = proxied.get(f"{PANEL}/api/kernels")
+    assert response.status_code == 200
+    return sorted(kernel["name"] for kernel in response.json())
+
+
+def test_the_default_kernel_is_the_osprey_kernelspec(proxied: TestClient) -> None:
+    kernelspecs = proxied.get(f"{PANEL}/api/kernelspecs")
+
+    assert kernelspecs.status_code == 200
+    assert kernelspecs.json()["default"] == KERNELSPEC_NAME
+
+
+def test_a_kernel_outside_the_allow_list_is_refused(proxied: TestClient) -> None:
+    """A start naming an unlisted kernelspec fails, and no such kernel runs."""
+    response = proxied.post(f"{PANEL}/api/kernels", json={"name": UNLISTED_KERNEL})
+    try:
+        assert response.status_code != 201
+        assert UNLISTED_KERNEL not in _running_kernel_names(proxied)
+    finally:
+        if response.status_code == 201:
+            proxied.delete(f"{PANEL}/api/kernels/{response.json()['id']}")
+
+
+def test_a_kernel_started_without_a_name_is_the_osprey_kernel(proxied: TestClient) -> None:
+    response = proxied.post(f"{PANEL}/api/kernels", json={})
+    try:
+        assert response.status_code == 201
+        assert response.json()["name"] == KERNELSPEC_NAME
+    finally:
+        if response.status_code == 201:
+            proxied.delete(f"{PANEL}/api/kernels/{response.json()['id']}")
+
+
+def test_a_session_outside_the_allow_list_is_refused(proxied: TestClient) -> None:
+    """Both ways JupyterLab picks a kernel: a new session, and a switch of a running one."""
+    created = proxied.post(
+        f"{PANEL}/api/sessions",
+        json={
+            "path": "unlisted.ipynb",
+            "name": "unlisted.ipynb",
+            "type": "notebook",
+            "kernel": {"name": UNLISTED_KERNEL},
+        },
+    )
+    running = proxied.post(
+        f"{PANEL}/api/sessions",
+        json={
+            "path": "switched.ipynb",
+            "name": "switched.ipynb",
+            "type": "notebook",
+            "kernel": {"name": KERNELSPEC_NAME},
+        },
+    )
+    try:
+        assert running.status_code == 201
+        switched = proxied.patch(
+            f"{PANEL}/api/sessions/{running.json()['id']}",
+            json={"kernel": {"name": UNLISTED_KERNEL}},
+        )
+        after = proxied.get(f"{PANEL}/api/sessions/{running.json()['id']}")
+
+        assert created.status_code == 501
+        assert switched.status_code == 501
+        assert after.json()["kernel"]["name"] == KERNELSPEC_NAME
+        assert UNLISTED_KERNEL not in _running_kernel_names(proxied)
+    finally:
+        for response in (created, running):
+            if response.status_code == 201:
+                proxied.delete(f"{PANEL}/api/sessions/{response.json()['id']}")
+
+
 # ---------------------------------------------------------------------------
 # The channels socket
 # ---------------------------------------------------------------------------
@@ -477,9 +554,11 @@ def test_a_kernel_answers_over_the_proxied_socket(
 ) -> None:
     """A kernel_info round trip, and the upstream handshake that carried it."""
     session_id = uuid.uuid4().hex
-    recorded = _RecordingConnect()
+    # The handshake carries the sidecar's credential, so the proxy opens it
+    # through its redirect-refusing connect type; that is the one recorded.
+    recorded = _RecordingConnect(proxy_module._RedirectRefusingConnect)
 
-    with patch("websockets.connect", recorded):
+    with patch.object(proxy_module, "_RedirectRefusingConnect", recorded):
         with proxied.websocket_connect(
             f"{PANEL}/api/kernels/{kernel_id}/channels?session_id={session_id}"
         ) as socket:

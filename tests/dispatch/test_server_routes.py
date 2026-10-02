@@ -21,12 +21,19 @@ from an earlier ``create_server()`` would shadow the live one and 503).
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import time
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from starlette.testclient import TestClient
 
 from osprey.dispatch import server
+from osprey.dispatch.sources.cron import CronSource
 from osprey.dispatch.sources.webhook import WebhookSource
+from osprey.utils.owner_header import OWNER_HEADER
 from tests.conftest import dispatcher_route_registry
 
 
@@ -235,6 +242,88 @@ def test_dashboard_state_shape(app):
     assert any(t["name"] == "deploy" for t in body["triggers"])
 
 
+def test_dashboard_state_carries_a_clock_triggers_next_fire(tmp_path, monkeypatch):
+    """A clock trigger's next fire is its next slot, in UTC, read in the facility zone."""
+    berlin = ZoneInfo("Europe/Berlin")
+    path = tmp_path / "triggers.yml"
+    path.write_text(
+        "dispatcher:\n"
+        "  dispatch_target: http://localhost:9999\n"
+        "triggers:\n"
+        "  - name: morning\n"
+        "    source: cron\n"
+        "    source_config:\n"
+        '      at: ["07:45"]\n'
+        "    action:\n"
+        "      prompt: summarise the night\n"
+        "      allowed_tools: []\n"
+    )
+    monkeypatch.setenv("TRIGGERS_YML", str(path))
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret")
+    monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: berlin)
+
+    def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
+        return [_FakeEntryPoint("cron", CronSource)]
+
+    monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
+    app = server.create_server().http_app()
+
+    before = datetime.now(tz=UTC)
+    with TestClient(app) as client:
+        resp = client.get("/dashboard/state", headers={"Authorization": "Bearer secret"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["facility_timezone"] == "Europe/Berlin"
+    (trigger,) = body["triggers"]
+    next_fire = datetime.fromisoformat(trigger["next_fire"])
+    assert next_fire.utcoffset() == timedelta(0)
+    assert next_fire > before
+    assert next_fire - before <= timedelta(days=1, hours=1)
+    local = next_fire.astimezone(berlin)
+    assert (local.hour, local.minute) == (7, 45)
+
+
+def test_an_interval_or_webhook_trigger_has_no_next_fire(app):
+    with TestClient(app) as client:
+        resp = client.get("/dashboard/state", headers={"Authorization": "Bearer secret"})
+    (trigger,) = resp.json()["triggers"]
+    assert trigger["name"] == "deploy"
+    assert trigger["next_fire"] is None
+
+
+_BLANK_ALLOWED_TOOLS_YML = (
+    "dispatcher:\n"
+    "  dispatch_target: http://localhost:9999\n"
+    "triggers:\n"
+    "  - name: blank-tools\n"
+    "    source: webhook\n"
+    "    action:\n"
+    "      prompt: handle it\n"
+    "      allowed_tools:\n"
+)
+
+
+@pytest.mark.parametrize("route", ["/dashboard/triggers", "/dashboard/state"])
+def test_dashboard_reports_a_blank_allowed_tools_as_empty(tmp_path, monkeypatch, route):
+    path = tmp_path / "triggers.yml"
+    path.write_text(_BLANK_ALLOWED_TOOLS_YML)
+    monkeypatch.setenv("TRIGGERS_YML", str(path))
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret")
+
+    def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
+        return [_FakeEntryPoint("webhook", WebhookSource)]
+
+    monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
+    app = server.create_server().http_app()
+
+    with TestClient(app) as client:
+        resp = client.get(route, headers={"Authorization": "Bearer secret"})
+    assert resp.status_code == 200
+    body = resp.json()
+    (trigger,) = body if route == "/dashboard/triggers" else body["triggers"]
+    assert trigger["allowed_tools"] == []
+
+
 # ---------------------------------------------------------------------------
 # Dashboard READ endpoints are bearer-gated (they surface agent output).
 # ---------------------------------------------------------------------------
@@ -270,6 +359,26 @@ def test_dashboard_html_shell_is_ungated(app):
         resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
+
+
+def test_dashboard_injects_telemetry_url_and_org_from_env(app, monkeypatch):
+    monkeypatch.setenv("OSPREY_TELEMETRY_URL", "http://ctl-01.example.org:15080")
+    monkeypatch.setenv("OSPREY_TELEMETRY_ORG", "ops")
+    with TestClient(app) as client:
+        resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert '"telemetry_url": "http://ctl-01.example.org:15080"' in resp.text
+    assert '"telemetry_org": "ops"' in resp.text
+
+
+def test_dashboard_without_telemetry_env_injects_empty_values(app, monkeypatch):
+    monkeypatch.delenv("OSPREY_TELEMETRY_URL", raising=False)
+    monkeypatch.delenv("OSPREY_TELEMETRY_ORG", raising=False)
+    with TestClient(app) as client:
+        resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert '"telemetry_url": ""' in resp.text
+    assert '"telemetry_org": ""' in resp.text
 
 
 def test_stream_accepts_header_token(app, monkeypatch):
@@ -481,6 +590,7 @@ async def test_dispatch_with_policy_forwards_surface_tools(monkeypatch):
             "allowed_tools": ["read_pv"],
             "surface_tools": ["read_pv", "mcp__osprey_workspace__list_files"],
         },
+        surface_tools=["read_pv", "mcp__osprey_workspace__list_files"],
     )
     await reg.register(trig)
     await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
@@ -513,6 +623,7 @@ async def test_dispatch_with_policy_absent_surface_fields_forward_as_none(monkey
         name="t",
         source="webhook",
         action={"prompt": "base prompt", "allowed_tools": ["read_pv"]},
+        allowed_tools=["read_pv"],
     )
     await reg.register(trig)
     await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
@@ -521,6 +632,31 @@ async def test_dispatch_with_policy_absent_surface_fields_forward_as_none(monkey
     assert captured["allowed_tools"] == ["read_pv"]
     assert captured["surface_prompt"] is None
     assert captured["surface_tools"] is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_forwards_a_blank_allowed_tools_as_empty(tmp_path, monkeypatch):
+    """A blank ``allowed_tools:`` in the triggers file reaches the worker as ``[]``."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import load_triggers
+
+    path = tmp_path / "triggers.yml"
+    path.write_text(_BLANK_ALLOWED_TOOLS_YML)
+    _, (trig,) = load_triggers(str(path))
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["allowed_tools"] = allowed_tools
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    await reg.register(trig)
+    await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
+
+    assert captured["allowed_tools"] == []
 
 
 @pytest.mark.asyncio
@@ -818,3 +954,215 @@ def test_dashboard_cancel_worker_auth_failure_returns_502(app, monkeypatch):
     with TestClient(app) as client:
         resp = client.post("/dashboard/cancel/run-1", headers={"Authorization": "Bearer secret"})
     assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Who asked for a dashboard write
+# ---------------------------------------------------------------------------
+
+_SERVER_LOGGER = "osprey.dispatch.server"
+
+
+def _owner_lines(caplog, needle: str) -> list[str]:
+    """Messages the dispatcher logged that contain *needle*."""
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == _SERVER_LOGGER and needle in r.getMessage()
+    ]
+
+
+def test_dashboard_cancel_logs_the_owner_it_was_given(app, monkeypatch, caplog):
+    async def fake_cancel(_url, _token, run_id):
+        return {"run_id": run_id, "cancelled": True}
+
+    monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post(
+            "/dashboard/cancel/run-1",
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 200
+    lines = _owner_lines(caplog, "asked by alice")
+    assert len(lines) == 1
+    assert "cancelled" in lines[0]
+
+
+def test_dashboard_cancel_without_an_owner_logs_no_owner(app, monkeypatch, caplog):
+    async def fake_cancel(_url, _token, run_id):
+        return {"run_id": run_id, "cancelled": True}
+
+    monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post("/dashboard/cancel/run-1", headers={"Authorization": "Bearer secret"})
+    assert resp.status_code == 200
+    assert len(_owner_lines(caplog, "asked by no owner")) == 1
+
+
+def test_dashboard_clear_history_logs_the_owner_it_was_given(app, monkeypatch, caplog):
+    async def fake_clear(_url, _token, older_than_days):
+        return {"cleared": 4, "records_deleted": 4, "older_than_days": older_than_days}
+
+    monkeypatch.setattr(server, "clear_worker_history", fake_clear)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post(
+            "/dashboard/clear-history",
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 200
+    assert len(_owner_lines(caplog, "cleared by alice")) == 1
+
+
+def test_trigger_status_change_logs_the_owner_it_was_given(app, caplog):
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.put(
+            "/trigger/deploy/status",
+            json={"status": "disabled"},
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 200
+    assert len(_owner_lines(caplog, "Trigger 'deploy' set disabled by alice")) == 1
+
+
+def test_refused_dashboard_write_logs_no_owner_line(app, monkeypatch, caplog):
+    from osprey.dispatch.worker_client import WorkerAuthRejectedError
+
+    async def fake_cancel(_url, _token, _run_id):
+        raise WorkerAuthRejectedError("nope")
+
+    monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
+    with caplog.at_level(logging.INFO, logger=_SERVER_LOGGER), TestClient(app) as client:
+        resp = client.post(
+            "/dashboard/cancel/run-1",
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+    assert resp.status_code == 502
+    assert _owner_lines(caplog, "asked by") == []
+
+
+def test_webhook_fire_records_no_owner(app):
+    """A webhook fires on nobody's behalf, even when an owner header rides along."""
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook/deploy",
+            json={},
+            headers={"Authorization": "Bearer secret", OWNER_HEADER: "alice"},
+        )
+        assert resp.status_code == 202
+        registry = server.mcp._dispatcher_registry
+        deadline = time.monotonic() + 5
+        history: list = []
+        while not history:
+            assert time.monotonic() < deadline, "no history entry within 5 s"
+            history = client.portal.call(registry.get_history, "deploy")
+            if not history:
+                time.sleep(0.02)
+
+    (entry,) = history
+    assert "owner" not in entry
+
+
+def _folded_payload(prompt: str) -> dict:
+    """Return the event payload the fold appended to a dispatched prompt."""
+    return json.loads(prompt.split("Event payload (JSON):\n", 1)[1])
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_folds_a_stamped_instant_in_the_facility_zone(monkeypatch):
+    """An instant a trigger source stamped reaches the agent in the facility zone."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    stamp = datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["prompt"] = prompt
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(name="t", source="cron", action={"prompt": "base prompt"})
+    await reg.register(trig)
+    payload = {"source": "cron", "trigger": "t", "timestamp": stamp}
+    await server._dispatch_with_policy(trig, payload, reg, "http://w", "tok")
+
+    assert _folded_payload(captured["prompt"])["timestamp"] == "2026-01-16T05:00:00+09:00"
+    history = await reg.get_history("t")
+    assert history[-1]["event_data"]["timestamp"] is stamp
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_folds_a_webhook_timestamp_as_it_came(monkeypatch):
+    """A time a webhook body carries as text reaches the agent as it was sent."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["prompt"] = prompt
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(name="t", source="webhook", action={"prompt": "base prompt"})
+    await reg.register(trig)
+    await server._dispatch_with_policy(
+        trig, {"timestamp": "2026-01-15T20:00:00+00:00"}, reg, "http://w", "tok"
+    )
+
+    assert _folded_payload(captured["prompt"])["timestamp"] == "2026-01-15T20:00:00+00:00"
+
+
+@pytest.mark.usefixtures("facility_zone_config")
+@pytest.mark.asyncio
+async def test_a_cron_fire_reaches_the_agent_in_the_facility_zone(monkeypatch):
+    """The instant a cron tick stamps reaches the dispatched prompt in the facility zone."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
+        captured["prompt"] = prompt
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    async def instant_interval(_seconds):
+        await asyncio.sleep(0)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(
+        name="t",
+        source="cron",
+        action={"prompt": "base prompt"},
+        source_config={"interval_sec": 5},
+    )
+    await reg.register(trig)
+    fired = asyncio.Event()
+
+    async def callback(trigger, payload):
+        if not fired.is_set():
+            await server._dispatch_with_policy(trigger, payload, reg, "http://w", "tok")
+            fired.set()
+        return "d-1"
+
+    source = CronSource(sleep=instant_interval)
+    await source.start([trig], callback)
+    try:
+        await asyncio.wait_for(fired.wait(), timeout=5)
+    finally:
+        await source.stop()
+
+    folded = _folded_payload(captured["prompt"])["timestamp"]
+    stored = (await reg.get_history("t"))[0]["event_data"]["timestamp"]
+    assert folded.endswith("+09:00")
+    assert isinstance(stored, datetime)
+    assert stored.utcoffset() == timedelta(0)
+    assert datetime.fromisoformat(folded) == stored

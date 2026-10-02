@@ -211,6 +211,14 @@ def test_malformed_json_is_handled_gracefully():
     assert "?" in out
 
 
+@pytest.mark.parametrize("raw", ["[1, 2]", "42", '"text"'])
+def test_non_object_json_is_handled_gracefully(raw):
+    """JSON that is not an object renders the placeholder line, like unreadable input."""
+    rc, out = _run(raw)
+    assert rc == 0
+    assert "?" in out
+
+
 def test_output_is_single_line(tmp_path):
     """The statusline must emit exactly one line (no embedded newlines)."""
     payload = {

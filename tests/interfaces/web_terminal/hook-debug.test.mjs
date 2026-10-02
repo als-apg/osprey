@@ -22,6 +22,12 @@
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { initHookDebug } from '../../../src/osprey/interfaces/web_terminal/static/js/hook-debug.js';
+import {
+  FACILITY_ZONE,
+  VIEWER_ZONE,
+  stampFacilityZone,
+  zoneName,
+} from '../_support/facility-zone.mjs';
 
 /**
  * Build a Response-like object for the stubbed `fetch`. `fetchJSON` only
@@ -147,6 +153,51 @@ describe('populated activity log', () => {
     // Exactly one of each, matching the two seeded rows.
     expect(body.querySelectorAll('td.status-ok').length).toBe(1);
     expect(body.querySelectorAll('td.status-blocked').length).toBe(1);
+  });
+});
+
+describe('times on the facility clock', () => {
+  afterEach(() => stampFacilityZone(null));
+
+  /** @returns {string[]} */
+  function headers() {
+    return Array.from(logBodyEl().querySelectorAll('thead th')).map((th) => th.textContent ?? '');
+  }
+
+  test('the time column reads the stamped zone to the millisecond and the header names it', async () => {
+    stampFacilityZone(FACILITY_ZONE);
+    stubFetch({ entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }] });
+    initHookDebug();
+    await expandLog();
+
+    const expected = new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hourCycle: 'h23',
+      timeZone: FACILITY_ZONE,
+    }).format(new Date('2026-01-15T20:04:05.123Z'));
+    expect(logBodyEl().querySelector('td.log-ts')?.textContent).toBe(expected);
+    expect(headers()[0]).toBe(`Time (${zoneName(FACILITY_ZONE)})`);
+  });
+
+  test('a viewer on the facility clock sees a plain Time header', async () => {
+    stampFacilityZone(VIEWER_ZONE);
+    stubFetch({ entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }] });
+    initHookDebug();
+    await expandLog();
+
+    expect(headers()[0]).toBe('Time');
+  });
+
+  test('an unparseable stamp is shown as written', async () => {
+    stampFacilityZone(FACILITY_ZONE);
+    stubFetch({ entries: [{ ts: 'yesterday-ish', hook: 'PreToolUse', status: 'allowed' }] });
+    initHookDebug();
+    await expandLog();
+
+    expect(logBodyEl().querySelector('td.log-ts')?.textContent).toBe('yesterday-ish');
   });
 });
 

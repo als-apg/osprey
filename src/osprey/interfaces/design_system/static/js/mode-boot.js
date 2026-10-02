@@ -32,8 +32,8 @@
  * 2 reads `osprey-ui-mode--<scope>` instead — and does NOT fall back to the
  * bare key, since that polluted slot is the very thing being escaped; a scoped
  * page with no scoped value simply falls through to rung 3. With the attribute
- * absent (single-user serving, and every non-web_terminal interface that loads
- * this script) the legacy bare key is used unchanged.
+ * absent (single-user serving, where nothing is stamped) the legacy bare key is
+ * used unchanged.
  *
  * This duplicates storage-scope.js's `scopedStorageKey()` inline: as a
  * pre-paint IIFE this file imports nothing, so it mirrors the rule rather than

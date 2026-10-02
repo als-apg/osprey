@@ -99,7 +99,9 @@ def test_checker_names_the_yaml_resolver_for_a_boolean_list() -> None:
     assert "parses as a boolean" in message
 
 
-@pytest.mark.parametrize("name", ["2LEADING", "WITH-DASH", "WITH SPACE", "", "no-proxy"])
+@pytest.mark.parametrize(
+    "name", ["2LEADING", "WITH-DASH", "WITH SPACE", "", "no-proxy", "TRAILING_NEWLINE\n"]
+)
 def test_checker_rejects_names_outside_the_pattern(name: str) -> None:
     """The same pattern ``env.required`` and ``env.pinned`` are held to."""
     assert env_names_errors([name], "services.x.env") == [

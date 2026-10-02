@@ -29,6 +29,12 @@ import {
   headerHtml,
   printArtifact,
 } from '../../../src/osprey/interfaces/artifacts/static/js/print.js';
+import {
+  FACILITY_ZONE,
+  VIEWER_ZONE,
+  stampFacilityZone,
+  zoneName,
+} from '../_support/facility-zone.mjs';
 
 const MSG_POPUP_BLOCKED = 'Print blocked — please allow pop-ups for this site and try again.';
 const MSG_CHART_NOT_READY = 'Chart not yet rendered. Please wait for it to load, then try again.';
@@ -110,9 +116,34 @@ describe('fmtTime', () => {
     expect(fmtTime('')).toBe('');
   });
 
-  test('formats a valid timestamp via Date#toLocaleString', () => {
+  test('reads the stamped facility zone, with seconds, and names it', () => {
     const ts = '2026-07-03T15:45:00Z';
-    expect(fmtTime(ts)).toBe(new Date(ts).toLocaleString());
+    stampFacilityZone(FACILITY_ZONE);
+    try {
+      const expected = new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZoneName: 'short',
+        timeZone: FACILITY_ZONE,
+      }).format(new Date(ts));
+      expect(fmtTime(ts)).toBe(expected);
+    } finally {
+      stampFacilityZone(null);
+    }
+  });
+
+  test('names the zone even when the viewer shares it: the header leaves the screen', () => {
+    const ts = '2026-07-03T15:45:00Z';
+    stampFacilityZone(VIEWER_ZONE);
+    try {
+      expect(fmtTime(ts).endsWith(zoneName(VIEWER_ZONE, Date.parse(ts)))).toBe(true);
+    } finally {
+      stampFacilityZone(null);
+    }
   });
 
   test('non-ISO / fabricating input yields "" rather than an invented date', () => {

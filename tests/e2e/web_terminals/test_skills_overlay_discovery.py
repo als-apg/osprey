@@ -2,7 +2,7 @@
 web terminal launches with?
 
 The multi-user web terminal launches Claude Code with ``--setting-sources
-project`` unconditionally appended (``osprey.utils.claude_launcher``). This test
+project`` unconditionally appended (``osprey.agent_runner.launcher``). This test
 answers the gating question for the per-user *skills overlay*: when a skill is
 dropped into a filesystem location and ``claude`` starts with
 ``--setting-sources project``, does the harness DISCOVER that skill?
@@ -69,10 +69,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.claude_launcher import build_claude_launch_argv
+from osprey.agent_runner.launcher import build_claude_launch_argv
 from tests.e2e.sdk_helpers import is_claude_code_available
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 # The flags the web terminal launches ``claude`` with, read from the launcher
 # itself (unpinned: ``["claude", *flags]``) so this probe tracks the real launch.
@@ -236,6 +236,9 @@ def test_project_scope_skill_is_live_under_setting_sources_project(tmp_path: Pat
         "osprey-proj-probe",
         "Project-scope marker skill; token OSPREY_PROJ_PROBE_XYZ.",
     )
+    # The launch flags load only the rendered .mcp.json and the CLI refuses a project
+    # without one, so the probe renders an empty config as a built project would.
+    (project_dir / ".mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
 
     skills = _discovered_skills(
         config_dir=config_dir,
@@ -263,6 +266,9 @@ def test_user_scope_skill_is_inert_under_setting_sources_project(tmp_path: Path)
     config_dir = tmp_path / "config"
     project_dir = tmp_path / "project"
     project_dir.mkdir()
+    # The launch flags load only the rendered .mcp.json and the CLI refuses a project
+    # without one, so the probe renders an empty config as a built project would.
+    (project_dir / ".mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
     _write_skill(
         config_dir / "skills",
         "osprey-user-probe",

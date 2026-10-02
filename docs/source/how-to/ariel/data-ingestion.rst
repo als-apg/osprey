@@ -49,6 +49,10 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
      - ``generic_json``
      - Reads entries from a JSON file. ``id``, ``title``, ``text``, ``author``, ``timestamp`` and ``attachments`` map onto the common schema; every other top-level field is kept as entry metadata, and an explicit ``metadata`` object merges last and wins. Useful for demos, testing, and facilities without a custom API.
 
+**Entry times.** A time with a UTC offset, a ``Z`` or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (``system.timezone``). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time; it counts as failed in the run's totals (``osprey ariel watch``, ``osprey ariel sync``), and ``osprey ariel ingest`` reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.
+
+**Entry text.** The ALS eLog adapter stores entry text as plain text. It decodes HTML entities, turns the logbook's markup into line breaks, paragraphs and list items, and writes a link as its text followed by its address in parentheses. It also undoes the backslash escaping the logbook adds: ``\'``, ``\"`` and an encoded ``\&quot;`` become plain quotes, and a doubled backslash becomes one. A single backslash before any other character is kept. Text without markup keeps its line breaks and indentation. Entries stored before this behaviour are rewritten once by ``osprey ariel migrate``, which ``osprey ariel sync`` runs as its first step. Their enhancements are cleared, so the next ``osprey ariel enhance``, or each later sync or watch pass, embeds and summarises the plain text again.
+
 **Using a custom adapter:**
 
 An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``, or pass it as ``--adapter`` --- both accept every registered name, the framework's and your own.
@@ -91,6 +95,18 @@ Write it only as a deliberate choice. Nothing about the connection is authentica
 
 The same settings cover the sidecar-metadata fetch described below, so one ingest never reaches the logbook host two different ways.
 
+Links Back to the Logbook
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The agent cites entries by ID. Give it your logbook's address for one entry and it cites them as links instead:
+
+.. code-block:: yaml
+
+   ariel:
+     entry_url_template: "https://logbook.example.org/entry/{entry_id}"
+
+``{entry_id}`` is replaced with the entry's URL-encoded id, and the ARIEL tools return the result as ``entry_url`` beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries created through ARIEL and not yet published to the logbook get no link. The key, the tools that carry the URL and what a malformed template does are in :ref:`config-ariel-entry-url`.
+
 Sidecar Metadata
 ~~~~~~~~~~~~~~~~
 
@@ -122,6 +138,12 @@ Enhancement Pipeline
 
 Enhancement modules run after ingestion to add computed fields to stored entries. While the base ingestion captures the raw logbook text and metadata, enhancement modules derive additional structure from that text --- generating vector embeddings that enable semantic similarity search, using an LLM to extract keywords and summaries that improve search recall and the quality of the context the agent layer surfaces, or performing any other analysis that produces useful derived data. Each module inherits from ``BaseEnhancementModule`` and is discovered through the Osprey registry. Because enhancement is decoupled from ingestion, you can ingest a large dataset first and enhance it later, swap out models without re-ingesting, or run only the modules you need. Run them with ``osprey ariel enhance``.
 
+Each module runs only on the entries it has not finished. An entry whose
+enhancement by a module fails three times is left out of that module's later
+passes. Its status keeps the attempt count and the last error, a success clears
+the count, and ``osprey ariel enhance --force`` re-runs the entries it selects
+regardless.
+
 The built-in enhancement modules:
 
 .. tab-set::
@@ -144,6 +166,15 @@ The built-in enhancement modules:
                models:
                  - name: nomic-embed-text
                    dimension: 768
+                   max_input_tokens: 2048
+
+      ``max_input_tokens`` is the input window, in tokens, that the embedding
+      server applies to the model. ``ollama show nomic-embed-text`` prints it as
+      ``context length 2048``; the ``num_ctx 8192`` it also prints is clamped to
+      that. A longer entry is cut so its start is embedded, and the cut is logged
+      with the entry's id. The cut counts UTF-8 bytes, one per token, so it fits
+      device names, numbers and non-Latin script, which tokenize far more densely
+      than prose. A model listed without the key is cut to 512 tokens.
 
       The vector index over those tables is an HNSW index. It takes no sizing
       parameter, so there is nothing about it to author per deployment.
@@ -300,11 +331,14 @@ Watch-mode settings live under the ``ingestion.watch`` key in your ARIEL config 
      - ``2.0``
      - Multiply the poll interval by this factor on each consecutive failure
    * - ``max_interval_seconds``
-     - ``int``
+     - ``number``
      - ``3600``
      - Maximum poll interval after backoff (seconds)
 
 The base poll interval is set by the parent ``poll_interval_seconds`` key (default ``3600``).
+Both intervals are positive, finite numbers of seconds; any other value stops ARIEL from loading
+its config, with an error naming the key, and ``osprey health`` reports it on the
+``ariel_last_ingestion`` row.
 
 Backoff Behavior
 ~~~~~~~~~~~~~~~~

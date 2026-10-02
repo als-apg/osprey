@@ -44,10 +44,20 @@ Every tool that accepts a ``display`` argument supports three forms:
 
 On a backend shared by multiple web terminals, ``"active"`` resolves the
 process-global focused display — a race when two terminals perceive/drive
-concurrently. Set ``PHOEBUS_REQUIRE_HANDLE=1`` (or ``phoebus.require_handle:
-true`` in config.yml) to reject the implicit ``"active"`` fallback and force
-callers to address a specific display (a handle or an explicit name). Off by
-default — a single-instance deployment is unaffected.
+concurrently. A multi-user web-terminal deployment therefore stamps
+``PHOEBUS_REQUIRE_HANDLE=1`` on every terminal whose project runs a Phoebus
+server, which rejects the implicit ``"active"`` fallback and makes callers
+address a specific display (a handle or an explicit name). Elsewhere the switch
+is off by default and is turned on with ``phoebus.require_handle: true`` in
+config.yml or ``PHOEBUS_REQUIRE_HANDLE=1``. ``phoebus.require_handle: false``
+keeps ``"active"`` in a multi-user deployment too.
+
+Agent access
+------------
+``phoebus_drive`` is offered and served only when ``phoebus.agent_access`` is
+``read_write``. Under the default ``read`` the server leaves it out of
+``tools/list`` and refuses a call to it by the key's name. This is the only
+switch, because a panel runs whatever its widgets are wired to.
 
 Panel name registry
 -------------------
@@ -96,6 +106,7 @@ from osprey.mcp_server.http import (
     phoebus_bridge_url,
 )
 from osprey.mcp_server.phoebus.server import mcp
+from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
 from osprey.utils.workspace import (
     agent_data_base_dir,
     anchored_path,
@@ -196,7 +207,11 @@ def _require_handle() -> bool:
     Resolution order (mirrors ``osprey.interfaces.vendor.is_offline``):
 
     1. ``PHOEBUS_REQUIRE_HANDLE`` env var (truthy: 1/true/yes/on; falsy:
-       0/false/no/off) — set by the framework server definition; wins outright.
+       0/false/no/off) — wins outright. The multi-user web-terminal render
+       stamps ``PHOEBUS_REQUIRE_HANDLE=1`` on every terminal container whose
+       project runs a Phoebus server and does not set rung 2 to false. The
+       server definition never sets it, so a single-instance deployment is
+       governed by rung 2.
     2. ``phoebus.require_handle`` in config.yml.
     3. ``False`` default — existing ``"active"`` fallback behavior is unchanged.
     """
@@ -207,6 +222,35 @@ def _require_handle() -> bool:
         return False
     config = load_osprey_config()
     return bool(config.get("phoebus", {}).get("require_handle", False))
+
+
+def _check_drive_offered() -> None:
+    """Refuse a drive unless ``phoebus.agent_access`` is ``read_write``.
+
+    The refusal names the key, so a client whose settings still offer the
+    tool learns which switch withholds it.
+    """
+    try:
+        access = agent_access(load_osprey_config())
+    except ValueError as exc:
+        make_error(
+            "configuration_error",
+            str(exc),
+            [
+                f"Set {AGENT_ACCESS_KEY} to {READ!r} or {READ_WRITE!r} in the build profile and rebuild."
+            ],
+            details={"key": AGENT_ACCESS_KEY},
+        )
+    if access == READ:
+        make_error(
+            "not_supported",
+            f"Driving a Phoebus widget is off on this deployment: {AGENT_ACCESS_KEY} is {READ!r}.",
+            [
+                f"An administrator can allow it with {AGENT_ACCESS_KEY}: {READ_WRITE} "
+                "in the build profile, then rebuild."
+            ],
+            details={"key": AGENT_ACCESS_KEY, "value": READ},
+        )
 
 
 def _check_explicit_display(display: str) -> None:
@@ -648,8 +692,8 @@ async def phoebus_snapshot(
         dpi: Scale factor — 1.0 native, 2.0 HiDPI. Must be in (0, 8].
 
     Returns:
-        JSON artifact response including the saved file path. Use the Read tool on
-        that path to view the snapshot. While the control target differs from the
+        JSON artifact response including the saved file path. Open that path with
+        your file-reading tool to view the snapshot. While the control target differs from the
         deployment baseline, one informational line naming both targets precedes
         that JSON (see the module docstring).
     """
@@ -716,7 +760,7 @@ async def phoebus_snapshot(
             },
             access_details={
                 "file_format": "PNG",
-                "view_hint": f"Use Read tool on {fpath} to view the snapshot.",
+                "view_hint": f"Open {fpath} with your file-reading tool to view the snapshot.",
             },
             category="screenshot",
         )
@@ -733,7 +777,7 @@ async def phoebus_snapshot(
                     "status": "success",
                     "filepath": str(fpath),
                     "bytes": len(content),
-                    "view_hint": f"Use Read tool on {fpath} to view the snapshot.",
+                    "view_hint": f"Open {fpath} with your file-reading tool to view the snapshot.",
                 }
             ),
         )
@@ -776,10 +820,14 @@ async def phoebus_drive(
     Refuses outright while the session's control-system target differs from the
     deployment baseline: the bridge drives the baseline's Phoebus, so the drive
     would land on a target this session has left (see the module docstring).
+    Refused unless ``phoebus.agent_access`` is ``read_write``.
     """
-    # Checked before argument validation: the refusal is a fact about session
-    # state and holds for every argument, so an operator on the wrong target
-    # should learn that rather than first be sent to fix a typo'd verb.
+    # Both checks run before argument validation. Access is a fact about the
+    # deployment and the target is a fact about the session; both hold for
+    # every argument, so an operator learns them rather than first being sent
+    # to fix a typo'd verb, and a deployment that offers no drive says so
+    # before anything else.
+    _check_drive_offered()
     refusal = baseline_refusal(PHOEBUS_SUBJECT, "Driving a Phoebus widget")
     if refusal is not None:
         return make_error(BASELINE_REFUSAL_ERROR_TYPE, refusal[0], refusal[1])

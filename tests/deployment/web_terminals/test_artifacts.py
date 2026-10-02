@@ -8,9 +8,8 @@ import json
 import pytest
 import yaml
 
-from osprey.cli.templates.claude_code import DENY_DEFAULTS
+from osprey.agent_runner.tool_names import DENY_DEFAULTS, OPEN_MODE_EGRESS_TOOLS
 from osprey.deployment.web_terminals.artifacts import (
-    OPEN_MODE_EGRESS_TOOLS,
     UNRENDERED_SETTINGS,
     ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
@@ -23,10 +22,11 @@ from osprey.deployment.web_terminals.artifacts import (
     dangerously_allowed_bash_personas,
     open_mode_missing_by_persona,
     open_mode_offenders,
+    proxy_env_names_with_a_value,
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
-from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL
+from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL, PROXY_ENV_NAMES
 
 
 def _config(users):
@@ -113,38 +113,81 @@ def _auth_config(users):
     return config
 
 
-#: The proxy passthrough, uppercase only — the spelling every container in this
-#: stack is handed, for the reason the compose template spells out.
-_PROXY_LINES = [
-    "HTTP_PROXY=${HTTP_PROXY:-}",
-    "HTTPS_PROXY=${HTTPS_PROXY:-}",
-    "NO_PROXY=${NO_PROXY:-}",
-]
+@pytest.fixture
+def no_proxy_exports(monkeypatch):
+    """This process exports no proxy setting under either spelling, so the chain
+    written by each test is the only source the seam can read."""
+    for name in PROXY_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)
+    return monkeypatch
 
 
-def test_every_per_user_terminal_gets_the_proxy_passthrough(tmp_path):
+def _terminal_environment(dest, user):
+    services = yaml.safe_load(
+        (dest / "build" / "docker-compose.web.yml").read_text(encoding="utf-8")
+    )["services"]
+    return services[f"web-{user}"]["environment"]
+
+
+def _proxy_lines(environment):
+    return [line for line in environment if line.split("=", 1)[0].upper() in PROXY_ENV_NAMES]
+
+
+@pytest.mark.usefixtures("no_proxy_exports")
+def test_every_per_user_terminal_gets_each_proxy_setting_under_both_spellings(tmp_path):
     """The agent inside a terminal reaches the model provider, so on a proxied
     site that container needs the host's proxy settings. It cannot get them
     from `.env.users`: that file is a closed allowlist, and adding a name to it
-    by hand marks it authored and trips the drift refusal. So the three arrive
-    the same way the login service's do — interpolated from the deploy env
-    chain into this service's own `environment:`."""
+    by hand marks it authored and trips the drift refusal. So each one the
+    chain gives a value arrives in this service's own `environment:`, under its
+    uppercase name and its lowercase twin, both interpolated from the uppercase
+    name; the one the chain leaves empty arrives under neither."""
+    (tmp_path / ".env.shared").write_text(
+        "HTTPS_PROXY=http://proxy.example.com:8080\nNO_PROXY=localhost,.example.com\nHTTP_PROXY=\n",
+        encoding="utf-8",
+    )
+
     write_web_terminal_artifacts(_config(["alice", "bob"]), tmp_path)
 
-    services = yaml.safe_load(
-        (tmp_path / "build" / "docker-compose.web.yml").read_text(encoding="utf-8")
-    )["services"]
     for user in ("alice", "bob"):
-        environment = services[f"web-{user}"]["environment"]
-        assert all(line in environment for line in _PROXY_LINES), environment
-        # UPPERCASE ONLY: an empty lowercase name beside a set uppercase one
-        # pops the scheme in urllib.request.getproxies_environment, which is
-        # exactly what `${VAR:-}` renders on a host that sets no proxy.
-        assert not any(
-            value.lower().startswith(("http_proxy=", "https_proxy=", "no_proxy="))
-            and value.split("=", 1)[0].islower()
-            for value in environment
-        ), environment
+        assert _proxy_lines(_terminal_environment(tmp_path, user)) == [
+            "HTTPS_PROXY=${HTTPS_PROXY:-}",
+            "https_proxy=${HTTPS_PROXY:-}",
+            "NO_PROXY=${NO_PROXY:-}",
+            "no_proxy=${NO_PROXY:-}",
+        ]
+
+
+@pytest.mark.usefixtures("no_proxy_exports")
+def test_a_deployment_with_no_proxy_setting_hands_its_terminals_no_proxy_name(tmp_path):
+    write_web_terminal_artifacts(_config(["alice"]), tmp_path)
+
+    assert _proxy_lines(_terminal_environment(tmp_path, "alice")) == []
+
+
+def test_proxy_names_are_read_where_compose_reads_them(tmp_path, no_proxy_exports):
+    """Process environment over the chain, `.env` over `.env.shared`: the order
+    compose interpolates the rendered `${NAME:-}` lines in, so a line is written
+    exactly when compose will hand it a value."""
+    (tmp_path / ".env.shared").write_text(
+        "HTTP_PROXY=http://shared.example.com:8080\nHTTPS_PROXY=http://shared.example.com:8080\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text("HTTPS_PROXY=\n", encoding="utf-8")
+    no_proxy_exports.setenv("NO_PROXY", "localhost")
+    no_proxy_exports.setenv("HTTP_PROXY", " ")
+
+    assert proxy_env_names_with_a_value(tmp_path) == ("NO_PROXY",)
+
+
+def test_the_lowercase_chain_spelling_is_not_read(tmp_path, no_proxy_exports):
+    """The twin is derived from the uppercase name only; a lowercase chain name
+    is what `osprey up`'s advisory names, not a second source."""
+    (tmp_path / ".env.shared").write_text("https_proxy=http://proxy.example.com:8080\n")
+    no_proxy_exports.setenv("no_proxy", "localhost")
+
+    assert proxy_env_names_with_a_value(tmp_path) == ()
 
 
 def _rendered_auth_service(dest) -> dict:
@@ -255,8 +298,8 @@ def _write_persona_project(
     predicates walk, and the built `.claude/settings.json` artifact the deny checks
     read. `denies_bash=False` renders the artifact a project whose config carried
     `claude_code.permissions.remove_deny: ["Bash"]` would produce; `deny` sets the
-    whole list instead, for the open-mode gate, whose question is about four entries
-    rather than one.
+    whole list instead, for the open-mode gate, whose question is about every entry
+    of its set rather than one.
     """
     project_dir = tmp_path / "profiles" / name
     project_dir.mkdir(parents=True)
@@ -994,12 +1037,13 @@ def test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them():
     gate would clear a persona that still holds the tool. So the subset relationship
     is pinned rather than left to be noticed."""
     assert set(OPEN_MODE_EGRESS_TOOLS) <= set(DENY_DEFAULTS)
-    # And it is a STRICT subset on purpose: `Edit` writes files and the context7
-    # server reaches a documentation host, neither of which is a route back to
-    # this deployment's own terminals.
+    # And it is a STRICT subset on purpose: `Edit` and `EnterWorktree` write files,
+    # and a claude.ai connector runs in the provider's cloud rather than on this
+    # host, so none of them is a route back to this deployment's own terminals.
     assert set(DENY_DEFAULTS) - set(OPEN_MODE_EGRESS_TOOLS) == {
         "Edit",
-        "mcp__plugin_context7_context7__*",
+        "EnterWorktree",
+        "mcp__claude_ai_*",
     }
 
 
@@ -1019,11 +1063,26 @@ def test_open_mode_refuses_a_persona_that_may_run_a_shell(tmp_path):
     assert "modules.web_terminals.auth.method to 'token'" in message
 
 
+def test_open_mode_refuses_a_persona_that_may_run_a_background_shell(tmp_path):
+    """A background shell reaches every port on the host exactly as `Bash` does,
+    so a persona that lifts `Monitor` is refused on the same grounds."""
+    config = _open_roster_config(tmp_path, deny=_without("Monitor"))
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        check_open_mode_requirements(config, tmp_path)
+
+    assert excinfo.value.personas == ["operator"]
+    assert excinfo.value.missing_by_persona == {"operator": ["Monitor"]}
+    message = str(excinfo.value)
+    assert "may still reach the host network via 'Monitor'." in message
+    assert "modules.web_terminals.auth.method to 'token'" in message
+
+
 def test_open_mode_refuses_a_persona_that_lifted_only_one_web_tool(tmp_path):
     """`Bash` is not the whole perimeter, and a gate that only asked about it would
     clear a persona whose agent can still GET a neighbour's terminal. The refusal
-    names the one tool that is missing rather than sending the operator through all
-    four — three of which are already denied here."""
+    names the one tool that is missing rather than sending the operator through the
+    whole set — the rest of which is already denied here."""
     config = _open_roster_config(tmp_path, deny=_without("WebFetch"))
 
     with pytest.raises(OpenModeEgressError) as excinfo:
@@ -1036,7 +1095,7 @@ def test_open_mode_refuses_a_persona_that_lifted_only_one_web_tool(tmp_path):
 
 
 def test_open_mode_passes_when_every_persona_denies_the_whole_egress_set(tmp_path):
-    """The shipped default: a project rendered from `deny_defaults` denies all four,
+    """The shipped default: a project rendered from `deny_defaults` denies the whole set,
     so the ordinary open deployment starts. A gate that refused this would be a gate
     nobody could satisfy without hand-editing an artifact."""
     check_open_mode_requirements(_open_roster_config(tmp_path), tmp_path)
@@ -1073,9 +1132,9 @@ def test_open_mode_fails_closed_on_a_settings_artifact_it_cannot_read(tmp_path):
     assert excinfo.value.missing_by_persona == {"operator": list(OPEN_MODE_EGRESS_TOOLS)}
 
 
-def test_open_mode_names_the_missing_render_rather_than_all_four_tools(tmp_path):
+def test_open_mode_names_the_missing_render_rather_than_every_tool(tmp_path):
     """A persona with no rendered project on this host fails every deny check for
-    a reason no `permissions.deny` edit can fix. Listing the four entries there
+    a reason no `permissions.deny` edit can fix. Listing every entry there
     sends the operator to a file that is not on the disk — so that case is
     reported as the render it actually is, with the remedy that clears it.
 
@@ -1092,7 +1151,7 @@ def test_open_mode_names_the_missing_render_rather_than_all_four_tools(tmp_path)
     assert "'operator' has no rendered .claude/settings.json on this host" in message
     assert "osprey build" in message
     # The whole set is still what the deployment must eventually deny -- an
-    # unrendered persona denies nothing -- so the headline names all four.
+    # unrendered persona denies nothing -- so the headline names every entry.
     assert "'Bash'" in message
     # And the remedy no longer claims a re-pull alone clears this: what is read
     # here is THIS host's render, in either image-source mode.
@@ -1100,10 +1159,10 @@ def test_open_mode_names_the_missing_render_rather_than_all_four_tools(tmp_path)
 
 
 def test_open_mode_reads_the_settings_artifact_once_per_offender(tmp_path, monkeypatch):
-    """The gate names four entries per offender off ONE read of the artifact,
-    not one roster walk per entry. Four reads of the same small JSON file per
-    persona is affordable, but it is also four chances for the walks to disagree
-    about which personas a deployment has."""
+    """The gate names every entry per offender off ONE read of the artifact,
+    not one roster walk per entry. One read per entry of the same small JSON file
+    per persona is affordable, but it is also one more chance per entry for the
+    walks to disagree about which personas a deployment has."""
     from osprey.deployment.web_terminals import artifacts as artifacts_module
 
     reads: list[str] = []
@@ -1119,17 +1178,17 @@ def test_open_mode_reads_the_settings_artifact_once_per_offender(tmp_path, monke
     assert len(reads) == 1
 
 
-def test_open_mode_refuses_a_persona_that_denies_one_playwright_tool_by_name(tmp_path):
+def test_open_mode_refuses_a_persona_that_denies_only_the_playwright_plugin(tmp_path):
     """The near miss that looks safe. The artifact is compared by EXACT entry, so
-    a persona denying `...__browser_navigate` still ships every other browser
-    tool — and any of them reaches a neighbour's terminal just as well. The
-    refusal names the wildcard, which is the entry that actually closes it."""
-    wildcard = "mcp__plugin_playwright_playwright__*"
+    a persona denying the Playwright plugin's tools still ships every other
+    plugin's server — and any of them reaches a neighbour's terminal just as
+    well. The refusal names the namespace entry, which is the one that closes it."""
+    wildcard = "mcp__plugin_*"
     config = _open_roster_config(
         tmp_path,
         deny=[
             *_without(wildcard),
-            "mcp__plugin_playwright_playwright__browser_navigate",
+            "mcp__plugin_playwright_playwright__*",
         ],
     )
 

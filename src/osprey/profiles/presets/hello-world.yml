@@ -51,7 +51,7 @@ hooks:
   - writes-check   # Kill switch: refuse every write while writes_enabled is false
   - approval       # Gate hardware-write tool calls on human approval prompt
   - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
-  - memory-guard   # Gate Write/MultiEdit to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - memory-guard   # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - config-drift   # Warn at session start when the build is out of date
   - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt
   - panels-context # Tell the agent which web terminal panels exist
@@ -295,6 +295,16 @@ config:
   # rail's Tour control and the command palette. A roster entry's `tour:` field
   # overrides it per user.
   # web.tour: once
+  # Whether the title bar offers the control-target picker. `false` only for
+  # a persona that reaches no machine.
+  # web.control_target_picker: true
+
+  # ── Health checks ──────────────────────────────────────────────────────────
+  # `osprey health` warns when the disk holding this deployment has less than
+  # min_free_gb free or is at least max_used_percent full. Raise both on a
+  # large shared volume that runs full by design.
+  # health.disk.min_free_gb: 1.0
+  # health.disk.max_used_percent: 90
 
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.

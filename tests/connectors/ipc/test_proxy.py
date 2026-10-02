@@ -144,6 +144,14 @@ async def test_read_channel_round_trips_a_real_channel_value(teardown):
     assert child.requests[0].kwargs == {"channel_address": "SR:BEND:1:CUR", "timeout": None}
 
 
+async def test_a_reply_of_the_wrong_type_is_refused(teardown):
+    proxy, child = await _proxy_with_child(_echo_handler([1.25]))
+    teardown.append((proxy, child))
+
+    with pytest.raises(frames.FrameDecodeError, match="'read_channel'"):
+        await proxy.read_channel("SR:BEND:1:CUR")
+
+
 async def test_ndarray_payload_decodes_to_numpy_with_dtype_and_shape(teardown):
     waveform = np.arange(12, dtype=np.float32).reshape(3, 4)
     proxy, child = await _proxy_with_child(_echo_handler([_channel_value(waveform)]))

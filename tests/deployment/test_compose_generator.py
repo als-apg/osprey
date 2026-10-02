@@ -32,7 +32,12 @@ import yaml
 from ruamel.yaml import YAML
 
 import osprey.channel_roster as channel_roster
-from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    SECOND_LANE_KEYS,
+    lane_control_identity,
+    lane_env_prefix,
+)
 from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
@@ -1530,6 +1535,19 @@ def test_worker_archiver_link_stays_gated_on_a_deployed_store(network: str | Non
     assert "OSPREY_ARCHIVER_MONGODB_HOST" not in rendered
 
 
+def test_render_context_carries_the_registrys_second_lane_keys() -> None:
+    """Every template reads its second plan lanes from the lane registry.
+
+    A template that iterates its own list renders a lane short the moment the
+    registry grows, so the render context hands them the registry's keys.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _inject_project_metadata({"project_name": "p", "project_root": "/r/p"})
+
+    assert config["bluesky_second_lane_keys"] == list(SECOND_LANE_KEYS.values())
+
+
 def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None:
     """On the compose network the queue is reached by the bridge's service key.
 
@@ -1547,7 +1565,8 @@ def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
 
 
-def test_worker_plan_queue_link_covers_a_second_lane() -> None:
+@pytest.mark.parametrize("key", list(SECOND_LANE_KEYS.values()))
+def test_worker_plan_queue_link_covers_a_second_lane(key: str) -> None:
     """Each deployed lane is addressed under its own env prefix.
 
     Two lanes are two bridges, and a worker handed only lane one would queue
@@ -1555,13 +1574,16 @@ def test_worker_plan_queue_link_covers_a_second_lane() -> None:
     """
     rendered = _render_worker_template(
         env_present=True,
-        deployed_services=["bluesky", "bluesky_va"],
-        services_extra={"bluesky": {"port": 10080}, "bluesky_va": {"port": 10081}},
+        deployed_services=["bluesky", key],
+        services_extra={"bluesky": {"port": 10080}, key: {"port": 10081}},
     )
     environment = _worker_service(rendered)["environment"]
 
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
-    assert environment["BLUESKY_VA_BRIDGE_URL"] == "http://bluesky-va-bridge:10081"
+    assert (
+        environment[f"{lane_env_prefix(key)}_BRIDGE_URL"]
+        == f"http://{key.replace('_', '-')}-bridge:10081"
+    )
 
 
 def test_worker_plan_queue_link_is_absent_on_the_host_namespace() -> None:
@@ -4384,7 +4406,8 @@ def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
-    fight over one image.
+    fight over one image. A config-declared image also renders no build, so
+    compose pulls and runs it as named.
     """
     assert _nextcloud_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-proj-a-nextcloud-bridge:local}"
@@ -4409,6 +4432,7 @@ def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-nextcloud-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_nextcloud_bridge_build_context_is_project_dir_relative() -> None:
@@ -5072,7 +5096,8 @@ def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
-    fight over one image.
+    fight over one image. A config-declared image also renders no build, so
+    compose pulls and runs it as named.
     """
     assert _gchat_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_GCHAT_BRIDGE_IMAGE:-proj-a-gchat-bridge:local}"
@@ -5097,6 +5122,7 @@ def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_GCHAT_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-gchat-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_gchat_bridge_build_context_is_project_dir_relative() -> None:
@@ -5883,7 +5909,8 @@ def test_teams_bridge_image_follows_env_config_default_chain() -> None:
     config-declared image, then the project-namespaced ``:local`` tag that
     ``osprey up`` builds). The local tag must carry the project name: it is a
     host-global docker tag, so a static default would make two projects fight
-    over one image.
+    over one image. A config-declared image also renders no build, so compose
+    pulls and runs it as named.
     """
     assert _teams_bridge_service(project_name="proj-a")["image"] == (
         "${OSPREY_TEAMS_BRIDGE_IMAGE:-proj-a-teams-bridge:local}"
@@ -5908,6 +5935,7 @@ def test_teams_bridge_image_follows_env_config_default_chain() -> None:
     assert pinned["image"] == (
         "${OSPREY_TEAMS_BRIDGE_IMAGE:-ghcr.io/als-apg/osprey-teams-bridge:1.2.3}"
     )
+    assert "build" not in pinned
 
 
 def test_teams_bridge_build_context_is_project_dir_relative() -> None:
@@ -6043,6 +6071,8 @@ def test_teams_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
         "GITLAB_ISSUES_TOKEN",
         "TEAMS_CLOUD",
         "APP_VERSION_DISPLAY",
+        "TEAMS_FILES_DRIVE_ID",
+        "TEAMS_FILES_FOLDER",
     ):
         assert environment[var] == f"${{{var}:-}}", (
             f"{var} must pass through with an empty default so the config dataclass "
@@ -7004,7 +7034,7 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
 # "every interface" is every interface the MACHINE has rather than every
 # interface of a private compose network.
 #
-# The digest label is the one deliberate change to today's bytes. It carries
+# The digest label is the one label the templates write themselves. It carries
 # the fingerprint of the env chain the deploy read, so an edit to `.env`
 # changes the service definition and the container is recreated; without it the
 # runtime would leave the old environment running. It is unconditional — every
@@ -7025,13 +7055,15 @@ _DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
 #: :func:`test_render_carries_no_deploy_timestamp`.
 _DEPLOYED_AT_LABEL_LINE = '      osprey.deployed.at: ""\n'
 
-#: The config-digest label and the comment that carries its reasoning, as the
-#: committed side does not render them yet while this addition is uncommitted.
-#: The mirror image of :data:`_DEPLOYED_AT_LABEL_LINE` — one delta is a removal
-#: and this one an addition, and both have to be nameable for the comparison
-#: below to survive its own commit. Includes the comment because the delta IS
-#: the whole block: stripping the label alone would leave the comment as an
-#: unexplained difference and fail for the wrong reason.
+#: The config-digest label and the comment that carried its reasoning, which
+#: the template no longer writes: the build's generated labels override gives
+#: every rendered service that label. Named, like
+#: :data:`_DEPLOYED_AT_LABEL_LINE`, because a delta that is being REMOVED has to
+#: be nameable too or the comparison below cannot survive its own commit; once
+#: committed neither side emits it and the replacement is a no-op. Includes the
+#: comment because the delta IS the whole block: stripping the label alone
+#: would leave the comment as an unexplained difference and fail for the wrong
+#: reason.
 _CONFIG_DIGEST_BLOCK = (
     "      # Content fingerprint of the rendered config this deploy built\n"
     "      # (runtime_helper's as_built_config_digest, carried in by\n"
@@ -7042,6 +7074,15 @@ _CONFIG_DIGEST_BLOCK = (
     "      # the settings it parsed at startup. Empty when the invocation did not set\n"
     "      # the variable (a hand-run `docker compose up`).\n"
     '      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"\n'
+)
+
+#: The project, checkout and project-root labels the template no longer writes,
+#: as :func:`_dispatcher_context` renders them. Removed for the same reason as
+#: :data:`_CONFIG_DIGEST_BLOCK`: the generated labels override carries them.
+_GENERATED_LABEL_LINES = (
+    '      osprey.project.name: "p"\n'
+    '      com.osprey.repo-id: ""\n'
+    '      osprey.project.root: "/r"\n'
 )
 
 #: The MCP transport path and the comment carrying its reasoning, as the
@@ -7103,7 +7144,7 @@ def _head_dispatcher_render() -> str:
     return environment.from_string(head_source).render(**_dispatcher_context())
 
 
-def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_label() -> None:
+def test_dispatcher_default_render_matches_the_committed_one_but_for_the_label_deltas() -> None:
     """The enumerated deltas, byte for byte, and nothing else.
 
     Asserted on raw text rather than parsed YAML: the macros' whole whitespace
@@ -7118,6 +7159,7 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
         return (
             text.replace(_DIGEST_LABEL_LINE, "", 1)
             .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
+            .replace(_GENERATED_LABEL_LINES, "", 1)
             .replace(_CONFIG_DIGEST_BLOCK, "", 1)
             .replace(_MCP_TRANSPORT_PATH_BLOCK, "", 1)
         )
@@ -7125,7 +7167,10 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
-    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 1, "the config digest renders exactly once"
+    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 0, (
+        "the labels override carries the config digest"
+    )
+    assert _GENERATED_LABEL_LINES not in rendered, "the labels override carries the project labels"
     assert _normalized(rendered) == _normalized(_head_dispatcher_render())
 
 
@@ -9636,6 +9681,74 @@ class TestStageSiteImageArgsForContext:
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
         assert "/nope/ca.pem" in caplog.text
 
+    @staticmethod
+    def _unstage(compose_file: Path, out_dir: Path, args: dict[str, str]) -> None:
+        from osprey.deployment.compose_generator import _unstage_site_ca_without_build
+
+        _unstage_site_ca_without_build(str(compose_file), str(out_dir), args)
+
+    @staticmethod
+    def _staged_ca_config(root: Path) -> dict:
+        source = root / "elsewhere" / "site-ca.pem"
+        source.parent.mkdir()
+        source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+        return {"project_name": "p", "images": {"site_ca": str(source)}}
+
+    def test_a_fragment_that_builds_nothing_keeps_no_staged_ca(self, tmp_path: Path) -> None:
+        """A context whose rendered fragment builds nothing holds no CA copy.
+
+        The context keeps its ``Dockerfile`` when its fragment runs a named
+        image instead, so staging cannot tell from the directory alone; the
+        rendered document decides once it exists.
+        """
+        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+
+        context = self._context(tmp_path)
+        args = self._stage(self._staged_ca_config(tmp_path), context)
+        compose_file = context / "docker-compose.yml"
+        compose_file.write_text(
+            "services:\n  virtual-accelerator:\n    image: my-registry/va:1\n",
+            encoding="utf-8",
+        )
+
+        self._unstage(compose_file, context, args)
+
+        assert not (context / SITE_CA_CONTEXT_FILENAME).exists()
+
+    def test_a_fragment_that_builds_keeps_its_staged_ca(self, tmp_path: Path) -> None:
+        """A build that reads the CA finds it beside the fragment that names it."""
+        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+
+        context = self._context(tmp_path)
+        args = self._stage(self._staged_ca_config(tmp_path), context)
+        compose_file = context / "docker-compose.yml"
+        compose_file.write_text(
+            "services:\n  virtual-accelerator:\n    image: p-va:local\n"
+            "    build:\n      context: ./build/services/virtual_accelerator\n",
+            encoding="utf-8",
+        )
+
+        self._unstage(compose_file, context, args)
+
+        assert (context / SITE_CA_CONTEXT_FILENAME).is_file()
+
+    def test_an_unstaged_ca_named_file_is_never_removed(self, tmp_path: Path) -> None:
+        """A file this render did not stage is the service's own, and stays."""
+        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
+
+        context = self._context(tmp_path)
+        own = context / SITE_CA_CONTEXT_FILENAME
+        own.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+        compose_file = context / "docker-compose.yml"
+        compose_file.write_text(
+            "services:\n  virtual-accelerator:\n    image: my-registry/va:1\n",
+            encoding="utf-8",
+        )
+
+        self._unstage(compose_file, context, {})
+
+        assert own.is_file()
+
 
 class TestEnsureGroupSharedDirExact:
     """``exact=True`` sets the mode; the default only ever adds bits.
@@ -10664,6 +10777,147 @@ def test_both_render_paths_stage_the_control_identity_module(
 
     assert (out_dir / "control_identity.py").read_bytes() == _control_identity_source_bytes()
     assert (out_dir / "docker-compose.yml").is_file()
+
+
+# ---------------------------------------------------------------------------
+# A connection block's CA file, mounted into the containers that read the block
+#
+# A dispatch worker opens the SELECTED archiver block, the archive recorder
+# always opens `archiver.mongodb_archiver`; each gets the file its block names
+# under `tls.ca_bundle` bind-mounted read-only at the same path.
+# ---------------------------------------------------------------------------
+
+
+def _site_ca(tmp_path: Path) -> str:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n", encoding="utf-8")
+    return str(ca)
+
+
+def _ca_mount(path: str) -> dict:
+    return {"type": "bind", "source": path, "target": path, "read_only": True}
+
+
+def _ca_volumes(service: dict, path: str) -> list:
+    return [v for v in service["volumes"] if isinstance(v, dict) and v.get("source") == path]
+
+
+def test_connection_ca_bundles_mounts_the_workers_selected_archiver_ca(tmp_path: Path) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    ca = _site_ca(tmp_path)
+    block = {"url": "https://a.example", "tls": {"ca_bundle": ca}}
+    selected = {"archiver": {"type": "epics_archiver", "epics_archiver": block}}
+    unselected = {"archiver": {"type": "mock_archiver", "epics_archiver": block}}
+
+    assert _connection_ca_bundles(selected, "services/dispatch_worker") == [ca]
+    assert _connection_ca_bundles(unselected, "services/dispatch_worker") == []
+
+
+@pytest.mark.parametrize("archiver_type", ["mongodb_archiver", "mock_archiver", None])
+def test_connection_ca_bundles_mounts_the_recorders_store_ca(
+    tmp_path: Path, archiver_type: str | None
+) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    ca = _site_ca(tmp_path)
+    config = {
+        "archiver": {
+            "type": archiver_type,
+            "mongodb_archiver": {"host": "localhost", "tls": {"ca_bundle": ca}},
+        }
+    }
+
+    assert _connection_ca_bundles(config, "services/archiver_recorder") == [ca]
+
+
+@pytest.mark.parametrize("source_dir", ["services/bluesky", "services/mongodb"])
+def test_connection_ca_bundles_is_empty_for_other_services(tmp_path: Path, source_dir: str) -> None:
+    from osprey.deployment.compose_generator import _connection_ca_bundles
+
+    block = {"host": "localhost", "tls": {"ca_bundle": _site_ca(tmp_path)}}
+    config = {"archiver": {"type": "mongodb_archiver", "mongodb_archiver": block}}
+
+    assert _connection_ca_bundles(config, source_dir) == []
+
+
+def test_recorder_block_key_is_the_recorders_own() -> None:
+    from osprey.services.archiver_recorder import config as recorder_config
+
+    assert "archiver.mongodb_archiver" == ".".join(recorder_config._CONNECTION_PREFIX)
+
+
+def test_dispatch_worker_mounts_the_ca_read_only_at_the_same_path() -> None:
+    ca = "/etc/ssl/certs/site-ca.pem"
+    services = {
+        "virtual_accelerator": {"port": 5064},
+        "event_dispatcher": {"port": 10010},
+        "dispatch_worker": {"worker_count": 2, "workspace_mode": "isolated"},
+    }
+
+    rendered = _render_service_template(
+        "dispatch_worker/docker-compose.yml.j2",
+        "proj-a",
+        services=services,
+        connection_ca_bundles=[ca],
+    )
+
+    workers = _dispatch_worker_services(rendered)
+    assert sorted(workers) == ["dispatch-worker-1", "dispatch-worker-2"]
+    for body in workers.values():
+        assert _ca_volumes(body, ca) == [_ca_mount(ca)]
+
+
+@pytest.mark.parametrize("va_co_deployed", [True, False])
+def test_recorder_mounts_the_ca_read_only_at_the_same_path(va_co_deployed: bool) -> None:
+    ca = "/etc/ssl/certs/site-ca.pem"
+    deployed = ["mongodb", "archiver_recorder"]
+    if va_co_deployed:
+        deployed.append("virtual_accelerator")
+
+    rendered = _render_service_template(
+        _RECORDER_TEMPLATE, "proj-a", deployed_services=deployed, connection_ca_bundles=[ca]
+    )
+
+    recorder = yaml.safe_load(rendered)["services"]["archiver-recorder"]
+    assert _ca_volumes(recorder, ca) == [_ca_mount(ca)]
+
+
+@pytest.mark.parametrize("entry_point", ["full", "incremental"])
+def test_both_render_paths_carry_the_ca_bundles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_point: str
+) -> None:
+    from osprey.deployment.compose_generator import (
+        _incremental_setup_build_dir,
+        setup_build_dir,
+    )
+
+    ca = _site_ca(tmp_path)
+    repo = tmp_path / "repo"
+    service_dir = repo / "services" / "dispatch_worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text(
+        "{{ connection_ca_bundles | tojson }}\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(repo)
+    config = {
+        "build_dir": "./build",
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "archiver": {
+            "type": "epics_archiver",
+            "epics_archiver": {"url": "https://a.example", "tls": {"ca_bundle": ca}},
+        },
+    }
+    template = "services/dispatch_worker/docker-compose.yml.j2"
+    out_dir = repo / "build" / "services" / "dispatch_worker"
+    if entry_point == "full":
+        setup_build_dir(template, config, {})
+    else:
+        out_dir.mkdir(parents=True)
+        _incremental_setup_build_dir(template, config, {}, str(out_dir))
+
+    assert json.loads((out_dir / "docker-compose.yml").read_text(encoding="utf-8")) == [ca]
 
 
 def test_inject_project_metadata_carries_control_identity_keys(

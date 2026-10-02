@@ -8,7 +8,9 @@ Usage:
 """
 
 import logging
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 
 from fastmcp import FastMCP
 
@@ -25,7 +27,9 @@ mcp = FastMCP(
         "Search facility logbook entries and operational records. "
         "When an entry includes an `entry_url`, link to it verbatim; "
         "never construct, guess, or reuse another host to build a logbook "
-        "entry URL yourself."
+        "entry URL yourself. "
+        "An entry with `raw_text_truncated` shows only the start of its text; "
+        "`raw_text_length` is the full length, and `entry_get` returns the whole entry."
     ),
 )
 
@@ -105,6 +109,8 @@ def build_entry_url(entry_id: str | None, source_system: str | None = None) -> "
         return None
 
     try:
+        if not isinstance(template, str):
+            raise TypeError(f"expected a string, got {type(template).__name__}")
         return template.format(entry_id=quote(str(entry_id), safe=""))
     except Exception:
         global _entry_url_template_warned
@@ -118,18 +124,20 @@ def build_entry_url(entry_id: str | None, source_system: str | None = None) -> "
         return None
 
 
-def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
+def serialize_entry(entry: Mapping[str, Any], *, text_limit: int) -> dict[str, Any]:
     """Serialize an EnhancedLogbookEntry dict into a compact response dict.
 
     Timestamps are converted to the facility timezone for agent consumption.
 
     Args:
         entry: EnhancedLogbookEntry TypedDict (plain dict).
-        text_limit: Maximum characters of raw_text to include.
+        text_limit: Characters of `raw_text` to include; a longer text is cut to this
+            and marked with `raw_text_truncated` and `raw_text_length`.
 
     Returns:
         Serialized dict suitable for JSON response.
     """
+    from osprey.services.ariel_search.models import entry_text_fields
     from osprey.utils.config import to_facility_iso
 
     ts = to_facility_iso(entry["timestamp"])
@@ -139,7 +147,7 @@ def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
         "timestamp": ts,
         "author": entry.get("author", ""),
         "source_system": entry["source_system"],
-        "raw_text": entry["raw_text"][:text_limit],
+        **entry_text_fields(entry["raw_text"], text_limit, field="raw_text"),
         "summary": entry.get("summary"),
     }
     entry_url = build_entry_url(entry["entry_id"], entry["source_system"])

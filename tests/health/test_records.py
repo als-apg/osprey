@@ -134,6 +134,18 @@ class TestLoadConfig:
         assert state.yaml_error is None
         assert state.health_error is not None
 
+    def test_invalid_disk_threshold_degrades_with_expanded(self, tmp_path):
+        project = tmp_path / "proj"
+        config_path = _write_config(
+            project,
+            "project_name: bad_disk\nhealth:\n  disk:\n    min_free_gb: 0\n",
+        )
+        state, expanded, settings, config_ok = load_config(config_path, project)
+        assert config_ok is False
+        assert settings is None
+        assert expanded is not None
+        assert "health.disk.min_free_gb" in state.health_error
+
 
 # --------------------------------------------------------------------------- #
 # core_record
@@ -370,6 +382,29 @@ class TestBuildRecords:
         # the disk live — the two anchors are genuinely different.
         env_row = next(r for r in by_name["file_system"].func() if r.name == "env_file")
         assert env_row.status is Status.WARNING  # no .env at the repo root
+
+    def test_file_system_grades_disk_against_configured_thresholds(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        gb = 1024**3
+        monkeypatch.setattr(
+            "osprey.health.core.file_system.shutil.disk_usage",
+            lambda _path: SimpleNamespace(total=10_000 * gb, used=9_100 * gb, free=900 * gb),
+        )
+        repo = tmp_path / "repo"
+        config_path = _write_config(
+            repo / "build",
+            _VALID_CONFIG + "health:\n  disk:\n    max_used_percent: 95\n",
+        )
+
+        state, expanded, settings, config_ok = load_config(config_path, repo)
+        assert config_ok is True
+        records, _ = build_records(
+            state, expanded, settings, config_ok, repo, 30.0, render_path=state.config_path.parent
+        )
+        by_name = {r.name: r for r in records}
+        disk_row = next(r for r in by_name["file_system"].func() if r.name == "disk_space")
+        assert disk_row.status is Status.OK, disk_row.message
 
     def test_systemd_unit_is_assembled_and_anchored_on_the_repo_root(self, tmp_path, monkeypatch):
         """The boot unit is looked for beside the profile, not under the render.

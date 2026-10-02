@@ -1,0 +1,1 @@
+The artifact gallery's path chip, copy-path button and drag-to-terminal text now name the directory the deployment's artifact store writes to. A project with a non-default `agent_data.base_dir` was handed a `var/agent_data/artifacts/…` path that did not exist.

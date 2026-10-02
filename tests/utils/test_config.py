@@ -72,3 +72,16 @@ def test_config_still_loads_with_load_env_false(tmp_path, monkeypatch):
     builder = ConfigBuilder(config_path, load_env=False)
 
     assert builder.raw_config["project_root"] == "/test/project"
+
+
+def test_a_config_that_still_spells_a_connector_timeout_is_refused_when_read(tmp_path):
+    """The connector call bound is ``timeout_s``; the old key never loads."""
+    import pytest
+
+    config_file = tmp_path / "config.yml"
+    config_file.write_text("control_system:\n  connector:\n    epics:\n      timeout: 5.0\n")
+
+    with pytest.raises(
+        ValueError, match=r"control_system\.connector\.epics\.timeout is renamed to timeout_s"
+    ):
+        ConfigBuilder(str(config_file), load_env=False)

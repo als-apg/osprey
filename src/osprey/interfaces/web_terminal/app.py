@@ -14,6 +14,7 @@ import shlex
 from collections import deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -31,6 +32,7 @@ from osprey.interfaces.common_middleware import (
     apply_url_prefix,
     compute_url_prefix,
     forwarded_identity,
+    resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.bar_items_store import (
@@ -59,6 +61,13 @@ from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.interfaces.web_terminal.sidecar_status import (
+    PANEL_STATUS_DIRNAME,
+    SidecarStatus,
+    clear_status,
+    failure_reason,
+    write_status,
+)
 from osprey.interfaces.web_terminal.transcript_map import load as load_transcript_map
 from osprey.port_layout import default_port
 from osprey.profiles.web_panels import (
@@ -70,6 +79,8 @@ from osprey.profiles.web_panels import (
     panel_spec_enabled,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
+from osprey.utils.config import get_facility_timezone
+from osprey.utils.seconds import positive_seconds
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -127,9 +138,44 @@ def _launch_enabled_panel_servers(app: FastAPI, enabled_panels: set[str]) -> Non
         _launch_panel_server(app, PANEL_ID_TO_REGISTRY_KEY[panel_id])
 
 
-#: How long a sidecar gets to answer its own status endpoint after it is spawned.
-#: Generous: the first launch on a cold deployment builds the panel's assets.
-SIDECAR_READY_TIMEOUT = 60.0
+#: The config key that sets how long a sidecar gets to answer its own status
+#: endpoint after it is spawned.
+SIDECAR_READY_TIMEOUT_KEY = "web.sidecar_ready_timeout_s"
+
+#: The wait in seconds when the key is unset or unusable. Generous: the first
+#: launch on a cold deployment builds the panel's assets.
+DEFAULT_SIDECAR_READY_TIMEOUT_S = 60.0
+
+
+def resolve_sidecar_ready_timeout(value: object) -> float:
+    """Return the sidecar startup wait in seconds that *value* configures.
+
+    ``None`` (the key unset or set to null) gives the default. A usable value is
+    a finite number greater than zero, or a string that parses as one, since
+    ``${VAR}`` interpolation hands the reader strings. A ``bool`` is refused
+    although ``float(True)`` is ``1.0``: a one-second wait is never what
+    ``true`` meant. Anything unusable logs one warning naming the key and the
+    value, and the default applies; the reader never raises, because one tab's
+    wait must not block the terminal's start.
+
+    Args:
+        value: The raw value of ``web.sidecar_ready_timeout_s``.
+
+    Returns:
+        The wait in seconds.
+    """
+    if value is None:
+        return DEFAULT_SIDECAR_READY_TIMEOUT_S
+    seconds = positive_seconds(value)
+    if seconds is not None:
+        return seconds
+    logger.warning(
+        "%s is %r, not a positive number of seconds; using %s s",
+        SIDECAR_READY_TIMEOUT_KEY,
+        value,
+        DEFAULT_SIDECAR_READY_TIMEOUT_S,
+    )
+    return DEFAULT_SIDECAR_READY_TIMEOUT_S
 
 
 async def _launch_enabled_sidecars(app: FastAPI, enabled_panels: set[str]) -> None:
@@ -163,15 +209,24 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     anywhere leaves the URL unset, which is what a switched-off panel looks like.
 
     The blocking halves run in a worker thread. ``spawn()`` blocks only for the
-    fork, so it stays on the loop.
+    fork, so it stays on the loop. The readiness wait is
+    ``app.state.sidecar_ready_timeout_s``, which the lifespan resolves from
+    ``web.sidecar_ready_timeout_s``; every launch of a sidecar reads it there.
+
+    Every outcome is recorded (:func:`_record_sidecar_status`): ``starting``
+    before the sidecar is built, then ``running`` or ``failed`` with a one-line
+    reason. The object is registered in ``app.state.sidecars`` as soon as it is
+    built, so shutdown reaches a sidecar that is still coming up; a failed
+    launch removes it again.
 
     A sidecar that dies later is retracted the same way it was published: its
     ``on_exit`` hook, which the sidecar fires from its own watcher thread, hands
-    the loop a callback that clears the URL and drops the credential, so the
-    availability route answers unavailable at once and the next page load greys
-    the tab. The sidecar logs the exit itself, with its stderr tail. Nothing
-    restarts it; the object stays in ``app.state.sidecars`` so shutdown still
-    removes its per-launch tempdir.
+    the loop a callback that clears the URL, drops the credential and records
+    the sidecar as failed, so the availability route answers unavailable at
+    once. The sidecar logs the exit itself, with its stderr tail. Nothing
+    restarts it on its own: :func:`request_sidecar_start` starts a fresh one
+    when the operator opens the panel, and until then the dead object stays in
+    ``app.state.sidecars`` so shutdown still removes its per-launch tempdir.
 
     Args:
         app: The web-terminal application whose ``state`` the URL is published on.
@@ -179,6 +234,7 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     """
     attr = panel_url_state_attr(panel_id)
     setattr(app.state, attr, None)
+    _record_sidecar_status(app, panel_id, SidecarStatus.starting())
     sidecar = None
     try:
         from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
@@ -190,9 +246,13 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
             compute_url_prefix(),
             getattr(app.state, "web_theme_mode", None),
         )
+        app.state.sidecars[panel_id] = sidecar
         await asyncio.to_thread(sidecar.preflight)
+        if app.state.sidecars_closing:
+            raise RuntimeError("the terminal is shutting down")
         sidecar.spawn()
-        await asyncio.to_thread(sidecar.wait_ready, SIDECAR_READY_TIMEOUT)
+        timeout = getattr(app.state, "sidecar_ready_timeout_s", DEFAULT_SIDECAR_READY_TIMEOUT_S)
+        await asyncio.to_thread(sidecar.wait_ready, timeout)
     except Exception as exc:  # a dead panel must not block startup
         # The readiness failures already quote the tail in their own message;
         # the preflight ones carry none, so it is appended only when it is new.
@@ -201,20 +261,33 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
         logger.warning("%s sidecar failed to start: %s", panel_id, detail)
         if sidecar is not None:
             await _stop_sidecar(panel_id, sidecar)
+            if app.state.sidecars.get(panel_id) is sidecar:
+                app.state.sidecars.pop(panel_id)
         setattr(app.state, attr, None)
+        if app.state.sidecars_closing:
+            return  # shutdown clears the record; a failure it caused is not one
+        reason = failure_reason(str(exc), tail, getattr(sidecar, "token", None))
+        _record_sidecar_status(app, panel_id, SidecarStatus.failed(reason))
         return
 
-    app.state.sidecars[panel_id] = sidecar
     app.state.panel_auth_headers[panel_id] = sidecar.auth_headers
     setattr(app.state, attr, sidecar.url)
     logger.info("%s sidecar available at %s", panel_id, sidecar.url)
+    _record_sidecar_status(app, panel_id, SidecarStatus.running())
 
     loop = asyncio.get_running_loop()
 
     def retract() -> None:
+        # A late exit of a sidecar that has since been replaced owns nothing.
+        if app.state.sidecars.get(panel_id) is not sidecar:
+            return
         setattr(app.state, attr, None)
         app.state.panel_auth_headers.pop(panel_id, None)
-        logger.info("%s panel retracted; restart the terminal to bring it back", panel_id)
+        reason = failure_reason(
+            f"exited with status {sidecar.exit_status}", sidecar.stderr_tail, sidecar.token
+        )
+        _record_sidecar_status(app, panel_id, SidecarStatus.failed(reason))
+        logger.info("%s panel retracted; opening its tab starts it again", panel_id)
 
     def on_exit() -> None:
         # Runs on the sidecar's watcher thread; ``app.state`` belongs to the loop.
@@ -226,6 +299,79 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     # Registered last: a setter that fires when the exit already happened
     # closes the gap between readiness and this line.
     sidecar.on_exit = on_exit
+
+
+async def request_sidecar_start(app: FastAPI, panel_id: str) -> SidecarStatus:
+    """Start the sidecar behind *panel_id* again, one attempt at a time.
+
+    The operator's retry, and the only one: nothing calls this on its own. A
+    request while an attempt is in flight joins it, and a request for a
+    published sidecar does nothing; both answer the current status. Otherwise
+    one task stops the dead sidecar left in ``app.state.sidecars``, which reaps
+    its tempdir and any straggling kernels, and then runs a fresh
+    :func:`_launch_sidecar`. That is the same function the lifespan's first
+    attempt awaits, so the retry waits exactly as long.
+
+    Args:
+        app: The web-terminal application.
+        panel_id: An enabled sidecar panel id, a key of ``SIDECAR_PANELS``.
+
+    Returns:
+        The status recorded once the request is handled: ``starting`` for a
+        new or joined attempt, ``running`` for a published sidecar.
+    """
+    tasks: dict[str, asyncio.Task[None]] = app.state.sidecar_start_tasks
+    recorded: dict[str, SidecarStatus] = app.state.sidecar_status
+    task = tasks.get(panel_id)
+    if task is not None and not task.done():
+        return recorded[panel_id]
+    if getattr(app.state, panel_url_state_attr(panel_id), None):
+        return recorded[panel_id]
+
+    # Registered before anything awaits, so a second request joins this attempt.
+    # Recorded here as well as by the launch, so the answer below is the new
+    # attempt's and not the failure it replaces.
+    dead = app.state.sidecars.pop(panel_id, None)
+    _record_sidecar_status(app, panel_id, SidecarStatus.starting())
+    task = asyncio.create_task(_relaunch_sidecar(app, panel_id, dead))
+    tasks[panel_id] = task
+
+    def _forget(done: asyncio.Task[None]) -> None:
+        if tasks.get(panel_id) is done:
+            tasks.pop(panel_id)
+
+    task.add_done_callback(_forget)
+    return recorded[panel_id]
+
+
+async def _relaunch_sidecar(app: FastAPI, panel_id: str, dead: object | None) -> None:
+    """Stop the dead sidecar *dead*, then launch a fresh one for *panel_id*.
+
+    Args:
+        app: The web-terminal application.
+        panel_id: The sidecar's panel id.
+        dead: The sidecar the failed attempt left behind, or ``None``.
+    """
+    if dead is not None:
+        await _stop_sidecar(panel_id, dead)
+    if app.state.sidecars_closing:
+        return
+    await _launch_sidecar(app, panel_id)
+
+
+def _record_sidecar_status(app: FastAPI, panel_id: str, status: SidecarStatus) -> None:
+    """Record *status* for *panel_id*: in memory for the routes, on disk for other processes.
+
+    The disk write never raises (:func:`~osprey.interfaces.web_terminal.sidecar_status.write_status`),
+    so recording cannot fail a launch.
+
+    Args:
+        app: The web-terminal application holding the in-memory copy.
+        panel_id: The sidecar's panel id.
+        status: The outcome to record.
+    """
+    app.state.sidecar_status[panel_id] = status
+    write_status(app.state.panel_status_root, panel_id, status)
 
 
 async def _stop_sidecar(panel_id: str, sidecar: object) -> None:
@@ -337,40 +483,6 @@ def resolve_ui_mode(configured: str) -> str:
         DEFAULT_UI_MODE,
     )
     return DEFAULT_UI_MODE
-
-
-def resolve_storage_scope(terminal_user: str | None) -> str:
-    """Resolve the per-user namespace for the browser's ``localStorage``.
-
-    Multi-user deployments put one container per user behind a shared nginx
-    front door at ``/u/<user>/`` — **same origin**, so every user shares one
-    ``localStorage``. Without a namespace, one user's dock layout, rail
-    position, palette history and active PTY session id are read and
-    overwritten by the next user to log in on that browser.
-
-    The namespace is decided here rather than in the browser: the served
-    documents stamp it onto ``<html data-osprey-storage-scope>`` and every JS
-    storage site reads it from there, so no client-side code has to parse
-    ``location.pathname`` to work out which mount it is running under (a page
-    fetched through a rewriting proxy, or opened at a path nginx normalised,
-    would parse the wrong answer out of it).
-
-    Reads the same value :func:`~osprey.interfaces.common_middleware.compute_url_prefix`
-    reads, with the same blank-means-unset rule, so the scope and the
-    ``/u/<user>`` prefix can never name different users.
-
-    Args:
-        terminal_user: The deployment's mount user (``OSPREY_TERMINAL_USER``,
-            as captured on ``app.state.terminal_user``). ``None``, empty or
-            blank is a single-user/dev deployment.
-
-    Returns:
-        The namespace token, or ``""`` when there is no mount user. Callers
-        must render the attribute **only** for a truthy result: an empty
-        ``data-osprey-storage-scope=""`` reads as "scoped to nothing" rather
-        than "unscoped", and single-user markup must stay exactly as it was.
-    """
-    return str(terminal_user or "").strip()
 
 
 #: The two supported rail positions. ``left`` is the icon-rail column;
@@ -573,7 +685,11 @@ BAR_ITEM_MULTI: frozenset[str] = frozenset({"clock", "stopwatch", "space", "sepa
 #: frozen and shared across requests.
 BAR_ITEM_OPTIONS: dict[str, dict[str, dict]] = {
     "clock": {
-        "zone": {"kind": "enum", "values": ("none", "local", "utc", "both"), "default": "none"},
+        "zone": {
+            "kind": "enum",
+            "values": ("none", "local", "facility", "utc", "both"),
+            "default": "none",
+        },
         "format": {"kind": "enum", "values": ("24h", "12h"), "default": "24h"},
         "seconds": {"kind": "boolean", "default": False},
     },
@@ -615,6 +731,7 @@ BAR_ITEM_AVAILABILITY: dict[str, Callable[[dict], bool]] = {
     "identity": lambda ctx: ctx.get("identityAvailable") is True,
     "bluesky-queue": lambda ctx: ctx.get("blueskyAvailable") is True,
     "system-health": lambda ctx: ctx.get("systemHealthAvailable") is True,
+    "control-target": lambda ctx: ctx.get("controlTargetAvailable") is True,
 }
 
 #: What each gated item needs, in the words a ``web.bar_items`` warning uses to
@@ -625,6 +742,7 @@ BAR_ITEM_GATES: dict[str, str] = {
     "identity": "a terminal user or a deployment name",
     "bluesky-queue": "the Bluesky panel",
     "system-health": "the SYSTEM panel",
+    "control-target": "web.control_target_picker: true",
 }
 
 
@@ -691,6 +809,7 @@ def bar_availability_context(
     identity_available: bool,
     bluesky_available: bool,
     system_health_available: bool,
+    control_target_available: bool,
 ) -> dict:
     """What this deployment offers, in the vocabulary the catalog asks in.
 
@@ -710,6 +829,8 @@ def bar_availability_context(
             is where the plan-queue item reads the queue.
         system_health_available: Whether it enables the SYSTEM panel, whose
             proxy is where the system-health item reads the report.
+        control_target_available: Whether it offers the control-target picker
+            (``web.control_target_picker``).
 
     Returns:
         The context, JSON-serializable exactly as stamped.
@@ -718,7 +839,37 @@ def bar_availability_context(
         "identityAvailable": bool(identity_available),
         "blueskyAvailable": bool(bluesky_available),
         "systemHealthAvailable": bool(system_health_available),
+        "controlTargetAvailable": bool(control_target_available),
     }
+
+
+def control_target_picker_available(config_path: str | Path | None) -> bool:
+    """Whether this deployment's title bar offers the control-target picker.
+
+    Read from ``web.control_target_picker``, default ``True``. A persona whose
+    terminal reaches no machine sets it ``false``, and the chip, its popover and
+    the ``control-target`` bar item are then absent.
+
+    A config that cannot be read keeps the picker. This is a display setting,
+    not a privilege gate: it grants and removes no access, so the shipped
+    default is the honest answer when the file says nothing legible.
+    :func:`resolve_privilege_gates` closes on the same failure because it
+    guards edits.
+
+    Args:
+        config_path: The project config, or None for the default lookup.
+
+    Returns:
+        False only when the config says ``false``.
+    """
+    try:
+        raw = _load_web_ui_config(config_path).get("control_target_picker")
+    except Exception:
+        logger.warning(
+            "web.control_target_picker could not be read; showing the control-target picker."
+        )
+        return True
+    return coerce_config_flag("web.control_target_picker", raw, True)
 
 
 def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
@@ -758,7 +909,8 @@ def deployment_bar_context(app: FastAPI) -> dict:
     Args:
         app: The application, its lifespan far enough along to have resolved
             the panel set, the Bluesky declaration, the terminal user and the
-            deployment name. Anything not yet on state reads as absent.
+            deployment name. Anything not yet on state reads as absent, except
+            the picker setting, which reads as on: on is the key's default.
 
     Returns:
         The context :func:`bar_availability_context` builds.
@@ -771,6 +923,7 @@ def deployment_bar_context(app: FastAPI) -> dict:
         ),
         bluesky_available=bool(getattr(state, "bluesky_available", False)),
         system_health_available=SYSTEM_HEALTH_PANEL_ID in enabled_panels,
+        control_target_available=bool(getattr(state, "control_target_picker_available", True)),
     )
 
 
@@ -991,39 +1144,81 @@ _FALSE_WORDS = frozenset({"false", "no", "off", "0"})
 _TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
 
 
-def resolve_config_flag(
-    key: str, default: bool, on_error: str, *, config_path: str | Path | None = None
-) -> bool:
-    """Read a configured boolean switch at startup, failing OPEN to *default*.
+@dataclass(frozen=True)
+class PrivilegeGates:
+    """The two privilege gates a surface resolves out of its config file.
 
-    The read and the coercion are one step because the two failure modes want
-    the same answer: a config that cannot be loaded and a value nobody can
-    interpret both leave the switch at the deployment's shipped posture. A
-    startup switch that silently revoked a surface because the config file was
-    briefly unreadable would be the worst possible failure here.
+    Attributes:
+        config_panel_enabled: Whether the Config panel's server surface
+            (``/api/config`` and ``/api/claude-setup``) is live.
+        scaffold_write_enabled: Whether the scaffold gallery's write and delete
+            routes under ``/api/scaffold`` are live.
+        config_unreadable_path: The resolved config file that exists but
+            could not be read, or ``None``.
+    """
+
+    config_panel_enabled: bool
+    scaffold_write_enabled: bool
+    config_unreadable_path: Path | None = None
+
+
+def resolve_privilege_gates(config_path: str | Path | None) -> PrivilegeGates:
+    """Read both privilege gates out of the config file a surface resolved.
+
+    No file resolved means the shipped defaults, read out of nothing: a
+    privilege gate answered out of a file the surface was not pointed at is
+    worse than one at its default. A resolved file that cannot be read closes
+    both gates, because an unreadable config is not permission to author what
+    the agent obeys. A readable file holding a value nobody can interpret takes
+    the default through :func:`coerce_config_flag`.
+
+    Both keys are read in one pass, so one file gives one answer for both
+    gates and a failure is reported once. A surface refusing because the file
+    could not be read words it with :func:`unreadable_config_refusal`.
 
     Args:
-        key: Dotted config key, read and reported verbatim.
-        default: Posture for a deployment that never mentions the key.
-        on_error: Warning logged when the config cannot be read at all; it says
-            which switch was left at its default and what that means.
-        config_path: The config file to answer from. A surface that resolved its
-            own config file names it here, so the switch is read out of that file
-            rather than out of whichever one this process defaults to. None reads
-            the process default (``CONFIG_FILE``, else ``config.yml`` in the
-            working directory).
+        config_path: The config file this surface resolved, or ``None``.
 
     Returns:
-        The configured boolean, or *default*.
+        The two gates, and the unreadable file when there is one.
     """
-    try:
-        from osprey.utils.config import get_config_value
+    if config_path is None:
+        return PrivilegeGates(True, True)
+    from osprey.utils.config import get_config_value
 
-        raw = get_config_value(key, default, str(config_path) if config_path is not None else None)
-    except Exception:  # never let config load block startup
-        logger.warning(on_error, exc_info=True)
-        raw = None
-    return coerce_config_flag(key, raw, default)
+    try:
+        panel_raw = get_config_value("web.config_panel.enabled", True, str(config_path))
+        scaffold_raw = get_config_value(
+            "web.scaffold_gallery.write_enabled", True, str(config_path)
+        )
+    except Exception:
+        logger.error(
+            "Could not read the config file %s; the Config panel and scaffold gallery "
+            "writes are closed until it reads cleanly",
+            config_path,
+            exc_info=True,
+        )
+        return PrivilegeGates(False, False, Path(config_path))
+    return PrivilegeGates(
+        coerce_config_flag("web.config_panel.enabled", panel_raw, True),
+        coerce_config_flag("web.scaffold_gallery.write_enabled", scaffold_raw, True),
+    )
+
+
+def unreadable_config_refusal(path: str | Path) -> str:
+    """The refusal every surface gives when an existing config file could not be read.
+
+    It names the file and the fix. The privilege gates are resolved once at
+    startup, so restarting the server after the file is fixed is what reopens
+    them.
+
+    Args:
+        path: The config file that exists but could not be read.
+
+    Returns:
+        The refusal sentence, naming the file and the fix.
+    """
+    return f"{path} could not be read; fix it and restart the server"
 
 
 def coerce_config_flag(key: str, value: object, default: bool) -> bool:
@@ -1368,7 +1563,8 @@ def _load_config_section(section: str, config_path: str | Path | None = None) ->
         if path and path.exists() and path.is_file():
             with open(path) as f:
                 config = yaml.safe_load(f) or {}
-            return config.get(section, {})
+            value = config.get(section, {}) if isinstance(config, dict) else {}
+            return value if isinstance(value, dict) else {}
 
     return {}
 
@@ -1642,7 +1838,7 @@ def _log_claude_cli_versions(argv: list[str]) -> None:
     Args:
         argv: The argv prefix the PTY will spawn.
     """
-    from osprey.utils.claude_launcher import argv_cli_version, bundled_cli_version
+    from osprey.agent_runner.launcher import argv_cli_version, bundled_cli_version
 
     bundled = bundled_cli_version()
     logger.info(
@@ -1781,7 +1977,7 @@ def _create_lifespan(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        from osprey.utils.claude_launcher import build_claude_launch_argv
+        from osprey.agent_runner.launcher import build_claude_launch_argv
         from osprey.utils.shell_resolver import normalize_shell_command
 
         config = _load_web_config(config_path)
@@ -1936,14 +2132,14 @@ def _create_lifespan(
                 logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
 
         # Resolve and store config_path for the settings API
-        resolved_config_path = None
-        for candidate in [
+        resolved_config_path: Path | None = None
+        for config_candidate in [
             Path(config_path) if config_path else None,
             Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
             Path("config.yml"),
         ]:
-            if candidate and candidate.exists() and candidate.is_file():
-                resolved_config_path = candidate.resolve()
+            if config_candidate and config_candidate.exists() and config_candidate.is_file():
+                resolved_config_path = config_candidate.resolve()
                 break
         app.state.config_path = resolved_config_path
 
@@ -2064,15 +2260,8 @@ def _create_lifespan(
         # Resolved once here and read back as
         # ``getattr(app.state, "config_panel_enabled", False)``: an app that
         # skipped this lifespan has made no tier decision, and the routes
-        # refuse it. The config read itself fails OPEN, deliberately: an
-        # absent key is the panel every single-user deployment has always had,
-        # and an unreadable config must not silently take an operator's own
-        # config editor away.
-        app.state.config_panel_enabled = resolve_config_flag(
-            "web.config_panel.enabled",
-            True,
-            "Could not read web.config_panel.enabled; leaving the Config panel enabled",
-        )
+        # refuse it. The value is resolved together with the scaffold gate
+        # below.
 
         # ── Scaffold gallery writes (server-side tier gate) ──
         # `web.scaffold_gallery.write_enabled: false` closes the gallery's whole
@@ -2087,15 +2276,18 @@ def _create_lifespan(
         # Resolved once here and read back as
         # ``getattr(app.state, "scaffold_write_enabled", False)``: an app that
         # skipped this lifespan has made no tier decision, and the write routes
-        # refuse it. The config read itself fails OPEN, deliberately: an absent
-        # key is the gallery every single-user deployment has always had, and a
-        # config-read error must not silently revoke it.
-        app.state.scaffold_write_enabled = resolve_config_flag(
-            "web.scaffold_gallery.write_enabled",
-            True,
-            "Could not read web.scaffold_gallery.write_enabled; "
-            "leaving the scaffold gallery writable",
-        )
+        # refuse it.
+        #
+        # Both gates answer out of the file this terminal resolved: with none
+        # resolved, the shipped defaults (both open); with one that cannot be
+        # read, closed, because an unreadable config is not permission to
+        # author what the agent obeys. An absent key is the default every
+        # single-user deployment has always had. They come from one read, so
+        # they cannot disagree about the file.
+        gates = resolve_privilege_gates(resolved_config_path)
+        app.state.config_panel_enabled = gates.config_panel_enabled
+        app.state.scaffold_write_enabled = gates.scaffold_write_enabled
+        app.state.config_unreadable_path = gates.config_unreadable_path
 
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
@@ -2136,7 +2328,7 @@ def _create_lifespan(
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 
         # ── Provider env injection ──
-        from osprey.build.claude_code_resolver import (
+        from osprey.agent_runner.provider_env import (
             detect_managed_policy_conflicts,
             format_managed_policy_conflicts,
             inject_provider_env,
@@ -2147,17 +2339,7 @@ def _create_lifespan(
             telemetry_creds_are_store_issued,
         )
 
-        # Managed (enterprise) policy settings outrank the process environment
-        # and --setting-sources project alike, so a policy `env` block setting a
-        # provider variable would silently redirect the operator-facing terminal
-        # to a backend the project did not configure. Refuse to start.
-        _policy_conflicts = detect_managed_policy_conflicts()
-        if _policy_conflicts:
-            raise RuntimeError(
-                "Refusing to start the Web Terminal.\n"
-                + format_managed_policy_conflicts(_policy_conflicts)
-            )
-
+        _spec = None
         if app.state.config_path:
             from osprey.utils.workspace import repo_root_for_config
 
@@ -2211,19 +2393,30 @@ def _create_lifespan(
 
                 # Start translation proxy for OpenAI-compatible providers
                 if _spec.needs_proxy and _spec.upstream_base_url:
-                    from osprey.infrastructure.proxy.lifecycle import start_proxy
+                    from osprey.infrastructure.proxy.lifecycle import start_proxy_for
 
-                    proxy_port = start_proxy(
-                        _spec.upstream_base_url,
-                        os.environ.get(_spec.auth_env_var),
-                        provider=_spec.provider,
-                    )
+                    proxy_port = start_proxy_for(_spec, os.environ)
                     os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
                     logger.info(
                         "Translation proxy on :%d → %s",
                         proxy_port,
                         _spec.upstream_base_url,
                     )
+
+        # Managed (enterprise) policy settings outrank the process environment
+        # and --setting-sources project alike, so a policy value that differs
+        # from the deployment's would silently redirect the operator-facing
+        # terminal. The check reads the finished environment, translation-proxy
+        # loopback included, because that is what the terminal's agent would
+        # otherwise run on. A server with no provider compares against nothing,
+        # so every policy provider key refuses. A refusal here leaves only the
+        # proxy daemon thread behind, which exits with the process.
+        _policy_conflicts = detect_managed_policy_conflicts(os.environ if _spec else {})
+        if _policy_conflicts:
+            raise RuntimeError(
+                "Refusing to start the Web Terminal.\n"
+                + format_managed_policy_conflicts(_policy_conflicts)
+            )
 
         # The watcher's default follows the deployment's CONFIGURED agent-data
         # root, anchored on the repo. Never a cwd-relative literal: state lives
@@ -2343,8 +2536,8 @@ def _create_lifespan(
         # there would land outside the {user}-agent-data volume, where
         # `osprey feedback` on the host cannot reach it. Never
         # resolve_agent_data_root() either — that appends sessions/<id>, and
-        # both stores span sessions. They are siblings under one root: feedback
-        # records, and the per-user bar arrangement.
+        # every store spans sessions. They are siblings under one root: feedback
+        # records, the per-user bar arrangement, and the sidecars' start records.
         try:
             from osprey.utils.workspace import resolve_shared_data_root
 
@@ -2352,8 +2545,7 @@ def _create_lifespan(
         except Exception:  # never let config load block startup
             shared_data_root = workspace_dir
             logger.warning(
-                "Could not resolve the shared data root; siting the feedback and "
-                "bar-items stores under %s",
+                "Could not resolve the shared data root; siting the server-side stores under %s",
                 shared_data_root,
                 exc_info=True,
             )
@@ -2361,10 +2553,14 @@ def _create_lifespan(
         bar_items_dir = shared_data_root / "bar_items"
         app.state.feedback_dir = feedback_dir
         app.state.bar_items_dir = bar_items_dir
+        # What the terminal recorded about each sidecar's start, read back by
+        # `osprey health` from this same root.
+        app.state.panel_status_root = shared_data_root
+        app.state.panel_status_dir = shared_data_root / PANEL_STATUS_DIRNAME
         # Workspace-relative form of each store: the *file watcher's* form,
         # used below to drop change events for writes into them. The file
         # browser is not a consumer — routes/files.py derives its own predicate
-        # from ``feedback_dir`` and ``bar_items_dir``, because it must also
+        # from the store directories themselves, because it must also
         # handle symlink aliases and session-scoped roots that a single relative
         # path cannot express.
         # ``None`` when a store lies outside the watched tree (the watch_dir
@@ -2383,15 +2579,23 @@ def _create_lifespan(
             workspace_dir.mkdir(parents=True, exist_ok=True)
         app.state.feedback_rel = resolve_store_rel(feedback_dir, workspace_dir)
         app.state.bar_items_rel = resolve_store_rel(bar_items_dir, workspace_dir)
-        # One collection, in the order the stores are resolved above. Saving a
-        # bar arrangement must be as silent as filing feedback: a layout PUT
-        # writes one file, and an unconcealed store would push an SSE change
-        # frame to every connected browser the moment anyone rearranged a bar.
-        # This seam silences the watcher and only that; the file panel's listing
-        # and content reads hide both stores through routes/files.py's own
+        app.state.panel_status_rel = resolve_store_rel(app.state.panel_status_dir, workspace_dir)
+        # One collection of the three stores, in the order they are resolved
+        # above. Saving a bar arrangement or recording a sidecar's start must be
+        # as silent as filing feedback: each writes one file, and an unconcealed
+        # store would push an SSE change frame to every connected browser the
+        # moment anyone rearranged a bar or a sidecar changed state. This seam
+        # silences the watcher and only that; the file panel's listing and
+        # content reads hide all three stores through routes/files.py's own
         # predicate.
         app.state.concealed_store_rels = tuple(
-            rel for rel in (app.state.feedback_rel, app.state.bar_items_rel) if rel is not None
+            rel
+            for rel in (
+                app.state.feedback_rel,
+                app.state.bar_items_rel,
+                app.state.panel_status_rel,
+            )
+            if rel is not None
         )
 
         app.state.watcher = WorkspaceWatcher(
@@ -2429,6 +2633,13 @@ def _create_lifespan(
         # facts root() stamps on the page, evaluated here first. This is the
         # document effective_bar_layout() renders until a user's saved layout
         # is loaded ahead of it, and the rev-0 answer of GET /api/bar-items.
+        # Whether the title bar offers the control-target picker
+        # (web.control_target_picker). Resolved before the bar layout because
+        # the layout is filtered by it.
+        app.state.control_target_picker_available = control_target_picker_available(
+            resolved_config_path
+        )
+
         app.state.bar_layout = _load_bar_items(
             resolved_config_path, context=deployment_bar_context(app)
         )
@@ -2494,11 +2705,35 @@ def _create_lifespan(
         except Exception:
             logger.warning("Local panel discovery failed; continuing.", exc_info=True)
 
+        # The sidecar startup wait, resolved once here after the config cache
+        # reset; every sidecar launch, startup or retry, reads it from app.state.
+        try:
+            from osprey.utils.config import get_config_value
+
+            app.state.sidecar_ready_timeout_s = resolve_sidecar_ready_timeout(
+                get_config_value(SIDECAR_READY_TIMEOUT_KEY, DEFAULT_SIDECAR_READY_TIMEOUT_S)
+            )
+        except Exception:  # never let config load block startup
+            logger.warning(
+                "Could not resolve %s; using %s s",
+                SIDECAR_READY_TIMEOUT_KEY,
+                DEFAULT_SIDECAR_READY_TIMEOUT_S,
+                exc_info=True,
+            )
+            app.state.sidecar_ready_timeout_s = DEFAULT_SIDECAR_READY_TIMEOUT_S
+
         # A sidecar's running process and the credential the proxy re-issues for
         # it, keyed by panel id. Both stay empty when no sidecar panel is
         # enabled, and a launch that failed adds to neither.
         app.state.sidecars = {}
         app.state.panel_auth_headers = {}
+        # The start outcome the terminal last recorded for each sidecar panel;
+        # the panel routes read it, `osprey health` reads the disk copy.
+        app.state.sidecar_status = {}
+        # One start task per sidecar panel while a retry is in flight, and the
+        # flag that tells a failing start it was shutdown that stopped it.
+        app.state.sidecar_start_tasks = {}
+        app.state.sidecars_closing = False
 
         _launch_enabled_panel_servers(app, enabled_panels)
         await _launch_enabled_sidecars(app, enabled_panels)
@@ -2538,7 +2773,7 @@ def _create_lifespan(
         reaper_task = asyncio.create_task(_reap_idle_chats())
 
         # ── Control-context ownership ──
-        # This deployment keeps one control context, and it has one writer: the
+        # This login keeps one control context, and it has one writer: the
         # web terminal whenever there is one, a controls server otherwise. The
         # claim is made here and renewed once a second, because the owner is
         # also who answers the switch requests other processes file. Fail-open
@@ -2562,8 +2797,17 @@ def _create_lifespan(
 
         stop_proxy()
 
-        for panel_id, sidecar in app.state.sidecars.items():
+        # Stop every sidecar, one still coming up included: a stopped process
+        # ends its start's wait within one poll. Then no record may outlive the
+        # terminal claiming a sidecar runs or is starting.
+        app.state.sidecars_closing = True
+        for panel_id, sidecar in list(app.state.sidecars.items()):
             await _stop_sidecar(panel_id, sidecar)
+        start_tasks = list(app.state.sidecar_start_tasks.values())
+        if start_tasks:
+            await asyncio.gather(*start_tasks, return_exceptions=True)
+        for panel_id in sorted(enabled_panels & set(SIDECAR_PANELS)):
+            clear_status(app.state.panel_status_root, panel_id)
 
         app.state.watcher.stop()
         app.state.pty_registry.cleanup_all()
@@ -2722,6 +2966,9 @@ def create_app(
                 # the attribute entirely in that case — see
                 # resolve_storage_scope().
                 "storage_scope": resolve_storage_scope(terminal_user),
+                # The zone system.timezone names, resolved by the call the
+                # operator chat's system prompt uses, so page and agent read one clock.
+                "facility_timezone": get_facility_timezone().key,
                 "landing_url": landing_url,
                 "auth_role": auth_role or "",
                 "auth_role_source_label": auth_role_source_label,
@@ -2765,6 +3012,7 @@ def create_app(
                 "storage_scope": resolve_storage_scope(
                     getattr(request.app.state, "terminal_user", "")
                 ),
+                "facility_timezone": get_facility_timezone().key,
                 # activity-strip.js reaches panel-manager.js for the labels it
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.

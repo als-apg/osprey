@@ -35,7 +35,7 @@ comparable by construction rather than by normalisation wherever that is
 possible: they run the same bootstrap program, against the same repository at the
 same absolute path (restored from a pristine snapshot between them, so the second
 run is not reading the first one's residue), on the same published ports, with
-the same environment. Three things cannot be construction-equal and are
+the same environment. Four things cannot be construction-equal and are
 normalised, each for a measured reason:
 
 * **The width.** Rich takes a pipe's width from ``COLUMNS`` and falls back to 80;
@@ -47,6 +47,10 @@ normalised, each for a measured reason:
   alike.
 * **The clock.** A rendered log record is stamped with the wall clock and a
   phase line carries its own elapsed. Both are normalised to placeholders.
+* **A measured wait.** The deploy dials the telemetry store it publishes, on
+  the copy's own free port where nothing listens, and reports how long it
+  waited for a connection before giving up. That figure is wall-clock too, and
+  is normalised to a placeholder.
 * **Sub-second laps.** A lap under 50 ms prints with no duration at all
   (``phase_reporter.Phase.step``), so against the instant stub the *presence* of a
   parenthetical — not just its value — would be a coin toss between the two runs.
@@ -131,6 +135,10 @@ RECORD_HEAD = re.compile(r"^\s*⚠ shell export disagrees\b")
 #: A phase line's or a sub-step's trailing duration, in both shapes
 #: :func:`osprey.cli.phase_reporter.format_elapsed` produces.
 ELAPSED = re.compile(r"\((?:\d+\.\d+s|\d+m\d{2}s)\)")
+
+#: The wait a warning reports it sat through before giving up on a service,
+#: in whole seconds (:func:`osprey.deployment.openobserve_provision.provision_ingest_identity`).
+WAITED = re.compile(r"\bwithin \d+s\b")
 
 #: The variable the arming disagreement is about. Interpolated by the exemplar's
 #: compose files, which is what makes the start path compare it at all.
@@ -247,7 +255,10 @@ def normalised(lines: list[str]) -> list[str]:
     prints, and both sides have to have it.
     """
     out = [
-        ELAPSED.sub("(<elapsed>)", TIMESTAMP.sub(TIME_PLACEHOLDER, strip_ansi(line))).rstrip()
+        WAITED.sub(
+            "within <waited>",
+            ELAPSED.sub("(<elapsed>)", TIMESTAMP.sub(TIME_PLACEHOLDER, strip_ansi(line))),
+        ).rstrip()
         for line in lines
     ]
     while out and not out[-1]:

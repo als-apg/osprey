@@ -55,6 +55,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from osprey.agent_runner.build_artifacts.ownership import update_config_add_user_owned
 from osprey.audit import writer
 from osprey.audit.envelope import (
     POSTURE_SOURCE_APP,
@@ -66,7 +67,6 @@ from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_reserved_w
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.services.build_artifacts.ownership import update_config_add_user_owned
 from osprey.utils.identity import acting_identity
 
 

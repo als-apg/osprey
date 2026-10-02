@@ -1,7 +1,7 @@
 """Unit tests for the dispatch-worker per-run stats map.
 
 Covers the ``run_stats`` module in isolation (increment/get/pop semantics and
-defaults), the runner's increment-per-ToolUseBlock wiring, and the dispatch-API
+defaults), the runner's increment-per-tool-call wiring, and the dispatch-API
 contract that the stats entry is popped in the same ``finally`` that pops
 ``_tasks`` (no leak).
 """
@@ -9,15 +9,11 @@ contract that the stats entry is popped in the same ``finally`` that pops
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from typing import Any
 
 import pytest
-from claude_agent_sdk import (
-    AssistantMessage,
-    ResultMessage,
-    ToolUseBlock,
-)
 
+from osprey.agent_runner import ResultEvent, ToolUseEvent
 from osprey.mcp_server.dispatch_worker import run_stats, sdk_runner
 
 
@@ -87,7 +83,7 @@ def test_pop_is_idempotent():
 
 
 # ---------------------------------------------------------------------------
-# sdk_runner increments the map per ToolUseBlock
+# sdk_runner increments the map per tool call
 # ---------------------------------------------------------------------------
 
 
@@ -108,34 +104,43 @@ def _stub_osprey_helpers(monkeypatch):
     )
 
 
-def _result_message(cost_usd: float, num_turns: int) -> ResultMessage:
-    rm = MagicMock(spec=ResultMessage)
-    rm.cost_usd = cost_usd
-    rm.num_turns = num_turns
-    return rm
+def _result(**overrides: Any) -> ResultEvent:
+    """A successful result record; any field can be overridden."""
+    fields: dict[str, Any] = {
+        "subtype": "success",
+        "is_error": False,
+        "num_turns": 1,
+        "duration_ms": 0,
+        "session_id": "s",
+        "total_cost_usd": 0.1,
+        "usage": None,
+        "result": None,
+        "api_error_status": None,
+    }
+    fields.update(overrides)
+    return ResultEvent(**fields)
+
+
+def _tool_use(tool_use_id: str, name: str) -> ToolUseEvent:
+    return ToolUseEvent(tool_use_id=tool_use_id, name=name, input={}, parent_tool_use_id=None)
 
 
 @pytest.mark.asyncio
 async def test_run_dispatch_increments_per_tool_use(monkeypatch, _stub_osprey_helpers):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(
-            content=[
-                ToolUseBlock(id="t1", name="Read", input={}),
-                ToolUseBlock(id="t2", name="Read", input={}),
-            ],
-            model="m",
-        )
-        yield AssistantMessage(content=[ToolUseBlock(id="t3", name="Grep", input={})], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=2)
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("t1", "Read")
+        yield _tool_use("t2", "Read")
+        yield _tool_use("t3", "Grep")
+        yield _result(num_turns=2)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch(
         "go", ["Read", "Grep"], event_queue=asyncio.Queue(), run_id="run-xyz"
     )
 
     assert result["status"] == "completed"
-    # Three ToolUseBlocks processed -> truthful count of 3. The runner does not
+    # Three tool calls processed -> truthful count of 3. The runner does not
     # pop the entry (dispatch_api owns cleanup), so it is still readable here.
     assert run_stats.get_run_stats("run-xyz")["num_tool_calls"] == 3
 
@@ -145,14 +150,12 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
     """num_tool_calls stays truthful past the retained tool_calls cap."""
     monkeypatch.setattr(sdk_runner, "_MAX_TOOL_CALLS", 2)
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
         for i in range(5):
-            yield AssistantMessage(
-                content=[ToolUseBlock(id=f"t{i}", name="Read", input={})], model="m"
-            )
-        yield _result_message(cost_usd=0.1, num_turns=5)
+            yield _tool_use(f"t{i}", "Read")
+        yield _result(num_turns=5)
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch(
         "go", ["Read"], event_queue=asyncio.Queue(), run_id="run-cap"
@@ -165,11 +168,11 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
 
 @pytest.mark.asyncio
 async def test_run_dispatch_without_run_id_creates_no_entry(monkeypatch, _stub_osprey_helpers):
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
-        yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
-        yield _result_message(cost_usd=0.1, num_turns=1)
+    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
+        yield _tool_use("t1", "Read")
+        yield _result()
 
-    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue())
 

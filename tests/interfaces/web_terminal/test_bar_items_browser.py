@@ -42,26 +42,28 @@ Coverage (one test each):
       ladder rung.
   (i) the clock is LIVE on a real page: it reads ``HH:MM`` through the real
       boot path, not a hand-driven builder.
-  (j) a deployment with no identity block paints no separator after the
+  (j) a clock in a browser set to another zone reads the facility's wall time
+      when asked for it, and a plain clock beside it names the browser's zone.
+  (k) a deployment with no identity block paints no separator after the
       wordmark — the ``[data-follows]`` middot is keyed on the identity item,
       so a spacer inheriting the logo's follower slot must stay bare.
-  (k) the "Default" preset discards the stored document (``DELETE``), the file
+  (l) the "Default" preset discards the stored document (``DELETE``), the file
       leaves the store, and the bars come back as the deployment renders them.
-  (l) a hidden header comes back from the terminal tile header's right-click
+  (m) a hidden header comes back from the terminal tile header's right-click
       menu -- the header has no surface of its own to right-click once hidden,
       so the tile headers carry the way back, and the restore is stored.
-  (m) a configured option is on the first paint: with the boot ``GET`` aborted,
+  (n) a configured option is on the first paint: with the boot ``GET`` aborted,
       a UTC clock still hydrates showing its zone, because the server's shell
       carries the options the item was placed with.
-  (n) a tile pressed with Enter keeps the keyboard: the accepted edit
+  (o) a tile pressed with Enter keeps the keyboard: the accepted edit
       rebuilds every tile, and the focus lands on the new tile of the same
       type rather than on the page.
-  (o) a drag cancelled mid-gesture by ``pointercancel`` applies nothing: the
+  (p) a drag cancelled mid-gesture by ``pointercancel`` applies nothing: the
       item keeps its place in the bar and in the stored document, no layout is
       written, and the ghost, the drop marker and the dragging classes are gone.
-  (p) the context menu opened at the bottom-right corner of the window is
+  (q) the context menu opened at the bottom-right corner of the window is
       clamped inside it.
-  (q) the options popover is driven from the keyboard alone: it opens with
+  (r) the options popover is driven from the keyboard alone: it opens with
       the focus on its first control, Move left re-opens it on the moved item
       with the same button focused so a second Enter moves the item further,
       and Escape gives the focus back to the item.
@@ -85,8 +87,10 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import pytest
 import requests
@@ -170,8 +174,12 @@ def engine_browser(request: pytest.FixtureRequest) -> Browser:
 
 
 @contextmanager
-def _launch_web_terminal(tmp_path: Path) -> Iterator[tuple[str, Any]]:
+def _launch_web_terminal(
+    tmp_path: Path, *, facility_timezone: str | None = None
+) -> Iterator[tuple[str, Any]]:
     """A real web_terminal over a throwaway workspace and a throwaway store.
+
+    *facility_timezone*, when given, is the zone the page is stamped with.
 
     Yields:
         ``(base_url, app)`` — the address and the FastAPI app, so a test can
@@ -203,6 +211,13 @@ def _launch_web_terminal(tmp_path: Path) -> Iterator[tuple[str, Any]]:
             return_value=agent_data,
         ),
     ]
+    if facility_timezone is not None:
+        patches.append(
+            patch(
+                "osprey.interfaces.web_terminal.app.get_facility_timezone",
+                return_value=ZoneInfo(facility_timezone),
+            )
+        )
     with _apply_all(patches):
         from osprey.interfaces.web_terminal.app import create_app
 
@@ -810,7 +825,45 @@ def test_the_status_readouts_are_live_on_a_real_page(tmp_path, engine_browser):
 
 
 # ---------------------------------------------------------------------------
-# (j) a plain deployment paints no separator
+# (j) a facility clock reads the facility's time in another zone
+# ---------------------------------------------------------------------------
+
+
+def test_a_facility_clock_reads_the_facility_time_in_another_zone(tmp_path, engine_browser):
+    """The facility clock follows the page's stamp, not the browser's zone.
+
+    The browser runs in New York and the facility is in Tokyo, so the two
+    clocks disagree: the facility clock names Tokyo, and the plain clock beside
+    it names the browser's own zone.
+    """
+    with _launch_web_terminal(tmp_path, facility_timezone="Asia/Tokyo") as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=[{"type": "clock", "options": {"zone": "facility"}}, "clock"],
+        )
+        page = engine_browser.new_page(viewport=VIEWPORT, timezone_id="America/New_York")
+        page.goto(base_url, wait_until="domcontentloaded")
+        page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
+
+        clocks = page.locator(f'{STATUS_HOST} > .bar-item[data-bar-item="clock"]')
+        facility_time = clocks.nth(0).locator(".bar-clock-time")
+        expect(facility_time).to_have_text(re.compile(r"^\d{2}:\d{2}$"), timeout=10_000)
+
+        tokyo = ZoneInfo("Asia/Tokyo")
+        before = datetime.now(tokyo).strftime("%H:%M")
+        text = facility_time.inner_text()
+        after = datetime.now(tokyo).strftime("%H:%M")
+        assert text in {before, after}
+
+        expect(clocks.nth(0).locator(".bar-clock-zone")).to_have_text("Tokyo")
+        expect(clocks.nth(1).locator(".bar-clock-zone")).to_have_text("New York")
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (k) a plain deployment paints no separator
 # ---------------------------------------------------------------------------
 
 
@@ -848,7 +901,7 @@ def test_a_deployment_with_no_identity_block_paints_no_separator(tmp_path, engin
 
 
 # ---------------------------------------------------------------------------
-# (k) reset to default
+# (l) reset to default
 # ---------------------------------------------------------------------------
 
 
@@ -891,7 +944,7 @@ def test_reset_to_default_discards_the_stored_arrangement(tmp_path, engine_brows
 
 
 # ---------------------------------------------------------------------------
-# (l) a hidden header comes back from a tile header's menu
+# (m) a hidden header comes back from a tile header's menu
 # ---------------------------------------------------------------------------
 
 #: The terminal tile's menu is wired on the adopted `.terminal-header` node,
@@ -962,7 +1015,7 @@ def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, engine
 
 
 # ---------------------------------------------------------------------------
-# (m) a configured option is on the first paint
+# (n) a configured option is on the first paint
 # ---------------------------------------------------------------------------
 
 
@@ -992,7 +1045,7 @@ def test_a_configured_option_is_on_the_first_paint(tmp_path, engine_browser):
 
 
 # ---------------------------------------------------------------------------
-# (n) the sheet keeps the keyboard across an edit
+# (o) the sheet keeps the keyboard across an edit
 # ---------------------------------------------------------------------------
 
 
@@ -1032,7 +1085,7 @@ def _wait_for_order(page: Page, host: str, types: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (o) a cancelled drag
+# (p) a cancelled drag
 # ---------------------------------------------------------------------------
 
 
@@ -1101,7 +1154,7 @@ def test_a_cancelled_drag_leaves_the_item_where_it_was(tmp_path, engine_browser)
 
 
 # ---------------------------------------------------------------------------
-# (p) the context menu stays on screen
+# (q) the context menu stays on screen
 # ---------------------------------------------------------------------------
 
 
@@ -1140,7 +1193,7 @@ def test_the_context_menu_opened_at_the_corner_stays_on_screen(tmp_path, engine_
 
 
 # ---------------------------------------------------------------------------
-# (q) the options popover from the keyboard
+# (r) the options popover from the keyboard
 # ---------------------------------------------------------------------------
 
 

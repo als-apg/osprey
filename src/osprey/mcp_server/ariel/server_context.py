@@ -204,7 +204,9 @@ class ARIELContext:
 
         # Call directly — NOT as context manager. We manage pool shutdown
         # ourselves in shutdown().
-        self._service = await create_ariel_service(self.config)
+        # This server registers sql_query, the read-only pool's one consumer,
+        # so its build is the one that opens that pool.
+        self._service = await create_ariel_service(self.config, serves_sql_tool=True)
         logger.info("ARIELContext: created ARIEL service")
         return self._service
 

@@ -275,6 +275,19 @@ class TestPut:
         assert second.json()["rev"] == 2
         assert types(second.json(), "status") == ["bluesky-queue"]
 
+    def test_a_facility_clock_round_trips(self, client):
+        response = client.put(
+            "/api/bar-items",
+            json=document(0, status=[{"type": "clock", "options": {"zone": "facility"}}]),
+        )
+
+        assert response.status_code == 200
+        stored = [
+            {"type": "clock", "options": {"zone": "facility", "format": "24h", "seconds": False}}
+        ]
+        assert response.json()["status"] == stored
+        assert client.get("/api/bar-items").json()["status"] == stored
+
     @pytest.mark.parametrize(("hidden", "shown"), [("status", "header"), ("header", "status")])
     def test_stores_the_visibility_flag(self, client, hidden, shown):
         flag = f"{hidden}_visible"

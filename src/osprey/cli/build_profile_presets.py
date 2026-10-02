@@ -10,6 +10,7 @@ without importing the profile parser in :mod:`osprey.cli.build_profile_load`.
 from __future__ import annotations
 
 import importlib.resources
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,44 @@ def _triggers_dir() -> Path:
     and must not appear in the preset namespace (``--list-presets``).
     """
     return Path(str(importlib.resources.files(_TRIGGERS_PACKAGE)))
+
+
+@dataclass(frozen=True)
+class TriggersSource:
+    """The file a ``dispatch.triggers`` value resolves to.
+
+    Attributes:
+        path: The trigger file on disk.
+        bundled: True when the file ships with the package rather than living
+            beside the profile.
+    """
+
+    path: Path
+    bundled: bool
+
+
+def resolve_triggers_path(profile_dir: Path, triggers: str) -> TriggersSource | None:
+    """Resolve a ``dispatch.triggers`` value to the file it names.
+
+    A file beside the profile wins over a bundled trigger file of the same
+    name; a bundled file is looked up by name in the packaged triggers
+    directory. ``bundled`` on the result tells a caller whether the file ships
+    with the package.
+
+    Args:
+        profile_dir: Directory holding the profile.
+        triggers: The ``dispatch.triggers`` value.
+
+    Returns:
+        The resolved source, or None when neither location holds the file.
+    """
+    local = profile_dir / triggers
+    if local.is_file():
+        return TriggersSource(path=local, bundled=False)
+    packaged = _triggers_dir() / triggers
+    if packaged.is_file():
+        return TriggersSource(path=packaged, bundled=True)
+    return None
 
 
 def _preset_exists(name: str) -> Path | None:

@@ -2,34 +2,54 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    CLIConnectionError,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 
+from osprey.agent_runner import (
+    ApiErrorEvent,
+    ResultEvent,
+    SystemEvent,
+    TextEvent,
+    ThinkingEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+)
 from osprey.agent_runner.clean_env import build_clean_env
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
     OperatorRegistry,
     OperatorSession,
     TurnInProgressError,
+    _event_to_wire,
     _format_tool_name,
-    _message_to_events,
     validate_project_directory,
 )
 from tests.interfaces.web_terminal._fakes import (
-    FakeAssistantMessage,
-    FakeResultMessage,
-    FakeSystemMessage,
-    FakeTextBlock,
-    FakeThinkingBlock,
-    FakeToolResultBlock,
-    FakeToolUseBlock,
+    PRESET_SYSTEM_PROMPT,
+    assistant_message,
+    mock_sdk_client,
+    result_message,
     sdk_seam,
+    system_message,
+    user_message,
 )
+
+_OS = "osprey.interfaces.web_terminal.operator_session."
 
 # ---------------------------------------------------------------------------
 # _format_tool_name
@@ -55,38 +75,48 @@ class TestFormatToolName:
 
 
 # ---------------------------------------------------------------------------
-# _message_to_events
+# _event_to_wire
 # ---------------------------------------------------------------------------
 
 
-class TestMessageToEvents:
-    """Patch isinstance checks so our fakes work with the real converter."""
+def _tool_use(name: str, tool_use_id: str, tool_input: dict) -> ToolUseEvent:
+    return ToolUseEvent(
+        tool_use_id=tool_use_id, name=name, input=tool_input, parent_tool_use_id=None
+    )
 
-    @pytest.fixture(autouse=True)
-    def _patch_sdk_types(self):
-        """Replace SDK type references with our fakes so isinstance() works."""
-        with sdk_seam():
-            yield
 
+def _result(
+    *,
+    is_error: bool = False,
+    total_cost_usd: float | None = 0.01,
+    duration_ms: int = 1200,
+    num_turns: int = 1,
+) -> ResultEvent:
+    return ResultEvent(
+        subtype="success",
+        is_error=is_error,
+        num_turns=num_turns,
+        duration_ms=duration_ms,
+        session_id="sdk-session",
+        total_cost_usd=total_cost_usd,
+        usage=None,
+        result=None,
+        api_error_status=None,
+    )
+
+
+class TestEventToWire:
     def test_text_block(self):
-        msg = FakeAssistantMessage([FakeTextBlock("hello")])
-        events = _message_to_events(msg)
-        assert len(events) == 1
-        assert events[0] == {"type": "text", "content": "hello"}
+        ev = _event_to_wire(TextEvent(text="hello", parent_tool_use_id=None))
+        assert ev == {"type": "text", "content": "hello"}
 
     def test_thinking_block(self):
-        msg = FakeAssistantMessage([FakeThinkingBlock("pondering...")])
-        events = _message_to_events(msg)
-        assert len(events) == 1
-        assert events[0] == {"type": "thinking", "content": "pondering..."}
+        ev = _event_to_wire(ThinkingEvent(text="pondering..."))
+        assert ev == {"type": "thinking", "content": "pondering..."}
 
     def test_tool_use_block(self):
-        msg = FakeAssistantMessage(
-            [FakeToolUseBlock("mcp__osprey__channel_read", "tu_1", {"channels": ["X"]})]
-        )
-        events = _message_to_events(msg)
-        assert len(events) == 1
-        ev = events[0]
+        ev = _event_to_wire(_tool_use("mcp__osprey__channel_read", "tu_1", {"channels": ["X"]}))
+        assert ev is not None
         assert ev["type"] == "tool_use"
         assert ev["tool_name"] == "Channel Read"
         assert ev["tool_name_raw"] == "mcp__osprey__channel_read"
@@ -94,51 +124,42 @@ class TestMessageToEvents:
         assert ev["input"] == {"channels": ["X"]}
 
     @pytest.mark.parametrize("is_error", [False, True])
-    def test_tool_result_block(self, is_error):
-        msg = FakeAssistantMessage([FakeToolResultBlock("tu_1", "42.0", is_error=is_error)])
-        events = _message_to_events(msg)
-        assert len(events) == 1
-        ev = events[0]
-        assert ev["type"] == "tool_result"
-        assert ev["tool_use_id"] == "tu_1"
-        assert ev["content"] == "42.0"
-        assert ev["is_error"] is is_error
+    def test_tool_results_are_not_part_of_the_stream(self, is_error):
+        event = ToolResultEvent(
+            tool_use_id="tu_1", content="42.0", is_error=is_error, parent_tool_use_id=None
+        )
+        assert _event_to_wire(event) is None
 
     def test_assistant_error(self):
-        msg = FakeAssistantMessage([], error=SimpleNamespace(type="overloaded", message="busy"))
-        events = _message_to_events(msg)
-        assert len(events) == 1
-        assert events[0]["type"] == "error"
-        assert "API error" in events[0]["message"]
+        ev = _event_to_wire(ApiErrorEvent(error="overloaded"))
+        assert ev is not None
+        assert ev["type"] == "error"
+        assert "API error" in ev["message"]
         # The one error type is_terminal_event lets a turn continue past.
-        assert events[0]["error_type"] == "AssistantMessageError"
+        assert ev["error_type"] == "AssistantMessageError"
 
     def test_result_message(self):
-        msg = FakeResultMessage(is_error=False, total_cost_usd=0.05, duration_ms=3000, num_turns=2)
-        events = _message_to_events(msg)
-        assert len(events) == 1
-        ev = events[0]
+        ev = _event_to_wire(
+            _result(is_error=False, total_cost_usd=0.05, duration_ms=3000, num_turns=2)
+        )
+        assert ev is not None
         assert ev["type"] == "result"
         assert ev["is_error"] is False
         assert ev["total_cost_usd"] == 0.05
         assert ev["duration_ms"] == 3000
         assert ev["num_turns"] == 2
 
-    def test_unknown_message_ignored(self):
-        events = _message_to_events("something_unknown")
-        assert events == []
-
-    def test_multiple_blocks(self):
-        msg = FakeAssistantMessage(
-            [
-                FakeThinkingBlock("think"),
-                FakeTextBlock("answer"),
-                FakeToolUseBlock("Read", "tu_x", {"file": "a.py"}),
-            ]
-        )
-        events = _message_to_events(msg)
-        assert len(events) == 3
-        assert [e["type"] for e in events] == ["thinking", "text", "tool_use"]
+    def test_frames_keep_their_key_order(self):
+        frames = [
+            _event_to_wire(ThinkingEvent(text="think")),
+            _event_to_wire(TextEvent(text="answer", parent_tool_use_id=None)),
+            _event_to_wire(_tool_use("Read", "tu_x", {"file": "a.py"})),
+        ]
+        assert [list(f) for f in frames if f is not None] == [
+            ["type", "content"],
+            ["type", "content"],
+            ["type", "tool_name", "tool_name_raw", "tool_use_id", "input"],
+        ]
 
 
 class TestSystemEventCarriesResumeIdentity:
@@ -149,22 +170,15 @@ class TestSystemEventCarriesResumeIdentity:
     consumer, not stop at the SDK boundary.
     """
 
-    @pytest.fixture(autouse=True)
-    def _patch_system_message(self):
-        """Replace the SDK type reference so ``isinstance()`` sees our fake."""
-        with sdk_seam():
-            yield
-
     def test_the_init_session_id_reaches_the_system_event(self):
-        msg = FakeSystemMessage("init", data={"session_id": "abc-123"})
-        events = _message_to_events(msg)
-        assert events == [{"type": "system", "subtype": "init", "session_id": "abc-123"}]
+        ev = _event_to_wire(SystemEvent(subtype="init", data={"session_id": "abc-123"}))
+        assert ev == {"type": "system", "subtype": "init", "session_id": "abc-123"}
 
     def test_a_system_message_without_one_carries_no_key(self):
         """Absent, not ``None``: a message that says nothing about identity
         must not read as one reporting a missing id."""
-        events = _message_to_events(FakeSystemMessage("compact_boundary"))
-        assert events == [{"type": "system", "subtype": "compact_boundary"}]
+        ev = _event_to_wire(SystemEvent(subtype="compact_boundary", data={}))
+        assert ev == {"type": "system", "subtype": "compact_boundary"}
 
 
 # ---------------------------------------------------------------------------
@@ -224,12 +238,12 @@ class TestOperatorSession:
         with sdk_seam() as captured:
             await session.start()
 
-        assert captured.get("setting_sources") == ["project"]
+        assert captured[0].setting_sources == ["project"]
         await session.stop()
 
     @pytest.mark.asyncio
     async def test_start_requires_sdk(self):
-        with patch("osprey.interfaces.web_terminal.operator_session.CLAUDE_SDK_AVAILABLE", False):
+        with patch(_OS + "HAS_SDK", False):
             session = OperatorSession(cwd="/tmp")
             with pytest.raises(RuntimeError, match="not installed"):
                 await session.start()
@@ -251,19 +265,17 @@ class TestOperatorSession:
         """Verify that send_prompt streams SDK messages into the queue."""
         session = OperatorSession(cwd="/tmp")
 
-        # Build a mock client whose receive_response yields our fakes
+        # Build a mock client whose receive_response yields real messages
         fake_messages = [
-            FakeAssistantMessage([FakeTextBlock("hello")]),
-            FakeResultMessage(),
+            assistant_message([TextBlock("hello")]),
+            result_message(),
         ]
 
         async def fake_receive():
             for m in fake_messages:
                 yield m
 
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client = mock_sdk_client()
         mock_client.query = AsyncMock()
         mock_client.receive_response = fake_receive
 
@@ -309,11 +321,12 @@ class TestOperatorSessionResumeOptions:
         with sdk_seam() as captured:
             await session.start(resume_id="transcript-9")
 
-        assert captured["resume"] == "transcript-9"
-        assert "session_id" not in captured
+        (options,) = captured
+        assert options.resume == "transcript-9"
+        assert options.session_id is None
         # Everything else about the launch is unchanged by the resume.
-        assert captured["setting_sources"] == ["project"]
-        assert captured["env"]["OSPREY_WEB_UX"] == "simple"
+        assert options.setting_sources == ["project"]
+        assert options.env["OSPREY_WEB_UX"] == "simple"
 
     @pytest.mark.asyncio
     async def test_without_a_resume_the_child_opens_one_under_the_session_key(self):
@@ -322,8 +335,9 @@ class TestOperatorSessionResumeOptions:
         with sdk_seam() as captured:
             await session.start()
 
-        assert captured["session_id"] == self.KEY
-        assert "resume" not in captured
+        (options,) = captured
+        assert options.session_id == self.KEY
+        assert options.resume is None
 
     @pytest.mark.asyncio
     async def test_a_pool_key_the_cli_would_reject_names_no_session_id(self):
@@ -340,11 +354,12 @@ class TestOperatorSessionResumeOptions:
         with sdk_seam() as captured:
             await session.start()
 
+        (options,) = captured
         # None, not the key: the SDK omits the flag entirely for a falsy id.
-        assert captured["session_id"] is None
-        assert "resume" not in captured
+        assert options.session_id is None
+        assert options.resume is None
         # The key still names the session everywhere it is ours to spend.
-        assert captured["env"]["OSPREY_TELEMETRY_SESSION_ID"] == "e2e"
+        assert options.env["OSPREY_TELEMETRY_SESSION_ID"] == "e2e"
 
     @pytest.mark.asyncio
     async def test_the_telemetry_id_is_the_session_key_in_both_shapes(self):
@@ -360,8 +375,8 @@ class TestOperatorSessionResumeOptions:
                 resume_id="transcript-9"
             )
 
-        assert fresh["env"]["OSPREY_TELEMETRY_SESSION_ID"] == self.KEY
-        assert resumed["env"]["OSPREY_TELEMETRY_SESSION_ID"] == self.KEY
+        assert fresh[0].env["OSPREY_TELEMETRY_SESSION_ID"] == self.KEY
+        assert resumed[0].env["OSPREY_TELEMETRY_SESSION_ID"] == self.KEY
 
     @pytest.mark.asyncio
     async def test_a_session_given_no_key_holds_one_stable_across_starts(self):
@@ -373,10 +388,10 @@ class TestOperatorSessionResumeOptions:
         with sdk_seam() as second:
             await session.start()
 
-        minted = first["env"]["OSPREY_TELEMETRY_SESSION_ID"]
+        minted = first[0].env["OSPREY_TELEMETRY_SESSION_ID"]
         assert minted
-        assert second["env"]["OSPREY_TELEMETRY_SESSION_ID"] == minted
-        assert second["session_id"] == minted
+        assert second[0].env["OSPREY_TELEMETRY_SESSION_ID"] == minted
+        assert second[0].session_id == minted
 
     @pytest.mark.asyncio
     async def test_two_keyless_sessions_do_not_share_an_identity(self):
@@ -386,7 +401,7 @@ class TestOperatorSessionResumeOptions:
         with sdk_seam() as second:
             await OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}).start()
 
-        assert first["session_id"] != second["session_id"]
+        assert first[0].session_id != second[0].session_id
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +503,7 @@ class FakeStreamClient:
         self._interrupted.set()
 
     async def receive_response(self):
-        yield FakeAssistantMessage([FakeTextBlock("partial")])
+        yield assistant_message([TextBlock("partial")])
         self.first_yielded.set()
         if self.hang:
             # Never terminate on its own — only a hard cancel stops us.
@@ -498,7 +513,7 @@ class FakeStreamClient:
             # Drain toward a terminal message once interrupted.
             await self._interrupted.wait()
             await asyncio.sleep(0.001)
-            yield FakeResultMessage()
+            yield result_message()
 
 
 @contextlib.asynccontextmanager
@@ -517,8 +532,8 @@ class _OneTurnClient(FakeStreamClient):
     """Answers each prompt with one text block and a terminal result."""
 
     async def receive_response(self):
-        yield FakeAssistantMessage([FakeTextBlock("done")])
-        yield FakeResultMessage()
+        yield assistant_message([TextBlock("done")])
+        yield result_message()
 
 
 class TestRunTurnReleasesAtTheTerminalEvent:
@@ -639,6 +654,51 @@ class TestOperatorSessionCancel:
             client._interrupted.set()  # let the reader reach its terminal message
             await asyncio.wait_for(session._response_task, timeout=1.0)
             assert session.last_activity > before
+
+
+class TestOperatorSessionConnectedAgent:
+    """The runner is reachable exactly while its scope is open.
+
+    The handle outlives the scope on purpose, so a retained handle alone
+    reaches nothing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_session_never_started_reaches_no_runner(self):
+        client = FakeStreamClient()
+        session = OperatorSession(cwd="/tmp")
+
+        assert session._connected_agent is None
+        await session.interrupt()
+        with pytest.raises(RuntimeError, match="Session not started"):
+            await session.send_prompt("hi")
+        assert client.interrupt_calls == 0
+        assert client.query_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_a_started_session_reaches_its_runner(self):
+        client = FakeStreamClient()
+        async with _started_session(client) as session:
+            assert session._connected_agent is not None
+            assert session._connected_agent is session._agent
+            await session.interrupt()
+            assert client.interrupt_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_a_stopped_session_keeps_the_handle_and_reaches_no_runner(self):
+        client = FakeStreamClient()
+        session = OperatorSession(cwd="/tmp")
+        with sdk_seam(client):
+            await session.start()
+            await session.stop()
+
+            assert session._agent is not None
+            assert session._connected_agent is None
+            await session.interrupt()
+            with pytest.raises(RuntimeError, match="Session not started"):
+                await session.send_prompt("hi")
+        assert client.interrupt_calls == 0
+        assert client.query_calls == 0
 
 
 # ---------------------------------------------------------------------------
@@ -864,10 +924,21 @@ class FakeChildProcess:
 
 
 def _client_over(process: FakeChildProcess) -> AsyncMock:
-    client = AsyncMock()
+    client = mock_sdk_client()
     client._transport = SimpleNamespace(_process=process)
-    client.__aexit__ = AsyncMock(return_value=None)
     return client
+
+
+async def _started_on(client) -> OperatorSession:
+    """A session started on *client* through the SDK seam."""
+    session = OperatorSession(cwd="/tmp")
+    with sdk_seam(client):
+        await session.start()
+    return session
+
+
+async def _started_over(process: FakeChildProcess) -> OperatorSession:
+    return await _started_on(_client_over(process))
 
 
 class TestOperatorSessionStopKillsALingeringChild:
@@ -881,23 +952,19 @@ class TestOperatorSessionStopKillsALingeringChild:
     @pytest.mark.asyncio
     async def test_a_child_still_running_after_the_client_closed_is_killed(self):
         process = FakeChildProcess(returncode=None)
-        session = OperatorSession(cwd="/tmp")
-        session._client = _client_over(process)
-        session._started = True
+        session = await _started_over(process)
 
         await session.stop()
 
         assert process.kills == 1
-        assert session._last_process is process
+        assert session.pid == process.pid
         assert session.process_exited is False
         assert session.is_active is False
 
     @pytest.mark.asyncio
     async def test_a_child_that_exited_is_not_signalled(self):
         process = FakeChildProcess(returncode=0)
-        session = OperatorSession(cwd="/tmp")
-        session._client = _client_over(process)
-        session._started = True
+        session = await _started_over(process)
 
         await session.stop()
 
@@ -907,23 +974,20 @@ class TestOperatorSessionStopKillsALingeringChild:
     @pytest.mark.asyncio
     async def test_a_second_stop_with_no_client_signals_the_retained_child_again(self):
         process = FakeChildProcess(returncode=None)
-        session = OperatorSession(cwd="/tmp")
-        session._client = _client_over(process)
-        session._started = True
+        session = await _started_over(process)
         await session.stop()
         assert process.kills == 1
 
         await session.teardown()
 
         assert process.kills == 2
-        assert session._last_process is process
+        assert session.pid == process.pid
         assert session.process_exited is False
 
     @pytest.mark.asyncio
     async def test_a_child_gone_between_looks_is_tolerated(self):
         process = FakeChildProcess(returncode=None, gone=True)
-        session = OperatorSession(cwd="/tmp")
-        session._last_process = process
+        session = await _started_over(process)
 
         await session.stop()
 
@@ -934,7 +998,7 @@ class TestOperatorSessionStopKillsALingeringChild:
     async def test_a_session_with_no_handle_signals_nothing(self):
         session = OperatorSession(cwd="/tmp")
         await session.stop()
-        assert session._last_process is None
+        assert session.pid is None
         assert session.process_exited is None
 
 
@@ -975,13 +1039,6 @@ class _FakeSDKClient:
         return False
 
 
-async def _exit_seam_session(client) -> OperatorSession:
-    session = OperatorSession(cwd="/tmp")
-    with sdk_seam(client):
-        await session.start()
-    return session
-
-
 class TestProcessExited:
     """Three answers, and the difference between two of them matters."""
 
@@ -993,7 +1050,7 @@ class TestProcessExited:
         the child is still there — the case a handover must keep waiting on.
         """
         client = _FakeSDKClient(_FakeTransport(_FakeProcess(returncode=None)))
-        session = await _exit_seam_session(client)
+        session = await _started_on(client)
 
         await session.stop()
 
@@ -1005,7 +1062,7 @@ class TestProcessExited:
     async def test_a_child_that_exited_reads_true(self, returncode):
         """The question is whether the child is gone, not how it went."""
         client = _FakeSDKClient(_FakeTransport(_FakeProcess(returncode=returncode)))
-        session = await _exit_seam_session(client)
+        session = await _started_on(client)
 
         await session.stop()
 
@@ -1015,7 +1072,7 @@ class TestProcessExited:
     async def test_a_client_with_no_transport_reads_none(self):
         """Nothing to observe is not the same as *not exited*."""
         client = _FakeSDKClient(transport=None)
-        session = await _exit_seam_session(client)
+        session = await _started_on(client)
 
         await session.stop()
 
@@ -1036,7 +1093,7 @@ class TestProcessExited:
             return False
 
         client.__aexit__ = _drop_transport  # type: ignore[method-assign]
-        session = await _exit_seam_session(client)
+        session = await _started_on(client)
 
         await session.stop()
 
@@ -1044,7 +1101,8 @@ class TestProcessExited:
         assert session.process_exited is True
 
 
-def test_the_pid_names_the_running_child_and_nothing_else():
+@pytest.mark.asyncio
+async def test_the_pid_names_the_running_child_and_nothing_else():
     """``pid`` is the chat child's pid while it runs, and ``None`` when it is not.
 
     The Simple view holds a session in this child, so anything addressed to
@@ -1055,16 +1113,13 @@ def test_the_pid_names_the_running_child_and_nothing_else():
     running under. A client already closed still answers from the handle the
     session retained, which is what makes the question survive a teardown.
     """
-    session = OperatorSession(cwd="/tmp")
-    assert session.pid is None
+    assert OperatorSession(cwd="/tmp").pid is None
 
     process = FakeChildProcess(returncode=None, pid=31337)
-    session._client = _client_over(process)
-    session._started = True
+    session = await _started_over(process)
     assert session.pid == 31337
 
-    session._client = None
-    session._last_process = process
+    await session.stop()
     assert session.pid == 31337
 
     process.returncode = 0
@@ -1339,3 +1394,235 @@ class TestBuildCleanEnvProjectCwd:
 
         env = build_clean_env(project_cwd=str(tmp_path))
         assert env["OSPREY_CONFIG"] == "/custom/config.yml"
+
+
+# ---------------------------------------------------------------------------
+# Parity pins: launch options, stream frames, child handling
+# ---------------------------------------------------------------------------
+
+_KEY = TestOperatorSessionResumeOptions.KEY
+_PRIMITIVES = "osprey.agent_runner.primitives."
+
+
+class _ScriptedClient:
+    """A client whose one response is *messages*, or *error* raised mid-turn."""
+
+    def __init__(self, messages=(), *, error: Exception | None = None) -> None:
+        self.messages = list(messages)
+        self.error = error
+        self.interrupt_calls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def query(self, _prompt):
+        return None
+
+    async def interrupt(self):
+        self.interrupt_calls += 1
+
+    async def receive_response(self):
+        for message in self.messages:
+            yield message
+        if self.error is not None:
+            raise self.error
+
+
+async def _drain(session: OperatorSession) -> list[dict]:
+    """Run the turn's reader to its end and return every frame it queued."""
+    assert session._response_task is not None
+    await asyncio.wait_for(session._response_task, timeout=2.0)
+    frames = []
+    while not session._queue.empty():
+        frames.append(session._queue.get_nowait())
+    return frames
+
+
+class TestOperatorChatLaunchParity:
+    """The options the chat launches with are the ones it always built by hand."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("shape", ["resume", "posture_key", "foreign_key"])
+    async def test_the_launch_options_equal_the_hand_built_ones(self, shape):
+        key = "e2e" if shape == "foreign_key" else _KEY
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=key)
+
+        with sdk_seam() as captured:
+            if shape == "resume":
+                await session.start(resume_id="transcript-9")
+            else:
+                await session.start()
+
+        (options,) = captured
+        if shape == "resume":
+            identity = {"resume": "transcript-9"}
+        else:
+            identity = {"session_id": _KEY if shape == "posture_key" else None}
+        assert options == ClaudeAgentOptions(
+            system_prompt=PRESET_SYSTEM_PROMPT,
+            cwd="/tmp",
+            env=options.env,
+            setting_sources=["project"],
+            mcp_servers="/tmp/.mcp.json",
+            strict_mcp_config=True,
+            **identity,
+        )
+        assert options.env["PATH"] == "/usr/bin"
+        assert options.env["OSPREY_TELEMETRY_SESSION_ID"] == key
+        assert options.env["OSPREY_TELEMETRY_SESSION_START"]
+        assert options.env["OSPREY_WEB_UX"] == "simple"
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_the_launch_resolves_no_provider_and_waits_for_no_mcp_server(self):
+        def refuse(*_args, **_kwargs):
+            raise AssertionError("the chat launch must not route its own run")
+
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=_KEY)
+        with (
+            patch(_PRIMITIVES + "sdk_env", side_effect=refuse),
+            patch(_PRIMITIVES + "resolve_default_model", side_effect=refuse),
+            patch(_PRIMITIVES + "_resolve_project_spec", side_effect=refuse),
+            patch(_PRIMITIVES + "start_proxy_for", side_effect=refuse),
+            patch(_PRIMITIVES + "await_mcp_ready", side_effect=refuse),
+            sdk_seam(),
+        ):
+            await session.start()
+
+        assert session.is_active
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_no_permission_callback_hook_or_bypass_reaches_the_child(self):
+        session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=_KEY)
+
+        with sdk_seam() as captured:
+            await session.start()
+
+        (options,) = captured
+        assert options.can_use_tool is None
+        assert options.hooks is None
+        assert options.permission_mode is None
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_a_session_built_without_an_env_inherits_the_process_env(self):
+        session = OperatorSession(cwd="/tmp", session_key=_KEY)
+
+        with (
+            patch(_PRIMITIVES + "sdk_env") as sdk_env,
+            sdk_seam() as captured,
+        ):
+            await session.start()
+
+        (options,) = captured
+        assert options.env == {}
+        sdk_env.assert_not_called()
+        await session.stop()
+
+
+class TestOperatorChatStreamParity:
+    """A real agent stream reaches the queue as the frames the chat always sent."""
+
+    @pytest.mark.asyncio
+    async def test_a_real_agent_stream_reaches_the_queue_frame_for_frame(self):
+        tool = "mcp__osprey_workspace__channel_read"
+        client = _ScriptedClient(
+            [
+                assistant_message(
+                    [
+                        ThinkingBlock("pondering", "sig"),
+                        ToolUseBlock("tu_1", tool, {"channel": "SR:BPM"}),
+                        TextBlock("done"),
+                    ],
+                    error="rate_limit",
+                ),
+                user_message([ToolResultBlock("tu_1", "42.0", is_error=False)]),
+                system_message("init", {"session_id": "abc"}),
+                result_message(),
+            ]
+        )
+        async with _started_session(client) as session:
+            await session.send_prompt("read it")
+            frames = await _drain(session)
+
+        assert frames == [
+            {
+                "type": "error",
+                "message": "API error: rate_limit",
+                "error_type": "AssistantMessageError",
+            },
+            {"type": "thinking", "content": "pondering"},
+            {
+                "type": "tool_use",
+                "tool_name": "Channel Read",
+                "tool_name_raw": tool,
+                "tool_use_id": "tu_1",
+                "input": {"channel": "SR:BPM"},
+            },
+            {"type": "text", "content": "done"},
+            {"type": "system", "subtype": "init", "session_id": "abc"},
+            {
+                "type": "result",
+                "is_error": False,
+                "total_cost_usd": 0.01,
+                "duration_ms": 1200,
+                "num_turns": 1,
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_agent_sdk_failure_mid_turn_is_named_for_its_class(self):
+        client = _ScriptedClient(error=CLIConnectionError("gone"))
+        async with _started_session(client) as session:
+            await session.send_prompt("x")
+            frames = await _drain(session)
+
+        assert frames[-1] == {
+            "type": "error",
+            "message": "gone",
+            "error_type": "CLIConnectionError",
+        }
+
+    @pytest.mark.asyncio
+    async def test_an_unexpected_failure_mid_turn_keeps_its_prefix(self):
+        client = _ScriptedClient(error=ValueError("x"))
+        async with _started_session(client) as session:
+            await session.send_prompt("x")
+            frames = await _drain(session)
+
+        assert frames[-1]["type"] == "error"
+        assert frames[-1]["message"] == "Unexpected error: x"
+        assert frames[-1]["error_type"] == "ValueError"
+
+    @pytest.mark.asyncio
+    async def test_interrupt_after_stop_reaches_no_client(self):
+        client = FakeStreamClient()
+        async with _started_session(client) as session:
+            pass
+        calls = client.interrupt_calls
+
+        await session.interrupt()
+        await session.cancel()
+
+        assert client.interrupt_calls == calls
+
+
+def test_the_operator_session_module_imports_nothing_from_the_agent_sdk():
+    """The chat reaches the agent SDK only through the agent runner."""
+    root = Path(__file__).resolve().parents[3] / "src" / "osprey" / "interfaces" / "web_terminal"
+    for path in (root / "operator_session.py", root / "routes" / "chat.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                names = []
+            assert not any(name.split(".")[0] == "claude_agent_sdk" for name in names), path
+            if isinstance(node, ast.Attribute):
+                assert node.attr != "_transport", path

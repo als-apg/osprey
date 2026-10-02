@@ -3,7 +3,8 @@
 Input to the resurrection-guard manifest. Every dotted key the config-honesty
 ledger touched is classified as **all-presets** (must appear in all four shipped
 presets' resolved `config:`) or **per-preset** (deliberately present in some and
-absent from others, with the reason).
+absent from others, with the reason). Value equality is a third, separate
+classification, carried by the manifest's `same-value` mark and described below.
 
 ## The two sources
 
@@ -50,20 +51,30 @@ Three rules follow for anything consuming this list:
    and value-equality are separate properties here. `deployed_services` is
    present in all four and its values deliberately differ; `container_runtime`
    is present in all four and its value must match. The tables below state which
-   applies — infer neither from the other.
+   applies — infer neither from the other. The machine-checked form of "its
+   value must match" is `same-value: true` in the manifest, and failure mode 6
+   of `check_config_keys.py` compares the presets' stated values for every key
+   that carries it.
 2. **Absence from this document is not evidence of anything.** A key not listed
    was outside the ledger's scope, not judged parity-exempt. Classify it on its
    own evidence before adding it to a guard.
-3. **A derived key can never be parity-marked.** No preset spells one — a
+3. **A derived key can carry neither mark.** No preset spells one — a
    `config:` entry for a member of `DERIVED_KEYS` is refused at profile
    validation — so marking one would demand a second home for a fact the build
-   already writes. The mark is a claim about the operator's document only.
+   already writes. The mark is a claim about the operator's document only. The
+   guard refuses a `same-value` mark no two presets state, which is how a
+   derived key shows up.
 
 ## All-presets (parity-required)
 
 Present in all four presets' resolved `config:`. A guard fires if one goes
-missing. Values are stated where they must match and flagged where they must
-not.
+missing. A row reading "`X` everywhere" carries `same-value: true` beside
+`all-templates: true` in the manifest, and the guard compares the four presets'
+stated values for it. A row reading "diverges" carries `all-templates` only. The
+value column is prose for the reader, because the presets are the one place a
+value is written, and
+`tests/scripts/test_config_key_guard.py::test_the_parity_table_names_exactly_the_value_marked_keys`
+holds this table and the marks to one set of keys.
 
 | dotted key | value | notes |
 |---|---|---|
@@ -80,8 +91,36 @@ not.
 
 Their parent blocks — `approval`, `artifact_server`, `claude_code`,
 `claude_code.servers`, `claude_code.telemetry`, `execution`, `hooks`, `system` —
-carry the mark too, because a path is in the union at every level and the mark
-is presence-only. They are not separate claims.
+carry `all-templates` too, because a path is in the union at every level and
+that mark is presence-only. They are not separate claims. No block carries
+`same-value`, which marks leaves.
+
+## Same value wherever stated
+
+A `same-value` mark without `all-templates` leaves presence free and pins only
+agreement among the presets that state the key.
+
+- `approval.tools.<tool>` (all ten rows): a tool's policy follows what the tool
+  does, not which deployment serves it. Presence is capability-scoped, since a
+  preset lists only tools its servers gate
+  (`tests/profiles/test_approval_tools_parity.py`), and an unlisted tool falls to
+  `approval.default_policy`.
+- `claude_code.telemetry.log_{user_prompts,assistant_responses,tool_details,raw_api_bodies}`:
+  the capture posture of the bundled store. The three presets that ship it each
+  state every content gate on (each opens its gate block with "Content gates,
+  all on"), so the posture is one claim about one store.
+  `channel-finder-standalone` ships no store and states none of them.
+
+### Considered and left unmarked
+
+| keys | reason |
+|---|---|
+| `services.<name>.*` sizes, intervals, images, paths | capacity or per-deployment layout; host ports come from the layout fill and no preset states them |
+| `claude_code.telemetry.{protocol,backend,openobserve.*}` | wiring to the bundled store: correct when it matches the provisioner, which agreement among presets cannot show |
+| `web.feedback.max_store_bytes` | capacity |
+| `ariel.*` tuning | per-deployment, and `ariel.vocabulary.enabled` already diverges |
+| `control_system.*` | `type`, `writes_enabled` and `limits_checking.allow_unlisted_channels` already diverge |
+| `facility.*`, `channel_finder.query_max_rows`, `claude_code.servers.<name>.enabled` | capability-scoped |
 
 ## Per-preset (deliberate divergence)
 
@@ -227,11 +266,7 @@ omission.
    It is absent from every `approval.tools` block, so it falls to
    `default_policy: always` — fail-closed and correctly described by the
    shipped comment. No change needed; recorded so it is not mistaken for drift.
-4. **`facility.timezone` is read but shipped by no preset**
-   (`deployment/web_terminals/env_production.py`,
-   `deployment/web_terminals/render.py`), distinct from `system.timezone`.
-   Hidden-key stanza candidate.
-5. **`facility.prefix` has a stated convention and no validator — by design.**
+4. **`facility.prefix` has a stated convention and no validator — by design.**
    The 2-6-character lowercase-alnum-plus-hyphens rule this entry was opened
    against came from a schema document that no longer exists (it went with the
    `facility-config.yml` surface). The convention survives in prose only, and

@@ -1,7 +1,7 @@
 """The startup line that names both Claude Code binaries.
 
 A project that pins ``claude_code.cli_version`` runs one CLI in the terminal
-(spawned from the argv :mod:`osprey.utils.claude_launcher` builds) and another
+(spawned from the argv :mod:`osprey.agent_runner.launcher` builds) and another
 in the chat (the binary bundled inside the Agent SDK package). The server says
 so at startup rather than leaving the pair to be inferred from a behaviour that
 only one view has.
@@ -18,15 +18,15 @@ import os
 
 import pytest
 
+from osprey.agent_runner import launcher
 from osprey.interfaces.web_terminal import app as web_app
-from osprey.utils import claude_launcher
 
 #: The bundle's stand-in reports this; the pin below deliberately does not
 #: match it, so the mismatch path is the interesting one.
 BUNDLE_VERSION = "2.1.228"
 PINNED_VERSION = "2.1.146"
 
-LAUNCHER_LOGGER = claude_launcher.logger.name
+LAUNCHER_LOGGER = launcher.logger.name
 APP_LOGGER = web_app.logger.name
 
 #: The stand-in bundle is a shell script, so these need a POSIX shell.
@@ -40,9 +40,9 @@ def clear_bundle_cache():
     The cache is the point of the function, so it cannot be disabled — but a
     value cached by one test would make the next one assert nothing.
     """
-    claude_launcher.bundled_cli_version.cache_clear()
+    launcher.bundled_cli_version.cache_clear()
     yield
-    claude_launcher.bundled_cli_version.cache_clear()
+    launcher.bundled_cli_version.cache_clear()
 
 
 def _fake_bundle(tmp_path, body: str, name: str = "claude"):
@@ -55,7 +55,7 @@ def _fake_bundle(tmp_path, body: str, name: str = "claude"):
 
 def _install_bundle(monkeypatch, path) -> None:
     """Point the launcher's bundle lookup at ``path`` (or nothing)."""
-    monkeypatch.setattr(claude_launcher, "bundled_cli_path", lambda: path)
+    monkeypatch.setattr(launcher, "bundled_cli_path", lambda: path)
 
 
 # ---- Reading the bundled version ----
@@ -65,7 +65,7 @@ def _install_bundle(monkeypatch, path) -> None:
 def test_the_bundled_version_is_read_from_the_binary(tmp_path, monkeypatch):
     """The probe runs the binary and parses the semver out of its output."""
     _install_bundle(monkeypatch, _fake_bundle(tmp_path, f'echo "{BUNDLE_VERSION} (Claude Code)"'))
-    assert claude_launcher.bundled_cli_version() == BUNDLE_VERSION
+    assert launcher.bundled_cli_version() == BUNDLE_VERSION
 
 
 @posix_only
@@ -77,8 +77,8 @@ def test_the_binary_is_run_once_per_process(tmp_path, monkeypatch):
         _fake_bundle(tmp_path, f'echo x >> "{marker}"\necho "{BUNDLE_VERSION}"'),
     )
 
-    assert claude_launcher.bundled_cli_version() == BUNDLE_VERSION
-    assert claude_launcher.bundled_cli_version() == BUNDLE_VERSION
+    assert launcher.bundled_cli_version() == BUNDLE_VERSION
+    assert launcher.bundled_cli_version() == BUNDLE_VERSION
 
     assert marker.read_text(encoding="utf-8").count("x") == 1
 
@@ -86,26 +86,26 @@ def test_the_binary_is_run_once_per_process(tmp_path, monkeypatch):
 def test_no_bundle_is_an_unknown_version_not_an_error(monkeypatch):
     """An SDK without a bundle leaves the chat's version simply unknown."""
     _install_bundle(monkeypatch, None)
-    assert claude_launcher.bundled_cli_version() is None
+    assert launcher.bundled_cli_version() is None
 
 
 @posix_only
 def test_a_binary_that_fails_reports_no_version(tmp_path, monkeypatch):
     """A non-zero exit is not a version, and is not an exception either."""
     _install_bundle(monkeypatch, _fake_bundle(tmp_path, "exit 3"))
-    assert claude_launcher.bundled_cli_version() is None
+    assert launcher.bundled_cli_version() is None
 
 
 @posix_only
 def test_unparseable_output_reports_no_version(tmp_path, monkeypatch):
     """Output with no semver in it answers ``None`` rather than a fragment."""
     _install_bundle(monkeypatch, _fake_bundle(tmp_path, 'echo "not a version"'))
-    assert claude_launcher.bundled_cli_version() is None
+    assert launcher.bundled_cli_version() is None
 
 
 def test_the_real_lookup_agrees_with_the_installed_sdk():
     """The bundle is resolved from the installed package, not a guessed path."""
-    path = claude_launcher.bundled_cli_path()
+    path = launcher.bundled_cli_path()
     if path is None:
         pytest.skip("the installed Agent SDK ships no bundled CLI")
     assert path.is_file()
@@ -117,19 +117,19 @@ def test_the_real_lookup_agrees_with_the_installed_sdk():
 
 def test_a_pinned_argv_reports_its_version():
     """The pin the launcher wrote into the argv is the pin read back out."""
-    argv = claude_launcher.build_claude_launch_argv({"cli_version": PINNED_VERSION})
-    assert claude_launcher.argv_cli_version(argv) == PINNED_VERSION
+    argv = launcher.build_claude_launch_argv({"cli_version": PINNED_VERSION})
+    assert launcher.argv_cli_version(argv) == PINNED_VERSION
 
 
 def test_an_unpinned_argv_reports_nothing():
     """``claude`` off PATH carries no version, and none is invented for it."""
-    argv = claude_launcher.build_claude_launch_argv({})
-    assert claude_launcher.argv_cli_version(argv) is None
+    argv = launcher.build_claude_launch_argv({})
+    assert launcher.argv_cli_version(argv) is None
 
 
 def test_a_shell_override_reports_nothing():
     """A configured ``shell`` is not a Claude Code launch at all."""
-    assert claude_launcher.argv_cli_version(["/bin/bash", "-l"]) is None
+    assert launcher.argv_cli_version(["/bin/bash", "-l"]) is None
 
 
 # ---- The startup line ----
@@ -139,7 +139,7 @@ def test_a_shell_override_reports_nothing():
 def test_both_versions_are_logged(tmp_path, monkeypatch, caplog):
     """One line names the terminal's argv and the chat's bundled version."""
     _install_bundle(monkeypatch, _fake_bundle(tmp_path, f'echo "{BUNDLE_VERSION}"'))
-    argv = claude_launcher.build_claude_launch_argv({"cli_version": BUNDLE_VERSION})
+    argv = launcher.build_claude_launch_argv({"cli_version": BUNDLE_VERSION})
 
     with caplog.at_level(logging.INFO, logger=APP_LOGGER):
         web_app._log_claude_cli_versions(argv)
@@ -154,7 +154,7 @@ def test_both_versions_are_logged(tmp_path, monkeypatch, caplog):
 def test_a_pin_that_differs_from_the_bundle_warns(tmp_path, monkeypatch, caplog):
     """The whole point: two builds under one server, said out loud."""
     _install_bundle(monkeypatch, _fake_bundle(tmp_path, f'echo "{BUNDLE_VERSION}"'))
-    argv = claude_launcher.build_claude_launch_argv({"cli_version": PINNED_VERSION})
+    argv = launcher.build_claude_launch_argv({"cli_version": PINNED_VERSION})
 
     with caplog.at_level(logging.INFO, logger=APP_LOGGER):
         web_app._log_claude_cli_versions(argv)
@@ -169,7 +169,7 @@ def test_a_pin_that_differs_from_the_bundle_warns(tmp_path, monkeypatch, caplog)
 def test_an_unpinned_launch_never_warns(tmp_path, monkeypatch, caplog):
     """An unprobed PATH ``claude`` is unknown, and unknown is not a mismatch."""
     _install_bundle(monkeypatch, _fake_bundle(tmp_path, f'echo "{BUNDLE_VERSION}"'))
-    argv = claude_launcher.build_claude_launch_argv({})
+    argv = launcher.build_claude_launch_argv({})
 
     with caplog.at_level(logging.INFO, logger=APP_LOGGER):
         web_app._log_claude_cli_versions(argv)
@@ -181,7 +181,7 @@ def test_an_unpinned_launch_never_warns(tmp_path, monkeypatch, caplog):
 def test_an_unreadable_bundle_still_logs_the_argv(monkeypatch, caplog):
     """With nothing to compare against, the terminal's argv is still recorded."""
     _install_bundle(monkeypatch, None)
-    argv = claude_launcher.build_claude_launch_argv({"cli_version": PINNED_VERSION})
+    argv = launcher.build_claude_launch_argv({"cli_version": PINNED_VERSION})
 
     with caplog.at_level(logging.INFO, logger=APP_LOGGER):
         web_app._log_claude_cli_versions(argv)
@@ -196,6 +196,6 @@ def test_the_probe_failure_path_is_quiet(monkeypatch, caplog, tmp_path):
     _install_bundle(monkeypatch, tmp_path / "does-not-exist")
 
     with caplog.at_level(logging.DEBUG, logger=LAUNCHER_LOGGER):
-        assert claude_launcher.bundled_cli_version() is None
+        assert launcher.bundled_cli_version() is None
 
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]

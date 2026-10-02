@@ -1314,7 +1314,7 @@ def _prose_of(node: ast.expr) -> str:
 
 def _offer_the_env_seed(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> None:
     """Put ``ensure_repo_env`` in the state where it offers to seed a ``.env``."""
-    from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.agent_runner.provider_env import provider_auth_secret_env
 
     secret_var = provider_auth_secret_env(_SEED_PROVIDER, None)
     assert secret_var, "the seed offer needs a provider with a secret variable"
@@ -1849,7 +1849,8 @@ def _stored_value(env_auth_path: Path, var: str) -> str:
 
 #: A local-mode web-terminal deployment, the only mode ``.env.users`` generates in.
 _LOCAL_WEB_CONFIG = {
-    "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+    "facility": {"name": "Demo", "prefix": "dls"},
+    "system": {"timezone": "UTC"},
     "llm": {"provider": "cborg", "api_key_env_var": "CBORG_API_KEY"},
     "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
 }
@@ -1925,7 +1926,8 @@ def _seed_config(users: list[str]) -> dict:
     """A roster the seed loop can resolve personas for."""
     return {
         "project_name": "demo",
-        "facility": {"name": "Demo", "prefix": "dls", "timezone": "UTC"},
+        "facility": {"name": "Demo", "prefix": "dls"},
+        "system": {"timezone": "UTC"},
         "modules": {"web_terminals": {"enabled": True, "users": users}},
     }
 

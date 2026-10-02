@@ -59,7 +59,8 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
             {"Building-1": {"_channel_part": ""}} → ""
         """
         if "_channel_part" in node:
-            return node["_channel_part"]
+            part: str = node["_channel_part"]
+            return part
         return tree_key  # Default: backward compatible
 
     def _is_leaf_node(self, node: dict, current_level_idx: int) -> bool:

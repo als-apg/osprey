@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 #: sidecar and its kernels, the file watcher, PTY children) keeps running with
 #: it. The callers here have already closed their pages by the time they stop
 #: the server, so a connection that has not gone in this long is not going to.
-_DRAIN_TIMEOUT = 5.0
+_DRAIN_TIMEOUT = 5
 
 #: Seconds to wait for the serving thread to finish after ``should_exit``.
 #: Covers the drain above plus a lifespan shutdown that terminates

@@ -1438,7 +1438,8 @@ def _with_web_terminals(repo: Path) -> None:
     import yaml
 
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-    config["facility"] = {"name": "ERF", "prefix": "als", "timezone": "UTC"}
+    config["facility"] = {"name": "ERF", "prefix": "als"}
+    config.setdefault("system", {})["timezone"] = "UTC"
     config["registry"] = {"url": "registry.example.org"}
     config["modules"] = {
         "web_terminals": {

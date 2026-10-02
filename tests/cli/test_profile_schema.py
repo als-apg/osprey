@@ -15,13 +15,14 @@ from typing import Any
 import pytest
 
 from osprey.cli import build_profile as bp
-from osprey.cli import build_profile_model
+from osprey.cli import build_profile_presets
 from osprey.cli.build_profile import (
     BuildProfile,
     DispatchConfig,
     ServiceDef,
     _parse_profile,
 )
+from osprey.cli.build_profile_presets import resolve_triggers_path
 from osprey.errors import BuildProfileError
 
 
@@ -158,13 +159,78 @@ def test_bundled_triggers_name_resolves(tmp_path: Path, monkeypatch: pytest.Monk
     triggers = tmp_path / "triggers"
     triggers.mkdir()
     (triggers / "tutorial_triggers.yml").write_text("triggers: []", encoding="utf-8")
-    monkeypatch.setattr(build_profile_model, "_triggers_dir", lambda: triggers)
+    monkeypatch.setattr(build_profile_presets, "_triggers_dir", lambda: triggers)
 
     profile_dir = tmp_path / "empty_profile"
     profile_dir.mkdir()
     (profile_dir / "data").mkdir()
     profile = _profile(name="x", dispatch=DispatchConfig(triggers="tutorial_triggers.yml"))
     profile.validate(profile_dir)
+
+
+def _bundled_triggers_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *names: str) -> Path:
+    """Point the bundled triggers directory at a tmp dir holding ``names``."""
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    for name in names:
+        (bundled / name).write_text("triggers: []\n", encoding="utf-8")
+    monkeypatch.setattr(build_profile_presets, "_triggers_dir", lambda: bundled)
+    return bundled
+
+
+def test_resolve_triggers_path_prefers_the_profiles_own_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file beside the profile wins over a bundled one of the same name."""
+    _bundled_triggers_dir(tmp_path, monkeypatch, "shared.yml")
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    (profile_dir / "shared.yml").write_text("triggers: []\n", encoding="utf-8")
+
+    source = resolve_triggers_path(profile_dir, "shared.yml")
+
+    assert source is not None
+    assert source.bundled is False
+    assert source.path == profile_dir / "shared.yml"
+
+
+def test_resolve_triggers_path_marks_a_bundled_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A name only the bundled directory holds resolves there, marked bundled."""
+    bundled = _bundled_triggers_dir(tmp_path, monkeypatch, "shipped.yml")
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+
+    source = resolve_triggers_path(profile_dir, "shipped.yml")
+
+    assert source is not None
+    assert source.bundled is True
+    assert source.path == bundled / "shipped.yml"
+
+
+def test_resolve_triggers_path_resolves_a_nested_profile_path(tmp_path: Path) -> None:
+    """A path relative to the profile resolves beside it."""
+    profile_dir = tmp_path / "profile"
+    (profile_dir / "triggers").mkdir(parents=True)
+    (profile_dir / "triggers" / "x.yml").write_text("triggers: []\n", encoding="utf-8")
+
+    source = resolve_triggers_path(profile_dir, "triggers/x.yml")
+
+    assert source is not None
+    assert source.bundled is False
+    assert source.path == profile_dir / "triggers" / "x.yml"
+
+
+def test_resolve_triggers_path_is_none_when_neither_has_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A name neither location holds resolves to None."""
+    _bundled_triggers_dir(tmp_path, monkeypatch)
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+
+    assert resolve_triggers_path(profile_dir, "missing.yml") is None
 
 
 def test_parse_round_trip() -> None:

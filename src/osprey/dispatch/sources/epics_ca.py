@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -32,6 +34,38 @@ logger = logging.getLogger("osprey.dispatch.sources.epics_ca")
 VALID_EDGES = frozenset({"rising", "falling", "both"})
 
 
+def _number_setting(
+    cfg: Mapping[str, Any], key: str, default: float, *, non_negative: bool = False
+) -> float:
+    """Read one numeric ``source_config`` setting, or refuse it.
+
+    A threshold or cool-down the watcher cannot compare against is refused,
+    never coerced into a trigger that never fires or fires on ``1.0``. An
+    absent or blank value takes ``default``; a numeric string reads as its
+    number.
+
+    Raises:
+        ValueError: The value is a ``bool``, is not readable by ``float()``, is
+            not finite, or is negative under ``non_negative``. The message reads
+            ``<qualifier> '<key>' (<value>)``.
+    """
+    value = cfg.get(key)
+    if value is None:
+        return default
+    # ``bool`` is an ``int`` subclass, so ``true`` would otherwise read as 1.0.
+    if isinstance(value, bool):
+        raise ValueError(f"non-numeric {key!r} ({value!r})")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"non-numeric {key!r} ({value!r})") from None
+    if not math.isfinite(number):
+        raise ValueError(f"non-finite {key!r} ({value!r})")
+    if non_negative and number < 0:
+        raise ValueError(f"negative {key!r} ({value!r})")
+    return number
+
+
 class _PvWatcher:
     """Monitor one PV and fire a callback when its value crosses a threshold.
 
@@ -49,9 +83,9 @@ class _PvWatcher:
     ) -> None:
         cfg = trigger.source_config
         self._pv_name: str = cfg["pv"]
-        self._threshold: float = float(cfg.get("threshold", 0.0))
+        self._threshold: float = _number_setting(cfg, "threshold", 0.0)
         self._edge: str = cfg.get("edge", "rising")  # rising | falling | both
-        self._cool_down: float = float(cfg.get("cool_down_sec", 60.0))
+        self._cool_down: float = _number_setting(cfg, "cool_down_sec", 60.0, non_negative=True)
         self._trigger = trigger
         self._fire = fire_callback
         self._loop = loop
@@ -129,7 +163,7 @@ class _PvWatcher:
             "previous_value": prev,
             "threshold": self._threshold,
             "edge": self._edge,
-            "timestamp": datetime.now(tz=UTC).isoformat(),
+            "timestamp": datetime.now(tz=UTC),
         }
         asyncio.run_coroutine_threadsafe(self._dispatch(payload), self._loop)
 
@@ -155,9 +189,13 @@ class EpicsCaSource:
     Expected ``source_config`` keys per trigger:
 
     * ``pv`` (required): EPICS PV name to monitor.
-    * ``threshold`` (default ``0.0``): crossing value.
+    * ``threshold`` (default ``0.0``): crossing value, a finite number.
     * ``edge`` (default ``"rising"``): ``"rising"``, ``"falling"``, or ``"both"``.
-    * ``cool_down_sec`` (default ``60.0``): minimum seconds between fires for the same trigger.
+    * ``cool_down_sec`` (default ``60.0``): minimum seconds between fires for the same
+      trigger, a number zero or greater.
+
+    A trigger with an unusable ``threshold`` or ``cool_down_sec`` is skipped with a
+    warning naming it; its siblings still arm.
     """
 
     source_type: ClassVar[str] = "epics_ca"
@@ -191,7 +229,11 @@ class EpicsCaSource:
                     ", ".join(sorted(VALID_EDGES)),
                 )
                 continue
-            watcher = _PvWatcher(trigger, fire_callback, loop)
+            try:
+                watcher = _PvWatcher(trigger, fire_callback, loop)
+            except ValueError as exc:
+                logger.warning("EPICS CA trigger '%s' has %s; skipping", trigger.name, exc)
+                continue
             watcher.start()
             self._watchers.append(watcher)
         logger.info("EPICS CA source started with %d monitor(s)", len(self._watchers))

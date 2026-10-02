@@ -480,6 +480,7 @@ def test_a_bare_string_roster_entry_carries_no_role() -> None:
 
 _LINT_CONFIG: dict[str, Any] = {
     "facility": {"prefix": "dls"},
+    "registry": {"url": "registry.example.org/demo"},
     "modules": {
         "web_terminals": {
             "enabled": True,
@@ -494,11 +495,10 @@ def _lint(
 ) -> list[Finding]:
     """Lint a well-formed config carrying the authorization stanza under test.
 
-    ``registry`` is a ROOT-level override, not a ``web_terminals`` one: a test
-    that declares a ``personas`` catalog opts the config into the persona
-    system, and registry mode then wants a ``registry.url`` (an unrelated rule,
-    ``web_terminals.registry_mode_missing_url``, which would otherwise drown the
-    finding under test).
+    ``_LINT_CONFIG`` carries a ``registry.url`` because registry mode always
+    wants one (an unrelated rule, ``web_terminals.registry_mode_missing_url``,
+    which would otherwise drown the finding under test). ``registry`` is a
+    ROOT-level override, not a ``web_terminals`` one, and replaces it.
     """
     config = copy.deepcopy(_LINT_CONFIG)
     if authorization is not None:

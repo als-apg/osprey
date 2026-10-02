@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import fcntl
 import os
-import select
 import struct
 import sys
 import termios
@@ -13,27 +12,13 @@ import time
 import pytest
 
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
-
-#: How long a real shell may take to answer under a loaded parallel run.
-READ_TIMEOUT_S = 15.0
-
-
-def _read_until(session: PtySession, marker: bytes, timeout: float = READ_TIMEOUT_S) -> bytes:
-    """Read the PTY master until *marker* appears or *timeout* passes.
-
-    The shell echoes the command line first and answers later, so a reader
-    that stops early sees only the echo. Only the deadline ends the wait.
-    """
-    output = b""
-    deadline = time.monotonic() + timeout
-    while marker not in output and time.monotonic() < deadline:
-        readable, _, _ = select.select([session._master_fd], [], [], 0.1)
-        if readable:
-            try:
-                output += os.read(session._master_fd, 4096)
-            except BlockingIOError:
-                continue
-    return output
+from tests.interfaces.web_terminal._pty_child import (
+    CHILD_HANG_CEILING,
+    SENTINEL,
+    read_answer,
+    wait_for_exit,
+    wait_for_report,
+)
 
 
 def _winsize(session: PtySession) -> tuple[int, int]:
@@ -57,8 +42,8 @@ class TestPtySession:
         session = PtySession("/bin/sh")
         session.start()
         try:
-            session.write_input(b"echo hello_test_marker\n")
-            assert b"hello_test_marker" in _read_until(session, b"hello_test_marker")
+            output = read_answer(session, b'echo hello_test_""marker')
+            assert b"hello_test_marker" in output
         finally:
             session.terminate()
 
@@ -93,9 +78,9 @@ class TestPtySession:
         session = PtySession("/bin/sh")
         session.start(cwd=str(target))
         try:
-            session.write_input(b"pwd -P\n")
+            output = read_answer(session, b"pwd -P")
             expected = os.path.realpath(target).encode()
-            assert expected in _read_until(session, expected)
+            assert expected in output
         finally:
             session.terminate()
 
@@ -109,18 +94,35 @@ class TestPtySession:
         """
         marker = tmp_path / "sigwinch"
         ready = tmp_path / "sigwinch_ready"
-        child_script = (
-            "import signal, time, pathlib; "
-            f"signal.signal(signal.SIGWINCH, lambda *_: pathlib.Path({str(marker)!r}).write_text('ok')); "
-            f"pathlib.Path({str(ready)!r}).write_text('ok'); "
-            "time.sleep(60)"
+        child_script = "\n".join(
+            [
+                "import signal, pathlib",
+                f"signal.signal(signal.SIGWINCH, lambda *_: pathlib.Path({str(marker)!r}).write_text('ok'))",
+                f"pathlib.Path({str(ready)!r}).write_text('ok')",
+                "while True: signal.pause()",
+            ]
         )
+
+        def _drain(fd: int) -> bytes:
+            out = b""
+            while True:
+                try:
+                    chunk = os.read(fd, 4096)
+                except (BlockingIOError, OSError):
+                    return out
+                if not chunk:
+                    return out
+                out += chunk
 
         session = PtySession([sys.executable, "-c", child_script])
         session.start()
         try:
-            deadline = time.monotonic() + 30
+            deadline = time.monotonic() + CHILD_HANG_CEILING
             while not ready.exists():
+                assert session.is_alive, (
+                    f"the child exited with code {session.exit_code} before installing its "
+                    f"handler: {_drain(session._master_fd)!r}"
+                )
                 assert time.monotonic() < deadline, "the child never installed its handler"
                 time.sleep(0.05)
 
@@ -128,17 +130,68 @@ class TestPtySession:
             # two sizes alternate.
             sizes = ((40, 120), (24, 80))
             attempt = 0
-            deadline = time.monotonic() + 15
-            while not marker.exists() and time.monotonic() < deadline:
+            deadline = time.monotonic() + CHILD_HANG_CEILING
+            while not marker.exists() and session.is_alive and time.monotonic() < deadline:
                 session.resize(*sizes[attempt % 2])
                 attempt += 1
                 round_ends = time.monotonic() + 1
                 while not marker.exists() and time.monotonic() < round_ends:
                     time.sleep(0.05)
 
+            assert session.is_alive, (
+                f"the child exited with code {session.exit_code} before SIGWINCH was "
+                f"delivered: {_drain(session._master_fd)!r}"
+            )
             assert marker.exists(), "SIGWINCH was not delivered to the child process"
         finally:
             session.terminate()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
+class TestPtyChildWaits:
+    def test_read_answer_returns_the_executed_answer(self):
+        session = PtySession("/bin/sh")
+        session.start()
+        try:
+            output = read_answer(session, b'echo left_""right')
+            assert b"left_right" in output
+            assert SENTINEL in output
+            assert output.index(b"left_right") < output.rindex(SENTINEL)
+        finally:
+            session.terminate()
+
+    def test_read_answer_fails_on_a_dead_child_naming_its_exit_code(self):
+        session = PtySession(["/bin/sh", "-c", "exit 3"])
+        session.start()
+        try:
+            wait_for_exit(session)
+            with pytest.raises(AssertionError, match=r"exited with code 3 before answering"):
+                read_answer(session, b"echo hi")
+        finally:
+            session.terminate()
+
+    def test_wait_for_report_fails_on_a_dead_reporter(self, tmp_path):
+        session = PtySession(["/bin/sh", "-c", "exit 4"])
+        session.start()
+        try:
+            wait_for_exit(session)
+            with pytest.raises(AssertionError, match=r"exited with code 4 with 0 of 1 line"):
+                wait_for_report(tmp_path / "never.txt", 1, session)
+        finally:
+            session.terminate()
+
+    def test_wait_for_report_accepts_a_line_written_just_before_exit(self, tmp_path):
+        report = tmp_path / "report.txt"
+        session = PtySession(["/bin/sh", "-c", f'printf "x\\n" >> "{report}"'])
+        session.start()
+        try:
+            wait_for_exit(session)
+            assert wait_for_report(report, 1, session) == ["x"]
+        finally:
+            session.terminate()
+
+    def test_hang_ceiling_sits_below_the_per_test_timeout(self):
+        assert CHILD_HANG_CEILING < 300
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
@@ -152,9 +205,7 @@ class TestPtyRegistry:
         registry = PtyRegistry()
         try:
             session_1, _ = registry.get_or_create_session("default", ["/bin/sh", "-c", "exit 0"])
-            deadline = time.monotonic() + 5
-            while session_1.is_alive and time.monotonic() < deadline:
-                time.sleep(0.02)
+            wait_for_exit(session_1)
             assert not session_1.is_alive
 
             session_2, reused = registry.get_or_create_session("default", "/bin/sh")
@@ -200,8 +251,8 @@ class TestPtyRegistry:
             session, _reused = registry.get_or_create_session(
                 "term-cwd", "/bin/sh", cwd=str(target)
             )
-            session.write_input(b"pwd -P\n")
+            output = read_answer(session, b"pwd -P")
             expected = os.path.realpath(target).encode()
-            assert expected in _read_until(session, expected)
+            assert expected in output
         finally:
             registry.cleanup_all()

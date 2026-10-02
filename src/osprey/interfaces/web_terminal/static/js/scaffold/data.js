@@ -46,8 +46,8 @@ export function resetFetchCache() {
  * The subset of an ArtifactGallery instance that {@link loadArtifacts} needs:
  * the domain filter and the two category-remapping tables.
  * @typedef {object} ArtifactFilterState
- * @property {(artifact: {category: string, name?: string}) => boolean} categoryFilter
- * @property {Record<string, string>} categoryOverrides
+ * @property {(artifact: {category: string, name?: string, output_path?: string}) => boolean} categoryFilter
+ * @property {Record<string, string>} categoryOverrides keyed by output path
  * @property {Record<string, string>} categoryRemaps
  */
 
@@ -82,7 +82,7 @@ export async function loadArtifacts(state, opts = {}) {
     .map(/** @param {any} a */ (a) => ({
       ...a,
       displayCategory:
-        state.categoryOverrides[a.name] ||
+        state.categoryOverrides[a.output_path] ||
         state.categoryRemaps[a.category] ||
         a.category,
     }));

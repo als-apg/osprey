@@ -477,10 +477,10 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     # moving the require_startup contract too.
     for var in _TEAMS_CREDENTIALS:
         assert env[var] == f"${{{var}}}"
-    # The two optional Teams settings are the opposite case: unset is the normal
+    # The optional Teams settings are the opposite case: unset is the normal
     # reading, so they carry an empty `:-` fallback rather than a bare reference
     # that would warn on every ordinary deploy.
-    for var in ("TEAMS_CLOUD", "APP_VERSION_DISPLAY"):
+    for var in ("TEAMS_CLOUD", "APP_VERSION_DISPLAY", "TEAMS_FILES_DRIVE_ID", "TEAMS_FILES_FOLDER"):
         assert env[var] == f"${{{var}:-}}"
     # The dispatch tokens are bare for the same reason as the credentials, and
     # `osprey up` mints them.

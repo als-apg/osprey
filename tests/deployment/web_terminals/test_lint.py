@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 import yaml
@@ -14,7 +15,8 @@ from osprey.deployment.web_terminals.lint import (
     lint_web_terminals,
     profile_config_errors,
 )
-from osprey.deployment.web_terminals.render import TLS_LISTEN_PORT
+from osprey.deployment.web_terminals.render import TLS_LISTEN_PORT, _auth_tls_context
+from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import (
     _MAX_PORT,
     DEFAULT_PORT_BASE,
@@ -22,6 +24,7 @@ from osprey.port_layout import (
     SLOTS_BY_NAME,
     default_port,
 )
+from osprey.services.auth_sidecar.passwords import hash_password
 
 # A second, non-default base whose block the explicit per-family overrides
 # below sit in — proves the lint reads a config override rather than assuming
@@ -32,6 +35,7 @@ _OVERRIDE_PORT_BASE = 20000
 
 _CLEAN_CONFIG = {
     "facility": {"prefix": "test"},
+    "registry": {"url": "registry.example.org/demo"},
     "services": {
         "openobserve": {"port": 5080},
         "postgresql": {"port_host": 5432},
@@ -297,11 +301,12 @@ def test_lint_roster_index_past_the_family_band_is_an_error() -> None:
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.incomplete_port_families" for f in errors)
-    # The finding must be actionable: it carries the allocator's own refusal,
-    # which names the band and the `<family>_base_port` escape.
+    # The finding carries the allocator's refusal, which names the user ceiling
+    # and links the perimeter limits.
     message = next(f.message for f in errors if f.code == "web_terminals.incomplete_port_families")
-    assert str(INDEX_MAX) in message
-    assert "modules.web_terminals.artifact_base_port" in message
+    assert f"{INDEX_MAX + 1} users" in message
+    assert PERIMETER_LIMITS_URL in message
+    assert "modules.web_terminals.artifact_base_port" not in message
 
 
 def test_lint_roster_filling_the_family_band_is_not_an_error() -> None:
@@ -1434,7 +1439,8 @@ def test_lint_unknown_image_source_is_an_error() -> None:
 def test_lint_registry_mode_without_registry_url_is_an_error() -> None:
     """`image_source: registry` (the default) needs registry.url to pull images."""
     # Arrange
-    config = _persona_config()  # image_source unset -> registry; no registry.url
+    config = _persona_config()
+    del config["registry"]  # image_source unset -> registry
 
     # Act
     findings = lint_web_terminals(config)
@@ -1457,9 +1463,25 @@ def test_lint_registry_mode_with_registry_url_reports_no_missing_url_error() -> 
     assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
 
 
-def test_lint_no_persona_catalog_does_not_require_registry_url() -> None:
-    """Zero-migration path: a config with no personas catalog at all never
-    triggers the registry.url coherence check, even with zero registry.url."""
+def test_lint_no_persona_catalog_still_requires_registry_url() -> None:
+    """With no catalog every user pulls `<registry.url>/web-terminal:<tag>`, so
+    the refusal is the same as with a catalog."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    del config["registry"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    missing = [f for f in _errors(findings) if f.code == "web_terminals.registry_mode_missing_url"]
+    assert len(missing) == 1
+    assert "registry.url" in missing[0].message
+    assert "deploy.registry.url" in missing[0].message
+
+
+def test_lint_no_persona_catalog_with_registry_url_reports_no_missing_url_error() -> None:
+    """A no-catalog config that sets registry.url carries no coherence error."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
 
@@ -1467,8 +1489,7 @@ def test_lint_no_persona_catalog_does_not_require_registry_url() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    errors = _errors(findings)
-    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
+    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in findings)
 
 
 def test_lint_local_mode_with_registry_url_is_a_warning() -> None:
@@ -2584,6 +2605,37 @@ def test_lint_external_origin_with_a_trailing_slash_is_an_error() -> None:
     assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
 
 
+def test_lint_external_origin_nginx_would_read_as_a_pattern_is_an_error() -> None:
+    """The origin's host is nginx's server name, where a leading `~` is a pattern."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["external_origin"] = "https://~terminals.example.org"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
+
+
+def test_lint_cleartext_external_origin_under_tls_is_an_error() -> None:
+    """With TLS on, the plain port redirects to the origin, so it must be https."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+    config["modules"]["web_terminals"]["external_origin"] = "http://terminals.example.org:10000"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_external_origin" for f in _errors(findings))
+
+
 def test_lint_non_string_external_origin_is_an_error() -> None:
     """A non-string cannot be an origin — fail closed, as render does."""
     # Arrange
@@ -2628,6 +2680,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.unknown_auth_method",
         "web_terminals.auth_requires_tls",
         "web_terminals.auth_insecure_http",
+        "web_terminals.auth_seeded_password",
         "web_terminals.auth_oidc_missing_issuer",
         "web_terminals.auth_oidc_invalid_client_env",
         "web_terminals.auth_oidc_invalid_scopes",
@@ -2635,7 +2688,9 @@ _AUTH_CODES = frozenset(
         "web_terminals.auth_oidc_unresolvable_origin",
         "web_terminals.auth_oidc_subject_unsafe",
         "web_terminals.auth_credential_collision",
+        "web_terminals.auth_credential_unevaluable",
         "web_terminals.invalid_session_lifetime",
+        "web_terminals.invalid_auth_throttle",
     }
 )
 
@@ -2676,6 +2731,85 @@ def test_lint_clean_password_auth_config_reports_no_auth_findings() -> None:
     # Assert
     assert _auth_findings(findings) == []
     assert _errors(findings) == []
+
+
+_UNEVALUABLE_CODE = "web_terminals.auth_credential_unevaluable"
+
+_BROKEN_HASH = "scrypt.16384.8.1.c2FsdA"
+"""A stored hash cut to five fields: provisioned, and impossible to evaluate."""
+
+
+def _unevaluable(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.code == _UNEVALUABLE_CODE]
+
+
+def _write_env_auth(root: Path, value: str) -> None:
+    (root / ".env.auth").write_text(f"OSPREY_AUTH_PW_HASH_ALICE={value}\n")
+
+
+def test_lint_unevaluable_stored_hash_is_a_warning(tmp_path: Path) -> None:
+    """A stored hash the login service cannot read is named, never quoted."""
+    # Arrange
+    _write_env_auth(tmp_path, _BROKEN_HASH)
+    config = _auth_config({"method": "password"})
+
+    # Act
+    findings = _unevaluable(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.severity == "warn"
+    assert "'alice'" in finding.message
+    assert "OSPREY_AUTH_PW_HASH_ALICE" in finding.message
+    assert "osprey users passwd" in finding.message
+    assert "c2FsdA" not in finding.message
+
+
+def test_lint_minted_stored_hash_reports_nothing(tmp_path: Path) -> None:
+    _write_env_auth(tmp_path, hash_password("x", n=2**4, r=1, p=1))
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_blank_stored_hash_reports_nothing(tmp_path: Path) -> None:
+    """A blank entry is one `osprey up` provisions, not one it cannot read."""
+    _write_env_auth(tmp_path, "")
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_missing_env_auth_reports_nothing(tmp_path: Path) -> None:
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_undecodable_env_auth_reports_nothing(tmp_path: Path) -> None:
+    """An unreadable file is the deploy path's to report; the lint keeps going."""
+    (tmp_path / ".env.auth").write_bytes(b"\xff\xfe")
+    config = _auth_config({"method": "password"})
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_stored_hash_is_not_judged_under_oidc(tmp_path: Path) -> None:
+    _write_env_auth(tmp_path, _BROKEN_HASH)
+    config = _auth_config(_oidc())
+
+    assert _unevaluable(lint_web_terminals(config, project_root=tmp_path)) == []
+
+
+def test_lint_stored_hash_is_not_judged_at_profile_altitude(tmp_path: Path) -> None:
+    """A profile has no deployment repo, so there is no `.env.auth` to read."""
+    _write_env_auth(tmp_path, _BROKEN_HASH)
+    config = _auth_config({"method": "password"})
+
+    findings = lint_web_terminals(config, rendered_project=False, project_root=tmp_path)
+
+    assert _unevaluable(findings) == []
 
 
 def test_lint_absent_auth_stanza_reports_no_auth_findings() -> None:
@@ -2841,6 +2975,99 @@ def test_lint_empty_session_lifetime_reports_no_auth_findings() -> None:
 
 
 def test_lint_session_lifetime_on_a_non_mapping_auth_stanza_is_not_reported_twice() -> None:
+    """A scalar `auth` has no keys to read; the stanza ERROR is the whole story."""
+    # Arrange
+    config = _auth_config("password")
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert [f.code for f in _auth_findings(findings)] == ["web_terminals.invalid_auth_stanza"]
+
+
+@pytest.mark.parametrize(
+    ("throttle", "dotted"),
+    [
+        ({"max_delay_s": 0.5}, "modules.web_terminals.auth.throttle.max_delay_s"),
+        ({"initial_delay_s": 0}, "modules.web_terminals.auth.throttle.initial_delay_s"),
+        ({"multiplier": 0.5}, "modules.web_terminals.auth.throttle.multiplier"),
+        ({"forget_after_s": -1}, "modules.web_terminals.auth.throttle.forget_after_s"),
+        ({"initial_delay_s": True}, "modules.web_terminals.auth.throttle.initial_delay_s"),
+        ({"max_delay_s": float("inf")}, "modules.web_terminals.auth.throttle.max_delay_s"),
+        ({"max_delay": 60}, "modules.web_terminals.auth.throttle.max_delay"),
+        ({"max_delay": None}, "modules.web_terminals.auth.throttle.max_delay"),
+        ({"max_delay_s": ""}, "modules.web_terminals.auth.throttle.max_delay_s"),
+        (5, "modules.web_terminals.auth.throttle"),
+    ],
+)
+def test_lint_unusable_auth_throttle_is_an_error(throttle: object, dotted: str) -> None:
+    """render refuses the same config; lint reports it at scaffold time."""
+    # Arrange
+    config = _auth_config({"method": "password", "throttle": throttle})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.invalid_auth_throttle"]
+    assert errors, [f.code for f in findings]
+    assert any(dotted in f.message for f in errors)
+
+
+def test_lint_valid_auth_throttle_reports_no_auth_findings() -> None:
+    """Four usable values are exactly what the login throttle is built from."""
+    # Arrange
+    config = _auth_config(
+        {
+            "method": "password",
+            "throttle": {
+                "initial_delay_s": 2,
+                "multiplier": 1.5,
+                "max_delay_s": 90,
+                "forget_after_s": 0,
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+    assert _errors(findings) == []
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {"method": "password"},
+        {"method": "password", "throttle": None},
+        {"method": "password", "throttle": {"max_delay_s": None}},
+        {
+            "method": "password",
+            "throttle": dict.fromkeys(
+                ("initial_delay_s", "multiplier", "max_delay_s", "forget_after_s")
+            ),
+        },
+    ],
+    ids=["absent", "no-value", "one-key-no-value", "every-key-no-value"],
+)
+def test_lint_absent_auth_throttle_reports_no_auth_findings(auth: dict) -> None:
+    """Leaving `throttle` or any of its keys out, or writing it with no value, is the
+    documented default."""
+    # Arrange
+    config = _auth_config(auth)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_auth_throttle" for f in findings)
+    assert _errors(findings) == []
+
+
+def test_lint_auth_throttle_on_a_non_mapping_auth_stanza_is_not_reported_twice() -> None:
     """A scalar `auth` has no keys to read; the stanza ERROR is the whole story."""
     # Arrange
     config = _auth_config("password")
@@ -3057,6 +3284,26 @@ def test_lint_unusable_tls_port_reserves_the_port_render_falls_back_to() -> None
     assert any("web_terminals.tls.port" in f.message for f in overlap_findings)
 
 
+@pytest.mark.parametrize("enabled", [True, False, None, 1, 0, "yes", ""])
+def test_lint_reserves_the_tls_port_exactly_when_render_reads_tls_as_enabled(
+    enabled: object,
+) -> None:
+    """The collision set and the render agree about what `tls.enabled` means,
+    truthy non-bools included."""
+    # Arrange
+    config = _tls_config({"port": 8443})
+    config["modules"]["web_terminals"]["tls"]["enabled"] = enabled
+    config["services"]["conflicting"] = {"port": 8443}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    reserved = any("web_terminals.tls.port" in f.message for f in overlap_findings)
+    assert reserved is _auth_tls_context(config["modules"]["web_terminals"])["tls_enabled"]
+
+
 def test_lint_auth_without_tls_is_an_error() -> None:
     """Session cookies over cleartext HTTP is refused at render time; lint says
     so at scaffold time."""
@@ -3086,15 +3333,14 @@ def test_lint_auth_without_tls_and_allow_insecure_http_is_a_warning() -> None:
     assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
 
 
-def test_lint_auth_insecure_http_warning_is_withheld_on_loopback() -> None:
-    """With `deploy.fqdn` naming loopback the deployment advertises itself as
+@pytest.mark.parametrize("fqdn", ["127.0.0.1", "localhost", "LOCALHOST"])
+def test_lint_auth_insecure_http_warning_is_withheld_on_loopback(fqdn: str) -> None:
+    """With the origin browsers use naming loopback the deployment is
     same-host-only, so its cookies cross no network path — the exact case the
     escape hatch exists for (and the control-assistant preset's demo posture).
     A real hostname brings the warning back with the exposure."""
     # Arrange
-    config = _auth_config(
-        {"method": "password", "allow_insecure_http": True}, tls=False, fqdn="127.0.0.1"
-    )
+    config = _auth_config({"method": "password", "allow_insecure_http": True}, tls=False, fqdn=fqdn)
 
     # Act
     findings = lint_web_terminals(config)
@@ -3102,6 +3348,219 @@ def test_lint_auth_insecure_http_warning_is_withheld_on_loopback() -> None:
     # Assert
     assert not any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
     assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_auth_insecure_http_warns_for_a_loopback_fqdn_behind_a_real_http_origin() -> None:
+    """Browsers log in at `external_origin`, so a loopback `deploy.fqdn` behind a
+    plain-HTTP origin on a real host still sends the cookie over the network."""
+    # Arrange
+    config = _auth_config(
+        {"method": "password", "allow_insecure_http": True}, tls=False, fqdn="127.0.0.1"
+    )
+    config["modules"]["web_terminals"]["external_origin"] = "http://ops.example.org:8080"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+
+
+def test_lint_auth_insecure_http_is_withheld_behind_an_https_external_origin() -> None:
+    """An `https` origin in front of a plain-HTTP nginx is the topology the escape
+    hatch is documented for: the browser's leg is carried over TLS."""
+    # Arrange
+    config = _auth_config(
+        {"method": "password", "allow_insecure_http": True}, tls=False, fqdn="ops.example.org"
+    )
+    config["modules"]["web_terminals"]["external_origin"] = "https://ops.example.org"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.auth_requires_tls" for f in _errors(findings))
+
+
+def test_lint_auth_insecure_http_still_warns_when_the_origin_cannot_be_derived() -> None:
+    """An origin that cannot be derived is never read as loopback."""
+    # Arrange
+    config = _auth_config({"method": "password", "allow_insecure_http": True}, tls=False, fqdn=None)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.auth_insecure_http" for f in _warnings(findings))
+
+
+_SEEDED_CODE = "web_terminals.auth_seeded_password"
+
+
+def _seeded_config(tmp_path: Path, *, fqdn: str | None, **auth: object) -> dict:
+    """Password auth whose repo publishes alice's password and still sets it in `.env`."""
+    (tmp_path / "profile.yml").write_text(
+        "name: demo\nenv:\n  defaults:\n    OSPREY_AUTH_PW_ALICE: demo-pw-alice\n"
+    )
+    (tmp_path / ".env").write_text("OSPREY_AUTH_PW_ALICE=demo-pw-alice\n")
+    return _auth_config({"method": "password", **auth}, fqdn=fqdn)
+
+
+def _seeded(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.code == _SEEDED_CODE]
+
+
+def test_lint_seeded_password_on_a_networked_origin_is_an_error(tmp_path: Path) -> None:
+    """A published password on a host browsers reach from elsewhere is an open login."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert [f.severity for f in findings] == ["error"]
+    message = findings[0].message
+    assert "'alice'" in message
+    assert "osprey users passwd alice" in message
+    assert "https://ops.example.org" in message
+    assert "demo-pw-alice" not in message
+
+
+def test_lint_seeded_password_is_an_error_over_tls_too(tmp_path: Path) -> None:
+    """TLS stops sniffing; it does not make a published password secret."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    assert config["modules"]["web_terminals"]["tls"]["enabled"] is True
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+
+
+@pytest.mark.parametrize("fqdn", ["127.0.0.1", "localhost"])
+def test_lint_seeded_password_on_a_loopback_origin_reports_nothing(
+    tmp_path: Path, fqdn: str
+) -> None:
+    """The demo on this machine keeps its demo logins."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn=fqdn)
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_seeded_password_behind_a_real_external_origin_is_an_error(tmp_path: Path) -> None:
+    """Browsers log in at `external_origin`, whatever `deploy.fqdn` says."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="127.0.0.1")
+    config["modules"]["web_terminals"]["external_origin"] = "https://ops.example.org"
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    assert "https://ops.example.org" in findings[0].message
+
+
+def test_lint_seeded_password_when_the_origin_cannot_be_derived_is_an_error(
+    tmp_path: Path,
+) -> None:
+    """An origin nobody can name is not read as loopback."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn=None)
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    assert "cannot be derived" in findings[0].message
+
+
+def test_lint_rotated_password_reports_nothing(tmp_path: Path) -> None:
+    """A stored hash of a chosen password refuses the published one."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    (tmp_path / ".env.auth").write_text(f"OSPREY_AUTH_PW_HASH_ALICE={hash_password('chosen')}\n")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_seeded_shared_card_names_the_hash_retirement(tmp_path: Path) -> None:
+    """A shared card's password cannot be changed, so its remedy retires the stored hash."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "ops", "index": 1, "access": "any"},
+    ]
+    (tmp_path / "profile.yml").write_text(
+        "name: demo\nenv:\n  defaults:\n"
+        "    OSPREY_AUTH_PW_ALICE: demo-pw-alice\n"
+        "    OSPREY_AUTH_PW_OPS: demo-pw-ops\n"
+    )
+    (tmp_path / ".env.auth").write_text(f"OSPREY_AUTH_PW_HASH_OPS={hash_password('demo-pw-ops')}\n")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert len(findings) == 1
+    message = findings[0].message
+    assert (
+        "Run `osprey users passwd alice` and delete `OSPREY_AUTH_PW_HASH_OPS` from "
+        "`.env.auth`, then run `osprey up`"
+    ) in message
+    assert "decommission" not in message
+    assert "demo-pw-ops" not in message
+
+
+@pytest.mark.parametrize("method", ["token", "none", "oidc"])
+def test_lint_seeded_password_is_only_checked_under_password_auth(
+    tmp_path: Path, method: str
+) -> None:
+    """Only password auth has an OSPREY-held password to accept."""
+    # Arrange
+    _seeded_config(tmp_path, fqdn="ops.example.org")
+    auth = _oidc() if method == "oidc" else {"method": method}
+    config = _auth_config(auth, fqdn="ops.example.org")
+
+    # Act
+    findings = _seeded(lint_web_terminals(config, project_root=tmp_path))
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_seeded_password_is_not_checked_at_profile_altitude(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A profile has no `.env` or `.env.auth` of a deployment to read yet."""
+    # Arrange
+    config = _seeded_config(tmp_path, fqdn="ops.example.org")
+    monkeypatch.chdir(tmp_path)
+    dotted = {
+        "deploy.fqdn": config["deploy"]["fqdn"],
+        "modules.web_terminals": config["modules"]["web_terminals"],
+    }
+
+    # Act
+    findings = _seeded(lint_profile_config(dotted))
+
+    # Assert
+    assert findings == []
 
 
 def test_lint_auth_with_tls_reports_no_transport_finding() -> None:
@@ -4791,7 +5250,7 @@ def _open_mode_config(tmp_path, *, method: str = "none", deny: list[str] | None 
     """A one-persona roster on *method* whose rendered project ships exactly *deny*."""
     import json
 
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     project_dir = tmp_path / "als-assistant"
     (project_dir / ".claude").mkdir(parents=True)
@@ -4819,7 +5278,7 @@ def test_lint_open_mode_persona_that_may_reach_the_host_network_is_an_error(tmp_
     from a neighbour's session — and an authoring run must say so rather than
     leaving it to the start."""
     # Arrange
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     config = _open_mode_config(tmp_path, deny=[entry for entry in DENY_DEFAULTS if entry != "Bash"])
 
@@ -4877,7 +5336,7 @@ def test_lint_a_walled_deployment_is_not_asked_the_open_question(tmp_path) -> No
     behind the magic-link wall a persona with a shell is a deliberate, documented
     posture and must not be flagged."""
     # Arrange
-    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+    from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     config = _open_mode_config(
         tmp_path, method="token", deny=[entry for entry in DENY_DEFAULTS if entry != "Bash"]
@@ -5029,6 +5488,149 @@ def test_lint_self_only_card_on_a_privileged_persona_reports_nothing() -> None:
     # Assert
     assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
     assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+
+
+# --- landing names ------------------------------------------------------------
+
+
+def _with_landing_groups(config: dict, groups: list[dict]) -> dict:
+    config = copy.deepcopy(config)
+    config["modules"]["web_terminals"]["landing"] = {"groups": groups}
+    return config
+
+
+_HIDDEN_USERS = [{"type": "users", "names": "hidden"}]
+
+
+def test_lint_hidden_names_under_token_is_refused_naming_login_url() -> None:
+    """Under token the name card is the way in, so the refusal names the verb that mints it."""
+    # Arrange
+    config = _with_landing_groups(_auth_config({"method": "token"}), _HIDDEN_USERS)
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "landing_names_hidden_without_sign_in")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "osprey users login-url" in findings[0].message
+    assert "groups[0]" in findings[0].message
+
+
+def test_lint_hidden_names_under_the_default_posture_is_refused() -> None:
+    """No `auth` stanza is token, so the same refusal applies."""
+    # Arrange
+    config = _with_landing_groups(_CLEAN_CONFIG, _HIDDEN_USERS)
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "landing_names_hidden_without_sign_in")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+
+def test_lint_hidden_names_under_open_mode_is_refused() -> None:
+    """Under none nobody signs in, so the button has nowhere to send anyone."""
+    # Arrange
+    config = _with_landing_groups(_auth_config({"method": "none"}), _HIDDEN_USERS)
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "landing_names_hidden_without_sign_in")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert "auth.method: none" in findings[0].message
+
+
+@pytest.mark.parametrize("auth", [{"method": "password"}, _oidc()], ids=["password", "oidc"])
+def test_lint_hidden_names_behind_a_login_wall_is_clean(auth: dict) -> None:
+    """A login in front of the roster is what the button opens."""
+    # Arrange
+    config = _with_landing_groups(_auth_config(auth), _HIDDEN_USERS)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "landing_names_hidden_without_sign_in") == []
+    assert _coded(findings, "invalid_landing_names") == []
+
+
+@pytest.mark.parametrize("value", ["Hidden", True, None, "none"])
+def test_lint_names_value_must_be_shown_or_hidden(value: object) -> None:
+    """Any other value would render the cards the operator meant to hide."""
+    # Arrange
+    config = _with_landing_groups(
+        _auth_config({"method": "password"}), [{"type": "users", "names": value}]
+    )
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "invalid_landing_names")
+
+    # Assert
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+
+
+def test_lint_names_on_a_links_section_is_refused() -> None:
+    """Only a `type: users` section reads `names`."""
+    # Arrange
+    config = _with_landing_groups(
+        _auth_config({"method": "password"}),
+        [{"type": "users"}, {"type": "links", "label": "Tools", "links": [], "names": "hidden"}],
+    )
+
+    # Act
+    findings = _coded(lint_web_terminals(config), "invalid_landing_names")
+
+    # Assert
+    assert len(findings) == 1
+    assert "groups[1]" in findings[0].message
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [{"method": "token"}, {"method": "none"}, {"method": "password"}, _oidc()],
+    ids=["token", "none", "password", "oidc"],
+)
+def test_lint_shown_names_are_clean_under_every_method(auth: dict) -> None:
+    """`shown` is the default rendering, valid under every posture."""
+    # Arrange
+    config = _with_landing_groups(_auth_config(auth), [{"type": "users", "names": "shown"}])
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "landing_names_hidden_without_sign_in") == []
+    assert _coded(findings, "invalid_landing_names") == []
+
+
+def test_lint_hidden_names_under_an_unknown_method_reports_only_the_method() -> None:
+    """An unknown method is reported once, with no confused follow-on finding."""
+    # Arrange
+    config = _with_landing_groups(_auth_config({"method": "basic"}), _HIDDEN_USERS)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _coded(findings, "unknown_auth_method")
+    assert _coded(findings, "landing_names_hidden_without_sign_in") == []
+
+
+def test_profile_config_errors_refuses_hidden_names_under_token() -> None:
+    """The refusal reaches `osprey build` and `osprey profile validate`."""
+    # Arrange
+    config = _profile_config(landing={"groups": [{"type": "users", "names": "hidden"}]})
+
+    # Act
+    messages = profile_config_errors(config)
+
+    # Assert
+    assert any("names: hidden" in message for message in messages)
 
 
 # --- per-card control identity ------------------------------------------------

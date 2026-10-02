@@ -114,8 +114,7 @@ async def verify(
     what makes ``osprey users passwd`` take effect immediately: rotating the
     password changes the stored hash, so every session minted against the old
     one stops verifying — without server-side session state, and surviving the
-    container recreate that rotation performs (which is also what clears the
-    revocation store).
+    container recreate that rotation performs.
 
     In every mode the session's admission story must also match the card's
     current rule, and each of the three shapes a session comes in is asked its

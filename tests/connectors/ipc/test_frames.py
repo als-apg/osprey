@@ -9,6 +9,7 @@ never merely that a round trip "didn't raise".
 
 import re
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
@@ -327,6 +328,14 @@ def test_float64_2d_array_round_trips_with_dtype_and_shape():
     assert frame.value.dtype == np.dtype("float64")
     assert frame.value.shape == (3, 4)
     assert np.array_equal(frame.value, array)
+
+
+def test_a_blob_that_is_not_a_single_npy_array_is_refused():
+    buffer = BytesIO()
+    np.savez(buffer, a=np.arange(3))
+
+    with pytest.raises(frames.FrameDecodeError, match="not a single .npy array"):
+        frames._npy_load(buffer.getvalue())
 
 
 def test_int_array_round_trips_with_dtype_preserved():

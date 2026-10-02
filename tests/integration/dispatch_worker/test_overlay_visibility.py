@@ -26,14 +26,14 @@ machinery treats the overlay artifacts as first-class:
   and readable, standing in for the ``data/`` regen gap the fix closed.
 
 No container, network, or Claude Agent SDK involvement — pure filesystem
-fixture plus in-process calls into the two dispatch_worker modules.
+fixture plus in-process calls into ``agent_surfaces`` and ``tool_policy``.
 """
 
 import json
 from pathlib import Path
 
+from osprey.agent_runner.tool_policy import make_pretooluse_hook
 from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
-from osprey.mcp_server.dispatch_worker.tool_policy import make_pretooluse_hook
 
 OVERLAY_AGENT_NAME = "facility-overlay"
 OVERLAY_SKILL_NAME = "facility-overlay-skill"

@@ -253,6 +253,7 @@ class ChatSessionPool:
 
         if builder_error is not None:
             raise builder_error
+        assert pending is not None  # past the builder's raise, the lock block set or joined one
 
         if not creator:
             # Join the in-flight creation; propagate its outcome.

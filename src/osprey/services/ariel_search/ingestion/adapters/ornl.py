@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import IngestionError
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
@@ -62,6 +62,7 @@ class ORNLLogbookAdapter(FacilityAdapter):
         Yields:
             EnhancedLogbookEntry objects
         """
+        self.unreadable_entries = 0
         data = await self._load_data()
 
         if isinstance(data, dict) and "entries" in data:
@@ -93,6 +94,7 @@ class ORNLLogbookAdapter(FacilityAdapter):
                     break
 
             except Exception as e:
+                self.unreadable_entries += 1
                 logger.warning(f"Failed to convert entry: {e}")
                 continue
 
@@ -128,9 +130,9 @@ class ORNLLogbookAdapter(FacilityAdapter):
     def _convert_entry(self, data: dict[str, Any]) -> EnhancedLogbookEntry:
         """Convert ORNL JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
+        entry_id = str(data.get("ID", data.get("id", "")))
 
-        entry_time = data.get("entry_time", "")
-        timestamp = self._parse_timestamp(entry_time) if entry_time else now
+        timestamp = parse_entry_time(data.get("entry_time"))
 
         title = data.get("title", "")
         content = data.get("content", "")
@@ -155,9 +157,16 @@ class ORNLLogbookAdapter(FacilityAdapter):
             metadata["segment_area"] = data["segment/area"]
 
         # Store event_time separately from entry_time
+        # event_time is metadata beside the entry's own time: an unreadable one
+        # is left out rather than costing the entry.
         if self.store_event_time and data.get("event_time"):
-            event_time = self._parse_timestamp(data["event_time"])
-            metadata["event_time"] = event_time.isoformat()
+            value = data["event_time"]
+            try:
+                metadata["event_time"] = parse_entry_time(value).isoformat()
+            except ValueError:
+                logger.warning(
+                    f"Entry {entry_id!r}: event_time {value!r} is not a readable time; left out"
+                )
 
         if data.get("reference"):
             metadata["linked_to"] = data["reference"]
@@ -173,7 +182,7 @@ class ORNLLogbookAdapter(FacilityAdapter):
             metadata.update(data["metadata"])
 
         return {
-            "entry_id": str(data.get("ID", data.get("id", ""))),
+            "entry_id": entry_id,
             "source_system": self.source_system_name,
             "timestamp": timestamp,
             "author": data.get("author", ""),
@@ -183,26 +192,6 @@ class ORNLLogbookAdapter(FacilityAdapter):
             "created_at": now,
             "updated_at": now,
         }
-
-    def _parse_timestamp(self, value: str | int | float) -> datetime:
-        """Parse timestamp from various formats."""
-        if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value, tz=UTC)
-
-        if isinstance(value, str):
-            try:
-                if value.endswith("Z"):
-                    value = value[:-1] + "+00:00"
-                return datetime.fromisoformat(value)
-            except ValueError:
-                pass  # Not ISO 8601; try next format
-
-            try:
-                return datetime.fromtimestamp(float(value), tz=UTC)
-            except ValueError:
-                pass  # Not a Unix epoch string; fall through to default below
-
-        return datetime.now(UTC)
 
     def _transform_attachments(
         self,

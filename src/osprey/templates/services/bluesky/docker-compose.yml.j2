@@ -40,25 +40,37 @@
     `live`. The build never DERIVES a stand-in second lane (it pairs a stand-in
     baseline with the VA, and a stand-in baseline keeps the historical `bluesky`
     key), so that key only ever arrives from a project that declared the lane
-    itself. Rendering it anyway is what keeps this list the same set as the lane
-    registry every other holder reads — a key the template did not know would be
-    a lane `osprey up` provisions tokens and certificates for and compose then
-    renders no containers for.
+    itself. The keys come from the lane registry through the render context's
+    `bluesky_second_lane_keys`, so this list is the registry's set by
+    construction — a key the template did not know would be a lane `osprey up`
+    provisions tokens and certificates for and compose then renders no
+    containers for.
 
     The list is read off `deployed_services` rather than off `services` so a
     block left in config.yml but not deployed cannot conjure a stack; that is
     the same membership rule every other service here is gated on. -#}
 {%- set lane_keys = ['bluesky'] -%}
-{%- if 'bluesky_va' in deployed_services %}{% set _ = lane_keys.append('bluesky_va') %}{% endif -%}
-{%- if 'bluesky_live' in deployed_services %}{% set _ = lane_keys.append('bluesky_live') %}{% endif -%}
-{%- if 'bluesky_standin' in deployed_services %}{% set _ = lane_keys.append('bluesky_standin') %}{% endif -%}
+{%- for second_lane_key in bluesky_second_lane_keys if second_lane_key in deployed_services %}{% set _ = lane_keys.append(second_lane_key) %}{% endfor -%}
 # The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
 # behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
-# `osprey up` builds its image locally on first run; subsequent runs
-# reuse the local tag. To use a prebuilt/published image instead, set
-# OSPREY_BLUESKY_BRIDGE_IMAGE (e.g. OSPREY_BLUESKY_BRIDGE_IMAGE=my-registry/osprey-bluesky-bridge:dev).
+# Its image is built from the Dockerfile beside this file unless
+# services.bluesky.image names a different image, which this file then runs as
+# named with no build. OSPREY_BLUESKY_BRIDGE_IMAGE names one for a single shell
+# (e.g. OSPREY_BLUESKY_BRIDGE_IMAGE=my-registry/osprey-bluesky-bridge:dev), and
+# a start that reads it builds nothing for this service.
 # Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+{#- The BUILDER lane: the first, in render order, whose own image is the one
+    OSPREY builds (unset, or equal to `osprey_images.bluesky_bridge`). A null
+    block reads as unset, so it keeps its build. None qualifies when every lane
+    names another image, and then nothing here builds. -#}
+{%- set builder = namespace(key=none) %}
+{%- for candidate in lane_keys %}
+{%- if builder.key is none and (not services[candidate].image or services[candidate].image == osprey_images.bluesky_bridge) %}
+{%- set builder.key = candidate %}
+{%- endif %}
+{%- endfor %}
+{%- set builder_key = builder.key %}
 
 services:
 {%- for lane_key in lane_keys %}
@@ -78,6 +90,7 @@ services:
     INSIDE the container stays constant — the image's code is lane-agnostic
     and reads `BLUESKY_LAUNCH_TOKEN` whichever lane it is running as. -#}
 {%- set svc = services[lane_key] %}
+{%- set lane_builds_image = not svc.image or svc.image == osprey_images.bluesky_bridge %}
 {%- set lane = lane_key | replace('_', '-') %}
 {%- set qserver = 'queueserver' if lane_key == 'bluesky' else lane ~ '-queueserver' %}
 {%- set lane_env = lane_key | upper %}
@@ -95,12 +108,13 @@ services:
 {%- set ext_public_ref = '${' ~ external.zmq_public_key_env ~ ':?operator-supplied CURVE public key of the external RE Manager (bluesky.external.zmq_public_key_env)}' if external and external.zmq_public_key_env else '' %}
   {{ lane }}-bridge:
     image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ svc.image | default(osprey_images.bluesky_bridge) }}}
-{#- LANE 1 ONLY owns the build, for the same reason the queueserver below
-    carries no `build:` block: every lane runs the SAME image off the same tag,
-    and two services building one tag race each other. Compose builds every
-    buildable service before it creates any container, so the second lane's
-    image is on the host by the time it is needed. #}
-{%- if lane_key == 'bluesky' %}
+{#- ONE lane owns the build, the first whose own image is the one OSPREY
+    builds: two services building one tag race each other. A lane naming any
+    other image carries no build, so compose pulls and runs it as named instead
+    of building this Dockerfile under a name the operator chose for something
+    else. Compose builds every buildable service before it creates any
+    container, so another lane's image is on the host by the time it is needed. #}
+{%- if lane_key == builder_key %}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -193,19 +207,6 @@ services:
         "--port",
         "{{ svc.port | default(osprey_ports.bluesky, true) }}",
       ]
-    labels:
-      osprey.project.name: "{{ osprey_labels.project_name }}"
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-      osprey.project.root: "{{ osprey_labels.project_root }}"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ svc.port | default(osprey_ports.bluesky, true) }}:{{ svc.port | default(osprey_ports.bluesky, true) }}"
@@ -228,6 +229,14 @@ services:
       # directory: /app" — mirrors dispatch_worker's identical CONFIG_FILE
       # convention.
       CONFIG_FILE: /app/project/config.yml
+      # The same file for the framework's own config loader
+      # (osprey_connectors.workspace.resolve_config_path), which reads this
+      # variable and never CONFIG_FILE. Without it the loader looks in the
+      # working directory, finds nothing, and every key this container reads
+      # through it (bluesky.plan_module, bluesky.plan_dirs,
+      # bluesky.excluded_plans, python_executor.child_env_passthrough) reads
+      # as unset.
+      OSPREY_CONFIG: /app/project/config.yml
       TZ: {{ system.timezone }}
 {%- if svc.target %}
       # Which lane this container IS, as the service key of its own
@@ -555,8 +564,12 @@ services:
   {{ qserver }}:
     # Same image as the bridge, and deliberately NO `build:` block: two
     # services building the same tag race each other (the dispatch worker
-    # carries the same note). `{{ lane }}-bridge` above owns the build; this
+    # carries the same note).
+{%- if lane_builds_image %} `{{ builder_key | replace('_', '-') }}-bridge` above owns the build; this
     # service just runs the resulting image with a different command.
+{%- else %} This lane names an image OSPREY does not build,
+    # so compose pulls it and nothing in this file builds it.
+{%- endif %}
     image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ svc.image | default(osprey_images.bluesky_bridge) }}}
     container_name: {{ osprey_labels.project_name }}-{{ lane }}-queueserver
     # The lane's control identity, also the name the command below gives root
@@ -649,19 +662,6 @@ services:
         --redis-addr {{ lane }}-redis:6379
         --zmq-control-addr 'tcp://*:60615'
         --update-existing-plans-devices NEVER
-    labels:
-      osprey.project.name: "{{ osprey_labels.project_name }}"
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-      osprey.project.root: "{{ osprey_labels.project_root }}"
-      # Content fingerprint of the rendered config this deploy built
-      # (runtime_helper's as_built_config_digest, carried in by
-      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
-      # the other file a container reads its settings from: this service mounts
-      # the rendered config.yml, so `osprey set` changes a file the compose
-      # document never mentions and compose would leave the container running on
-      # the settings it parsed at startup. Empty when the invocation did not set
-      # the variable (a hand-run `docker compose up`).
-      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     # No `ports:` — deliberately. Publishing the control socket would put a
     # second route to plan execution next to the bridge's launch-token gate,
@@ -673,6 +673,11 @@ services:
       # connector.<type>.limits_checking from the mounted config.yml, not
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
+      # The same file for the framework's own config loader, as on the bridge.
+      # The RunEngine worker loads plans through it, and the pre-flight
+      # verdicts below anchor their audit zone on the project it names — the
+      # directory the audit bind targets.
+      OSPREY_CONFIG: /app/project/config.yml
 {#- The pre-flight reachability verdicts this container files go under its own
     compose key — see the audit bind below. #}
       OSPREY_AUDIT_IDENTITY: {{ qserver }}
@@ -837,7 +842,7 @@ services:
     `preflight.jsonl` here. Mounted under /app/project because the writer
     anchors on the project the mounted config names. The image runs as root
     with no privilege drop, so the setgid directory needs no group step. #}
-      - {{ osprey_audit_mount_source }}/{{ qserver }}:{{ osprey_lane_container_audit_dir }}/{{ qserver }}
+      - {{ osprey_audit_mount_source }}/{{ qserver }}:{{ osprey_service_container_audit_dir }}/{{ qserver }}
       # Plan/device permissions for the RE Manager. Without this file the
       # manager knows only a `root` group and rejects every request the bridge
       # makes as "Unknown user group: 'primary'" — see the file's own header
@@ -941,8 +946,6 @@ services:
     image: ${OSPREY_BLUESKY_REDIS_IMAGE:-{{ svc.redis_image | default('redis:7.4-alpine') }}}
     container_name: {{ osprey_labels.project_name }}-{{ lane }}-redis
     restart: unless-stopped
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
     # Append-only persistence: a queue that survives a bridge restart but not
     # a Redis restart would be a half-kept promise.
     command: ["redis-server", "--appendonly", "yes"]
@@ -989,8 +992,6 @@ services:
     # needs no network alias.
     container_name: {{ osprey_labels.project_name }}-bluesky-tiled
     restart: unless-stopped
-    labels:
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
     # `serve catalog` aborts without a catalog DB argument and defaults to
     # 127.0.0.1 (unreachable from the bridge container) without --host. The
     # duckdb:// writable target is required alongside the filesystem one:

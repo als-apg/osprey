@@ -117,6 +117,19 @@ class TestGoogleSheetsChannelDatabase:
         assert "CH4" in db.channel_map
 
     @patch("osprey.services.channel_finder.databases.google_sheets.gspread")
+    def test_add_channel_defaults_address_to_channel_name(self, mock_gspread_module):
+        """add_channel with only a name writes the name as the address and reports success."""
+        mock_gspread, _, mock_worksheet = _make_mock_gspread()
+        mock_gspread_module.service_account = mock_gspread.service_account
+
+        db = GoogleSheetsChannelDatabase(spreadsheet_id="test_id")
+
+        result = db.add_channel("CH4")
+
+        mock_worksheet.append_row.assert_called_once_with(["CH4", "CH4", ""])
+        assert result == {"success": True, "channel": "CH4"}
+
+    @patch("osprey.services.channel_finder.databases.google_sheets.gspread")
     def test_add_duplicate_raises(self, mock_gspread_module):
         """Adding a duplicate channel raises ValueError."""
         mock_gspread, _, _ = _make_mock_gspread()

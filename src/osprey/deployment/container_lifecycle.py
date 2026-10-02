@@ -16,7 +16,7 @@ import time
 from collections.abc import Collection, Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import TracebackType
 from typing import Any, NamedTuple
 
@@ -56,6 +56,7 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     preflight_graphdb_config,
 )
+from osprey.deployment.host_binding import HostBinding, host_binding_of
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
@@ -94,6 +95,7 @@ from osprey.deployment.web_terminals.provision import (
     deploy_up_web_terminals,
     preflight_web_terminals,
 )
+from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import config_anchored_at, load_project_config
 from osprey.utils.dotenv import (
@@ -159,7 +161,7 @@ logger = get_logger("deployment.lifecycle")
 # container (MONGO_INITDB_ROOT_PASSWORD), the archiver_recorder service writing
 # samples in-network, and the agent's own connector, whose config block names
 # the variable rather than carrying a value
-# (``archiver.mongodb_archiver.password_env: MONGO_ROOT_PASSWORD``). All three
+# (``archiver.mongodb_archiver.auth.password_env: MONGO_ROOT_PASSWORD``). All three
 # resolve the same ``.env`` entry, which is what keeps one store openable by
 # the process that writes it and the process that reads it. The seeder and
 # ``osprey sim apply`` read it from the project ``.env`` explicitly rather than
@@ -2236,6 +2238,26 @@ def clear_staged_site_ca(cmd: Sequence[str], context_dir: Path | str) -> None:
         logger.warning("Could not remove the staged site CA %s", staged)
 
 
+def rendered_compose_services(path: Path) -> Mapping[Any, Any] | None:
+    """The ``services`` mapping of one rendered compose document.
+
+    Args:
+        path: The rendered compose document.
+
+    Returns:
+        The mapping, or ``None`` when the file cannot be read, does not parse as
+        YAML, or holds no ``services`` mapping.
+    """
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(document, Mapping):
+        return None
+    services = document.get("services")
+    return services if isinstance(services, Mapping) else None
+
+
 def clear_staged_service_site_ca(
     compose_files: Sequence[str | Path], repo_root: Path | str
 ) -> None:
@@ -2259,17 +2281,10 @@ def clear_staged_service_site_ca(
     root = Path(repo_root)
     for compose_file in compose_files:
         path = Path(compose_file)
-        path = path if path.is_absolute() else root / path
-        try:
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
+        services = rendered_compose_services(path if path.is_absolute() else root / path)
+        if services is None:
             # A cleanup step is never what fails a deploy that otherwise
             # succeeded, so an unreadable or malformed document is skipped.
-            continue
-        if not isinstance(document, Mapping):
-            continue
-        services = document.get("services")
-        if not isinstance(services, Mapping):
             continue
         for service in services.values():
             # Guarded at every level: a hand-edited document must not raise
@@ -2292,6 +2307,97 @@ def clear_staged_service_site_ca(
                 staged.unlink(missing_ok=True)
             except OSError:
                 logger.warning("Could not remove the staged site CA %s", staged)
+
+
+#: A rendered ``image:`` whose value compose substitutes: ``${NAME:-default}``.
+_IMAGE_OVERRIDE_LINE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*):-(?P<default>[^}]*)\}")
+
+
+class ComposeBuildSelection(NamedTuple):
+    """Which buildable compose services a start builds, and which it holds out.
+
+    Attributes:
+        build: Every service carrying a ``build:`` mapping that is not held, in
+            ``-f`` then document order.
+        held: Service -> (variable, image) for each buildable service whose
+            image an environment override names instead.
+    """
+
+    build: tuple[str, ...]
+    held: dict[str, tuple[str, str]]
+
+    def held_facts(self) -> list[str]:
+        """One line per held service, naming the image it runs instead of a build."""
+        return [
+            f"{service} runs {image} ({variable}); not built"
+            for service, (variable, image) in self.held.items()
+        ]
+
+    def build_targets(self) -> list[str] | None:
+        """The service names a ``compose build`` names, or ``None`` when nothing is built.
+
+        Empty when no service is held, so the build covers every buildable
+        service; the services still built when one is held; ``None`` when every
+        buildable service is held.
+        """
+        if not self.held:
+            return []
+        return list(self.build) if self.build else None
+
+
+def _compose_build_selection(
+    compose_files: Sequence[str | Path], repo_root: Path | str, env: Mapping[str, str]
+) -> ComposeBuildSelection:
+    """Split the buildable services of the rendered documents into built and held.
+
+    A start builds a service only when the image that service will run is the
+    one its ``build:`` block produces. Compose tags a build with the service's
+    ``image:``, so a service whose ``image`` is ``${NAME:-default}`` and whose
+    ``NAME`` the start environment sets to anything other than ``default`` is
+    held: building it would write OSPREY's recipe under the override's name.
+
+    The override is compared with the RENDERED default, never with image names
+    re-resolved from config: the image axes are read from the environment at
+    render time, so a start in another shell would re-resolve a different
+    default. The rendered default and ``env`` — the environment the start hands
+    compose — are the two values compose itself combines.
+
+    An empty value is unset (that is what ``:-`` means to compose), a literal
+    image or a ``${NAME:?...}`` line is never held, and a service without
+    ``build:`` is in neither field. Unreadable or malformed documents are
+    skipped.
+
+    Args:
+        compose_files: The rendered compose documents handed to compose, each
+            repo-relative or absolute.
+        repo_root: The pinned compose project directory relative entries
+            resolve against.
+        env: The environment the start hands compose.
+
+    Returns:
+        The services to build and the services held out, with their override.
+    """
+    root = Path(repo_root)
+    build: list[str] = []
+    held: dict[str, tuple[str, str]] = {}
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        services = rendered_compose_services(path if path.is_absolute() else root / path)
+        if services is None:
+            continue
+        for name, service in services.items():
+            if not isinstance(service, Mapping) or not isinstance(service.get("build"), Mapping):
+                continue
+            image = service.get("image")
+            match = _IMAGE_OVERRIDE_LINE.fullmatch(image) if isinstance(image, str) else None
+            if match is not None:
+                override = env.get(match["name"], "")
+                if override and override != match["default"]:
+                    held[str(name)] = (match["name"], override)
+                    continue
+            if str(name) not in build:
+                build.append(str(name))
+    return ComposeBuildSelection(build=tuple(build), held=held)
 
 
 #: Env-var spellings for "on" and "off", matching the other framework switches.
@@ -3307,45 +3413,45 @@ def _preflight_pinned_overrides(repo_root: Path | str) -> list[str]:
     )
 
 
-#: The proxy names the web-terminal stack is handed from the chain, in their
-#: lowercase spelling — the one curl honours and site documentation hands out.
-_LOWERCASE_PROXY_NAMES = ("http_proxy", "https_proxy", "no_proxy")
+#: The lowercase spelling of each proxy name the web-terminal stack is handed:
+#: the one curl honours and site documentation hands out.
+_LOWERCASE_PROXY_NAMES = tuple(name.lower() for name in PROXY_ENV_NAMES)
 
 
 def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tuple[str, str]]:
     """Warn (never rewrite) when the chain spells a proxy name the web stack cannot see.
 
-    Every container in the web-terminal stack — the login service and each
-    per-user terminal — receives exactly three names from the chain,
-    ``HTTP_PROXY``, ``HTTPS_PROXY`` and ``NO_PROXY``, interpolated one by one
-    into its compose ``environment:``. Neither reads the chain wholesale: the
-    login service's ``env_file`` is ``.env.auth``, and a terminal's is
-    ``.env.users``, a closed allowlist. A chain spelling one of them in
-    lowercase therefore misses the whole stack, and nothing notices: the stack
-    starts, the health check is green, and the outbound calls fail. ``no_proxy``
-    is the sharp case — a lowercase bypass list beside an uppercase proxy hands
-    a container a proxy with no exceptions, and an on-site host is then asked
-    for through a relay that refuses internal addresses.
+    Every container in the web-terminal stack, the login service and each
+    per-user terminal, is handed ``HTTP_PROXY``, ``HTTPS_PROXY`` and
+    ``NO_PROXY`` from the chain, each under that name and its lowercase twin,
+    both interpolated from the UPPERCASE name. Neither reads the chain
+    wholesale: the login service's ``env_file`` is ``.env.auth``, and a
+    terminal's is ``.env.users``, a closed allowlist. A value the chain holds
+    only under the lowercase name therefore reaches no container of the stack
+    under either spelling, and nothing notices: the stack starts, the health
+    check is green, and the outbound calls fail. ``no_proxy`` is the sharp case:
+    a lowercase bypass list beside an uppercase proxy hands a container a proxy
+    with no exceptions, and an on-site host is then asked for through a relay
+    that refuses internal addresses.
 
-    Passing the lowercase names through as well is not the fix: ``${var:-}``
-    renders an empty lowercase name beside a set uppercase one on every host
-    that sets only uppercase, and ``urllib.request.getproxies_environment``
-    pops a scheme whose lowercase spelling is present and empty. So the
-    uppercase-only passthrough stays, and this is the check the rule was
-    missing — at the one moment the operator can still fix it.
+    Reading the lowercase names from the chain as well is not the fix: two
+    chain names for one setting can disagree, and one container would then be
+    handed two proxies for the same scheme. The twin is derived from the
+    uppercase name, and this is the check that says so at the one moment the
+    operator can still fix it.
 
     Advisory, and the value is left as written, on the same grounds as
     ``_warn_on_invalid_proxy_env`` in the resolver: a rename the operator did
     not make would surprise every other consumer of the name. Scoped to a
-    deployment that renders the web-terminal stack, because that is where the
-    three-name passthrough is the only delivery. **Names only, never values.**
+    deployment that renders the web-terminal stack, because that is where this
+    passthrough is the only delivery. **Names only, never values.**
 
     :param repo_root: The deployment repo holding the chain.
     :param config: The rendered config, for the web-terminal gate.
-    :return: ``(file, name)`` per lowercase name whose uppercase twin nothing
-        in the chain sets, naming the file that set it — the local file when
-        both do, since that is the line that wins. Empty when there is nothing
-        to say.
+    :return: ``(file, name)`` per lowercase name holding a value whose
+        uppercase twin holds none anywhere in the chain, naming the file that
+        set it (the local file when both do, since that is the line that wins).
+        Empty when there is nothing to say.
     """
     if not _web_terminals_enabled(config):
         return []
@@ -3359,15 +3465,16 @@ def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tup
 
     findings: list[tuple[str, str]] = []
     for lower in _LOWERCASE_PROXY_NAMES:
-        if lower not in chain or lower.upper() in chain:
+        if not chain.get(lower, "").strip() or chain.get(lower.upper(), "").strip():
             continue
         where = COMPOSE_ENV_FILENAME if lower in local else ENV_SHARED_FILENAME
         findings.append((where, lower))
         logger.warning(
-            "%s sets %s, and nothing in the chain sets %s. The web-terminal stack is "
-            "handed the three uppercase proxy names and nothing else, so its outbound "
-            "fetches will not see this value: the stack will start, and every call that "
-            "needs the proxy will fail. Rename it to %s. The value is left as written.",
+            "%s sets %s, and nothing in the chain gives %s a value. The web-terminal "
+            "stack is handed each proxy setting under both spellings, taken from the "
+            "uppercase name only, so its outbound fetches will not see this value: the "
+            "stack will start, and every call that needs the proxy will fail. Rename it "
+            "to %s. The value is left as written.",
             where,
             lower,
             lower.upper(),
@@ -4504,6 +4611,54 @@ def _preflight_host_ports(config, compose_files):
     )
 
 
+def _preflight_store_address(config, compose_files):
+    """Abort the start if the compose file publishes the telemetry store off its configured port.
+
+    A start renders nothing, so a hand-edit to one of the two files in ``build/``
+    (the config or the store's compose file) is started as written. The config
+    is the side every client reads: the agent's exporter, ``osprey health`` and
+    the ingest-account provisioner all dial ``services.openobserve.port``, so a
+    store published anywhere else would be started where none of them looks.
+    This runs before any container is touched, and it opens no compose file for
+    a project that does not deploy the store.
+
+    :param config: Loaded configuration dictionary
+    :type config: dict
+    :param compose_files: Rendered compose file paths for this start
+    :type compose_files: list[str]
+    :raises RuntimeError: If the store's port cannot be read, or the compose
+        file publishes the store on a different host port
+    """
+    from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_REMEDY
+    from osprey.deployment import openobserve_provision
+
+    if not openobserve_provision.store_deployed(config):
+        return
+    try:
+        mismatch = openobserve_provision.store_publish_mismatch(
+            config, parse_host_port_bindings(compose_files)
+        )
+    except ValueError as exc:
+        output.fail(
+            "The telemetry store's host port cannot be read",
+            str(exc),
+            OPENOBSERVE_PORT_REMEDY,
+        )
+        raise RuntimeError("telemetry store port preflight failed (see report above)") from exc
+    if mismatch is None:
+        return
+    output.fail(
+        f"The telemetry store is published on port {mismatch.published}, "
+        f"but its clients dial {mismatch.configured}",
+        f"{mismatch.compose_file} publishes it on {mismatch.published}; "
+        f"services.openobserve.port in the rendered config resolves to {mismatch.configured}, "
+        "which is where the ingest account is provisioned, osprey health probes, "
+        "and every agent exports.",
+        "Run `osprey build` to render both from services.openobserve.port.",
+    )
+    raise RuntimeError("telemetry store port preflight failed (see report above)")
+
+
 # ---------------------------------------------------------------------------
 # Staged archiver bring-up
 # ---------------------------------------------------------------------------
@@ -4969,8 +5124,9 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         load_machine_json_channels,
         load_manifest_file,
     )
-    from osprey.simulation.apply import resolve_simulation_file
     from osprey.simulation.engine import SimulationEngine, resolve_state_dir
+    from osprey.simulation.machine import read_machine_json
+    from osprey_connectors.simulation.engine import resolve_simulation_file
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
     named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
@@ -5008,7 +5164,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         # the rebased levels to every other reader of the same file.
         resolved = machine_path.expanduser().resolve()
         engine = SimulationEngine(
-            json.loads(resolved.read_text()),
+            read_machine_json(resolved),
             resolved,
             state_dir=Path(state_dir).expanduser().resolve(),
             baselines=baselines,
@@ -6291,7 +6447,10 @@ def _start_stack(
     site CA staged into each service build context is cleared before the
     hand-off rather than after the build, which is where the detached shape
     clears it. A detached start returns, and leaves the builds to compose's
-    implicit build-on-up.
+    implicit build-on-up — unless an ``OSPREY_<SERVICE>_IMAGE`` override holds
+    a buildable service out of the build (:func:`_compose_build_selection`):
+    then it builds the others in a step of its own too, and every start ups
+    with ``--no-build``.
 
     Args:
         config: Loaded deploy config.
@@ -6385,6 +6544,9 @@ def _start_stack(
     # roster's per-index ports are covered too, so a port a foreign process
     # holds is named here rather than inside the new container's panel logs.
     _preflight_host_ports(config, compose_files)
+    # Refuse a build/ whose compose file and config name different store ports,
+    # ahead of every container-touching command, so the refusal leaves the host untouched.
+    _preflight_store_address(config, compose_files)
 
     # Refuse a pin the deploy itself would write over. Ahead of the override
     # refusal below because it is a statement about the profile alone: a
@@ -6399,10 +6561,10 @@ def _start_stack(
     # doomed by a contradicted pin aborts having provisioned nothing.
     _preflight_pinned_overrides(repo_root)
     # Advisory sibling on the same chain: a proxy name spelled in lowercase
-    # misses the whole web-terminal stack, which is handed the uppercase three
-    # and nothing else. Warned here, beside the refusals that read the same two
-    # files, so the file and the variable are named while the operator still
-    # has them in front of them.
+    # misses the whole web-terminal stack, which is handed each proxy setting
+    # from its uppercase name only. Warned here, beside the refusals that read
+    # the same two files, so the file and the variable are named while the
+    # operator still has them in front of them.
     _warn_lowercase_proxy_names(repo_root, config)
 
     # Self-provision fail-closed service tokens into .env (before the --env-file
@@ -6677,14 +6839,19 @@ def _start_stack(
     _report_step("cleared stopped containers")
 
     prebuilt = _resolve_prebuilt_images(config)
+    selection = _compose_build_selection(compose_files, repo_root, env)
     # Whether the image builds run as a step of this process rather than being
     # left to compose's implicit build-on-up. A host that declares its images
     # prebuilt builds nothing at all. Otherwise `--dev` builds because compose
     # reuses the cached tag for a wheel that has just been re-baked, and an
     # attached start builds because the `up` below replaces this process:
     # anything that has to happen once the images are built would have no
-    # process left to happen in.
-    builds_here = not prebuilt and (dev_mode or not detached)
+    # process left to happen in. A held service makes even a detached start
+    # build in its own step: compose's implicit build-on-up is the one build
+    # that cannot be told to leave a service out, and an overridden image
+    # missing from the host would otherwise be built from OSPREY's recipe under
+    # the override's name.
+    builds_here = not prebuilt and (dev_mode or not detached or bool(selection.held))
     if dev_mode and prebuilt:
         # Nothing to build: the tags are expected to be on the host already, and
         # the `up --no-build` below runs against them. A tag that is in fact
@@ -6701,21 +6868,27 @@ def _start_stack(
         # checkout into a fresh wheel on every run, and compose reuses the cached
         # image tag (e.g. <project>-dispatch:local) unless it is rebuilt. An
         # attached start builds because it is the last moment it can: the `up`
-        # below hands the terminal to compose and never returns.
-        build_cmd = base_cmd + ["build"]
-        logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
-        # Watched for the duration of the build and no longer: the live view
-        # (and its heartbeats) must go quiet the moment compose returns, before
-        # the closing step line below.
-        with (report := compose_build_step_reporter()):
-            run_captured(
-                build_cmd,
-                env=run_env,
-                spool_name="compose-build",
-                repo_root=repo_root,
-                on_line=report,
-            )
-        _report_step("service images built")
+        # below hands the terminal to compose and never returns. A service an
+        # override holds is named out of the build rather than built under the
+        # override's name.
+        for fact in selection.held_facts():
+            _report_fact(fact)
+        build_targets = selection.build_targets()
+        if build_targets is not None:
+            build_cmd = base_cmd + ["build", *build_targets]
+            logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
+            # Watched for the duration of the build and no longer: the live view
+            # (and its heartbeats) must go quiet the moment compose returns,
+            # before the closing step line below.
+            with (report := compose_build_step_reporter()):
+                run_captured(
+                    build_cmd,
+                    env=run_env,
+                    spool_name="compose-build",
+                    repo_root=repo_root,
+                    on_line=report,
+                )
+            _report_step("service images built")
         # The images have read the bundle; a context keeps no copy of it
         # between deploys.
         clear_staged_service_site_ca(compose_files, repo_root)
@@ -6729,8 +6902,9 @@ def _start_stack(
     cmd = base_cmd + ["up", "--remove-orphans"]
     if builds_here or prebuilt:
         # Compose's implicit build-on-up is suppressed wherever the images are
-        # already resolved — this process built them in the step above, or the host
-        # says they arrived prebuilt. On a prebuilt host that is the whole of what
+        # already resolved — this process built them in the step above (which
+        # includes a detached start with a service an override holds), or the
+        # host says they arrived prebuilt. On a prebuilt host that is the whole of what
         # the switch has to suppress: without it a pull-only mirror deploy would
         # answer a missing tag by building a locally-tagged impostor from the
         # template's `build:` block instead of failing on the image that never
@@ -6835,13 +7009,6 @@ def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
     )
 
 
-# The env vars the host-network templates render to name the interface a
-# service binds. Read off the RENDERED files rather than off the config keys
-# behind them: the rendered value is what the process binds, and a hand-authored
-# override (``services.event_dispatcher.bind``) reaches this check without this
-# module having to know the key exists.
-_HOST_BIND_ENV_VARS = ("FASTMCP_HOST", "DISPATCH_WORKER_BIND")
-
 # The one ``network_mode`` spelling that puts a service in the host's network
 # namespace. Mirrors host_ports._HOST_NETWORK_MODE, on the rendered side.
 _HOST_NETWORK_MODE = "host"
@@ -6886,26 +7053,65 @@ def _rendered_environment(service: Mapping) -> dict[str, str]:
     return {}
 
 
-def _host_network_bound_off_host(compose_files: list[str]) -> list[tuple[str, str]]:
-    """Services in these compose files that bind off-host on the host network.
+def _declared_binding_for(compose_file: str, services: Mapping[str, Any] | None) -> HostBinding:
+    """The host-binding declaration of the service block that renders ``compose_file``.
+
+    A block renders the file under its template directory: the parts of the
+    block's normalized ``path`` equal the trailing parts of the file's parent
+    directory, which is how the build lays out ``<build_dir>/<path>/`` without
+    anchoring on any working directory. Blocks sharing one ``path`` with
+    different declarations leave the file undeclared, because only the laxer
+    of two answers could be picked and the check this feeds is fail-closed.
+    """
+    if not isinstance(services, Mapping):
+        return HostBinding()
+    parent = PurePosixPath(Path(compose_file).parent.as_posix()).parts
+    declarations = set()
+    for block in services.values():
+        if not isinstance(block, Mapping):
+            continue
+        path = block.get("path")
+        if not isinstance(path, str) or not path.strip():
+            continue
+        parts = PurePosixPath(path).parts
+        if parts and parent[-len(parts) :] == parts:
+            declarations.add(host_binding_of(block))
+    if len(declarations) != 1:
+        return HostBinding()
+    return declarations.pop()
+
+
+def _host_network_bound_off_host(
+    compose_files: list[str], services: Mapping[str, Any] | None
+) -> list[tuple[str, str]]:
+    """Services in these compose files that may be reachable off-host on the host network.
 
     A service in the host's network namespace publishes nothing — compose has no
     port map to publish — so :func:`_published_on_all_interfaces`, which reads
-    ``ports:`` entries, cannot see it at all. What decides its reach is the
-    interface it binds, which the host-mode templates render into a bind env var
-    (:data:`_HOST_BIND_ENV_VARS`). Loopback keeps it on this machine; anything
-    else is off-host reachable with no published port anywhere in the render.
+    ``ports:`` entries, cannot see it at all. What decides its reach is what the
+    service declares on its ``services.<key>`` block, and each compose file is
+    attributed to the block that renders it (:func:`_declared_binding_for`).
+    Every host-mode compose service in the file is then in one of three states:
 
-    Read out of the rendered files for the same reason the wildcard check is: a
-    start re-renders nothing, so the files are both what the build decided and
-    what compose will act on — including an edit made to them after the build.
+    * ``listens: false`` — it opens no socket and is not reachable;
+    * ``bind_env: X`` — the rendered value of ``X`` is what it binds: loopback
+      keeps it on this machine, anything else is reachable, and a render that
+      lacks ``X`` cannot be read and counts as reachable;
+    * undeclared (no owning block, or neither key) — its binding is whatever
+      the process defaults to, which this cannot see, so it counts as reachable.
 
-    A host-mode service naming no bind var at all counts as reachable: its
-    binding is then whatever the process defaults to, which this cannot see.
+    The bind value is read out of the rendered files for the same reason the
+    wildcard check is: a start re-renders nothing, so the files are both what
+    the build decided and what compose will act on — including an edit made to
+    them after the build.
+
+    Args:
+        compose_files: The services stack's rendered compose files.
+        services: The rendered config's ``services`` mapping.
 
     Returns:
-        ``(service, bind address)`` pairs, sorted by service. The address is the
-        rendered value, or ``""`` when the service names no bind var.
+        ``(service, clause)`` pairs, sorted by service, where ``clause``
+        completes "<service> runs on the host network and …".
     """
     found: dict[str, str] = {}
     for compose_file in compose_files:
@@ -6918,20 +7124,32 @@ def _host_network_bound_off_host(compose_files: list[str]) -> list[tuple[str, st
                 f"Could not read compose file {compose_file} for the exposure check: {exc}"
             )
             continue
-        services = doc.get("services") if isinstance(doc, Mapping) else None
-        if not isinstance(services, Mapping):
+        rendered = doc.get("services") if isinstance(doc, Mapping) else None
+        if not isinstance(rendered, Mapping):
             continue
-        for name, service in services.items():
+        binding = _declared_binding_for(compose_file, services)
+        for name, service in rendered.items():
             if not isinstance(service, Mapping):
                 continue
             if str(service.get("network_mode") or "").strip() != _HOST_NETWORK_MODE:
                 continue
-            environment = _rendered_environment(service)
-            binds = [environment[var] for var in _HOST_BIND_ENV_VARS if var in environment]
-            off_host = [bind for bind in binds if _binds_off_host(bind)]
-            if binds and not off_host:
+            if not binding.listens:
                 continue
-            found[str(name)] = off_host[0] if off_host else ""
+            if binding.bind_env is None:
+                found[str(name)] = (
+                    "declares neither `listens: false` nor `bind_env:`, "
+                    "so its bind address cannot be read"
+                )
+                continue
+            environment = _rendered_environment(service)
+            if binding.bind_env not in environment:
+                found[str(name)] = (
+                    f"renders no {binding.bind_env}, so its bind address cannot be read"
+                )
+                continue
+            address = environment[binding.bind_env]
+            if _binds_off_host(address):
+                found[str(name)] = f"binds {address}"
     return sorted(found.items())
 
 
@@ -6958,11 +7176,13 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     would call private.
 
     The third is a services-stack service the build put on the host network. It
-    publishes no port either, so only the interface it was rendered to bind says
-    whether it is reachable (:func:`_host_network_bound_off_host`). The
-    templates bind loopback there, which is what keeps the default host-mode
-    deployment private — but the bind is overridable, and an overridden one is
-    as reachable as any wildcard publication.
+    publishes no port either, so only its declaration says whether it is
+    reachable (:func:`_host_network_bound_off_host`): ``listens: false`` opens no
+    socket, and ``bind_env:`` names the variable whose rendered value is the
+    interface it binds. The bundled templates bind loopback there, which is
+    what keeps the default host-mode deployment private — but the bind is
+    overridable, an overridden one is as reachable as any wildcard publication,
+    and a service that declares neither counts as reachable.
 
     Args:
         config: The rendered config, read for whether the web stack is part of
@@ -6974,15 +7194,14 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     """
     wildcard_services = _published_on_all_interfaces(compose_files)
     host_networked = _web_terminals_enabled(config)
-    host_bound = _host_network_bound_off_host(compose_files)
+    host_bound = _host_network_bound_off_host(compose_files, config.get("services"))
     reasons = []
     if wildcard_services:
         reasons.append(f"{', '.join(wildcard_services)} publish on 0.0.0.0")
     if host_networked:
         reasons.append("the web-terminal stack runs on the host network")
-    for service, address in host_bound:
-        where = f"binds {address}" if address else "names no bind address"
-        reasons.append(f"{service} runs on the host network and {where}")
+    for service, clause in host_bound:
+        reasons.append(f"{service} runs on the host network and {clause}")
 
     if reasons:
         _warn_fact(

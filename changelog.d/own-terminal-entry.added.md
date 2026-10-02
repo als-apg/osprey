@@ -1,0 +1,1 @@
+A person can log in to a multi-user deployment at `/auth/enter` without choosing a card on the landing page. They are sent to their own terminal, or shown each terminal they may open when there is more than one.

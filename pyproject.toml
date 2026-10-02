@@ -280,6 +280,9 @@ dev = [
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
     "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
     "PyJWT[crypto]>=2.8",  # Teams relay token validation; its tests import jwt plainly, so a missing install must fail
+    # The HTTP client starlette's TestClient is built on. Without it the test
+    # client falls back to httpx, which starlette deprecates.
+    "httpx2>=2.13.0",
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -601,6 +604,11 @@ python_files = [
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+# A passing test's tmp_path is deleted at its teardown, and a passing session deletes its base
+# directory, so a run leaves only what failed. pytest deletes older runs' directories in the shared
+# temporary root when the next process exits, and a whole suite's tree left there would cost that
+# process minutes of silent exit.
+tmp_path_retention_policy = "failed"
 # WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
 # See tests/e2e/README.md for details
 markers = [
@@ -608,6 +616,7 @@ markers = [
     "e2e_smoke: Quick smoke tests for critical workflows",
     "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on, and the search-index scale guard measures wall-clock latency, which four xdist workers sharing a runner distort past any budget worth keeping. Tests carrying it must be kept out of the unit lane — the LLM ones by living under tests/e2e/, the scale guard by an --ignore on the lane's own line",
     "e2e_tutorial: Tutorial workflow validation tests",
+    "model_free: tests/e2e test that reaches no model, so it runs when the session names no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model CI lane's selection",
     "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
     "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs but the assertion is model-independent OSPREY behavior (safety hooks, approval flow, plumbing)",
     "slow: Tests that take significant time",
@@ -638,6 +647,9 @@ markers = [
 line-length = 100
 target-version = "py311"
 src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
+# Executable Python scripts without a .py suffix. Ruff selects files by suffix and
+# cannot see them; the pre-commit hook selects by shebang and lints them.
+extend-include = ["tests/pty/stub_runtime/docker"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
 extend-exclude = [
@@ -664,6 +676,7 @@ select = [
     "ARG001",  # unused function argument
     "ARG002",  # unused method argument
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
+    "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
 ]
 ignore = [
     "E501",  # line too long, handled by formatter
@@ -676,6 +689,11 @@ ignore = [
 # its name is never a claim that something is read.
 ignore-variadic-names = true
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# The harness adapter, src/osprey/agent_runner/, is the one package that imports
+# the agent SDK. Every other module reaches the agent through it.
+"claude_agent_sdk".msg = "reach the agent through osprey.agent_runner, the one package that imports the SDK"
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
@@ -683,6 +701,11 @@ ignore-variadic-names = true
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
+# The agent SDK ban covers the shipped trees, src/ and packages/. Inside them the
+# harness adapter is where the SDK is imported; outside them, tests and developer
+# scripts drive the SDK directly.
+"!{src,packages}/**" = ["TID251"]
+"src/osprey/agent_runner/**" = ["TID251"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]

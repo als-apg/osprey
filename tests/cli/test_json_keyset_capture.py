@@ -166,11 +166,11 @@ def audit_project(tmp_path: Path) -> Path:
 
 @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
 @patch("osprey.cli.audit_cmd.asyncio")
-# The fixture project names no provider, so the real options builder refuses it;
+# The fixture project names no provider, so the real provider check refuses it;
 # this test pins the document's key set, not the reviewer's wiring.
 @patch(
-    "osprey.cli.audit_cmd._reviewer_options",
-    new=lambda project_dir, model, budget: object(),
+    "osprey.cli.audit_cmd._check_reviewer_provider",
+    new=lambda project_dir: None,
 )
 def test_audit_json_keyset(mock_asyncio: MagicMock, runner: CliRunner, audit_project: Path) -> None:
     """``audit --json`` emits the recorded ``AuditReport`` key set."""

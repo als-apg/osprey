@@ -252,7 +252,7 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
     return None
 
 
-#: The lint codes an `osprey up` is REFUSED over — the open-door pair, read off
+#: The lint codes an `osprey up` is REFUSED over — the open-door codes, read off
 #: the rendered project the start is about to run.
 #:
 #: Deliberately not "every lint error". The other lint errors already gate the
@@ -261,17 +261,21 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
 #: port would refuse a stack whose ports the operator has since resolved by
 #: hand in the rendered file — the authoring verbs own the config's shape.
 #: `up` owns one question the authoring verbs cannot answer for it: is a door
-#: about to be opened. These two codes are that question.
+#: about to be opened. These codes are that question.
 #:
 #: * ``shared_card_privileged`` — a card every roster login may open whose
 #:   persona can edit this deployment. The exposure itself.
 #: * ``persona_privileges_unknown`` — a persona whose document is unreadable
 #:   where the answer would decide something. "Cannot tell" is not "harmless"
 #:   on the one path where the answer is about to become a running container.
+#: * ``auth_seeded_password`` — a login that still accepts a password the
+#:   profile publishes, on an origin browsers reach from somewhere other than
+#:   this machine.
 _UP_BLOCKING_LINT_CODES = frozenset(
     {
         "web_terminals.shared_card_privileged",
         "web_terminals.persona_privileges_unknown",
+        "web_terminals.auth_seeded_password",
     }
 )
 
@@ -526,10 +530,10 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
     raises (writing nothing) on a roster it cannot key — a charset violation,
     or two usernames colliding onto one credential variable — and that raise IS
     the deploy abort. ``osprey up``'s own lint gate
-    (:func:`web_terminal_preflight_problems`) is scoped to the two open-door
-    privilege codes and says nothing about credential collisions, so swallowing
-    this would silently deploy a stack where one operator's password opens
-    another's terminal.
+    (:func:`web_terminal_preflight_problems`) is scoped to the open-door codes
+    of ``_UP_BLOCKING_LINT_CODES`` and says nothing about credential collisions,
+    so swallowing this would silently deploy a stack where one operator's
+    password opens another's terminal.
 
     The method is read through
     :func:`~osprey.deployment.web_terminals.render._auth_tls_context` rather
@@ -1609,9 +1613,9 @@ def deploy_up_web_terminals(
         # that must surface HERE -- before compose ever runs -- not as an
         # opaque unbuilt-tag failure at `compose up` (see docstring's MODE
         # BRANCH section). `osprey up`'s lint gate
-        # (`web_terminal_preflight_problems`) blocks only on the two open-door
-        # privilege codes, so this strict resolve is still the only preflight
-        # standing between a broken persona catalog and that opaque failure.
+        # (`web_terminal_preflight_problems`) blocks only on the open-door codes
+        # of `_UP_BLOCKING_LINT_CODES`, so this strict resolve is still the only
+        # preflight standing between a broken persona catalog and that opaque failure.
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
@@ -1683,43 +1687,53 @@ def deploy_up_web_terminals(
         # imports this module at its own top level, so the favour cannot be
         # returned there.
         from osprey.deployment.container_lifecycle import (
+            _compose_build_selection,
             _resolve_prebuilt_images,
             compose_build_step_reporter,
         )
 
         prebuilt = _resolve_prebuilt_images(config)
+        selection = _compose_build_selection(compose_files, repo_root, env)
+        builds = not prebuilt and (dev_mode or bool(selection.held))
         if dev_mode and prebuilt:
             # Same bargain as the plain path (see _start_stack): the service tags
             # are already on the host, `up --no-build` runs against them, and a
             # missing one surfaces as compose's own "No such image".
             _report_step("skipped image build (prebuilt images)")
-        elif dev_mode:
+        elif builds:
             # Mirrors the plain non-web path's dev-mode build (see deploy_up):
             # without a rebuild, a co-deployed service's cached image tag keeps
             # running the stale code from its first build. Build in its own step,
             # then `up --no-build`, to dodge the `up --build` containerd
-            # image-store race.
-            services_build = services_base + ["build"]
-            logger.debug(f"Running command:\n    {' '.join(services_build)}")
-            # Watched only for as long as the build runs — same scope as the
-            # plain path's build (see _start_stack).
-            with (report := compose_build_step_reporter()):
-                run_captured(
-                    services_build,
-                    env=run_env,
-                    spool_name="build-services",
-                    repo_root=repo_root,
-                    on_line=report,
-                )
-            _report_step("built service images")
+            # image-store race. A service an override holds (see _start_stack)
+            # makes a non-dev start build here too, naming only the others:
+            # compose's implicit build-on-up cannot leave it out.
+            for fact in selection.held_facts():
+                report_fact(logger, fact)
+            build_targets = selection.build_targets()
+            if build_targets is not None:
+                services_build = services_base + ["build", *build_targets]
+                logger.debug(f"Running command:\n    {' '.join(services_build)}")
+                # Watched only for as long as the build runs — same scope as the
+                # plain path's build (see _start_stack).
+                with (report := compose_build_step_reporter()):
+                    run_captured(
+                        services_build,
+                        env=run_env,
+                        spool_name="build-services",
+                        repo_root=repo_root,
+                        on_line=report,
+                    )
+                _report_step("built service images")
         services_cmd = services_base + ["up"]
-        if dev_mode or prebuilt:
+        if dev_mode or prebuilt or selection.held:
             # Same bargain as the plain path (see _start_stack): non-dev has no
             # build step of its own, so on a prebuilt host compose's implicit
             # build-on-up is the last thing that could build a locally-tagged
             # impostor over an image the mirror never delivered. Wired here as
             # well as on the plain path deliberately — this is the site a
-            # web-terminals host actually reaches.
+            # web-terminals host actually reaches. A held service ups with
+            # `--no-build` too, so compose starts the image the override names.
             services_cmd.append("--no-build")
         services_cmd.append("-d")
         logger.debug(f"Running command:\n    {' '.join(services_cmd)}")

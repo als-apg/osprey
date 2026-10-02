@@ -73,8 +73,12 @@ fast-moving field, tight coupling to a volatile dependency is technical risk, no
 - Isolate the parts most likely to change — the model, the agent harness, external MCP/protocol
   standards — behind a boundary (interface, adapter, or config). Do not reference them inline
   throughout the codebase.
-- **Target state:** the agent harness is a replaceable dependency. The current code does not yet meet
-  this. New work moves toward it, not away from it.
+- For the agent harness that boundary exists: `src/osprey/agent_runner/` is the Claude Code adapter. The
+  SDK calls, the CLI launcher, the provider environment, the first-run state seed, the build-artifact
+  catalog and the tool-name lists live there, and a ruff rule (`TID251`) plus `tests/test_harness_fence.py`
+  refuse an SDK import anywhere else in `src/` or `packages/`. There is no harness-swap layer; Claude Code
+  is the harness OSPREY ships. New code reaches the agent through `osprey.agent_runner`, and a
+  Claude-specific need goes into the adapter, not inline.
 
 ## 5. A user-facing feature isn't done until it's discoverable
 

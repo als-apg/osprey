@@ -221,7 +221,8 @@ connects as its own Postgres role — ``<username>_ro``, derived from
 ``public`` schema, and do nothing else. It is not the role ingestion writes
 with, and it is not a superuser, so a query naming a server-side function such
 as ``pg_read_file()`` is refused by Postgres rather than by a pattern match over
-the query text.
+the query text. Only the agent's ARIEL server opens that role; ingestion and the
+other ``osprey ariel`` commands connect as the owner role alone.
 
 The role is created by an init script the Postgres entrypoint runs **once,
 while it initializes a fresh data volume**, the same window

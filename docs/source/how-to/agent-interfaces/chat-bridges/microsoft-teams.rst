@@ -5,7 +5,7 @@ Microsoft Teams
 ===============
 
 How to let your team ask the OSPREY agent questions from a Microsoft Teams
-channel or chat, and get answers and plots back in the same conversation.
+channel or chat, and get answers, plots and files back in the same conversation.
 
 .. dropdown:: Before you start
    :color: info
@@ -55,8 +55,8 @@ position to keep: a message the bridge has not finished with stays on the queue,
 so anything sent while the bridge was down is waiting when it comes back.
 
 Each question gets an acknowledgement as soon as it is picked up and the answer
-when the run finishes, each as its own message; any plots follow as further
-messages. Nothing is edited after it is posted. In a channel all of them are
+when the run finishes, each as its own message; any plots and files follow as
+further messages. Nothing is edited after it is posted. In a channel all of them are
 threaded under the question itself; in a one-to-one or group chat, where Teams
 has no threads, the acknowledgement and the answer open with a quote of the
 question's first line so it is clear which message is being answered.
@@ -153,6 +153,14 @@ These are the ones you create and set yourself.
        ``gcchigh`` for a GCC High tenant; those are the only two values, and any
        other one stops the bridge at startup rather than failing later as an
        unexplained authentication error.
+   * - ``TEAMS_FILES_DRIVE_ID``
+     - Optional. The drive id of the one document library the bot shares files
+       from (see step 9). Unset, files the bridge cannot post inline are named
+       in a closing note rather than shared.
+   * - ``TEAMS_FILES_FOLDER``
+     - Optional. A folder inside that library, such as ``osprey/answers``. Unset
+       means the library root. Each run's files go into their own folder below
+       it.
 
 The bridge refuses to start if any of the required five is missing, naming all
 the missing variables at once.
@@ -412,7 +420,56 @@ conversations it has been added to.
    TEAMS_SERVICEBUS_QUEUE=osprey-questions
    # TEAMS_CLOUD=gcchigh                  # only on a GCC High tenant
 
-**9. Bring the stack up.** The bridge is registered in ``deployed_services``, so
+**9. Optional: give the bot one file library.** Without one, the bridge posts
+plots inline and names every other file it could not deliver. With one, it
+uploads those files there and shares each with the people in the conversation.
+Create or pick a SharePoint document library that **nobody else reads**: a
+shared file keeps the library's own permissions as well as the per-conversation
+share, so a library with broad membership shares wider than the conversation.
+
+First look up the site and the library ids:
+
+.. code-block:: bash
+
+   SITE_ID=$(az rest --method get \
+     --url "https://graph.microsoft.com/v1.0/sites/contoso.sharepoint.com:/sites/osprey-files" \
+     --query id -o tsv)
+   LIST_ID=$(az rest --method get \
+     --url "https://graph.microsoft.com/v1.0/sites/$SITE_ID/lists" \
+     --query "value[?displayName=='OSPREY files'].id" -o tsv)
+
+In the app registration from step 4, add the Microsoft Graph **application**
+permission ``Lists.SelectedOperations.Selected`` and grant admin consent. That
+permission reaches no list until one is granted to the app. An administrator who
+holds ``Sites.FullControl.All`` then grants the app the ``owner`` role on this
+one library — owner is what lets it share a file; ``write`` is not enough:
+
+.. code-block:: text
+
+   POST https://graph.microsoft.com/v1.0/sites/{site-id}/lists/{list-id}/permissions
+   Content-Type: application/json
+
+   {
+     "roles": ["owner"],
+     "grantedTo": {"application": {"id": "<TEAMS_APP_ID>"}}
+   }
+
+Read the library's drive id and add the two variables to the ``.env``:
+
+.. code-block:: bash
+
+   az rest --method get \
+     --url "https://graph.microsoft.com/v1.0/sites/$SITE_ID/lists/$LIST_ID/drive" \
+     --query id -o tsv
+
+   TEAMS_FILES_DRIVE_ID=b!the-drive-id
+   TEAMS_FILES_FOLDER=osprey/answers
+
+On GCC High the Graph host follows ``TEAMS_CLOUD`` (``graph.microsoft.us``).
+Confirm your cloud offers the ``Selected`` permissions before you set a library,
+and leave it unset if it does not.
+
+**10. Bring the stack up.** The bridge is registered in ``deployed_services``, so
 it starts with everything else:
 
 .. code-block:: bash
@@ -468,25 +525,32 @@ never does so on its own. Anyone not in the conversation is written as plain
 text. Set ``mentions: false`` in the profile block to have every mention posted
 as plain text instead.
 
-**Plots come back inside the conversation.** Each plot arrives as its own
-message directly after the answer, one image per message, attached inline rather
-than linked from anywhere else, so it is visible exactly to the people who can
-see the conversation and to nobody else. This is the opposite
-of the :doc:`Google Chat <google-chat>` deployment, where files are published as
-public links.
+**Plots and files.** Each plot arrives as its own message directly after the
+answer, one image per message, attached inline. Every other file — a table, a
+PDF, an image too large to attach — goes into the one file library set aside for
+the bot (step 9), into a folder of its own for the run, and is shared with the
+people in the conversation at the moment it was sent. One message per file
+carries an **Open** button; opening it takes a Microsoft 365 sign-in. People who
+join a channel later cannot open older files, the files do not appear in the
+channel's Files tab, and the library's own retention rules apply to them. No
+organisation-wide or anonymous link is ever made. This is the opposite of the
+:doc:`Google Chat <google-chat>` deployment, where files are published as public
+links.
 
 .. note::
 
    **What the agent cannot exchange in Teams.**
 
-   - *Only PNG images come back.* Each one is fitted into a 1024×1024 box and
-     re-encoded before posting; anything still over 1 MB after that is dropped,
-     and one last message names what was dropped so the answer never quietly
-     omits a plot. Documents — PDFs, CSVs, tables saved to file — are not delivered at
-     all in a Teams deployment.
-   - *Images need Pillow.* It is installed with the ``teams`` extra, which the
-     shipped image uses. Without it the agent still answers in full text and
-     every image is named in the same note rather than attached.
+   - *Inline images are PNGs up to 1 MB.* Each one is fitted into a 1024×1024
+     box and re-encoded before posting; one still over 1 MB after that goes to
+     the file library at its original size instead.
+   - *Documents need the file library.* Without ``TEAMS_FILES_DRIVE_ID``, PDFs,
+     CSVs and other files are not delivered, and one last message names each one
+     so the answer never quietly omits it. The same note names a file whose
+     upload or share failed.
+   - *Images need Pillow to be posted inline.* It is installed with the
+     ``teams`` extra, which the shipped image uses. Without it every image takes
+     the file library, or is named in the note when there is none.
    - *Files attached to a question are ignored.* Teams attachments are not
      downloaded, so a question that says "look at this log" and attaches one gets
      an answer written without it. Paste the relevant part into the message

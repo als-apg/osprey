@@ -7,6 +7,9 @@ Documents are expected to have a 'date' field and channel addresses as fields.
 
 import asyncio
 import os
+import ssl
+import urllib.parse
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -18,9 +21,13 @@ from osprey_connectors.archiver._timerange import (
     utc_window,
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("mongodb_archiver_connector")
+
+#: The block's key, named in every message the connection reader raises.
+_WHERE = "archiver.settings"
 
 # Appended to every connect()-time failure. On an OSPREY-deployed stack the store
 # is a container the project brings up itself, and "built but never deployed" is
@@ -91,6 +98,137 @@ def address_overrides() -> tuple[str | None, int | None]:
         raise ValueError(f"{PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})") from exc
 
 
+def mongo_client_kwargs(
+    *,
+    url: str | None,
+    host: str | None,
+    port: int | None,
+    username: str | None,
+    password: str | None,
+    auth_source: str | None,
+    ca_bundle: str | None,
+    timeout_s: float,
+) -> dict[str, Any]:
+    """The keyword arguments for ``pymongo.MongoClient``.
+
+    Every MongoDB client OSPREY opens takes its arguments from here: the agent's
+    connector, the archive recorder and the archive rewrite. One block can
+    therefore never produce two different clients. This is the only place
+    pymongo's keyword names are spelled.
+
+    Pure: it reads no environment and does no I/O. A caller applies the address
+    overrides (:func:`address_overrides`) to ``host`` and ``port`` itself,
+    before calling, because a host-side caller must take nothing from the
+    ambient environment.
+
+    A key whose value is unset is left out rather than passed as ``None``.
+
+    Args:
+        url: A connection string; when set it is passed as ``host`` and no
+            ``port`` is passed.
+        host: The store's host, used when ``url`` is unset.
+        port: The store's port, used when ``url`` is unset.
+        username: The login user; ``password`` and ``auth_source`` go with it.
+            Without one, neither is passed.
+        password: The login secret.
+        auth_source: The database the user is defined in.
+        ca_bundle: A CA file to trust; setting it turns TLS on.
+        timeout_s: Seconds to wait for a server.
+    """
+    kwargs: dict[str, Any] = {"host": url} if url is not None else {"host": host, "port": port}
+    if username is not None:
+        kwargs["username"] = username
+        kwargs["password"] = password
+        if auth_source is not None:
+            kwargs["authSource"] = auth_source
+    if ca_bundle is not None:
+        kwargs["tlsCAFile"] = ca_bundle
+    kwargs["serverSelectionTimeoutMS"] = int(timeout_s * 1000)
+    return kwargs
+
+
+#: The url schemes a MongoDB connection string takes.
+_MONGO_SCHEMES = ("mongodb", "mongodb+srv")
+
+#: Url options the block has its own key for. A keyword argument overrides the
+#: same option in the string without a word, so one fact would have two homes.
+_OPTIONS_WITH_A_KEY = {
+    "authsource": "auth.source",
+    "tlscafile": "tls.ca_bundle",
+    "serverselectiontimeoutms": "timeout_s",
+}
+
+#: Errors pymongo raises while it loads a CA file.
+CA_FILE_ERRORS = (ssl.SSLError, FileNotFoundError, IsADirectoryError, PermissionError)
+
+#: Url options that carry a secret.
+_SECRET_OPTIONS = frozenset({"tlscertificatekeyfilepassword"})
+
+#: Url options that turn certificate verification off. No setting does.
+_VERIFY_OFF_OPTIONS = frozenset(
+    {"tlsinsecure", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames"}
+)
+
+_ROUTE_LOGGED = False
+
+
+def check_mongo_url(url: str, *, key: str) -> None:
+    """Refuse a connection string the block cannot take.
+
+    Everything else in the url passes to pymongo verbatim: hosts, ``replicaSet``,
+    ``tls=true``, ``authMechanism``, ``tlsCertificateKeyFile``. Option names are
+    compared case-insensitively, as MongoDB reads them. No message repeats the
+    url, whose query can name key files.
+
+    Raises:
+        ValueError: The scheme is not ``mongodb`` or ``mongodb+srv``; the url
+            is not a valid connection string; it carries a user or password; it
+            carries a secret option; it turns certificate verification off; or
+            it sets an option this block has its own key for.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        raise ValueError(f"`{key}` is not a valid connection string") from None
+    if parts.scheme.lower() not in _MONGO_SCHEMES:
+        raise ValueError(f"`{key}` must be a mongodb:// or mongodb+srv:// connection string")
+    if "@" in parts.netloc:
+        raise ValueError(
+            f"`{key}` may not carry a user or password; name them under "
+            "`auth.username` and `auth.password_env`"
+        )
+    # MongoDB also takes ';' as the option separator.
+    query = parts.query.replace(";", "&")
+    for name, _value in urllib.parse.parse_qsl(query, keep_blank_values=True):
+        option = name.lower()
+        if option in _SECRET_OPTIONS:
+            raise ValueError(f"`{key}` may not carry `{name}`, a secret")
+        if option in _VERIFY_OFF_OPTIONS:
+            raise ValueError(
+                f"`{key}` may not set `{name}`; no setting turns certificate verification off"
+            )
+        if option in _OPTIONS_WITH_A_KEY:
+            raise ValueError(
+                f"`{key}` may not set `{name}`; this block sets it as "
+                f"`{_OPTIONS_WITH_A_KEY[option]}`"
+            )
+
+
+def _log_route_once(by_url: bool, store: str) -> None:
+    """Log which key reaches the store, once per process."""
+    global _ROUTE_LOGGED
+    if _ROUTE_LOGGED:
+        return
+    _ROUTE_LOGGED = True
+    if by_url:
+        logger.info(
+            "MongoDB archiver reaches its store by `url`; host, port and the "
+            "OSPREY_ARCHIVER_MONGODB_* overrides are not applied"
+        )
+    else:
+        logger.info(f"MongoDB archiver reaches its store at {store} by `host` and `port`")
+
+
 class MongoDBArchiverConnector(ArchiverConnector):
     """
     MongoDB archiver connector for historical channel data.
@@ -101,16 +239,19 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
     Example:
         >>> config = {
-        >>>     'host': 'mongodb05.nersc.gov',
+        >>>     'host': 'mongodb.example.org',
         >>>     'port': 27017,  # osprey:not-a-port — an external facility store
         >>>                     # on MongoDB's own protocol port. A store this
         >>>                     # deployment publishes is on its `mongo` layout
         >>>                     # slot instead, written by the build.
         >>>     'name': 'my-archiver-database',
         >>>     'collection': 'my-archiver-collection',
-        >>>     'auth': 'database-auth',
-        >>>     'username': 'my-username',
-        >>>     'password_env': 'MONGODB_READONLY_PASSWORD'
+        >>>     'auth': {
+        >>>         'source': 'database-auth',
+        >>>         'username': 'my-username',
+        >>>         'password_env': 'MONGODB_READONLY_PASSWORD',
+        >>>     },
+        >>>     'timeout_s': 60,
         >>> }
         >>> connector = MongoDBArchiverConnector()
         >>> await connector.connect(config)
@@ -140,22 +281,31 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         Args:
             config: Configuration with keys:
-                - host: MongoDB host (required)
-                - port: MongoDB host port (required — no default; see the
-                  ``port`` resolution below for why there is none)
+                - url: A ``mongodb://`` or ``mongodb+srv://`` connection string
+                  (optional). When set it names the store verbatim: ``host``,
+                  ``port`` and the address overrides are not applied, and
+                  ``auth:`` is optional, ``auth.source`` included.
+                - host: MongoDB host (required without ``url``)
+                - port: MongoDB host port (required without ``url`` — no
+                  default; see the ``port`` resolution below for why there is none)
                 - name: Database name (required)
                 - collection: Collection name (required)
-                - auth: Authentication database (required)
-                - username: MongoDB username (required)
-                - password_env: Environment variable name for password (required)
-                - timeout: Default timeout in seconds (default: 60)
+                - auth.source: Authentication database, the one the user
+                  is defined in (required without ``url``)
+                - auth.username: MongoDB username (required without ``url``)
+                - auth.password_env: Environment variable name for password
+                  (required with ``auth.username``)
+                - timeout_s: Default timeout in seconds (default: 60)
+                - tls.ca_bundle: Absolute path of a CA file to trust (optional);
+                  setting it turns TLS on. Unset, a ``tls=true`` url checks the
+                  store's certificate against the image trust store.
 
         Raises:
             ImportError: If pymongo is not installed
             ValueError: If required config *keys* are missing — an authoring
                 error in config.yml, not a runtime condition
             ConnectionError: If the store cannot be reached or authenticated
-                against, including when ``password_env`` names a variable that
+                against, including when ``auth.password_env`` names a variable that
                 is not set. These are the states a not-yet-deployed project is
                 in, so they carry the deploy hint and reach the agent as a
                 ``connection_error`` rather than an internal error.
@@ -174,16 +324,27 @@ class MongoDBArchiverConnector(ArchiverConnector):
         except ImportError as e:
             raise ImportError(PYMONGO_INSTALL_HINT) from e
 
-        # Where the store is. The configured value is the host-side truth; a
-        # containerized consumer is handed the in-network address through the
-        # environment and that wins (see HOST_OVERRIDE_ENV). Resolved before the
-        # required-ness check so an environment-only address is a legitimate
-        # one, and the error below still fires when neither source names a host.
-        override_host, override_port = address_overrides()
+        raw_url = config.get("url")
+        if raw_url is not None and not isinstance(raw_url, str):
+            raise ValueError(f"`{_WHERE}.url` must be a string")
+        url = raw_url if raw_url and raw_url.strip() else None
+        host: str | None = None
+        port: int | None = None
+        override_port: int | None = None
+        if url is not None:
+            # A url names the store verbatim: no host, port or address override applies.
+            check_mongo_url(url, key=f"{_WHERE}.url")
+        else:
+            # Where the store is. The configured value is the host-side truth; a
+            # containerized consumer is handed the in-network address through the
+            # environment and that wins (see HOST_OVERRIDE_ENV). Resolved before the
+            # required-ness check so an environment-only address is a legitimate
+            # one, and the error below still fires when neither source names a host.
+            override_host, override_port = address_overrides()
 
-        host = override_host or config.get("host")
-        if not host:
-            raise ValueError("host is required for MongoDB archiver")
+            host = override_host or config.get("host")
+            if not host:
+                raise ValueError("host is required for MongoDB archiver")
 
         db_name = config.get("name")
         if not db_name:
@@ -193,60 +354,86 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not collection_name:
             raise ValueError("collection is required for MongoDB archiver")
 
-        # No literal fallback, and deliberately not one. For a store this
-        # deployment publishes, the host port is its ``mongo`` layout slot —
-        # ``deployment.port_base + 801`` — which this package cannot compute:
-        # osprey-connectors is a separate wheel that does not depend on
-        # ``osprey``, so it has no access to ``osprey.port_layout``. The build
-        # always writes ``archiver.mongodb_archiver.port`` from the resolved
-        # base, and an external facility store names its own port, so a missing
-        # key is an authoring error rather than a number to guess: guessing
-        # would dial a port belonging to a different deployment's block.
-        port = override_port if override_port is not None else config.get("port")
-        if port is None:
-            raise ValueError(
-                "port is required for MongoDB archiver: set "
-                "archiver.mongodb_archiver.port in config.yml to the store's host "
-                "port (a project that deploys its own MongoDB gets it written by "
-                "'osprey build'), or set OSPREY_ARCHIVER_MONGODB_PORT for a "
-                "container reaching the store on the compose network"
-            )
-        self._timeout = config.get("timeout", 60)
+        auth = config.get("auth")
+        auth_block = auth if isinstance(auth, Mapping) else {}
+        if url is None:
+            # No literal fallback, and deliberately not one. For a store this
+            # deployment publishes, the host port is its ``mongo`` layout slot —
+            # ``deployment.port_base + 801`` — which this package cannot compute:
+            # osprey-connectors is a separate wheel that does not depend on
+            # ``osprey``, so it has no access to ``osprey.port_layout``. The build
+            # always writes ``archiver.mongodb_archiver.port`` from the resolved
+            # base, and an external facility store names its own port, so a missing
+            # key is an authoring error rather than a number to guess: guessing
+            # would dial a port belonging to a different deployment's block.
+            port = override_port if override_port is not None else config.get("port")
+            if port is None:
+                raise ValueError(
+                    "port is required for MongoDB archiver: set "
+                    "archiver.mongodb_archiver.port in config.yml to the store's host "
+                    "port (a project that deploys its own MongoDB gets it written by "
+                    "'osprey build'), or set OSPREY_ARCHIVER_MONGODB_PORT for a "
+                    "container reaching the store on the compose network"
+                )
 
-        # Validate required authentication config
-        username = config.get("username")
-        if not username:
-            raise ValueError("username is required for MongoDB archiver")
+            # The login is required on this path. A bearer-token block skips these
+            # checks and is refused by name by the reader below.
+            if "token_env" not in auth_block:
+                for leaf in ("username", "password_env"):
+                    if not auth_block.get(leaf):
+                        raise ValueError(f"auth.{leaf} is required for MongoDB archiver")
+                if not auth_block.get("source"):
+                    raise ValueError(
+                        "auth.source (authentication database) is required for MongoDB archiver"
+                    )
 
-        password_env = config.get("password_env")
-        if not password_env:
-            raise ValueError("password_env is required for MongoDB archiver")
-
-        auth_db = config.get("auth")
-        if not auth_db:
-            raise ValueError("auth (authentication database) is required for MongoDB archiver")
+        settings = read_connection_settings(
+            config,
+            where=_WHERE,
+            logins=frozenset({"password"}),
+            unsupported_because=(
+                "the MongoDB archiver takes a username and auth.password_env, not a bearer token"
+            ),
+            extra_auth_keys=frozenset({"source"}),
+        )
+        self._timeout = settings.timeout_or(60)
+        login = settings.login
+        username = login.username if login is not None else None
+        password_env = login.password_env if login is not None else None
+        source = auth_block.get("source")
+        auth_source = str(source) if source else None
+        ca_bundle = str(settings.ca_bundle) if settings.ca_bundle is not None else None
 
         # Get password from environment variable. An unset variable is a
         # deployment state, not a config error: `osprey up` mints the password
         # into the project's .env, so this is what a built-but-never-deployed
         # project hits. ConnectionError so the agent gets an actionable
         # connection_error envelope instead of an opaque internal error.
-        password = os.getenv(password_env)
-        if not password:
-            raise ConnectionError(
-                f"Environment variable '{password_env}' is not set, so the MongoDB "
-                f"archiver has no password to authenticate with. {DEPLOY_HINT}"
-            )
+        password: str | None = None
+        if password_env is not None:
+            password = os.getenv(password_env)
+            if not password:
+                raise ConnectionError(
+                    f"Environment variable '{password_env}' is not set, so the MongoDB "
+                    f"archiver has no password to authenticate with. {DEPLOY_HINT}"
+                )
+
+        # The url itself is never logged or put in a message: its query can name key files.
+        store = f"the store named by {_WHERE}.url" if url is not None else f"{host}:{port}"
+        _log_route_once(url is not None, store)
 
         try:
-            # Create MongoDB client using direct parameter syntax (more readable than URI)
             self._client = self._MongoClient(
-                host=host,
-                port=port,
-                username=username,
-                password=password,
-                authSource=auth_db,
-                serverSelectionTimeoutMS=self._timeout * 1000,
+                **mongo_client_kwargs(
+                    url=url,
+                    host=host,
+                    port=port,
+                    username=username,
+                    password=password,
+                    auth_source=auth_source,
+                    ca_bundle=ca_bundle,
+                    timeout_s=self._timeout,
+                )
             )
 
             # Test connection
@@ -260,17 +447,23 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             self._connected = True
             logger.debug(
-                f"MongoDB Archiver connector initialized: {host}:{port}/{db_name}.{collection_name}"
+                f"MongoDB Archiver connector initialized: {store}/{db_name}.{collection_name}"
             )
 
         except self._ConnectionFailure as e:
             raise ConnectionError(
-                f"Cannot connect to MongoDB at {host}:{port}. "
+                f"Cannot connect to MongoDB at {store}. "
                 f"Please check connectivity and authentication. {DEPLOY_HINT}"
             ) from e
         except self._ConfigurationError as e:
             raise ConnectionError(f"MongoDB configuration error: {e}") from e
         except (TimeoutError, OSError) as e:
+            # pymongo loads the CA file while it builds the client, before any ping.
+            if ca_bundle is not None and isinstance(e, CA_FILE_ERRORS):
+                raise ConnectionError(
+                    f"MongoDB TLS setup failed: the CA file named by {_WHERE}.tls.ca_bundle "
+                    f"could not be loaded: {e}"
+                ) from e
             raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
         except Exception as e:
             # Last resort - log and re-raise as ConnectionError
@@ -505,7 +698,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         self._require_connected()
 
-        def check_channels():
+        def check_channels() -> dict[str, bool]:
             """Check which channels exist in the collection."""
             availability = {}
             for channel in channels:

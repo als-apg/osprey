@@ -15,7 +15,9 @@
  * than a status board. Health reaches the rail as two coarse states: an entry
  * whose backend has never answered is `.disabled` (dimmed and inert), and one
  * that answered before but has stopped is `.unreachable` (dimmed, still
- * clickable, its tooltip saying since when).
+ * clickable, its tooltip saying since when). The one status the rail names is
+ * a sidecar that failed to start: its entry is `.failed` and carries the
+ * server's sentence as its tooltip, because a click on it is the retry.
  *
  * The rail is a curated MEMBERSHIP list, not a tab strip with open/closed
  * state: an entry exists iff its panel is in the rail, at full brightness.
@@ -62,13 +64,16 @@
  * caller declines keeps its native behaviour on every input route.
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
- * never answered), `.unreachable` (backend stopped answering), `.agent-attention`
- * (badge). While a badge time or an unreachable notice owns the tooltip, the
- * entry carries a transient `data-title-base` holding the tooltip it borrowed;
- * clearing both restores it and removes the attribute.
+ * never answered), `.unreachable` (backend stopped answering), `.failed` (a
+ * sidecar that failed to start; dimmed but clickable), `.agent-attention`
+ * (badge). While a badge time, an unreachable notice or a status message owns
+ * the tooltip, the entry carries a transient `data-title-base` holding the
+ * tooltip it borrowed; clearing all of them restores it and removes the
+ * attribute.
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
+import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 
 // ---- Types ----
 
@@ -108,8 +113,8 @@ import { flashElement } from '/design-system/js/highlight.js';
 const BUTTON_SELECTOR = '.panel-rail-button';
 
 /**
- * Where an entry's own tooltip is parked while a badge time or an unreachable
- * notice owns the `title`. Present only while one of them does — see
+ * Where an entry's own tooltip is parked while a badge time, an unreachable
+ * notice or a status message owns the `title`. Present only while one of them does — see
  * {@link renderTitle}.
  */
 const TITLE_BASE_ATTR = 'data-title-base';
@@ -121,6 +126,9 @@ const TOUCHED_ATTR = 'data-title-touched';
 const UNREACHABLE_ATTR = 'data-title-unreachable';
 
 const TOUCHED_SEPARATOR = ' · agent touched ';
+
+/** A server-reported start status sentence, present while the entry shows one. */
+const STATUS_ATTR = 'data-title-status';
 
 // ---- Rendering ----
 
@@ -365,12 +373,17 @@ export function setEntryEnabled(railEl, panelId, enabled) {
 }
 
 /**
- * A server or poll instant as the rail's tooltips show it: hour and minute.
+ * A server or poll instant as the rail's tooltips show it: hour and minute on
+ * the facility clock, naming its zone when the viewer's clock reads differently.
  * @param {number} ms - epoch milliseconds
  * @returns {string}
  */
 function clockTime(ms) {
-  return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return formatFacilityTime(ms, {
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(viewerSharesFacilityClock(ms) ? {} : { timeZoneName: 'short' }),
+  });
 }
 
 /**
@@ -379,16 +392,18 @@ function clockTime(ms) {
  * The own text is stashed on the entry while any notice is up rather than
  * recomputed, so the restore is exact even if the caller retitled the entry,
  * and a repeated notice REPLACES its time instead of appending a second one.
- * An unreachable notice outranks a badge time: "not answering" is the fact an
- * operator needs before clicking. With neither notice the stash is restored
- * and removed, which makes a clear on an untouched entry a true no-op.
+ * A status message stands in for the own text, so a badge time is appended to
+ * it. An unreachable notice outranks both: "not answering" is the fact an
+ * operator needs before clicking. With no notice the stash is restored and
+ * removed, which makes a clear on an untouched entry a true no-op.
  * @param {HTMLElement} entry
  */
 function renderTitle(entry) {
   const base = entry.getAttribute(TITLE_BASE_ATTR) ?? entry.title;
   const touched = entry.getAttribute(TOUCHED_ATTR);
   const unreachable = entry.getAttribute(UNREACHABLE_ATTR);
-  if (touched === null && unreachable === null) {
+  const status = entry.getAttribute(STATUS_ATTR);
+  if (touched === null && unreachable === null && status === null) {
     if (entry.hasAttribute(TITLE_BASE_ATTR)) {
       entry.title = base;
       entry.removeAttribute(TITLE_BASE_ATTR);
@@ -396,9 +411,9 @@ function renderTitle(entry) {
     return;
   }
   entry.setAttribute(TITLE_BASE_ATTR, base);
-  entry.title = unreachable !== null
-    ? `not answering since ${unreachable}`
-    : `${base}${TOUCHED_SEPARATOR}${touched}`;
+  const own = status ?? base;
+  if (unreachable !== null) entry.title = `not answering since ${unreachable}`;
+  else entry.title = touched !== null ? `${own}${TOUCHED_SEPARATOR}${touched}` : own;
 }
 
 /**
@@ -440,6 +455,32 @@ export function setEntryAttention(railEl, panelId, on, ts) {
     entry.scrollIntoView({ block: 'nearest' });
   }
   return true;
+}
+
+/**
+ * Show or clear a server-reported start status on an entry. `failed` toggles
+ * `.failed`, which replaces `.disabled`: the entry stays dimmed but takes a
+ * click, the caller's retry. While `message` is set, the tooltip and
+ * `aria-description` read exactly that string (with a badge time appended
+ * while the entry is badged); `message: null` puts the entry's own tooltip
+ * back. No-op when the entry is absent.
+ * @param {HTMLElement} railEl
+ * @param {string} panelId
+ * @param {{ failed: boolean, message: string | null }} status
+ */
+export function setEntryStatus(railEl, panelId, { failed, message }) {
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return;
+  entry.classList.toggle('failed', failed);
+  if (failed) entry.classList.remove('disabled');
+  if (message) {
+    entry.setAttribute(STATUS_ATTR, message);
+    entry.setAttribute('aria-description', message);
+  } else {
+    entry.removeAttribute(STATUS_ATTR);
+    entry.removeAttribute('aria-description');
+  }
+  renderTitle(entry);
 }
 
 /**

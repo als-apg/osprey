@@ -32,6 +32,7 @@ class IngestResult:
     count: int
     enhanced_count: int
     failed_count: int
+    unreadable_count: int
     dry_run: bool
     enhancer_names: list[str] = field(default_factory=list)
 
@@ -48,8 +49,18 @@ class WatchOnceResult:
 
 @dataclass
 class EnhanceResult:
+    """Outcome of one enhancement pass.
+
+    ``succeeded``, ``failed`` and ``set_aside`` count enhancements, meaning
+    (entry, module) pairs, in this pass; ``set_aside`` counts the failures that
+    reached the attempt cap.
+    """
+
     entries_processed: int
     module_names: list[str]
+    succeeded: int = 0
+    failed: int = 0
+    set_aside: int = 0
 
 
 @dataclass
@@ -526,7 +537,8 @@ async def run_sync(
     async with service:
         scheduler = IngestionScheduler(config=sync_config, repository=service.repository)
         if progress:
-            source = sync_config.ingestion.source_url or "unknown"
+            ingestion = sync_config.ingestion
+            source = (ingestion.source_url if ingestion else None) or "unknown"
             progress(f"Polling for new entries (source: {source})...")
 
         poll_result = await scheduler.poll_once(limit=limit)
@@ -573,7 +585,8 @@ async def run_ingest(
             configured adapter in place — the same rule ``run_watch`` follows,
             so a project that names its adapter in config.yml does not have to
             repeat it on every ingest.
-        since: Only ingest entries after this date.
+        since: Only ingest entries after this date; a value without an offset
+            is facility-local.
         limit: Maximum entries to ingest.
         dry_run: Parse entries without storing them.
         progress: Optional callback for human-readable progress lines.
@@ -584,6 +597,7 @@ async def run_ingest(
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
+    from osprey.utils.config import localize_facility
 
     if "ingestion" not in config_dict:
         config_dict["ingestion"] = {}
@@ -592,6 +606,7 @@ async def run_ingest(
         config_dict["ingestion"]["adapter"] = adapter
 
     config = _ariel_config(config_dict)
+    since = localize_facility(since)
     adapter_instance = get_adapter(config)
 
     if progress:
@@ -613,6 +628,7 @@ async def run_ingest(
             count=count,
             enhanced_count=0,
             failed_count=0,
+            unreadable_count=adapter_instance.unreadable_entries,
             dry_run=True,
             enhancer_names=enhancer_names,
         )
@@ -659,7 +675,7 @@ async def run_ingest(
                 run_id,
                 entries_added=count,
                 entries_updated=0,
-                entries_failed=failed_count,
+                entries_failed=failed_count + adapter_instance.unreadable_entries,
             )
         except Exception as e:
             await service.repository.fail_ingestion_run(run_id, str(e))
@@ -669,6 +685,7 @@ async def run_ingest(
         count=count,
         enhanced_count=enhanced_count,
         failed_count=failed_count,
+        unreadable_count=adapter_instance.unreadable_entries,
         dry_run=False,
         enhancer_names=enhancer_names,
     )
@@ -766,7 +783,7 @@ async def run_watch(
         poll_secs = config.ingestion.poll_interval_seconds
         if progress:
             progress(f"Watching: {config.ingestion.source_url}")
-            progress(f"Poll interval: {poll_secs}s")
+            progress(f"Poll interval: {poll_secs:g}s")
             progress("Press Ctrl+C to stop\n")
 
         if install_signal_handlers:
@@ -1326,8 +1343,11 @@ async def run_enhance(
 ) -> EnhanceResult:
     """Run enhancement modules on entries."""
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.database.repository import MAX_ENHANCEMENT_ATTEMPTS
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
+    from osprey.utils.logger import get_logger
 
+    logger = get_logger("ariel")
     config = _ariel_config(config_dict)
     enhancers = create_enhancers_from_config(config)
     if module:
@@ -1344,50 +1364,75 @@ async def run_enhance(
 
     service = await create_ariel_service(config)
     async with service:
+        # Which enhancers each entry is owed, so a module that finished an entry
+        # or set it aside never runs on it again.
+        owed: dict[str, set[str]] = {}
+        entries: list[EnhancedLogbookEntry] = []
+
+        def _collect(found: list[EnhancedLogbookEntry], names: list[str]) -> None:
+            for entry in found:
+                entry_id = entry["entry_id"]
+                if entry_id not in owed:
+                    owed[entry_id] = set()
+                    entries.append(entry)
+                owed[entry_id].update(names)
+
         if force:
-            entries = await service.repository.search_by_time_range(limit=limit)
-        elif module:
-            entries = await service.repository.get_incomplete_entries(
-                module_name=module,
-                limit=limit,
-            )
+            _collect(await service.repository.search_by_time_range(limit=limit), module_names)
         else:
-            # No specific module — collect entries incomplete for ANY enhancer
-            seen_ids: set[str] = set()
-            entries = []
             for enhancer in enhancers:
                 incomplete = await service.repository.get_incomplete_entries(
                     module_name=enhancer.name,
                     limit=limit,
                 )
-                for entry in incomplete:
-                    if entry["entry_id"] not in seen_ids:
-                        seen_ids.add(entry["entry_id"])
-                        entries.append(entry)
+                _collect(incomplete, [enhancer.name])
 
         if progress:
             progress(f"Processing {len(entries)} entries...")
 
+        succeeded = failed = set_aside = 0
         async with service.pool.connection() as conn:
             for i, entry in enumerate(entries):
                 for enhancer in enhancers:
+                    if enhancer.name not in owed[entry["entry_id"]]:
+                        continue
                     try:
                         await enhancer.enhance(entry, conn)
                         await service.repository.mark_enhancement_complete(
                             entry["entry_id"],
                             enhancer.name,
                         )
+                        succeeded += 1
                     except Exception as e:
-                        await service.repository.mark_enhancement_failed(
+                        failed += 1
+                        attempts = await service.repository.mark_enhancement_failed(
                             entry["entry_id"],
                             enhancer.name,
                             str(e),
                         )
+                        if attempts >= MAX_ENHANCEMENT_ATTEMPTS:
+                            set_aside += 1
+                            logger.warning(
+                                f"Entry {entry['entry_id']}: {enhancer.name} failed {attempts} "
+                                f"times; it is left out of later passes ({str(e)[:200]})"
+                            )
 
                 if (i + 1) % 10 == 0 and progress:
                     progress(f"  Processed {i + 1} entries...")
 
-    return EnhanceResult(entries_processed=len(entries), module_names=module_names)
+    if progress:
+        progress(
+            f"Enhancement complete: {len(entries)} entries, {succeeded} succeeded, "
+            f"{failed} failed, {set_aside} set aside after {MAX_ENHANCEMENT_ATTEMPTS} "
+            "failed attempts"
+        )
+    return EnhanceResult(
+        entries_processed=len(entries),
+        module_names=module_names,
+        succeeded=succeeded,
+        failed=failed,
+        set_aside=set_aside,
+    )
 
 
 async def list_models(config_dict: dict) -> list[dict]:
@@ -1490,6 +1535,23 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
         return {"error": msg}
 
 
+def _embedding_input_limit(config: ARIELConfig, model: str) -> int:
+    """Return the input limit, in tokens, the text embedding module states for ``model``.
+
+    A model not listed under ``text_embedding.models`` gets the module's default limit.
+    """
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+        DEFAULT_MAX_INPUT_TOKENS,
+        max_input_tokens,
+    )
+
+    module_config = config.enhancement_modules.get("text_embedding")
+    for m in (module_config.models if module_config else None) or []:
+        if m.name == model:
+            return max_input_tokens({"name": m.name, "max_input_tokens": m.max_input_tokens})
+    return DEFAULT_MAX_INPUT_TOKENS
+
+
 async def run_reembed(
     config_dict: dict,
     model: str,
@@ -1503,9 +1565,13 @@ async def run_reembed(
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.migrations import model_to_table_name
     from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingMigration
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+        fit_to_input_limit,
+    )
 
     config = _ariel_config(config_dict)
     table_name = model_to_table_name(model)
+    limit = _embedding_input_limit(config, model)
 
     if dry_run:
         if progress:
@@ -1513,6 +1579,7 @@ async def run_reembed(
             progress(f"  Table: {table_name}")
             progress(f"  Dimension: {dimension}")
             progress(f"  Batch size: {batch_size}")
+            progress(f"  Input limit: {limit} tokens")
             progress(f"  Force overwrite: {force}")
         return ReembedResult(processed=0, skipped=0, errors=0, dry_run=True)
 
@@ -1568,7 +1635,7 @@ async def run_reembed(
                             skipped += 1
                             continue
 
-                    batch_texts.append(raw_text or "")
+                    batch_texts.append(fit_to_input_limit(raw_text or "", limit))
                     batch_ids.append(entry_id)
 
                     if len(batch_texts) >= batch_size:
@@ -1612,7 +1679,7 @@ async def _embed_batch(
     batch_texts: list[str],
     batch_ids: list[str],
     model: str,
-    base_url: str,
+    base_url: str | None,
     table_name: str,
     force: bool,
     progress: _ProgressCb,
@@ -1736,6 +1803,11 @@ async def run_quickstart(
 
                 if progress:
                     progress(f"  Entries: {count} ingested")
+                    if adapter_instance.unreadable_entries:
+                        progress(
+                            f"  Skipped: {adapter_instance.unreadable_entries} entries"
+                            " that could not be read"
+                        )
                     if enhancers:
                         msg = f"  Enhancements: {enhanced_count} applied"
                         if failed_count:

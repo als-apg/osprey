@@ -33,6 +33,7 @@ import {
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs, byId } from '../_support/dom.mjs';
+import { stampFacilityZone } from '../_support/facility-zone.mjs';
 
 /** Minimal DOM fixture matching artifacts/static/index.html's structure. */
 function mountFixture() {
@@ -130,6 +131,11 @@ describe('tree-mode grouping by type (pinned promoted)', () => {
 });
 
 describe('activity-mode chronological ordering', () => {
+  // Date groups are the facility calendar's days, and the fixtures are UTC
+  // instants, so the facility zone is UTC here in any runner zone.
+  beforeEach(() => stampFacilityZone('UTC'));
+  afterEach(() => stampFacilityZone(null));
+
   test('groups by date label and orders newest-first within "today"-equivalent single-day fixtures', () => {
     // All four fixtures land on distinct days, so each date group holds one
     // item; assert the date GROUPS themselves preserve encounter order
@@ -264,16 +270,24 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const item = qs(document, '.tree-item[data-id="1"]');
     expect(item.draggable).toBe(true);
 
-    const dataTransfer = { setData: vi.fn(), effectAllowed: '' };
-    const dragEvent = /** @type {Event & { dataTransfer: typeof dataTransfer }} */ (new Event('dragstart', { bubbles: true }));
-    dragEvent.dataTransfer = dataTransfer;
-    item.dispatchEvent(dragEvent);
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'osprey-artifact-dir');
+    meta.setAttribute('content', 'state/agent/artifacts');
+    document.head.appendChild(meta);
+    try {
+      const dataTransfer = { setData: vi.fn(), effectAllowed: '' };
+      const dragEvent = /** @type {Event & { dataTransfer: typeof dataTransfer }} */ (new Event('dragstart', { bubbles: true }));
+      dragEvent.dataTransfer = dataTransfer;
+      item.dispatchEvent(dragEvent);
 
-    expect(dataTransfer.setData).toHaveBeenCalledWith(
-      'text/plain',
-      'Please have a look at var/agent_data/artifacts/beam_profile.png'
-    );
-    expect(dataTransfer.effectAllowed).toBe('copy');
+      expect(dataTransfer.setData).toHaveBeenCalledWith(
+        'text/plain',
+        'Please have a look at state/agent/artifacts/beam_profile.png'
+      );
+      expect(dataTransfer.effectAllowed).toBe('copy');
+    } finally {
+      meta.remove(); // this file's document is shared across tests
+    }
   });
 
   test('clicking a tree-section header collapses/expands its section without triggering item selection', () => {

@@ -107,6 +107,17 @@ def resolve_lane_bridge_url(request: Request, lane: str | None) -> str | None:
     return str(url).rstrip("/") if url else None
 
 
+def forwarded_query_params(request: Request) -> httpx.QueryParams:
+    """The request's query parameters as the bridge receives them.
+
+    ``multi_items()``, not a dict: repeated query keys are preserved exactly as
+    they arrived. :data:`LANE_QUERY_PARAM` addresses the sidecar and is stripped.
+    """
+    return httpx.QueryParams(
+        [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+    )
+
+
 async def _forward_get(request: Request, path: str) -> JSONResponse:
     """GET ``path`` on the Bluesky bridge and relay its JSON body/status verbatim.
 
@@ -127,12 +138,8 @@ async def _forward_get(request: Request, path: str) -> JSONResponse:
     if bridge_url is None:
         return JSONResponse(content=UNKNOWN_LANE_BODY, status_code=404)
 
-    # multi_items(), not a dict: repeated query keys are preserved exactly as
-    # they arrived, which is what "forwarded unchanged" has always meant here.
-    params = [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
-
     try:
-        response = await client.get(f"{bridge_url}{path}", params=params)
+        response = await client.get(f"{bridge_url}{path}", params=forwarded_query_params(request))
     except httpx.RequestError:
         return JSONResponse(content=UNREACHABLE_BODY, status_code=502)
 

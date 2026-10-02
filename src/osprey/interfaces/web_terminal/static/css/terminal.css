@@ -1120,6 +1120,13 @@ html[data-ui-mode="simple"] .session-selector {
   pointer-events: none;
 }
 
+/* A sidecar that failed to start: dimmed like an offline entry, but a click on
+   it starts the sidecar again, and its tooltip names the reason. */
+.panel-rail-button.failed {
+  opacity: 0.35;
+  cursor: pointer;
+}
+
 /* Glyph — mapped from the panel id via data-icon, with a generic fallback for
    runtime/custom panels. Every built-in panel id gets a rule of its own, so a
    rail never shows two panels wearing the fallback; the id set is
@@ -1203,8 +1210,10 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 /* An offline (disabled) entry is inert, but its "×" stays clickable and visible
-   so a panel whose backend is down can always be dismissed. */
-.panel-rail-button.disabled .panel-rail-close {
+   so a panel whose backend is down can always be dismissed; a failed entry's
+   corner shows the same way. */
+.panel-rail-button.disabled .panel-rail-close,
+.panel-rail-button.failed .panel-rail-close {
   pointer-events: auto;
   opacity: 0.6;
 }

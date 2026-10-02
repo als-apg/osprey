@@ -358,7 +358,9 @@ lists the ids the gateway serves, spelled as it spells them, and
 ``default_model`` — one of them — answers when the profile names no ``model:``.
 ``api_protocol:
 anthropic`` marks an Anthropic-native endpoint rather than an
-OpenAI-compatible one.
+OpenAI-compatible one. ``supports_images: true`` or ``false`` says whether
+images reach the model on the provider's OpenAI route. Absent, the provider's
+own declaration answers.
 
 Three rules follow from the catalog being the one home for these facts:
 
@@ -462,6 +464,13 @@ configuration) and ``.claude/settings.json`` (tool permissions) — so a later
 ``osprey build`` re-renders them instead of losing them. For the procedure, see
 :doc:`/how-to/agent-interfaces/add-mcp-server`.
 
+The agent loads only the servers this build renders into ``.mcp.json``: every
+launch passes ``--strict-mcp-config`` with that file, so a Claude Code plugin's
+server or a claude.ai connector never starts, and declaring a server here is how
+you give the agent one. A server whose name puts its tools under
+``mcp__plugin_`` or ``mcp__claude_ai_`` is refused at build, because those
+namespaces are denied on every launch.
+
 .. code-block:: yaml
 
    mcp_servers:
@@ -522,7 +531,7 @@ launch command finds it:
 
    my-facility/
      mcp_servers/
-       phoebus/
+       my_server/
          __init__.py
          __main__.py
          server.py
@@ -530,14 +539,14 @@ launch command finds it:
 .. code-block:: yaml
 
    mcp_servers:
-     phoebus:
+     my_server:
        command: "{current_python_env}"
-       args: ["-m", "phoebus"]
+       args: ["-m", "my_server"]
        env:
          OSPREY_CONFIG: "{project_root}/build/config.yml"
          PYTHONPATH: "{project_root}/build/_mcp_servers"
        permissions:
-         allow: ["phoebus_launch"]
+         allow: ["safe_tool"]
 
 The directory name and the ``mcp_servers:`` key are independent: the directory
 delivers the code, the key launches it.
@@ -549,8 +558,10 @@ Tool permissions
 ================
 
 By default OSPREY blocks a handful of general-purpose tools — ``Bash``,
-``Edit``, ``WebFetch``, ``WebSearch``, and the Playwright/Context7 plugins — so a
-stock control-operator agent cannot shell out or browse the web. These defaults
+``Edit``, ``WebFetch``, ``WebSearch``, ``Monitor`` (background shell commands),
+``EnterWorktree`` (a new git worktree on disk), and every Claude Code plugin's
+and claude.ai connector's MCP tools (``mcp__plugin_*``, ``mcp__claude_ai_*``) —
+so a stock control-operator agent cannot shell out or browse the web. These defaults
 are overridable per facility from ``config:``, using dotted keys:
 
 .. code-block:: yaml
@@ -592,13 +603,13 @@ are overridable per facility from ``config:``, using dotted keys:
 .. admonition:: You cannot un-gate a tool that can write
    :class: warning
 
-   ``Bash``, ``Edit``, ``Write``, ``MultiEdit`` and ``NotebookEdit`` can write
-   files or shell out, so ``osprey build`` refuses a profile in which one of
-   them is neither in ``permissions.deny`` nor matched by a ``PreToolUse`` hook
-   matcher. A ``remove_deny: ["Bash"]`` with nothing put in its place is
-   therefore a build failure, not a silent widening. (The shipped presets gate
-   the three file-writing tools with the ``memory-guard`` hook rather than
-   denying them, so ordinary memory and notebook writes still work.)
+   ``Bash``, ``Edit``, ``Write``, ``NotebookEdit``, ``Monitor`` and
+   ``EnterWorktree`` can write files or shell out, so ``osprey build`` refuses a profile in which one of them is neither
+   in ``permissions.deny`` nor matched by a ``PreToolUse`` hook matcher. A
+   ``remove_deny: ["Bash"]`` with nothing put in its place is therefore a build
+   failure, not a silent widening. (The shipped presets gate ``Write`` and
+   ``NotebookEdit`` with the ``memory-guard`` hook rather than denying them, so
+   ordinary memory and notebook writes still work.)
 
    The build checks that a covering rule *exists*, not that the hook behind it
    refuses anything: a ``PreToolUse`` hook that exits 0 without a
@@ -755,6 +766,17 @@ service answers HTTP on the port it publishes, and the deploy summary prints
 its address as a link instead of a bare ``host:port``. Leave it out for a
 service that speaks any other protocol.
 
+A fourth pair of ``config`` keys says what a service on the host network binds.
+``listens`` defaults to true; ``listens: false`` says the service opens no
+listening socket. ``bind_env`` defaults to none; it names the environment
+variable the service's compose template renders its bind address into. The two
+may not be combined, and both are read only under ``network: host``: ``osprey
+up`` reads the bind address from the rendered compose file to decide whether the
+deployment is reachable from other machines, and skips a service that listens on
+nothing in its host-port check. OSPREY's bundled services declare their own, so a
+declaration on one is refused unless the service is claimed with ``osprey
+scaffold claim services/<name>``.
+
 .. _profile-dispatch-block:
 
 The ``dispatch:`` block
@@ -774,7 +796,9 @@ the deployment into the event dispatcher and its workers.
      - What it does
    * - ``triggers``
      - *(required)*
-     - Bundled trigger-file name, or a path relative to the profile.
+     - Bundled trigger-file name, or a path relative to the profile. A file
+       beside the profile wins over a bundled one of the same name; editing it
+       marks the build out of date, and a bundled file never does.
    * - ``worker_count``
      - ``1``
      - How many dispatch workers the build deploys.
@@ -816,7 +840,8 @@ the deployment into the event dispatcher and its workers.
        names none gets this.
    * - ``facility_name``
      - ``""``
-     - Display name the dashboard shows.
+     - Display name the dispatcher dashboard shows. Unset shows the
+       deployment's ``facility.name``.
    * - ``channel_strip_prefix``
      - ``""``
      - Leading prefix trimmed off a channel address before the dashboard shows
@@ -1177,8 +1202,8 @@ by name, rather than silently having one copy win:
 
 - the connector's eight connection keys —
   ``archiver.mongodb_archiver.host``, ``.port``, ``.name``, ``.collection``,
-  ``.auth``, ``.username``, ``.password_env``, ``.timeout`` — all derived from
-  the keys above;
+  ``.auth.source``, ``.auth.username``, ``.auth.password_env``, ``.timeout_s`` —
+  all derived from the keys above;
 - the shape knobs, written to ``va_archiver.*`` in the rendered ``config.yml``
   for the seeder and the recorder to read;
 - ``health.categories.archiver``, when ``freshness_channel`` is set.
@@ -1235,6 +1260,24 @@ also available for all steps via ``--stream``).
 ``{project_root}`` is replaced with the built project's absolute path. The
 project venv's ``bin/`` is prepended to ``PATH``, so ``python`` and ``pytest``
 resolve to the project's own Python.
+
+A step that writes JUnit XML to ``{project_root}/check_results.xml`` has its
+tests printed as an **Integration Test Results** table when it finishes: each
+test's name, whether it passed, failed or was skipped, and its time. The file is
+read from the project root whatever the step's ``cwd``, so name it with
+``{project_root}`` rather than relying on the working directory. The table
+prints after the step that wrote the file and after no other: a step that writes
+no such file, or leaves an earlier step's file as it found it, prints no table.
+The file stays in place, so a later step can read it. ``validate`` is the usual
+phase for a test run, because its failures warn instead of stopping the build:
+
+.. code-block:: yaml
+
+   lifecycle:
+     validate:
+       - name: "Integration tests"
+         run: "pytest tests/integration --junitxml={project_root}/check_results.xml"
+         timeout: 600
 
 
 Environment variables

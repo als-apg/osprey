@@ -42,9 +42,12 @@ from typing import Any
 
 import httpx
 import pytest
+import yaml
 
+from osprey.build.claude_code_telemetry import TelemetryConfigError, openobserve_published_port
 from osprey.deployment import openobserve_provision as provision
 from osprey.deployment.reset import MINTED_ENV_BANNERS
+from osprey.port_layout import default_port
 from osprey.utils.dotenv import parse_dotenv_file
 
 TOKEN_VAR = provision.INGEST_TOKEN_VAR
@@ -895,7 +898,7 @@ def test_the_organization_is_resolved_the_way_the_agent_resolves_it():
 
 @pytest.mark.usefixtures("env_file")
 def test_the_address_is_the_one_this_deploy_publishes():
-    """Read the way the health category reads it, so the two cannot disagree."""
+    """The port is the one derivation every reader of the key calls."""
     config = {
         **CONFIG,
         "services": {"openobserve": {"port": 15080}},
@@ -905,6 +908,38 @@ def test_the_address_is_the_one_this_deploy_publishes():
     assert provision.store_base_url(config) == "http://127.0.0.1:15080"
     assert provision.store_base_url(CONFIG) == "http://127.0.0.1:5080"
     assert provision.store_org(CONFIG) == "default"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        CONFIG,
+        {**CONFIG, "services": {"openobserve": {}}, "deployment": {"port_base": 20000}},
+        {**CONFIG, "services": {"openobserve": {"port": 15080}}},
+    ],
+    ids=["configured", "moved-base", "moved-port"],
+)
+def test_the_address_port_is_openobserve_published_port(config):
+    """The agent's exporter dials this derivation, so the provisioner dials it too."""
+    assert provision.store_base_url(config) == (
+        f"http://127.0.0.1:{openobserve_published_port(config)}"
+    )
+
+
+def test_a_port_that_is_not_an_integer_is_refused_by_name():
+    with pytest.raises(TelemetryConfigError, match=r"services\.openobserve\.port"):
+        provision.store_base_url({**CONFIG, "services": {"openobserve": {"port": "abc"}}})
+
+
+def test_an_unreadable_port_degrades_the_provisioning(env_file):
+    """A port that cannot be read is a warning, not an exception out of the start."""
+    store = FakeStore()
+
+    outcome = run(store, env_file, {**CONFIG, "services": {"openobserve": {"port": "abc"}}})
+
+    assert outcome.action == "failed"
+    assert "services.openobserve.port" in outcome.problem
+    assert store.calls == []
 
 
 def test_an_ingest_account_with_no_name_is_reported(tmp_path):
@@ -1048,3 +1083,112 @@ def test_a_project_without_the_store_stages_nothing(monkeypatch, tmp_path):
     )
 
     assert commands == []
+
+
+def _store_compose(tmp_path: Path, *ports: str) -> str:
+    """Write a compose file in the rendered shape, publishing the store on ``ports``."""
+    path = tmp_path / "docker-compose.yml"
+    path.write_text(
+        yaml.safe_dump({"services": {"openobserve": {"ports": list(ports)}}}), encoding="utf-8"
+    )
+    return str(path)
+
+
+@pytest.fixture
+def failures(monkeypatch) -> list[tuple[Any, ...]]:
+    """Every ``output.fail`` the start check makes, as ``(summary, cause, remedy)``."""
+    from osprey.deployment import container_lifecycle
+
+    recorded: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(container_lifecycle.output, "fail", lambda *parts: recorded.append(parts))
+    return recorded
+
+
+def _store_config(**overrides: Any) -> dict[str, Any]:
+    return {**CONFIG, "services": {"openobserve": {"port": 10050}}, **overrides}
+
+
+def test_a_store_published_on_its_configured_port_starts(tmp_path, failures):
+    from osprey.deployment import container_lifecycle
+
+    compose = _store_compose(tmp_path, "127.0.0.1:10050:5080/tcp")
+
+    container_lifecycle._preflight_store_address(_store_config(), [compose])
+
+    assert failures == []
+
+
+def test_a_store_published_off_its_configured_port_refuses_the_start(tmp_path, failures):
+    from osprey.deployment import container_lifecycle
+
+    compose = _store_compose(tmp_path, "127.0.0.1:15080:5080/tcp")
+
+    with pytest.raises(RuntimeError):
+        container_lifecycle._preflight_store_address(_store_config(), [compose])
+
+    [(summary, cause, remedy)] = failures
+    assert "15080" in summary and "10050" in summary
+    assert compose in cause and "services.openobserve.port" in cause
+    assert "osprey build" in remedy
+
+
+def test_a_moved_base_is_the_configured_port(tmp_path, failures):
+    from osprey.deployment import container_lifecycle
+
+    config = {**CONFIG, "services": {"openobserve": {}}, "deployment": {"port_base": 20000}}
+    moved = default_port("openobserve", base=20000)
+
+    container_lifecycle._preflight_store_address(
+        config, [_store_compose(tmp_path, f"127.0.0.1:{moved}:5080/tcp")]
+    )
+    assert failures == []
+
+    with pytest.raises(RuntimeError):
+        container_lifecycle._preflight_store_address(
+            config, [_store_compose(tmp_path, "127.0.0.1:10050:5080/tcp")]
+        )
+
+
+def test_only_the_listen_port_binding_is_compared(tmp_path, failures):
+    from osprey.deployment import container_lifecycle
+
+    container_lifecycle._preflight_store_address(
+        _store_config(),
+        [_store_compose(tmp_path, "127.0.0.1:10050:5080/tcp", "127.0.0.1:10051:9999")],
+    )
+    assert failures == []
+
+    with pytest.raises(RuntimeError):
+        container_lifecycle._preflight_store_address(
+            _store_config(),
+            [_store_compose(tmp_path, "127.0.0.1:15080:5080/tcp", "127.0.0.1:10050:9999")],
+        )
+
+
+def test_a_project_without_the_store_is_not_checked(tmp_path, failures, caplog):
+    from osprey.deployment import container_lifecycle
+
+    container_lifecycle._preflight_store_address(
+        {**CONFIG, "deployed_services": []}, [str(tmp_path / "missing.yml")]
+    )
+
+    assert failures == []
+    assert "Could not read compose file" not in caplog.text
+
+
+def test_a_store_that_publishes_nothing_has_nothing_to_disagree_with():
+    assert provision.store_publish_mismatch(CONFIG, []) is None
+
+
+def test_an_unreadable_store_port_refuses_the_start(tmp_path, failures):
+    from osprey.deployment import container_lifecycle
+
+    config = {**CONFIG, "services": {"openobserve": {"port": "abc"}}}
+
+    with pytest.raises(RuntimeError):
+        container_lifecycle._preflight_store_address(
+            config, [_store_compose(tmp_path, "127.0.0.1:10050:5080/tcp")]
+        )
+
+    [(_summary, cause, _remedy)] = failures
+    assert "services.openobserve.port" in cause

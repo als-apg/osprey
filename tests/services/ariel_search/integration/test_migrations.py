@@ -381,3 +381,112 @@ class TestMigrationSQLExecution:
         # Should have FK to enhanced_entries
         if fks:  # FK may be optional in some configurations
             assert any(fk[3] == "enhanced_entries" for fk in fks)
+
+
+class TestPlainTextMigration:
+    """The one-off rewrite of stored ``als_logbook`` rows, against real PostgreSQL."""
+
+    async def test_stored_rows_become_what_a_fresh_ingest_stores(
+        self, migrated_pool, integration_ariel_config
+    ):
+        """Rewritten rows match a fresh ingest, are requeued, and are found by their words."""
+        import json
+        from datetime import UTC, datetime
+        from pathlib import Path
+
+        from osprey.services.ariel_search.config import ARIELConfig
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+        from osprey.services.ariel_search.ingestion.adapters.als import (
+            ALS_SOURCE_SYSTEM,
+            ALSLogbookAdapter,
+        )
+        from osprey.services.ariel_search.ingestion.adapters.als_text_migration import (
+            ALSPlainTextMigration,
+        )
+
+        fixture = (
+            Path(__file__).parents[3] / "fixtures" / "ariel" / "als_olog_encoded_entries.jsonl"
+        )
+        rows = {
+            row["id"]: row
+            for row in (json.loads(line) for line in fixture.read_text().splitlines() if line)
+        }
+        adapter = ALSLogbookAdapter(
+            ARIELConfig.from_dict(
+                {
+                    "database": {"uri": "postgresql://unused"},
+                    "ingestion": {
+                        "adapter": "als_logbook",
+                        "source_url": "https://olog.example.invalid/rpc.php",
+                    },
+                }
+            )
+        )
+        repo = ARIELRepository(migrated_pool, integration_ariel_config)
+        complete = {"text_embedding": {"status": "complete"}}
+
+        def stored_id(entry_id: str) -> str:
+            return f"plain-text-{entry_id}"
+
+        try:
+            for entry_id, row in rows.items():
+                subject, details = row["subject"], row["details"]
+                now = datetime.now(UTC)
+                await repo.upsert_entry(
+                    {
+                        "entry_id": stored_id(entry_id),
+                        "source_system": ALS_SOURCE_SYSTEM,
+                        "timestamp": now,
+                        "author": row["author"],
+                        "raw_text": (
+                            f"{subject}\n\n{details}" if subject and details else subject or details
+                        ),
+                        "attachments": [],
+                        "metadata": {"subject": subject} if subject else {},
+                        "created_at": now,
+                        "updated_at": now,
+                        "enhancement_status": complete,
+                    }
+                )
+
+            async def read() -> dict[str, tuple[str, dict, datetime]]:
+                async with migrated_pool.connection() as conn:
+                    result = await conn.execute(
+                        "SELECT entry_id, raw_text, enhancement_status, updated_at "
+                        "FROM enhanced_entries WHERE entry_id LIKE 'plain-text-%'"
+                    )
+                    return {r[0]: (r[1], r[2], r[3]) for r in await result.fetchall()}
+
+            before = await read()
+
+            async with migrated_pool.connection() as conn:
+                async with conn.transaction():
+                    await ALSPlainTextMigration().up(conn)
+
+            after = await read()
+
+            for entry_id in ("20001", "20002", "20003", "20004", "20007", "20008"):
+                raw_text, status, updated_at = after[stored_id(entry_id)]
+                assert raw_text == adapter._convert_entry(rows[entry_id])["raw_text"]
+                assert status == {}
+                assert updated_at > before[stored_id(entry_id)][2]
+            assert after[stored_id("20005")][:2] == before[stored_id("20005")][:2]
+            assert after[stored_id("20005")][1] == complete
+            assert after[stored_id("20006")][0] == before[stored_id("20006")][0]
+
+            async def matches(word: str) -> list[str]:
+                async with migrated_pool.connection() as conn:
+                    result = await conn.execute(
+                        "SELECT entry_id FROM enhanced_entries WHERE entry_id = %s "
+                        "AND to_tsvector('english', raw_text) @@ plainto_tsquery('english', %s)",
+                        [stored_id("20001"), word],
+                    )
+                    return [r[0] for r in await result.fetchall()]
+
+            assert await matches("retuned") == [stored_id("20001")]
+            assert await matches("lt") == []
+        finally:
+            async with migrated_pool.connection() as conn:
+                await conn.execute(
+                    "DELETE FROM enhanced_entries WHERE entry_id LIKE 'plain-text-%'"
+                )

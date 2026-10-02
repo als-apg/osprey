@@ -915,6 +915,20 @@ def test_capabilities_advertises_default_mode(client):
     assert response.json()["default_mode"] == "keyword"
 
 
+def test_capabilities_names_the_facility_zone(client):
+    """The payload names the zone every entry timestamp is rendered in."""
+    from zoneinfo import ZoneInfo
+
+    with patch(
+        "osprey.interfaces.ariel.api.routes.get_facility_timezone",
+        return_value=ZoneInfo("Asia/Tokyo"),
+    ):
+        response = client.get("/api/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["facility_timezone"] == "Asia/Tokyo"
+
+
 def test_put_config_backs_up_into_the_state_zone(client, tmp_path):
     """ARIEL's config save copies the old file into the agent-data state zone.
 

@@ -73,7 +73,7 @@ import pytest
 # Provider wiring — als-apg is Anthropic-native (no translation proxy) and
 # IP-unrestricted (works off-VPN / from CI), so it is the default here. CBORG
 # is LBLnet-gated and would 403 off-VPN. Values mirror osprey's own resolver
-# (CLAUDE_CODE_PROVIDERS in osprey.cli.claude_code_resolver).
+# (CLAUDE_CODE_PROVIDERS in osprey.agent_runner.provider_env).
 # --------------------------------------------------------------------------
 # Each entry is (key variable, endpoint variable or literal URL, model). An
 # entry whose endpoint names a variable is skipped when that variable is unset:

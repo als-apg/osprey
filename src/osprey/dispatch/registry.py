@@ -68,11 +68,23 @@ class TriggerRegistry:
             self._status[name] = status
             return status
 
-    async def record_event(self, name: str, event_data: dict[str, Any], result: str) -> None:
+    async def record_event(
+        self,
+        name: str,
+        event_data: dict[str, Any],
+        result: str,
+        *,
+        owner: str | None = None,
+    ) -> None:
         """Append an event to the trigger's history and update last_fired timestamp.
 
         Large payloads are truncated to _MAX_EVENT_DATA_BYTES to bound RAM usage
         given the per-trigger history cap of _HISTORY_MAX entries.
+
+        ``owner`` is the person the fire was attributed to, never a claim taken
+        from the payload. The entry carries an ``owner`` key only when a person
+        was named; an absent key means the fire was unattributed. Callers pass a
+        value that has already been through ``owner_from_header``, or ``None``.
         """
         async with self._lock:
             if name not in self._triggers:
@@ -91,9 +103,10 @@ class TriggerRegistry:
                     "_preview": data_json[:4096],
                 }
 
-            self._history[name].append(
-                {"timestamp": ts, "event_data": event_data, "result": result}
-            )
+            entry: dict[str, Any] = {"timestamp": ts, "event_data": event_data, "result": result}
+            if owner is not None:
+                entry["owner"] = owner
+            self._history[name].append(entry)
 
     async def get_history(
         self,

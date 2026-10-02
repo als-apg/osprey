@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -33,12 +34,14 @@ def _resolve_workspace(request: Request) -> Path:
 
 #: The server-side stores the file routes never show, each named by the
 #: ``app.state`` attribute its directory is published under and by what a
-#: warning calls it. Both are the server's own state, written through their own
-#: routes: the feedback store holds session context users submitted privately,
-#: and the bar-items store holds each operator's saved bar layout.
+#: warning calls it. All three are the server's own state, written through their
+#: own routes: the feedback store holds session context users submitted
+#: privately, the bar-items store holds each operator's saved bar layout, and
+#: the panel-status store holds what the terminal recorded about its sidecars.
 _CONCEALED_STORES: tuple[tuple[str, str], ...] = (
     ("feedback_dir", "feedback store"),
     ("bar_items_dir", "bar-items store"),
+    ("panel_status_dir", "panel-status store"),
 )
 
 
@@ -130,7 +133,7 @@ async def file_tree(request: Request):
         return {"name": workspace_dir.name, "type": "directory", "children": []}
 
     def build_tree(directory: Path, depth: int = 0) -> dict:
-        node = {
+        node: dict[str, Any] = {
             "name": directory.name,
             "path": str(directory.relative_to(workspace_dir)),
             "type": "directory",
@@ -138,7 +141,7 @@ async def file_tree(request: Request):
         if depth > 10:
             return node
 
-        children = []
+        children: list[dict[str, Any]] = []
         try:
             entries = sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
         except PermissionError:

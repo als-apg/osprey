@@ -94,3 +94,18 @@ def test_sdk_helpers_no_local_definitions():
 
 def test_bench_sdk_no_local_definitions():
     _assert_no_local_definition(bench, "osprey.services.channel_finder.benchmarks.sdk")
+
+
+# ---------------------------------------------------------------------------
+# 3. Fence guard — the bench module reaches the agent only through the runner
+# ---------------------------------------------------------------------------
+
+
+def test_bench_sdk_reaches_the_agent_only_through_the_runner():
+    path = inspect.getfile(bench)
+    source = open(path).read()
+    for pattern in ("claude_agent_sdk", "agent_runner.primitives"):
+        assert pattern not in source, (
+            f"osprey.services.channel_finder.benchmarks.sdk ({path}) names '{pattern}'. "
+            "Run the agent through osprey.agent_runner.run_query instead."
+        )

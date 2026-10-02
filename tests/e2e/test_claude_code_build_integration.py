@@ -40,6 +40,7 @@ from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, e2e_provider
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
+    cli_mcp_ready_env,
     e2e_port_base,
     provider_env_for_project,
     render_dir,
@@ -186,6 +187,8 @@ def run_claude(
     render = render_dir(repo)
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     env.update(provider_env_for_project(render))
+    for key, value in cli_mcp_ready_env().items():
+        env.setdefault(key, value)
     binary = _resolve_claude_binary()
     assert binary is not None, "no claude binary reachable — neither system PATH nor SDK-bundled"
     cmd = [

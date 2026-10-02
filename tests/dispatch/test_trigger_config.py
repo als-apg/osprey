@@ -1,9 +1,11 @@
 """Unit tests for TriggerConfig dataclass and load_triggers() function."""
 
 import textwrap
+from datetime import time
 
 import pytest
 
+from osprey.dispatch.clock_schedule import ClockSchedule
 from osprey.dispatch.trigger_config import (
     DEFAULT_MAX_CONCURRENT_RUNS,
     DEFAULT_MAX_QUEUE_DEPTH,
@@ -504,29 +506,6 @@ def test_a_trigger_naming_a_dispatcher_tool_is_refused_at_load(tmp_path, tool):
     assert tool in message
 
 
-def test_a_trigger_naming_a_dispatcher_tool_as_a_bare_string_is_refused(tmp_path):
-    """``allowed_tools`` written as one scalar is still read as a tool name."""
-    yaml_content = """\
-        dispatcher:
-          dispatch_target: http://localhost:8010/dispatch
-
-        triggers:
-          - name: scalar-trigger
-            source: webhook
-            action:
-              prompt: "Handle event"
-              allowed_tools: mcp__event_dispatcher__manual_fire
-    """
-    path = write_yaml(tmp_path, yaml_content)
-
-    with pytest.raises(ValueError) as excinfo:
-        load_triggers(path)
-
-    message = str(excinfo.value)
-    assert "scalar-trigger" in message
-    assert "mcp__event_dispatcher__manual_fire" in message
-
-
 def test_a_tool_that_merely_mentions_the_dispatcher_elsewhere_is_allowed(tmp_path):
     """Only the server prefix is refused, not any name containing it."""
     yaml_content = """\
@@ -550,3 +529,260 @@ def test_a_tool_that_merely_mentions_the_dispatcher_elsewhere_is_allowed(tmp_pat
         "mcp__controls__event_dispatcher_status",
         "get_pv",
     ]
+
+
+# ---------------------------------------------------------------------------
+# Clock schedule of a cron trigger
+# ---------------------------------------------------------------------------
+
+
+def test_a_clock_schedule_is_parsed_onto_the_trigger(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: morning-report
+            source: cron
+            source_config:
+              at: ["07:45", "17:00"]
+              days: [mon, tue, wed, thu, fri]
+            action:
+              prompt: "Summarise the night"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].schedule == ClockSchedule(
+        times=(time(7, 45), time(17, 0)), days=frozenset({0, 1, 2, 3, 4})
+    )
+
+
+def test_an_unreadable_clock_schedule_is_refused_when_the_file_is_loaded(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: evening-report
+            source: cron
+            source_config:
+              at: [17:00]
+            action:
+              prompt: "Summarise the day"
+        """,
+    )
+    with pytest.raises(ValueError, match="evening-report"):
+        load_triggers(path)
+
+
+@pytest.mark.parametrize("interval", [3600, 0])
+def test_an_interval_trigger_loads_without_a_schedule(tmp_path, interval):
+    path = write_yaml(
+        tmp_path,
+        f"""\
+        triggers:
+          - name: hourly
+            source: cron
+            source_config:
+              interval_sec: {interval}
+            action:
+              prompt: "tick"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].schedule is None
+
+
+def test_a_non_cron_trigger_is_not_read_for_a_schedule(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: hook
+            source: webhook
+            source_config:
+              at: 5
+            action:
+              prompt: "handle {payload}"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].schedule is None
+
+
+@pytest.mark.parametrize(
+    ("field_name", "line"),
+    [
+        ("action", "action: do it"),
+        ("on_error", "on_error: retry"),
+        ("source_config", 'source_config: "interval_sec: 60"'),
+        ("source_config", "source_config: [60]"),
+    ],
+    ids=["action", "on_error", "source_config-string", "source_config-list"],
+)
+def test_a_trigger_part_that_is_not_a_mapping_is_refused_by_name(tmp_path, field_name, line):
+    parts = {
+        "action": "action: {prompt: tick}",
+        "on_error": "on_error: {action: drop}",
+        "source_config": "source_config: {interval_sec: 60}",
+    }
+    parts[field_name] = line
+    body = "\n".join(f"    {p}" for p in parts.values())
+    path = write_yaml(
+        tmp_path,
+        f"triggers:\n  - name: beam-loss\n    source: cron\n{body}\n",
+    )
+
+    with pytest.raises(ValueError, match=f"'beam-loss' field '{field_name}' must be a mapping"):
+        load_triggers(path)
+
+
+def test_a_trigger_entry_that_is_not_a_mapping_is_refused_by_index(tmp_path):
+    path = write_yaml(tmp_path, "triggers: [beam-loss]\n")
+
+    with pytest.raises(ValueError, match="index 0"):
+        load_triggers(path)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "content"),
+    [
+        ("dispatcher", "dispatcher: x\ntriggers: []\n"),
+        ("triggers", "triggers: {a: 1}\n"),
+        ("triggers", "triggers: x\n"),
+    ],
+    ids=["dispatcher", "triggers-mapping", "triggers-string"],
+)
+def test_a_misshapen_dispatcher_or_triggers_block_is_refused(tmp_path, field_name, content):
+    path = write_yaml(tmp_path, content)
+
+    with pytest.raises(ValueError, match=f"field '{field_name}' must be"):
+        load_triggers(path)
+
+
+def test_a_blank_source_config_is_empty(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        """\
+        triggers:
+          - name: tick
+            source: cron
+            source_config:
+            action:
+              prompt: "tick"
+          - name: watch
+            source: epics_ca
+            source_config:
+            action:
+              prompt: "watch"
+        """,
+    )
+    _, triggers = load_triggers(path)
+
+    assert [t.source_config for t in triggers] == [{}, {}]
+
+
+def _allowed_tools_yaml(line: str) -> str:
+    return (
+        "triggers:\n"
+        "  - name: tool-bot\n"
+        "    source: webhook\n"
+        "    action:\n"
+        "      prompt: handle it\n"
+        f"{line}"
+    )
+
+
+def test_allowed_tools_is_parsed_onto_the_trigger(tmp_path):
+    path = write_yaml(tmp_path, VALID_WEBHOOK_YAML)
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].allowed_tools == ["get_pv", "archiver_query"]
+
+
+@pytest.mark.parametrize("line", ["", "      allowed_tools:\n"], ids=["absent", "blank"])
+def test_allowed_tools_is_empty_when_absent_or_blank(tmp_path, line):
+    path = write_yaml(tmp_path, _allowed_tools_yaml(line))
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].allowed_tools == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "get_pv",
+        "mcp__event_dispatcher__manual_fire",
+        "5",
+        "true",
+        "{a: 1}",
+        "[get_pv, 1]",
+        "[[a]]",
+    ],
+    ids=[
+        "string",
+        "dispatcher-tool-string",
+        "number",
+        "bool",
+        "mapping",
+        "list-with-non-string",
+        "nested-list",
+    ],
+)
+def test_an_allowed_tools_that_is_not_a_list_of_strings_is_refused(tmp_path, value):
+    path = write_yaml(tmp_path, _allowed_tools_yaml(f"      allowed_tools: {value}\n"))
+
+    with pytest.raises(
+        ValueError, match="'tool-bot' field 'action.allowed_tools' must be a list of strings"
+    ):
+        load_triggers(path)
+
+
+def _surface_tools_yaml(line: str) -> str:
+    return (
+        "triggers:\n"
+        "  - name: deploy-bot\n"
+        "    source: webhook\n"
+        "    action:\n"
+        "      prompt: handle it\n"
+        "      allowed_tools: [read_pv]\n"
+        f"{line}"
+    )
+
+
+def test_surface_tools_is_parsed_when_present(tmp_path):
+    path = write_yaml(
+        tmp_path,
+        _surface_tools_yaml("      surface_tools: [read_pv, mcp__osprey_workspace__list_files]\n"),
+    )
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface_tools == ["read_pv", "mcp__osprey_workspace__list_files"]
+
+
+@pytest.mark.parametrize("line", ["", "      surface_tools:\n"], ids=["absent", "blank"])
+def test_surface_tools_is_none_when_absent_or_blank(tmp_path, line):
+    path = write_yaml(tmp_path, _surface_tools_yaml(line))
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface_tools is None
+
+
+def test_an_empty_surface_tools_loads_and_narrows_nothing(tmp_path):
+    path = write_yaml(tmp_path, _surface_tools_yaml("      surface_tools: []\n"))
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface_tools == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["get_pv", "5", "{a: 1}", "[get_pv, 1]"],
+    ids=["string", "number", "mapping", "list-with-non-string"],
+)
+def test_a_surface_tools_that_is_not_a_list_of_strings_is_refused(tmp_path, value):
+    path = write_yaml(tmp_path, _surface_tools_yaml(f"      surface_tools: {value}\n"))
+
+    with pytest.raises(ValueError, match="'deploy-bot' field 'action.surface_tools'"):
+        load_triggers(path)

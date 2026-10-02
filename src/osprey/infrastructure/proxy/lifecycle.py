@@ -6,19 +6,30 @@ import logging
 import socket
 import threading
 import time
-from typing import Any
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, Any, TypedDict
 
 #: The two wire protocols a provider entry may declare, imported from the
 #: catalog contract that owns them rather than kept as a second copy.
 from osprey.profiles.providers import VALID_API_PROTOCOLS
 
+if TYPE_CHECKING:
+    import uvicorn
+
+    from osprey.agent_runner.provider_env import ClaudeCodeModelSpec
+
 logger = logging.getLogger("osprey.infrastructure.proxy")
 
-# Providers known to speak Anthropic Messages API natively.
-# Everything else is assumed to be OpenAI-compatible and needs the proxy.
-_ANTHROPIC_NATIVE_PROVIDERS = frozenset({"anthropic", "cborg", "als-apg"})
 
-_state: dict[str, Any] = {
+class _ProxyState(TypedDict):
+    """The running proxy's server, its thread and its port, set and cleared together."""
+
+    server: uvicorn.Server | None
+    thread: threading.Thread | None
+    port: int | None
+
+
+_state: _ProxyState = {
     "server": None,
     "thread": None,
     "port": None,
@@ -35,16 +46,18 @@ def is_proxy_needed(
     Returns True when the provider speaks OpenAI protocol but not Anthropic.
 
     Logic:
-    1. Built-in Anthropic-native providers → False
-    2. Explicit ``api_protocol: anthropic`` in config → False
-    3. Everything else → True
+    1. The provider's ``api_protocol`` in config, when present, decides in
+       either direction.
+    2. Otherwise the ``api_protocol`` its adapter class declares, read from the
+       registry without importing a built-in's class.
+    3. Otherwise OpenAI.
 
-    An absent ``api_protocol`` means OpenAI, which is right for nine of the
-    twelve proxied built-ins. A PRESENT one is checked against
-    :data:`~osprey.profiles.providers.VALID_API_PROTOCOLS`: the old exact
-    comparison meant a typo took the step-3 branch, so a provider written
-    ``api_protocol: Anthropic`` was routed through the translation proxy the
-    config template explicitly warns against — with nothing said about it.
+    An absent ``api_protocol`` defers to the adapter's declaration. A PRESENT
+    one is checked against
+    :data:`~osprey.profiles.providers.VALID_API_PROTOCOLS`, because an
+    unrecognised spelling (``api_protocol: Anthropic``) must be refused by name
+    rather than fall through to the OpenAI default and route the provider
+    through the translation proxy in silence.
     The catalog loader refuses such a value at load; this check stays because
     an ``api.providers`` block can reach a build without passing through the
     catalog — a hand-edited ``build/config.yml``, for one.
@@ -72,7 +85,12 @@ def is_proxy_needed(
             f"expected one of {', '.join(sorted(VALID_API_PROTOCOLS))}."
         )
 
-    if provider_name in _ANTHROPIC_NATIVE_PROVIDERS or declared == "anthropic":
+    if declared is None:
+        from osprey.models.provider_registry import get_provider_registry
+
+        declared = get_provider_registry().api_protocol(provider_name)
+
+    if declared == "anthropic":
         logger.info("Provider %r speaks Anthropic natively; no proxy", provider_name)
         return False
 
@@ -84,14 +102,19 @@ def find_free_port() -> int:
     """Find a free port on localhost using OS allocation."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        port: int = s.getsockname()[1]
+        return port
 
 
-def _request_shape(provider: str | None) -> dict[str, Any]:
+def _request_shape(provider: str | None, supports_images: bool | None = None) -> dict[str, Any]:
     """The request parameters *provider*'s adapter class declares for its endpoint.
 
-    An unregistered or absent provider gets ``max_tokens`` and a temperature,
-    the OpenAI Chat Completions defaults.
+    An unregistered or absent provider gets ``max_tokens`` and no temperature
+    rule (every model sent the caller's temperature), the OpenAI Chat
+    Completions defaults. Whether the route carries images is the provider
+    entry's own declaration (*supports_images*) when it makes one, else the
+    adapter's; an unregistered or absent provider with no declaration takes
+    none.
     """
     provider_class = None
     if provider:
@@ -100,7 +123,14 @@ def _request_shape(provider: str | None) -> dict[str, Any]:
         provider_class = get_provider_registry().get_provider(provider)
     return {
         "max_tokens_param": getattr(provider_class, "max_tokens_param", "max_tokens"),
-        "accepts_temperature": bool(getattr(provider_class, "accepts_temperature", True)),
+        "accepts_temperature": (
+            provider_class.accepts_temperature if provider_class is not None else None
+        ),
+        "supports_images": (
+            supports_images
+            if supports_images is not None
+            else bool(getattr(provider_class, "supports_images", False))
+        ),
     }
 
 
@@ -109,24 +139,46 @@ def start_proxy(
     upstream_api_key: str | None = None,
     *,
     provider: str | None = None,
+    forward_headers: Iterable[str],
+    supports_images: bool | None,
 ) -> int:
     """Start the translation proxy in a daemon thread.
+
+    A launch path with a resolved provider spec calls :func:`start_proxy_for`;
+    this primitive is for callers that name the upstream themselves.
 
     Args:
         upstream_base_url: OpenAI-compatible endpoint the proxy forwards to.
         upstream_api_key: API key for the upstream provider.
         provider: The provider behind the upstream; its adapter class decides
-            the token-cap parameter and whether a temperature is sent.
+            the token-cap parameter and, for each request's model, whether a
+            temperature is sent.
+        forward_headers: The request headers the launch declared (see
+            :func:`osprey.models.spend_attribution.declared_header_names`),
+            forwarded to the upstream. A repeat call returns the running proxy
+            unchanged, as it does for the upstream.
+        supports_images: The provider entry's own ``supports_images``
+            (``ClaudeCodeModelSpec.supports_images``), or ``None`` to follow the
+            adapter. Required, so a launch path cannot drop a site's opt-in by
+            omission. A repeat call returns the running proxy unchanged, as for
+            the upstream.
 
     Returns the port number. Thread-safe; repeated calls are no-ops.
     """
     with _lock:
-        if _state["server"] is not None:
-            return _state["port"]
+        running_port = _state["port"]
+        if _state["server"] is not None and running_port is not None:
+            return running_port
 
         from osprey.infrastructure.proxy.app import create_proxy_app
 
-        app = create_proxy_app(upstream_base_url, upstream_api_key, **_request_shape(provider))
+        app = create_proxy_app(
+            upstream_base_url,
+            upstream_api_key,
+            provider=provider,
+            forward_headers=frozenset(forward_headers),
+            **_request_shape(provider, supports_images),
+        )
         port = find_free_port()
 
         import uvicorn
@@ -155,6 +207,43 @@ def start_proxy(
 
         logger.info("Translation proxy started on port %d → %s", port, upstream_base_url)
         return port
+
+
+def start_proxy_for(spec: ClaudeCodeModelSpec, env: Mapping[str, str]) -> int:
+    """Start the translation proxy for a resolved provider spec.
+
+    Every argument the proxy needs is derived here from *spec* and *env*. *env*
+    is the environment the agent is launched with: the upstream key is read
+    from ``env[spec.auth_env_var]`` and the forwarded headers are the ones
+    *env* declares. The upstream is the spec's OpenAI root, never the
+    ``ANTHROPIC_BASE_URL`` in *env*. A repeat call returns the running proxy
+    unchanged, as :func:`start_proxy` does.
+
+    Args:
+        spec: The resolved provider spec of the launch.
+        env: The environment the agent is launched with.
+
+    Returns:
+        The port the proxy listens on.
+
+    Raises:
+        ValueError: If *spec* does not route through the translation proxy.
+    """
+    upstream = spec.upstream_base_url
+    if not (spec.needs_proxy and upstream):
+        raise ValueError(
+            f"Provider {spec.provider!r} does not route through the translation proxy."
+        )
+
+    from osprey.models.spend_attribution import declared_header_names
+
+    return start_proxy(
+        upstream,
+        env.get(spec.auth_env_var),
+        provider=spec.provider,
+        forward_headers=declared_header_names(env),
+        supports_images=spec.supports_images,
+    )
 
 
 def stop_proxy() -> None:
