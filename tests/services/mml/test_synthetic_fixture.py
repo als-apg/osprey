@@ -18,6 +18,7 @@ is a real disagreement rather than a timestamp or a platform's last digits.
 
 from __future__ import annotations
 
+import json
 import math
 import runpy
 import subprocess
@@ -54,6 +55,38 @@ def test_the_committed_fixture_regenerates_byte_for_byte() -> None:
         "rerun tests/fixtures/mml/synthetic/build.py rather than editing the "
         f"files by hand.\n{result.stdout}{result.stderr}"
     )
+
+
+#: The model file's first chromaticity as Linux tracking writes it, where macOS
+#: writes the committed value: the widest cross-platform spread in the file.
+LINUX_CHROMATICITY = -0.806096917623
+
+
+def _rebuilt_model(tmp_path: Path, generator: dict[str, Any], chromaticity: float) -> Path:
+    """The committed model file rewritten with its first chromaticity replaced."""
+    committed = GENERATOR.parent / f"{generator['STEM']}.model.json"
+    body = json.loads(committed.read_text(encoding="utf-8"))
+    del body["_export"]
+    body["chromaticity"]["physics"][0] = chromaticity
+    rebuilt = tmp_path / committed.name
+    rebuilt.write_text(generator["document"](body) + "\n", encoding="utf-8")
+    return rebuilt
+
+
+def test_the_model_file_comparison_holds_across_platforms(tmp_path: Path) -> None:
+    """A rebuilt model file whose tracking differs as Linux's does from macOS's is the same file."""
+    generator = _generator()
+    committed = GENERATOR.parent / f"{generator['STEM']}.model.json"
+    rebuilt = _rebuilt_model(tmp_path, generator, LINUX_CHROMATICITY)
+    assert generator["same_file"](committed, rebuilt)
+
+
+def test_the_model_file_comparison_refuses_a_real_change(tmp_path: Path) -> None:
+    """A chromaticity that moved by a part in ten thousand is a different file."""
+    generator = _generator()
+    committed = GENERATOR.parent / f"{generator['STEM']}.model.json"
+    rebuilt = _rebuilt_model(tmp_path, generator, LINUX_CHROMATICITY * (1.0 + 1.0e-4))
+    assert not generator["same_file"](committed, rebuilt)
 
 
 def test_the_generator_s_curve_is_sinh_to_its_last_digits() -> None:
