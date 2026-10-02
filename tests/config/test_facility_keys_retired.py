@@ -1,21 +1,63 @@
 """The facility's display name is the build's facility identity, nowhere else.
 
 The dispatcher dashboard shows the identity's name like every other surface,
-so no profile key can name the facility a second time.
+so neither a config key nor a profile key can name the facility a second time.
+The resurrection guard lists each retired config key and proves no shipped
+surface spells it again.
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _inject_dispatch
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_schema import DispatchConfig
 from osprey.errors import BuildProfileError
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
+PRESETS = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"
+RETIRED_CONFIG_KEYS = ("facility.name", "facility.timezone")
+
+
+@pytest.mark.parametrize("key", RETIRED_CONFIG_KEYS)
+def test_each_retired_key_is_on_the_resurrection_list(key: str) -> None:
+    """A retired key is listed as deleted, carries orphan sites and has no live row."""
+    manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+
+    assert key in manifest["deleted"]
+    assert manifest["orphan_sites"].get(key), f"{key} has no orphan site"
+    assert key not in manifest["keys"]
+
+
+def test_the_resurrection_guard_is_green() -> None:
+    """No preset, template, reader or reference page spells a retired key."""
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "check_config_keys.py")],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("preset", sorted(PRESETS.glob("*.yml")), ids=lambda p: p.stem)
+def test_no_preset_spells_a_retired_key(preset: Path) -> None:
+    """Neither a live nor a commented preset line names a retired key."""
+    text = preset.read_text(encoding="utf-8")
+
+    for key in RETIRED_CONFIG_KEYS:
+        assert key not in text, f"{preset.name} still spells {key}"
 
 
 def test_a_profile_naming_the_dispatch_facility_name_is_refused() -> None:

@@ -134,18 +134,10 @@ keys:
   facility:
     evidence: 'config\.get\("facility"\)'
     note: >-
-      Live in ariel_standalone and channel_finder_standalone (name), in
-      channel_finder_standalone and control_assistant (ontology); commented
-      in hello_world. Canonical spelling.
+      Live in channel_finder_standalone and control_assistant (ontology) and
+      in control_assistant (prefix); the prefix is commented in the two
+      standalones. Canonical spelling.
     default: {}
-  facility.name:
-    forward-declared: true
-    note: >-
-      Shipped by the presets and read by no code: the facility's display name
-      comes from the build's facility identity, which was this key's last
-      reader.
-    default: derived
-    default_note: the project name
   facility.ontology:
     evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("ontology"\)'
     note: >-
@@ -2986,6 +2978,10 @@ deleted:
 - configurable
   # Task 6.3 — retired facility spelling; no TEMPLATE may ship this key again.
 - facility_name
+  # The facility's display name is the build's facility identity, and the
+  # clock is system.timezone: neither is a facility config key.
+- facility.name
+- facility.timezone
   # ── Leaves removed by derive / consolidate / replace items ──────────
   # These have NO deleted ancestor: the parent block legitimately survives (or
   # survives as a commented override stanza), so only the LEAF is banned. Each
@@ -3185,9 +3181,22 @@ orphan_sites:
     regex: '^facility_name:'
     why: >-
       the retired top-level spelling, now migrated to the canonical
-      `facility:` block in every template. The READER fallback in
-      utils/facility.py is deliberate and must NOT be removed — this regex is
-      scoped to templates only for exactly that reason.
+      `facility:` block in every template.
+  facility.name:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'facility\.name\b'
+    why: >-
+      the retired display-name key: a preset line, a reader, a help example or
+      a reference row still spelling it. The facility identity's `name` is the
+      one display name.
+  facility.timezone:
+  - root: src/osprey/deployment/web_terminals
+    regex: 'facility\.get\("timezone"\)'
+    why: >-
+      the web-terminal readers that took the clock from the facility block;
+      system.timezone is the one clock key.
   control_system.limits_checking.allow_unlisted_channels:
   - root: src/osprey
     regex: 'allow_unlisted_channels'
@@ -3279,7 +3288,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 347
+  expected_union_size: 346
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

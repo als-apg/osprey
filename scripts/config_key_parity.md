@@ -152,7 +152,6 @@ Present only where the deployment has the capability.
 |---|---|---|
 | `control_system.writes_enabled` | `true` in `control-assistant`; `false` in `hello-world` | control-assistant is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
 | `web.theme` | live `light` in `control-assistant`; commented in `hello-world`; absent from the two standalones | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
-| `facility.name` | live `Example Research Facility` in the two standalones; commented in `hello-world`; absent from `control-assistant` | the standalones are demo deployments with a name to show; the other two fall back to the project name |
 | `facility.prefix` | commented in the two standalones, live `ca` in `control-assistant` | only the multi-user web-terminal stack reads it, so only the preset that ships one sets it |
 | `channel_finder.benchmark.dataset_path` | `control-assistant` only | see below |
 | `deployment.bind_address` (commented) | `hello-world`, `ariel-standalone`, `control-assistant` | absent ⇒ `127.0.0.1`, the safe state |
@@ -223,12 +222,12 @@ map), never membership.
 
 ### `facility` identity
 
-`facility.name` is canonical; top-level `facility_name` is the retired spelling,
-still honored as a fallback (`utils/facility.py`). No preset ships
-`facility_name` any more.
+The facility's display name is the build's facility identity. `facility.name`
+and the top-level `facility_name` are both retired spellings, and no preset
+ships either.
 
-**Guard note:** top-level `facility_name` is a resurrection candidate — it must
-not reappear in any preset, though the *reader* fallback stays.
+**Guard note:** both are resurrection candidates — neither may reappear in any
+preset.
 
 ### `channel_finder.benchmark` — resolved
 

@@ -190,9 +190,6 @@ va_archiver:
 # `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
   # This facility's compiled ontology table, the JSON `osprey knowledge
   # compile-ontology` writes, relative to the project root. It is the one
   # source for the device vocabulary the channel-finder subagent's terminology
