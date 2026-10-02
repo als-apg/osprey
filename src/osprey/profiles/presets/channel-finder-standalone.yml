@@ -103,12 +103,6 @@ config:
   # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
   # Only the multi-user web-terminal stack reads it.
   # facility.prefix: ex
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
 
   # ── Channel finder ─────────────────────────────────────────────────────────
   # The pipeline itself is derived from `channel_finder_mode:` above. What is

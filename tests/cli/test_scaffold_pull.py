@@ -225,7 +225,6 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/records/groups.yaml",
     "data/facility/records/places.yaml",
     "data/facility/seeds.yaml",
-    "data/facility_ontology.json",
     "data/landing/working-safely.md",
     "data/lattice/als_u_ar.mat",
     "data/machine_state_channels.json",

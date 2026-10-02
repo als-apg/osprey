@@ -25,17 +25,29 @@ from osprey.errors import BuildProfileError
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 PRESETS = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"
-RETIRED_CONFIG_KEYS = ("facility.name", "facility.timezone")
+RETIRED_CONFIG_KEYS = ("facility.name", "facility.ontology", "facility.timezone")
+
+
+#: The retired keys whose code sites existed at the guard's back-test baseline,
+#: so an orphan regex for them can be proven to fire there.
+KEYS_WITH_ORPHAN_SITES = ("facility.name", "facility.timezone")
 
 
 @pytest.mark.parametrize("key", RETIRED_CONFIG_KEYS)
 def test_each_retired_key_is_on_the_resurrection_list(key: str) -> None:
-    """A retired key is listed as deleted, carries orphan sites and has no live row."""
+    """A retired key is listed as deleted and has no live row."""
     manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
 
     assert key in manifest["deleted"]
-    assert manifest["orphan_sites"].get(key), f"{key} has no orphan site"
     assert key not in manifest["keys"]
+
+
+@pytest.mark.parametrize("key", KEYS_WITH_ORPHAN_SITES)
+def test_each_retired_reader_has_an_orphan_site(key: str) -> None:
+    """A retired key whose reader predates the baseline is guarded by an orphan regex."""
+    manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+
+    assert manifest["orphan_sites"].get(key), f"{key} has no orphan site"
 
 
 def test_the_resurrection_guard_is_green() -> None:
@@ -58,6 +70,14 @@ def test_no_preset_spells_a_retired_key(preset: Path) -> None:
 
     for key in RETIRED_CONFIG_KEYS:
         assert key not in text, f"{preset.name} still spells {key}"
+
+
+@pytest.mark.parametrize("app", ["control_assistant", "channel_finder_standalone"])
+def test_no_app_ships_a_packaged_ontology_table(app: str) -> None:
+    """Nothing reads a configured ontology table, so no app template ships one."""
+    data = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / app / "data"
+
+    assert not (data / "facility_ontology.json").exists()
 
 
 def test_a_profile_naming_the_dispatch_facility_name_is_refused() -> None:

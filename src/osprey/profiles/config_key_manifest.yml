@@ -134,22 +134,9 @@ keys:
   facility:
     evidence: 'config\.get\("facility"\)'
     note: >-
-      Live in channel_finder_standalone and control_assistant (ontology) and
-      in control_assistant (prefix); the prefix is commented in the two
-      standalones. Canonical spelling.
+      Live `prefix` in control_assistant; commented in ariel_standalone and
+      channel_finder_standalone; absent from hello_world. Canonical spelling.
     default: {}
-  facility.ontology:
-    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("ontology"\)'
-    note: >-
-      Live in control_assistant and channel_finder_standalone, which ship the
-      compiled demo table at data/facility_ontology.json; a commented example
-      in ariel_standalone (its agents read the vocabulary out of the seeded
-      store, not the file); absent from hello_world. The sole reader is
-      cli/templates/claude_code.py `_facility_vocabulary`, and it is the sole
-      source of the device rows in the channel-finder terminology tables. A
-      declared path that will not load is a hard build error — never a silent
-      skip and never a fallback to the packaged demo ontology.
-    default: null
   facility.prefix:
     evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("prefix"\)'
     note: >-
@@ -2978,9 +2965,13 @@ deleted:
 - configurable
   # Task 6.3 — retired facility spelling; no TEMPLATE may ship this key again.
 - facility_name
-  # The facility's display name is the build's facility identity, and the
-  # clock is system.timezone: neither is a facility config key.
+  # The facility's display name is the build's facility identity, its device
+  # vocabulary is the build's facts, and the clock is system.timezone: none is
+  # a facility config key.
 - facility.name
+  # No orphan site: the key and its reader both postdate the back-test
+  # baseline, so no regex for them can match there.
+- facility.ontology
 - facility.timezone
   # ── Leaves removed by derive / consolidate / replace items ──────────
   # These have NO deleted ancestor: the parent block legitimately survives (or
@@ -3288,7 +3279,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 346
+  expected_union_size: 345
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.cli.templates.claude_code import _facility_vocabulary, build_claude_code_context
+from osprey.cli.templates.claude_code import build_claude_code_context
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from tests._vocabulary import PROTOCOL_WORDS
@@ -162,15 +162,6 @@ def _project(
         context={"channel_finder_mode": mode, "deploy_services": True},
     )
     return manager, project_dir
-
-
-def _declared_vocabulary(project_dir: Path) -> list[dict]:
-    """The rows ``_facility_vocabulary`` derives from this project's ontology."""
-    rows = _facility_vocabulary(
-        {"facility": {"ontology": "data/facility_ontology.json"}}, project_dir
-    )
-    assert rows, "the preset's ontology declares no vocabulary at all"
-    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -337,39 +328,3 @@ def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_contro
         rendered.render(**ctx).encode("utf-8")
         == (project_dir / ".claude" / "agents" / "channel-finder.md").read_bytes()
     )
-
-
-# ---------------------------------------------------------------------------
-# The ontology reader
-# ---------------------------------------------------------------------------
-
-
-def test_a_scalar_facility_block_is_not_a_traceback(tmp_path):
-    """A malformed ``facility:`` falls through to "no ontology", not AttributeError.
-
-    ``facility: "Example Research Facility"`` is a plausible slip, because a
-    top-level ``facility_name`` fallback exists and invites the conflation. The
-    block goes through the same ``as_dict`` guard every other facility reader in
-    the tree uses, so this reader — the one that turns a bad block into a build
-    stop — cannot be the one that raises an unhandled type error.
-    """
-    assert _facility_vocabulary({"facility": "Example Research Facility"}, tmp_path) is None
-    assert _facility_vocabulary({"facility": ["not", "a", "mapping"]}, tmp_path) is None
-
-
-def test_a_home_relative_ontology_path_is_expanded(tmp_path, monkeypatch):
-    """``facility.ontology: ~/x.json`` reads from the home directory, like every other path key.
-
-    Every other path in ``config.yml`` goes through ``expanduser()`` before it
-    is resolved; a reader that skipped that step would join ``~`` onto the
-    project root and stop the build over a file that is right there.
-    """
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    _, project_dir = _project(tmp_path, "cf-home", FILE_BACKED_MODES[0], None)
-    (home / "x.json").write_bytes((project_dir / "data" / "facility_ontology.json").read_bytes())
-
-    rows = _facility_vocabulary({"facility": {"ontology": "~/x.json"}}, tmp_path / "elsewhere")
-
-    assert rows == _declared_vocabulary(project_dir)
