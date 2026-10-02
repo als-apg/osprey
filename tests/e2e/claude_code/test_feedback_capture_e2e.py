@@ -15,6 +15,7 @@ from tests.e2e.sdk_helpers import (
     agent_data_dir,
     combined_text,
     init_project,
+    render_dir,
     run_sdk_query_with_hooks,
 )
 
@@ -28,6 +29,28 @@ def feedback_project(tmp_path_factory):
     return init_project(
         tmp, "feedback-capture", provider="als-apg", channel_finder_mode="hierarchical"
     )
+
+
+def _channel_finder_report(result, project) -> str:
+    """Every channel-finder call with its answer, and the capture hook's own log
+    lines, so a missing store says whether the search came back empty or the
+    hook never wrote."""
+    lines = ["  channel-finder calls:"]
+    for trace in result.tool_traces:
+        if "channel-finder" not in trace.name:
+            continue
+        lines.append(f"    {trace.name} input={json.dumps(trace.input, default=str)[:400]}")
+        lines.append(f"      error={trace.is_error} result={(trace.result or '')[:600]}")
+    hook_log = render_dir(project) / ".claude" / "hooks" / "hook_debug.jsonl"
+    if hook_log.is_file():
+        captured = [
+            line
+            for line in hook_log.read_text().splitlines()
+            if "cf-feedback-capture" in line and '"skip-tool"' not in line
+        ]
+        lines.append(f"  cf-feedback-capture log ({len(captured)} lines):")
+        lines.extend(f"    {line[:400]}" for line in captured)
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +68,17 @@ async def test_feedback_hook_captures_search_results(feedback_project):
     should silently create var/agent_data/feedback/pending_reviews.json with valid
     items — the state zone the channel-finder feedback app reads back.
 
+    The query names one device, so the answer is a handful of addresses: an
+    answer past the CLI's MCP output cap reaches the hook as a "saved to file"
+    notice rather than the search result. The Python executor is withheld, so
+    the addresses come from ``build_channels`` and not from a list the agent
+    assembles itself.
+
     Cost budget: $0.50
     """
     prompt = (
-        "Use the channel finder to search for BPM channels. Report how many channels were found."
+        "Use the channel finder to find the X and Y position readback channels of "
+        "BPM 01 in the booster ring (BR). Report the channel addresses it returns."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -57,23 +87,30 @@ async def test_feedback_hook_captures_search_results(feedback_project):
         approval_policy="auto_approve",
         max_turns=15,
         max_budget_usd=0.50,
+        disallowed_tools=["mcp__python__execute"],
     )
 
     # -- Debug output --
     print("\n--- feedback capture: search results ---")
     print(f"  tools called: {result.tool_names}")
     print(f"  text blocks: {len(result.text_blocks)}")
+    search_report = _channel_finder_report(result, feedback_project)
+    print(search_report)
 
     # -- Assertions --
     assert result.result is not None, "No ResultMessage received from SDK"
 
-    # Channel-finder tool should have been called
-    cf_calls = result.tools_matching("channel-finder")
-    assert len(cf_calls) >= 1, f"Expected channel-finder tool call but got: {result.tool_names}"
+    # A tool the hook captures should have been called
+    build_calls = result.tools_matching("build_channels")
+    assert len(build_calls) >= 1, (
+        f"Expected a build_channels call but got: {result.tool_names}\n{search_report}"
+    )
 
     # pending_reviews.json should exist with captured items
     store_path = agent_data_dir(feedback_project) / "feedback" / "pending_reviews.json"
-    assert store_path.exists(), f"Expected {store_path} to exist after channel-finder search"
+    assert store_path.exists(), (
+        f"Expected {store_path} to exist after channel-finder search\n{search_report}"
+    )
 
     data = json.loads(store_path.read_text())
     assert "items" in data, f"Expected 'items' key in pending_reviews.json: {data.keys()}"
