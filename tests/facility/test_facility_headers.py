@@ -125,6 +125,22 @@ def test_every_render_carries_the_graph_view_under_its_hash_line(
         assert content.decode("utf-8").startswith("# osprey:facility-sha256 ")
 
 
+def test_the_hierarchical_index_is_checked(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.channel_finder import write_hierarchical
+
+    inputs = ViewInputs(
+        doc=built_control_assistant.facility,
+        rendered_config={"channel_finder": {"pipeline_mode": "hierarchical"}},
+        facility_dir=built_control_assistant.facility_dir,
+        served=[],
+    )
+    (target,) = write_hierarchical(tmp_path, inputs)
+    assert header_problem("data/channel_finder/hierarchical.json", target.read_bytes()) is None
+
+
 def test_every_binary_exemption_is_written(built_control_assistant: BuiltProject) -> None:
     build_dir = built_control_assistant.build_dir
     assert [
