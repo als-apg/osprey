@@ -986,14 +986,17 @@ def test_the_identity_variable_is_read_from_the_registry():
 @pytest.mark.usefixtures("either_shape")
 def test_the_scope_of_the_account_is_disclosed_when_it_is_granted(env_file, capsys):
     """OpenObserve has no ingest-only role in any edition: this account reads
-    back every log and metric and lists the store's users. An operator learns
-    that at the moment it is granted, not from a document nobody opens."""
+    back every log and metric, lists the store's users, and can shorten or
+    delete a stream. An operator learns that at the moment it is granted, not
+    from a document nobody opens."""
     store = FakeStore()
 
     run(store, env_file)
 
     printed = " ".join(capsys.readouterr().out.split())
-    assert "read all telemetry and the user roster" in printed
+    assert "read all telemetry, list the user roster" in printed
+    assert "shorten a stream's retention and delete a stream" in printed
+    assert "can also erase it" in printed
     assert "no ingest-only role in any edition" in printed
 
 
