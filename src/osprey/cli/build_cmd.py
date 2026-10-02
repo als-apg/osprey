@@ -2276,7 +2276,9 @@ def _render_project(
             if tabless:
                 raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
 
-        injected = _inject_services(build_profile, repo_root, render_dir)
+        injected = _inject_services(
+            build_profile, repo_root, render_dir, facility_name=context["facility_name"]
+        )
         if injected_out is not None:
             injected_out.extend(injected)
 
@@ -4423,7 +4425,9 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
     return kept
 
 
-def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) -> list[str]:
+def _inject_services(
+    build_profile: Any, profile_dir: Path, project_path: Path, *, facility_name: str = ""
+) -> list[str]:
     """Scaffold the service tree and inject every service the profile declares.
 
     Skipped wholesale for an attached project (``deploy_services: false``): its
@@ -4443,6 +4447,11 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     follows it for the same reason. OSPREY's own host-binding declarations are
     written last, once every injector (the dispatch pair's ``network`` among
     them) has settled which blocks are on the host network.
+
+    ``facility_name`` is the facility's display name the dispatcher shows. The
+    build hands it from its in-memory facility document, because the facility
+    file reaches the project only after the injectors run; ``""`` has the
+    dispatch injector read the project's facility identity instead.
 
     Returns:
         The name of each component injected, in injection order — what the
@@ -4474,7 +4483,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
             # services than were injected.
             injected.append(f"{psvc_count} profile service(s)")
     if build_profile.dispatch is not None:
-        _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+        _inject_dispatch(
+            build_profile.dispatch, profile_dir, project_path, facility_name=facility_name
+        )
         injected.append("event dispatch")
     if build_profile.nextcloud_bridge is not None:
         _inject_nextcloud_bridge(build_profile.nextcloud_bridge, project_path)

@@ -21,7 +21,6 @@ __all__ = [
     "closest_zone_name",
     "facility_identity",
     "is_zone_name",
-    "resolve_facility_name",
 ]
 
 #: The zone every reader falls back to and every preset pins.
@@ -127,31 +126,6 @@ def _recorded_identity(render_root: Path) -> dict[str, Any] | None:
     if not isinstance(identity, dict) or not identity.get("code"):
         raise FacilityFileError(f"The facility file {path} names no identity code")
     return identity
-
-
-def resolve_facility_name(config: dict[str, Any], default: str) -> str:
-    """Resolve the facility display name from a parsed project config.
-
-    ``facility.name`` is the canonical spelling — the same ``facility:`` block
-    that carries ``prefix``. Top-level ``facility_name`` is the older spelling;
-    it is honored as a fallback so a config written before the consolidation
-    keeps working unchanged. An empty value at either level falls through, since
-    a blank facility name reaches prompts and UI labels as a hole in the
-    sentence.
-
-    Args:
-        config: Parsed ``config.yml`` dictionary.
-        default: Value to use when neither key carries a name. Callers differ:
-            the build path passes the project name, an interface app passes the
-            empty string it would otherwise have shown.
-
-    Returns:
-        str: Facility display name.
-    """
-    facility = config.get("facility")
-    if isinstance(facility, dict) and facility.get("name"):
-        return str(facility["name"])
-    return str(config.get("facility_name") or default)
 
 
 def is_zone_name(name: str) -> bool:

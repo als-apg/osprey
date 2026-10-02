@@ -139,7 +139,11 @@ keys:
       in hello_world. Canonical spelling.
     default: {}
   facility.name:
-    evidence: 'facility\.get\("name"\)'
+    forward-declared: true
+    note: >-
+      Shipped by the presets and read by no code: the facility's display name
+      comes from the build's facility identity, which was this key's last
+      reader.
     default: derived
     default_note: the project name
   facility.ontology:
@@ -2980,9 +2984,7 @@ deleted:
 - applications
 - current_application
 - configurable
-  # Task 6.3 — retired facility spelling. The READER fallback in
-  # utils/facility.resolve_facility_name stays deliberately; no TEMPLATE may
-  # ship this key again.
+  # Task 6.3 — retired facility spelling; no TEMPLATE may ship this key again.
 - facility_name
   # ── Leaves removed by derive / consolidate / replace items ──────────
   # These have NO deleted ancestor: the parent block legitimately survives (or
@@ -3380,14 +3382,6 @@ governed_sets:
 # names across src/ without this exclusion list goes red against intended code.
 # ---------------------------------------------------------------------------
 kept_readers:
-  facility_name_reader:
-    site: src/osprey/utils/facility.py
-    covers: [facility_name]
-    detail: >-
-      resolve_facility_name still honours the retired top-level `facility_name`
-      as a fallback so pre-consolidation configs keep working. The key is banned
-      from TEMPLATES, not from readers — which is why that orphan regex is
-      scoped to src/osprey/templates.
   tree_preview_util:
     site: src/osprey/services/channel_finder
     covers: [channel_finder.pipelines.hierarchical.tree_preview]
