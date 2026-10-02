@@ -1900,12 +1900,6 @@ keys:
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.in_context.database: {covered-by: channel_finder.pipelines.in_context, default: {}}
   channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database, default: ''}
-  channel_finder.pipelines.in_context.database.presentation_mode:
-    evidence: 'presentation_mode'
-    note: >-
-      Preview rendering only — honoured by the preview/validate paths; the MCP
-      server and web UI build their own prompt text and never consult it.
-    default: template
   channel_finder.pipelines.in_context.subagent_model: {evidence: 'subagent_model', default: derived, default_note: the outer agent's claude_code.provider and default_model}
   channel_finder.pipelines.hierarchical: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.hierarchical.database: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
@@ -2969,6 +2963,8 @@ deleted:
 - channel_finder.pipelines.in_context.processing
   # The in_context index is the build's flat file; there is no loader choice.
 - channel_finder.pipelines.in_context.database.type
+  # The in_context index has one rendering; there is no preview mode to pick.
+- channel_finder.pipelines.in_context.database.presentation_mode
 - channel_finder.explicit_validation_mode
 - channel_finder.pipelines.hierarchical.tree_preview
 - channel_finder.benchmark.execution
@@ -3166,6 +3162,23 @@ orphan_sites:
     why: >-
       the rendered in_context `type:` line and its comment, absent from the
       project template and the app templates alike.
+  channel_finder.pipelines.in_context.database.presentation_mode:
+  - root: src/osprey/services/channel_finder/tools
+    regex: 'presentation_mode'
+    back_test: {base_matches: 9, branch_matches: 0}
+    why: >-
+      the preview and validate tools' reads of the key and of the template
+      file's own `presentation_mode` field. Rooted at the tools so the template
+      loader, which keeps its own parameter until it is deleted, stays out of
+      scope.
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'presentation_mode: template'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the rendered in_context `presentation_mode:` line, absent from the
+      project template and the app templates alike.
   channel_finder.benchmark.execution:
   - root: src/osprey
     regex: 'runs_per_query.*delay_between_runs|continue_on_error'
@@ -3333,7 +3346,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 345
+  expected_union_size: 344
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

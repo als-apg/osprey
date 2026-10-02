@@ -10,7 +10,6 @@ file to render, so it is answered with the graph guidance panel instead.
 import json
 import random
 from pathlib import Path
-from typing import Any
 
 from rich import box
 from rich.console import Console
@@ -21,8 +20,8 @@ from rich.tree import Tree
 from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     MiddleLayerDatabase,
-    TemplateChannelDatabase,
 )
+from osprey.services.channel_finder.databases.flat import ChannelDatabase
 from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
 from osprey.services.channel_finder.tools.validate_database import (
     print_graph_paradigm_guidance,
@@ -785,10 +784,8 @@ def _count_channels_at_path(database, hierarchy_levels, path_values, current_lev
     return count
 
 
-def preview_in_context(
-    db_path: str, presentation_mode: str, show_full: bool = False, console: Console | None = None
-):
-    """Preview in-context database with formatted channel list."""
+def preview_in_context(db_path: str, show_full: bool = False, console: Console | None = None):
+    """Preview the in_context index with formatted channel list."""
     console = console or _default_console
 
     console.print()
@@ -806,7 +803,6 @@ def preview_in_context(
     config_table.add_column("Value", style="value")
 
     config_table.add_row("Database Path", db_path)
-    config_table.add_row("Presentation Mode", f"[success]{presentation_mode}[/success]")
 
     resolved_path = _resolve_path(db_path)
     config_table.add_row("Resolved Path", str(resolved_path))
@@ -815,9 +811,8 @@ def preview_in_context(
     console.print(Panel(config_table, title="[bold]Configuration[/bold]", border_style="info"))
 
     with console.status("[bold info]Loading database...", spinner="dots"):
-        database = TemplateChannelDatabase(str(resolved_path), presentation_mode=presentation_mode)
+        database = ChannelDatabase(str(resolved_path))
         all_channels = database.get_all_channels()
-        stats = database.get_statistics()
 
     console.print(
         f"\n[success]\u2713 Successfully loaded [bold]{len(all_channels)}[/bold] channels[/success]\n"
@@ -828,12 +823,6 @@ def preview_in_context(
     stats_table.add_column("Count", justify="right", style="value")
 
     stats_table.add_row("Total Channels", str(len(all_channels)))
-    if stats:
-        template_entries = stats.get("template_entries", 0)
-        standalone_entries = stats.get("standalone_entries", 0)
-        if template_entries > 0 or standalone_entries > 0:
-            stats_table.add_row("Template Entries", str(template_entries))
-            stats_table.add_row("Standalone Entries", str(standalone_entries))
 
     console.print(
         Panel(stats_table, title="[bold]Database Statistics[/bold]", border_style="accent")
@@ -898,7 +887,6 @@ def preview_database(
     console = console or _default_console
 
     pipeline_type: str | None
-    db_config: dict[str, Any]
     if db_path:
         resolved_path = _resolve_path(db_path)
 
@@ -908,13 +896,10 @@ def preview_database(
 
             if "hierarchy" in data or "tree" in data:
                 pipeline_type = "hierarchical"
-                db_config = {}
             elif _looks_like_middle_layer(data):
                 pipeline_type = "middle_layer"
-                db_config = {}
             else:
                 pipeline_type = "in_context"
-                db_config = {}
         except Exception as e:
             console.print(f"[error]\u2717 Error loading database from {db_path}: {e}[/error]")
             return
@@ -944,7 +929,6 @@ def preview_database(
             )
             return
 
-        db_config = detected
         db_path = detected["path"]
 
     # Handle --full flag (backwards compatibility)
@@ -977,5 +961,4 @@ def preview_database(
             console=console,
         )
     else:
-        presentation_mode = db_config.get("presentation_mode", "template")
-        preview_in_context(db_path, presentation_mode, show_full, console=console)
+        preview_in_context(db_path, show_full, console=console)

@@ -856,6 +856,57 @@ class TestPreviewSubcommand:
         assert "Hierarchy" in result.output or "Preview" in result.output
 
 
+class TestInContextIndexRender:
+    """``validate`` and ``preview`` read the in_context index a build writes."""
+
+    @staticmethod
+    def _index(built, tmp_path: Path) -> Path:
+        from osprey.facility.views import ViewInputs
+        from osprey.facility.views.channel_finder import write_in_context
+
+        inputs = ViewInputs(
+            doc=built.facility,
+            rendered_config={"channel_finder": {"pipeline_mode": "in_context"}},
+            facility_dir=built.facility_dir,
+            served=[],
+        )
+        (target,) = write_in_context(tmp_path, inputs)
+        return target
+
+    @pytest.mark.slow
+    @pytest.mark.xdist_group("built_control_assistant")
+    def test_validate_reports_every_row_of_the_index(
+        self, runner, tmp_path, built_control_assistant
+    ):
+        index = self._index(built_control_assistant, tmp_path)
+
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                result = runner.invoke(
+                    channel_finder,
+                    ["validate", "--database", str(index), "--pipeline", "in_context"],
+                )
+
+        printed = " ".join(result.output.split())
+        assert result.exit_code == 0, result.output
+        assert "VALID" in printed
+        assert "Total Channels 569" in printed
+
+    @pytest.mark.slow
+    @pytest.mark.xdist_group("built_control_assistant")
+    def test_preview_prints_the_rows_of_the_index(self, runner, tmp_path, built_control_assistant):
+        index = self._index(built_control_assistant, tmp_path)
+        first = json.loads(index.read_text())["channels"][0]["channel"]
+
+        with patch("osprey.cli.channel_finder_cmd._setup_config"):
+            with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
+                result = runner.invoke(channel_finder, ["preview", "--database", str(index)])
+
+        assert result.exit_code == 0, result.output
+        assert "In-Context Database Preview" in result.output
+        assert first in result.output
+
+
 # ============================================================================
 # Import Smoke Tests
 # ============================================================================
