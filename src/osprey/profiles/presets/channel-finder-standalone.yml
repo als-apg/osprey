@@ -98,8 +98,6 @@ default_panel: channel-finder
 # selection (from `web_panels:` / `default_panel:`), and every host port.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Display name woven into the agent prompts and the web landing page. Keep it
-  # in sync with .claude/rules/facility.md.
   # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
   # Only the multi-user web-terminal stack reads it.
   # facility.prefix: ex
