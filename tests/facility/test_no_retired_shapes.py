@@ -63,6 +63,7 @@ RETIRED: dict[str, str] = {
     "GRAPH_MALFORMED": "2",
     "GRAPH_NO_TTL": "2",
     "GRAPH_SOURCE_PARADIGM": "2",
+    "_check_empty_facility_prefix": "3b",
     "allow_unlisted_channels": "3a",
     "assign_readbacks": "2",
     "facility_vocabulary": "3a",
