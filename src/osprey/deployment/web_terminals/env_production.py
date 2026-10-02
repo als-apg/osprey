@@ -1008,9 +1008,10 @@ def _build_env_production_subset(
     configured with. ``ZO_INGEST_SA_TOKEN``, the token the store issues for the
     ingest service account, is narrower but not narrow enough for a rosterwide
     file: OpenObserve has no ingest-only role in any edition, so that account
-    also reads back every log and metric in the store and lists its user
-    roster. Either one copied here would grant every persona, read-only ones
-    included, read of every transcript the store holds. Both stay out for the
+    also reads back every log and metric in the store, lists its user roster,
+    and can change a stream's retention or delete a stream. Either one copied
+    here would grant every persona, read-only ones included, read of every
+    transcript the store holds. Both stay out for the
     same reason the service tokens do (see below), and
     :func:`_telemetry_credential_requirements` exists to REPORT a config that
     depends on one rather than to satisfy it.
@@ -1302,7 +1303,8 @@ def _required_vars_refusal(
             "credential that reads every transcript the store holds — the root "
             "password is the store's single admin credential, and the ingest "
             "service account `osprey up` provisions reads back every log and "
-            "metric too (OpenObserve has no ingest-only role in any edition). "
+            "metric too, and can change a stream's retention or delete a stream "
+            "(OpenObserve has no ingest-only role in any edition). "
             "One .env.users is handed to every persona alike, read-only ones "
             "included, so this file never carries either of them. The env "
             "chain is still where it belongs — that is what the store and the "
