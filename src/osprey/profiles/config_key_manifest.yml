@@ -3158,10 +3158,14 @@ orphan_sites:
       the in_context server's loader choice. Rooted at the in_context server so
       the hierarchical and middle_layer loaders, which still read their own
       `database.type`, stay out of scope.
-  - root: src/osprey/templates/project
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
     regex: '"template" \(device-family expansion\) or "flat"'
     back_test: {base_matches: 1, branch_matches: 0}
-    why: the rendered in_context `type:` line and its comment
+    why: >-
+      the rendered in_context `type:` line and its comment, absent from the
+      project template and the app templates alike.
   channel_finder.benchmark.execution:
   - root: src/osprey
     regex: 'runs_per_query.*delay_between_runs|continue_on_error'
