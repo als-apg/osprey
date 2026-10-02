@@ -566,6 +566,11 @@ class TestTheRawPutBlock:
         assert contract["marker"] == RAW_CLIENT_WRITE_MARKER
         assert _flatten(contract["blocked_targets"]) == list(write_surface._ARMED_BLOCKED)
         assert _flatten(contract["rpc_targets"]) == list(write_surface._ARMED_RPC)
+        assert _flatten(contract["ca_provider_targets"]) == [
+            row
+            for row in write_surface._ARMED_CHECKED
+            if row[0] in write_surface._ARMED_CA_PROVIDER
+        ]
         blocked_owners = [dotted for dotted, _attrs in contract["blocked_targets"]]
         assert len(blocked_owners) == len(set(blocked_owners))
         assert set(contract) == {
@@ -574,6 +579,7 @@ class TestTheRawPutBlock:
             "refuse_rpc",
             "marker",
             "rpc_refusals",
+            "ca_provider_targets",
         }
 
     def test_armed_install_failure_stops_the_kernel_start(self, monkeypatch):

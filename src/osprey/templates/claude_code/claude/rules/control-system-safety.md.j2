@@ -56,8 +56,8 @@ pv.put(150)  # Refused at runtime: RAW_CLIENT_WRITE
 
 {{ raw_put_refusal }}
 
-pvAccess (PVA) through the `p4p` library is the one exception to that
-refusal, for writes only. `write_channel` does not write pvAccess channels
+pvAccess (PVA) — through the `p4p` library, or `pvaccess` below — is the one
+exception to that refusal, for writes only. `write_channel` does not write pvAccess channels
 yet, so a raw PVA put is how a PVA channel is written: it asks for approval
 like any write, and wherever limits checking is on each put is checked
 against the limits before it reaches the network, with no route around that.
@@ -79,6 +79,26 @@ payload, so limits checking cannot apply to it — there is nothing for the
 approval workflow to check. It is refused at runtime in every readonly run
 and wherever limits checking is enabled. Use `write_channel` for the write
 you actually need.
+
+The `pvaccess` library (pvaPy) speaks both protocols, and the split follows
+the channel, not the library. A `Channel` opened on pvAccess — the default —
+takes the PVA exception above; one opened with `pvaccess.CA` is a Channel
+Access channel, and its puts are refused like `epics.caput`. A `MultiChannel`
+write is refused whichever protocol it speaks, and `RpcClient(...).invoke(...)`
+is an rpc, refused like `ctxt.rpc(...)`. Reads go through `read_channel`:
+
+```python
+import pvaccess                                   # A raw client: reads skip audit
+ch = pvaccess.Channel("SR:DIAG:PVA:01:GAIN:SP")   # Opens on pvAccess by default
+ch.get()                                          # DO NOT: bypasses audit logging; use read_channel
+ch.monitor(callback)                              # DO NOT: bypasses audit logging; use read_channel
+ch.putDouble(2.0)                                 # PVA channel only: approval + limits check
+ca = pvaccess.Channel("SR:MAG:QF:01:CURRENT:SP", pvaccess.CA)
+ca.put(150)                                       # Refused at runtime: RAW_CLIENT_WRITE
+ca.putDouble(150.0)                               # Refused at runtime: RAW_CLIENT_WRITE
+pvaccess.MultiChannel(names).putAsDoubleArray(v)  # Refused at runtime: RAW_CLIENT_WRITE
+pvaccess.RpcClient("SR:SVC:ORBIT").invoke(req)    # Not approvable — refused at runtime
+```
 {% elif cs_type == 'doocs' %}
 ```python
 # DO NOT use these — read and write through osprey.runtime instead

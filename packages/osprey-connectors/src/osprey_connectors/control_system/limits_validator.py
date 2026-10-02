@@ -1,7 +1,10 @@
 """Runtime channel limits validation engine - simplified single-layer design."""
 
 import json
+import math
+import numbers
 import os
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +65,126 @@ DEFAULT_STEP_READ_TIMEOUT_SECONDS = 2.0
 #: The per-connector key that overrides it, spelled once so the connector and
 #: the python-executor sandbox cannot read two different names.
 STEP_READ_TIMEOUT_KEY = "step_read_timeout_s"
+
+#: The ``violation_type`` of a write refused because its value is not a finite
+#: real number while the channel has a numeric limit to hold it to.
+INVALID_NUMERIC_VALUE = "INVALID_NUMERIC_VALUE"
+
+
+#: C's ``isspace`` set: what EPICS's C conversion skips around a numeral.
+_C_WHITESPACE = " \t\n\v\f\r"
+
+#: The numerals EPICS's C conversion parses into an integer field: ``strtol`` with base 0,
+#: so ``0x`` is hex and a leading ``0`` is octal.
+_C_INTEGER = re.compile(r"[+-]?(?:0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)")
+
+#: The decimal numerals EPICS's C conversion parses into a floating-point field (``strtod``).
+_C_DECIMAL_FLOAT = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+
+#: The hexadecimal numerals ``strtod`` also takes: ``0x10``, ``0x1.8p3``.
+_C_HEX_FLOAT = re.compile(
+    r"[+-]?0[xX](?:[0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)(?:[pP][+-]?[0-9]+)?"
+)
+
+
+def _c_integer(text: str) -> int | None:
+    """``text`` as C reads it into an integer field, or ``None`` if it errors there."""
+    if not _C_INTEGER.fullmatch(text):
+        return None
+    sign = -1 if text[0] == "-" else 1
+    digits = text.lstrip("+-")
+    if digits[:2] in ("0x", "0X"):
+        return sign * int(digits[2:], 16)
+    if len(digits) > 1 and digits[0] == "0":
+        return sign * int(digits, 8)
+    return sign * int(digits)
+
+
+def _c_float(text: str) -> float | None:
+    """``text`` as C reads it into a floating-point field, or ``None`` if it errors there."""
+    try:
+        if _C_DECIMAL_FLOAT.fullmatch(text):
+            return float(text)
+        if _C_HEX_FLOAT.fullmatch(text):
+            return float.fromhex(text)
+    except OverflowError:
+        return None
+    return None
+
+
+def _numeral_or_reason(value: str) -> tuple[float | None, str | None]:
+    """The number a string write delivers, read the way the EPICS client reads it.
+
+    A string written to a numeric channel is converted into the channel's own
+    type by C code, not by Python, and C's reading of a numeral is not
+    ``float()``'s. An integer field takes ``strtol`` with base 0, so ``"0x10"``
+    is 16 and ``"010"`` is 8; a floating-point field takes ``strtod``, so
+    ``"0x10"`` is 16 there too but ``"010"`` is 10, and ``"1e3"`` is 1000. ``"1_000"``, ``"1,000"`` and ``"0b11"`` are errors in
+    both. Measured against a soft IOC.
+
+    The validator does not know the channel's type, so a string is accepted
+    only when every reading that succeeds gives the same number; ``"010"`` is
+    refused as ambiguous. That makes it exactly as permissive as the C rules
+    or stricter, never looser. pyepics (``int(text, 0)`` for an integer field,
+    ``float()`` otherwise) either delivers the same number for every string
+    accepted here or refuses the write.
+
+    ``nan``, ``inf`` and ``infinity`` (which ``strtod`` takes) are not numerals
+    here and are refused, like their float counterparts.
+    """
+    text = value.strip(_C_WHITESPACE)
+    integer = _c_integer(text)
+    floating = _c_float(text)
+    readings = {float(r) for r in (integer, floating) if r is not None}
+    if not readings:
+        return None, (
+            f"String value {value!r} is not a finite decimal or hexadecimal numeral, so "
+            f"it cannot be checked against this channel's numeric limits. Write a number "
+            f"instead"
+        )
+    if len(readings) > 1:
+        return None, (
+            f"String value {value!r} is ambiguous: the control system reads it as "
+            f"{integer} into an integer channel and {floating} into a floating-point "
+            f"one. Write a number instead"
+        )
+    return readings.pop(), None
+
+
+def _finite_real_or_reason(value: Any) -> tuple[float | None, str | None]:
+    """The value as a finite ``float``, or why it cannot be held to a numeric limit.
+
+    A real number is accepted as is: ``int``, ``float``, ``bool`` and anything
+    registered as :class:`numbers.Real` (numpy scalars included). A ``str`` is
+    accepted when it is a numeral the EPICS client would turn into one number
+    whatever the channel's type -- see :func:`_numeral_or_reason` -- and is
+    checked as that number. Everything else (``bytes``, lists, ``None``,
+    complex) is refused.
+
+    NaN and infinity are refused too: NaN fails every comparison, so it would
+    pass any ``min_value``/``max_value``/``max_step``, and an infinity is not a
+    setpoint any limit was written to admit.
+
+    Returns:
+        ``(number, None)`` for an acceptable value, ``(None, reason)`` otherwise.
+    """
+    if isinstance(value, str):
+        number, reason = _numeral_or_reason(value)
+        if number is None:
+            return None, reason
+    elif isinstance(value, numbers.Real):
+        number = float(value)
+    else:
+        return None, (
+            f"Value of type {type(value).__name__} is not a real number, so it cannot "
+            f"be checked against this channel's numeric limits"
+        )
+    if not math.isfinite(number):
+        return None, (
+            f"Value {number} is not finite, so it cannot be checked against this "
+            f"channel's numeric limits"
+        )
+    return number, None
 
 
 def step_read_timeout_seconds(
@@ -737,8 +860,8 @@ class LimitsValidator:
 
         channel_config, numeric_value = self._validate_without_step(channel_address, value)
         if channel_config is None or numeric_value is None:
-            # An allowed unlisted channel, or a non-numeric value: neither one
-            # has a step size to measure.
+            # A channel with no record under the optional mode, or a channel with no numeric limit:
+            # neither one has a step size to measure.
             return
 
         # Check 4: Step size limit (OPTIONAL - only if configured, requires I/O)
@@ -783,36 +906,50 @@ class LimitsValidator:
                         violation_reason="Cannot read current channel value to verify step size",
                     )
 
-                # Check step size (numeric values only)
-                try:
-                    numeric_current = float(current_value)
-                    step_size = abs(numeric_value - numeric_current)
+                # FAILSAFE: a present value that is not a finite real number
+                # (NaN from a disconnected record, a label, a waveform) gives
+                # no step to measure, and a step that cannot be measured
+                # cannot be approved. NaN in particular would pass the
+                # comparison below whatever the requested value.
+                numeric_current, current_reason = _finite_real_or_reason(current_value)
+                if numeric_current is None:
+                    logger.warning(
+                        f"Cannot verify step size for {channel_address} - "
+                        f"current value {current_value!r} is not a finite number"
+                    )
+                    raise ChannelLimitsViolationError(
+                        channel_address=channel_address,
+                        value=value,
+                        violation_type="STEP_CHECK_FAILED",
+                        violation_reason=(
+                            f"Cannot verify step size: current channel value "
+                            f"{current_value!r} is not a finite real number ({current_reason})"
+                        ),
+                        current_value=current_value,
+                        max_step=channel_config.max_step,
+                        min_value=channel_config.min_value,
+                        max_value=channel_config.max_value,
+                    )
 
-                    if step_size > channel_config.max_step:
-                        logger.warning(
-                            f"Blocked write exceeding max step: {channel_address} "
-                            f"step={step_size:.3f} > max={channel_config.max_step}"
-                        )
-                        raise ChannelLimitsViolationError(
-                            channel_address=channel_address,
-                            value=value,
-                            violation_type="MAX_STEP_EXCEEDED",
-                            violation_reason=(
-                                f"Step size {step_size:.3f} exceeds maximum "
-                                f"{channel_config.max_step} (current={numeric_current}, "
-                                f"requested={numeric_value})"
-                            ),
-                            current_value=current_value,
-                            max_step=channel_config.max_step,
-                            min_value=channel_config.min_value,
-                            max_value=channel_config.max_value,
-                        )
-
-                except (ValueError, TypeError):
-                    # Non-numeric current value - skip step check
-                    logger.debug(
-                        f"Skipping step check for non-numeric values: "
-                        f"{channel_address} current={current_value}, new={value}"
+                step_size = abs(numeric_value - numeric_current)
+                if step_size > channel_config.max_step:
+                    logger.warning(
+                        f"Blocked write exceeding max step: {channel_address} "
+                        f"step={step_size:.3f} > max={channel_config.max_step}"
+                    )
+                    raise ChannelLimitsViolationError(
+                        channel_address=channel_address,
+                        value=value,
+                        violation_type="MAX_STEP_EXCEEDED",
+                        violation_reason=(
+                            f"Step size {step_size:.3f} exceeds maximum "
+                            f"{channel_config.max_step} (current={numeric_current}, "
+                            f"requested={numeric_value})"
+                        ),
+                        current_value=current_value,
+                        max_step=channel_config.max_step,
+                        min_value=channel_config.min_value,
+                        max_value=channel_config.max_value,
                     )
 
             except ChannelLimitsViolationError:
@@ -862,7 +999,9 @@ class LimitsValidator:
         Returns the channel's config and the value as a number, so the caller
         can go on to the step check without repeating the lookup. A ``None``
         config means a channel with no record under the optional mode and a ``None`` number means a
-        non-numeric value -- in either case there is nothing further to check.
+        channel with no numeric limit -- in either case there is nothing further to check. A channel
+        that has a numeric limit never answers ``None``: a value it cannot hold to that limit is
+        refused here.
         """
         from osprey_connectors.errors import ChannelLimitsViolationError
 
@@ -924,13 +1063,38 @@ class LimitsValidator:
                 violation_reason="Channel is marked as read-only",
             )
 
-        # Check 3: Min/Max bounds (numeric values only)
-        try:
-            numeric_value = float(value)
-        except (ValueError, TypeError):
-            # Non-numeric value - nothing numeric left to check, and no
-            # step to measure either.
+        # Check 3: Min/Max bounds.
+        #
+        # The rule: a channel with ANY numeric limit (min_value, max_value or
+        # max_step) accepts only a finite real number, or a string the EPICS
+        # client parses to one unambiguously. Anything else -- a string it
+        # would read differently by channel type, NaN, an infinity, a list,
+        # None -- is refused rather than waved past the numeric checks, because
+        # a value the validator cannot compare is a value it has not checked.
+        # See `_numeral_or_reason` for how strings are read.
+        #
+        # A channel with no numeric limit (a writable-only entry, e.g. an enum
+        # or string record written by label) has nothing numeric to hold the
+        # value to, so it passes as it always has.
+        if (
+            channel_config.min_value is None
+            and channel_config.max_value is None
+            and channel_config.max_step is None
+        ):
             return channel_config, None
+
+        numeric_value, reason = _finite_real_or_reason(value)
+        if numeric_value is None:
+            logger.warning(f"Blocked non-numeric write: {channel_address}={value!r}")
+            raise ChannelLimitsViolationError(
+                channel_address=channel_address,
+                value=value,
+                violation_type=INVALID_NUMERIC_VALUE,
+                violation_reason=reason or "Value is not a finite real number",
+                min_value=channel_config.min_value,
+                max_value=channel_config.max_value,
+                max_step=channel_config.max_step,
+            )
 
         if channel_config.min_value is not None and numeric_value < channel_config.min_value:
             logger.warning(

@@ -1015,6 +1015,28 @@ def test_fallback_covers_p4p_write_idioms(hook_module):
     assert r"\.post\s*\(" not in fallback_patterns
 
 
+def test_fallback_covers_pvaccess_write_idioms(hook_module):
+    """The fallback list must carry the pvaPy (``pvaccess``) write spellings.
+
+    Pinned for the same reason p4p is: parity alone would stay green if both
+    lists lost them together. The generic ``.put(`` misses the typed setters,
+    asyncPut and parsePut, which are matched unanchored, for an import that
+    never writes the token pvaccess; RpcClient is pvaPy's rpc.
+    """
+    fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
+
+    for pattern in (
+        r"\.put(?:Get|Boolean|Byte|Double|Float|Int|Long|Short|String|ScalarArray"
+        r"|UByte|UInt|ULong|UShort|AsDoubleArray)\w*\s*\(",
+        r"\.asyncPut\s*\(",
+        r"\.parsePut\w*\s*\(",
+        r"\bRpcClient\s*\(",
+        r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
+        r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
+    ):
+        assert pattern in fallback_patterns
+
+
 def test_fallback_covers_the_doocs_write_idiom(hook_module):
     """The fallback list must carry the DOOCS write spelling.
 
@@ -1044,9 +1066,34 @@ def test_fallback_covers_the_doocs_write_idiom(hook_module):
             "from p4p.client.asyncio import Context\nr = await Context('pva').rpc('SR:C', a)\n",
             id="p4p-rpc",
         ),
+        pytest.param(
+            "import pvaccess as pva\npva.Channel('SR:A:SP', pva.CA).putDouble(1.0)\n",
+            id="pvaccess-typed-put",
+        ),
+        pytest.param(
+            "import pvaccess\npvaccess.Channel('SR:A:SP').asyncPut(pv, cb, err)\n",
+            id="pvaccess-async-put",
+        ),
+        pytest.param(
+            "import pvaccess\npvaccess.MultiChannel(['SR:A']).putAsDoubleArray([1.0])\n",
+            id="pvaccess-multichannel-put",
+        ),
+        pytest.param(
+            "from pvaccess import RpcClient\nRpcClient('SR:C').invoke(request)\n",
+            id="pvaccess-rpc",
+        ),
+        pytest.param(
+            "import importlib\n"
+            "importlib.import_module('pva' + 'ccess').Channel('SR:A:SP').putDouble(1.0)\n",
+            id="pvaccess-typed-put-built-import",
+        ),
+        pytest.param(
+            "m = __import__('pva' + 'ccess')\nm.Channel('SR:A:SP').asyncPut(pv, cb, err)\n",
+            id="pvaccess-async-put-built-import",
+        ),
     ],
 )
-def test_fallback_regexes_match_p4p_code(hook_module, code):
+def test_fallback_regexes_match_pva_client_code(hook_module, code):
     """The pinned fallback regexes fire on code an agent would actually write."""
     import re as _re
 

@@ -6,7 +6,7 @@ images OSPREY builds from an argv of its own get them as ``--build-arg`` flags
 (:func:`osprey.deployment.container_lifecycle.site_image_build_args`); a managed
 service image, which ``docker compose build`` builds from its own rendered
 context, gets them as the ``args:`` block of its compose fragment
-(:func:`osprey.deployment.compose_generator._stage_site_image_args_for_context`
+(:func:`osprey.deployment.compose_generator._site_image_args_for_context`
 and the ``build_args`` macro it feeds).
 
 The two must hand a build the same ARG names carrying the same values for one
@@ -107,7 +107,7 @@ def test_both_renderers_carry_the_same_arg_names_and_values(tmp_path):
     compose_context = _context(tmp_path, "compose-context")
 
     argv = _build_args(container_lifecycle.site_image_build_args(config, argv_context))
-    staged = compose_generator._stage_site_image_args_for_context(config, str(compose_context))
+    staged = compose_generator._site_image_args_for_context(config, str(compose_context))
     rendered = _rendered_args(staged)
 
     expected = {
@@ -122,10 +122,13 @@ def test_both_renderers_carry_the_same_arg_names_and_values(tmp_path):
     assert staged == expected
     assert rendered == expected
 
-    # The value both forms render is only true if the file is there.
-    for context in (argv_context, compose_context):
-        bundle = context / container_lifecycle.SITE_CA_CONTEXT_FILENAME
-        assert bundle.read_text() == "-----BEGIN CERTIFICATE-----\n"
+    # The argv form stages the file it names as it builds. The compose form's
+    # file is staged by every start, not by the render (see
+    # test_container_lifecycle's stage_service_site_ca tests), so the render
+    # leaves the context without one.
+    bundle = argv_context / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert bundle.read_text() == "-----BEGIN CERTIFICATE-----\n"
+    assert not (compose_context / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
 
 
 @pytest.mark.usefixtures("no_site_env")
@@ -138,7 +141,7 @@ def test_the_two_renderers_order_their_args_deliberately_and_differently(tmp_pat
     """
     config = _site_config(tmp_path)
     argv = container_lifecycle.site_image_build_args(config, _context(tmp_path, "argv-context"))
-    staged = compose_generator._stage_site_image_args_for_context(
+    staged = compose_generator._site_image_args_for_context(
         config, str(_context(tmp_path, "compose-context"))
     )
 
@@ -168,7 +171,7 @@ def test_only_the_project_image_is_told_the_deployment_is_offline(tmp_path):
     argv = _build_args(
         container_lifecycle.site_image_build_args(config, _context(tmp_path, "argv-context"))
     )
-    staged = compose_generator._stage_site_image_args_for_context(
+    staged = compose_generator._site_image_args_for_context(
         config, str(_context(tmp_path, "compose-context"))
     )
 
@@ -184,7 +187,7 @@ def test_a_deployment_that_declares_nothing_builds_and_renders_as_it_always_did(
     context = _context(tmp_path, "context")
 
     assert container_lifecycle.site_image_build_args(config, context) == []
-    staged = compose_generator._stage_site_image_args_for_context(config, str(context))
+    staged = compose_generator._site_image_args_for_context(config, str(context))
     assert staged == {}
     assert _rendered_text(staged) == ""
     assert _rendered_args(staged) == {}
@@ -212,7 +215,7 @@ def test_a_value_that_carries_a_quote_survives_the_render(tmp_path, index_url):
     argv = _build_args(
         container_lifecycle.site_image_build_args(config, _context(tmp_path, "argv-context"))
     )
-    staged = compose_generator._stage_site_image_args_for_context(
+    staged = compose_generator._site_image_args_for_context(
         config, str(_context(tmp_path, "compose-context"))
     )
     rendered = _rendered_args(staged)

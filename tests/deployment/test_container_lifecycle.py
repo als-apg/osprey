@@ -2263,6 +2263,119 @@ def test_clear_staged_service_site_ca_ignores_a_document_it_cannot_read(tmp_path
     assert not staged.exists()
 
 
+def test_stage_service_site_ca_restages_every_context_the_render_names(tmp_path):
+    """The staging half of the rule ``clear_staged_service_site_ca`` keeps, keyed
+    on the same record: a context whose rendered ``build.args`` names the staged
+    file gets a fresh copy of the bundle; one that does not is left alone."""
+    bundle = tmp_path / "site-ca.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\nfresh\n", encoding="utf-8")
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    (services / "docker-compose.graphdb.yml").write_text(
+        _service_compose("graphdb", "./build/services/graphdb", stages_ca=False),
+        encoding="utf-8",
+    )
+    (services / "qmd").mkdir()
+    (services / "graphdb").mkdir()
+
+    container_lifecycle.stage_service_site_ca(
+        {"images": {"site_ca": str(bundle)}},
+        ["build/services/docker-compose.qmd.yml", "build/services/docker-compose.graphdb.yml"],
+        tmp_path,
+    )
+
+    staged = services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert staged.read_text(encoding="utf-8") == bundle.read_text(encoding="utf-8")
+    assert not (services / "graphdb" / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
+
+
+def test_stage_service_site_ca_warns_when_the_bundle_is_not_on_this_host(tmp_path, caplog):
+    """The render's rule: a missing bundle is reported, not raised. Compose may
+    not build the context at all (the image is cached); when it does, the build
+    fails at the layer that installs the CA, which names the problem there."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    (services / "qmd").mkdir()
+
+    with caplog.at_level(logging.WARNING):
+        container_lifecycle.stage_service_site_ca(
+            {"images": {"site_ca": str(tmp_path / "gone.pem")}},
+            ["build/services/docker-compose.qmd.yml"],
+            tmp_path,
+        )
+
+    assert "gone.pem" in caplog.text
+    assert not (services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
+
+
+def test_a_second_deploy_restages_the_ca_the_first_one_cleared(tmp_path, monkeypatch):
+    """The regression: ``osprey up`` renders nothing, so the copy a render staged
+    is gone after the first deploy cleared it. The compose build of the next one
+    must still find the bundle in each context its rendered args name."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "qmd").mkdir()
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    bundle = tmp_path / "site-ca.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    # What each compose invocation would have found in the context.
+    seen: dict[str, bool] = {}
+
+    def record(cmd, **kwargs):
+        seen[list(cmd)[-1]] = staged.is_file()
+
+    monkeypatch.setattr(container_lifecycle, "run_captured", record)
+
+    config = {
+        "project_name": "proj",
+        "deployed_services": ["qmd"],
+        "images": {"site_ca": str(bundle)},
+    }
+    # `--dev` builds in a step of its own and starts with `--no-build`; a plain
+    # detached start leaves the build to compose's implicit build-on-up. Each
+    # shape twice: the second start is the one that used to find no CA.
+    for dev_mode, building_step in ((True, "build"), (True, "build"), (False, "-d"), (False, "-d")):
+        container_lifecycle._start_stack(
+            config,
+            ["build/services/docker-compose.0.yml"],
+            repo,
+            detached=True,
+            dev_mode=dev_mode,
+            env_path=repo / ".env",
+        )
+        assert seen.get(building_step) is True, f"`{building_step}` found no CA in its context"
+        assert not staged.exists(), "the context kept the operator's CA after the deploy"
+        seen.clear()
+
+
 def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
     """End to end on the detached path: the copy compose read is gone when
     ``_start_stack`` returns."""
@@ -4673,3 +4786,60 @@ def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     assert order == []
+
+
+def test_a_failed_start_still_clears_the_ca_it_staged(tmp_path, monkeypatch):
+    """A build that fails after staging must not leave the operator's bundle in
+    the context: the clear runs however the start ends."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    (services / "qmd").mkdir(parents=True)
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    bundle = tmp_path / "site-ca.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = services / "qmd" / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    seen: list[bool] = []
+
+    def failing_build(cmd, **kwargs):
+        if "build" in cmd:
+            seen.append(staged.is_file())
+            raise subprocess.CalledProcessError(1, list(cmd))
+
+    monkeypatch.setattr(container_lifecycle, "run_captured", failing_build)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        container_lifecycle._start_stack(
+            {
+                "project_name": "proj",
+                "deployed_services": ["qmd"],
+                "images": {"site_ca": str(bundle)},
+            },
+            ["build/services/docker-compose.0.yml"],
+            repo,
+            detached=True,
+            dev_mode=True,
+            env_path=repo / ".env",
+        )
+
+    assert seen == [True], "the build did not run with the CA staged"
+    assert not staged.exists(), "a failed start left the operator's CA in the context"

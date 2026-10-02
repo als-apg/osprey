@@ -24,9 +24,9 @@
 # namespace, so this cannot collide with a virtual accelerator already running
 # on 5064. Do not add `-p` to the run below without re-reading that sentence.
 #
-# The image is rebuilt only when pyproject.toml, uv.lock or a uv workspace
-# member under packages/ changes; test and src/ edits are picked up from the
-# mount with no rebuild. Set OSPREY_LIVE_CA_REBUILD=1 to force one.
+# The image is rebuilt only when a pyproject.toml or uv.lock changes; test and
+# source edits are picked up from the mount with no rebuild. Set
+# OSPREY_LIVE_CA_REBUILD=1 to force one (layer cache still applies).
 #
 # Exit status is the gate's: 0 only if the live suites ran and passed with
 # nothing skipped.
@@ -45,14 +45,13 @@ if [[ ! -f "${WORKTREE_ROOT}/uv.lock" ]]; then
     exit 1
 fi
 
-# The tag is a digest of everything that goes into the image: the two
-# dependency files, the workspace members under packages/ (the image installs
-# them from source) and the Containerfile itself. That makes "reuse it if it
-# exists" safe rather than merely convenient -- bump the pcaspy floor, add a
-# dependency, or edit a build step, and the tag changes, so a stale image
-# cannot be silently reused under a name that no longer describes it. A fixed
-# tag would also collide with any other image somebody happened to build under
-# the same name.
+# The tag is a digest of everything that goes into the image: the dependency
+# files (the root pyproject, every workspace member's, and the lock) and the
+# Containerfile itself. That makes "reuse it if it exists" safe rather than
+# merely convenient -- bump the pcaspy floor, add a dependency, or edit a build
+# step, and the tag changes, so a stale image cannot be silently reused under a
+# name that no longer describes it. A fixed tag would also collide with any
+# other image somebody happened to build under the same name.
 #
 # sha256sum on Linux, shasum on macOS -- neither is present on both.
 if command -v sha256sum >/dev/null 2>&1; then
@@ -60,15 +59,10 @@ if command -v sha256sum >/dev/null 2>&1; then
 else
     DIGEST_CMD=(shasum -a 256)
 fi
-# Members count by their tracked files, in git's sorted order: the build hook
-# writes an untracked _version.py that changes with every commit, and letting
-# it into the digest would rebuild the image on every commit.
-BUILD_ID="$({ cat "${WORKTREE_ROOT}/pyproject.toml" \
-                  "${WORKTREE_ROOT}/uv.lock" \
-                  "${SCRIPT_DIR}/Containerfile"; \
-              git -C "${WORKTREE_ROOT}" ls-files -z -- "${WORKTREE_ROOT}/packages" \
-                  | (cd "${WORKTREE_ROOT}" && xargs -0 cat); \
-            } | "${DIGEST_CMD[@]}" | cut -c1-12)"
+BUILD_ID="$(cat "${WORKTREE_ROOT}/pyproject.toml" \
+                "${WORKTREE_ROOT}"/packages/*/pyproject.toml \
+                "${WORKTREE_ROOT}/uv.lock" \
+                "${SCRIPT_DIR}/Containerfile" | "${DIGEST_CMD[@]}" | cut -c1-12)"
 IMAGE="osprey-va-live-ca:${BUILD_ID}"
 
 # Container runtime. docker is preferred here, the reverse of
@@ -91,13 +85,14 @@ fi
 
 echo "--- runtime: ${RUNTIME}, platform: ${PLATFORM} ---"
 
-# The image needs pyproject.toml, uv.lock, README.md and the uv workspace
-# members under packages/, which uv installs from source. They are staged into
+# The image needs only pyproject.toml, uv.lock and README.md, plus each
+# workspace member's pyproject.toml and README.md under packages/ (see the
+# Containerfile for why the member metadata comes along). They are staged into
 # a scratch directory used as the build context, the same way
-# scripts/va/run_va.sh stages its own -- the repo root would work as a
-# context but also holds .git/, .venv/ and the worktrees, and would make every
-# build re-tar gigabytes of content the image never reads. src/ and tests/
-# arrive over the read-only mount at run time, not through the context.
+# scripts/va/run_va.sh stages its own -- the repo root would work as a context
+# but also holds .git/, .venv/ and the worktrees, and would make every build
+# re-tar gigabytes of content the image never reads. src/ and tests/ arrive
+# over the read-only mount at run time, not through the context.
 if [[ "${OSPREY_LIVE_CA_REBUILD:-0}" == "1" ]] || \
    ! "${RUNTIME}" image inspect "${IMAGE}" >/dev/null 2>&1; then
     CONTEXT="$(mktemp -d)"
@@ -106,8 +101,16 @@ if [[ "${OSPREY_LIVE_CA_REBUILD:-0}" == "1" ]] || \
        "${WORKTREE_ROOT}/uv.lock" \
        "${WORKTREE_ROOT}/README.md" \
        "${CONTEXT}/"
-    cp -R "${WORKTREE_ROOT}/packages" "${CONTEXT}/packages"
-    find "${CONTEXT}/packages" -name __pycache__ -type d -prune -exec rm -rf {} +
+    for member in "${WORKTREE_ROOT}"/packages/*/; do
+        member="$(basename "${member}")"
+        mkdir -p "${CONTEXT}/packages/${member}"
+        cp "${WORKTREE_ROOT}/packages/${member}/pyproject.toml" \
+           "${CONTEXT}/packages/${member}/"
+        if [[ -f "${WORKTREE_ROOT}/packages/${member}/README.md" ]]; then
+            cp "${WORKTREE_ROOT}/packages/${member}/README.md" \
+               "${CONTEXT}/packages/${member}/"
+        fi
+    done
 
     echo "--- building ${IMAGE} ---"
     "${RUNTIME}" build --platform "${PLATFORM}" \

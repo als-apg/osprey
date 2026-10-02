@@ -8527,9 +8527,9 @@ class TestStageSiteImageArgsForContext:
 
     A service image is built by ``docker compose build`` from its own rendered
     context, so the argv-building producer the lifecycle uses for the project
-    image never runs for one: the values have to be IN the compose fragment,
-    and the CA they name has to be in the context beside it. Both come from
-    this helper, so a rendered value and the file it points at cannot disagree.
+    image never runs for one: the values have to be IN the compose fragment.
+    The CA they name is staged beside it by every start, keyed on the rendered
+    value, so the value and the file it points at cannot disagree.
     """
 
     @staticmethod
@@ -8541,16 +8541,16 @@ class TestStageSiteImageArgsForContext:
         return context
 
     @staticmethod
-    def _stage(config: dict, out_dir: Path) -> dict[str, str]:
-        from osprey.deployment.compose_generator import _stage_site_image_args_for_context
+    def _resolve(config: dict, out_dir: Path) -> dict[str, str]:
+        from osprey.deployment.compose_generator import _site_image_args_for_context
 
-        return _stage_site_image_args_for_context(config, str(out_dir))
+        return _site_image_args_for_context(config, str(out_dir))
 
     def test_a_deployment_that_declares_nothing_gets_no_args(self, tmp_path: Path) -> None:
         """An unconfigured deployment renders exactly the args block it always did."""
         context = self._context(tmp_path)
 
-        assert self._stage({"project_name": "p"}, context) == {}
+        assert self._resolve({"project_name": "p"}, context) == {}
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
 
     def test_a_context_that_builds_nothing_is_left_alone(self, tmp_path: Path) -> None:
@@ -8564,7 +8564,9 @@ class TestStageSiteImageArgsForContext:
         source = tmp_path / "site-ca.pem"
         source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
 
-        assert self._stage({"project_name": "p", "images": {"site_ca": str(source)}}, context) == {}
+        assert (
+            self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context) == {}
+        )
         assert list(context.iterdir()) == []
 
     def test_the_pip_axes_are_carried_through_verbatim(self, tmp_path: Path) -> None:
@@ -8578,18 +8580,17 @@ class TestStageSiteImageArgsForContext:
             },
         }
 
-        assert self._stage(config, self._context(tmp_path)) == {
+        assert self._resolve(config, self._context(tmp_path)) == {
             "PIP_NO_PROXY": "internal.example.org",
             "PIP_INDEX_URL": "https://mirror.example.org/simple",
             "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
         }
 
-    def test_the_site_ca_is_staged_and_named_by_its_context_filename(self, tmp_path: Path) -> None:
+    def test_the_site_ca_is_named_by_its_context_filename(self, tmp_path: Path) -> None:
         """The operator's host path never reaches the rendered fragment.
 
         ``COPY`` cannot reach outside the build context, so the value the
-        Dockerfile is handed has to name a file inside it. Staging the copy and
-        rewriting the value are one step for that reason.
+        Dockerfile is handed names the file every start stages inside it.
         """
         from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
 
@@ -8598,103 +8599,36 @@ class TestStageSiteImageArgsForContext:
         source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
         context = self._context(tmp_path)
 
-        args = self._stage({"project_name": "p", "images": {"site_ca": str(source)}}, context)
+        args = self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context)
 
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
-        staged = context / SITE_CA_CONTEXT_FILENAME
-        assert staged.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
 
-    def test_a_site_ca_that_is_not_on_this_host_still_renders(self, tmp_path: Path, caplog) -> None:
+    def test_a_render_copies_no_ca_into_the_context(self, tmp_path: Path) -> None:
+        """A context holds the operator's CA only while a build reads it, and a
+        render is not a build: the copy is made by the start that builds."""
+        source = tmp_path / "site-ca.pem"
+        source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+        context = self._context(tmp_path)
+
+        self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context)
+
+        assert [path.name for path in context.iterdir()] == ["Dockerfile"]
+
+    def test_a_site_ca_that_is_not_on_this_host_renders_the_same(self, tmp_path: Path) -> None:
         """A render is not a build, and the two run on different hosts.
 
         ``osprey build`` renders wherever the deployment is rendered — a CI
         runner, a developer's checkout — where the deploy host's bundle is not.
         The rendered value is the context filename on every host, so the
-        compose bytes do not depend on who rendered them; only the copy beside
-        them does, and the build that consumes it stages it again. A context
-        that reaches a builder without one fails installing the CA, on the host
-        that is actually building.
+        compose bytes do not depend on who rendered them.
         """
         from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
 
-        context = self._context(tmp_path)
-
-        with caplog.at_level(logging.WARNING):
-            args = self._stage(
-                {"project_name": "p", "images": {"site_ca": "/nope/ca.pem"}}, context
-            )
+        args = self._resolve(
+            {"project_name": "p", "images": {"site_ca": "/nope/ca.pem"}}, self._context(tmp_path)
+        )
 
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
-        assert [path.name for path in context.iterdir()] == ["Dockerfile"]
-        assert "/nope/ca.pem" in caplog.text
-
-    @staticmethod
-    def _unstage(compose_file: Path, out_dir: Path, args: dict[str, str]) -> None:
-        from osprey.deployment.compose_generator import _unstage_site_ca_without_build
-
-        _unstage_site_ca_without_build(str(compose_file), str(out_dir), args)
-
-    @staticmethod
-    def _staged_ca_config(root: Path) -> dict:
-        source = root / "elsewhere" / "site-ca.pem"
-        source.parent.mkdir()
-        source.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
-        return {"project_name": "p", "images": {"site_ca": str(source)}}
-
-    def test_a_fragment_that_builds_nothing_keeps_no_staged_ca(self, tmp_path: Path) -> None:
-        """A context whose rendered fragment builds nothing holds no CA copy.
-
-        The context keeps its ``Dockerfile`` when its fragment runs a named
-        image instead, so staging cannot tell from the directory alone; the
-        rendered document decides once it exists.
-        """
-        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
-
-        context = self._context(tmp_path)
-        args = self._stage(self._staged_ca_config(tmp_path), context)
-        compose_file = context / "docker-compose.yml"
-        compose_file.write_text(
-            "services:\n  virtual-accelerator:\n    image: my-registry/va:1\n",
-            encoding="utf-8",
-        )
-
-        self._unstage(compose_file, context, args)
-
-        assert not (context / SITE_CA_CONTEXT_FILENAME).exists()
-
-    def test_a_fragment_that_builds_keeps_its_staged_ca(self, tmp_path: Path) -> None:
-        """A build that reads the CA finds it beside the fragment that names it."""
-        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
-
-        context = self._context(tmp_path)
-        args = self._stage(self._staged_ca_config(tmp_path), context)
-        compose_file = context / "docker-compose.yml"
-        compose_file.write_text(
-            "services:\n  virtual-accelerator:\n    image: p-va:local\n"
-            "    build:\n      context: ./build/services/virtual_accelerator\n",
-            encoding="utf-8",
-        )
-
-        self._unstage(compose_file, context, args)
-
-        assert (context / SITE_CA_CONTEXT_FILENAME).is_file()
-
-    def test_an_unstaged_ca_named_file_is_never_removed(self, tmp_path: Path) -> None:
-        """A file this render did not stage is the service's own, and stays."""
-        from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
-
-        context = self._context(tmp_path)
-        own = context / SITE_CA_CONTEXT_FILENAME
-        own.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
-        compose_file = context / "docker-compose.yml"
-        compose_file.write_text(
-            "services:\n  virtual-accelerator:\n    image: my-registry/va:1\n",
-            encoding="utf-8",
-        )
-
-        self._unstage(compose_file, context, {})
-
-        assert own.is_file()
 
 
 class TestEnsureGroupSharedDirExact:

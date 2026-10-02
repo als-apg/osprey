@@ -706,14 +706,26 @@ class BlockingClient:
     is_configured = True
     base_url = "http://127.0.0.1:8180"
 
-    def __init__(self, probe_seconds: float = 0.2, query_seconds: float = 0.2) -> None:
+    def __init__(
+        self,
+        probe_seconds: float = 0.2,
+        query_seconds: float = 0.2,
+        probe_release: threading.Event | None = None,
+    ) -> None:
         self._probe = probe_seconds
         self._query = query_seconds
+        self._probe_release = probe_release
+        self.probe_released: bool | None = None
         self.threads: dict[str, str] = {}
 
     def is_available(self) -> bool:
         self.threads["is_available"] = threading.current_thread().name
-        time.sleep(self._probe)
+        if self._probe_release is None:
+            time.sleep(self._probe)
+        else:
+            # Blocks until released or the bound runs out; the bound is the
+            # probe's duration, so a probe nobody releases still returns.
+            self.probe_released = self._probe_release.wait(self._probe)
         return True
 
     def query(self, collection: str | None, text: str, **kwargs: Any) -> list[QMDSearchResult]:  # noqa: ARG002 - the QMD client query signature
@@ -747,30 +759,38 @@ class TestEventLoopIsNotBlocked:
     async def test_other_coroutines_keep_running_during_a_slow_probe(self):
         """The thread assertion says where the work went; this says it mattered.
 
-        Only the *probe* blocks here — the query returns at once — so the
-        counter is measuring the probe alone. Ticking every 10 ms across a
-        200 ms probe it reaches the tens when the loop is free and 0-1 when it
-        is not, which separates the two outcomes by a wide margin without
-        asserting on a wall-clock duration. Letting the query block too would
-        hide the regression: its 200 ms off-loop would feed the counter even
-        with the probe back on the loop.
+        The probe blocks until another coroutine has made progress: a counter
+        on the loop releases it after a few ticks. With the probe off the loop
+        the counter runs and the probe returns released; with the probe back on
+        the loop the counter can never tick, so the probe sits out its whole
+        bound and returns unreleased. The verdict is which way the probe
+        returned, never how many ticks fit in a wall-clock window, so a slow
+        runner only delays the release rather than failing the test. Only the
+        *probe* blocks — the query returns at once — so the release measures
+        the probe alone.
         """
-        ticks = 0
+        released_after = 5
+        release = threading.Event()
 
         async def counter() -> None:
-            nonlocal ticks
+            ticks = 0
             while True:
                 await asyncio.sleep(0.01)
                 ticks += 1
+                if ticks >= released_after:
+                    release.set()
 
-        client = BlockingClient(probe_seconds=0.2, query_seconds=0.0)
+        client = BlockingClient(probe_seconds=10.0, query_seconds=0.0, probe_release=release)
         ticker = asyncio.create_task(counter())
         try:
             await hybrid_search("beam", StubRepository([]), make_config(), client=client)
         finally:
             ticker.cancel()
 
-        assert ticks >= 5, f"event loop was starved during the health probe (only {ticks} ticks)"
+        assert client.probe_released, (
+            "event loop was starved during the health probe "
+            f"(no {released_after} ticks within the probe's 10 s bound)"
+        )
 
 
 # --------------------------------------------------------------------------
