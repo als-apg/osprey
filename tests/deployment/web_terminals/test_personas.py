@@ -692,7 +692,7 @@ def test_resolve_personas_local_mode_without_catalog_strict_raises() -> None:
 def test_resolve_personas_local_mode_without_catalog_lenient_degrades() -> None:
     """The lenient variant (lifecycle verbs) must never raise on the same
     misconfiguration — a bad/missing persona setup can't block decommission,
-    prune, or nuke — and instead falls back to the zero-migration values."""
+    prune, or nuke — and instead falls back to the no-persona values."""
     # Arrange
     web_terminals = {"users": ["alice"], "image_source": "local"}
 
@@ -729,7 +729,7 @@ def test_resolve_personas_unknown_persona_ref_strict_raises() -> None:
 
 
 def test_resolve_personas_unknown_persona_ref_lenient_degrades() -> None:
-    """The lenient variant degrades an unknown persona ref to the zero-migration
+    """The lenient variant degrades an unknown persona ref to the no-persona
     values instead of raising, but keeps the requested (bad) name visible."""
     # Arrange
     web_terminals = {
@@ -773,7 +773,7 @@ def test_resolve_personas_preserves_normalize_users_index_freezing() -> None:
 
 def test_resolve_personas_exposes_display_name_when_set() -> None:
     """A roster entry's `display_name` is threaded onto the resolved svc dict as a
-    `display_name` key (here on the no-persona zero-migration path)."""
+    `display_name` key (here on the no-persona path)."""
     # Arrange
     web_terminals = {"users": [{"name": "alice", "index": 0, "display_name": "Operations"}]}
 
@@ -798,7 +798,7 @@ def test_resolve_personas_exposes_display_name_when_set() -> None:
 
 def test_resolve_personas_display_name_threads_through_persona_branch() -> None:
     """`display_name` is orthogonal to persona resolution — it rides through a
-    fully-resolved non-default persona entry too, not only the zero-migration path."""
+    fully-resolved non-default persona entry too, not only the no-persona path."""
     # Arrange
     web_terminals = {
         "users": [
@@ -841,7 +841,7 @@ def test_resolve_personas_omits_display_name_key_when_unset_or_empty() -> None:
 
 def test_resolve_personas_exposes_theme_when_set() -> None:
     """A roster entry's `theme` is threaded onto the resolved svc dict as a
-    `theme` key (here on the no-persona zero-migration path)."""
+    `theme` key (here on the no-persona path)."""
     # Arrange
     web_terminals = {"users": [{"name": "alice", "index": 0, "theme": "desy-light"}]}
 
@@ -885,7 +885,7 @@ def test_resolve_personas_exposes_tour_when_set() -> None:
 
 def test_resolve_personas_theme_threads_through_persona_branch() -> None:
     """`theme` is orthogonal to persona resolution — it rides through a
-    fully-resolved non-default persona entry too, not only the zero-migration path."""
+    fully-resolved non-default persona entry too, not only the no-persona path."""
     # Arrange
     web_terminals = {
         "users": [{"name": "gmartino", "index": 0, "persona": "gui", "theme": "desy"}],
@@ -988,7 +988,7 @@ def test_resolve_personas_default_persona_also_carries_extra_mounts() -> None:
 
 
 def test_resolve_personas_no_persona_defaults_extra_mounts_to_empty_list() -> None:
-    """The zero-migration path (no persona in effect) resolves `extra_mounts` to
+    """The no-persona path (no persona in effect) resolves `extra_mounts` to
     an empty list — there is no catalog entry to read host mounts from."""
     # Arrange
     web_terminals = {"users": ["alice"]}
@@ -1044,7 +1044,7 @@ def test_resolve_personas_extra_mounts_defensive_reads() -> None:
 
 
 def test_resolve_personas_lenient_degrade_extra_mounts_empty() -> None:
-    """An unresolvable persona ref degrading to the zero-migration values carries
+    """An unresolvable persona ref degrading to the no-persona values carries
     an empty `extra_mounts` (no catalog entry to read from)."""
     # Arrange
     web_terminals = {
@@ -1181,7 +1181,7 @@ def test_resolve_personas_seed_base_non_bool_coerces_to_true() -> None:
 
 
 def test_resolve_personas_no_persona_entry_is_seed_base_true() -> None:
-    """The zero-migration path (no persona in effect) always keeps the base
+    """The no-persona path (no persona in effect) always keeps the base
     prepend — seed_base is only opt-out-able through a catalog entry."""
     # Act
     result = resolve_personas({"users": ["alice"]}, _REGISTRY, "demo-project")
@@ -1293,10 +1293,10 @@ def test_no_reader_of_the_retired_login_key_survives() -> None:
 
 
 def test_resolve_personas_carries_no_login_marker() -> None:
-    """Neither resolution path — zero-migration or persona catalog — lets the
+    """Neither resolution path — no-persona or persona catalog — lets the
     retired key ride through onto a resolved entry."""
     # Act
-    zero_migration = resolve_personas(
+    no_persona = resolve_personas(
         {"users": [{"name": "ariel", "index": 0, "login": False}]}, _REGISTRY, "demo-project"
     )
     persona_branch = resolve_personas(
@@ -1309,7 +1309,7 @@ def test_resolve_personas_carries_no_login_marker() -> None:
     )
 
     # Assert
-    assert "login" not in zero_migration[0]
+    assert "login" not in no_persona[0]
     assert "login" not in persona_branch[0]
 
 
@@ -1744,10 +1744,10 @@ def test_entry_is_shared_refuses_an_unreadable_access(authored: Any) -> None:
 
 
 def test_resolve_personas_threads_access_any_through_both_branches() -> None:
-    """The sharing marker survives resolution on the zero-migration path and
+    """The sharing marker survives resolution on the no-persona path and
     the persona-catalog path alike, and stays absent when never declared."""
     # Act
-    zero_migration = resolve_personas(
+    no_persona = resolve_personas(
         {"users": [{"name": "control", "index": 0, "access": "any"}]}, _REGISTRY, "demo-project"
     )
     persona_branch = resolve_personas(
@@ -1761,7 +1761,7 @@ def test_resolve_personas_threads_access_any_through_both_branches() -> None:
     undeclared = resolve_personas({"users": ["alice"]}, _REGISTRY, "demo-project")
 
     # Assert
-    assert zero_migration[0]["access"] == "any"
+    assert no_persona[0]["access"] == "any"
     assert persona_branch[0]["access"] == "any"
     assert "access" not in undeclared[0]
 
@@ -1775,7 +1775,7 @@ def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
     authored = ["domain:Example.com", "user:alice@example.com"]
 
     # Act
-    zero_migration = resolve_personas(
+    no_persona = resolve_personas(
         {"users": [{"name": "control", "index": 0, "access": authored}]}, _REGISTRY, "demo-project"
     )
     persona_branch = resolve_personas(
@@ -1788,7 +1788,7 @@ def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
     )
 
     # Assert — carried verbatim, and still resolving to the same principals
-    for resolved in (zero_migration, persona_branch):
+    for resolved in (no_persona, persona_branch):
         assert resolved[0]["access"] == authored
         assert resolve_access_principals(resolved[0]) == frozenset(
             {"domain:example.com", "user:alice@example.com"}
@@ -1888,7 +1888,7 @@ def test_resolve_personas_exposes_oidc_subject_when_set() -> None:
 
 
 def test_resolve_personas_oidc_subject_threads_through_persona_branch() -> None:
-    """The passthrough is not confined to the zero-migration path — a user
+    """The passthrough is not confined to the no-persona path — a user
     resolved through a catalog persona keeps its mapping too."""
     # Arrange
     web_terminals = {

@@ -241,7 +241,7 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
     field ``resolve_personas`` doesn't carry through, since it belongs to the
     build path, not the render path.
 
-    An entry whose ``persona`` is ``None`` (zero-migration, no persona system
+    An entry whose ``persona`` is ``None`` (the no-persona path, no persona system
     in effect for that user) or whose catalog lookup misses (a stale/bad
     reference a lenient, lifecycle-style resolution left in place) is skipped
     rather than raised — well-formedness is lint's job; this function only

@@ -72,11 +72,10 @@ WEB_COMPOSE_FILENAME = "docker-compose.web.yml"
 
 #: The offender :class:`BashLaunchTokenConflictError` and
 #: :class:`OpenModeEgressError` name for the roster entries that run no persona
-#: (the zero-migration path). Those entries share
-#: the deploy project's own image, config and ``.claude/settings.json``, so
-#: they are one offender however many of them there are — and a spelling no
-#: persona catalog key can collide with.
-ZERO_MIGRATION_OFFENDER = "(no persona: the deploy project)"
+#: (the no-persona path). Those entries share the deploy project's own image,
+#: config and ``.claude/settings.json``, so they are one offender however many
+#: of them there are — and a spelling no persona catalog key can collide with.
+NO_PERSONA_OFFENDER = "(no persona: the deploy project)"
 
 #: The one deploy-config key that waives the Bash/launch-token refusal. Root of
 #: the deploy config, boolean ``true`` and nothing else (see
@@ -147,7 +146,7 @@ class BashLaunchTokenConflictError(DeploymentError):
 
     Persona-less roster entries are bound too. Both sides of the persona
     intersection are keyed on persona names, so an entry naming no persona —
-    the zero-migration path, where the web image *is* the deploy project —
+    the no-persona path, where the web image *is* the deploy project —
     appears in neither set; the guard therefore asks the same two questions of
     the deploy project itself, once per lane: entitlement via
     :func:`~osprey.deployment.web_terminals.personas.config_needs_launch_token_for`
@@ -155,7 +154,7 @@ class BashLaunchTokenConflictError(DeploymentError):
     :func:`~osprey.deployment.web_terminals.render.render_web_terminals` grants
     that entry its per-lane tokens, and the deny via the deploy project's own
     ``.claude/settings.json``. A conflict is reported under
-    :data:`ZERO_MIGRATION_OFFENDER` — one offender however many persona-less
+    :data:`NO_PERSONA_OFFENDER` — one offender however many persona-less
     entries there are, named on every lane that entitles it.
 
     Two boundaries this guard does **not** cover, neither of them accidental:
@@ -178,7 +177,7 @@ class BashLaunchTokenConflictError(DeploymentError):
         personas: The offending persona names, across every lane — every persona
             that is both entitled to some lane's launch token and shipping a
             settings artifact that does not deny ``Bash`` — plus
-            :data:`ZERO_MIGRATION_OFFENDER` when the persona-less entries are in
+            :data:`NO_PERSONA_OFFENDER` when the persona-less entries are in
             that state on some lane. All of them are named in the message; an
             operator fixing one at a time would otherwise redeploy once per
             offender to discover the next.
@@ -221,15 +220,15 @@ class BashLaunchTokenConflictError(DeploymentError):
             else "control_system.connector.<type>.writes_enabled: false for the "
             "target the lane drives"
         )
-        zero_migration_note = (
+        no_persona_note = (
             (
-                f" {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run "
+                f" {NO_PERSONA_OFFENDER!r} stands for the roster entries that run "
                 f"no persona at all: they run the deploy project itself, so the "
                 f"entitlement is the deploy config's own write posture for the target "
                 f"each named lane drives and its bluesky server, and the settings.json "
                 f"read is the deploy project's .claude/settings.json."
             )
-            if ZERO_MIGRATION_OFFENDER in self.personas
+            if NO_PERSONA_OFFENDER in self.personas
             else ""
         )
         super().__init__(
@@ -251,7 +250,7 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
             f"moving that persona off the bluesky server "
             f"(claude_code.servers.bluesky.enabled: false) or off that lane's writes "
-            f"({writes_remedy}).{zero_migration_note}"
+            f"({writes_remedy}).{no_persona_note}"
         )
 
 
@@ -305,7 +304,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
         hands the *same* sets down, and what the guard cleared cannot drift from
         what the render grants. A lane nobody may arm is absent, per
         :func:`~osprey.deployment.web_terminals.personas.personas_needing_launch_token_by_lane`.
-        :data:`ZERO_MIGRATION_OFFENDER` is deliberately NOT in it: this value is
+        :data:`NO_PERSONA_OFFENDER` is deliberately NOT in it: this value is
         handed to :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
         as ``launch_token_personas`` and matched against real persona names, and
         a persona-less entry's grant is answered there from the deploy config
@@ -315,7 +314,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
         BashLaunchTokenConflictError: One or more personas entitled on SOME lane
             ship a ``.claude/settings.json`` that does not deny ``Bash``, or the
             roster's persona-less entries are in that same state (reported as
-            :data:`ZERO_MIGRATION_OFFENDER`, see :func:`_personaless_lanes`).
+            :data:`NO_PERSONA_OFFENDER`, see :func:`_personaless_lanes`).
             Any lane's token is enough: a shell reads whichever one the container
             holds, and every lane arms real hardware motion on its own target.
     """
@@ -332,7 +331,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
     # The persona intersection above cannot see roster entries that run no
     # persona; they are bound per lane against the deploy project itself.
     for lane in _personaless_lanes(config, project_root):
-        offenders_by_lane.setdefault(lane, set()).add(ZERO_MIGRATION_OFFENDER)
+        offenders_by_lane.setdefault(lane, set()).add(NO_PERSONA_OFFENDER)
     if offenders_by_lane and not waived:
         # Read once more, only on the refusal path: the remedy names the key
         # that decides THAT lane's posture in THAT persona's config, and a lane
@@ -348,7 +347,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
                         # which resolves to the wrong key rather than to none.
                         launch_token_writes_key(
                             config
-                            if persona == ZERO_MIGRATION_OFFENDER
+                            if persona == NO_PERSONA_OFFENDER
                             else persona_configs.get(persona),
                             lane,
                         )
@@ -389,7 +388,7 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
         Every persona both entitled to SOME lane's launch token and shipping
         settings that do not deny ``Bash`` — the union across lanes, because one
         token in the container's environment is one shell away from arming its
-        lane — plus :data:`ZERO_MIGRATION_OFFENDER` when the roster's
+        lane — plus :data:`NO_PERSONA_OFFENDER` when the roster's
         persona-less entries are in that state on some lane (see
         :func:`_personaless_lanes`). Empty when there is no conflict.
     """
@@ -423,7 +422,7 @@ def _offenders_ignoring_the_waiver(config: Any, project_root: Path | str) -> set
     entitled = set().union(*personas_needing_launch_token_by_lane(config, project_root).values())
     offenders = entitled & personas_not_denying_bash(config, project_root)
     if _personaless_lanes(config, project_root):
-        offenders.add(ZERO_MIGRATION_OFFENDER)
+        offenders.add(NO_PERSONA_OFFENDER)
     return offenders
 
 
@@ -434,7 +433,7 @@ def _personaless_lanes(config: Any, project_root: Path | str) -> set[str]:
     ask-only reader cannot disagree about what a persona-less conflict is.
 
     The persona intersection is keyed on persona names, so a roster entry naming
-    no persona — the zero-migration path, where the web image *is* the deploy
+    no persona — the no-persona path, where the web image *is* the deploy
     project — appears on neither side of it. Such an entry is entitled exactly
     the way :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
     grants it its tokens: :func:`config_needs_launch_token_for` on the deploy
@@ -551,7 +550,7 @@ class OpenModeEgressError(DeploymentError):
     Persona-less roster entries are bound the same way they are there: an entry
     naming no persona runs the deploy project itself, so the settings artifact
     read for it is the deploy project's own ``.claude/settings.json`` and it is
-    reported under :data:`ZERO_MIGRATION_OFFENDER`.
+    reported under :data:`NO_PERSONA_OFFENDER`.
 
     Two boundaries carried forward from the Bash guard unchanged, because this
     gate reads the same artifact:
@@ -571,7 +570,7 @@ class OpenModeEgressError(DeploymentError):
         missing_by_persona: :func:`open_mode_missing_by_persona`'s answer — the
             subset of :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS`
             each offender fails to deny, keyed by offender, with
-            :data:`ZERO_MIGRATION_OFFENDER` standing for the persona-less entries and
+            :data:`NO_PERSONA_OFFENDER` standing for the persona-less entries and
             :data:`UNRENDERED_SETTINGS` for an offender with no rendered
             artifact at all (which gets the render remedy instead of a deny
             list it cannot edit). Every offender is named, so an operator
@@ -608,14 +607,14 @@ class OpenModeEgressError(DeploymentError):
             )
             for persona, tools in self.missing_by_persona.items()
         )
-        zero_migration_note = (
+        no_persona_note = (
             (
-                f" {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run "
+                f" {NO_PERSONA_OFFENDER!r} stands for the roster entries that run "
                 f"no persona at all: they run the deploy project itself, so the "
                 f"settings.json read for them is the deploy project's own "
                 f".claude/settings.json."
             )
-            if ZERO_MIGRATION_OFFENDER in self.personas
+            if NO_PERSONA_OFFENDER in self.personas
             else ""
         )
         super().__init__(
@@ -642,7 +641,7 @@ class OpenModeEgressError(DeploymentError):
             f"the per-user services declare only `image:`, so nothing rebuilds at "
             f"start; a re-pull alone is not enough either, because the settings.json "
             f"read HERE is this host's render, which open mode requires in both "
-            f"image-source modes.{zero_migration_note}"
+            f"image-source modes.{no_persona_note}"
         )
 
 
@@ -740,7 +739,7 @@ def open_mode_offenders(config: Any, project_root: Path | str) -> set[str]:
         Every persona whose shipped settings do not deny the whole of
         :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` — including
         one with no rendered settings artifact at all — plus
-        :data:`ZERO_MIGRATION_OFFENDER` when the roster's persona-less entries
+        :data:`NO_PERSONA_OFFENDER` when the roster's persona-less entries
         are in that state. Empty when the deployment is not open, and empty when
         it is open and clean.
     """
@@ -795,7 +794,7 @@ def open_mode_missing_by_persona(
         _roster_has_personaless_entries(config)
         and (gap := _open_mode_gap(Path(project_root))) is not None
     ):
-        missing[ZERO_MIGRATION_OFFENDER] = gap
+        missing[NO_PERSONA_OFFENDER] = gap
     return missing
 
 

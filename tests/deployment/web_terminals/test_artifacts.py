@@ -10,8 +10,8 @@ import yaml
 
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, OPEN_MODE_EGRESS_TOOLS
 from osprey.deployment.web_terminals.artifacts import (
+    NO_PERSONA_OFFENDER,
     UNRENDERED_SETTINGS,
-    ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
     DangerouslyAllowBashValueError,
     OpenModeEgressError,
@@ -641,7 +641,7 @@ def test_a_correctly_configured_deployment_renders_without_the_guard_firing(tmp_
     assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
 
 
-def _zero_migration_config(tmp_path, *, writes_enabled: bool = True, denies_bash: bool = True):
+def _no_persona_config(tmp_path, *, writes_enabled: bool = True, denies_bash: bool = True):
     """A persona-less roster: the web image IS the deploy project.
 
     No persona catalog and no default_persona, so every entry runs the deploy
@@ -667,17 +667,17 @@ def _zero_migration_config(tmp_path, *, writes_enabled: bool = True, denies_bash
 
 
 def test_an_entitled_personaless_roster_without_the_bash_deny_refuses(tmp_path):
-    """The zero-migration half of the same conflict: no persona is in effect, the
+    """The no-persona half of the same conflict: no persona is in effect, the
     deploy config itself entitles every entry to the token, and the deploy
     project ships no shell deny (here: no settings.json at all, which counts the
     same — absence is not evidence of a deny). The guard must refuse rather than
     leaving the persona-less path silently unbound."""
-    config = _zero_migration_config(tmp_path, denies_bash=False)
+    config = _no_persona_config(tmp_path, denies_bash=False)
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
+    assert excinfo.value.personas == [NO_PERSONA_OFFENDER]
     assert "no persona" in str(excinfo.value)
     assert not (tmp_path / "build").exists()
 
@@ -685,16 +685,16 @@ def test_an_entitled_personaless_roster_without_the_bash_deny_refuses(tmp_path):
 def test_an_entitled_personaless_roster_shipping_the_bash_deny_deploys(tmp_path):
     """The negative control: the deploy project ships the shell deny every OSPREY
     build produces, so the entitled persona-less entry keeps its token."""
-    written = write_web_terminal_artifacts(_zero_migration_config(tmp_path), tmp_path)
+    written = write_web_terminal_artifacts(_no_persona_config(tmp_path), tmp_path)
 
     assert written
     assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
 
 
 def test_an_unentitled_personaless_roster_is_not_a_conflict(tmp_path):
-    """No entitlement, nothing for a shell to read — a bare zero-migration deploy
+    """No entitlement, nothing for a shell to read — a bare no-persona deploy
     with no write grant must keep deploying exactly as before."""
-    config = _zero_migration_config(tmp_path, writes_enabled=False, denies_bash=False)
+    config = _no_persona_config(tmp_path, writes_enabled=False, denies_bash=False)
 
     written = write_web_terminal_artifacts(config, tmp_path)
 
@@ -935,8 +935,8 @@ def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
-    assert excinfo.value.personas_by_lane == {"bluesky_va": [ZERO_MIGRATION_OFFENDER]}
+    assert excinfo.value.personas == [NO_PERSONA_OFFENDER]
+    assert excinfo.value.personas_by_lane == {"bluesky_va": [NO_PERSONA_OFFENDER]}
     message = str(excinfo.value)
     assert "BLUESKY_VA_LAUNCH_TOKEN" in message
     assert "control_system.connector.virtual_accelerator.writes_enabled" in message
@@ -944,7 +944,7 @@ def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_
     assert not (tmp_path / "build").exists()
     # The ask-only reader binds the same entry: one shared predicate, so the
     # collect-all preflight cannot clear what the raising guard refuses.
-    assert bash_launch_token_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
+    assert bash_launch_token_offenders(config, tmp_path) == {NO_PERSONA_OFFENDER}
 
 
 # ---------------------------------------------------------------------------
@@ -1216,7 +1216,7 @@ def test_open_mode_refuses_a_persona_that_denies_only_the_playwright_plugin(tmp_
 
 
 def test_open_mode_binds_the_roster_entries_that_run_no_persona(tmp_path):
-    """The zero-migration path: a bare-string roster entry runs the deploy project
+    """The no-persona path: a bare-string roster entry runs the deploy project
     itself, so it appears in no persona set and would otherwise walk through the
     gate untouched. Its artifact is the deploy project's own settings.json — absent
     here, which fails closed under the sentinel name."""
@@ -1226,13 +1226,13 @@ def test_open_mode_binds_the_roster_entries_that_run_no_persona(tmp_path):
     with pytest.raises(OpenModeEgressError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
+    assert excinfo.value.personas == [NO_PERSONA_OFFENDER]
     assert "no persona" in str(excinfo.value)
     # Refused BEFORE the render, so a rejected deploy leaves nothing half-written.
     assert not (tmp_path / "build").exists()
     # The ask-only reader binds the same entry: one shared predicate, so the
     # collect-all preflight cannot clear what the raising gate refuses.
-    assert open_mode_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
+    assert open_mode_offenders(config, tmp_path) == {NO_PERSONA_OFFENDER}
 
 
 def test_the_render_seam_refuses_an_open_deployment_before_writing_anything(tmp_path):

@@ -1380,7 +1380,7 @@ def test_lint_persona_seed_base_absent_is_accepted() -> None:
 
 def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     """A config predating persona catalogs (no `personas:` block, no `persona:`
-    keys, no `default_persona`) must resolve every entry as zero-migration and
+    keys, no `default_persona`) must resolve every entry on the no-persona path and
     trip none of the new persona checks."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)

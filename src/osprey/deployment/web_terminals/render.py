@@ -745,7 +745,7 @@ def _launch_token_env_vars(
     entitled persona every rendered lane's token would let a launch approved
     against one machine be replayed against the other.
 
-    A persona-less roster entry — the zero-migration path, where the web image IS
+    A persona-less roster entry — the no-persona path, where the web image IS
     the deploy project — is answered from this same config, with no disk read, so
     the determinism contract holds either way.
 
@@ -1249,7 +1249,7 @@ def render_web_terminals(
                 ],
                 # Whether this user's container gets the event dispatcher's
                 # bearer (see the `dispatcher_personas` arg). A persona-less
-                # roster entry — the zero-migration path, where the web image
+                # roster entry — the no-persona path, where the web image
                 # IS the deploy project — is answered from this same config,
                 # with no disk read, so the determinism contract holds either
                 # way.

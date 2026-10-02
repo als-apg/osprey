@@ -1565,7 +1565,7 @@ BUNDLE_REL = "data/facility/knowledge"
 #: Where that same directory lands inside a web-terminal container. Derived by
 #: render._container_bundle_dir as `<container_project_dir>/<bundle_path>`, and
 #: `container_project_dir` for this fixture's persona-less roster is
-#: `/app/<project>-assistant` (resolve_personas' zero-migration path) --
+#: `/app/<project>-assistant` (resolve_personas' no-persona path) --
 #: the directory Dockerfile.web_terminal_stub already creates.
 CONTAINER_BUNDLE_DIR = f"/app/{PROJECT}-assistant/{BUNDLE_REL}"
 
