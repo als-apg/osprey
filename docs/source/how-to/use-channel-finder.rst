@@ -155,7 +155,7 @@ signal a family's members share. A facility description with no such group
 stops the build with ``view-unsupported``. A facility that runs a Middle Layer
 already has that structure: ``osprey facility import mml``
 (:doc:`/how-to/import-mml-export`) brings it into the facility description,
-and the ``osprey mml`` verbs below write the rest of the deployment's files
+and the ``osprey mml`` verbs write the rest of the deployment's files
 from the same export.
 
 
@@ -170,7 +170,7 @@ repository: ``import`` reads the export, ``map`` records what it means,
 reads what the one before it wrote, so the order is the whole workflow. An
 export that also carries the facility's lattice adds a fourth, ``verify``, and
 a virtual accelerator to check --- see `From an Export to a Virtual
-Accelerator`_ below.
+Accelerator`_.
 
 **Import.** First export the Middle Layer as JSON on the MATLAB machine. The
 exporter ships with OSPREY --- ``osprey scaffold pull
