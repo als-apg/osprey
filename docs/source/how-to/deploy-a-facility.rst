@@ -206,6 +206,18 @@ limit layers a live machine would use. The preset already ships this value; it
 is written out here because it is the line that changes when the deployment
 goes live (`Changing something later`_).
 
+The facility's display name is not a config key. Open
+``data/facility/identity.yaml`` (``osprey init`` wrote it with the facility
+code) and add the name:
+
+.. code-block:: yaml
+
+   code: ca
+   name: Demo Facility
+
+This name is what the agent prompts, the web landing page and the dispatcher
+dashboard show. A file without ``name`` shows the project name.
+
 A deployment describes **one real machine**. ``control_system.type`` names it,
 or — on a simulated baseline like this one — the single non-simulated block
 under ``control_system.connector`` does, and the three control targets
