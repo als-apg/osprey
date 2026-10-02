@@ -117,6 +117,14 @@ def test_the_in_context_index_is_checked(
     assert header_problem("data/channel_finder/in_context.json", target.read_bytes()) is None
 
 
+def test_every_render_carries_the_graph_view_under_its_hash_line(
+    built_control_assistant: BuiltProject,
+) -> None:
+    for render in built_control_assistant.outputs:
+        content = render.files["data/graph/facility.ttl"]
+        assert content.decode("utf-8").startswith("# osprey:facility-sha256 ")
+
+
 def test_every_binary_exemption_is_written(built_control_assistant: BuiltProject) -> None:
     build_dir = built_control_assistant.build_dir
     assert [

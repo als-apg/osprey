@@ -8,18 +8,24 @@ carries exactly the ``narad_p:`` predicates of :data:`PREDICATES`.
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from rdflib import RDF, Graph, Namespace, URIRef
+import pytest
+from rdflib import RDF, Graph, Literal, Namespace, URIRef
 
 from osprey.facility.render import facility_bytes
-from osprey.facility.views import ViewInputs
+from osprey.facility.views import VIEWS, ViewInputs
 from osprey.facility.views.graph import GRAPH_FILE, HEADER_PREFIX, graph_text, write_graph_view
 from osprey.facility.views.graph_iri import iri
 
+if TYPE_CHECKING:
+    from tests.facility.conftest import BuiltProject
+
 P = Namespace("https://narad.example.org/property/")
 SEM = Namespace("https://narad.example.org/schema/shared_semantics/")
+GRAPH_VIEW = "data/graph/facility.ttl"
 
 #: Every ``narad_p:`` predicate the view writes.
 PREDICATES = {
@@ -229,3 +235,68 @@ def test_the_view_writes_one_file(tmp_path: Path) -> None:
 
     assert written == [tmp_path / "graph" / GRAPH_FILE]
     assert written[0].read_text(encoding="utf-8") == graph_text(doc)
+
+
+def test_the_graph_view_is_always_written() -> None:
+    [view] = [view for view in VIEWS if view.name == "graph"]
+
+    assert view.path == "graph"
+    assert view.written_when(ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[]))
+
+
+# xdist_group("built_control_assistant"): every module reading the session's one
+# control-assistant build shares a worker, so the build runs once per run.
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+class TestTheBuiltGraph:
+    @pytest.fixture(scope="class")
+    def text(self, built_control_assistant: BuiltProject) -> str:
+        return (built_control_assistant.build_dir / GRAPH_VIEW).read_text(encoding="utf-8")
+
+    @pytest.fixture(scope="class")
+    def graph(self, text: str) -> Graph:
+        return _graph(text)
+
+    def test_the_build_writes_the_view_under_its_header(
+        self, built_control_assistant: BuiltProject, text: str
+    ) -> None:
+        digest = hashlib.sha256(built_control_assistant.facility_raw).hexdigest()
+
+        assert text.split("\n", 1)[0] == HEADER_PREFIX + digest
+
+    def test_the_predicates_are_exactly_the_kept_and_new_ones(self, graph: Graph) -> None:
+        assert _narad_predicates(graph) == PREDICATES
+
+    def test_every_setpoint_and_readback_with_a_signal_has_one_signal_edge(
+        self, built_control_assistant: BuiltProject, graph: Graph
+    ) -> None:
+        facility = built_control_assistant.facility
+        code = facility["identity"]["code"]
+        edges = Counter(
+            subject
+            for predicate in (P.readsSignal, P.writesSignal)
+            for subject, _ in graph.subject_objects(predicate)
+        )
+        signalled = [
+            channel
+            for channel in facility["channels"]
+            if channel.get("signal") and channel.get("role", "readback") != "none"
+        ]
+
+        assert signalled
+        for channel in signalled:
+            node = URIRef(iri(code, "channel", channel["id"]))
+            predicate = P.writesSignal if channel.get("role") == "setpoint" else P.readsSignal
+            assert edges[node] == 1, channel["id"]
+            assert list(graph.objects(node, predicate)) == [SEM[channel["signal"]]]
+        assert sum(edges.values()) == len(signalled)
+
+    def test_every_device_carries_the_facility_code(
+        self, built_control_assistant: BuiltProject, graph: Graph
+    ) -> None:
+        facility = built_control_assistant.facility
+        code = facility["identity"]["code"]
+
+        assert set(graph.subjects(P.facility, Literal(code))) == {
+            URIRef(iri(code, "device", device["id"])) for device in facility["devices"]
+        }
