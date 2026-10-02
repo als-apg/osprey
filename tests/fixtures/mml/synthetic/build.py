@@ -30,11 +30,15 @@ committed files are still exactly what this script writes::
     uv run python tests/fixtures/mml/synthetic/build.py --check
 
 ``--check`` is the fixture's determinism gate: it rebuilds into a temporary
-directory and compares every byte. Everything a clock or a machine would
-otherwise decide is pinned -- the ``_export`` timestamp, the MAT-file's header
-text, and the arithmetic: the one curved conversion is summed from products and
-sums, and every other transcendental goes through the C library -- so a rebuild
-on another day on another machine writes the same bytes.
+directory and compares every committed byte, save the tracking-derived numbers
+of the model file, which it compares to a relative tolerance. Everything a
+clock or a machine would otherwise decide is pinned -- the ``_export``
+timestamp, the MAT-file's header text, and the arithmetic: the one curved
+conversion is summed from products and sums, and every other transcendental
+goes through the C library -- so a rebuild on another day on another machine
+writes the same bytes. Tracking alone runs through the platform's own libm and
+BLAS, so its answers agree across machines to the tolerance and not to the
+digit.
 """
 
 from __future__ import annotations
@@ -1956,8 +1960,55 @@ def build(outdir: Path) -> list[Path]:
     return [outdir / name for name in FILES]
 
 
+#: The relative tolerance a rebuilt model file's tracking-derived numbers are
+#: held to: tracking runs through the platform's libm and BLAS, which disagree
+#: in the last digits the model file writes.
+TRACKED_RTOL = 1.0e-6
+
+#: The sections of the model file whose numbers come out of tracking.
+TRACKED_SECTIONS = ("tune", "chromaticity", "dispersion")
+
+
+def _close(committed: Any, rebuilt: Any) -> bool:
+    """Whether two parsed values share a shape and agree within ``TRACKED_RTOL``."""
+    numbers = (int, float)
+    if isinstance(committed, bool) or isinstance(rebuilt, bool):
+        return committed == rebuilt
+    if isinstance(committed, numbers) and isinstance(rebuilt, numbers):
+        return math.isclose(committed, rebuilt, rel_tol=TRACKED_RTOL, abs_tol=0.0)
+    if isinstance(committed, dict) and isinstance(rebuilt, dict):
+        return list(committed) == list(rebuilt) and all(
+            _close(committed[key], rebuilt[key]) for key in committed
+        )
+    if isinstance(committed, list) and isinstance(rebuilt, list):
+        return len(committed) == len(rebuilt) and all(
+            _close(mine, theirs) for mine, theirs in zip(committed, rebuilt, strict=True)
+        )
+    return committed == rebuilt
+
+
+def same_file(committed: Path, rebuilt: Path) -> bool:
+    """Whether a committed fixture file is what the generator rebuilt.
+
+    Every file must match byte for byte, except that the tracking-derived
+    sections of the model file are held to ``TRACKED_RTOL``: the committed
+    model file must be exactly what the writer makes of the rebuilt document
+    with the committed tracking numbers put back in, and those numbers must
+    agree with the rebuilt ones within the tolerance.
+    """
+    if rebuilt.name != f"{STEM}.model.json":
+        return committed.read_bytes() == rebuilt.read_bytes()
+    mine = json.loads(committed.read_text(encoding="utf-8"))
+    theirs = json.loads(rebuilt.read_text(encoding="utf-8"))
+    if not all(_close(mine.get(key), theirs.get(key)) for key in TRACKED_SECTIONS):
+        return False
+    body = {key: value for key, value in theirs.items() if key != "_export"}
+    body.update({key: mine[key] for key in TRACKED_SECTIONS})
+    return committed.read_bytes() == (document(body) + "\n").encode("utf-8")
+
+
 def check() -> int:
-    """Rebuild into a temporary directory and compare every committed byte."""
+    """Rebuild into a temporary directory and compare it with the committed files."""
     with tempfile.TemporaryDirectory() as workdir:
         rebuilt = build(Path(workdir))
         failures = []
@@ -1965,13 +2016,13 @@ def check() -> int:
             committed = HERE / path.name
             if not committed.exists():
                 failures.append(f"{path.name}: not committed")
-            elif committed.read_bytes() != path.read_bytes():
+            elif not same_file(committed, path):
                 failures.append(f"{path.name}: differs from the committed file")
         for line in failures:
             print(line, file=sys.stderr)
         if failures:
             return 1
-        print(f"{len(rebuilt)} files regenerate byte-identically")
+        print(f"{len(rebuilt)} files regenerate as committed")
         return 0
 
 
@@ -1980,7 +2031,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="rebuild into a temporary directory and compare the bytes",
+        help="rebuild into a temporary directory and compare it with the committed files",
     )
     parser.add_argument(
         "outdir",

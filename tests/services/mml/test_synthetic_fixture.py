@@ -9,10 +9,11 @@ test keeps passing against a fixture that no longer describes what the script
 says it describes.
 
 So the generator's own ``--check`` mode runs here: it rebuilds the fixture
-into a temporary directory and compares every committed byte. Everything a
-clock or a machine would otherwise decide is pinned in the script, so a
-rebuild on another day on another machine writes the same bytes and a failure
-here is a real disagreement rather than a timestamp.
+into a temporary directory and compares every committed byte, save the model
+file's tracking-derived numbers, which it holds to a relative tolerance because
+tracking runs through the platform's own libm and BLAS. Everything else a clock
+or a machine would otherwise decide is pinned in the script, so a failure here
+is a real disagreement rather than a timestamp or a platform's last digits.
 """
 
 from __future__ import annotations
@@ -37,7 +38,11 @@ def _generator() -> dict[str, Any]:
 
 
 def test_the_committed_fixture_regenerates_byte_for_byte() -> None:
-    """Run the generator's determinism gate the way its docstring documents it."""
+    """Run the generator's determinism gate the way its docstring documents it.
+
+    Every committed byte must come back, save the model file's tracking-derived
+    numbers, which must agree within the generator's ``TRACKED_RTOL``.
+    """
     result = subprocess.run(
         [sys.executable, str(GENERATOR), "--check"],
         capture_output=True,
