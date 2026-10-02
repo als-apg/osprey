@@ -3,10 +3,7 @@
 Both presets serve the same demo storage ring. ``generate_from_spec`` writes the
 tier-3 ``hierarchical.json`` under control-assistant's data tree, and the
 standalone preset carries its own committed copy so its ``data/`` tree is
-self-contained. The standalone preset also ships ``data/facility_ontology.json``,
-which is pinned to the packaged ontology table, and that table names exactly the
-families of the tier-3 database. A standalone copy that fell behind the tier-3
-file would leave the standalone agent naming device families its own channel
+self-contained. A standalone copy that fell behind the tier-3 file would leave the standalone agent naming device families its own channel
 database does not hold.
 """
 

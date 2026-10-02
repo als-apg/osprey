@@ -95,10 +95,6 @@ config:
   # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
   # Only the multi-user web-terminal stack reads it.
   # facility.prefix: ex
-  # This facility's compiled ontology table feeds the channel-finder subagent's
-  # vocabulary. No channel finder here: the graph agent reads the vocabulary
-  # out of the seeded store instead, so the key stays an example.
-  # facility.ontology: data/facility_ontology.json
 
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
