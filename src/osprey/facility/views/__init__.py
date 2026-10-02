@@ -4,9 +4,11 @@ Every view is one row of :data:`VIEWS`: its name, its directory under the
 render's ``data/``, the predicate that decides whether a render carries it and
 the writer that writes it. :func:`osprey.facility.render.render_facility_outputs`
 is the only caller: it asks each view's predicate of every render, writes the
-views whose predicate holds and names each other one in a note on stderr, which
-``osprey build`` and ``osprey facility validate`` both keep while ``validate``
-drops the render's stdout.
+views whose predicate holds and names each other one in a note on stderr, once
+per build — except a view a selector (``View.selected_by``) did not pick from
+among its alternatives, which is neither written nor named; ``osprey build`` and
+``osprey facility validate`` both keep the notes while ``validate`` drops the
+render's stdout.
 """
 
 from __future__ import annotations
@@ -145,6 +147,18 @@ def _write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_in_context(root, inputs)
 
 
+def _hierarchical_selected(inputs: ViewInputs) -> bool:
+    from osprey.facility.views.channel_finder import hierarchical_selected
+
+    return hierarchical_selected(inputs)
+
+
+def _write_hierarchical(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.channel_finder import write_hierarchical
+
+    return write_hierarchical(root, inputs)
+
+
 def _write_graph(root: Path, inputs: ViewInputs) -> list[Path]:
     from osprey.facility.views.graph import write_graph_view
 
@@ -187,6 +201,14 @@ VIEWS: tuple[View, ...] = (
         written_when=_in_context_selected,
         reason="channel_finder.pipeline_mode",
         write=_write_in_context,
+        selected_by="channel_finder.pipeline_mode",
+    ),
+    View(
+        name="hierarchical",
+        path="channel_finder",
+        written_when=_hierarchical_selected,
+        reason="channel_finder.pipeline_mode",
+        write=_write_hierarchical,
         selected_by="channel_finder.pipeline_mode",
     ),
     View(
