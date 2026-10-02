@@ -373,19 +373,12 @@ def test_a_place_without_a_level_word_is_no_node(tmp_path: Path) -> None:
     _assert_every_channel_is_its_address(database, 4)
 
 
-def test_zero_channels_stop_with_view_unsupported(tmp_path: Path) -> None:
-    from osprey.facility.errors import FacilityBuildError
+def test_zero_channels_write_an_empty_tree(tmp_path: Path) -> None:
     from osprey.facility.views.channel_finder import write_hierarchical
 
-    with pytest.raises(FacilityBuildError) as caught:
-        write_hierarchical(tmp_path / "channel_finder", _inputs({"channels": []}))
+    (target,) = write_hierarchical(tmp_path, _inputs({"channels": []}))
 
-    assert caught.value.format_message() == (
-        "facility: view-unsupported: path channel_finder.pipeline_mode — selects hierarchical "
-        "and the facility has no channel; fix: author at least one channel, or select another "
-        "channel_finder_mode"
-    )
-    assert not (tmp_path / "channel_finder").exists()
+    assert json.loads(target.read_bytes())["tree"] == {}
 
 
 @pytest.mark.parametrize(
