@@ -12,14 +12,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 
-class DatabaseWriteError(Exception):
-    """Raised on invalid database write operations."""
-
-    def __init__(self, message: str, error_type: str = "write_error"):
-        super().__init__(message)
-        self.error_type = error_type
-
-
 class BaseDatabase(ABC):
     """Abstract base class for all channel databases."""
 

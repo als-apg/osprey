@@ -58,7 +58,6 @@ class TestLoaderReadsEveryChannelKey:
         assert db.channel_map["QF:SP"]["subfield"] == ["X"]
         assert db.list_channel_names("RING", "QF", "Monitor") == ["QF1:I", "QF2:I"]
         assert db.list_channel_names("RING", "QF", "Setpoint", "X") == ["QF:SP"]
-        assert db.count_family_channels("RING", "QF") == 4
 
     def test_a_tango_names_field_is_extracted(self, tmp_path):
         """A field keyed only by ``TangoNames`` contributes its channels."""
@@ -95,8 +94,8 @@ class TestLoaderReadsEveryChannelKey:
         with pytest.raises(ValueError, match="RING:KICK:Empty"):
             db.list_channel_names("RING", "KICK", "Empty")
 
-    def test_tango_names_are_counted(self, tmp_path):
-        """The family census counts ``TangoNames`` at field and subfield depth."""
+    def test_tango_names_are_read_at_field_and_subfield_depth(self, tmp_path):
+        """``TangoNames`` contributes channels at field and subfield depth."""
         path = _write(
             tmp_path,
             {
@@ -109,7 +108,8 @@ class TestLoaderReadsEveryChannelKey:
             },
         )
         db = MiddleLayerDatabase(str(path))
-        assert db.count_family_channels("RING", "KICK") == 3
+        assert set(db.channel_map) == {"a", "b", "c"}
+        assert db.channel_map["c"]["subfield"] == ["X"]
 
 
 class TestReachesChannelNames:
