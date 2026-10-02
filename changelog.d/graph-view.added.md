@@ -1,0 +1,1 @@
+Facility: the build writes the knowledge graph view `data/graph/facility.ttl` from the facility file, its first line `# osprey:facility-sha256 <hex>` naming the facility file's hash. Every device carries its place path, section code, position and length in metres and its ordinals within its place and model; every channel is a binding joined to its signal by its role.
