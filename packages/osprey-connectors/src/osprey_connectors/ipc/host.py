@@ -402,7 +402,10 @@ def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: An
         return False
     if "port" in gateway and str(gateway["port"]) != str(port):
         return False
-    return ("name_server" if gateway.get("use_name_server", False) else "addr_list") == mode
+    from osprey_connectors.config import config_flag
+
+    name_server = config_flag(gateway.get("use_name_server"), key="gateways.use_name_server")
+    return ("name_server" if name_server else "addr_list") == mode
 
 
 def _selected_role(

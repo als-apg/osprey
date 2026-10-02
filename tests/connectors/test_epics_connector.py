@@ -283,6 +283,53 @@ class TestConnect:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
+    @pytest.mark.parametrize("off", ["false", "False", "0", "no", ""])
+    async def test_a_resolved_off_placeholder_routes_by_address_list(self, monkeypatch, off):
+        """``${USE_NS:-false}`` resolves to a string, which must not pick name servers."""
+        _patch_writes_enabled(monkeypatch, False)
+
+        connector = EPICSConnector()
+        await connector.connect(
+            {"gateways": {"read_only": {"address": "gw", "port": 5064, "use_name_server": off}}}
+        )
+
+        assert os.environ["EPICS_CA_ADDR_LIST"] == "gw"
+        assert "EPICS_CA_NAME_SERVERS" not in os.environ
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    @pytest.mark.parametrize("on", ["true", "True", "1", "yes"])
+    async def test_a_resolved_on_placeholder_routes_by_name_server(self, monkeypatch, on):
+        _patch_writes_enabled(monkeypatch, False)
+
+        connector = EPICSConnector()
+        await connector.connect(
+            {"gateways": {"read_only": {"address": "gw", "port": 5064, "use_name_server": on}}}
+        )
+
+        assert os.environ["EPICS_CA_NAME_SERVERS"] == "gw:5064"
+        assert "EPICS_CA_ADDR_LIST" not in os.environ
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_an_unreadable_use_name_server_refuses_to_connect(self, monkeypatch):
+        _patch_writes_enabled(monkeypatch, False)
+
+        connector = EPICSConnector()
+        with pytest.raises(ValueError, match="use_name_server"):
+            await connector.connect(
+                {
+                    "gateways": {
+                        "read_only": {"address": "gw", "port": 5064, "use_name_server": "maybe"}
+                    }
+                }
+            )
+
+        assert "EPICS_CA_ADDR_LIST" not in os.environ
+        assert "EPICS_CA_NAME_SERVERS" not in os.environ
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
     async def test_limits_validator_initialized_when_config_present(self, monkeypatch):
         """A configured limits validator is stored on the connector after connect."""
         _patch_writes_enabled(monkeypatch, False)

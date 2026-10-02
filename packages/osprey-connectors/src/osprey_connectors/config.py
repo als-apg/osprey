@@ -174,6 +174,50 @@ def is_unresolved_placeholder(value: object) -> bool:
     return isinstance(value, str) and bool(_LONE_PLACEHOLDER.match(value))
 
 
+_FLAG_ON = frozenset({"true", "yes", "on", "1"})
+_FLAG_OFF = frozenset({"false", "no", "off", "0", ""})
+
+
+def config_flag(value: object, *, key: str) -> bool:
+    """Read an on/off config value for what it spells.
+
+    :func:`resolve_env_vars` substitutes text, so ``${USE_NS:-false}`` reaches a
+    consumer as the *string* ``"false"`` — and ``bool("false")`` is True. Every
+    consumer of such a switch reads it through here, so they all agree on one
+    rule: a bool is itself, ``None`` is off, ``0``/``1`` are off/on, and a string
+    is matched case-insensitively against ``true/yes/on/1`` and
+    ``false/no/off/0`` (blank is off). Anything else — an unresolved
+    ``${VAR}``, a typo, another number — is refused rather than guessed, since
+    either guess would silently pick a behaviour nobody configured.
+
+    Args:
+        value: The raw config value.
+        key: The dotted config key, named in the refusal.
+
+    Returns:
+        The switch's state.
+
+    Raises:
+        ValueError: When the value spells neither on nor off.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word in _FLAG_ON:
+            return True
+        if word in _FLAG_OFF:
+            return False
+    raise ValueError(
+        f"{key} must be true or false, got {value!r}"
+        + (" (an unset environment variable)" if is_unresolved_placeholder(value) else "")
+    )
+
+
 # OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
 # ``local`` is an accepted alias for that same backend; ``container`` names a
 # Jupyter kernel gateway OSPREY does not ship.
