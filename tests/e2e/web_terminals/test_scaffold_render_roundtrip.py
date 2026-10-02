@@ -63,7 +63,6 @@ def _sample_config() -> dict:
     toward."""
     return {
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},

@@ -121,7 +121,6 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         web_terminals["landing"] = {"groups": groups}
     return {
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},
