@@ -8269,3 +8269,75 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_ima
     assert step["run"] != original, "no project-named sidecar image — mutation is stale"
     with pytest.raises(AssertionError):
         test_auth_sidecar_cleanup_removes_project_named_sidecar(mutated)
+
+
+# ---------------------------------------------------------------------------
+# the graph-reseed lane: its own job, secret-free, out of the shared lane, gated
+# ---------------------------------------------------------------------------
+
+GRAPH_RESEED_JOB = "graph-reseed-e2e"
+GRAPH_RESEED_TEST_FILE = "tests/e2e/test_graph_reseed_stamp.py"
+GRAPH_RESEED_STEP = "Run graph reseed stamp E2E"
+
+
+def test_graph_reseed_job_runs_its_file_in_a_named_step(workflow: dict[str, Any]) -> None:
+    step = _find_named_step(workflow, GRAPH_RESEED_JOB, GRAPH_RESEED_STEP)
+    assert f"pytest {GRAPH_RESEED_TEST_FILE}" in step["run"]
+
+
+def test_graph_reseed_job_runs_its_file_in_a_named_step__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][GRAPH_RESEED_JOB]
+    with pytest.raises((AssertionError, KeyError)):
+        test_graph_reseed_job_runs_its_file_in_a_named_step(mutated)
+
+
+def test_graph_reseed_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """Every assertion in that file reads the store or the render; no model is
+    reached, so a secret here would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, GRAPH_RESEED_JOB, SECRET_TOKEN)
+
+
+def test_graph_reseed_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][GRAPH_RESEED_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        test_graph_reseed_job_has_no_llm_secret(mutated)
+
+
+def test_e2e_tests_ignores_the_graph_reseed_file(workflow: dict[str, Any]) -> None:
+    step = _find_named_step(workflow, E2E_TESTS_JOB, "Run E2E tests")
+    assert f"--ignore={GRAPH_RESEED_TEST_FILE}" in step["run"]
+
+
+def test_e2e_tests_ignores_the_graph_reseed_file__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], GRAPH_RESEED_TEST_FILE)
+    with pytest.raises(AssertionError):
+        test_e2e_tests_ignores_the_graph_reseed_file(mutated)
+
+
+def test_all_checks_passed_needs_graph_reseed(workflow: dict[str, Any]) -> None:
+    """``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
+    assert GRAPH_RESEED_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{GRAPH_RESEED_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_graph_reseed__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(GRAPH_RESEED_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_graph_reseed(mutated)
+
+
+def test_all_checks_passed_needs_graph_reseed__mutation_drops_check_pr_lane_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if GRAPH_RESEED_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_graph_reseed(mutated)
