@@ -75,8 +75,8 @@ def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[s
     is warned about, never raised: an unreadable database costs the agent a
     render-time shortcut, not the build.
 
-    Both the initial project creation and every later Claude Code re-render read
-    the hierarchy through here, so the two cannot embed different levels for the
+    Every Claude Code re-render after the build writes the index reads the
+    hierarchy through here, so no two renders embed different levels for the
     same database.
 
     The warning it emits names the database and repeats why the loader turned

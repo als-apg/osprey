@@ -160,7 +160,7 @@ Key ``config.yml`` settings:
        in_context:
          database: {path: data/channel_finder/in_context.json}
        hierarchical:
-         database: {type: hierarchical, path: data/channel_databases/hierarchical.json}
+         database: {path: data/channel_finder/hierarchical.json}
        middle_layer:
          database: {type: middle_layer, path: data/channel_databases/middle_layer.json}
        # graph has no entry: it is configured by the `services.graphdb` block.

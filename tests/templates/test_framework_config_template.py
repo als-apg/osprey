@@ -298,10 +298,7 @@ def test_in_context_pipeline_values():
 def test_hierarchical_pipeline_values():
     pipeline = _config(**_mode_ctx("hierarchical"))["channel_finder"]["pipelines"]["hierarchical"]
     assert pipeline == {
-        "database": {
-            "type": "hierarchical",
-            "path": "data/channel_databases/hierarchical.json",
-        },
+        "database": {"path": "data/channel_finder/hierarchical.json"},
         "feedback": {
             "enabled": True,
             "store_path": "var/agent_data/feedback/hierarchical_feedback.json",

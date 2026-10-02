@@ -393,8 +393,12 @@ class TestBuildClaudeCodeContextHierarchy:
         )
         assert ctx["channel_finder_hierarchy"] is None
 
-    def test_create_project_embeds_hierarchy_info(self, tmp_path, monkeypatch):
-        """create_project renders hierarchy info into the agent prompt."""
+    def test_create_project_leaves_the_hierarchy_to_the_build(self, tmp_path, monkeypatch):
+        """create_project renders before the build writes the hierarchical index.
+
+        The agent prompt falls back to discovering the levels; the build's
+        re-render embeds them once the index exists.
+        """
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         manager = TemplateManager()
 
@@ -407,9 +411,8 @@ class TestBuildClaudeCodeContextHierarchy:
         )
 
         agent_prompt = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        # Must contain embedded hierarchy info, NOT the fallback text
-        assert "hierarchy_levels" in agent_prompt
-        assert "Call `get_options()` at the first level to discover" not in agent_prompt
+        assert "hierarchy_levels" not in agent_prompt
+        assert "Call `get_options()` at the first level to discover" in agent_prompt
 
 
 class TestBuildClaudeCodeContextPipelineMode:
