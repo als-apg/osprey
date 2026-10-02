@@ -37,7 +37,7 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.facility import facility_identity
+from osprey.utils.facility import facility_name as identity_name
 from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
@@ -564,12 +564,6 @@ def _declare_bundled_host_bindings(
         save_config_document(config_path, config)
 
 
-def _identity_name(project_path: Path, project_name: Any) -> str:
-    """The display name of the project's facility identity, or ``""`` when it has none."""
-    identity = facility_identity(project_path, str(project_name) if project_name else None)
-    return identity["name"] if identity is not None else ""
-
-
 def _inject_dispatch(
     dispatch: DispatchConfig, profile_dir: Path, project_path: Path, *, facility_name: str = ""
 ) -> None:
@@ -711,7 +705,7 @@ def _inject_dispatch(
         "port": dispatch.dispatcher_port,
         # The dispatcher shows the facility identity's name, the one every other
         # surface shows.
-        "facility_name": facility_name or _identity_name(project_path, config.get("project_name")),
+        "facility_name": facility_name or identity_name(project_path, config.get("project_name")),
         "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the

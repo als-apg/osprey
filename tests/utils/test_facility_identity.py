@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.facility import FacilityFileError, facility_identity
+from osprey.utils.facility import FacilityFileError, facility_identity, facility_name
 
 
 def _write_facility_file(render_root: Path, identity: object) -> None:
@@ -58,6 +58,16 @@ def test_no_file_and_no_project_name_is_no_identity(tmp_path: Path):
     assert facility_identity(tmp_path) is None
     assert facility_identity(tmp_path, None) is None
     assert facility_identity(tmp_path, "") is None
+
+
+def test_the_facility_name_is_the_name_the_file_records(tmp_path: Path):
+    _write_facility_file(tmp_path, {"code": "demo", "name": "Demo Lab"})
+
+    assert facility_name(tmp_path, "other-project") == "Demo Lab"
+
+
+def test_no_file_and_no_project_name_is_no_facility_name(tmp_path: Path):
+    assert facility_name(tmp_path, None) == ""
 
 
 def test_an_absent_file_falls_back_to_the_project_name(tmp_path: Path):

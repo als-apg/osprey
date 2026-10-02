@@ -8,6 +8,7 @@ cannot each pick their own spelling.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, TypedDict
@@ -22,6 +23,8 @@ __all__ = [
     "FacilityIdentity",
     "closest_zone_name",
     "facility_identity",
+    "facility_name",
+    "identity_record",
     "is_zone_name",
 ]
 
@@ -84,16 +87,59 @@ def facility_identity(
     """
     recorded = _recorded_identity(render_root)
     if recorded is not None:
-        description = recorded.get("description")
-        return {
-            "code": str(recorded["code"]),
-            "name": str(recorded.get("name") or project_name or recorded["code"]),
-            "description": str(description) if description else None,
-        }
+        return identity_record(recorded, project_name)
     if not project_name:
         return None
 
     return {"code": fold_code(project_name), "name": project_name, "description": None}
+
+
+def identity_record(recorded: Mapping[str, Any], project_name: str | None) -> FacilityIdentity:
+    """The identity a recorded ``identity`` block gives its facility.
+
+    The display name is the recorded ``name``, else the project name, else the
+    ``code``: the one precedence every reader of a facility's identity applies.
+
+    Args:
+        recorded: The facility document's ``identity`` record; it carries a
+            ``code``.
+        project_name: The project's name, used where the record names no
+            display name.
+
+    Returns:
+        FacilityIdentity: The identity, its ``description`` a ``str`` or
+        ``None`` when none is authored.
+    """
+    code = str(recorded["code"])
+    description = recorded.get("description")
+    return {
+        "code": code,
+        "name": str(recorded.get("name") or project_name or code),
+        "description": str(description) if description else None,
+    }
+
+
+def facility_name(render_root: Path, project_name: Any) -> str:
+    """The display name of a render's facility.
+
+    The ``name`` :func:`facility_identity` gives the render: the name its
+    facility file records, else the project name, else the identity code.
+
+    Args:
+        render_root: The directory that holds the rendered ``config.yml``.
+        project_name: The project's name as the config spells it; a falsy value
+            names no project.
+
+    Returns:
+        str: The name, or ``""`` when there is neither a facility file nor a
+        project name.
+
+    Raises:
+        FacilityFileError: The facility file is present but cannot be read, is
+            not JSON, or names no identity code.
+    """
+    identity = facility_identity(render_root, str(project_name) if project_name else None)
+    return identity["name"] if identity is not None else ""
 
 
 def _recorded_identity(render_root: Path) -> dict[str, Any] | None:
