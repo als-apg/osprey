@@ -101,6 +101,22 @@ def test_the_bluesky_devices_view_is_checked(built_control_assistant: BuiltProje
     assert header_problem("data/bluesky_devices.yml", content) is None
 
 
+def test_the_in_context_index_is_checked(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.channel_finder import write_in_context
+
+    inputs = ViewInputs(
+        doc=built_control_assistant.facility,
+        rendered_config={"channel_finder": {"pipeline_mode": "in_context"}},
+        facility_dir=built_control_assistant.facility_dir,
+        served=[],
+    )
+    (target,) = write_in_context(tmp_path, inputs)
+    assert header_problem("data/channel_finder/in_context.json", target.read_bytes()) is None
+
+
 def test_every_binary_exemption_is_written(built_control_assistant: BuiltProject) -> None:
     build_dir = built_control_assistant.build_dir
     assert [

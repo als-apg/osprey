@@ -3,8 +3,8 @@
 Provides centralized configuration access and channel database lifecycle
 management for all in-context channel finder MCP tools.
 
-The server context conditionally imports the appropriate database class based
-on the configured database type (``template`` or ``flat``).
+The database is the flat index the build writes from the channels tagged
+``in_context``.
 
 Usage in tools:
     from osprey.mcp_server.channel_finder_in_context.server_context import (
@@ -38,7 +38,7 @@ class ChannelFinderICContext:
     Responsibilities:
       1. Load and cache config.yml once at startup
       2. Parse channel_finder.pipelines.in_context config section
-      3. Conditionally load the correct database class (flat or template)
+      3. Load the flat in_context index the build writes
       4. Provide a cached database instance for all tools
     """
 
@@ -53,7 +53,7 @@ class ChannelFinderICContext:
         self._initialized = False
 
     def initialize(self) -> None:
-        """Load config, select database type, and instantiate the database.
+        """Load config and the in_context index.
 
         Called once during create_server(). Subsequent calls are no-ops.
         """
@@ -66,25 +66,15 @@ class ChannelFinderICContext:
         ic_config = cf_config.get("pipelines", {}).get("in_context", {})
         db_config = ic_config.get("database", {})
         db_path = db_config.get("path")
-        db_type = db_config.get("type", "template")
 
         if db_path:
             db_path = resolve_cf_path(db_path)
 
-            from osprey.services.channel_finder.databases.flat import (
-                ChannelDatabase as FlatChannelDatabase,
-            )
-            from osprey.services.channel_finder.databases.template import (
-                ChannelDatabase as TemplateChannelDatabase,
-            )
+            from osprey.services.channel_finder.databases.flat import ChannelDatabase
 
-            database_class: type[FlatChannelDatabase] = (
-                TemplateChannelDatabase if db_type == "template" else FlatChannelDatabase
-            )
-            self._database = database_class(db_path)
+            self._database = ChannelDatabase(db_path)
             logger.info(
-                "ChannelFinderICContext: loaded %s database from %s (%d channels)",
-                db_type,
+                "ChannelFinderICContext: loaded %s (%d channels)",
                 db_path,
                 len(self._database.get_all_channels()),
             )

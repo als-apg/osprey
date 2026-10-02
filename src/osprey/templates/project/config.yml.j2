@@ -133,8 +133,8 @@ channel_finder:
     # In-Context (semantic search) — best for a few hundred channels.
     in_context:
       database:
-        type: template                # "template" (device-family expansion) or "flat"
-        path: data/channel_databases/in_context.json
+        # Written by the build from the channels tagged `in_context`.
+        path: data/channel_finder/in_context.json
         presentation_mode: template   # Preview rendering only — `osprey channel-finder
                                       # preview` honours it; the MCP server and the web UI
                                       # build their own prompt text and never consult it.

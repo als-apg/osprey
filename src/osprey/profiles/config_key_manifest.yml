@@ -1899,7 +1899,6 @@ keys:
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.in_context.database: {covered-by: channel_finder.pipelines.in_context, default: {}}
-  channel_finder.pipelines.in_context.database.type: {covered-by: channel_finder.pipelines.in_context.database, default: template}
   channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database, default: ''}
   channel_finder.pipelines.in_context.database.presentation_mode:
     evidence: 'presentation_mode'
@@ -2968,6 +2967,8 @@ deleted:
 - approval.tools.channel_limits
   # Ledger 7 / 9 / 10 / 11 / 15
 - channel_finder.pipelines.in_context.processing
+  # The in_context index is the build's flat file; there is no loader choice.
+- channel_finder.pipelines.in_context.database.type
 - channel_finder.explicit_validation_mode
 - channel_finder.pipelines.hierarchical.tree_preview
 - channel_finder.benchmark.execution
@@ -3149,6 +3150,18 @@ orphan_sites:
     why: >-
       the deleted processing block's own leaf names — `processing` alone is
       far too common to anchor on.
+  channel_finder.pipelines.in_context.database.type:
+  - root: src/osprey/mcp_server/channel_finder_in_context
+    regex: 'db_config\.get\("type"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the in_context server's loader choice. Rooted at the in_context server so
+      the hierarchical and middle_layer loaders, which still read their own
+      `database.type`, stay out of scope.
+  - root: src/osprey/templates/project
+    regex: '"template" \(device-family expansion\) or "flat"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: the rendered in_context `type:` line and its comment
   channel_finder.benchmark.execution:
   - root: src/osprey
     regex: 'runs_per_query.*delay_between_runs|continue_on_error'
@@ -3316,7 +3329,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 346
+  expected_union_size: 345
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

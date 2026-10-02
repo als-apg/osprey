@@ -42,6 +42,7 @@ KINDS: tuple[str, ...] = (
     "engine-missing",
     "engine-invalid",
     "model-conflict",
+    "view-unsupported",
     "profile-invalid",
 )
 

@@ -10,6 +10,7 @@ gets a manifest, and a second one from a clean ``build/`` gets the same one.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -23,7 +24,7 @@ from osprey.services.virtual_accelerator.manifest.build import (
 )
 from osprey.services.virtual_accelerator.manifest.paths import DEFAULT_TIER
 from tests._facility_file import write_facility_file
-from tests.cli.test_build_va_manifest_honesty import _graph_config, _graph_repo
+from tests.cli.test_build_va_manifest_honesty import _GRAPH_TREE, _graph_config, _graph_repo
 
 _ADDRESSES = {
     "SR:MAG:HCM:01:CURRENT:SP",
@@ -113,7 +114,11 @@ def test_the_channel_finder_mode_does_not_decide_whether_the_roster_is_asked(tmp
 
 def test_a_build_in_another_channel_finder_mode_serves_the_facility_file_too(tmp_path):
     """Staging no database is what sends the build to the roster, not the mode."""
-    repo = _graph_repo(tmp_path / "repo")
+    # An in_context render writes its index from the channels tagged
+    # ``in_context``, so the tree tags one.
+    tree = copy.deepcopy(_GRAPH_TREE)
+    tree["records/channels.yaml"][0]["tags"] = ["in_context"]
+    repo = _graph_repo(tmp_path / "repo", tree=tree)
     profile = repo / "profile.yml"
     profile.write_text(
         profile.read_text().replace("channel_finder_mode: graph", "channel_finder_mode: in_context")

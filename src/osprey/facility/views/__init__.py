@@ -53,6 +53,9 @@ class View:
             the view is not written.
         write: Writes the view into the directory it is given and returns the
             files written.
+        selected_by: The config key that picks this view from among its
+            alternatives, or ``None``. A render that picks another alternative
+            does not carry the view and does not name it either.
     """
 
     name: str
@@ -60,6 +63,7 @@ class View:
     written_when: Callable[[ViewInputs], bool]
     reason: str
     write: Callable[[Path, ViewInputs], list[Path]]
+    selected_by: str | None = None
 
 
 def view_bytes(document: Mapping[str, Any]) -> bytes:
@@ -122,6 +126,18 @@ def _write_bluesky(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_bluesky_view(root, inputs)
 
 
+def _in_context_selected(inputs: ViewInputs) -> bool:
+    from osprey.facility.views.channel_finder import in_context_selected
+
+    return in_context_selected(inputs)
+
+
+def _write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.channel_finder import write_in_context
+
+    return write_in_context(root, inputs)
+
+
 #: Every view, in the order a render writes them.
 VIEWS: tuple[View, ...] = (
     View(
@@ -151,5 +167,13 @@ VIEWS: tuple[View, ...] = (
         written_when=_bluesky_configured,
         reason="services.bluesky",
         write=_write_bluesky,
+    ),
+    View(
+        name="in_context",
+        path="channel_finder",
+        written_when=_in_context_selected,
+        reason="channel_finder.pipeline_mode",
+        write=_write_in_context,
+        selected_by="channel_finder.pipeline_mode",
     ),
 )

@@ -62,7 +62,6 @@ def test_context_loads_flat_database(tmp_path, monkeypatch):
         + "    in_context:\n"
         + "      database:\n"
         + f'        path: "{db_file}"\n'
-        + '        type: "flat"\n'
     )
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()
@@ -71,12 +70,15 @@ def test_context_loads_flat_database(tmp_path, monkeypatch):
     assert len(reg.database.get_all_channels()) == 2
 
 
-def test_context_loads_template_database_by_default(tmp_path, monkeypatch):
-    from osprey.services.channel_finder.databases import template
+def test_context_loads_the_build_index_flat(tmp_path, monkeypatch):
+    from osprey.services.channel_finder.databases import flat
 
     monkeypatch.chdir(tmp_path)
-    db_data = [{"channel": "CH1", "address": "PV:CH1", "description": "Channel 1"}]
-    db_file = tmp_path / "test_db.json"
+    db_data = {
+        "schema": "osprey.facility.channel_finder/1",
+        "channels": [{"channel": "CH1", "address": "PV:CH1", "description": "Channel 1"}],
+    }
+    db_file = tmp_path / "in_context.json"
     db_file.write_text(json.dumps(db_data))
     config = (
         _MINIMAL_MODEL_CONFIG
@@ -89,7 +91,8 @@ def test_context_loads_template_database_by_default(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()
     reg = get_cf_ic_context()
-    assert isinstance(reg.database, template.ChannelDatabase)
+    assert type(reg.database) is flat.ChannelDatabase
+    assert reg.database.get_channel("CH1")["address"] == "PV:CH1"
 
 
 def test_context_facility_name_default(tmp_path, monkeypatch):
@@ -209,7 +212,7 @@ def test_context_system_prompt_contains_final_tags(tmp_path, monkeypatch):
     config = (
         _MINIMAL_MODEL_CONFIG
         + "channel_finder:\n  pipelines:\n    in_context:\n"
-        + f'      database:\n        path: "{db_file}"\n        type: "flat"\n'
+        + f'      database:\n        path: "{db_file}"\n'
     )
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()
