@@ -367,14 +367,13 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # Runs the agent unattended against a trigger file (facility events in, agent
 # runs out). triggers names that file: one beside this profile, or a bundled
 # trigger set by name. worker_count sets parallelism; workspace_mode isolated
-# gives each run its own copy of the project. The dashboard shows
-# `config: facility.name`; facility_name overrides it there alone.
+# gives each run its own copy of the project. The dashboard shows the facility
+# name the build's identity records.
 #
 # dispatch:
 #   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
-#   facility_name: Example Research Facility
 """,
     "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------

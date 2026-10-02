@@ -709,11 +709,9 @@ def _inject_dispatch(
     dispatcher_config: dict[str, Any] = {
         "path": "./services/event_dispatcher",
         "port": dispatch.dispatcher_port,
-        # The override wins; otherwise the dispatcher shows the facility identity's
-        # name, the one every other surface shows.
-        "facility_name": dispatch.facility_name
-        or facility_name
-        or _identity_name(project_path, config.get("project_name")),
+        # The dispatcher shows the facility identity's name, the one every other
+        # surface shows.
+        "facility_name": facility_name or _identity_name(project_path, config.get("project_name")),
         "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the

@@ -839,10 +839,6 @@ the deployment into the event dispatcher and its workers.
        ``DISPATCH_MAX_TURNS``; the budget about the work rather than the clock.
        A trigger may state its own ``max_turns:`` under ``action:``; one that
        names none gets this.
-   * - ``facility_name``
-     - ``""``
-     - Display name the dispatcher dashboard shows. Unset shows the
-       deployment's ``facility.name``.
    * - ``channel_strip_prefix``
      - ``""``
      - Leading prefix trimmed off a channel address before the dashboard shows

@@ -2159,7 +2159,6 @@ class TestEventsPanelUrlDerivation:
             "dispatcher_port": dispatcher_port,
             "worker_port_base": 9190,
             "timeout_sec": 300,
-            "facility_name": "generic-facility",
             "channel_strip_prefix": "",
         }
         base.update(overrides)
