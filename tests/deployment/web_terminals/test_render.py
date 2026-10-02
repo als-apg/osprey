@@ -120,6 +120,7 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
     if groups is not None:
         web_terminals["landing"] = {"groups": groups}
     return {
+        "project_name": "dls",
         "facility": {
             "prefix": "dls",
         },
@@ -1717,7 +1718,7 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
     (no roster entry sets `persona:`, so every entry falls back to `default_persona`).
     resolve_personas()'s registry-mode default-persona branch must still produce the
     SAME unsuffixed `<registry_url>/web-terminal:latest` image and the SAME
-    `/app/<facility_prefix>-assistant` agent-data mount root a no-catalog config
+    `/app/<project>-assistant` agent-data mount root a no-catalog config
     produces — introducing a catalog is zero-migration until a user is actually
     reassigned to a non-default persona."""
     # Arrange
@@ -3679,12 +3680,37 @@ def test_auth_sidecar_service_serves_a_single_uvicorn_bound_to_loopback() -> Non
 def test_auth_sidecar_service_image_defaults_to_the_local_build_tag() -> None:
     """Local mode: no `auth.image`, so the service names the tag the runtime build
     produces — the persona-image pattern (`<project>-<name>:local`) applied to the
-    sidecar, whose project is resolve_personas()'s default `<prefix>-assistant`."""
+    sidecar, whose project is resolve_personas()'s default `<project>-assistant`."""
     # Act
     auth = _compose(_auth_config())["services"]["auth"]
 
     # Assert
     assert auth["image"] == "dls-assistant-auth:local"
+
+
+def test_containers_and_auth_image_are_named_by_the_project_not_the_facility() -> None:
+    """Every container the stack starts carries the project name, and the sidecar's
+    local image is exactly the tag the runtime build produces for that project —
+    the facility token names no container, even when it differs from the project."""
+    # Arrange
+    from osprey.deployment.web_terminals.provision import auth_sidecar_local_tag
+
+    config = _auth_config(["alice", "bob"])
+    config["project_name"] = "beamline-ops"
+    config["facility"]["prefix"] = "dls"
+
+    # Act
+    services = _compose(config)["services"]
+
+    # Assert
+    assert services["nginx"]["container_name"] == "beamline-ops-nginx"
+    assert services["auth"]["container_name"] == "beamline-ops-auth"
+    assert services["web-alice"]["container_name"] == "beamline-ops-web-alice"
+    assert services["web-bob"]["container_name"] == "beamline-ops-web-bob"
+    assert services["auth"]["image"] == "beamline-ops-assistant-auth:local"
+    assert services["auth"]["image"] == auth_sidecar_local_tag(config)
+    names = [service.get("container_name", "") for service in services.values()]
+    assert not [name for name in names if name.startswith("dls-")]
 
 
 def test_auth_sidecar_service_image_pins_a_configured_registry_image() -> None:
