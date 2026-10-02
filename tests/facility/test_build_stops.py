@@ -414,6 +414,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "`project/data/simulator/x.json`",
     ),
     (
+        "profile_invalid__mirrored_facts_view",
+        "profile-invalid",
+        "`project/data/facility_facts.json`",
+    ),
+    (
         "profile_invalid__unknown_served_model",
         "profile-invalid",
         "`simulation.models` names a model the facility file lacks",
@@ -1470,6 +1475,15 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "fix: remove project/data/simulator/x.json and author the facility in data/facility/"
         ),
     ),
+    "profile_invalid__mirrored_facts_view": (
+        _plain(),
+        (
+            "facility: profile-invalid: path project/data/facility_facts.json — the project/ "
+            "mirror writes data/facility_facts.json, which the build writes from data/facility/; "
+            "fix: remove project/data/facility_facts.json and author the facility in "
+            "data/facility/"
+        ),
+    ),
     "profile_invalid__unknown_served_model": (
         _deck(),
         (
@@ -1492,6 +1506,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
 MIRRORED: dict[str, tuple[str, ...]] = {
     "profile_invalid__mirrored_facility_file": ("facility.json",),
     "profile_invalid__mirrored_simulator_view": ("data/simulator/x.json",),
+    "profile_invalid__mirrored_facts_view": ("data/facility_facts.json",),
 }
 
 
