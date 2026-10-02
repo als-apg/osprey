@@ -273,6 +273,25 @@ class TestLatticeInput:
         assert "QFX" in names
         assert "QF1" not in names
 
+    def test_a_line_whose_bends_nearly_cancel_loads_at_periodicity_one(self, tmp_path: Path):
+        """Bend angles summing to a rounding residue never set the periodicity."""
+        path = tmp_path / "line.mat"
+        angles = (0.1, 0.2, -0.3)
+        assert sum(angles) != 0.0
+        bends = [
+            {
+                "FamName": f"B{index}",
+                "Class": "Bend",
+                "Length": 1.0,
+                "BendingAngle": angle,
+                "Energy": 1.9e9,
+                "PassMethod": "BndMPoleSymplectic4Pass",
+            }
+            for index, angle in enumerate(angles)
+        ]
+        savemat(str(path), {"THERING": _cell(*bends)})
+        assert load_lattice(path).periodicity == 1
+
     def test_a_deck_that_is_not_a_ring_is_refused_by_name(self, tmp_path: Path):
         """A ``THERING`` pyAT cannot build raises a message naming the file."""
         path = tmp_path / "broken.mat"
