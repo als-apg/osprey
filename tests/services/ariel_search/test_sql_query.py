@@ -109,6 +109,22 @@ class TestValidateSqlQueryAccepts:
         """``UPDATED_AT`` / ``CREATED_AT`` contain UPDATE and CREATE but are columns."""
         validate_sql_query("SELECT updated_at, created_at FROM enhanced_entries")
 
+    @pytest.mark.parametrize("keyword", sorted(FORBIDDEN_KEYWORDS))
+    def test_forbidden_keyword_inside_a_string_literal(self, keyword):
+        """A literal is a value, never SQL: searching entry text for "vacuum" is a read."""
+        validate_sql_query(
+            f"SELECT entry_id FROM enhanced_entries WHERE raw_text ILIKE '%{keyword.lower()}%'"
+        )
+
+    def test_semicolon_inside_a_string_literal(self):
+        validate_sql_query("SELECT entry_id FROM enhanced_entries WHERE raw_text ILIKE '%a; b%'")
+
+    def test_doubled_quote_keeps_the_literal_open(self):
+        """``''`` is an escaped quote inside the literal, not its end and a new start."""
+        validate_sql_query(
+            "SELECT entry_id FROM enhanced_entries WHERE raw_text ILIKE '%it''s a vacuum%'"
+        )
+
 
 class TestValidateSqlQueryRejects:
     """Queries the gate turns away, and the message each one produces."""
@@ -137,6 +153,35 @@ class TestValidateSqlQueryRejects:
         """Each denied verb is caught even mid-query, after a valid SELECT prefix."""
         with pytest.raises(ValueError, match=f"Forbidden keyword '{keyword}'"):
             validate_sql_query(f"SELECT entry_id FROM enhanced_entries {keyword} something")
+
+    def test_forbidden_keyword_after_a_string_literal(self):
+        """Only the literal is skipped: the statement around it is still scanned."""
+        with pytest.raises(ValueError, match="Forbidden keyword 'DELETE'"):
+            validate_sql_query(
+                "WITH x AS (DELETE FROM enhanced_entries WHERE raw_text = 'it''s' "
+                "RETURNING *) SELECT * FROM x"
+            )
+
+    def test_semicolon_after_a_string_literal(self):
+        with pytest.raises(ValueError, match="Multi-statement queries are not allowed"):
+            validate_sql_query(
+                "SELECT 1 FROM enhanced_entries WHERE raw_text = 'a'; SELECT 2 FROM enhanced_entries"
+            )
+
+    def test_unterminated_literal_is_scanned_as_sql(self):
+        """No closing quote anywhere means no literal to skip: the rest is SQL."""
+        with pytest.raises(ValueError, match="Multi-statement queries are not allowed"):
+            validate_sql_query("SELECT 1 FROM enhanced_entries WHERE raw_text = 'a; DROP x")
+
+    def test_backslash_is_refused_before_literals_are_skipped(self):
+        """With ``E'\\'`` the server ends the literal where the scan would not,
+        so the refusal has to come before any check that skips literal text: here
+        the ``;`` and the ``DELETE`` are SQL to Postgres but inside a literal to
+        the scan."""
+        with pytest.raises(ValueError, match="Backslash escapes are not allowed"):
+            validate_sql_query(
+                "SELECT E'\\'; DELETE FROM enhanced_entries WHERE '' = '' FROM enhanced_entries"
+            )
 
     def test_forbidden_keyword_lowercase(self):
         """The keyword scan runs on the uppercased text, so case does not evade it."""
