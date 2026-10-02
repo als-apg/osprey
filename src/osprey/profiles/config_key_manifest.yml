@@ -3019,8 +3019,7 @@ deleted:
 - logbook.composition.default_tier
   # Preset-config surface: a commented `# system.facility_name: My Facility`
   # dotted override in profiles/presets/control-assistant.yml at merge-base,
-  # removed by this branch. Distinct from the dispatch-profile `facility_name`
-  # field (build_profile_schema.py:166), which is a different surface and stays.
+  # removed by this branch.
 - system.facility_name
   # The embedding index is HNSW, which takes no list count, so there is no
   # number left for a deployment to author.
