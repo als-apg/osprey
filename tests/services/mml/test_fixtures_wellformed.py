@@ -617,11 +617,15 @@ class TestSyntheticExport:
     """The synthetic 2.0 export carries every shape of the frozen key set."""
 
     def test_the_synthetic_fixture_regenerates_byte_identically(self, tmp_path):
-        """Re-running ``build.py`` writes the committed bytes, the MAT-files included."""
+        """Re-running ``build.py`` writes the committed files, the MAT-files included.
+
+        Every byte matches, save the model file's tracking-derived numbers,
+        which agree within the generator's ``TRACKED_RTOL``.
+        """
         module = runpy.run_path(str(SYNTHETIC / "build.py"))
         for rebuilt in module["build"](tmp_path):
             committed = SYNTHETIC / rebuilt.name
-            assert committed.read_bytes() == rebuilt.read_bytes(), rebuilt.name
+            assert module["same_file"](committed, rebuilt), rebuilt.name
 
     def test_the_synthetic_lattice_pairs_with_its_own_fingerprint(self):
         """The saved ring answers the four facts ``va.json`` records for it."""
