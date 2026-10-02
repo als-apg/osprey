@@ -100,7 +100,6 @@ config:
   # ── Facility ───────────────────────────────────────────────────────────────
   # Display name woven into the agent prompts and the web landing page. Keep it
   # in sync with .claude/rules/facility.md.
-  facility.name: Example Research Facility
   # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
   # Only the multi-user web-terminal stack reads it.
   # facility.prefix: ex

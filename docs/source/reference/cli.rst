@@ -169,7 +169,7 @@ facilities' gateway addresses.
    osprey set model=claude-sonnet-5
    osprey set connector=epics
    osprey set tier=1 channel_finder_mode=in_context
-   osprey set config.facility.name='Storage Ring'
+   osprey set config.system.timezone=America/Los_Angeles
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
    osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
    osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true

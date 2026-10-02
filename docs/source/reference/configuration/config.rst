@@ -31,7 +31,7 @@ may touch.
 ``facility:`` — whose machine this is
 --------------------------------------
 
-Three keys say which facility the deployment serves, and one of them decides
+Two keys say which facility the deployment serves, and one of them decides
 what the agent thinks your devices are called.
 
 .. list-table::
@@ -40,9 +40,6 @@ what the agent thinks your devices are called.
 
    * - Key
      - What it does
-   * - ``facility.name``
-     - Read by nothing. The facility's display name comes from the ``name`` in
-       ``data/facility/identity.yaml``, or the project name when it has none.
    * - ``facility.prefix``
      - Short abbreviation the multi-user web stack puts in front of its
        container names. Nothing else reads it.

@@ -897,6 +897,26 @@ def _simulation_models_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _facility_name_deltas() -> tuple[Delta, ...]:
+    """The display name the two standalone presets no longer state.
+
+    The facility's display name is the build's facility identity, so no preset
+    states ``facility.name`` and the root document stops carrying it. The
+    fixtures were frozen while the standalones still stated one.
+
+    Returns:
+        One delta, on the root document.
+    """
+    return (
+        Delta(
+            document="root",
+            path="facility.name",
+            fixture="Example Research Facility",
+            live=ABSENT,
+        ),
+    )
+
+
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # The posture floor makes `hooks.debug` unconditional, and hello-world is the
     # one preset whose app template never carried it (Requirement 1). The other
@@ -913,6 +933,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         *_simulation_models_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
     + _retired_upstream_link_deltas("root")
@@ -920,14 +941,17 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _embedding_input_limit_deltas("root")
     + _simulation_models_deltas("root"),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root"),

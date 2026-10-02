@@ -187,7 +187,7 @@ Accelerator this facility drives.
 Step 3 — Name the facility and pin its services
 ===============================================
 
-Still in ``profile.yml``, under ``config:``, set these six values. Some
+Still in ``profile.yml``, under ``config:``, set these five values. Some
 are already present with a different value; some ship commented out.
 
 .. code-block:: yaml
@@ -196,7 +196,6 @@ are already present with a different value; some ship commented out.
      control_system.type: virtual_accelerator
      claude_code.servers.health.enabled: true
      system.timezone: America/Los_Angeles
-     facility.name: Demo Facility
      facility.prefix: demo
      deployed_services:
        - openobserve

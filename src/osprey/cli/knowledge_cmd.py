@@ -973,10 +973,6 @@ def _resolve_facility(explicit: str | None) -> tuple[str, str]:
     saying two different things. An explicit flag still wins, and the built-in
     ``demo`` is only reached when neither names anything.
 
-    ``facility.name`` is deliberately not consulted: it is a display string,
-    and a facility whose name has a space in it would mint identifiers no
-    Turtle prefixed name can hold.
-
     Run outside any project the key cannot be read at all; that is the same
     answer as a config that leaves it unset, so it falls through to the
     default rather than failing.

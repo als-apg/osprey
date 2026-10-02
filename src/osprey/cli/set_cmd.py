@@ -254,7 +254,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set config.claude_code.agent_models.logbook-deep-research=claude-opus-5-5
       $ osprey set connector=epics
       $ osprey set tier=1 channel_finder_mode=in_context
-      $ osprey set config.facility.name='Storage Ring'
+      $ osprey set config.system.timezone=America/Los_Angeles
       $ osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
       $ osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
     """

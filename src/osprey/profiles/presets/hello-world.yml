@@ -279,9 +279,6 @@ config:
   # category nobody declared is still stored — it just keeps the default badge,
   # and the save logs a warning naming this key.
   # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
   # Starting theme for every web terminal. Each browser can override it from
   # the display menu.
   # web.theme: light
