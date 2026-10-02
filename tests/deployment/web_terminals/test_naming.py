@@ -10,12 +10,14 @@ per-user name is prefix-addressable (orphan discovery relies on
 from __future__ import annotations
 
 import pytest
+import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.naming import (
     web_container_name,
     web_container_prefix,
 )
+from osprey.deployment.web_terminals.render import render_web_terminals
 
 
 def test_prefix_format():
@@ -85,3 +87,40 @@ def test_user_passed_through_verbatim(user):
     """The module performs no sanitization; whatever user string it is given
     lands unchanged after the prefix."""
     assert web_container_name("demo", user) == f"demo-web-{user}"
+
+
+def _rendered_config(project_name: str, facility_token: str) -> dict:
+    """A password-auth config, so the render emits the proxy, the sidecar and the terminals."""
+    return {
+        "project_name": project_name,
+        "facility": {"prefix": facility_token},
+        "system": {"timezone": "UTC"},
+        "registry": {"url": "registry.example.org/profiles"},
+        "deploy": {"host": "deploy", "fqdn": "deploy.example.org"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": ["alice", "bob"],
+                "auth": {"method": "password", "allow_insecure_http": True},
+            }
+        },
+    }
+
+
+def test_every_rendered_container_is_named_by_the_project_name():
+    """Each container the compose overlay names starts with ``resolve_project_name()``
+    and carries nothing from the facility token."""
+    config = _rendered_config("beamline-ops", "zq")
+    project = resolve_project_name(config)
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+    names = {key: svc["container_name"] for key, svc in compose["services"].items()}
+
+    assert names == {
+        "nginx": f"{project}-nginx",
+        "auth": f"{project}-auth",
+        "web-alice": web_container_name(project, "alice"),
+        "web-bob": web_container_name(project, "bob"),
+    }
+    assert all(name.startswith(f"{project}-") for name in names.values())
+    assert not any("zq" in name for name in names.values())
