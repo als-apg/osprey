@@ -413,11 +413,6 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "an in_context selection with zero tagged channels",
     ),
     (
-        "view_unsupported__hierarchical_no_channel",
-        "view-unsupported",
-        "a hierarchical selection on a facility with no channel",
-    ),
-    (
         "view_unsupported__hierarchical_meta_key",
         "view-unsupported",
         "a hierarchical tree key beginning with `_`",
@@ -1482,14 +1477,6 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "or select another channel_finder_mode"
         ),
     ),
-    "view_unsupported__hierarchical_no_channel": (
-        _from(dict, ()),
-        (
-            "facility: view-unsupported: path channel_finder.pipeline_mode — selects "
-            "hierarchical and the facility has no channel; fix: author at least one channel, "
-            "or select another channel_finder_mode"
-        ),
-    ),
     "view_unsupported__hierarchical_meta_key": (
         _plain(append("records/channels.yaml", {"id": "_LAB:TEMP"})),
         (
@@ -1583,7 +1570,6 @@ def _persona_serves_models(repo: Path) -> None:
 #: The profile edit a case makes beside a clean tree.
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "view_unsupported__in_context_no_tagged_channel": _select_in_context,
-    "view_unsupported__hierarchical_no_channel": _select_hierarchical,
     "view_unsupported__hierarchical_meta_key": _select_hierarchical,
     "profile_invalid__unknown_served_model": _serve_unknown_model,
     "profile_invalid__persona_served_models": _persona_serves_models,

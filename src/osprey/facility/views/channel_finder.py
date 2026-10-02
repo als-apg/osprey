@@ -46,11 +46,11 @@ last alphanumeric runs of the address), else the channel's own. A place node is
 described by its place, a class node by the smallest described group holding
 every device under it (else by its class), and a device node by its device
 (else by the smallest described group naming it). A render carries the index
-when its ``channel_finder.pipeline_mode`` is ``hierarchical``. The build stops
-with ``view-unsupported`` when two place level words first appear at one depth,
+when its ``channel_finder.pipeline_mode`` is ``hierarchical``; a facility
+with no channel writes an empty tree. The build stops with
+``view-unsupported`` when two place level words first appear at one depth, and
 when a tree key (a place or device id, a class, a signal, or an address used as
-a leaf key) begins with ``_``, which the loader reads as a meta key, and when the
-facility has no channel.
+a leaf key) begins with ``_``, which the loader reads as a meta key.
 
 The middle-layer index is written to
 ``<render>/data/channel_finder/middle_layer.json``, with the DuckDB database
@@ -556,23 +556,11 @@ def write_hierarchical(root: Path, inputs: ViewInputs) -> list[Path]:
         The file written.
 
     Raises:
-        FacilityBuildError: ``view-unsupported`` when the facility has no
-            channel, when the place levels cannot be ordered into one hierarchy,
-            or when a tree key begins with ``_``.
+        FacilityBuildError: ``view-unsupported`` when the place levels cannot
+            be ordered into one hierarchy, or when a tree key begins with ``_``.
     """
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.served import CONFIG_SOURCE
     from osprey.facility.views import view_bytes
 
-    if not inputs.doc.get("channels"):
-        raise FacilityBuildError(
-            "view-unsupported",
-            PIPELINE_MODE_KEY,
-            [CONFIG_SOURCE],
-            "author at least one channel, or select another channel_finder_mode",
-            record_kind="path",
-            detail=f"selects {HIERARCHICAL_MODE} and the facility has no channel",
-        )
     document = hierarchical_document(inputs.doc)
     root.mkdir(parents=True, exist_ok=True)
     target = root / HIERARCHICAL_FILE

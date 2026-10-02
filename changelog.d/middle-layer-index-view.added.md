@@ -12,7 +12,7 @@ carrying `signals` stops the build with `view-unsupported`, as does a host where
 DuckDB cannot load its full-text-search extension.
 `channel_finder.pipelines.middle_layer.database.path` and `duckdb_path` render
 to the two files, and `channel_finder.pipelines.middle_layer.database.type` is
-gone. A hierarchical selection now stops with `view-unsupported` when the
-facility has no channel, or when a tree key begins with `_`.
+gone. A hierarchical selection now stops with `view-unsupported` when a tree
+key begins with `_`.
 The middle-layer terminology table names each family as the index files and
 names it, with its System where a class spans several.
