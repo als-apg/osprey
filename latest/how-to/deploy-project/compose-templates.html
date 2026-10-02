@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -543,9 +544,6 @@ engine-injected values:</p>
 <span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">services.postgresql.container_name | default(&#39;osprey-postgres&#39;)</span><span class="p p-Indicator">}}</span>
-<span class="w">    </span><span class="nt">labels</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">osprey.project.name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_name}}&quot;</span>
-<span class="w">      </span><span class="nt">osprey.project.root</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_root}}&quot;</span>
 <span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432&quot;</span>
 <span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
@@ -558,6 +556,14 @@ engine-injected values:</p>
 <code class="docutils literal notranslate"><span class="pre">{{file_paths.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{system.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{project_root}}</span></code>,
 <code class="docutils literal notranslate"><span class="pre">{{deployment.bind_address}}</span></code>, and <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.project_name}}</span></code> /
 <code class="docutils literal notranslate"><span class="pre">project_root</span></code> (injected by the deploy engine).</p>
+<p>The build writes <code class="docutils literal notranslate"><span class="pre">build/osprey-labels.override.yml</span></code> and passes it to every
+compose invocation. It gives every service <code class="docutils literal notranslate"><span class="pre">osprey.project.name</span></code>,
+<code class="docutils literal notranslate"><span class="pre">com.osprey.repo-id</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.project.root</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey.config.digest</span></code>, so
+a template never writes them, and one that does is harmless. A template still
+writes two labels itself: <code class="docutils literal notranslate"><span class="pre">com.osprey.repo-id:</span> <span class="pre">&quot;{{</span> <span class="pre">osprey_labels.repo_id</span> <span class="pre">}}&quot;</span></code>
+on each named volume it declares, because the override labels services, not
+volumes, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> only removes volumes that carry it; and
+<code class="docutils literal notranslate"><span class="pre">osprey.env.digest</span></code> on a service that reads the env chain.</p>
 <p>The engine deliberately injects no deploy timestamp. Everything a template
 renders comes from the project’s configuration, so building the same project
 twice produces the same files — which is what lets you diff a rebuilt
@@ -568,22 +574,23 @@ container was started, ask the runtime: <code class="docutils literal notranslat
 <code class="docutils literal notranslate"><span class="pre">.Created</span></code>. Earlier versions of these templates carried an
 <code class="docutils literal notranslate"><span class="pre">osprey.deployed.at</span></code> label; a template you have customized that still sets it
 keeps building, and the label just renders empty, but you should drop the line.</p>
-<p>What that timestamp was doing by accident, two labels now do on purpose:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span><span class="o">.</span><span class="n">env</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span> <span class="s2">&quot;$</span><span class="si">{OSPREY_ENV_DIGEST:-}</span><span class="s2">&quot;</span>
-<span class="n">osprey</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span> <span class="s2">&quot;$</span><span class="si">{OSPREY_CONFIG_DIGEST:-}</span><span class="s2">&quot;</span>
-</pre></div>
-</div>
-<p>Your service reads its settings from files — the env chain, and the
+<p>What that timestamp was doing by accident, two content-hash labels now do on
+purpose. Your service reads its settings from files — the env chain, and the
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mounted into the container — and the container runtime decides
 whether to restart a container by comparing the compose document, which names
 neither file’s <em>contents</em>. So editing <code class="docutils literal notranslate"><span class="pre">.env</span></code> or running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> would
 leave the running container on the values it started with. Each label carries a
 hash of one of those files, which turns such an edit into a document change and
 restarts exactly the containers that read it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> sets both variables
-for you; they interpolate to empty if you run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> by hand. <strong>A
-service template you wrote yourself should carry both lines</strong> — without them
-your service keeps serving its old settings after a change, with nothing to say
-so.</p>
+for you; they interpolate to empty if you run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> by hand.</p>
+<p>The build adds the config digest, <code class="docutils literal notranslate"><span class="pre">osprey.config.digest</span></code>, to every service
+through the labels override. The env digest is the template’s own:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span><span class="o">.</span><span class="n">env</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span> <span class="s2">&quot;$</span><span class="si">{OSPREY_ENV_DIGEST:-}</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p><strong>A service template you wrote yourself should carry the env digest line if the
+service reads the env chain</strong> — without it your service keeps serving its old
+env values after a change, with nothing to say so.</p>
 </section>
 <section id="service-template-ownership">
 <h2>Service Template Ownership<a class="headerlink" href="#service-template-ownership" title="Link to this heading">#</a></h2>
@@ -597,8 +604,65 @@ claim the template into the build profile with <code class="docutils literal not
 <p>Every service image resolves through the same three-layer chain — an
 environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
 default — and the two stack-wide axes assemble the default name of an
-OSPREY-built image. The thirteen images, the two axes and their precedence are
+OSPREY-built image. Every image, the two axes and their precedence are
 catalogued in <a class="reference internal" href="../../reference/configuration/config.html#config-deployment"><span class="std std-ref">Deployment — service images and ${VAR} interpolation</span></a>.</p>
+<section id="when-a-deploy-builds-an-image">
+<span id="deployment-image-builds"></span><h3>When a deploy builds an image<a class="headerlink" href="#when-a-deploy-builds-an-image" title="Link to this heading">#</a></h3>
+<p>A service is built on the deploy host only when its rendered compose document
+carries a <code class="docutils literal notranslate"><span class="pre">build:</span></code> block. Upstream pins never do. The OSPREY-built services
+(the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
+Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
+accelerator) each do while they run the image OSPREY builds. A service whose
+<code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> names any other image renders without <code class="docutils literal notranslate"><span class="pre">build:</span></code>, and
+that image is pulled and run as named. Where one template renders several
+containers off one image (the virtual accelerator and its live stand-in, the
+Bluesky lanes), the first of them that runs OSPREY’s image carries the build,
+and none does when every one names another image.</p>
+<p>Which start builds what:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 35.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Start</p></th>
+<th class="head"><p>What is built</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code>, with or without <code class="docutils literal notranslate"><span class="pre">-d</span></code></p></td>
+<td><p>A build step rebuilds every service with <code class="docutils literal notranslate"><span class="pre">build:</span></code>, then
+<code class="docutils literal notranslate"><span class="pre">up</span> <span class="pre">--no-build</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code> without <code class="docutils literal notranslate"><span class="pre">-d</span></code></p></td>
+<td><p>The same build step, because the <code class="docutils literal notranslate"><span class="pre">up</span></code> replaces the <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
+process.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> without <code class="docutils literal notranslate"><span class="pre">--dev</span></code></p></td>
+<td><p>No build step. Compose builds a service’s image on <code class="docutils literal notranslate"><span class="pre">up</span></code> only when
+that image is not on the host.</p></td>
+</tr>
+<tr class="row-odd"><td><p>A deployment with <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.enabled</span></code></p></td>
+<td><p>Starts detached whatever the flag, so only <code class="docutils literal notranslate"><span class="pre">--dev</span></code> gives it a build
+step.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">prebuilt_images:</span> <span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">OSPREY_PREBUILT_IMAGES=1</span></code></p></td>
+<td><p>Nothing, on any start (<a class="reference internal" href="#deployment-prebuilt-images"><span class="std std-ref">Deploying Prebuilt Images</span></a>).</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An <code class="docutils literal notranslate"><span class="pre">OSPREY_&lt;SERVICE&gt;_IMAGE</span></code> naming an image other than the one the
+<code class="docutils literal notranslate"><span class="pre">build:</span></code> block produces keeps that service out of every build. The start
+reports <code class="docutils literal notranslate"><span class="pre">&lt;service&gt;</span> <span class="pre">runs</span> <span class="pre">&lt;image&gt;</span> <span class="pre">(&lt;variable&gt;);</span> <span class="pre">not</span> <span class="pre">built</span></code>, builds the others
+in a step of its own even under <code class="docutils literal notranslate"><span class="pre">-d</span></code>, and starts everything with
+<code class="docutils literal notranslate"><span class="pre">up</span> <span class="pre">--no-build</span></code>, so an image that is neither on the host nor pullable fails
+with compose’s own error naming it.</p>
+<p>The project image (dispatch worker, ARIEL sync, record archive) has no
+<code class="docutils literal notranslate"><span class="pre">build:</span></code> block. The deploy builds it itself on every start unless the host
+is prebuilt or every one of those services it deploys names another image
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code> or <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code>).</p>
+</section>
 <section id="the-web-tier-names-its-registry-separately">
 <h3>The web tier names its registry separately<a class="headerlink" href="#the-web-tier-names-its-registry-separately" title="Link to this heading">#</a></h3>
 <p>The web tier — the landing page and the one containerized terminal per
@@ -633,7 +697,9 @@ coexist rather than merging:</p>
 web images, and <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> does not move the service images. A
 deployment that mirrors everything sets both pairs, and sets them to the same
 place — that is the one case where the divergence costs you a line of config
-rather than nothing.</p>
+rather than nothing. A profile with a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block in registry mode does
+not write <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> itself, because the build fills it from
+<code class="docutils literal notranslate"><span class="pre">deploy.registry.url</span></code> (see <a class="reference internal" href="../web-terminal/multi-user/index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>).</p>
 <p>Whether the web tier pulls those images or builds them on the deploy host is a
 third, separate setting: <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_source</span></code>
 (<code class="docutils literal notranslate"><span class="pre">registry</span></code>, the default, or <code class="docutils literal notranslate"><span class="pre">local</span></code>). It is unrelated to the axes, and it
@@ -657,11 +723,11 @@ fails at <code class="docutils literal notranslate"><span class="pre">up</span><
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>The eight OSPREY-built images</p></td>
+<tr class="row-even"><td><p>The OSPREY-built images</p></td>
 <td><p>Set the registry axis once — <code class="docutils literal notranslate"><span class="pre">images.registry</span></code>, or
 <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code> for a single build.</p></td>
 </tr>
-<tr class="row-odd"><td><p>The five upstream pins</p></td>
+<tr class="row-odd"><td><p>The upstream pins</p></td>
 <td><p>One row at a time: <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> (or the row’s
 <code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code> variable) naming your mirrored copy.</p></td>
 </tr>
@@ -692,6 +758,8 @@ there is no one-shell equivalent.</p></td>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/mongo:7</span>
 <span class="w">  </span><span class="nt">openobserve</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/openobserve:v0.92.2</span>
+<span class="w">  </span><span class="nt">graphdb</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/neo4j:5.26-community</span>
 <span class="w">  </span><span class="nt">bluesky</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tiled_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/tiled:0.2.18</span>
 <span class="w">    </span><span class="nt">redis_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/redis:7.4-alpine</span>
@@ -734,16 +802,16 @@ containers from the tags already on the host:</p>
 the config key in both directions, so <code class="docutils literal notranslate"><span class="pre">OSPREY_PREBUILT_IMAGES=0</span></code> forces a
 build for one shell even on a host whose <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> pins the key. With
 neither set, deploys build as they always have.</p>
-<p>The switch covers both ways a build can start:</p>
+<p>The switch covers both ways a build can start
+(<a class="reference internal" href="#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a>):</p>
 <ul class="simple">
-<li><p>In <a class="reference internal" href="index.html#development-mode"><span class="std std-ref">dev mode</span></a> it skips the wheel-and-image build
-step, and the deploy reports <code class="docutils literal notranslate"><span class="pre">skipped</span> <span class="pre">image</span> <span class="pre">build</span> <span class="pre">(prebuilt</span> <span class="pre">images)</span></code> where
-it would otherwise have built.</p></li>
-<li><p>In ordinary (non-dev) mode there is no build step to skip — but compose
-would still build any service whose compose document carries a <code class="docutils literal notranslate"><span class="pre">build:</span></code>
-block the first time it brings it up. The switch passes <code class="docutils literal notranslate"><span class="pre">--no-build</span></code>, so
-compose starts what is there instead. Nothing is reported as skipped,
-because nothing was scheduled.</p></li>
+<li><p>A start with a build step of its own (any <a class="reference internal" href="index.html#development-mode"><span class="std std-ref">dev mode</span></a> start, any start without <code class="docutils literal notranslate"><span class="pre">-d</span></code>) skips it, and a
+<code class="docutils literal notranslate"><span class="pre">--dev</span></code> start reports <code class="docutils literal notranslate"><span class="pre">skipped</span> <span class="pre">image</span> <span class="pre">build</span> <span class="pre">(prebuilt</span> <span class="pre">images)</span></code> where it
+would otherwise have built.</p></li>
+<li><p>A detached non-dev start has no build step, but compose would still build a
+service whose compose document carries a <code class="docutils literal notranslate"><span class="pre">build:</span></code> block when its image is
+not on the host. The switch passes <code class="docutils literal notranslate"><span class="pre">--no-build</span></code>, so compose starts what is
+there instead.</p></li>
 </ul>
 <p><strong>What the switch does not reach.</strong> It governs compose’s implicit builds only.
 The persona images and the auth sidecar are built explicitly, by a different
@@ -811,6 +879,7 @@ deployment is: point all four image channels at the mirror, set
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-deploy-builds-an-image">When a deploy builds an image</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-web-tier-names-its-registry-separately">The web tier names its registry separately</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mirroring-every-image-into-one-registry">Mirroring every image into one registry</a></li>
 </ul>

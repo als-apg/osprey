@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -695,8 +696,8 @@ puts it on a Service Bus queue the bridge reads</p></td>
 <tr class="row-even"><td><p>Plots and files</p></td>
 <td><p>Shared with the room, visible to its members only</p></td>
 <td><p><strong>Published as a public link</strong> anyone can open</p></td>
-<td><p>Plots only, as PNG images attached inside the conversation and visible to
-its members; other files are not delivered</p></td>
+<td><p>Plots inside the conversation; other files in one SharePoint library,
+shared with the conversation’s members</p></td>
 </tr>
 <tr class="row-odd"><td><p>You need</p></td>
 <td><p>A Nextcloud instance with the Talk app</p></td>
@@ -709,14 +710,15 @@ its members; other files are not delivered</p></td>
 <p>The plots-and-files row is the one to read twice. Google Chat can only display an
 image if Google itself can fetch it, so files are published to a world-readable
 address rather than shared privately; Nextcloud Talk keeps them in the room, and
-Teams returns plots inside the conversation and no other files. If a public
+Teams returns plots inside the conversation and keeps other files in your own
+tenant, readable by the conversation’s members. If a public
 address is not acceptable at your facility, you can turn
 files off in a Google Chat deployment and still get text answers — the Google Chat
 page explains how.</p>
 <p>Microsoft Teams asks the most of you up front, because a Teams bot can only be
 reached over the public internet: you publish a small relay into Azure, and the
-bridge reads what the relay queues. In return, nothing in your stack is exposed
-and plots never leave the conversation. The Microsoft Teams page walks through it.</p>
+bridge reads what the relay queues. In return, nothing in your stack is exposed,
+and files stay in your own tenant, readable by the conversation’s members. The Microsoft Teams page walks through it.</p>
 </section>
 <section id="learn-more">
 <h2>Learn More<a class="headerlink" href="#learn-more" title="Link to this heading">#</a></h2>

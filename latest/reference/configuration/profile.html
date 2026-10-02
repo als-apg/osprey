@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -393,6 +393,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/simulation-bundle.html">Simulation Bundle Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
@@ -851,7 +852,9 @@ lists the ids the gateway serves, spelled as it spells them, and
 <code class="docutils literal notranslate"><span class="pre">default_model</span></code> — one of them — answers when the profile names no <code class="docutils literal notranslate"><span class="pre">model:</span></code>.
 <code class="docutils literal notranslate"><span class="pre">api_protocol:</span>
 <span class="pre">anthropic</span></code> marks an Anthropic-native endpoint rather than an
-OpenAI-compatible one.</p>
+OpenAI-compatible one. <code class="docutils literal notranslate"><span class="pre">supports_images:</span> <span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">false</span></code> says whether
+images reach the model on the provider’s OpenAI route. Absent, the provider’s
+own declaration answers.</p>
 <p>Three rules follow from the catalog being the one home for these facts:</p>
 <ul class="simple">
 <li><p>A <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">api.providers.*</span></code> key is refused, naming <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> as the
@@ -954,6 +957,12 @@ the agent. The build records each entry in the rendered <code class="docutils li
 configuration) and <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> (tool permissions) — so a later
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> re-renders them instead of losing them. For the procedure, see
 <a class="reference internal" href="../../how-to/agent-interfaces/add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>.</p>
+<p>The agent loads only the servers this build renders into <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>: every
+launch passes <code class="docutils literal notranslate"><span class="pre">--strict-mcp-config</span></code> with that file, so a Claude Code plugin’s
+server or a claude.ai connector never starts, and declaring a server here is how
+you give the agent one. A server whose name puts its tools under
+<code class="docutils literal notranslate"><span class="pre">mcp__plugin_</span></code> or <code class="docutils literal notranslate"><span class="pre">mcp__claude_ai_</span></code> is refused at build, because those
+namespaces are denied on every launch.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">my_server</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{current_python_env}&quot;</span>
@@ -1004,21 +1013,21 @@ server. The build copies it to <code class="docutils literal notranslate"><span 
 launch command finds it:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   mcp_servers/
-    phoebus/
+    my_server/
       __init__.py
       __main__.py
       server.py
 </pre></div>
 </div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">phoebus</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my_server</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{current_python_env}&quot;</span>
-<span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;phoebus&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;my_server&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">env</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/build/config.yml&quot;</span>
 <span class="w">      </span><span class="nt">PYTHONPATH</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/build/_mcp_servers&quot;</span>
 <span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;phoebus_launch&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;safe_tool&quot;</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <p>The directory name and the <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> key are independent: the directory
@@ -1028,8 +1037,10 @@ delivers the code, the key launches it.</p>
 <section id="tool-permissions">
 <span id="profile-tool-permissions"></span><h2>Tool permissions<a class="headerlink" href="#tool-permissions" title="Link to this heading">#</a></h2>
 <p>By default OSPREY blocks a handful of general-purpose tools — <code class="docutils literal notranslate"><span class="pre">Bash</span></code>,
-<code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>, and the Playwright/Context7 plugins — so a
-stock control-operator agent cannot shell out or browse the web. These defaults
+<code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code> (background shell commands),
+<code class="docutils literal notranslate"><span class="pre">EnterWorktree</span></code> (a new git worktree on disk), and every Claude Code plugin’s
+and claude.ai connector’s MCP tools (<code class="docutils literal notranslate"><span class="pre">mcp__plugin_*</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp__claude_ai_*</span></code>) —
+so a stock control-operator agent cannot shell out or browse the web. These defaults
 are overridable per facility from <code class="docutils literal notranslate"><span class="pre">config:</span></code>, using dotted keys:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">claude_code.permissions.remove_deny</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebFetch&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># drop from the deny list</span>
@@ -1079,13 +1090,13 @@ also remove it from the deny list.</p>
 </div>
 <div class="warning admonition">
 <p class="admonition-title">You cannot un-gate a tool that can write</p>
-<p><code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">Write</span></code>, <code class="docutils literal notranslate"><span class="pre">MultiEdit</span></code> and <code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code> can write
-files or shell out, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a profile in which one of
-them is neither in <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> nor matched by a <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook
-matcher. A <code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;Bash&quot;]</span></code> with nothing put in its place is
-therefore a build failure, not a silent widening. (The shipped presets gate
-the three file-writing tools with the <code class="docutils literal notranslate"><span class="pre">memory-guard</span></code> hook rather than
-denying them, so ordinary memory and notebook writes still work.)</p>
+<p><code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">Write</span></code>, <code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code> and
+<code class="docutils literal notranslate"><span class="pre">EnterWorktree</span></code> can write files or shell out, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a profile in which one of them is neither
+in <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> nor matched by a <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook matcher. A
+<code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;Bash&quot;]</span></code> with nothing put in its place is therefore a build
+failure, not a silent widening. (The shipped presets gate <code class="docutils literal notranslate"><span class="pre">Write</span></code> and
+<code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code> with the <code class="docutils literal notranslate"><span class="pre">memory-guard</span></code> hook rather than denying them, so
+ordinary memory and notebook writes still work.)</p>
 <p>The build checks that a covering rule <em>exists</em>, not that the hook behind it
 refuses anything: a <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook that exits 0 without a
 <code class="docutils literal notranslate"><span class="pre">permissionDecision</span></code> allows the call. A tool whose only cover is a matcher
@@ -1229,6 +1240,16 @@ reason <code class="docutils literal notranslate"><span class="pre">network:</sp
 service answers HTTP on the port it publishes, and the deploy summary prints
 its address as a link instead of a bare <code class="docutils literal notranslate"><span class="pre">host:port</span></code>. Leave it out for a
 service that speaks any other protocol.</p>
+<p>A fourth pair of <code class="docutils literal notranslate"><span class="pre">config</span></code> keys says what a service on the host network binds.
+<code class="docutils literal notranslate"><span class="pre">listens</span></code> defaults to true; <code class="docutils literal notranslate"><span class="pre">listens:</span> <span class="pre">false</span></code> says the service opens no
+listening socket. <code class="docutils literal notranslate"><span class="pre">bind_env</span></code> defaults to none; it names the environment
+variable the service’s compose template renders its bind address into. The two
+may not be combined, and both are read only under <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">up</span></code> reads the bind address from the rendered compose file to decide whether the
+deployment is reachable from other machines, and skips a service that listens on
+nothing in its host-port check. OSPREY’s bundled services declare their own, so a
+declaration on one is refused unless the service is claimed with <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">services/&lt;name&gt;</span></code>.</p>
 </section>
 <section id="the-dispatch-block">
 <span id="profile-dispatch-block"></span><h2>The <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block<a class="headerlink" href="#the-dispatch-block" title="Link to this heading">#</a></h2>
@@ -1251,7 +1272,9 @@ the deployment into the event dispatcher and its workers.</p>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">triggers</span></code></p></td>
 <td><p><em>(required)</em></p></td>
-<td><p>Bundled trigger-file name, or a path relative to the profile.</p></td>
+<td><p>Bundled trigger-file name, or a path relative to the profile. A file
+beside the profile wins over a bundled one of the same name; editing it
+marks the build out of date, and a bundled file never does.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">worker_count</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
@@ -1304,7 +1327,8 @@ names none gets this.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility_name</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
-<td><p>Display name the dashboard shows.</p></td>
+<td><p>Display name the dispatcher dashboard shows. Unset shows the
+deployment’s <code class="docutils literal notranslate"><span class="pre">facility.name</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_strip_prefix</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
@@ -1672,8 +1696,8 @@ by name, rather than silently having one copy win:</p>
 <ul class="simple">
 <li><p>the connector’s eight connection keys —
 <code class="docutils literal notranslate"><span class="pre">archiver.mongodb_archiver.host</span></code>, <code class="docutils literal notranslate"><span class="pre">.port</span></code>, <code class="docutils literal notranslate"><span class="pre">.name</span></code>, <code class="docutils literal notranslate"><span class="pre">.collection</span></code>,
-<code class="docutils literal notranslate"><span class="pre">.auth</span></code>, <code class="docutils literal notranslate"><span class="pre">.username</span></code>, <code class="docutils literal notranslate"><span class="pre">.password_env</span></code>, <code class="docutils literal notranslate"><span class="pre">.timeout</span></code> — all derived from
-the keys above;</p></li>
+<code class="docutils literal notranslate"><span class="pre">.auth.source</span></code>, <code class="docutils literal notranslate"><span class="pre">.auth.username</span></code>, <code class="docutils literal notranslate"><span class="pre">.auth.password_env</span></code>, <code class="docutils literal notranslate"><span class="pre">.timeout_s</span></code> —
+all derived from the keys above;</p></li>
 <li><p>the shape knobs, written to <code class="docutils literal notranslate"><span class="pre">va_archiver.*</span></code> in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
 for the seeder and the recorder to read;</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">health.categories.archiver</span></code>, when <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code> is set.</p></li>
@@ -1726,6 +1750,22 @@ also available for all steps via <code class="docutils literal notranslate"><spa
 <p><code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> is replaced with the built project’s absolute path. The
 project venv’s <code class="docutils literal notranslate"><span class="pre">bin/</span></code> is prepended to <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, so <code class="docutils literal notranslate"><span class="pre">python</span></code> and <code class="docutils literal notranslate"><span class="pre">pytest</span></code>
 resolve to the project’s own Python.</p>
+<p>A step that writes JUnit XML to <code class="docutils literal notranslate"><span class="pre">{project_root}/check_results.xml</span></code> has its
+tests printed as an <strong>Integration Test Results</strong> table when it finishes: each
+test’s name, whether it passed, failed or was skipped, and its time. The file is
+read from the project root whatever the step’s <code class="docutils literal notranslate"><span class="pre">cwd</span></code>, so name it with
+<code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> rather than relying on the working directory. The table
+prints after the step that wrote the file and after no other: a step that writes
+no such file, or leaves an earlier step’s file as it found it, prints no table.
+The file stays in place, so a later step can read it. <code class="docutils literal notranslate"><span class="pre">validate</span></code> is the usual
+phase for a test run, because its failures warn instead of stopping the build:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">lifecycle</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">validate</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Integration</span><span class="nv"> </span><span class="s">tests&quot;</span>
+<span class="w">      </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pytest</span><span class="nv"> </span><span class="s">tests/integration</span><span class="nv"> </span><span class="s">--junitxml={project_root}/check_results.xml&quot;</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600</span>
+</pre></div>
+</div>
 </section>
 <section id="environment-variables">
 <h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h2>

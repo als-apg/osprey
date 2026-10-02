@@ -1,0 +1,1324 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Simulation Bundle Contract &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/simulation-bundle';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/simulation-bundle.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Python Executor Contract" href="python-executor.html" />
+    <link rel="prev" title="Connector Contracts" href="connectors.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contracts</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Simulation Bundle Contract</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="simulation-bundle-contract">
+<span id="reference-simulation-bundle"></span><h1>Simulation Bundle Contract<a class="headerlink" href="#simulation-bundle-contract" title="Link to this heading">#</a></h1>
+<p>A simulated machine is a set of JSON files a facility writes: one
+<code class="docutils literal notranslate"><span class="pre">machine.json</span></code> that defines every simulated channel, and one directory per
+scenario that says how the machine departs from its baseline. This page is the
+shape of those files, how scenarios compose, and every refusal the loader and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> raise.</p>
+<p>The config key <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.simulation_file</span></code> locates the
+bundle, where <code class="docutils literal notranslate"><span class="pre">&lt;type&gt;</span></code> is <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> (<code class="docutils literal notranslate"><span class="pre">mock</span></code> when unset). A
+type with no key of its own falls back to
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.mock.simulation_file</span></code>. A relative path resolves
+against the project root; the shipped presets set both keys to
+<code class="docutils literal notranslate"><span class="pre">data/simulation/machine.json</span></code>. Three readers load the bundle: the mock
+control-system and archiver connectors, the simulation engine inside the Virtual
+Accelerator container, and the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> commands.</p>
+<section id="layout">
+<span id="simulation-bundle-layout"></span><h2>Layout<a class="headerlink" href="#layout" title="Link to this heading">#</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>data/simulation/
+  machine.json               channels (required)
+  scenarios/
+    &lt;name&gt;/
+      scenario.json          overrides, archiver events, physics (required)
+      logbook.json           the scenario&#39;s logbook narrative (optional)
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>A scenario is an immediate <em>subdirectory</em> of <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code>, and the
+directory name is the scenario name. Files directly inside <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code> are
+ignored.</p></li>
+<li><p>A subdirectory without a <code class="docutils literal notranslate"><span class="pre">scenario.json</span></code> is refused.</p></li>
+<li><p>When no <code class="docutils literal notranslate"><span class="pre">nominal/</span></code> directory exists, a <code class="docutils literal notranslate"><span class="pre">nominal</span></code> scenario is supplied with
+the description “All systems nominal.” and no overrides.</p></li>
+<li><p>When <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code> exists, a <code class="docutils literal notranslate"><span class="pre">scenarios</span></code> block inside <code class="docutils literal notranslate"><span class="pre">machine.json</span></code> is
+<strong>ignored</strong>. The inline form is read only when the directory is absent, and
+an inline scenario carries no logbook.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">lattice.json</span></code>, <code class="docutils literal notranslate"><span class="pre">va_bindings.json</span></code> and the <code class="docutils literal notranslate"><span class="pre">standin_bpm_errors</span></code> key of
+<code class="docutils literal notranslate"><span class="pre">machine.json</span></code> sit beside the bundle but are Virtual Accelerator inputs,
+outside this page; see <a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
+<p>The directory is build-owned: the build renders it from the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code>
+tree and checksums it. The one file that changes at run time, the active
+scenario set, therefore lives under the agent-data root instead
+(<a class="reference internal" href="#simulation-bundle-composition"><span class="std std-ref">Composition</span></a>).</p>
+</section>
+<section id="machine-json">
+<span id="simulation-bundle-machine"></span><h2><code class="docutils literal notranslate"><span class="pre">machine.json</span></code><a class="headerlink" href="#machine-json" title="Link to this heading">#</a></h2>
+<p>The top-level keys the loader reads are <code class="docutils literal notranslate"><span class="pre">channels</span></code> (required, a mapping of
+channel name to channel entry), and <code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code> (optional
+strings). Other top-level keys are not read by the loader.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id1">
+<caption><span class="caption-text">Channel entry</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 22.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Type, default</p></th>
+<th class="head"><p>Rule</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">value</span></code></p></td>
+<td><p>number or string</p></td>
+<td><p>The baseline. Exactly one of <code class="docutils literal notranslate"><span class="pre">value</span></code> and <code class="docutils literal notranslate"><span class="pre">expr</span></code> is required. A
+string value makes a string-valued channel.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">expr</span></code></p></td>
+<td><p>string</p></td>
+<td><p>A derived channel, computed from other channels
+(<a class="reference internal" href="#simulation-bundle-expressions"><span class="std std-ref">Expressions</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">units</span></code></p></td>
+<td><p>string, <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Reported with every read.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p>string, <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Reported with every read.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">noise</span></code></p></td>
+<td><p>number ≥ 0, <code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>Relative sigma: a read is multiplied by <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">+</span> <span class="pre">N(0,</span> <span class="pre">noise)</span></code>. Being
+multiplicative, it has no effect on a <code class="docutils literal notranslate"><span class="pre">0.0</span></code> baseline.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">noise_abs</span></code></p></td>
+<td><p>number ≥ 0, <code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>Additive sigma, in the channel’s units.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code></p></td>
+<td><p>number, none</p></td>
+<td><p>Physical bounds. When both are given, <code class="docutils literal notranslate"><span class="pre">min</span></code> must be less than
+<code class="docutils literal notranslate"><span class="pre">max</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">texture</span></code></p></td>
+<td><p>mapping, none</p></td>
+<td><p>Slow baseline motion. Exactly the keys <code class="docutils literal notranslate"><span class="pre">kind</span></code>, <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> and
+<code class="docutils literal notranslate"><span class="pre">period_s</span></code>: <code class="docutils literal notranslate"><span class="pre">kind</span></code> is <code class="docutils literal notranslate"><span class="pre">wander</span></code>; <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> (in the channel’s
+units, the bound of the motion) and <code class="docutils literal notranslate"><span class="pre">period_s</span></code> (the slowest period, in
+seconds) are numbers greater than 0.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">noise_abs</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code> and <code class="docutils literal notranslate"><span class="pre">texture</span></code> are refused on a string-valued
+channel. <code class="docutils literal notranslate"><span class="pre">texture</span></code> is the only closed block: an unknown key inside it is
+refused, while any other unrecognised key of a channel entry is ignored. A
+channel whose baseline is <code class="docutils literal notranslate"><span class="pre">0.0</span></code> with a relative <code class="docutils literal notranslate"><span class="pre">noise</span></code> and neither
+<code class="docutils literal notranslate"><span class="pre">noise_abs</span></code> nor <code class="docutils literal notranslate"><span class="pre">texture</span></code> loads, but reads as a flat constant; the loader
+names such channels once in its log. That is a warning, not a refusal.</p>
+<p>A live read of a numeric channel starts from its effective value: a value
+written during the session, else the active scenario’s override, else the
+baseline. It then adds the texture, applies the relative noise, adds the
+absolute noise, and clamps into <code class="docutils literal notranslate"><span class="pre">min</span></code>/<code class="docutils literal notranslate"><span class="pre">max</span></code>. The clamp applies to what is
+read out, never to what is stored: overrides and writes are kept as given.
+Synthesized archiver history builds on the baseline and the active scenario’s
+archiver events rather than on overrides, so a scenario that should show in
+history as well as in live reads declares an archiver event for the channel.</p>
+<section id="expressions">
+<span id="simulation-bundle-expressions"></span><h3>Expressions<a class="headerlink" href="#expressions" title="Link to this heading">#</a></h3>
+<p>An <code class="docutils literal notranslate"><span class="pre">expr</span></code> is an arithmetic expression over other channels. The grammar is:</p>
+<ul class="simple">
+<li><p>int and float literals;</p></li>
+<li><p>the binary operators <code class="docutils literal notranslate"><span class="pre">+</span></code>, <code class="docutils literal notranslate"><span class="pre">-</span></code>, <code class="docutils literal notranslate"><span class="pre">*</span></code>, <code class="docutils literal notranslate"><span class="pre">/</span></code> and <code class="docutils literal notranslate"><span class="pre">**</span></code>, unary <code class="docutils literal notranslate"><span class="pre">+</span></code> and
+<code class="docutils literal notranslate"><span class="pre">-</span></code>, and parentheses;</p></li>
+<li><p>the functions <code class="docutils literal notranslate"><span class="pre">abs</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">sqrt</span></code> and <code class="docutils literal notranslate"><span class="pre">exp</span></code>, each with at
+least one argument and no keyword arguments;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ch('NAME')</span></code>, the value of channel <code class="docutils literal notranslate"><span class="pre">NAME</span></code>, with exactly one string
+literal.</p></li>
+</ul>
+<p>No other names, keywords or syntax are accepted. At load, a reference to a
+channel the file does not define is refused, and so is any reference cycle,
+reported as <code class="docutils literal notranslate"><span class="pre">Expression</span> <span class="pre">reference</span> <span class="pre">cycle</span> <span class="pre">detected:</span> <span class="pre">A</span> <span class="pre">-&gt;</span> <span class="pre">B</span> <span class="pre">-&gt;</span> <span class="pre">A</span></code>.</p>
+<p>Evaluation errors are raised when the channel is <em>read</em>, not at load: a
+division by zero, a domain error such as <code class="docutils literal notranslate"><span class="pre">sqrt</span></code> of a negative number, and a
+reference to a string-valued channel. A file whose <code class="docutils literal notranslate"><span class="pre">expr</span></code> references a string
+channel <code class="docutils literal notranslate"><span class="pre">S</span></code> loads, and the read raises <code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'D':</span> <span class="pre">Channel</span> <span class="pre">'S'</span> <span class="pre">holds</span> <span class="pre">a</span>
+<span class="pre">string</span> <span class="pre">value</span> <span class="pre">and</span> <span class="pre">cannot</span> <span class="pre">be</span> <span class="pre">used</span> <span class="pre">in</span> <span class="pre">an</span> <span class="pre">expression</span></code>.</p>
+<p>A live read resolves each reference at that channel’s effective value, clamped
+to its bounds, without its texture or noise; the derived channel’s own texture,
+noise and bounds then apply. Synthesized history of a derived channel is
+computed from its references’ synthesized series, so it carries their texture
+and noise.</p>
+</section>
+</section>
+<section id="scenario-json">
+<span id="simulation-bundle-scenario"></span><h2><code class="docutils literal notranslate"><span class="pre">scenario.json</span></code><a class="headerlink" href="#scenario-json" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Rule</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p>String, <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code> when absent. Shown by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">overrides</span></code></p></td>
+<td><p>Mapping of channel name to a number or string. Replaces the channel’s
+baseline in live reads while the scenario is active.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">archiver</span></code></p></td>
+<td><p>List of <code class="docutils literal notranslate"><span class="pre">{&quot;channel&quot;:</span> <span class="pre">&lt;name&gt;,</span> <span class="pre">&quot;events&quot;:</span> <span class="pre">[...]}</span></code> entries; <code class="docutils literal notranslate"><span class="pre">events</span></code>
+defaults to an empty list (<a class="reference internal" href="#simulation-bundle-events"><span class="std std-ref">Event scripts</span></a>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">physics</span></code></p></td>
+<td><p>Deploy-time lattice faults for the Virtual Accelerator
+(<a class="reference internal" href="#simulation-bundle-physics"><span class="std std-ref">physics</span></a>).</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every channel named under <code class="docutils literal notranslate"><span class="pre">overrides</span></code> or <code class="docutils literal notranslate"><span class="pre">archiver</span></code> must be defined in
+<code class="docutils literal notranslate"><span class="pre">machine.json</span></code>. Unrecognised keys are ignored, so a note to the reader can sit
+in a key of its own such as <code class="docutils literal notranslate"><span class="pre">_comment</span></code>. The type of an override is not checked
+against the channel’s: a number overriding a string-valued channel loads, and
+keeping the two consistent is the author’s responsibility.</p>
+</section>
+<section id="event-scripts">
+<span id="simulation-bundle-events"></span><h2>Event scripts<a class="headerlink" href="#event-scripts" title="Link to this heading">#</a></h2>
+<p>Each archiver event is a mapping with a <code class="docutils literal notranslate"><span class="pre">shape</span></code>, the value keys that shape
+needs, and one position.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id2">
+<caption><span class="caption-text">Shapes</span><a class="headerlink" href="#id2" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 14.0%" />
+<col style="width: 22.0%" />
+<col style="width: 64.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></th>
+<th class="head"><p>Value keys</p></th>
+<th class="head"><p>Effect</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">step</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">to</span></code></p></td>
+<td><p>Every sample from the event’s position on takes the value <code class="docutils literal notranslate"><span class="pre">to</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ramp</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">to</span></code>, plus the until-key of its position style</p></td>
+<td><p>Runs linearly from the series value at its position to <code class="docutils literal notranslate"><span class="pre">to</span></code>, then
+holds <code class="docutils literal notranslate"><span class="pre">to</span></code>. An until at or before the position behaves as a step.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">spike</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">amplitude</span></code>, <code class="docutils literal notranslate"><span class="pre">width</span></code></p></td>
+<td><p>Adds a Gaussian bump of height <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> and sigma <code class="docutils literal notranslate"><span class="pre">width</span></code>
+(greater than 0), centred on the position.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">to</span></code> and <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> are numbers. The events of one channel apply in list
+order, and the channel’s texture and noise ride on the series the events leave.
+On a string-valued channel only <code class="docutils literal notranslate"><span class="pre">step</span></code> is accepted, and its <code class="docutils literal notranslate"><span class="pre">to</span></code> becomes the
+string.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id3">
+<caption><span class="caption-text">Positions (exactly one per event)</span><a class="headerlink" href="#id3" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 84.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at_offset</span></code></p></td>
+<td><p>Seconds from the apply-time anchor T0, any sign (negative is the past).
+A ramp pairs it with <code class="docutils literal notranslate"><span class="pre">until_offset</span></code>; a spike’s <code class="docutils literal notranslate"><span class="pre">width</span></code> is in
+seconds.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at_time</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;HH:MM:SS&quot;</span></code> with no zone offset, recurring daily: the event fires at
+that time of day on every calendar date inside the window read, in the
+facility time zone (<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>, UTC when unset). <code class="docutils literal notranslate"><span class="pre">step</span></code> and
+<code class="docutils literal notranslate"><span class="pre">spike</span></code> only; a spike’s <code class="docutils literal notranslate"><span class="pre">width</span></code> is in seconds.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at</span></code></p></td>
+<td><p>A fraction in <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1]</span></code> of whatever window a reader asks for. A ramp
+pairs it with <code class="docutils literal notranslate"><span class="pre">until</span></code>, also a fraction; a spike’s <code class="docutils literal notranslate"><span class="pre">width</span></code> is a
+window fraction. A ramp that mixes the fraction and offset flavours is
+refused.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>T0 is written as an <code class="docutils literal notranslate"><span class="pre">anchor=&lt;ISO8601&gt;</span></code> line into the state file by <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">sim</span> <span class="pre">apply</span></code>, which takes the current time unless <code class="docutils literal notranslate"><span class="pre">--now</span></code> or the
+<code class="docutils literal notranslate"><span class="pre">OSPREY_SIM_NOW</span></code> environment variable freezes it (a value with no zone offset
+takes the facility time zone). The same T0 places telemetry events, the
+logbook’s <code class="docutils literal notranslate"><span class="pre">when</span></code> values and the archive rewrite. When the state file holds no
+anchor line, the engine takes the state file’s modification time, and with no
+state file the current time.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> refuses an <code class="docutils literal notranslate"><span class="pre">at</span></code> event in any active scenario unless
+the archive rewrite is skipped with <code class="docutils literal notranslate"><span class="pre">--no-seed-archiver</span></code> or <code class="docutils literal notranslate"><span class="pre">--no-seed</span></code>.
+The refusal holds on every simulation-backed project, whether or not it has
+a stored archive: a fraction names a position in a reader’s window, not an
+instant that can be written. The mock archiver can still draw an <code class="docutils literal notranslate"><span class="pre">at</span></code>
+event at read time, but a bundle meant to be applied uses <code class="docutils literal notranslate"><span class="pre">at_offset</span></code> or
+<code class="docutils literal notranslate"><span class="pre">at_time</span></code>, and the shipped bundles are held to that.</p>
+</div>
+</section>
+<section id="physics">
+<span id="simulation-bundle-physics"></span><h2><code class="docutils literal notranslate"><span class="pre">physics</span></code><a class="headerlink" href="#physics" title="Link to this heading">#</a></h2>
+<p>A <code class="docutils literal notranslate"><span class="pre">physics</span></code> block seeds lattice faults into the Virtual Accelerator. The mock
+connectors do not read it.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Rule</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bpm_errors</span></code></p></td>
+<td><p>Mapping of device id to an error spec, every field optional:
+<code class="docutils literal notranslate"><span class="pre">offset</span></code> (m, default 0), <code class="docutils literal notranslate"><span class="pre">gain</span></code> (factor, default 1), <code class="docutils literal notranslate"><span class="pre">polarity</span></code>
+(<code class="docutils literal notranslate"><span class="pre">1</span></code> or <code class="docutils literal notranslate"><span class="pre">-1</span></code>, default 1), <code class="docutils literal notranslate"><span class="pre">roll</span></code> (rad, default 0) and <code class="docutils literal notranslate"><span class="pre">noise</span></code>
+(m, ≥ 0, default 0).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">corrector_gain</span></code></p></td>
+<td><p>Mapping of device id to a calibration factor; 1.0 is nominal.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Device ids are lattice device ids such as <code class="docutils literal notranslate"><span class="pre">BPM17</span></code> or <code class="docutils literal notranslate"><span class="pre">HCM01</span></code>, not channel
+names, and the loader does not check them against anything. Each <code class="docutils literal notranslate"><span class="pre">bpm_errors</span></code>
+field except <code class="docutils literal notranslate"><span class="pre">roll</span></code> applies to <strong>both</strong> transverse planes: <code class="docutils literal notranslate"><span class="pre">offset</span></code> becomes
+the horizontal and the vertical offset, and so on for <code class="docutils literal notranslate"><span class="pre">gain</span></code>, <code class="docutils literal notranslate"><span class="pre">polarity</span></code>
+and <code class="docutils literal notranslate"><span class="pre">noise</span></code>.</p>
+<p>A physics fault is deploy-time only. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> writes it into the
+deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> as <code class="docutils literal notranslate"><span class="pre">VA_BPM_ERRORS</span></code> and <code class="docutils literal notranslate"><span class="pre">VA_CORR_GAIN</span></code>, and the
+Virtual Accelerator reads those when its container is created, so the fault
+takes effect at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, not at the next poll of the state file;
+see <a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
+<p>The container, not the loader, refuses a device its served bindings cannot
+resolve, a fault on a deployment that serves no lattice, and a value outside
+its bounds: a BPM gain from 0.1 to 10, a roll within ±0.1 rad, and a corrector
+factor of magnitude at most 5.</p>
+</section>
+<section id="logbook-json">
+<span id="simulation-bundle-logbook"></span><h2><code class="docutils literal notranslate"><span class="pre">logbook.json</span></code><a class="headerlink" href="#logbook-json" title="Link to this heading">#</a></h2>
+<p>A JSON array of entries, each a mapping:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Rule</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
+<td><p>Non-empty string, required.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">when</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;days_ago&quot;:</span> <span class="pre">&lt;int</span> <span class="pre">≥</span> <span class="pre">0&gt;,</span> <span class="pre">&quot;time&quot;:</span> <span class="pre">&quot;HH:MM:SS&quot;}</span></code>, required; <code class="docutils literal notranslate"><span class="pre">time</span></code>
+carries no zone offset.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">author</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code></p></td>
+<td><p>Strings, required.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">categories</span></code></p></td>
+<td><p>Lists of strings, default empty.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">loto_tag</span></code></p></td>
+<td><p>String or <code class="docutils literal notranslate"><span class="pre">null</span></code>, default <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">extra</span></code></p></td>
+<td><p>Mapping, default empty. Merged into the stored entry’s metadata last,
+so it can overwrite the <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">categories</span></code> and
+<code class="docutils literal notranslate"><span class="pre">loto_tag</span></code> stored there.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">when</span></code> resolves to the calendar day <code class="docutils literal notranslate"><span class="pre">days_ago</span></code> days before T0, at <code class="docutils literal notranslate"><span class="pre">time</span></code>,
+in T0’s time zone. A <code class="docutils literal notranslate"><span class="pre">days_ago:</span> <span class="pre">0</span></code> entry whose <code class="docutils literal notranslate"><span class="pre">time</span></code> is later than T0 lands
+in the future.</p>
+<p>Applying scenarios purges the logbook and reseeds it from every active
+scenario’s entries in activation order, <code class="docutils literal notranslate"><span class="pre">nominal</span></code> first. Entries are upserted
+by <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>, so when two active scenarios reuse an id only the later one’s
+entry is kept. Seeding needs an <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block in the project config; without
+one it is skipped, and <code class="docutils literal notranslate"><span class="pre">--no-seed-logbook</span></code> or <code class="docutils literal notranslate"><span class="pre">--no-seed</span></code> skips it too.</p>
+</section>
+<section id="composition">
+<span id="simulation-bundle-composition"></span><h2>Composition<a class="headerlink" href="#composition" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always active and always first. The other names keep the order
+given, with duplicates dropped.</p>
+<p>A scenario <em>touches</em> every channel it names under <code class="docutils literal notranslate"><span class="pre">overrides</span></code> and every
+channel it names in an <code class="docutils literal notranslate"><span class="pre">archiver</span></code> entry; an entry whose <code class="docutils literal notranslate"><span class="pre">events</span></code> list is
+empty <strong>still touches its channel</strong>. No two active scenarios may touch one
+channel. Because <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always active, a channel <code class="docutils literal notranslate"><span class="pre">nominal</span></code> touches is
+off limits to every other scenario.</p>
+<p><code class="docutils literal notranslate"><span class="pre">physics</span></code> has a rule of its own: no two active scenarios may name one device
+under the same field.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> records the active set in <code class="docutils literal notranslate"><span class="pre">simulation/active_scenarios</span></code>
+under the agent-data root (<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>, <code class="docutils literal notranslate"><span class="pre">var/agent_data</span></code> when
+unset, so <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code>). It writes the file
+whole, by rename: an optional <code class="docutils literal notranslate"><span class="pre">anchor=</span></code> line, then one scenario name per line.
+Blank lines and lines starting with <code class="docutils literal notranslate"><span class="pre">#</span></code> are skipped. Every reader re-reads the
+file when it changes. On the mock connectors, writing it clears the values
+written during the session.</p>
+</section>
+<section id="refusals">
+<span id="simulation-bundle-refusals"></span><h2>Refusals<a class="headerlink" href="#refusals" title="Link to this heading">#</a></h2>
+<p>Every message is quoted up to its first variable part; <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;ch&gt;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&lt;id&gt;</span></code> and <code class="docutils literal notranslate"><span class="pre">&lt;key&gt;</span></code> stand for the scenario, channel, device and key the
+message names.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id4">
+<caption><span class="caption-text">Load: every reader, on engine construction and in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code> and <code class="docutils literal notranslate"><span class="pre">apply</span></code></span><a class="headerlink" href="#id4" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 66.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Condition</p></th>
+<th class="head"><p>Message begins</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">machine.json</span></code> is not valid JSON</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Machine</span> <span class="pre">file</span> <span class="pre">&lt;path&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">valid</span> <span class="pre">JSON:</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">machine.json</span></code> has no <code class="docutils literal notranslate"><span class="pre">channels</span></code> mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Machine</span> <span class="pre">file</span> <span class="pre">&lt;path&gt;</span> <span class="pre">must</span> <span class="pre">define</span> <span class="pre">a</span> <span class="pre">'channels'</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>A channel entry is not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">entry</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Neither or both of <code class="docutils literal notranslate"><span class="pre">value</span></code> and <code class="docutils literal notranslate"><span class="pre">expr</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">exactly</span> <span class="pre">one</span> <span class="pre">of</span> <span class="pre">'value'</span> <span class="pre">or</span> <span class="pre">'expr'</span> <span class="pre">is</span> <span class="pre">required</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">value</span></code> is not a number or string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'value'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span> <span class="pre">or</span> <span class="pre">string</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">expr</span></code> is not a string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'expr'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">string</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">expr</span></code> outside the grammar</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span></code> followed by the construct refused, for example
+<code class="docutils literal notranslate"><span class="pre">Function</span> <span class="pre">'log'</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">allowed</span> <span class="pre">in</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Bad <code class="docutils literal notranslate"><span class="pre">noise</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'noise'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">non-negative</span> <span class="pre">number</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Bad <code class="docutils literal notranslate"><span class="pre">noise_abs</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'noise_abs'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">non-negative</span> <span class="pre">number</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">min</span></code> or <code class="docutils literal notranslate"><span class="pre">max</span></code> not a number</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'min'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span></code> (or <code class="docutils literal notranslate"><span class="pre">'max'</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">min</span></code> not less than <code class="docutils literal notranslate"><span class="pre">max</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'min'</span> <span class="pre">(</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">noise_abs</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code> or <code class="docutils literal notranslate"><span class="pre">texture</span></code> on a string channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">supported</span> <span class="pre">on</span> <span class="pre">string-valued</span> <span class="pre">channels</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">texture</span></code> not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'texture'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">texture</span></code> with an unknown key</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'texture'</span> <span class="pre">has</span> <span class="pre">unknown</span> <span class="pre">keys</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">texture</span></code> missing a key</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'texture'</span> <span class="pre">missing</span> <span class="pre">keys</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">texture</span></code> <code class="docutils literal notranslate"><span class="pre">kind</span></code> not <code class="docutils literal notranslate"><span class="pre">wander</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'texture'</span> <span class="pre">kind</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">one</span> <span class="pre">of</span> <span class="pre">['wander']</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">texture</span></code> <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> or <code class="docutils literal notranslate"><span class="pre">period_s</span></code> not greater than 0</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'texture'</span> <span class="pre">&lt;key&gt;</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span> <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">expr</span></code> references an undefined channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">expression</span> <span class="pre">references</span> <span class="pre">unknown</span> <span class="pre">channel</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Reference cycle</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Expression</span> <span class="pre">reference</span> <span class="pre">cycle</span> <span class="pre">detected:</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Inline <code class="docutils literal notranslate"><span class="pre">scenarios</span></code> block not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">'scenarios'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span> <span class="pre">of</span> <span class="pre">scenario</span> <span class="pre">name</span> <span class="pre">to</span> <span class="pre">definition</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Scenario directory without <code class="docutils literal notranslate"><span class="pre">scenario.json</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">bundle</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">is</span> <span class="pre">missing</span> <span class="pre">scenario.json</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">scenario.json</span></code> or <code class="docutils literal notranslate"><span class="pre">logbook.json</span></code> is not valid JSON</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">bundle</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">invalid</span> <span class="pre">scenario.json:</span></code> (or
+<code class="docutils literal notranslate"><span class="pre">invalid</span> <span class="pre">logbook.json:</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">logbook.json</span></code> is not an array</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">bundle</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">logbook.json</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">JSON</span> <span class="pre">array</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Scenario not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">definition</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Override for an undefined channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">override</span> <span class="pre">for</span> <span class="pre">unknown</span> <span class="pre">channel</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Override not a number or string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">override</span> <span class="pre">for</span> <span class="pre">'&lt;ch&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span> <span class="pre">or</span> <span class="pre">string</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Archiver entry not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">archiver</span> <span class="pre">entries</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">mappings</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Archiver entry for an undefined channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">archiver</span> <span class="pre">events</span> <span class="pre">for</span> <span class="pre">unknown</span> <span class="pre">channel</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">physics</span></code> not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">'physics'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bpm_errors</span></code> or <code class="docutils literal notranslate"><span class="pre">corrector_gain</span></code> not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">physics:</span> <span class="pre">'bpm_errors'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code> (or
+<code class="docutils literal notranslate"><span class="pre">'corrector_gain'</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p>A device id that is not a non-empty string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">physics:</span> <span class="pre">'bpm_errors'</span> <span class="pre">keys</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">non-empty</span> <span class="pre">device</span>
+<span class="pre">id</span> <span class="pre">strings</span></code> (or <code class="docutils literal notranslate"><span class="pre">'corrector_gain'</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>A <code class="docutils literal notranslate"><span class="pre">bpm_errors</span></code> spec not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">physics:</span> <span class="pre">bpm_errors['&lt;id&gt;']</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">polarity</span></code> not <code class="docutils literal notranslate"><span class="pre">1</span></code> or <code class="docutils literal notranslate"><span class="pre">-1</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">physics</span> <span class="pre">bpm_errors['&lt;id&gt;']:</span> <span class="pre">'polarity'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">1</span> <span class="pre">or</span>
+<span class="pre">-1</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Another <code class="docutils literal notranslate"><span class="pre">bpm_errors</span></code> field not a number, or <code class="docutils literal notranslate"><span class="pre">noise</span></code> negative</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">physics</span> <span class="pre">bpm_errors['&lt;id&gt;']:</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">must</span> <span class="pre">be</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>A <code class="docutils literal notranslate"><span class="pre">corrector_gain</span></code> factor not a number</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">physics:</span> <span class="pre">corrector_gain['&lt;id&gt;']</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Logbook entry not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook:</span> <span class="pre">each</span> <span class="pre">entry</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Bad <code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook:</span> <span class="pre">'entry_id'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">non-empty</span> <span class="pre">string</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">when</span></code> not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'when'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Bad <code class="docutils literal notranslate"><span class="pre">days_ago</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'days_ago'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span>
+<span class="pre">non-negative</span> <span class="pre">integer</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Bad <code class="docutils literal notranslate"><span class="pre">time</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'when.time'</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">author</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code> or <code class="docutils literal notranslate"><span class="pre">text</span></code> not a string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">string</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tags</span></code> or <code class="docutils literal notranslate"><span class="pre">categories</span></code> not a list of strings</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">list</span> <span class="pre">of</span>
+<span class="pre">strings</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Bad <code class="docutils literal notranslate"><span class="pre">loto_tag</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'loto_tag'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">string</span> <span class="pre">or</span>
+<span class="pre">null</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">extra</span></code> not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'extra'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Event not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Unknown <code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">shape</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">one</span> <span class="pre">of</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>A value key missing, or a ramp’s until-key missing</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'&lt;shape&gt;'</span> <span class="pre">event</span> <span class="pre">missing</span> <span class="pre">keys</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Not exactly one position key</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">requires</span> <span class="pre">exactly</span> <span class="pre">one</span> <span class="pre">of</span> <span class="pre">'at'</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Ramp positioned by <code class="docutils literal notranslate"><span class="pre">at_time</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'ramp'</span> <span class="pre">events</span> <span class="pre">do</span> <span class="pre">not</span> <span class="pre">support</span>
+<span class="pre">'at_time'</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Ramp mixing fraction and offset keys</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'ramp'</span> <span class="pre">event</span> <span class="pre">must</span> <span class="pre">not</span> <span class="pre">mix</span> <span class="pre">fraction</span>
+<span class="pre">and</span> <span class="pre">offset</span> <span class="pre">position</span> <span class="pre">keys</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at_time</span></code> not a string, not a valid time of day, or with a zone offset</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'at_time'</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>A shape other than <code class="docutils literal notranslate"><span class="pre">step</span></code> on a string channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'&lt;shape&gt;'</span> <span class="pre">events</span> <span class="pre">are</span> <span class="pre">not</span> <span class="pre">supported</span>
+<span class="pre">on</span> <span class="pre">string-valued</span> <span class="pre">channels</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>A position, until, <code class="docutils literal notranslate"><span class="pre">to</span></code>, <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> or <code class="docutils literal notranslate"><span class="pre">width</span></code> value not a number</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span>
+<span class="pre">number</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at</span></code> or <code class="docutils literal notranslate"><span class="pre">until</span></code> outside <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">between</span>
+<span class="pre">0</span> <span class="pre">and</span> <span class="pre">1</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">width</span></code> not greater than 0</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'width'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span>
+<span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> checks the requested set in this order and refuses before
+anything is written: the logbook, the archive, the state file and <code class="docutils literal notranslate"><span class="pre">.env</span></code> are
+all left as they were.</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id5">
+<caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code>, before anything is written</span><a class="headerlink" href="#id5" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 66.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Condition</p></th>
+<th class="head"><p>Message begins</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>A requested scenario is not defined</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Unknown</span> <span class="pre">scenario</span> <span class="pre">'&lt;name&gt;'.</span> <span class="pre">Available:</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Two active scenarios touch one channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Channel</span> <span class="pre">'&lt;ch&gt;'</span> <span class="pre">is</span> <span class="pre">touched</span> <span class="pre">by</span> <span class="pre">both</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Two active scenarios name one physics device under the same field</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">physics.&lt;field&gt;['&lt;id&gt;']</span> <span class="pre">is</span> <span class="pre">declared</span> <span class="pre">by</span> <span class="pre">both</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>An active scenario has an <code class="docutils literal notranslate"><span class="pre">at</span></code> event and the archive rewrite is not
+skipped</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Archiver</span> <span class="pre">event</span> <span class="pre">&lt;event&gt;</span> <span class="pre">is</span> <span class="pre">positioned</span> <span class="pre">by</span> <span class="pre">window</span> <span class="pre">fraction</span> <span class="pre">('at')</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>The project configures no simulation file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Project</span> <span class="pre">&lt;dir&gt;</span> <span class="pre">has</span> <span class="pre">no</span> <span class="pre">mock</span> <span class="pre">'simulation_file'</span> <span class="pre">configured</span></code> (or <code class="docutils literal notranslate"><span class="pre">has</span> <span class="pre">no</span>
+<span class="pre">simulation_file</span> <span class="pre">configured</span> <span class="pre">for</span> <span class="pre">control_system.type</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="pst-scrollable-table-container"><table class="table" id="id6">
+<caption><span class="caption-text">Virtual Accelerator container boot</span><a class="headerlink" href="#id6" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 34.0%" />
+<col style="width: 66.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Condition</p></th>
+<th class="head"><p>Message begins</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>A physics device the served bindings cannot resolve</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FATAL:</span> <span class="pre">VA_BPM_ERRORS:</span></code> (or <code class="docutils literal notranslate"><span class="pre">FATAL:</span> <span class="pre">VA_CORR_GAIN:</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>A physics fault on a deployment serving no lattice</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FATAL:</span> <span class="pre">VA_BPM_ERRORS/VA_CORR_GAIN</span> <span class="pre">are</span> <span class="pre">lattice-physics</span> <span class="pre">faults</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>A value outside its bounds</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">FATAL:</span> <span class="pre">VA_BPM_ERRORS</span> <span class="pre">entry</span></code> (or <code class="docutils literal notranslate"><span class="pre">FATAL:</span> <span class="pre">VA_CORR_GAIN</span> <span class="pre">entry</span></code>)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Some conditions are not refused. A name in a hand-edited state file that no
+scenario defines is logged and ignored; a set that does not compose is logged,
+and the engine falls back to <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone; a malformed <code class="docutils literal notranslate"><span class="pre">anchor=</span></code> line is
+logged and ignored. The one supported way to change the active set is <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">sim</span> <span class="pre">apply</span></code>.</p>
+</section>
+<section id="worked-example">
+<span id="simulation-bundle-example"></span><h2>Worked example<a class="headerlink" href="#worked-example" title="Link to this heading">#</a></h2>
+<p>A machine with one vacuum gauge, a derived margin and a valve, and one
+scenario that raises the pressure, closes the valve in history and records
+why.</p>
+<div class="literal-block-wrapper docutils container" id="id7">
+<div class="code-block-caption"><span class="caption-text">data/simulation/machine.json</span><a class="headerlink" href="#id7" title="Link to this code">#</a></div>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Example ring&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;One vacuum sector of a storage ring.&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;RING:VAC:SECTOR01:PRESSURE&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.2</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;units&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;nTorr&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Sector 1 ion gauge&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;noise_abs&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.02</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;min&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;texture&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;wander&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;amplitude&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;period_s&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3600</span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;RING:VAC:SECTOR01:MARGIN&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;expr&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max(0.0, 10.0 - ch(&#39;RING:VAC:SECTOR01:PRESSURE&#39;))&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;units&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;nTorr&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Headroom below the 10 nTorr interlock&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;RING:VAC:SECTOR01:VALVE:STATE&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;OPEN&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Sector 1 gate valve&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id8">
+<div class="code-block-caption"><span class="caption-text">data/simulation/scenarios/vacuum-leak/scenario.json</span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;A small leak in sector 1: pressure is up and the gate valve is closed.&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;overrides&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;RING:VAC:SECTOR01:PRESSURE&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4.8</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;archiver&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;RING:VAC:SECTOR01:PRESSURE&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;events&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="nt">&quot;shape&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;spike&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;at_offset&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">-7200</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;amplitude&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">3.5</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;width&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">900</span><span class="p">}</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;RING:VAC:SECTOR01:VALVE:STATE&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;events&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="nt">&quot;shape&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;step&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;at_offset&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">-7200</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;to&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CLOSED&quot;</span><span class="p">}</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</div>
+<div class="literal-block-wrapper docutils container" id="id9">
+<div class="code-block-caption"><span class="caption-text">data/simulation/scenarios/vacuum-leak/logbook.json</span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;entry_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VAC-001&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;when&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;days_ago&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;time&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;22:15:00&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;author&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;alice&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Sector 1 pressure rise&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Sector 1 gauge reading high; gate valve closed until the leak is found.&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;tags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;vacuum&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="connectors.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Connector Contracts</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="python-executor.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Python Executor Contract</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#layout">Layout</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#machine-json"><code class="docutils literal notranslate"><span class="pre">machine.json</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#expressions">Expressions</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenario-json"><code class="docutils literal notranslate"><span class="pre">scenario.json</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#event-scripts">Event scripts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#physics"><code class="docutils literal notranslate"><span class="pre">physics</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logbook-json"><code class="docutils literal notranslate"><span class="pre">logbook.json</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#composition">Composition</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refusals">Refusals</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#worked-example">Worked example</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/simulation-bundle.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

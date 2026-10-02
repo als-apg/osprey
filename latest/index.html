@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -409,7 +409,7 @@
   <section id="osprey-framework-documentation">
 <h1>Osprey Framework Documentation<a class="headerlink" href="#osprey-framework-documentation" title="Link to this heading">#</a></h1>
 <p><strong>An agentic interface to scientific control systems.</strong></p>
-<p>The <strong>Osprey Framework</strong> is an agentic interface and harness for scientific facilities managing complex technical infrastructure, such as particle accelerators. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.</p>
+<p>The <strong>Osprey Framework</strong> is an agentic interface and harness for scientific facilities managing complex technical infrastructure, such as particle accelerators. It runs Claude Code as its agent and wraps it in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer. The model behind the agent is a configuration choice, and the code specific to Claude Code sits in <a class="reference internal" href="contributing/extending-osprey.html#extending-agent-harness"><span class="std std-ref">one adapter package</span></a>. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.</p>
 <p>Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, <a class="reference internal" href="how-to/control-systems/use-connectors.html"><span class="doc">protocol-agnostic integration with control stacks</span></a> (EPICS, DOOCS, TANGO, and Mock ship in-tree; LabVIEW and other stacks are supported via custom connectors), <a class="reference internal" href="how-to/ariel/index.html"><span class="doc">logbook search</span></a> across facility electronic logbooks, and mandatory human oversight for safety-critical operations.</p>
 <p>A short demo of the operator workstation:</p>
 <div class="osprey-demo">

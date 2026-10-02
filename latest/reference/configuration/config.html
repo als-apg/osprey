@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -393,6 +393,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/simulation-bundle.html">Simulation Bundle Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
@@ -471,15 +472,22 @@
 <span class="pre">build</span></code> renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: <a class="reference internal" href="profile.html"><span class="doc">Build Profile — profile.yml</span></a> describes the
 authoring side, and this page catalogues what the rendered result means.</p>
-<p>Six parts of that file are gathered here — the facility this deployment
-belongs to (<code class="docutils literal notranslate"><span class="pre">facility:</span></code>), the diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>), the browser
-UI’s documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s own
+<p>The parts of that file gathered here are the facility this deployment belongs
+to (<code class="docutils literal notranslate"><span class="pre">facility:</span></code>), the diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>), the browser UI’s
+documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s own
 categories (<code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code>), the Python sandbox’s run ceiling
-(<code class="docutils literal notranslate"><span class="pre">python_executor:</span></code>), and the deployment keys that decide which container
-image each service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files
-are filled in. Settings that only ever arrive from the environment are in
-<a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing note records the <strong>protected set</strong> —
-the files and keys no agent-side writer may touch.</p>
+(<code class="docutils literal notranslate"><span class="pre">python_executor:</span></code>), where screenshots are written (<code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code>), the
+full tool-call record (<code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code>), the links from an answer to a
+logbook entry (<code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code>), how much of each logbook entry
+the agent reads (<code class="docutils literal notranslate"><span class="pre">ariel.entry_text</span></code>), the signals the agent exports
+(<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code>), the collector token the agent sends
+(<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code>), the Phoebus display bridge
+(<code class="docutils literal notranslate"><span class="pre">phoebus:</span></code>), and the deployment keys that decide which container image each
+service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files are filled
+in. Settings that only
+ever arrive from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing
+note records the <strong>protected set</strong> — the files and keys no agent-side writer
+may touch.</p>
 <section id="facility-whose-machine-this-is">
 <span id="config-facility"></span><h2><code class="docutils literal notranslate"><span class="pre">facility:</span></code> — whose machine this is<a class="headerlink" href="#facility-whose-machine-this-is" title="Link to this heading">#</a></h2>
 <p>Three keys say which facility the deployment serves, and one of them decides
@@ -556,6 +564,10 @@ default timing.</p>
 <span class="w">  </span><span class="nt">suite_timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">          </span><span class="c1"># poll-class wall-clock budget (default 30)</span>
 <span class="w">  </span><span class="nt">on_demand_timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span><span class="w">     </span><span class="c1"># on_demand wall-clock budget (default: sum of budgets)</span>
 <span class="w">  </span><span class="nt">interval_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">              </span><span class="c1"># minimum server-side re-run interval</span>
+
+<span class="w">  </span><span class="nt">disk</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">min_free_gb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">           </span><span class="c1"># disk_space warns below this many GB free (default 1.0)</span>
+<span class="w">    </span><span class="nt">max_used_percent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span><span class="w">       </span><span class="c1"># ...and at or above this % full (default 90)</span>
 
 <span class="w">  </span><span class="nt">plugins</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_facility.health</span><span class="w">       </span><span class="c1"># dotted module paths to plugin modules</span>
@@ -658,11 +670,13 @@ other key becomes a probe parameter.</p>
 <strong>presence-gated on their config blocks</strong>: they contribute rows only when the
 corresponding service is configured, so a minimal build shows no empty tiles.</p>
 <ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code> — appears when a top-level <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block is configured. Probes
-the ARIEL interface’s status endpoint and reports: reachability, logbook
-entry count, last ingestion time, and the registered search and enhancement
-modules. The interface sidecar runs with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, so a CLI-only run
-on a stopped stack reports the interface as unreachable (a <code class="docutils literal notranslate"><span class="pre">warning</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code> — appears when a top-level <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block is configured. Reads
+the ARIEL interface’s open <code class="docutils literal notranslate"><span class="pre">/health</span></code> page, which needs no credential, and
+reports: reachability, logbook entry count, last ingestion time, and the
+registered search and enhancement modules. When the interface runs without
+its database, the reachability row is the only row. The interface sidecar
+runs with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, so a CLI-only run on a stopped stack reports the
+interface as unreachable (a <code class="docutils literal notranslate"><span class="pre">warning</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">channel_finder</span></code> — appears when a top-level <code class="docutils literal notranslate"><span class="pre">channel_finder:</span></code> block is
 configured. Reports the active pipeline mode, verifies the pipeline’s
 channel-database file exists (a configured-but-missing database is an
@@ -731,7 +745,7 @@ you normally configure nothing.</p>
 <span class="w">  </span><span class="nt">auto</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">mcp</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># default true — set false to drop the category</span>
-<span class="w">      </span><span class="nt">url_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_url</span><span class="w">    </span><span class="c1"># which URL to probe (see below)</span>
+<span class="w">      </span><span class="nt">url_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host_url</span><span class="w">    </span><span class="c1"># which URL to probe (see below; set by the build when web terminals are served)</span>
 </pre></div>
 </div>
 <p>A server is included when its <code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code> block carries a <code class="docutils literal notranslate"><span class="pre">url</span></code> and
@@ -742,14 +756,19 @@ server seen from the machine, <code class="docutils literal notranslate"><span c
 category picks one automatically:</p>
 <ul class="simple">
 <li><p>If you set <code class="docutils literal notranslate"><span class="pre">url_key</span></code> explicitly, that choice is always used.</p></li>
+<li><p>A deployment that serves web terminals has the choice made for it. The
+terminals run on the host’s network, where a compose service name does not
+resolve, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes <code class="docutils literal notranslate"><span class="pre">url_key:</span> <span class="pre">host_url</span></code> into each render,
+persona renders included. That is the same address the agent dials. Setting
+the key to anything else in such a profile is refused at build time.</p></li>
 <li><p>Otherwise the framework detects whether the health check is itself running
 inside a container — the runtime’s own marker file, <code class="docutils literal notranslate"><span class="pre">/.dockerenv</span></code> under
 Docker or <code class="docutils literal notranslate"><span class="pre">/run/.containerenv</span></code> under Podman, or an <code class="docutils literal notranslate"><span class="pre">OSPREY_IN_CONTAINER</span></code>
 environment variable you set yourself — and uses <code class="docutils literal notranslate"><span class="pre">docker_url</span></code> when
 containerized, <code class="docutils literal notranslate"><span class="pre">host_url</span></code> on a plain host. Nothing in the shipped
-deployment sets that variable; set <code class="docutils literal notranslate"><span class="pre">url_key</span></code> explicitly when the automatic
-answer is wrong for your network layout (a host-networked container is in a
-container but cannot resolve compose service names).</p></li>
+deployment sets that variable. This detection decides only for a render
+without web terminals; such a render sets <code class="docutils literal notranslate"><span class="pre">url_key</span></code> when the detected
+answer is wrong for its network.</p></li>
 </ul>
 <p><strong>Expected tools.</strong> If a server block declares <code class="docutils literal notranslate"><span class="pre">permissions</span></code> (its <code class="docutils literal notranslate"><span class="pre">allow</span></code>
 and <code class="docutils literal notranslate"><span class="pre">ask</span></code> tool lists), the derived check also confirms the server actually
@@ -762,7 +781,9 @@ a plain reachability check.</p>
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — a server named <code class="docutils literal notranslate"><span class="pre">matlab</span></code> is probed at <code class="docutils literal notranslate"><span class="pre">http://matlab:…</span></code>.
 If your compose service is named differently, the probe points at a host that
 does not exist. Either rename the service to match the key, or set
-<code class="docutils literal notranslate"><span class="pre">url_key:</span> <span class="pre">host_url</span></code> to probe the localhost URL instead.</p>
+<code class="docutils literal notranslate"><span class="pre">url_key:</span> <span class="pre">host_url</span></code> to probe the localhost URL instead. A deployment that
+serves web terminals always probes <code class="docutils literal notranslate"><span class="pre">host_url</span></code>, so this caveat applies only
+where <code class="docutils literal notranslate"><span class="pre">docker_url</span></code> is in use.</p>
 </div>
 </section>
 <section id="timeouts">
@@ -894,6 +915,25 @@ check still produces a row (an eligible pending check becomes an <code class="do
 “suite deadline exceeded”; a pending check whose dependency failed becomes a
 <code class="docutils literal notranslate"><span class="pre">skip</span></code>), so the report always accounts for every declared check.</p>
 </section>
+<section id="disk-space-thresholds">
+<h3>Disk-space thresholds<a class="headerlink" href="#disk-space-thresholds" title="Link to this heading">#</a></h3>
+<p>Two keys set when the built-in <code class="docutils literal notranslate"><span class="pre">file_system.disk_space</span></code> row warns about the
+filesystem holding the project:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">health.disk.min_free_gb</span></code> (default 1.0) — the row warns while free space is
+strictly below this many GB. GB is the unit the row prints: 1024³ bytes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">health.disk.max_used_percent</span></code> (default 90) — the row warns once usage is
+at or above this percentage. 100 warns only on a completely full filesystem.</p></li>
+</ul>
+<p>Either key may be set alone; the other keeps its default. A value that is not a
+positive number, a percentage above 100, or any other key under
+<code class="docutils literal notranslate"><span class="pre">health.disk</span></code> is refused at load time: the <code class="docutils literal notranslate"><span class="pre">configuration.health_config</span></code>
+row reports it as an <code class="docutils literal notranslate"><span class="pre">error</span></code> naming the key, and the <code class="docutils literal notranslate"><span class="pre">disk_space</span></code> row is a
+<code class="docutils literal notranslate"><span class="pre">skip</span></code> rather than grading against numbers the operator did not choose.</p>
+<p>The thresholds are not spelled as a <code class="docutils literal notranslate"><span class="pre">file_system</span></code> entry under
+<code class="docutils literal notranslate"><span class="pre">health.categories</span></code>: that entry is a metadata-only override, which keeps only
+<code class="docutils literal notranslate"><span class="pre">cost</span></code> and <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>.</p>
+</section>
 </section>
 <section id="web-documentation-feedback-the-bars-and-the-chat-pool">
 <span id="config-web"></span><h2><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback, the bars and the chat pool<a class="headerlink" href="#web-documentation-feedback-the-bars-and-the-chat-pool" title="Link to this heading">#</a></h2>
@@ -901,8 +941,9 @@ check still produces a row (an eligible pending check becomes an <code class="do
 renders — not the terminal process itself, which has its own <code class="docutils literal notranslate"><span class="pre">web_terminal:</span></code>
 section. The keys below aim the rail’s two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, arrange
-the header and status bar, size the Simple-mode operator-chat pool, and set how
-often the file watchers re-read the tree.</p>
+the header and status bar, size the Simple-mode operator-chat pool, bound how
+long a panel’s own server gets to start, and set how often the file watchers
+re-read the tree.</p>
 <section id="documentation-and-feedback-keys">
 <span id="feedback-configuration"></span><h3>Documentation and feedback keys<a class="headerlink" href="#documentation-and-feedback-keys" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -965,6 +1006,14 @@ baked config image each carry their own name.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_max_sessions</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
 <td><p>Cap on concurrent operator-chat sessions.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.sidecar_ready_timeout_s</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p>Seconds the terminal waits for a panel that runs its own server (the
+<strong>JUPYTER</strong> tab) to answer before it greys that tab. The terminal starts
+serving once the panel answers or the wait passes, so a larger value also
+lengthens a start in which the panel fails. A value that is not a
+positive number is refused with a warning, and 60 applies.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1108,8 +1157,9 @@ user can bring it back; the items you listed are still there when they do.</p></
 <p>An item this deployment cannot show leaves the arrangement before it is served:
 <code class="docutils literal notranslate"><span class="pre">system-health</span></code> without the SYSTEM panel in <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky-queue</span></code>
 without the Bluesky panel, <code class="docutils literal notranslate"><span class="pre">identity</span></code> with neither a terminal user nor an
-<code class="docutils literal notranslate"><span class="pre">app_name</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> name each such entry you
-wrote, and the server logs the same line at start-up.</p>
+<code class="docutils literal notranslate"><span class="pre">app_name</span></code>, <code class="docutils literal notranslate"><span class="pre">control-target</span></code> where <code class="docutils literal notranslate"><span class="pre">web.control_target_picker</span></code> is
+<code class="docutils literal notranslate"><span class="pre">false</span></code>. The server logs each such entry you wrote at start-up, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> name the two that need a panel.</p>
 <p>An item that needs an option takes a mapping instead of a bare name, for
 example <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">clock,</span> <span class="pre">options:</span> <span class="pre">{zone:</span> <span class="pre">utc,</span> <span class="pre">format:</span> <span class="pre">12h}}</span></code> or
 <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">{type:</span> <span class="pre">space,</span> <span class="pre">options:</span> <span class="pre">{width:</span> <span class="pre">120}}</span></code> (a <code class="docutils literal notranslate"><span class="pre">space</span></code> at width <code class="docutils literal notranslate"><span class="pre">0</span></code>, the
@@ -1123,6 +1173,19 @@ The <code class="docutils literal notranslate"><span class="pre">system-health</
 <code class="docutils literal notranslate"><span class="pre">text</span></code> (<code class="docutils literal notranslate"><span class="pre">none</span></code>, the default: the dot alone; <code class="docutils literal notranslate"><span class="pre">status</span></code>: the dot and the
 suite’s worst outcome in a word) and <code class="docutils literal notranslate"><span class="pre">detail</span></code> (<code class="docutils literal notranslate"><span class="pre">categories</span></code>, the default:
 its card lists one row per check category; <code class="docutils literal notranslate"><span class="pre">checks</span></code>: every check).</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">clock</span></code> item takes <code class="docutils literal notranslate"><span class="pre">zone</span></code> with these values:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">none</span></code>, the default: the viewer’s time;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">local</span></code>: the same, with its zone named in the header;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">facility</span></code>: the time in <code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">utc</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">both</span></code>: the viewer’s time beside UTC.</p></li>
+</ul>
+<p>It also takes <code class="docutils literal notranslate"><span class="pre">format</span></code> (<code class="docutils literal notranslate"><span class="pre">24h</span></code>, the default, or <code class="docutils literal notranslate"><span class="pre">12h</span></code>) and <code class="docutils literal notranslate"><span class="pre">seconds</span></code>
+(default <code class="docutils literal notranslate"><span class="pre">false</span></code>). Wherever the viewer’s clock shows a different time from
+the facility’s, a clock showing the viewer’s time names that zone in either
+bar. A <code class="docutils literal notranslate"><span class="pre">facility</span></code> clock is named in the header, and in the status bar too
+when the viewer is elsewhere.</p>
 <p>Nothing here can stop the terminal from booting. An item name the build does
 not know, a second copy of an item that can only appear once (everything but
 <code class="docutils literal notranslate"><span class="pre">clock</span></code>, <code class="docutils literal notranslate"><span class="pre">stopwatch</span></code>, <code class="docutils literal notranslate"><span class="pre">space</span></code> and <code class="docutils literal notranslate"><span class="pre">separator</span></code>), or a line that is not an
@@ -1131,6 +1194,23 @@ rendered. An option the item does not take, or a value it does not accept
 (<code class="docutils literal notranslate"><span class="pre">zone:</span> <span class="pre">UTC</span></code> rather than <code class="docutils literal notranslate"><span class="pre">utc</span></code>, a <code class="docutils literal notranslate"><span class="pre">width</span></code> past <code class="docutils literal notranslate"><span class="pre">2000</span></code>), is reported the
 same way and dropped; the item keeps its default for that option. Twenty items
 per bar is the ceiling, and extras past it are dropped.</p>
+</section>
+<section id="the-control-target-picker">
+<span id="config-control-target-picker"></span><h3>The control-target picker<a class="headerlink" href="#the-control-target-picker" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">control_target_picker</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>The title bar’s control-target chip names the machine this terminal stands on
+and opens the popover that switches it. The default is <code class="docutils literal notranslate"><span class="pre">true</span></code>. Set it to
+<code class="docutils literal notranslate"><span class="pre">false</span></code> only for a terminal that reaches no machine: no control-system tool
+server and no JUPYTER panel. The shipped <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> and
+<code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code> presets and the <code class="docutils literal notranslate"><span class="pre">control-assistant-logbook</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control-assistant-knowledge</span></code> personas do.</p>
+<p>The setting changes what the page shows, not what the agent may do. With it
+off, the <code class="docutils literal notranslate"><span class="pre">control-target</span></code> item is left out of every arrangement this terminal
+serves and is not offered in Customize. A value that is not a boolean is
+reported in the log and <code class="docutils literal notranslate"><span class="pre">true</span></code> is used.</p>
 </section>
 <section id="how-often-the-file-watchers-re-read-the-tree">
 <span id="config-file-watch-reconcile"></span><h3>How often the file watchers re-read the tree<a class="headerlink" href="#how-often-the-file-watchers-re-read-the-tree" title="Link to this heading">#</a></h3>
@@ -1268,6 +1348,168 @@ and those artifacts hold values: treat them with the access you give the
 control system’s own data. The fields are listed in
 <a class="reference internal" href="../contracts/audit-trail.html#audit-trail-tool-call"><span class="std std-ref">The full tool-call record</span></a>.</p>
 </section>
+<section id="ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry">
+<span id="config-ariel-entry-url"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry<a class="headerlink" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> is your logbook’s own address for one entry, with
+a single <code class="docutils literal notranslate"><span class="pre">{entry_id}</span></code> placeholder. It is unset by default; the presets that
+ship an <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block carry it as a commented line.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel.entry_url_template</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://logbook.example.org/entry/{entry_id}&quot;</span>
+</pre></div>
+</div>
+<p>When the key is set, every entry the ARIEL tools return carries an
+<code class="docutils literal notranslate"><span class="pre">entry_url</span></code>: the search and browse results, <code class="docutils literal notranslate"><span class="pre">entry_get</span></code>,
+<code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code>, the rows of <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> that select <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>, and the
+result of <code class="docutils literal notranslate"><span class="pre">entry_publish</span></code>. The id is URL-encoded before it is filled in. The
+agent is told to link that URL as given and never to build one, so with the key
+unset it shows plain entry IDs. An entry written by <code class="docutils literal notranslate"><span class="pre">entry_create</span></code> and not yet
+published gets no URL, because the logbook has no page for it.</p>
+<p>A template that does not format (a misspelled placeholder, an unbalanced brace)
+is logged once as a warning and emits no URL; it never fails the read. The
+ARIEL server reads the key from the loaded configuration, so a change lands
+after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart of the stack.</p>
+</section>
+<section id="ariel-entry-text-how-much-of-each-entry-the-agent-reads">
+<span id="config-ariel-entry-text"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads<a class="headerlink" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ariel.entry_text.listing_chars</span></code> (default 500) sets how many characters of
+each entry’s text <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>
+and <code class="docutils literal notranslate"><span class="pre">browse</span></code> return. <code class="docutils literal notranslate"><span class="pre">ariel.entry_text.read_chars</span></code> (default 1000) sets the
+same for <code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code>. <code class="docutils literal notranslate"><span class="pre">entry_get</span></code> is never cut.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel.entry_text.listing_chars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">800</span>
+<span class="w">  </span><span class="nt">ariel.entry_text.read_chars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4000</span>
+</pre></div>
+</div>
+<p>A cut entry keeps the start of its text in <code class="docutils literal notranslate"><span class="pre">raw_text</span></code> and adds
+<code class="docutils literal notranslate"><span class="pre">raw_text_truncated:</span> <span class="pre">true</span></code> and <code class="docutils literal notranslate"><span class="pre">raw_text_length</span></code>, the full length. An entry
+that fits carries neither field. The agent is told to call <code class="docutils literal notranslate"><span class="pre">entry_get</span></code> for
+the rest.</p>
+<p>Each value must be a positive whole number, and <code class="docutils literal notranslate"><span class="pre">read_chars</span></code> may not be below
+<code class="docutils literal notranslate"><span class="pre">listing_chars</span></code>. Anything else is refused when the configuration is parsed:
+the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
+keys are read at startup, so a change lands after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a
+restart. When choosing a value, the question is whether the part of an entry
+the agent needs routinely runs past 500 characters.</p>
+</section>
+<section id="claude-code-telemetry-signals-which-signals-the-agent-exports">
+<span id="config-telemetry-signals"></span><h2><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> — which signals the agent exports<a class="headerlink" href="#claude-code-telemetry-signals-which-signals-the-agent-exports" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> lists the OpenTelemetry signals the agent
+exports while <code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.enabled</span></code> is <code class="docutils literal notranslate"><span class="pre">true</span></code>: any of
+<code class="docutils literal notranslate"><span class="pre">metrics</span></code>, <code class="docutils literal notranslate"><span class="pre">logs</span></code> and <code class="docutils literal notranslate"><span class="pre">traces</span></code>. Unset, it exports all three.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.telemetry.signals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">metrics</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">logs</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>A signal left out is exported as <code class="docutils literal notranslate"><span class="pre">none</span></code>, so an exporter variable in the
+shell or the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> cannot turn it back on. An empty list or any
+other name stops <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> with a message naming the key; to export
+nothing, set <code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.enabled:</span> <span class="pre">false</span></code>. Built-in tool output
+(<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.log_tool_content</span></code>) is recorded as trace span events,
+so a list without <code class="docutils literal notranslate"><span class="pre">traces</span></code> leaves it out of the store; the tool-call record
+(<code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code>) is unaffected. Every launch reads the key: the
+web terminals, the dispatch worker, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> and SDK agent runs. The
+rest of the block is covered in
+<a class="reference internal" href="../../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>.</p>
+</section>
+<section id="claude-code-telemetry-auth-token-env-the-collector-s-token">
+<span id="config-telemetry-auth"></span><h2><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code> — the collector’s token<a class="headerlink" href="#claude-code-telemetry-auth-token-env-the-collector-s-token" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code> names the environment variable that
+holds the bearer token of an OTLP collector this deployment does not run. The
+agent sends it as <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;value&gt;</span></code>. The key holds the
+variable’s name; the token goes in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.telemetry.backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">generic</span>
+<span class="w">  </span><span class="nt">claude_code.telemetry.endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://otel-collector.example.org:4318</span>
+<span class="w">  </span><span class="nt">claude_code.telemetry.auth.token_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTLP_COLLECTOR_TOKEN</span>
+</pre></div>
+</div>
+<p>Every web terminal that exports telemetry receives the variable from the deploy
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> through its own compose environment, never <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses the deploy when it is unset. The <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> backend
+authenticates with its own account and refuses the key. See
+<a class="reference internal" href="../../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>.</p>
+</section>
+<section id="phoebus-the-phoebus-display-bridge">
+<span id="config-phoebus"></span><h2><code class="docutils literal notranslate"><span class="pre">phoebus:</span></code> — the Phoebus display bridge<a class="headerlink" href="#phoebus-the-phoebus-display-bridge" title="Link to this heading">#</a></h2>
+<p>These keys configure the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> MCP server, which is off until
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers.phoebus.enabled</span></code> is <code class="docutils literal notranslate"><span class="pre">true</span></code>; setting it up is covered in
+<a class="reference internal" href="../../how-to/control-systems/phoebus-bridge.html"><span class="doc">Connect the Agent to Phoebus Displays</span></a>.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.host</span></code></p></td>
+<td><p>Host of the Phoebus agent bridge. Default <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.port</span></code></p></td>
+<td><p>Port of the agent bridge. Default <code class="docutils literal notranslate"><span class="pre">7979</span></code>; it must match the bridge’s
+own port.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.panels</span></code></p></td>
+<td><p>Panel name to <code class="docutils literal notranslate"><span class="pre">.bob</span></code> path, one dotted line per display. A relative
+path resolves against the directory of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.require_handle</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> refuses the implicit <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> display, so callers pass a
+handle or a display name. A multi-user web-terminal deployment stamps
+<code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code> on every terminal whose project runs a
+Phoebus server. Elsewhere the default is <code class="docutils literal notranslate"><span class="pre">false</span></code>, turned on with
+<code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code>. <code class="docutils literal notranslate"><span class="pre">false</span></code> keeps <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code>
+in a multi-user deployment too.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.agent_access</span></code></p></td>
+<td><p>What the agent may do through the Phoebus bridge. <code class="docutils literal notranslate"><span class="pre">read</span></code> (default)
+offers the reading tools only: <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> is left out of the
+agent’s tool list and permissions, and the server refuses a drive.
+<code class="docutils literal notranslate"><span class="pre">read_write</span></code> offers <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code>, which still asks for approval
+and still stops when <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> is <code class="docutils literal notranslate"><span class="pre">false</span></code>.
+Any other value is refused by name. The switch is all or nothing: a
+panel runs whatever its widgets are wired to, so finer control belongs
+to the EPICS gateway or access security the Phoebus product connects
+through.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.archiver_url</span></code></p></td>
+<td><p>The archiver bound into generated Data Browser plots. Unset, plots show
+live values only.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.plot_dir</span></code></p></td>
+<td><p>Where Data Browser <code class="docutils literal notranslate"><span class="pre">.plt</span></code> files are written. Default <code class="docutils literal notranslate"><span class="pre">plots/</span></code> under
+<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus.snapshot_dir</span></code></p></td>
+<td><p>Where PNG snapshots are written. Default <code class="docutils literal notranslate"><span class="pre">screenshots/</span></code> under
+<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE</span></code> and <code class="docutils literal notranslate"><span class="pre">PHOEBUS_ARCHIVER_URL</span></code>
+outrank their keys; see <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>.</p>
+</section>
+<section id="screen-capture-where-screenshots-are-written">
+<span id="config-screen-capture"></span><h2><code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code> — where screenshots are written<a class="headerlink" href="#screen-capture-where-screenshots-are-written" title="Link to this heading">#</a></h2>
+<p>The workspace server’s <code class="docutils literal notranslate"><span class="pre">screenshot_capture</span></code> tool saves every capture as a
+PNG file and records the file’s path in the artifact gallery.
+<code class="docutils literal notranslate"><span class="pre">screen_capture.output_dir</span></code> names the directory those files go to:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">screen_capture.output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/srv/operator-captures</span>
+</pre></div>
+</div>
+<p>Unset, it is <code class="docutils literal notranslate"><span class="pre">screenshots</span></code> under the agent-data root (<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>,
+<code class="docutils literal notranslate"><span class="pre">var/agent_data</span></code> by default), which is correct for most deployments and is
+why no preset ships the key. A relative path is anchored on the project root,
+the directory holding <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, never on the working directory of the
+process that started the server; <code class="docutils literal notranslate"><span class="pre">~</span></code> expands to the home directory. The
+directory is created on the first capture. The key is read once per MCP
+server process, so a change lands after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart.</p>
+</section>
 <section id="deployment-service-images-and-var-interpolation">
 <span id="config-deployment"></span><h2>Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation<a class="headerlink" href="#deployment-service-images-and-var-interpolation" title="Link to this heading">#</a></h2>
 <p>Two deployment-wide surfaces are settled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> rather than in a
@@ -1280,7 +1522,7 @@ covered in <a class="reference internal" href="../../how-to/deploy-project/index
 <span id="deployment-image-overrides"></span><h3>Overriding Service Images<a class="headerlink" href="#overriding-service-images" title="Link to this heading">#</a></h3>
 <p>Every service image resolves through the same three-layer chain — an
 environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
-default. Seventeen images, one row each:</p>
+default. One row per image:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -1386,11 +1628,14 @@ default. Seventeen images, one row each:</p>
 </div>
 <p>Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
-images.</p>
-<p>Six of the seventeen are <strong>upstream pins</strong> — images somebody else publishes,
-named exactly as they publish them. The other eleven are <strong>built by OSPREY</strong>
-from your project, and their default reference is assembled rather than
-fixed: a project name, a per-service suffix, and the two axes below.</p>
+images.
+Which of these images a deploy builds, and what naming another image does to
+that, is in <a class="reference internal" href="../../how-to/deploy-project/compose-templates.html#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a>.</p>
+<p>A row whose packaged default reads <em>upstream pin</em> is an <strong>upstream pin</strong> — an
+image somebody else publishes, named exactly as they publish it. Every other
+row is <strong>built by OSPREY</strong> from your project, and its default reference is
+assembled rather than fixed: a project name, a per-service suffix, and the two
+axes below.</p>
 <p><code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> and <code class="docutils literal notranslate"><span class="pre">archive</span></code> share one row value on
 purpose: all three run the bare project image, so all three read
 <code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code>. Set that variable and all three services move to the
@@ -1464,7 +1709,7 @@ filled in by compose at <code class="docutils literal notranslate"><span class="
 is what it always was — <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> and its siblings — so a
 deployment that never heard of them is unaffected.</p></li>
 </ul>
-<p>The axes never touch the six upstream pins. Prefixing <code class="docutils literal notranslate"><span class="pre">mongo:7</span></code> with your
+<p>The axes never touch an upstream pin. Prefixing <code class="docutils literal notranslate"><span class="pre">mongo:7</span></code> with your
 registry would name an image that exists in no registry; mirror those through
 their own row instead.</p>
 </section>
@@ -1591,6 +1836,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dependencies-requires">Dependencies (<code class="docutils literal notranslate"><span class="pre">requires:</span></code>)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#category-metadata-overrides">Category metadata overrides</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#suite-timing">Suite timing</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#disk-space-thresholds">Disk-space thresholds</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-documentation-feedback-the-bars-and-the-chat-pool"><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback, the bars and the chat pool</a><ul class="visible nav section-nav flex-column">
@@ -1599,6 +1845,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#blank-absent-and-written-with-no-value">Blank, absent, and written-with-no-value</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-onboarding-tour-invite">The onboarding tour invite</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-header-and-status-bar">The header and status bar</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-picker">The control-target picker</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-often-the-file-watchers-re-read-the-tree">How often the file watchers re-read the tree</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>
@@ -1606,6 +1853,12 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-tool-call-the-full-record-of-every-tool-call"><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry"><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-telemetry-signals-which-signals-the-agent-exports"><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> — which signals the agent exports</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-telemetry-auth-token-env-the-collector-s-token"><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.auth.token_env</span></code> — the collector’s token</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus-the-phoebus-display-bridge"><code class="docutils literal notranslate"><span class="pre">phoebus:</span></code> — the Phoebus display bridge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#screen-capture-where-screenshots-are-written"><code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code> — where screenshots are written</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#the-two-image-axes">The two image axes</a></li>

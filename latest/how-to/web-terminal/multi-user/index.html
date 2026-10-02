@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -689,9 +690,10 @@ store the operator terminals do. Nothing special makes either possible. A
 persona is already a whole project, so it can differ in what it <em>is</em> as
 easily as in what it may write. Both cards are shared — any roster login
 opens them with their own password (<a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with more than one person</span></a>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one persona project per delta in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each one’s container image locally, so no registry or CI is
-involved.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one persona project per delta in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>. In the
+preset’s local mode, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each one’s container image locally, so
+no registry or CI is involved. A deployment can pull them from a registry
+instead; see <a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p>
 <p><strong>One front door.</strong> An nginx reverse proxy serves the landing page and proxies
 <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> to that user’s container. The per-user containers are pinned to
 the loopback interface, so nginx is the only network path in. The landing page
@@ -808,9 +810,13 @@ here — see <a class="reference internal" href="../../../reference/ports.html#r
 on. Leave it out and that address is derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> and
 <code class="docutils literal notranslate"><span class="pre">nginx_port</span></code>, which is right whenever a browser talks to this nginx
 directly. Set it when something else stands in front — a facility load
-balancer terminating TLS, a reverse proxy, a DNS alias — because the
-terminals check it before allowing any action, and nothing here can guess
-what that front door answers on. See <a class="reference internal" href="login.html#multi-user-https"><span class="std std-ref">Serve it over HTTPS</span></a>.</p>
+balancer terminating TLS, a reverse proxy — because the terminals check
+it before allowing any action, and nothing here can guess what that
+front door answers on. nginx answers only on that address. A request
+under any other name, whether another DNS name, the bare IP or
+<code class="docutils literal notranslate"><span class="pre">localhost</span></code>, is redirected to the same path there, so put the name
+browsers should open in <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> or <code class="docutils literal notranslate"><span class="pre">external_origin</span></code>. See
+<a class="reference internal" href="login.html#multi-user-https"><span class="std std-ref">Serve it over HTTPS</span></a>.</p>
 <p class="sd-card-text">A persona may also name a landing-page section with <code class="docutils literal notranslate"><span class="pre">landing_group</span></code>.
 Its users are lifted out of the roster’s default section into one of
 that name, drawn as a panel — which is how the page shows a standalone
@@ -950,7 +956,8 @@ is reported as a stale or partial build, with a rebuild as the remedy.</p></li>
 (<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each persona’s image
 (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code> after the persona’s rendered project, e.g.
 <code class="docutils literal notranslate"><span class="pre">my-control-assistant-readwrite:local</span></code>) from that rendered project —
-no registry, no CI.</p></li>
+no registry, no CI. Registry mode pulls them instead; see
+<a class="reference internal" href="#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>)
 serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>, and one Web Terminal
 container comes up per user — <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
@@ -966,15 +973,103 @@ site.)</p></li>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The web stack runs with host networking. On Linux,
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code> is reachable as-is. On <strong>macOS</strong>, a container’s
-“host” is Docker Desktop’s Linux VM — enable <em>host networking</em> in Docker
-Desktop (Settings → Resources → Network) so the stack’s ports reach your
-browser.</p>
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code> is reachable as-is. That address is the
+preset’s <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code>, and <code class="docutils literal notranslate"><span class="pre">http://localhost:10000</span></code> redirects to it.
+On <strong>macOS</strong>, a container’s “host” is Docker Desktop’s Linux VM — enable
+<em>host networking</em> in Docker Desktop (Settings → Resources → Network) so the
+stack’s ports reach your browser. Host networking is one of the limits
+listed in <a class="reference internal" href="../../deploy-a-facility.html#perimeter-limits"><span class="std std-ref">What the perimeter needs</span></a>.</p>
 <p>If another OSPREY deployment already occupies these ports on this host, give
 this one its own block rather than moving services one by one — for example
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.deployment.port_base=20000</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">build</span></code> — before
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. See <a class="reference internal" href="../../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>.</p>
 </div>
+</section>
+<section id="pull-the-terminal-images-from-a-registry">
+<span id="multi-user-registry-images"></span><h3>Pull the terminal images from a registry<a class="headerlink" href="#pull-the-terminal-images-from-a-registry" title="Link to this heading">#</a></h3>
+<p>With <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code> (the value whenever the key is unset),
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds no terminal image. It pulls one image per persona, under
+names it derives itself.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Who pulls it</p></th>
+<th class="head"><p>Image</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>The <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>, and every user when there is no <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/web-terminal:&lt;tag&gt;</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Every other persona</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/web-terminal-&lt;persona&gt;:&lt;tag&gt;</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;persona&gt;</span></code> is the persona’s key in the <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog, not its
+<code class="docutils literal notranslate"><span class="pre">project</span></code>.
+The default persona keeps the unsuffixed name, so adding a catalog never
+renames the image its users already pull.</p>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;tag&gt;</span></code> is <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>, <code class="docutils literal notranslate"><span class="pre">latest</span></code> when unset.
+A <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> in it is expanded from the environment of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, and a
+variable that is unset there expands to nothing.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> warns when the whole tag comes out empty
+(code <code class="docutils literal notranslate"><span class="pre">web_terminals.empty_image_tag</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;</span></code> is the top-level <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, with no
+scheme.
+It is the only namespace: two deployments that share a registry keep their
+images apart by giving <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> different paths.
+There is no per-persona <code class="docutils literal notranslate"><span class="pre">image:</span></code> key.</p>
+<p>When the profile has a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block in registry mode, the build writes
+<code class="docutils literal notranslate"><span class="pre">deploy.registry.url</span></code> into this <code class="docutils literal notranslate"><span class="pre">registry.url</span></code>, so the registry is named once.
+Setting <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.registry.url=&lt;path&gt;</span></code>) points the terminal images somewhere
+else, and that value wins.
+A profile with no <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block sets it there.</p>
+<p>The scaffolded pipeline builds only the facility’s own service images, not
+these, so the facility’s pipeline must push them.
+Put that job in <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> (see <a class="reference internal" href="../../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>).
+Build each image from that persona’s rendered project: the same render
+<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> builds as <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>.</p>
+<p>Registry mode also pulls the auth sidecar from
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code> when login is on; see <a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a registry-mode config with no <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> (code
+<code class="docutils literal notranslate"><span class="pre">web_terminals.registry_mode_missing_url</span></code>), with or without a <code class="docutils literal notranslate"><span class="pre">personas</span></code>
+catalog.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to render it.</p>
+<p>For example, with this config:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">registry</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator/demo</span>
+
+<span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image_tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026.09.1&quot;</span>
+<span class="w">    </span><span class="nt">default_persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">personas</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-readonly</span>
+<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-readonly</span>
+<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
+<span class="w">      </span><span class="nt">readwrite</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-readwrite</span>
+<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-readwrite</span>
+<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> pulls:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>alice  registry.example.org/accelerator/demo/web-terminal-readwrite:2026.09.1
+bob    registry.example.org/accelerator/demo/web-terminal:2026.09.1
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">bob</span></code> names no persona, so he gets the <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> and the unsuffixed
+image.</p>
 </section>
 <section id="the-landing-page">
 <h3>The landing page<a class="headerlink" href="#the-landing-page" title="Link to this heading">#</a></h3>
@@ -1000,6 +1095,8 @@ here the card and its persona are the same word. Both are shared cards: the
 login page asks for a roster name and that person’s password, so nobody needs
 a credential for the card itself. Clicking any card opens that session at
 <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code>, proxied by nginx to its own container.</p>
+<p>A deployment that would rather not publish its roster can replace the name
+cards with one sign-in button; see <a class="reference internal" href="login.html#multi-user-hide-names"><span class="std std-ref">Keep names off the landing page</span></a>.</p>
 </section>
 <section id="what-your-operators-read-first">
 <h3>What your operators read first<a class="headerlink" href="#what-your-operators-read-first" title="Link to this heading">#</a></h3>
@@ -1150,6 +1247,7 @@ and the service containers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-config-block">The config block</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-multi-user-stack">Run the multi-user stack</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-build-and-osprey-up-do-for-the-web-tier">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do for the web tier</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pull-the-terminal-images-from-a-registry">Pull the terminal images from a registry</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-landing-page">The landing page</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-your-operators-read-first">What your operators read first</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-out-and-switching-users">Logging out and switching users</a></li>

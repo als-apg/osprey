@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -393,6 +393,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/simulation-bundle.html">Simulation Bundle Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/channel-finder.html">Channel Finder Contracts</a></li>
@@ -1210,8 +1211,11 @@ from its name, as before. The <code class="docutils literal notranslate"><span c
 (<code class="docutils literal notranslate"><span class="pre">10</span></code> means 1–10) or an explicit range (<code class="docutils literal notranslate"><span class="pre">4-11</span></code>) for a machine whose
 device numbering does not start at one.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">validate</span> <span class="pre">[--database</span> <span class="pre">PATH]</span> <span class="pre">[--pipeline</span> <span class="pre">hierarchical|in_context|middle_layer]</span> <span class="pre">[-v]</span></code></dt><dd><p>Validate a channel database JSON file. The paradigm is auto-detected from the
-project’s config; <code class="docutils literal notranslate"><span class="pre">--pipeline</span></code> overrides that.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">validate</span> <span class="pre">[--database</span> <span class="pre">PATH]</span> <span class="pre">[--pipeline</span> <span class="pre">hierarchical|in_context|middle_layer]</span> <span class="pre">[-v]</span></code></dt><dd><p>Validate a channel database JSON file. <code class="docutils literal notranslate"><span class="pre">--pipeline</span></code> names the paradigm: the
+file is read as that paradigm, and without <code class="docutils literal notranslate"><span class="pre">--database</span></code> it is the one at
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipelines.&lt;pipeline&gt;.database.path</span></code> — the command refuses,
+naming that key, when it is unset. Without <code class="docutils literal notranslate"><span class="pre">--pipeline</span></code> the paradigm is
+auto-detected from the project’s config.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">preview</span></code></dt><dd><p>Preview a channel database with flexible display options.</p>
 </dd>
@@ -1226,7 +1230,9 @@ alone unless you pass <code class="docutils literal notranslate"><span class="pr
 LiteLLM-form model id (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-haiku-4-5</span></code>). Saves per-run
 JSON results for accuracy/cost analysis.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">web</span></code></dt><dd><p>Launch the Channel Finder web interface.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">web</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--port</span> <span class="pre">N]</span></code></dt><dd><p>Launch the Channel Finder web interface on the host and port
+<code class="docutils literal notranslate"><span class="pre">channel_finder.web</span></code> names (default <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> and the layout’s Channel
+Finder port); <code class="docutils literal notranslate"><span class="pre">--host</span></code> and <code class="docutils literal notranslate"><span class="pre">--port</span></code> override them.</p>
 </dd>
 </dl>
 <p>A graph-mode project has no channel database file: <code class="docutils literal notranslate"><span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">preview</span></code>
@@ -1252,7 +1258,8 @@ from <code class="docutils literal notranslate"><span class="pre">services.graph
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Regenerate the <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files throughout an OKF bundle. Run it twice and
 the second run changes nothing.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">validate</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Check every document in a bundle against the OKF format.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">validate</span> <span class="pre">[BUNDLE]</span></code></dt><dd><p>Check every document in a bundle against the OKF format, including each
+<code class="docutils literal notranslate"><span class="pre">index.md</span></code> against its directory.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-from-ttl</span> <span class="pre">TTL</span> <span class="pre">BUNDLE</span> <span class="pre">[--force]</span></code></dt><dd><p>Write stub concept documents into a bundle from a TTL corpus, one per class,
 for a person to fill in.</p>
@@ -1605,8 +1612,11 @@ and lists every error when the file is broken; warnings never fail it.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span></code></dt><dd><p>Re-embed entries with a different model.</p>
 </dd>
+<dt><code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">[--port</span> <span class="pre">N]</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--reload]</span></code></dt><dd><p>Launch the web interface on the host and port <code class="docutils literal notranslate"><span class="pre">ariel.web</span></code> names (default
+<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> and the layout’s ARIEL port); <code class="docutils literal notranslate"><span class="pre">--host</span></code> and <code class="docutils literal notranslate"><span class="pre">--port</span></code> override
+them.</p>
+</dd>
 </dl>
-<p><code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">[--port</span> <span class="pre">N]</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--reload]</span></code> – Launch web interface.</p>
 <p><code class="docutils literal notranslate"><span class="pre">purge</span> <span class="pre">[--yes]</span> <span class="pre">[--embeddings-only]</span></code> – Delete all ARIEL data.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span>
@@ -1744,7 +1754,8 @@ changes. Re-running is safe — a file whose content already matches is left
 untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
 file the scaffolder did not write is reported and left alone unless
 <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given. <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> is never touched: it is yours, and the
-pipeline includes it.</p>
+pipeline includes it. The health check exits 0 unless run with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>,
+which exits 1 when a container or a probe is flagged.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">systemd</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit the files that start this deployment at boot: a systemd user unit,
 <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> at the repository root, and a boot hook,

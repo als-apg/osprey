@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -388,6 +388,7 @@
 
 
 
+
 <li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">MCP Servers</a></li>
@@ -459,8 +460,9 @@
 management as tools through <a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP</a>
 servers. The OSPREY agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
 tools via stdio JSON-RPC. The <strong>10 core in-tree servers</strong> below are the ones a
-deployment normally renders; build profiles can inject additional servers beyond
-them.</p>
+deployment normally renders. The <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server, last on this page, ships
+in-tree too but is off unless a deployment switches it on; build profiles can
+inject additional servers beyond these.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
   <title id="mcp-server-map-title">The MCP server map</title>
@@ -807,6 +809,40 @@ question shapes, each with per-corpus parameter values.</p></li>
 </ul>
 </section>
 </section>
+<section id="phoebus">
+<h2>Phoebus<a class="headerlink" href="#phoebus" title="Link to this heading">#</a></h2>
+<section id="id5">
+<h3><code class="docutils literal notranslate"><span class="pre">phoebus</span></code><a class="headerlink" href="#id5" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.phoebus</span></code></p>
+<p>Drives a running Phoebus product through its agent bridge, an HTTP server inside
+the Phoebus process: it opens displays, reads their widgets and live values,
+snapshots widgets, drives controls and opens Data Browser plots. It is off in
+every preset and switched on with <code class="docutils literal notranslate"><span class="pre">claude_code.servers.phoebus.enabled:</span> <span class="pre">true</span></code>;
+a second Phoebus product is reached by a second instance declared with
+<code class="docutils literal notranslate"><span class="pre">claude_code.servers.&lt;name&gt;.extends:</span> <span class="pre">phoebus</span></code>. A drive is offered to the agent
+only under <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code>, and it writes through the
+Phoebus product, not a connector: see <a class="reference internal" href="safety-chain.html#architecture-safety-chain-phoebus-drive"><span class="std std-ref">A Phoebus drive</span></a>. Configuration:
+<a class="reference internal" href="../how-to/control-systems/phoebus-bridge.html"><span class="doc">Connect the Agent to Phoebus Displays</span></a>.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_list_displays</span></code> – List the displays open in the Phoebus product, with
+whether each is ready and which is focused.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code> – Open a display by its name in <code class="docutils literal notranslate"><span class="pre">phoebus.panels</span></code> and
+return a handle later calls can address it by.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_panel_lookup</span></code> – Answer whether a display file is registered in this
+terminal’s <code class="docutils literal notranslate"><span class="pre">phoebus.panels</span></code>, and under which name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_perceive</span></code> – Walk a display’s widget tree and report each widget with
+its bounds and its channel’s live value, severity and writability.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_perceive_region</span></code> – The same, for the widgets inside one on-screen
+rectangle.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_snapshot</span></code> – Save a PNG of one widget as an artifact.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> – Click a control or type a value into a widget; offered only
+under <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code> and asked for approval.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">phoebus_open_databrowser</span></code> – Open a Data Browser plot of a channel list over a
+time range, bound to the archiver when <code class="docutils literal notranslate"><span class="pre">phoebus.archiver_url</span></code> is set.</p></li>
+</ul>
+</section>
+</section>
 </section>
 
 
@@ -885,6 +921,10 @@ question shapes, each with per-corpus parameter values.</p></li>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-graph">Facility Graph</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#graph"><code class="docutils literal notranslate"><span class="pre">graph</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phoebus">Phoebus</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id5"><code class="docutils literal notranslate"><span class="pre">phoebus</span></code></a></li>
 </ul>
 </li>
 </ul>

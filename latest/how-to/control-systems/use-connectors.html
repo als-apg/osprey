@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -596,9 +597,12 @@ EPICS</label><div class="sd-tab-content docutils">
 <span class="w">        </span><span class="c1"># the network layer as well).</span>
 <span class="w">        </span><span class="nt">read_only</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5064</span><span class="w"> </span><span class="p p-Indicator">}</span>
 <span class="w">        </span><span class="nt">write_access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5084</span><span class="w"> </span><span class="p p-Indicator">}</span>
-<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> bounds every Channel Access call given no timeout of its
+own. A <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> that is not a positive number of seconds is refused
+when the connector connects.</p>
 <p class="rubric">PVAccess channels (PVA)</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">epics</span></code> connector speaks Channel Access by default. Some data –
 camera frames above all – is served only over pvAccess, EPICS’ second
@@ -609,7 +613,7 @@ keeps using Channel Access. One deployment covers both:</p>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
 <span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
 <span class="w">      </span><span class="nt">pva_channels</span><span class="p">:</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*:IMAGE*&quot;</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;BL:CAM?:ARRAY&quot;</span>
@@ -687,12 +691,20 @@ deployments are unaffected.</p>
 <label class="sd-tab-label" data-sync-group="cs" data-sync-id="doocs" for="sd-tab-item-2">
 DOOCS</label><div class="sd-tab-content docutils">
 <p>DOOCS (DESY, European XFEL). Channel addresses are DOOCS properties
-(<code class="docutils literal notranslate"><span class="pre">FACILITY/DEVICE/LOCATION/PROPERTY</span></code>), and the connector needs no
-options – it reads its environment from the DOOCS installation:</p>
+(<code class="docutils literal notranslate"><span class="pre">FACILITY/DEVICE/LOCATION/PROPERTY</span></code>). The ENS comes from the DOOCS
+installation’s environment, and the block takes one option:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doocs</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">doocs</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span><span class="w">   </span><span class="c1"># optional; seconds per ENS lookup, read or set</span>
 </pre></div>
 </div>
+<p>A read that does not answer within <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> (or the call’s own
+timeout) raises <code class="docutils literal notranslate"><span class="pre">TimeoutError</span></code>. A set that does not return within it
+is reported <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>, because the value may still arrive. A
+<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> that is not a positive number of seconds is refused when
+the connector connects.</p>
 <p>The connector requires <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>, which the DOOCS environment
 provides rather than PyPI. The import is deferred to <code class="docutils literal notranslate"><span class="pre">connect()</span></code>, so
 the name registers everywhere and only fails – with a clear
@@ -722,9 +734,14 @@ alone:</p>
 <span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tango</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">tango_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db.facility.edu:10000</span><span class="w">   </span><span class="c1"># optional; default TANGO_HOST</span>
-<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span><span class="w">                        </span><span class="c1"># seconds per device call</span>
+<span class="w">      </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span><span class="w">                      </span><span class="c1"># seconds per device call</span>
 </pre></div>
 </div>
+<p>A read or write given no timeout of its own is bounded by <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>
+too, with the same answers as DOOCS: a read that runs out raises
+<code class="docutils literal notranslate"><span class="pre">TimeoutError</span></code>, and a write that runs out is reported <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>.
+A <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> that is not a positive number of seconds is refused when
+the connector connects.</p>
 <p>Only <strong>attributes</strong> are exposed. TANGO <em>commands</em> (<code class="docutils literal notranslate"><span class="pre">command_inout</span></code>)
 carry arbitrary payloads the limits database cannot bound, so they have
 no seam in the connector contract – the same reason the EPICS connector
@@ -772,6 +789,10 @@ test, and how registration works – is documented in
 <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
 </div>
 </div>
+<p>Every control-system connector block names its call bound <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>, in
+seconds; a numeric string such as an interpolated <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> is read as one. A
+config whose connector block carries <code class="docutils literal notranslate"><span class="pre">timeout</span></code> instead is refused when the
+config is read, and again when the connector connects.</p>
 </section>
 <section id="pick-an-archiver">
 <h2>Pick an archiver<a class="headerlink" href="#pick-an-archiver" title="Link to this heading">#</a></h2>
@@ -795,14 +816,32 @@ EPICS</label><div class="sd-tab-content docutils">
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
 <span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.edu:8443</span><span class="w">   </span><span class="c1"># required</span>
-<span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">                                </span><span class="c1"># seconds, default 60</span>
+<span class="w">    </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">                              </span><span class="c1"># seconds, default 60</span>
 <span class="w">    </span><span class="nt">retrieval_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/retrieval</span><span class="w">                 </span><span class="c1"># default; a reverse proxy may rename it</span>
+<span class="w">    </span><span class="c1"># auth:                                    # only when a proxy asks for a login</span>
+<span class="w">    </span><span class="c1">#   token_env: OSPREY_ARCHIVER_TOKEN       # the variable that holds the token</span>
+<span class="w">    </span><span class="c1"># tls:                                     # only for a CA the image does not trust</span>
+<span class="w">    </span><span class="c1">#   ca_bundle: /etc/ssl/certs/site-ca.pem  # absolute path of the CA file</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">url</span></code> is the appliance’s root (or the reverse proxy’s). The connector
 reads through the appliance’s retrieval servlet, mounted at <code class="docutils literal notranslate"><span class="pre">/retrieval</span></code>
 on a bare appliance; when a proxy in front of the appliance publishes that
 servlet under a different prefix, name the prefix with <code class="docutils literal notranslate"><span class="pre">retrieval_path</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">auth:</span></code> takes <code class="docutils literal notranslate"><span class="pre">token_env</span></code> (sent as a bearer token), or <code class="docutils literal notranslate"><span class="pre">username</span></code>
+and <code class="docutils literal notranslate"><span class="pre">password_env</span></code> (sent as HTTP Basic). Each <code class="docutils literal notranslate"><span class="pre">*_env</span></code> names an
+environment variable that is read when the connector connects; the
+connector refuses to start while it is unset. The login goes only to the
+host <code class="docutils literal notranslate"><span class="pre">url</span></code> names, never to a host a redirect names. <code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is
+an absolute path to the CA file the appliance’s certificate is checked
+against; a <code class="docutils literal notranslate"><span class="pre">~</span></code> path is refused, because each process would expand it
+against its own home. It replaces the trust store for this appliance. When
+it is unset the image’s trust store, which <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> extends,
+applies. No setting turns certificate checking off. The build mounts the
+named file read-only at the same path into every web terminal and dispatch
+worker, so the same key works in a container; the file must be on the
+deploy host when <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs. <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> remains the way
+to add a CA to every image.</p>
 </div>
 <input id="sd-tab-item-8" name="sd-tab-set-1" type="radio">
 <label class="sd-tab-label" data-sync-group="cs" data-sync-id="doocs" for="sd-tab-item-8">
@@ -812,7 +851,7 @@ needing the same environment-supplied <code class="docutils literal notranslate"
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doocs_archiver</span>
 <span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">avg_window</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">    </span><span class="c1"># optional moving average, in samples</span>
+<span class="w">    </span><span class="nt">avg_window</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">    </span><span class="c1"># optional centered moving average, in seconds</span>
 </pre></div>
 </div>
 </div>
@@ -828,11 +867,48 @@ EPICS Archiver Appliance:</p>
 <span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
 <span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_db</span>
 <span class="w">    </span><span class="nt">collection</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv_data</span>
-<span class="w">    </span><span class="nt">auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
-<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
-<span class="w">    </span><span class="nt">password_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MONGODB_READONLY_PASSWORD</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">      </span><span class="nt">password_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MONGODB_READONLY_PASSWORD</span>
+<span class="w">    </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">     </span><span class="c1"># seconds, default 60</span>
 </pre></div>
 </div>
+<p>The password is only ever named, never written: <code class="docutils literal notranslate"><span class="pre">auth.password_env</span></code> is
+the environment variable that holds it. <code class="docutils literal notranslate"><span class="pre">auth.source</span></code> is the database
+the user is defined in.</p>
+<p>A store behind TLS, in a replica set or behind x509 is named by <code class="docutils literal notranslate"><span class="pre">url</span></code>, a
+MongoDB connection string, in place of <code class="docutils literal notranslate"><span class="pre">host</span></code> and <code class="docutils literal notranslate"><span class="pre">port</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb_archiver</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb+srv://your-cluster.example.com/?tls=true</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_db</span>
+<span class="w">    </span><span class="nt">collection</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv_data</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span><span class="w">                </span><span class="c1"># optional with a url</span>
+<span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">      </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">      </span><span class="nt">password_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MONGODB_READONLY_PASSWORD</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span><span class="w">                 </span><span class="c1"># only for a CA the image does not trust</span>
+<span class="w">      </span><span class="nt">ca_bundle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/certs/site-ca.pem</span>
+</pre></div>
+</div>
+<p>The url wins over <code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code> and the <code class="docutils literal notranslate"><span class="pre">OSPREY_ARCHIVER_MONGODB_*</span></code>
+address overrides. It may not carry a user, a password or a key-file
+password, nor an option the block has its own key for (<code class="docutils literal notranslate"><span class="pre">authSource</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tlsCAFile</span></code>, <code class="docutils literal notranslate"><span class="pre">serverSelectionTimeoutMS</span></code>), nor one that turns
+certificate verification off (<code class="docutils literal notranslate"><span class="pre">tlsInsecure</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tlsAllowInvalidCertificates</span></code>, <code class="docutils literal notranslate"><span class="pre">tlsAllowInvalidHostnames</span></code>). The
+recorder and the archive rewrite never write to a store named by url.</p>
+<p><code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is an absolute path to the CA file the store’s
+certificate is checked against; a <code class="docutils literal notranslate"><span class="pre">~</span></code> path is refused, because each
+process would expand it against its own home. Without it, a <code class="docutils literal notranslate"><span class="pre">tls=true</span></code>
+url uses the image’s trust store. No setting turns certificate checking
+off. The build mounts the named file read-only at the same path into every
+web terminal and dispatch worker, and into the archive recorder, so the
+same key works in a container; the file must be on the deploy host when
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs. <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> remains the way to add a CA to
+every image.</p>
 <p>Documents in the collection are expected to have a <code class="docutils literal notranslate"><span class="pre">date</span></code> field
 (<code class="docutils literal notranslate"><span class="pre">ISODate</span></code>) and one or more PV names as top-level fields:
 <code class="docutils literal notranslate"><span class="pre">{date:</span> <span class="pre">ISODate(...),</span> <span class="pre">PV1:</span> <span class="pre">value1,</span> <span class="pre">PV2:</span> <span class="pre">value2,</span> <span class="pre">...}</span></code>. A query matches
@@ -862,10 +938,13 @@ zone it reads query bounds in:</p>
 <span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">myquery_server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myquery.facility.edu</span>
 <span class="w">    </span><span class="nt">deployment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops</span><span class="w">        </span><span class="c1"># MYA deployment to query</span>
-<span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">            </span><span class="c1"># seconds per request</span>
+<span class="w">    </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">          </span><span class="c1"># seconds per request</span>
 <span class="w">    </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/New_York</span><span class="w">   </span><span class="c1"># default: system.timezone</span>
 </pre></div>
 </div>
+<p>MYA takes no <code class="docutils literal notranslate"><span class="pre">auth:</span></code> or <code class="docutils literal notranslate"><span class="pre">tls:</span></code>: its client sends every request
+itself, so the connector refuses both rather than ignore them. A site CA
+reaches it through <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">timezone</span></code> spells a UTC query window in the server’s own local time,
 which is the one place myquery has no offset to read. It does not affect
 the samples that come back: those carry epoch milliseconds, which name an
@@ -910,6 +989,10 @@ module path and configured the same way:</p>
 <span class="pre">history.facility.edu</span></code>. The block is handed to the connector’s <code class="docutils literal notranslate"><span class="pre">connect()</span></code>
 whole. Any other block under <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> is one no archiver reads, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops and names it.</p>
+<p>Every archiver that reaches a service by address spells its request bound
+<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>, and a login and a CA as <code class="docutils literal notranslate"><span class="pre">auth:</span></code> and <code class="docutils literal notranslate"><span class="pre">tls:</span></code> above. A flat
+<code class="docutils literal notranslate"><span class="pre">timeout</span></code>, <code class="docutils literal notranslate"><span class="pre">token_env</span></code>, <code class="docutils literal notranslate"><span class="pre">username</span></code>, <code class="docutils literal notranslate"><span class="pre">password_env</span></code> or <code class="docutils literal notranslate"><span class="pre">ca_bundle</span></code> is
+refused with the nested key it moved to.</p>
 </section>
 <section id="contracts-and-custom-connectors">
 <h2>Contracts and Custom Connectors<a class="headerlink" href="#contracts-and-custom-connectors" title="Link to this heading">#</a></h2>

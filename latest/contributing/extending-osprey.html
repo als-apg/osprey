@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -539,6 +539,44 @@ and injector modules in <code class="docutils literal notranslate"><span class="
 service on. Pinning test: <code class="docutils literal notranslate"><span class="pre">tests/bridges/test_ports.py</span></code>. Deployers start
 from <a class="reference internal" href="../how-to/agent-interfaces/chat-bridges/index.html"><span class="doc">Chat Bridges</span></a>.</p>
 </section>
+<section id="trigger-source">
+<span id="extending-trigger-source"></span><h2>Trigger source<a class="headerlink" href="#trigger-source" title="Link to this heading">#</a></h2>
+<p>A trigger source is what wakes the event dispatcher, as a webhook call, a
+fixed interval or an EPICS channel crossing does; a message queue or a file
+drop would each be a new one. Write a class matching
+<code class="docutils literal notranslate"><span class="pre">osprey.dispatch.sources.base.TriggerSource</span></code>: a <code class="docutils literal notranslate"><span class="pre">source_type</span></code> class
+attribute, <code class="docutils literal notranslate"><span class="pre">register_routes</span></code>, which runs before the dispatcher’s app is built
+and does something only for a source that serves HTTP routes, and <code class="docutils literal notranslate"><span class="pre">start</span></code> and
+<code class="docutils literal notranslate"><span class="pre">stop</span></code>, which run with the event loop going. <code class="docutils literal notranslate"><span class="pre">start</span></code> receives the triggers
+that name this source and a fire callback. The source reads each trigger’s own
+<code class="docutils literal notranslate"><span class="pre">source_config</span></code> and awaits the callback with the trigger and a payload
+mapping for every event it detects. Stamp the event’s instant as a
+timezone-aware <code class="docutils literal notranslate"><span class="pre">datetime</span></code>: the dispatcher stores it as given and shows it to
+the agent in the facility zone, while a time carried as text reaches the agent
+unchanged. The callback returns the queued run’s id, returns <code class="docutils literal notranslate"><span class="pre">None</span></code> when the
+trigger is disabled, and raises
+<code class="docutils literal notranslate"><span class="pre">osprey.dispatch.pool.QueueFullError</span></code> when the queue is full; what happens
+then is the source’s decision, and every shipped source logs the event and
+drops it. A fire from a source is attributed to nobody.</p>
+<p>This seam is the exception to the registry-module paragraph that opens this
+page: sources are not registered in a registry module. They are found through a Python package
+entry point, in the group OSPREY declares its own three under —
+<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey.trigger_sources&quot;]</span></code> in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> —
+and the entry point’s name is the <code class="docutils literal notranslate"><span class="pre">source:</span></code> value a trigger writes.
+<code class="docutils literal notranslate"><span class="pre">osprey.dispatch.source_registry.SourceRegistry</span></code> loads the group when the
+dispatcher starts, and the dispatcher does not start when an entry point’s
+class lacks the three methods, or when one name is claimed by two different
+classes. The package has to be installed wherever the dispatcher runs: a
+dispatcher started with <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.dispatch</span></code> finds it in that
+environment, while the image OSPREY builds for the containerized dispatcher
+installs OSPREY alone, so a container deployment names an image that carries
+the package through <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code>
+(<a class="reference internal" href="../reference/configuration/config.html#deployment-image-overrides"><span class="std std-ref">Overriding Service Images</span></a>). Copy
+<code class="docutils literal notranslate"><span class="pre">src/osprey/dispatch/sources/cron.py</span></code> for a source with no routes, or
+<code class="docutils literal notranslate"><span class="pre">src/osprey/dispatch/sources/webhook.py</span></code> for one that serves them. Pinning
+test: <code class="docutils literal notranslate"><span class="pre">tests/dispatch/test_source_registry.py</span></code>; deployer view:
+<a class="reference internal" href="../how-to/agent-interfaces/event-dispatch.html#event-dispatch-trigger-sources"><span class="std std-ref">Trigger sources</span></a>.</p>
+</section>
 <section id="ariel">
 <span id="extending-ariel"></span><h2>ARIEL<a class="headerlink" href="#ariel" title="Link to this heading">#</a></h2>
 <p>ARIEL is the interface to logbook data, and it has three seams: a <strong>facility
@@ -597,20 +635,118 @@ and may not do at runtime — notably the proxy’s header stripping, which
 rules out backends that authenticate their own callers — is on
 <a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a>.</p>
 </section>
+<section id="login-service">
+<span id="extending-login-service"></span><h2>Login service<a class="headerlink" href="#login-service" title="Link to this heading">#</a></h2>
+<p>The login service is a closed seam, not a plugin point. It serves exactly the
+methods in <code class="docutils literal notranslate"><span class="pre">osprey.services.auth_sidecar.methods.SUPPORTED_METHODS</span></code>, and a
+facility registers no other. A site meets it at two places. One is an OIDC
+issuer: a sign-in that is not OIDC is brokered to one. The other is the answer
+nginx asks of it, <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/verify</span></code> with the four headers named in
+<code class="docutils literal notranslate"><span class="pre">osprey.services.auth_sidecar.identity_headers</span></code>, which every terminal decodes
+through <code class="docutils literal notranslate"><span class="pre">osprey.interfaces.common_middleware.forwarded_identity</span></code>. A new login
+method is a framework change: it joins <code class="docutils literal notranslate"><span class="pre">SUPPORTED_METHODS</span></code> and the render
+postures in <code class="docutils literal notranslate"><span class="pre">osprey.deployment.web_terminals.render.SUPPORTED_AUTH_METHODS</span></code>
+together, with an audit category of its own. Pinning tests:
+<code class="docutils literal notranslate"><span class="pre">tests/services/auth_sidecar/test_methods_parity.py</span></code> for the method set,
+<code class="docutils literal notranslate"><span class="pre">tests/services/auth_sidecar/test_verify.py</span></code> for the answer, and
+<code class="docutils literal notranslate"><span class="pre">tests/deployment/web_terminals/test_nginx_auth_surface.py</span></code> for nginx’s
+side. Deployer view: <a class="reference internal" href="../how-to/web-terminal/multi-user/login.html"><span class="doc">Require a Login</span></a>.</p>
+</section>
 <section id="lume-model">
 <span id="extending-lume-model"></span><h2>LUME model<a class="headerlink" href="#lume-model" title="Link to this heading">#</a></h2>
-<p>The virtual accelerator serves whatever physics you hand it, as long as that
-physics is a <code class="docutils literal notranslate"><span class="pre">lume.model.LUMEModel</span></code>. The floor is
+<p>The virtual accelerator serves one <code class="docutils literal notranslate"><span class="pre">lume.model.LUMEModel</span></code>, chosen by the
+module the container runs. The shipped
+<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint</span></code> builds
+<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.model.pyat.PyATRingModel</span></code> over the
+served tree’s lattice, or the floor,
 <code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.serving.model_stub.NullModel</span></code>, which
-serves a channel list and no physics at all; at the other end,
-<code class="docutils literal notranslate"><span class="pre">src/osprey/services/virtual_accelerator/serving/write_path.py:182</span></code> shows a
-shipped model wrapped so that setpoint writes carry a calibration and push
-recomputed readings back onto their channels. The seam is guarded in both
-directions: <code class="docutils literal notranslate"><span class="pre">tests/va/test_facility_seam.py</span></code> pins that a facility without a
-lattice boots with no accelerator-physics imports on the path at all, and
-<code class="docutils literal notranslate"><span class="pre">tests/va/test_pyat_ring_model.py</span></code> covers the shipped ring model. Deployers
-configure the result in
-<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
+serves a channel list and no physics. A different pyAT deck needs no code (see
+“Bringing your own model” on <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). A
+different backend is a replacement entrypoint module named in
+<code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code>. For a shipped model wrapped so that setpoint writes
+carry a calibration and push recomputed readings back onto their channels, see
+<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel</span></code>.</p>
+<p>A replacement entrypoint honours the same contract as the shipped one, which
+is its reference implementation:</p>
+<ul class="simple">
+<li><p><strong>Runnable and importable.</strong> The container runs it as
+<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-u</span> <span class="pre">-m</span> <span class="pre">&lt;module&gt;</span></code>, so it is importable in the image and has a
+<code class="docutils literal notranslate"><span class="pre">__main__</span></code> guard, or is a package with a <code class="docutils literal notranslate"><span class="pre">__main__.py</span></code>. Its image is one
+the facility builds on top of OSPREY’s, because the stock image installs
+OSPREY and nothing else.</p></li>
+<li><p><strong>The same inputs.</strong> The data directory is <code class="docutils literal notranslate"><span class="pre">VA_DATA_DIR</span></code>, default
+<code class="docutils literal notranslate"><span class="pre">/data/simulation</span></code>. The channel manifest <code class="docutils literal notranslate"><span class="pre">VA_CHANNELS_FILE</span></code> is required
+and resolved against that directory, and the manifest is the served
+namespace. <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> and <code class="docutils literal notranslate"><span class="pre">VA_STATE_DIR</span></code> are set too. Channel Access is
+served on <code class="docutils literal notranslate"><span class="pre">EPICS_CAS_SERVER_PORT</span></code>, which the image’s command exports from
+<code class="docutils literal notranslate"><span class="pre">EPICS_CA_SERVER_PORT</span></code>, and pvAccess on <code class="docutils literal notranslate"><span class="pre">EPICS_PVAS_SERVER_PORT</span></code>. The
+deployment’s health check is a TCP connect to the Channel Access port and
+nothing more.</p></li>
+<li><p><strong>Clamp writes to the drive bands.</strong> The shipped entrypoint reads
+<code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> from the data directory and hands the bands to the
+runner, which clamps every written value into its band before anything else
+happens to it (the clamp is
+<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.serving.write_path.clamp_into</span></code>). A
+replacement that builds its own server without them serves setpoints with no
+band on the IOC side. The connector’s own <code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> is separate and
+unchanged.</p></li>
+<li><p><strong>Announce readiness.</strong> Once every boot value is on the wire, print one line
+starting with <code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint.READY_MARKER</span></code>
+(<code class="docutils literal notranslate"><span class="pre">virtual</span> <span class="pre">accelerator</span> <span class="pre">IOC</span> <span class="pre">serving</span> <span class="pre">PVs</span></code>), followed by <code class="docutils literal notranslate"><span class="pre">:</span> <span class="pre">&lt;N&gt;</span> <span class="pre">channels</span></code>.
+The image boot check and the container test fixtures wait on that line and
+read the count out of it.</p></li>
+<li><p><strong>Leave on SIGTERM.</strong> The image’s command <code class="docutils literal notranslate"><span class="pre">exec</span></code>s Python, so the module
+is the container’s first process and receives <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">stop</span></code>’s SIGTERM
+itself. A first process with no handler for it ignores it and is killed when
+the stop timeout runs out. The shipped entrypoint installs handlers for
+SIGINT and SIGTERM once its servers are up, and they leave through the
+runner’s own exit.</p></li>
+<li><p><strong>One module for every instance.</strong> With a live stand-in, both containers
+run the same image and the same <code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code>.</p></li>
+</ul>
+<p>The seam is guarded in both directions: <code class="docutils literal notranslate"><span class="pre">tests/va/test_facility_seam.py</span></code>
+pins that a facility without a lattice boots with no accelerator-physics
+imports on the path at all, and <code class="docutils literal notranslate"><span class="pre">tests/va/test_pyat_ring_model.py</span></code> covers
+the shipped ring model. How to deploy a replacement is in
+<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
+</section>
+<section id="agent-harness">
+<span id="extending-agent-harness"></span><h2>Agent harness<a class="headerlink" href="#agent-harness" title="Link to this heading">#</a></h2>
+<p>The agent harness is not a seam. Osprey ships one harness, Claude Code, and
+there is no configuration key or base class for choosing another. What the
+codebase keeps instead is a boundary: the code specific to Claude Code lives in
+one package, <code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/</span></code>, and the rest of the framework reaches
+the agent through it. That package owns:</p>
+<ul class="simple">
+<li><p>the Agent SDK calls. <code class="docutils literal notranslate"><span class="pre">osprey.agent_runner.run_query</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey.agent_runner.stream_query</span></code> run one prompt,
+<code class="docutils literal notranslate"><span class="pre">osprey.agent_runner.agent_session</span></code> holds a conversation of many turns, and
+each hands its caller the plain event records of
+<code class="docutils literal notranslate"><span class="pre">osprey.agent_runner.events</span></code> rather than SDK types;</p></li>
+<li><p>the command line that starts the CLI: its program name, its flags and the
+resolution of its bare name (<code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/launcher.py</span></code>);</p></li>
+<li><p>the provider and model environment the agent is launched with
+(<code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/provider_env.py</span></code>);</p></li>
+<li><p>the first-run state the CLI expects in <code class="docutils literal notranslate"><span class="pre">.claude.json</span></code>, and the suffix that
+names each user’s state volume (<code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/claude_state.py</span></code>);</p></li>
+<li><p>the catalog of files a build writes for the CLI
+(<code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/build_artifacts/</span></code>);</p></li>
+<li><p>the built-in tool names every deny list is made of
+(<code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/tool_names.py</span></code>), and the permission hook and
+callback of a dispatched run (<code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/tool_policy.py</span></code>).</p></li>
+</ul>
+<p>The templates a build renders for the CLI — settings, hooks, rules, agents and
+skills — are Claude Code’s own file formats and stay with the other templates,
+in <code class="docutils literal notranslate"><span class="pre">src/osprey/templates/claude_code/</span></code>. The deny list in the rendered settings
+comes from <code class="docutils literal notranslate"><span class="pre">src/osprey/agent_runner/tool_names.py</span></code>.</p>
+<p>A lint holds the boundary. Ruff’s banned-api rule (<code class="docutils literal notranslate"><span class="pre">TID251</span></code>, configured in
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>) refuses an import of <code class="docutils literal notranslate"><span class="pre">claude_agent_sdk</span></code> anywhere in
+<code class="docutils literal notranslate"><span class="pre">src/</span></code> or <code class="docutils literal notranslate"><span class="pre">packages/</span></code> outside the adapter, and the unit suite refuses the
+same import, including the dynamic imports ruff cannot see. No module is exempt
+by name. Tests and developer scripts sit outside the shipped trees and drive the
+SDK directly. New code that needs the agent calls the adapter; a Claude-specific
+need the adapter does not meet yet is added to the adapter, not written inline
+where it is needed. Pinning test: <code class="docutils literal notranslate"><span class="pre">tests/test_harness_fence.py</span></code>.</p>
 </section>
 </section>
 
@@ -665,10 +801,13 @@ configure the result in
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#archiver">Archiver</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server">MCP server</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chat-bridge">Chat bridge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#trigger-source">Trigger source</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel">ARIEL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#health-plugin">Health plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel">Panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#login-service">Login service</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lume-model">LUME model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-harness">Agent harness</a></li>
 </ul>
   </nav></div>
 

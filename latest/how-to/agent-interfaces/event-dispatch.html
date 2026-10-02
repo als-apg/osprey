@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -520,7 +521,8 @@
                   
   <section id="event-dispatch">
 <span id="how-to-event-dispatch"></span><h1>Event Dispatch<a class="headerlink" href="#event-dispatch" title="Link to this heading">#</a></h1>
-<p>How to turn external events (webhooks, cron ticks) into headless OSPREY agent runs.</p>
+<p>How to turn external events (a webhook call, a fixed interval or a time of day,
+an EPICS channel crossing a threshold) into headless OSPREY agent runs.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -529,6 +531,7 @@
 <li><p class="sd-card-text">How to bring the pipeline up and fire your first trigger</p></li>
 <li><p class="sd-card-text">How to fire a trigger from a web-terminal session, and who the job runs as</p></li>
 <li><p class="sd-card-text">How to author your own triggers in <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code></p></li>
+<li><p class="sd-card-text">Which trigger sources ship, and what each one’s <code class="docutils literal notranslate"><span class="pre">source_config</span></code> takes</p></li>
 <li><p class="sd-card-text">How the two bearer tokens guard inbound and internal traffic</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> A project built from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
@@ -541,8 +544,8 @@ container path.</p>
 keyboard. It is built from two services:</p>
 <ul class="simple">
 <li><p><strong>Event dispatcher</strong> (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.dispatch</span></code>, port <code class="docutils literal notranslate"><span class="pre">10010</span></code>) — accepts
-authenticated webhook <code class="docutils literal notranslate"><span class="pre">POST</span></code>s (and cron ticks), matches them to a trigger,
-applies the trigger’s tool allowlist and error policy, and forwards the run to
+authenticated webhook <code class="docutils literal notranslate"><span class="pre">POST</span></code>s, interval and clock-time ticks and EPICS channel crossings,
+matches each to a trigger, applies the trigger’s tool allowlist and error policy, and forwards the run to
 a worker. It also serves the monitoring <strong>dashboard</strong>.</p></li>
 <li><p><strong>Dispatch worker</strong> (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.mcp_server.dispatch_worker</span></code>, port
 <code class="docutils literal notranslate"><span class="pre">10011</span></code>) — runs the headless agent session and streams progress back.</p></li>
@@ -745,7 +748,8 @@ every persona follows it, and a persona that pins a different one is refused.</p
 terminal a small <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> MCP server, so a job can be started from
 the session an operator is already working in. Three of its tools read and
 answer straight away — <code class="docutils literal notranslate"><span class="pre">list_triggers</span></code>, <code class="docutils literal notranslate"><span class="pre">trigger_status</span></code> and
-<code class="docutils literal notranslate"><span class="pre">trigger_history</span></code>. The fourth, <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code>, starts a job and asks first.</p>
+<code class="docutils literal notranslate"><span class="pre">trigger_history</span></code>. The times they report are in the facility zone. The
+fourth, <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code>, starts a job and asks first.</p>
 <p>Ask for it in plain language — <em>“fire the save-report trigger”</em> — and an
 approval prompt appears. It names the trigger the fire would start, and the
 payload where the call carries one, so the name to check is on the prompt
@@ -764,10 +768,11 @@ else’s behalf.</p>
 for everyone. Your name goes into the audit ledger instead, as <code class="docutils literal notranslate"><span class="pre">owner=</span></code> on
 the job’s write records beside the worker name, which is how a line in the
 gateway’s put-log is joined back to you. See <a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-attribution"><span class="std std-ref">Who the control system saw</span></a>.</p>
-<p>A job that cron or an inbound webhook started carries no name, and neither does
-one whose account name the dispatcher cannot read — a name that is not a plain
-account spelling is refused, and the only trace is a warning in the dispatcher’s
-own log. No chip narrows a job with no name: it runs with whatever writes the
+<p>A job that a trigger source started — an interval or clock-time tick, a channel
+crossing or an inbound webhook — carries no name, and neither does one whose
+account name the dispatcher cannot read — a name that is not a plain account
+spelling is refused, and the only trace is a warning in the dispatcher’s own
+log. No chip narrows a job with no name: it runs with whatever writes the
 deployment gives it.</p>
 </section>
 <section id="where-the-tools-work">
@@ -821,7 +826,7 @@ terminal’s port, so it cannot make this call.</p>
 
 <span class="nt">triggers</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello-dispatch</span>
-<span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webhook</span><span class="w">                </span><span class="c1"># or &quot;cron&quot;</span>
+<span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">webhook</span><span class="w">                </span><span class="c1"># webhook, cron or epics_ca</span>
 <span class="w">    </span><span class="nt">action</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
 <span class="w">        </span><span class="no">Reply with a single sentence confirming the pipeline works.</span>
@@ -838,6 +843,10 @@ terminal’s port, so it cannot make this call.</p>
 defaults: leave them out and the dispatcher carries two runs at once and
 holds fifty events waiting for a slot. A build writes both keys from the
 profile’s <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, which starts at the same pair.</p>
+<p class="sd-card-text"><strong>Allowed tools.</strong> <code class="docutils literal notranslate"><span class="pre">action.allowed_tools</span></code> is the list of tool names the run
+may use, written as a list even for one tool (<code class="docutils literal notranslate"><span class="pre">[get_pv]</span></code>). Left out or
+blank, it is empty. The dispatcher refuses the triggers file at load if it is
+anything else.</p>
 <p class="sd-card-text"><strong>Turn ceiling.</strong> How many agentic turns one dispatched run may take is
 <code class="docutils literal notranslate"><span class="pre">dispatch.max_turns</span></code> in the build profile (default 25) — the third budget
 beside <code class="docutils literal notranslate"><span class="pre">dispatch.timeout_sec</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.inactivity_sec</span></code>, and the one
@@ -846,11 +855,23 @@ than the deployment’s number states its own <code class="docutils literal notr
 a trigger that names none gets the deployment’s. A trigger’s own value must
 be a whole number of turns of at least one, and the dispatcher refuses the
 triggers file at load if it is not.</p>
+<p class="sd-card-text"><strong>Surface prompt and tools.</strong> <code class="docutils literal notranslate"><span class="pre">action.surface_prompt</span></code> is a fixed piece of
+text appended to the dispatched agent’s system prompt on every run of that
+trigger. It is not filled in per event: the event itself reaches the agent
+as the payload. The dispatcher refuses the triggers file at load if it is not
+a string. <code class="docutils literal notranslate"><span class="pre">action.surface_tools</span></code> is a list of tool names that narrows
+<code class="docutils literal notranslate"><span class="pre">allowed_tools</span></code> to the ones it also names. It can only remove a tool, never
+add one, and the worker’s denylist applies either way. Left out or empty, the
+run gets <code class="docutils literal notranslate"><span class="pre">allowed_tools</span></code> as written. The dispatcher refuses the triggers
+file at load if it is not a list of tool names.</p>
 <p class="sd-card-text"><strong>Tool denylist (defence in depth).</strong> The worker enforces a server-side tool
 denylist regardless of what a trigger requests: <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>,
-the Playwright browser tools, and all shell tools (<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">BashOutput</span></code>,
-<code class="docutils literal notranslate"><span class="pre">KillShell</span></code>). This sits on top of the per-trigger allowlist, so a trigger
-can never widen its way to a shell or the open network.</p>
+every plugin’s and claude.ai connector’s MCP tools, all shell tools (<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">TaskOutput</span></code>,
+<code class="docutils literal notranslate"><span class="pre">TaskStop</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>), the tools that fire or schedule jobs
+(<code class="docutils literal notranslate"><span class="pre">Workflow</span></code>, <code class="docutils literal notranslate"><span class="pre">CronCreate</span></code>, <code class="docutils literal notranslate"><span class="pre">ScheduleWakeup</span></code>, and the dispatcher’s own
+<code class="docutils literal notranslate"><span class="pre">manual_fire</span></code>), <code class="docutils literal notranslate"><span class="pre">SendMessage</span></code> and <code class="docutils literal notranslate"><span class="pre">EnterWorktree</span></code>. This sits on top of
+the per-trigger allowlist, so a trigger can never widen its way to a shell,
+another session or the open network.</p>
 <p class="sd-card-text"><strong>Retry policy.</strong> <code class="docutils literal notranslate"><span class="pre">on_error:</span> <span class="pre">retry</span></code> fires only when the <em>dispatch itself</em>
 fails — the worker being unreachable (connection error or timeout), returning
 an HTTP error, or rejecting the dispatcher’s token — and it re-dispatches up to
@@ -859,7 +880,172 @@ run that the agent itself ends in error, so firing a trigger against a healthy
 stack never exercises it; the behaviour is covered by
 <code class="docutils literal notranslate"><span class="pre">tests/dispatch/test_server_routes.py</span></code>.</p>
 </div>
-</details></section>
+</details><section id="trigger-sources">
+<span id="event-dispatch-trigger-sources"></span><h3>Trigger sources<a class="headerlink" href="#trigger-sources" title="Link to this heading">#</a></h3>
+<p>A trigger’s <code class="docutils literal notranslate"><span class="pre">source:</span></code> names what fires it, and its optional
+<code class="docutils literal notranslate"><span class="pre">source_config:</span></code> mapping carries that source’s own settings. A
+<code class="docutils literal notranslate"><span class="pre">source_config</span></code> that is not a mapping, like an <code class="docutils literal notranslate"><span class="pre">action</span></code> or <code class="docutils literal notranslate"><span class="pre">on_error</span></code>
+that is not one, stops the triggers file from loading, with an error naming
+the trigger; a blank one is empty. Three sources ship. A <code class="docutils literal notranslate"><span class="pre">source:</span></code> that no installed source registers is logged when the
+dispatcher starts, and its triggers are skipped while the rest of the file
+loads.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">triggers</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hourly-summary</span>
+<span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cron</span>
+<span class="w">    </span><span class="nt">source_config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">interval_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span>
+<span class="w">    </span><span class="nt">action</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
+<span class="w">        </span><span class="no">Summarise what changed in the last hour.</span>
+<span class="w">      </span><span class="nt">allowed_tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">morning-summary</span>
+<span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cron</span>
+<span class="w">    </span><span class="nt">source_config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">at</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;07:45&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">days</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">mon</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">tue</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">wed</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">thu</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">fri</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">action</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
+<span class="w">        </span><span class="no">Summarise what happened overnight.</span>
+<span class="w">      </span><span class="nt">allowed_tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vacuum-alarm</span>
+<span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_ca</span>
+<span class="w">    </span><span class="nt">source_config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">pv</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo:vacuum:pressure</span>
+<span class="w">      </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.0</span>
+<span class="w">      </span><span class="nt">edge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rising</span>
+<span class="w">      </span><span class="nt">cool_down_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">    </span><span class="nt">action</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
+<span class="w">        </span><span class="no">The pressure crossed its threshold; describe the event.</span>
+<span class="w">      </span><span class="nt">allowed_tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+</pre></div>
+</div>
+<dl>
+<dt><code class="docutils literal notranslate"><span class="pre">source:</span> <span class="pre">webhook</span></code></dt><dd><p>Fires on an authenticated <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/webhook/&lt;name&gt;</span></code> carrying the
+<code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> bearer, and takes no <code class="docutils literal notranslate"><span class="pre">source_config</span></code>. The JSON
+body is folded into the prompt as untrusted payload. A body that is not a
+JSON object counts as empty, and one declared larger than 32 MB is refused
+with HTTP 413. The answer is 202 with the <code class="docutils literal notranslate"><span class="pre">dispatch_id</span></code>, 401 for a wrong
+or missing bearer, 404 for an unknown trigger, 409 for a disabled one, 429
+when the queue is full, and 503 while the token is unset.
+<a class="reference internal" href="#event-dispatch-fire"><span class="std std-ref">Fire a Trigger</span></a> walks through one call.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">source:</span> <span class="pre">cron</span></code></dt><dd><p>Fires on a fixed interval or at clock times; a trigger uses <code class="docutils literal notranslate"><span class="pre">interval_sec</span></code>
+or <code class="docutils literal notranslate"><span class="pre">at</span></code>, never both.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">interval_sec</span></code></p></td>
+<td><p>none (required without <code class="docutils literal notranslate"><span class="pre">at</span></code>)</p></td>
+<td><p>Seconds between fires, a finite number greater than zero.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at</span></code></p></td>
+<td><p>none</p></td>
+<td><p>A list of quoted 24-hour <code class="docutils literal notranslate"><span class="pre">&quot;HH:MM&quot;</span></code> times, read in the facility zone.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">days</span></code></p></td>
+<td><p>every day</p></td>
+<td><p>A list of <code class="docutils literal notranslate"><span class="pre">mon</span></code> … <code class="docutils literal notranslate"><span class="pre">sun</span></code> limiting <code class="docutils literal notranslate"><span class="pre">at</span></code> to those weekdays.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An <code class="docutils literal notranslate"><span class="pre">interval_sec</span></code> trigger first fires one full interval after the
+dispatcher starts, then an interval after each fire is handed to the queue.
+Nothing aligns to the wall clock, and a restart starts the count again, so
+<code class="docutils literal notranslate"><span class="pre">interval_sec:</span> <span class="pre">86400</span></code> means once a day counted from start, not at a set
+hour. A trigger whose value is missing, a boolean, or not a finite number
+greater than zero is not armed (a quoted number such as <code class="docutils literal notranslate"><span class="pre">&quot;90&quot;</span></code> is read as
+that number): the dispatcher logs a warning naming it, and
+the file still loads with every other trigger running. A tick on a disabled
+trigger is recorded in its history as <code class="docutils literal notranslate"><span class="pre">ignored:</span> <span class="pre">disabled</span></code>. A tick that
+meets a full queue is dropped with a warning and not retried; the next one
+comes an interval later. The payload carries <code class="docutils literal notranslate"><span class="pre">source</span></code>, <code class="docutils literal notranslate"><span class="pre">trigger</span></code> and
+<code class="docutils literal notranslate"><span class="pre">timestamp</span></code>.</p>
+<p><strong>Clock times.</strong> An <code class="docutils literal notranslate"><span class="pre">at</span></code> trigger reads its times in the zone named by
+<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>; the container’s <code class="docutils literal notranslate"><span class="pre">TZ</span></code> does not matter. A time that
+daylight saving skips fires once at the first minute after the jump
+(<code class="docutils literal notranslate"><span class="pre">02:30</span></code> fires at <code class="docutils literal notranslate"><span class="pre">03:00</span></code> that night). A time that happens twice fires
+once, at its first occurrence. A time that passes while the dispatcher is
+stopped, or while its host is asleep, is skipped and not made up. At start
+the dispatcher logs each clock trigger’s zone, the slot before start and the
+next fire, and the dashboard’s trigger list shows the next fire. Times must
+be quoted, because YAML reads an unquoted <code class="docutils literal notranslate"><span class="pre">17:00</span></code> as a number. A schedule
+the dispatcher cannot read stops it from starting, with an error naming the
+trigger: a bad time or day, <code class="docutils literal notranslate"><span class="pre">days</span></code> without <code class="docutils literal notranslate"><span class="pre">at</span></code>, <code class="docutils literal notranslate"><span class="pre">at</span></code> beside
+<code class="docutils literal notranslate"><span class="pre">interval_sec</span></code>, or any other key beside <code class="docutils literal notranslate"><span class="pre">at</span></code>, whereas a bad
+<code class="docutils literal notranslate"><span class="pre">interval_sec</span></code> only skips its trigger. A tick on a disabled trigger, and a
+tick that meets a full queue, behave as for an interval trigger.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">source:</span> <span class="pre">epics_ca</span></code></dt><dd><p>Monitors one EPICS Channel Access PV and fires when its value crosses a
+threshold.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv</span></code></p></td>
+<td><p>none (required)</p></td>
+<td><p>The PV to monitor.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">threshold</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
+<td><p>The value a crossing is measured against, a finite number.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">edge</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">rising</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">rising</span></code>, <code class="docutils literal notranslate"><span class="pre">falling</span></code> or <code class="docutils literal notranslate"><span class="pre">both</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cool_down_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60.0</span></code></p></td>
+<td><p>The fewest seconds between two fires of this trigger, a number zero or
+greater.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul class="simple">
+<li><p>The first value after connecting is recorded and never fires.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rising</span></code> means the previous value was below the threshold and the new
+one is at or above it; <code class="docutils literal notranslate"><span class="pre">falling</span></code> is the mirror; <code class="docutils literal notranslate"><span class="pre">both</span></code> is either.</p></li>
+<li><p>The cool-down counts from the last fire, so the first fire is never held
+back.</p></li>
+<li><p>A value that is not a number is ignored with a warning.</p></li>
+<li><p>A trigger with no <code class="docutils literal notranslate"><span class="pre">pv</span></code>, an <code class="docutils literal notranslate"><span class="pre">edge</span></code> outside the three, or a
+<code class="docutils literal notranslate"><span class="pre">threshold</span></code> or <code class="docutils literal notranslate"><span class="pre">cool_down_sec</span></code> that is not such a number is not armed;
+the dispatcher logs a warning naming it and the value, and its siblings
+still arm. A blank value takes the default.</p></li>
+<li><p>The payload carries <code class="docutils literal notranslate"><span class="pre">source</span></code>, <code class="docutils literal notranslate"><span class="pre">pv</span></code>, <code class="docutils literal notranslate"><span class="pre">value</span></code>, <code class="docutils literal notranslate"><span class="pre">previous_value</span></code>,
+<code class="docutils literal notranslate"><span class="pre">threshold</span></code>, <code class="docutils literal notranslate"><span class="pre">edge</span></code> and <code class="docutils literal notranslate"><span class="pre">timestamp</span></code>.</p></li>
+</ul>
+<p><em>Reaching the Machine</em> below covers the variables that point the
+dispatcher at a Channel Access gateway.</p>
+</dd>
+</dl>
+<p>The agent reads an event’s <code class="docutils literal notranslate"><span class="pre">timestamp</span></code> in the facility zone that
+<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code> names, with its UTC offset, the same zone as its own clock.
+A webhook body reaches the agent as it was sent, times included. The dispatcher
+keeps its own history in UTC.</p>
+</section>
+</section>
 <section id="reaching-the-machine">
 <h2>Reaching the Machine<a class="headerlink" href="#reaching-the-machine" title="Link to this heading">#</a></h2>
 <p>A trigger’s <code class="docutils literal notranslate"><span class="pre">source:</span></code> decides what wakes it. <code class="docutils literal notranslate"><span class="pre">webhook</span></code> and <code class="docutils literal notranslate"><span class="pre">cron</span></code> need
@@ -910,6 +1096,20 @@ and the MCP transport at <code class="docutils literal notranslate"><span class=
 <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> and then collects the finished answer and its files
 from the worker with <code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code>, so a bridge that has only one of
 them stalls partway through every question.</p>
+<p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> is an admin credential. One value covers the
+webhook, the <code class="docutils literal notranslate"><span class="pre">/mcp</span></code> transport and every dashboard write — re-firing a
+trigger, cancelling a run, clearing the run history, and enabling or disabling
+a trigger — and there is no narrower per-trigger token. Hand it only to the
+web terminal and to the bridges that fire triggers.</p>
+<p>The dispatcher records who asked, but it does not check it. A fire or re-fire
+made from the web terminal carries your account name, added by the terminal’s
+panel proxy, and the dispatcher stores it as <code class="docutils literal notranslate"><span class="pre">owner</span></code> on the trigger’s history
+entry and on the run record; cancelling a run, clearing the history and
+enabling or disabling a trigger log the same name. A webhook, a <code class="docutils literal notranslate"><span class="pre">cron</span></code>
+trigger and a chat-bridge fire name nobody and are recorded without an owner.
+The recorded owner is attribution, never authorization: the token decides what
+a request may do, and anyone holding it can call the dispatcher’s port directly
+under any account name or none.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-shield-lock" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.533.133 5.25 1.68A1.75 1.75 0 0 1 15 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.697 1.697 0 0 1-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 0 1 1.217-1.667l5.25-1.68a1.748 1.748 0 0 1 1.066 0Zm-.61 1.429.001.001-5.25 1.68a.251.251 0 0 0-.174.237V7c0 1.36.275 2.666 1.057 3.859.784 1.194 2.121 2.342 4.366 3.298a.196.196 0 0 0 .154 0c2.245-.957 3.582-2.103 4.366-3.297C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 0 0-.174-.238l-5.25-1.68a.25.25 0 0 0-.153 0ZM9.5 6.5c0 .536-.286 1.032-.75 1.3v2.45a.75.75 0 0 1-1.5 0V7.8A1.5 1.5 0 1 1 9.5 6.5Z"></path></svg></span><span class="sd-summary-text">How the tokens work</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -1004,7 +1204,10 @@ handoff.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-shell-reaches-the-same-route">A shell reaches the same route</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-triggers">Authoring Triggers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-triggers">Authoring Triggers</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#trigger-sources">Trigger sources</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reaching-the-machine">Reaching the Machine</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication">Authentication</a></li>
 </ul>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -622,7 +623,7 @@ SR01C___BPM*
 <p>When multiple components are present (e.g. terms <em>and</em> phrases), they are combined with <code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code> (tsquery AND).</p>
 </li>
 <li><p>Executes full-text search against the <code class="docutils literal notranslate"><span class="pre">raw_text</span></code> column with <code class="docutils literal notranslate"><span class="pre">ts_rank</span></code> scoring, applying any field filters (<code class="docutils literal notranslate"><span class="pre">author</span> <span class="pre">ILIKE</span></code>, date range) and time range constraints</p></li>
-<li><p>If no results and fuzzy fallback is enabled, falls back to <code class="docutils literal notranslate"><span class="pre">pg_trgm</span></code> trigram similarity (default threshold: 0.3)</p></li>
+<li><p>If no results and fuzzy fallback is enabled, falls back to <code class="docutils literal notranslate"><span class="pre">pg_trgm</span></code> trigram similarity at or above <code class="docutils literal notranslate"><span class="pre">fuzzy_threshold</span></code> (default: 0.3)</p></li>
 <li><p>Returns results as <code class="docutils literal notranslate"><span class="pre">(entry,</span> <span class="pre">score,</span> <span class="pre">highlights)</span></code> tuples — highlights are generated via <code class="docutils literal notranslate"><span class="pre">ts_headline</span></code></p></li>
 </ol>
 <p><strong>Configuration:</strong></p>
@@ -633,6 +634,7 @@ SR01C___BPM*
 <span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">patterns_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default: true</span>
 <span class="w">        </span><span class="nt">pattern_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span><span class="w">   </span><span class="c1"># default: 10.0</span>
+<span class="w">        </span><span class="nt">fuzzy_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span><span class="w">            </span><span class="c1"># default: 0.3</span>
 </pre></div>
 </div>
 </div>
@@ -1010,6 +1012,7 @@ the pattern. Both carry the expansion groups the query was going to use.</p>
 <span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">patterns_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default: true</span>
 <span class="w">        </span><span class="nt">pattern_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span><span class="w">   </span><span class="c1"># default: 10.0</span>
+<span class="w">        </span><span class="nt">fuzzy_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span><span class="w">            </span><span class="c1"># default: 0.3</span>
 </pre></div>
 </div>
 <p>A relative <code class="docutils literal notranslate"><span class="pre">path</span></code> resolves against the project root of the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
@@ -1018,11 +1021,11 @@ rule as <code class="docutils literal notranslate"><span class="pre">qmd_export.
 so the panel, the CLI and the MCP server all read the same file no matter
 where the process was started.</p>
 <p><code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> with no <code class="docutils literal notranslate"><span class="pre">path</span></code>, an <code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> entry naming a module
-that is unknown or not enabled, and a malformed pattern knob are all
+that is unknown or not enabled, and a malformed keyword knob are all
 configuration errors that name the offending key. Nothing is quietly defaulted.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>The two keyword knobs <strong>must</strong> stay under <code class="docutils literal notranslate"><span class="pre">settings:</span></code>. ARIEL’s
+<p>The keyword knobs <strong>must</strong> stay under <code class="docutils literal notranslate"><span class="pre">settings:</span></code>. ARIEL’s
 search-config loader keeps only <code class="docutils literal notranslate"><span class="pre">enabled</span></code>, <code class="docutils literal notranslate"><span class="pre">provider</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code> and
 <code class="docutils literal notranslate"><span class="pre">settings</span></code>, and drops every other key without a word. A knob written as a
 sibling of <code class="docutils literal notranslate"><span class="pre">enabled</span></code> is inert forever — no error, no warning, just the

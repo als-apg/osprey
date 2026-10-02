@@ -5,8 +5,9 @@ OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. The OSPREY agent discovers servers from ``.mcp.json`` at startup and calls
 tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
-deployment normally renders; build profiles can inject additional servers beyond
-them.
+deployment normally renders. The ``phoebus`` server, last on this page, ships
+in-tree too but is off unless a deployment switches it on; build profiles can
+inject additional servers beyond these.
 
 .. raw:: html
    :file: ../_diagrams/mcp-server-map.html
@@ -324,3 +325,41 @@ refused before the store is dialed. See :doc:`/how-to/facility-knowledge/use-fac
 - ``example_queries`` -- Return curated, runnable Cypher examples for the common
   question shapes, each with per-corpus parameter values.
 - ``capabilities`` -- Report the server description, tool list and operating notes.
+
+
+Phoebus
+-------
+
+``phoebus``
+~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.phoebus``
+
+Drives a running Phoebus product through its agent bridge, an HTTP server inside
+the Phoebus process: it opens displays, reads their widgets and live values,
+snapshots widgets, drives controls and opens Data Browser plots. It is off in
+every preset and switched on with ``claude_code.servers.phoebus.enabled: true``;
+a second Phoebus product is reached by a second instance declared with
+``claude_code.servers.<name>.extends: phoebus``. A drive is offered to the agent
+only under ``phoebus.agent_access: read_write``, and it writes through the
+Phoebus product, not a connector: see :ref:`A Phoebus drive
+<architecture-safety-chain-phoebus-drive>`. Configuration:
+:doc:`/how-to/control-systems/phoebus-bridge`.
+
+**Tools:**
+
+- ``phoebus_list_displays`` -- List the displays open in the Phoebus product, with
+  whether each is ready and which is focused.
+- ``phoebus_open_panel`` -- Open a display by its name in ``phoebus.panels`` and
+  return a handle later calls can address it by.
+- ``phoebus_panel_lookup`` -- Answer whether a display file is registered in this
+  terminal's ``phoebus.panels``, and under which name.
+- ``phoebus_perceive`` -- Walk a display's widget tree and report each widget with
+  its bounds and its channel's live value, severity and writability.
+- ``phoebus_perceive_region`` -- The same, for the widgets inside one on-screen
+  rectangle.
+- ``phoebus_snapshot`` -- Save a PNG of one widget as an artifact.
+- ``phoebus_drive`` -- Click a control or type a value into a widget; offered only
+  under ``phoebus.agent_access: read_write`` and asked for approval.
+- ``phoebus_open_databrowser`` -- Open a Data Browser plot of a channel list over a
+  time range, bound to the archiver when ``phoebus.archiver_url`` is set.

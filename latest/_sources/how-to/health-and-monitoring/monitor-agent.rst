@@ -45,8 +45,9 @@ it:
 .. note::
 
    Traces are exported to the same endpoint as logs and metrics. The exporter
-   appends ``/v1/traces`` to it, which is OpenObserve's traces route. A Phase 1
-   collector must accept traces.
+   appends ``/v1/traces`` to it, which is OpenObserve's traces route. For a
+   Phase 1 collector that takes no traces, leave them out with ``signals`` (see
+   :ref:`monitor-agent-signals`).
 
 Phase 1 — Emit to any OTLP endpoint
 ===================================
@@ -62,6 +63,8 @@ pointed at an endpoint:
        enabled: true
        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}   # your OTLP collector
        protocol: http/protobuf                    # default; or grpc
+       auth:
+         token_env: OTLP_COLLECTOR_TOKEN          # variable holding the bearer token
        resource_attributes:                       # attached to every record
          service.name: osprey-agent
          deployment.environment: dev
@@ -86,9 +89,13 @@ Keys:
      - OTLP transport. Defaults to ``http/protobuf``. ``grpc`` requires an
        explicit ``endpoint``: it is refused against the auto-derived
        ``openobserve`` endpoint, which is HTTP-only.
-   * - ``headers``
-     - Extra OTLP headers (for example, routing or auth headers your backend
-       requires).
+   * - ``signals``
+     - Which of ``metrics``, ``logs`` and ``traces`` to export. Defaults to all
+       three; see :ref:`monitor-agent-signals`.
+   * - ``auth.token_env``
+     - The environment variable holding the collector's bearer token; the agent
+       sends ``Authorization: Bearer <value>``. Holds the variable's name, never
+       the token.
    * - ``resource_attributes``
      - Attributes stamped onto every emitted record — useful for separating
        environments or agent instances in your backend.
@@ -96,12 +103,51 @@ Keys:
 Set the endpoint in your profile's ``.env`` — the build derives the project's
 from it — then run the agent as usual:
 
-.. code-block:: bash
+.. code-block:: text
 
    # .env
    OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com
+   OTLP_COLLECTOR_TOKEN=<the collector's token>
 
 That is all Phase 1 requires — the agent begins emitting on its next run.
+
+On a web-terminal deploy, every ``${VAR}`` in the ``telemetry`` block that has
+no ``:-default`` must be set in the project's ``.env``; ``osprey up`` refuses
+the deploy and names the key and the variable. None of these values is copied
+into ``.env.users``, the one file every web terminal shares — the only
+exception is the store account name ``ZO_INGEST_USER_EMAIL`` (Phase 2) — so a
+value the terminals need from this block does not reach them from there.
+
+The web terminals receive the variable ``auth.token_env`` names from the
+deploy ``.env`` through their own compose environment, never ``.env.users``,
+and ``osprey up`` refuses the deploy when it is unset. Every other ``${VAR}``
+the block references reaches the terminals the same way. A collector that needs
+another header or another auth scheme sits behind an OpenTelemetry Collector
+that adds it.
+
+.. _monitor-agent-signals:
+
+Export without traces
+---------------------
+
+A collector that takes no traces refuses every trace the agent sends. List
+the signals it does take:
+
+.. code-block:: yaml
+
+   claude_code:
+     telemetry:
+       enabled: true
+       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+       signals: [metrics, logs]
+
+Each signal left out is exported as ``none`` rather than left unset, so an
+``OTEL_TRACES_EXPORTER`` in your shell or in the project's ``.env`` cannot
+turn it back on. An empty list or any other name stops ``osprey build``; to
+export nothing, set ``enabled: false``. Built-in tool output
+(``log_tool_content``, under `Content capture`_) is recorded as trace span
+events, so a list without ``traces`` leaves it out of the store. The osprey
+tool-call record is written either way.
 
 Phase 2 — The local OpenObserve add-on
 ======================================
@@ -345,6 +391,9 @@ to suppress that category from emitted telemetry:
        log_tool_content: true          # built-in tool output (Read, Bash; Edit and Write with log_tool_details)
        log_raw_api_bodies: true        # raw provider request/response bodies
 
+``log_tool_content`` is recorded on the traces signal: with ``traces`` left out
+of ``signals`` it records nothing.
+
 ``content_max_length`` sets how many UTF-16 code units one content value may
 carry before Claude Code truncates it; Claude Code's own limit, 61440, applies
 when it is unset. The control-assistant preset sets 262144. MCP tools, the
@@ -436,5 +485,7 @@ Caveats
   ``modules.web_terminals.external_origin`` (or ``deploy.fqdn`` when that is
   unset). A store published to the network by a deployment that declares
   neither gets no link at all, rather than one pointing at whichever machine the
-  operator's browser happens to be. The link is rendered at deploy time, so
-  changing either value takes effect at the next ``osprey up``.
+  operator's browser happens to be. The link opens the organization named by
+  ``claude_code.telemetry.openobserve.org``, the same one the agent exports to.
+  The link is rendered at deploy time, so changing either value takes effect at
+  the next ``osprey up``.

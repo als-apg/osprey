@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -633,6 +634,24 @@ of compose service names — the dispatcher’s target for its workers, and the
 Nextcloud Talk, Google Chat and Microsoft Teams bridges’ URLs for the dispatch
 pair.</p></li>
 </ul>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads each host-mode service’s bind address from the variable it
+declares with <code class="docutils literal notranslate"><span class="pre">bind_env:</span></code>. A service that declares <code class="docutils literal notranslate"><span class="pre">listens:</span> <span class="pre">false</span></code> opens no
+socket. One that declares neither is counted as reachable, and the start applies
+the fail-closed service-token rules. OSPREY’s own services declare this
+themselves; a facility service on the host network declares it beside
+<code class="docutils literal notranslate"><span class="pre">network:</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">site_api</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/site_api</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="nv">host</span><span class="p p-Indicator">,</span><span class="nt"> bind_env</span><span class="p">:</span><span class="w"> </span><span class="nv">SITE_BIND</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># services/site_api/docker-compose.yml.j2</span>
+<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">SITE_BIND</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;127.0.0.1&quot;</span>
+</pre></div>
+</div>
 <p>Services that talk to each other have to be on the same side of that boundary,
 and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses to render a deployment where they are not: a
 co-deployed bridge on the compose network with a host-mode dispatch pair, the
@@ -662,7 +681,9 @@ project its own <code class="docutils literal notranslate"><span class="pre">dep
 the pair along with everything else.
 A facility service you place on the host network is covered the same way,
 read from its <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.port</span></code> key; one without that key cannot be
-checked, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> says so rather than skipping it silently. The
+checked, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> says so rather than skipping it silently. A service
+that listens on nothing says so with <code class="docutils literal notranslate"><span class="pre">listens:</span> <span class="pre">false</span></code> and is left out of the
+check. The
 multi-user web terminals are covered the same way: every port of every roster
 index — terminal and companion panels alike — is checked, and a conflict names
 the user whose <code class="docutils literal notranslate"><span class="pre">index</span></code> to move.</p>

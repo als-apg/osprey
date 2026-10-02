@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Bluesky Plans &#8212; Osprey Framework dev documentation</title>
+    <title>Connect the Agent to Phoebus Displays &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../_static/copybutton.js?v=30646c52"></script>
     <script src="../../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/bluesky/index';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/control-systems/phoebus-bridge';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -57,12 +57,12 @@
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
-    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/bluesky/index.html" />
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/control-systems/phoebus-bridge.html" />
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Run Your First Plan" href="run-first-plan.html" />
-    <link rel="prev" title="Standalone Deployment" href="../ariel/standalone-deployment.html" />
+    <link rel="next" title="How to Use the Channel Finder" href="../use-channel-finder.html" />
+    <link rel="prev" title="Switch the Control Target at Run Time" href="switch-control-target.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -428,11 +428,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -450,10 +450,10 @@
 <li class="toctree-l2"><a class="reference internal" href="../ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Bluesky Plans</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="run-first-plan.html">Run Your First Plan</a></li>
-<li class="toctree-l2"><a class="reference internal" href="queue.html">Plans and the Queue</a></li>
-<li class="toctree-l2"><a class="reference internal" href="write-plans.html">Write Your Own Plans</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
 </ul>
 </details></li>
 </ul>
@@ -499,7 +499,10 @@
     
     <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Bluesky Plans</span></li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Control Systems</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Connect the Agent to Phoebus Displays</span></li>
   </ul>
 </nav>
 </div>
@@ -516,93 +519,189 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="bluesky-plans">
-<h1>Bluesky Plans<a class="headerlink" href="#bluesky-plans" title="Link to this heading">#</a></h1>
-<p>The OSPREY agent can run real measurement plans — sweep magnets, read beam
-monitors, and collect the data — through the same chat and panels you already
-use. The plans and the queue are <a class="reference external" href="https://blueskyproject.io/">Bluesky</a>’s;
-Osprey deploys those services, wires them to your control system, and puts the
-agent and a human approval step in front.</p>
-<div class="osprey-diagram">
-<svg viewBox="0 0 960 192" role="img" aria-labelledby="bluesky-overview-title bluesky-overview-desc">
-  <title id="bluesky-overview-title">Bluesky plans overview</title>
-  <desc id="bluesky-overview-desc">You and the agent compose a plan, add it to a queue that waits until started, the machine runs it with points landing live, and the data is kept for good.</desc>
-  <defs>
-    <marker id="bluesky-overview-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
-      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
-    </marker>
-  </defs>
-  <line class="e" x1="200" y1="92" x2="280" y2="92" marker-end="url(#bluesky-overview-arr)"/>
-  <line class="e" x1="440" y1="92" x2="520" y2="92" marker-end="url(#bluesky-overview-arr)"/>
-  <line class="e" x1="680" y1="92" x2="760" y2="92" marker-end="url(#bluesky-overview-arr)"/>
-  <rect class="mask" x="224" y="72" width="32" height="12" rx="2"/>
-  <text class="ta" x="240" y="81" text-anchor="middle">ADD</text>
-  <rect class="mask" x="460" y="72" width="40" height="12" rx="2"/>
-  <text class="ta" x="480" y="81" text-anchor="middle">START</text>
-
-  <rect class="mask" x="40" y="64" width="160" height="56" rx="6"/>
-  <rect class="nb-in" x="40" y="64" width="160" height="56" rx="6"/>
-  <text class="tn" x="120" y="88" text-anchor="middle">you + the agent</text>
-  <text class="ts" x="120" y="104" text-anchor="middle">compose a plan</text>
-  <rect class="mask" x="280" y="64" width="160" height="56" rx="6"/>
-  <rect class="nb-st" x="280" y="64" width="160" height="56" rx="6"/>
-  <text class="tn" x="360" y="88" text-anchor="middle">queue</text>
-  <text class="ts" x="360" y="104" text-anchor="middle">waits until started</text>
-  <rect class="mask" x="520" y="64" width="160" height="56" rx="6"/>
-  <rect class="nb-foc" x="520" y="64" width="160" height="56" rx="6"/>
-  <text class="tn" x="600" y="88" text-anchor="middle">machine</text>
-  <text class="ts" x="600" y="104" text-anchor="middle">points land live</text>
-  <rect class="mask" x="760" y="64" width="160" height="56" rx="6"/>
-  <rect class="nb-st" x="760" y="64" width="160" height="56" rx="6"/>
-  <text class="tn" x="840" y="88" text-anchor="middle">data</text>
-  <text class="ts" x="840" y="104" text-anchor="middle">kept for good</text>
-</svg>
+  <section id="connect-the-agent-to-phoebus-displays">
+<span id="phoebus-bridge"></span><h1>Connect the Agent to Phoebus Displays<a class="headerlink" href="#connect-the-agent-to-phoebus-displays" title="Link to this heading">#</a></h1>
+<p>How to let the agent open, read and drive the displays of a running Phoebus
+product through the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> MCP server, which is off in every preset until
+a deployment switches it on.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">What the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server gives the agent, and which of its tools are
+asked before they run</p></li>
+<li><p class="sd-card-text">How to point the server at the Phoebus agent bridge and switch it on</p></li>
+<li><p class="sd-card-text">How to register the displays the agent may open by name</p></li>
+<li><p class="sd-card-text">How to keep several terminals on one Phoebus from racing for focus</p></li>
+<li><p class="sd-card-text">Where Data Browser plots and snapshots go, and which archiver a plot uses</p></li>
+<li><p class="sd-card-text">How to add a second Phoebus instance</p></li>
+<li><p class="sd-card-text">What guards a drive, and what does not</p></li>
+</ul>
+<p class="sd-card-text"><strong>Prerequisites:</strong> a Phoebus product built with the agent bridge, and a
+deployment you can rebuild with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 </div>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-3 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Run Your First Plan</div>
-<p class="sd-card-text">Ten minutes on the Virtual Accelerator — ask for a plan in plain words,
-press two buttons, watch the points land. Nothing to configure.</p>
+</details><section id="what-the-server-gives-the-agent">
+<h2>What the server gives the agent<a class="headerlink" href="#what-the-server-gives-the-agent" title="Link to this heading">#</a></h2>
+<p>The server has eight tools, one per bridge operation:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Tool</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_list_displays</span></code></p></td>
+<td><p>Lists every display open in Phoebus, with its name, whether it is ready
+and whether it has focus.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_perceive</span></code></p></td>
+<td><p>Walks one display’s widget tree and reports each widget’s type, name,
+bounds, visibility and live PV state.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_perceive_region</span></code></p></td>
+<td><p>The same report, for only the widgets inside a screen rectangle.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_snapshot</span></code></p></td>
+<td><p>Captures a PNG of one widget, saves it and registers it as an artifact.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code></p></td>
+<td><p>Opens a display by its registered name and returns a handle that
+addresses that display in later calls.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_panel_lookup</span></code></p></td>
+<td><p>Answers the reverse question: which registered name, if any, opens a
+given display file on this terminal.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_open_databrowser</span></code></p></td>
+<td><p>Writes a Data Browser <code class="docutils literal notranslate"><span class="pre">.plt</span></code> for a list of channels over a time span,
+and opens it live in Phoebus.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code></p></td>
+<td><p>Clicks an action control or types a value into a text control on a
+display.</p></td>
+</tr>
+</tbody>
+</table>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="run-first-plan.html"><span class="doc">Run Your First Plan</span></a></div>
+<p>The seven tools other than <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> read displays or open them and
+run without a prompt. <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> is offered only under
+<code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code>, and then it is always asked.</p>
+</section>
+<section id="before-you-start">
+<h2>Before you start<a class="headerlink" href="#before-you-start" title="Link to this heading">#</a></h2>
+<p>The server talks to the <strong>agent bridge</strong>, an HTTP server that runs inside a
+Phoebus product built with it. By default the bridge listens on
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:7979</span></code>. It has to be reachable from wherever the
+<code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server runs; this is the check the server’s own error message
+suggests:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>http://127.0.0.1:7979/displays
+</pre></div>
 </div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Plans and the Queue</div>
-<p class="sd-card-text">How running actually works: the queue, what needs arming, and the two
-ways to stop.</p>
+<p>A bridge that answers returns a JSON list of the open displays. The bridge’s
+port can be changed with the <code class="docutils literal notranslate"><span class="pre">org.phoebus.applications.bridge.web/port</span></code>
+preference in a Phoebus settings file. When it is, <code class="docutils literal notranslate"><span class="pre">phoebus.port</span></code> must be set
+to the same number.</p>
+</section>
+<section id="enable-the-server">
+<h2>Enable the server<a class="headerlink" href="#enable-the-server" title="Link to this heading">#</a></h2>
+<p>Switch the server on and name the bridge in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.servers.phoebus.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">phoebus.host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
+<span class="w">  </span><span class="nt">phoebus.port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7979</span>
+</pre></div>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="queue.html"><span class="doc">Plans and the Queue</span></a></div>
+<p>Then run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and restart the stack. The build writes the
+server’s <code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code> into its entry as
+<code class="docutils literal notranslate"><span class="pre">${PHOEBUS_BRIDGE_URL:-http://&lt;phoebus.host&gt;:&lt;phoebus.port&gt;}</span></code>. A
+<code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code> in the agent’s environment therefore wins over both
+keys; without one, the keys decide.</p>
+</section>
+<section id="register-your-panels">
+<h2>Register your panels<a class="headerlink" href="#register-your-panels" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code> opens displays by name, and the names come from
+<code class="docutils literal notranslate"><span class="pre">phoebus.panels</span></code>, one dotted line per display:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">phoebus.panels.overview</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/opt/displays/overview.bob</span>
+</pre></div>
 </div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Write Your Own Plans</div>
-<p class="sd-card-text">Let the agent draft a new plan for you, or install your facility’s own
-plan library.</p>
+<p>A value may be an absolute path, a <code class="docutils literal notranslate"><span class="pre">file:</span></code> URL, or a path relative to the
+directory of the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the project’s <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+directory, not the profile’s. The path is handed to the Phoebus process, so it
+must name a file that process can read. A name that is not registered is
+refused, and the refusal lists the names that are. <code class="docutils literal notranslate"><span class="pre">phoebus_panel_lookup</span></code>
+answers the other way round: given a display path, it returns the name that
+opens it.</p>
+<p>The names belong to the deployment. OSPREY ships none.</p>
+</section>
+<section id="several-terminals-one-phoebus">
+<h2>Several terminals, one Phoebus<a class="headerlink" href="#several-terminals-one-phoebus" title="Link to this heading">#</a></h2>
+<p>Every tool that takes a <code class="docutils literal notranslate"><span class="pre">display</span></code> argument defaults to <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code>, the
+display that has focus in Phoebus. With several web terminals on one bridge,
+that focus is shared, so two terminals working at once can resolve
+<code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> to each other’s display.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">phoebus.require_handle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="write-plans.html"><span class="doc">Write Your Own Plans</span></a></div>
+<p>With this key set, <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> is refused. Callers pass the handle
+<code class="docutils literal notranslate"><span class="pre">phoebus_open_panel</span></code> returned (<code class="docutils literal notranslate"><span class="pre">&quot;handle:d-3&quot;</span></code>) or an explicit display name
+from <code class="docutils literal notranslate"><span class="pre">phoebus_list_displays</span></code>. <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE</span></code> (<code class="docutils literal notranslate"><span class="pre">1</span></code>/<code class="docutils literal notranslate"><span class="pre">true</span></code>/<code class="docutils literal notranslate"><span class="pre">yes</span></code>/<code class="docutils literal notranslate"><span class="pre">on</span></code>
+or <code class="docutils literal notranslate"><span class="pre">0</span></code>/<code class="docutils literal notranslate"><span class="pre">false</span></code>/<code class="docutils literal notranslate"><span class="pre">no</span></code>/<code class="docutils literal notranslate"><span class="pre">off</span></code>) outranks the key either way.</p>
+<p>A multi-user web-terminal deployment stamps <code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code> on
+every terminal whose project runs a Phoebus server. Elsewhere the switch is off
+by default and is turned on with <code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">true</span></code> or
+<code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE=1</span></code>. <code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">false</span></code> keeps
+<code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> in a multi-user deployment too.</p>
+</section>
+<section id="data-browser-plots-and-snapshots">
+<h2>Data Browser plots and snapshots<a class="headerlink" href="#data-browser-plots-and-snapshots" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">phoebus_open_databrowser</span></code> writes a <code class="docutils literal notranslate"><span class="pre">.plt</span></code> and opens it live. The archiver
+bound into it comes from <code class="docutils literal notranslate"><span class="pre">PHOEBUS_ARCHIVER_URL</span></code>, else
+<code class="docutils literal notranslate"><span class="pre">phoebus.archiver_url</span></code>. With neither set, the plot has no archiver binding
+and shows live values only.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">phoebus.archiver_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://archiver.example.org:17668/retrieval</span>
+</pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">phoebus.plot_dir</span></code> and <code class="docutils literal notranslate"><span class="pre">phoebus.snapshot_dir</span></code> move the <code class="docutils literal notranslate"><span class="pre">.plt</span></code> files and
+the PNG snapshots. By default they go to <code class="docutils literal notranslate"><span class="pre">plots/</span></code> and <code class="docutils literal notranslate"><span class="pre">screenshots/</span></code> under
+<code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>. A relative value is anchored on the project root.</p>
+</section>
+<section id="a-second-phoebus">
+<h2>A second Phoebus<a class="headerlink" href="#a-second-phoebus" title="Link to this heading">#</a></h2>
+<p>A second instance of the server is declared with <code class="docutils literal notranslate"><span class="pre">extends</span></code> and given its own
+bridge URL in its <code class="docutils literal notranslate"><span class="pre">env:</span></code>. <code class="docutils literal notranslate"><span class="pre">phoebus2</span></code> is only an example name:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.servers.phoebus2.extends</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">phoebus</span>
+<span class="w">  </span><span class="nt">claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}&quot;</span>
+</pre></div>
 </div>
-</div>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<dl class="simple">
-<dt><a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a></dt><dd><p>The PLAN and BLUESKY tabs these guides use.</p>
-</dd>
-<dt><a class="reference internal" href="../control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>The simulated machine the tutorial runs against.</p>
-</dd>
-</dl>
-</div>
-<div class="toctree-wrapper compound">
-</div>
+<p>The clone reads the same <code class="docutils literal notranslate"><span class="pre">phoebus.*</span></code> keys as the first instance, so only the
+URL tells the two apart. Its <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> is offered and asked like the original’s.</p>
+</section>
+<section id="what-guards-a-drive">
+<h2>What guards a drive<a class="headerlink" href="#what-guards-a-drive" title="Link to this heading">#</a></h2>
+<p>The agent is offered <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> only where the build profile sets
+<code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code>. Under the default, <code class="docutils literal notranslate"><span class="pre">read</span></code>, the tool is
+left out of the agent’s tool list and permissions, and the server refuses a
+call to it by the key’s name. Under <code class="docutils literal notranslate"><span class="pre">read_write</span></code> every drive passes the
+writes kill switch (<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>) and then the approval
+prompt, is refused while the control target is switched away from the
+deployment’s baseline (<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>), and is audited as a tool
+call. The key is all or nothing, because a panel runs whatever its widgets are
+wired to, so finer control — per panel, widget, channel or mode — belongs to
+the EPICS gateway or access security the Phoebus product connects through.</p>
+<p>A drive does not pass through a connector: the bridge performs it inside the Phoebus process,
+through that product’s own PV connections. Synthetic mode, the default, runs
+the display’s confirm dialogs and enable rules; semantic mode bypasses them. So
+OSPREY’s channel-limits check does not apply to a drive, in either mode. Keep
+<code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> for displays whose controls may be driven as they stand.</p>
+</section>
 </section>
 
 
@@ -616,20 +715,20 @@ plan library.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../ariel/standalone-deployment.html"
+       href="switch-control-target.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Standalone Deployment</p>
+        <p class="prev-next-title">Switch the Control Target at Run Time</p>
       </div>
     </a>
     <a class="right-next"
-       href="run-first-plan.html"
+       href="../use-channel-finder.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Run Your First Plan</p>
+        <p class="prev-next-title">How to Use the Channel Finder</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -645,10 +744,29 @@ plan library.</p>
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-server-gives-the-agent">What the server gives the agent</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#before-you-start">Before you start</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#enable-the-server">Enable the server</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#register-your-panels">Register your panels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#several-terminals-one-phoebus">Several terminals, one Phoebus</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#data-browser-plots-and-snapshots">Data Browser plots and snapshots</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-second-phoebus">A second Phoebus</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-guards-a-drive">What guards a drive</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/bluesky/index.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/control-systems/phoebus-bridge.rst">
       <i class="fa-solid fa-pencil"></i>
       
       

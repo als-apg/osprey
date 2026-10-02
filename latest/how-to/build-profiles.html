@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -640,6 +641,9 @@ the preset calls for them — a <code class="docutils literal notranslate"><span
 the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no
 coordinates to render one from. Fill the block in and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code>
 writes the pipeline — see <a class="reference internal" href="deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
+<p>A preset with a simulated machine carries it under <code class="docutils literal notranslate"><span class="pre">data/simulation/</span></code>:
+<code class="docutils literal notranslate"><span class="pre">machine.json</span></code> and one directory per scenario under <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code>. What those
+files hold is the <a class="reference internal" href="../reference/contracts/simulation-bundle.html"><span class="doc">Simulation Bundle Contract</span></a>.</p>
 <p>Directories for your own artifacts (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, and the rest) are
 <strong>not</strong> created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.</p>
@@ -1386,9 +1390,10 @@ the text everyone starts from (see <a class="reference internal" href="#profile-
 <p><strong>“project/ mirror writes N build-owned path(s)”</strong> — the mirror targets a path
 another channel owns. The message names the channel, and the exact move where
 one exists.</p>
-<p><strong>“Profile has N unrecognized top-level entry/entries”</strong> — a warning, not an
-error: a directory in the profile that nothing copies. Usually a typo of a
-convention directory name.</p>
+<p><strong>“Repo root has N unrecognized top-level entry/entries”</strong> — a warning, not an
+error: an entry no channel renders into the project. Usually a typo of a
+convention directory name. A container image still carries it, as part of the
+repository’s source.</p>
 <p><strong>“Unknown profile key(s): ‘overlay’”</strong> — a profile has no <code class="docutils literal notranslate"><span class="pre">overlay</span></code>
 section. Move the files into the convention directory that matches what they
 are (see the table above), or into <code class="docutils literal notranslate"><span class="pre">project/</span></code> for anything without one.</p>

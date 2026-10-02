@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -599,6 +600,67 @@ third is the interesting one: it is the part no framework can ship for you, and
 everything about how a facility-owned container is declared, built, and reached
 is in <a class="reference internal" href="#deploy-a-facility-own-service"><span class="std std-ref">Step 4 — Add the facility’s own container</span></a>.</p>
 </section>
+<section id="what-the-perimeter-needs">
+<span id="perimeter-limits"></span><h2>What the perimeter needs<a class="headerlink" href="#what-the-perimeter-needs" title="Link to this heading">#</a></h2>
+<p>The web tier (nginx, the landing page and one terminal per user) makes four
+demands on the network in front of it: its own hostname or host:port, one
+origin, the host network, and at most 100 users. They hold for every
+deployment, and the refusals and warnings that enforce them link to this
+section.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 44.0%" />
+<col style="width: 34.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Limit</p></th>
+<th class="head"><p>What it means</p></th>
+<th class="head"><p>If your site cannot meet it</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Its own hostname or host:port</p></td>
+<td><p>The deployment is served from <code class="docutils literal notranslate"><span class="pre">/</span></code> of the address a browser uses and
+cannot sit under a path such as <code class="docutils literal notranslate"><span class="pre">https://www.example.org/osprey/</span></code>.
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.external_origin</span></code> is refused if it carries a
+path. Every terminal compares the browser’s <code class="docutils literal notranslate"><span class="pre">Origin</span></code> header against
+<code class="docutils literal notranslate"><span class="pre">external_origin</span></code> as a whole string, so it is written as a bare
+origin.</p></td>
+<td><p>Give the deployment its own DNS name at the front proxy
+(<code class="docutils literal notranslate"><span class="pre">https://osprey.example.org</span></code>) or its own port on an existing name
+(<code class="docutils literal notranslate"><span class="pre">https://www.example.org:8443</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p>One origin</p></td>
+<td><p>Every terminal accepts a state-changing request only from the one
+origin the deployment was built for: <code class="docutils literal notranslate"><span class="pre">external_origin</span></code>, or the one
+derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code>. nginx answers only on that origin’s host,
+and a request under any other name is redirected (<code class="docutils literal notranslate"><span class="pre">301</span></code>) to the same
+path there.</p></td>
+<td><p>Publish one name and give every user that address.
+<a class="reference internal" href="web-terminal/multi-user/login.html#multi-user-https"><span class="std std-ref">Serve it over HTTPS</span></a> covers the setting and a TLS terminator in
+front.</p></td>
+</tr>
+<tr class="row-even"><td><p>The host network</p></td>
+<td><p>nginx and every per-user terminal run with <code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so
+the container runtime must be able to put containers on the host’s own
+network.</p></td>
+<td><p>A Linux host running Docker or Podman does this directly. Docker
+Desktop on macOS does it only with <em>Enable host networking</em> turned on
+(Settings → Resources → Network).</p></td>
+</tr>
+<tr class="row-odd"><td><p>At most 100 users</p></td>
+<td><p>Each per-user port family holds 100 ports, one for each user index 0 to
+99 (<a class="reference internal" href="../reference/ports.html#reference-ports-panels"><span class="std std-ref">The panel bands</span></a>). A roster with an index past 99 is
+refused, and setting a family’s <code class="docutils literal notranslate"><span class="pre">&lt;family&gt;_base_port</span></code> does not raise
+the limit.</p></td>
+<td><p>Run a second deployment for the next group of users, on its own
+<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> (<a class="reference internal" href="../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>).</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
 <section id="step-1-create-the-facility-repository">
 <h2>Step 1 — Create the facility repository<a class="headerlink" href="#step-1-create-the-facility-repository" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>demo-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant
@@ -656,8 +718,9 @@ are already present with a different value; some ship commented out.</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">virtual_accelerator</span></code> points the agent at the deployed
 simulator, so correctors move and BPMs read through exactly the approval and
-limit layers a live machine would use. The preset ships <code class="docutils literal notranslate"><span class="pre">mock</span></code>, which touches
-nothing.</p>
+limit layers a live machine would use. The preset already ships this value; it
+is written out here because it is the line that changes when the deployment
+goes live (<a class="reference internal" href="#changing-something-later">Changing something later</a>).</p>
 <p>A deployment describes <strong>one real machine</strong>. <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> names it,
 or — on a simulated baseline like this one — the single non-simulated block
 under <code class="docutils literal notranslate"><span class="pre">control_system.connector</span></code> does, and the three control targets
@@ -676,11 +739,23 @@ and this list is what <code class="docutils literal notranslate"><span class="pr
 <p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> becomes the container-name prefix for the web tier
 (<code class="docutils literal notranslate"><span class="pre">demo-nginx</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-web-alice</span></code>), so keep it short and distinct from the
 project name.</p>
+<p><code class="docutils literal notranslate"><span class="pre">system.timezone</span></code> is the zone operator times are read in and every timestamp
+is shown in. Spell it exactly as the IANA time zone database does, case
+included (<code class="docutils literal notranslate"><span class="pre">America/Los_Angeles</span></code>, not <code class="docutils literal notranslate"><span class="pre">america/los_angeles</span></code>), or
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses it. A build left on the preset’s <code class="docutils literal notranslate"><span class="pre">UTC</span></code> prints a
+one-line reminder, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports UTC as information. A value
+that names an environment variable (<code class="docutils literal notranslate"><span class="pre">${FACILITY_TZ}</span></code>) is checked by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>, not by the build. It is the facility’s zone and the one
+place OSPREY takes it from: the agent quotes times in it, and each page that
+shows times is stamped with it. The status-bar clock shows it with
+<code class="docutils literal notranslate"><span class="pre">zone:</span> <span class="pre">facility</span></code> (see <a class="reference internal" href="../reference/configuration/config.html#config-bar-items"><span class="std std-ref">The header and status bar</span></a>).</p>
 <p>While you are in the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code> block, note the <code class="docutils literal notranslate"><span class="pre">auth:</span></code>
 stanza the preset ships: the terminals ask for a login, with demo passwords
 that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> seeded into this repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-(<code class="docutils literal notranslate"><span class="pre">alice</span></code>/<code class="docutils literal notranslate"><span class="pre">alice</span></code>, <code class="docutils literal notranslate"><span class="pre">bob</span></code>/<code class="docutils literal notranslate"><span class="pre">bob</span></code>) and <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code>
-keeping the login flow on plain HTTP. That is a demo posture. For a facility
+(<code class="docutils literal notranslate"><span class="pre">alice</span></code>/<code class="docutils literal notranslate"><span class="pre">alice</span></code>, <code class="docutils literal notranslate"><span class="pre">bob</span></code>/<code class="docutils literal notranslate"><span class="pre">bob</span></code>, and <code class="docutils literal notranslate"><span class="pre">carol</span></code>/<code class="docutils literal notranslate"><span class="pre">carol</span></code>, the admin
+card) and <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code> keeping the login flow on plain HTTP.
+That is a demo posture: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start once <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code>
+names a real host while any of these passwords is still set. For a facility
 host, set real passwords in <code class="docutils literal notranslate"><span class="pre">.env</span></code> (or rotate with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code>)
 and serve TLS — <a class="reference internal" href="web-terminal/multi-user/login.html"><span class="doc">Require a Login</span></a> walks through both, and through single
 sign-on if your site runs one.</p>
@@ -731,7 +806,9 @@ directory. <code class="docutils literal notranslate"><span class="pre">http:</s
 publishes, so the deploy summary prints its address as a link rather than as a
 bare <code class="docutils literal notranslate"><span class="pre">host:port</span></code> — the framework recognises its own services by name and has
 no way to know what protocol sits behind yours. Leave it out for a service that
-speaks anything else; a link that cannot open is worse than no link.</p>
+speaks anything else; a link that cannot open is worse than no link. Were
+<code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code> moved to the host network, its template would render the bind
+address into a variable and name it with <code class="docutils literal notranslate"><span class="pre">bind_env:</span></code>.</p>
 <p>The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it. <code class="docutils literal notranslate"><span class="pre">10900</span></code> is the
 first port of the facility band, the hundred ports the framework publishes
@@ -812,19 +889,8 @@ compose template per service directory, rendered by the build.</p>
 <span class="x">    # two OSPREY projects can run this service on one host.</span>
 <span class="x">    container_name: </span><span class="cp">{{</span> <span class="nv">osprey_labels.project_name</span> <span class="cp">}}</span><span class="x">-facility-mcp</span>
 <span class="x">    labels:</span>
-<span class="x">      osprey.project.name: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.project_name</span> <span class="cp">}}</span><span class="x">&quot;</span>
-<span class="x">      # Which deployment repo this container belongs to. A facility service</span>
-<span class="x">      # carries it for the same reason every packaged one does: the preflight</span>
-<span class="x">      # reads it to tell &quot;a port of ours, already up&quot; from &quot;somebody else&#39;s</span>
-<span class="x">      # process on our port&quot;, and an unlabelled container can only be guessed</span>
-<span class="x">      # at from the compose project name.</span>
-<span class="x">      com.osprey.repo-id: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.repo_id</span> <span class="cp">}}</span><span class="x">&quot;</span>
-<span class="x">      osprey.project.root: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.project_root</span> <span class="cp">}}</span><span class="x">&quot;</span>
-<span class="x">      # Content hashes of the env chain and the rendered config this service</span>
-<span class="x">      # reads. They are what makes an edit to either file restart this</span>
-<span class="x">      # container; see the deploy-project compose-templates page.</span>
+<span class="x">      # Env-chain hash: a .env edit restarts this; the build adds project and config labels.</span>
 <span class="x">      osprey.env.digest: &quot;${OSPREY_ENV_DIGEST:-}&quot;</span>
-<span class="x">      osprey.config.digest: &quot;${OSPREY_CONFIG_DIGEST:-}&quot;</span>
 <span class="x">    restart: unless-stopped</span>
 <span class="x">    ports:</span>
 <span class="x">      - &quot;</span><span class="cp">{{</span> <span class="nv">deployment.bind_address</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="s1">&#39;127.0.0.1&#39;</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:</span><span class="cp">{{</span> <span class="o">(</span><span class="nv">services</span><span class="o">[</span><span class="s1">&#39;facility-mcp&#39;</span><span class="o">]</span> <span class="o">|</span> <span class="nf">default</span><span class="o">({}))</span><span class="nv">.port</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="m">10900</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:10900/tcp&quot;</span>
@@ -845,11 +911,16 @@ compose template per service directory, rendered by the build.</p>
 
 <span class="x">volumes:</span>
 <span class="x">  facility_mcp_data:</span>
+<span class="x">    labels:</span>
+<span class="x">      com.osprey.repo-id: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.repo_id</span> <span class="cp">}}</span><span class="x">&quot;</span>
 
 <span class="x">networks:</span>
 <span class="x">  osprey-network:</span>
 </pre></div>
 </div>
+<p>The named volume carries the checkout label itself because the build’s labels
+override reaches services, not volumes, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> removes only the
+volumes that carry it.</p>
 <p>The image reference follows the framework convention — environment variable,
 then config key, then a local tag. A laptop deploy builds the image from the
 sources beside the template; the deploy host selects the pipeline’s pushed image
@@ -895,6 +966,11 @@ images, which is what a runner with internet access wants.</p>
 <p><code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> says the deploy host builds the web-terminal images
 itself from the rendered persona projects, rather than pulling them from a
 registry.</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">registry</span></code>, the host pulls them under names derived from this block’s
+<code class="docutils literal notranslate"><span class="pre">registry.url</span></code>, which the build writes into the rendered config. A
+<code class="docutils literal notranslate"><span class="pre">registry.url</span></code> in <code class="docutils literal notranslate"><span class="pre">config:</span></code> overrides it. The scaffolded pipeline does not
+push those images. The names and what has to push them:
+<a class="reference internal" href="web-terminal/multi-user/index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>In the same edit, delete the <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> line from the
@@ -947,7 +1023,8 @@ holding the private key for the deploy-host account. The SSH key is CI-only —
 it authenticates the deploy job and is never part of the deployment’s own
 environment, which is why it is not in <code class="docutils literal notranslate"><span class="pre">env.required</span></code>.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code></dt><dd><p>The post-deploy health check, at the repository root.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code></dt><dd><p>The post-deploy health check, at the repository root: every container of the
+deployment, then the endpoints it can probe.</p>
 </dd>
 </dl>
 <p>Re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code> whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes. It is
@@ -1017,8 +1094,9 @@ the image from the checkout instead; see <a class="reference internal" href="dep
 workflow.</p>
 </div>
 <p>The first run is slow: the virtual accelerator and the facility’s own image are
-both built locally. When the containers are up, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> runs
-<code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> itself and prints a summary of the published endpoints.</p>
+both built locally. When the containers are up, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints a summary
+of the published endpoints and, on a deployment with the web tier, runs
+<code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> itself; without the web tier, nothing runs it for you.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>status
 </pre></div>
 </div>
@@ -1027,13 +1105,16 @@ both built locally. When the containers are up, <code class="docutils literal no
 fix is <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, not a restart.</p>
 <p>You can run the health check by hand at any time, and it is worth doing once
 before you trust it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/verify.sh<span class="w">              </span><span class="c1"># every probe</span>
-./scripts/verify.sh<span class="w"> </span>services<span class="w">     </span><span class="c1"># one group</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/verify.sh<span class="w">              </span><span class="c1"># every group</span>
+./scripts/verify.sh<span class="w"> </span>containers<span class="w">   </span><span class="c1"># one group</span>
+./scripts/verify.sh<span class="w"> </span>--strict<span class="w">     </span><span class="c1"># exit 1 if anything is flagged</span>
 </pre></div>
 </div>
-<p>It always exits 0 — the output is the report, and the exit code says nothing.
-Probes are advisory: a failed probe tells you where to look, and must never be
-the reason a deploy is called a failure.</p>
+<p>It exits 0 unless run with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>. A container that is not running or not
+healthy, and a probe that gets no answer, is flagged and tells you where to
+look. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> never passes <code class="docutils literal notranslate"><span class="pre">--strict</span></code>, so a flag is never the reason a
+deploy is called a failure; <code class="docutils literal notranslate"><span class="pre">--strict</span></code> is for a job of your own that should
+fail on it.</p>
 </section>
 <section id="what-the-pipeline-does">
 <h2>What the pipeline does<a class="headerlink" href="#what-the-pipeline-does" title="Link to this heading">#</a></h2>
@@ -1070,13 +1151,18 @@ the file at mode <code class="docutils literal notranslate"><span class="pre">06
 <h2>Changing something later<a class="headerlink" href="#changing-something-later" title="Link to this heading">#</a></h2>
 <p>The loop is always the same: edit the profile, rebuild, redeploy. Run it
 anywhere inside the repository:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics<span class="w">          </span><span class="c1"># or edit profile.yml by hand</span>
-osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver
-osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">va_archiver</span><span class="o">=</span>null<span class="w">         </span><span class="c1"># the recorded archive goes with the stand-in</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics<span class="w">                      </span><span class="c1"># your control system; or edit profile.yml by hand</span>
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver<span class="w">  </span><span class="c1"># the archiver that records it</span>
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">va_archiver</span><span class="o">=</span>null<span class="w">                     </span><span class="c1"># the recorded archive goes with the stand-in</span>
 osprey<span class="w"> </span>build
 osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
+<p>The three <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> lines are the go-live edit, with EPICS as the example:
+<code class="docutils literal notranslate"><span class="pre">connector</span></code> names your control system (<code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">doocs</span></code> or <code class="docutils literal notranslate"><span class="pre">tango</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">config.archiver.type</span></code> the archiver that records it (<code class="docutils literal notranslate"><span class="pre">epics_archiver</span></code>,
+<code class="docutils literal notranslate"><span class="pre">doocs_archiver</span></code>, <code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> or <code class="docutils literal notranslate"><span class="pre">mya_archiver</span></code>).
+<a class="reference internal" href="control-systems/use-connectors.html"><span class="doc">Use Connectors</span></a> lists each one and the keys it needs.</p>
 <p>Or in one step, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--build</span> <span class="pre">-d</span></code>. Every build re-renders everything the
 framework owns and preserves what you own: <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the
 repository’s git history. The source zone itself is never touched by a build.</p>
@@ -1257,6 +1343,9 @@ containerized terminal per operator.</p>
 </dd>
 <dt><a class="reference internal" href="control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>Running the simulator, and driving it from the agent.</p>
 </dd>
+<dt><a class="reference internal" href="control-systems/use-connectors.html"><span class="doc">Use Connectors</span></a></dt><dd><p>Every control system and archiver OSPREY connects to, and the keys each
+one needs.</p>
+</dd>
 <dt><a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Every <code class="docutils literal notranslate"><span class="pre">osprey</span></code> command and flag.</p>
 </dd>
 </dl>
@@ -1313,6 +1402,7 @@ containerized terminal per operator.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-are-building">What you are building</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-perimeter-needs">What the perimeter needs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-create-the-facility-repository">Step 1 — Create the facility repository</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-trim-the-profile-to-this-facility-s-stack">Step 2 — Trim the profile to this facility’s stack</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-name-the-facility-and-pin-its-services">Step 3 — Name the facility and pin its services</a></li>

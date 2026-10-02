@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -384,6 +384,7 @@
 
 
 
+
 <li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
@@ -459,18 +460,22 @@ passing the checks first. That guarantee belongs to the harness: a process on th
 starts a server by hand sits outside it, which is why access to the host is part of the trust
 boundary.</p>
 <p>The checks are the first gate, not the only one. There are four ways a value reaches a
-machine — a single channel write, Python the agent wrote, a Bluesky plan, and a notebook
-cell — and each has gates of its own below the checks. Two of them can also be driven by a
-person, from the BLUESKY panel or a Jupyter cell, and a person’s action goes through none of
-the checks. All four end at the same connector and leave the same audit record.</p>
+machine through the connector — a single channel write, Python the agent wrote, a Bluesky
+plan, and a notebook cell — and each has gates of its own below the checks. Two of them can
+also be driven by a person, from the BLUESKY panel or a Jupyter cell, and a person’s action
+goes through none of the checks. All four end at the same connector and leave the same audit
+record. A deployment that enables the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server and sets
+<code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code> has a fifth: <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> passes the checks and then
+the Phoebus product writes the value through its own connections, not through the connector
+— see <a class="reference internal" href="#architecture-safety-chain-phoebus-drive"><span class="std std-ref">A Phoebus drive</span></a>.</p>
 <p>A write also carries a name — whose write it is. Narrowing a machine to read-only is
 that person’s decision about their own writes, so the name decides which narrowing a write
 is judged against. <a class="reference internal" href="#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a>, at the foot of
 this page, says where the name comes from and what it does not cover.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1220 1066" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
-  <title id="safety-chain-title">Four ways to change something on the machine, and what stands in the way of each</title>
-  <desc id="safety-chain-desc">The deployment's settings — which machine it points at, whether writes are switched on for that machine, and whether the person who asked has narrowed it to read-only, one record per person — are read by the gates. An operator asks the OSPREY agent in plain language; every tool call that could write then passes the checks: are writes switched on, and does a human approve, which the operator answers at the terminal prompt; a channel write also passes a limits check on the way, which the other tools do not. Once approved, the call reaches its server: a channel write goes to the control-system server, which checks the limits once more; a Python run has its code read before it runs and then runs in its own guarded process; queueing a plan reaches the Bluesky queue, which the operator can also drive from the panel without those checks, which needs a launch token to start or to take work while running, and where a start is bound to the queue the approver looked at and is refused if that queue changed; before and during a run every channel the plan declares must answer first, each write is checked as it happens, and the name on the queued item rides into the plan's task so each of its writes is judged against that person's narrowing; a Jupyter cell is run by the operator directly, and its kernel re-reads the settings before every cell. All four end at the connector, which asks the records on every write whether this person may write to this machine now and gets back one of three answers — permitted, narrowing, or control_context_unavailable when the records could not be read — refuses on either of the last two, and a refusal the records decided ends its message in that word, while a refusal decided elsewhere says its own reason — a run pinned read-only when it launched is told to re-run the script. The connector then checks the value against the limits where limits checking is on, sends the value, and, where the channel's policy asks for it, waits for the machine and reads the channel back. A request is named at two doors only, in the X-Osprey-Owner header: the terminal's proxy, and the sidecar's own login gate, each taking the name from the credential that got the request in rather than from what the request claimed. A job the agent fires leaves through the terminal's panel proxy, the one place that holds the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter at the top of the picture as tool calls. Three gaps are documented rather than closed: a plan added straight to the queue from inside a container, under any name it claims or none, a persona allowed a shell reaching the panel's dispatcher address, and a direct login at the panel's own address, which names nobody. A name that arrived by a door OSPREY does not mint at is unvouched, and it binds all the same, so the plan is judged against whoever it names. A plan nobody is named on runs at the lane's ceiling, which is what the lanes this deployment deploys allow; an external-worker lane runs on the facility's own RunEngine and devices, outside both the narrowing and that ceiling, where the name on an item is attribution.</desc>
+  <title id="safety-chain-title">Four ways to change something on the machine through the connector, and what stands in the way of each</title>
+  <desc id="safety-chain-desc">The deployment's settings — which machine it points at, whether writes are switched on for that machine, and whether the person who asked has narrowed it to read-only, one record per person — are read by the gates. An operator asks the OSPREY agent in plain language; every tool call that could write then passes the checks: are writes switched on, and does a human approve, which the operator answers at the terminal prompt; a channel write also passes a limits check on the way, which the other tools do not. Once approved, the call reaches its server: a channel write goes to the control-system server, which checks the limits once more; a Python run has its code read before it runs and then runs in its own guarded process; queueing a plan reaches the Bluesky queue, which the operator can also drive from the panel without those checks, which needs a launch token to start or to take work while running, and where a start is bound to the queue the approver looked at and is refused if that queue changed; before and during a run every channel the plan declares must answer first, each write is checked as it happens, and the name on the queued item rides into the plan's task so each of its writes is judged against that person's narrowing; a Jupyter cell is run by the operator directly, and its kernel re-reads the settings before every cell. All four end at the connector, which asks the records on every write whether this person may write to this machine now and gets back one of three answers — permitted, narrowing, or control_context_unavailable when the records could not be read — refuses on either of the last two, and a refusal the records decided ends its message in that word, while a refusal decided elsewhere says its own reason — a run pinned read-only when it launched is told to re-run the script. The connector then checks the value against the limits where limits checking is on, sends the value, and, where the channel's policy asks for it, waits for the machine and reads the channel back. A Phoebus drive, possible only where a deployment enables the phoebus server and sets phoebus.agent_access to read_write, is not drawn: it passes the kill switch and the approval prompt, and the Phoebus product then writes the value through its own connections rather than through the connector, so the connector's narrowing check, its limits and its read-back do not apply to it. A request is named at two doors only, in the X-Osprey-Owner header: the terminal's proxy, and the sidecar's own login gate, each taking the name from the credential that got the request in rather than from what the request claimed. A job the agent fires leaves through the terminal's panel proxy, the one place that holds the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter at the top of the picture as tool calls. Three gaps are documented rather than closed: a plan added straight to the queue from inside a container, under any name it claims or none, a persona allowed a shell reaching the panel's dispatcher address, and a direct login at the panel's own address, which names nobody. A name that arrived by a door OSPREY does not mint at is unvouched, and it binds all the same, so the plan is judged against whoever it names. A plan nobody is named on runs at the lane's ceiling, which is what the lanes this deployment deploys allow; an external-worker lane runs on the facility's own RunEngine and devices, outside both the narrowing and that ceiling, where the name on an item is attribution.</desc>
   <defs>
     <marker id="safety-chain-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
@@ -689,18 +694,18 @@ this page, says where the name comes from and what it does not cover.</p>
 </section>
 <section id="the-checks">
 <h1>The checks<a class="headerlink" href="#the-checks" title="Link to this heading">#</a></h1>
-<p>They run in this order; a channel write meets all three, a Python run and a plan meet the
-first and the last:</p>
+<p>They run in this order; a channel write meets all three; a Python run, a plan and a Phoebus
+drive meet the first and the last:</p>
 <ol class="arabic simple">
 <li><p><strong>Are writes switched on?</strong> (<code class="docutils literal notranslate"><span class="pre">osprey_writes_check</span></code>) — the kill switch. It refuses any
 write when writes are switched off for the machine the deployment points at —
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or the
 <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> a type without that key inherits — and when the person
 who asked has narrowed that machine to read-only from their own terminal. It applies to channel
-writes, read-write Python runs, and queueing or starting a plan. Where no machine may be
-written at all, channel writes and plan queueing are switched off outright rather than
-refused call by call, and a Python run is always asked. Stopping a plan is never switched
-off.</p></li>
+writes, Phoebus drives, read-write Python runs, and queueing or starting a plan. Where no
+machine may be written at all, channel writes, Phoebus drives and plan queueing are switched
+off outright rather than refused call by call, and a Python run is always asked. Stopping a
+plan is never switched off.</p></li>
 <li><p><strong>Is the value within limits?</strong> (<code class="docutils literal notranslate"><span class="pre">osprey_limits</span></code>) — checks a channel write against the
 limits database: that the channel is in it, that it may be written, and the allowed range.
 The step size is left to the connector, the only layer that can read the channel first.
@@ -801,8 +806,9 @@ files, not the machine. See <a class="reference internal" href="../how-to/web-te
 </section>
 </section>
 <section id="what-every-path-shares">
-<h1>What every path shares<a class="headerlink" href="#what-every-path-shares" title="Link to this heading">#</a></h1>
-<p><strong>The connector.</strong> Every path ends at the connector, the last step before the machine. On
+<span id="architecture-safety-chain-shared"></span><h1>What every path shares<a class="headerlink" href="#what-every-path-shares" title="Link to this heading">#</a></h1>
+<p><strong>The connector.</strong> Each of the four paths ends at the connector, the last step before the
+machine. On
 every write it asks the deployment’s records one question — may this person write to this
 machine right now — and gets back one of three answers:</p>
 <dl class="simple">
@@ -832,6 +838,34 @@ call that was allowed, is written down as one line under <code class="docutils l
 repository, by the check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See <a class="reference internal" href="../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">Audit Trail Contract</span></a>.</p>
+</section>
+<section id="a-phoebus-drive">
+<span id="architecture-safety-chain-phoebus-drive"></span><h1>A Phoebus drive<a class="headerlink" href="#a-phoebus-drive" title="Link to this heading">#</a></h1>
+<p>With the <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> server enabled and <code class="docutils literal notranslate"><span class="pre">phoebus.agent_access:</span> <span class="pre">read_write</span></code> set (both off
+unless a deployment switches them on), <code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code> clicks a control or types a value into
+a widget of a display open in a running Phoebus product. Under the default, <code class="docutils literal notranslate"><span class="pre">read</span></code>, the agent
+is not offered the tool and the server refuses a call to it. The call passes the kill switch
+and the approval prompt, like the other tool paths, and is refused while the control target is
+switched away from the deployment’s baseline, because the Phoebus product stays connected to
+the baseline machine. The narrowing is judged once, when the call passes the kill switch.
+<code class="docutils literal notranslate"><span class="pre">phoebus.agent_access</span></code> is all or nothing, because a panel runs whatever its widgets are wired
+to; finer control belongs to the EPICS gateway or access security the Phoebus product connects
+through.</p>
+<p>Below the checks, OSPREY does not write the value. The Phoebus agent bridge performs the drive
+inside the Phoebus process, and the product writes through its own channel connections in both
+modes: synthetic, the default, fires the widget’s GUI event so the display’s own confirm
+dialogs, enable rules and scripts run; semantic writes a typed value straight to the widget’s
+channel. So none of <a class="reference internal" href="#architecture-safety-chain-shared"><span class="std std-ref">what every path shares</span></a> reaches
+the value: the limits check does not see it, neither at the <code class="docutils literal notranslate"><span class="pre">osprey_limits</span></code> hook nor at a
+connector; no connector asks the narrowing records at write time; and nothing reads the
+channel back.</p>
+<p>The audit trail records the call as it records any tool call: one line naming
+<code class="docutils literal notranslate"><span class="pre">phoebus_drive</span></code>, who called it, the posture in force and the decision. With
+<code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code> on (<a class="reference internal" href="../reference/configuration/config.html#config-audit-tool-call"><span class="std std-ref">audit.tool_call: — the full record of every tool call</span></a>), a second record carries the
+widget, verb, mode and value the call was given and the bridge’s answer. Neither names the
+channel written, because the bridge decides which channel a widget writes. See
+<a class="reference internal" href="../how-to/control-systems/phoebus-bridge.html"><span class="doc">Connect the Agent to Phoebus Displays</span></a> for the configuration and for the displays a
+drive is fit for.</p>
 </section>
 <section id="whose-write-is-it">
 <span id="architecture-safety-chain-owner"></span><h1>Whose write is it<a class="headerlink" href="#whose-write-is-it" title="Link to this heading">#</a></h1>

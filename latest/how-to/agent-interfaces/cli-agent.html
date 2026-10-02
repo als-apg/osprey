@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -732,7 +733,14 @@ cannot call any of these tools even if it tries. The list is the union of:</p>
 <ul class="simple">
 <li><p><strong>Built-in write/exec/network tools</strong> — <code class="docutils literal notranslate"><span class="pre">Bash</span></code> (arbitrary shell, which
 could itself write hardware via <code class="docutils literal notranslate"><span class="pre">caput</span></code>), <code class="docutils literal notranslate"><span class="pre">Write</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>,
-<code class="docutils literal notranslate"><span class="pre">MultiEdit</span></code>, <code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>.</p></li>
+<code class="docutils literal notranslate"><span class="pre">NotebookEdit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code> (background
+shell commands), <code class="docutils literal notranslate"><span class="pre">Workflow</span></code>, <code class="docutils literal notranslate"><span class="pre">CronCreate</span></code> and <code class="docutils literal notranslate"><span class="pre">ScheduleWakeup</span></code> (jobs
+that fire later), <code class="docutils literal notranslate"><span class="pre">SendMessage</span></code> (messages to other sessions) and
+<code class="docutils literal notranslate"><span class="pre">EnterWorktree</span></code> (a new worktree on disk).</p></li>
+<li><p><strong>Plugin and connector MCP tools</strong> — <code class="docutils literal notranslate"><span class="pre">mcp__plugin_*</span></code> and
+<code class="docutils literal notranslate"><span class="pre">mcp__claude_ai_*</span></code>. The run loads only the servers in the project’s
+<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, so none of these can start. The entries hold even if that
+changes.</p></li>
 <li><p><strong>Control-system write tools</strong> — <code class="docutils literal notranslate"><span class="pre">mcp__controls__channel_write</span></code> and
 <code class="docutils literal notranslate"><span class="pre">mcp__python__execute</span></code> (plus any facility-specific tools in the project’s
 <code class="docutils literal notranslate"><span class="pre">hook_config.json</span></code> <code class="docutils literal notranslate"><span class="pre">write_tools</span></code> block). These are always included even

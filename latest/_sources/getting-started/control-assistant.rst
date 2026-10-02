@@ -362,7 +362,7 @@ from the block, and a second copy is free to disagree with the first.
 
 **Switch to real hardware.** As in Hello World, moving to production is a
 configuration change, not a code change. Point the connectors at your facility
-in ``profile.yml``:
+in ``profile.yml`` — EPICS here, as the example:
 
 .. code-block:: bash
 
@@ -370,12 +370,18 @@ in ``profile.yml``:
    osprey set config.archiver.type=epics_archiver
    osprey set va_archiver=null
 
+``connector`` names your control system — ``epics``, ``doocs`` or ``tango`` —
+and ``config.archiver.type`` the archiver that records it;
+:doc:`../how-to/control-systems/use-connectors` lists every one and the keys
+each needs.
+
 The archive this tutorial deploys is a *simulated* machine's history, which is
-not what you want against hardware — so the archiver moves to your facility's
-appliance at the same time as the control system, and the recorded store is
-dropped. All three lines are needed: the build refuses a facility baseline that
-still carries a ``va_archiver:`` block, because that store would be served as
-the real machine's past.
+not what you want against hardware — so the agent's archiver switches to the
+one your facility runs at the same time as the control system, and the recorded
+store is dropped. All three lines are needed. The build refuses a facility
+baseline that still carries a ``va_archiver:`` block, because that store would
+be served as the real machine's past. It does not check the archiver line:
+without it the agent stays pointed at the MongoDB store you just dropped.
 
 Because these are build-time inputs, re-render the agent's artifacts and
 relaunch:
@@ -387,7 +393,7 @@ relaunch:
 
 Your queries don't change --- "Read the current in the booster's defocusing
 quadrupole" and "Plot the storage-ring beam current over the last 24 hours" now
-run against live EPICS and your real archiver. The connectors handle the
+run against your control system and its archiver. The connectors handle the
 difference; the agent, the channel finder, and your prompts stay the same.
 
 Next Steps

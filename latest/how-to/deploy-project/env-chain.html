@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -645,6 +646,11 @@ generated channel manifest (a name, not a path: the entrypoint resolves it
 against its data mount), and <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>, which states the lattice that
 manifest is backed by rather than letting the entrypoint default it away —
 under a “Derived by build” heading.</p>
+<p>A third variable, <code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code>, reaches the same container through
+the same passthrough and is the operator’s to set: it names the Python module
+the virtual accelerator runs, and empty or unset runs OSPREY’s own. The build
+never writes it, so nothing is reported about it
+(<a class="reference internal" href="../control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>).</p>
 <p>Both writers are append-only, and a value already on file always wins. A value
 that disagrees with what a writer would have put there is <em>reported</em>, by name
 and never by value, for you to resolve by hand. That is what makes the stack
@@ -718,17 +724,21 @@ the same proxy, in <code class="docutils literal notranslate"><span class="pre">
 </pre></div>
 </div>
 <p><strong>Spell them in uppercase.</strong> Two containers do not read the chain wholesale and
-are handed exactly these three names instead: the login service, whose
-<code class="docutils literal notranslate"><span class="pre">env_file</span></code> is <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and each per-user terminal, whose <code class="docutils literal notranslate"><span class="pre">env_file</span></code> is
-the closed allowlist <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. A lowercase <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> therefore never
-reaches either. (Inside a container that does receive the whole chain, an empty
-lowercase name is worse than absent — it turns the proxy off for that scheme —
-which is why only the uppercase spelling is passed through.) On a deployment
-that renders web terminals, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns when the chain spells one of
-these names in lowercase with no uppercase twin, naming the file and the
-variable; the value is left as written.</p>
-<p>Both of those containers make calls of their own, which is why they get the
-three. The login service fetches the identity provider’s discovery document at
+are handed these settings instead: the login service (<code class="docutils literal notranslate"><span class="pre">env_file</span></code>
+<code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>) and each per-user terminal (<code class="docutils literal notranslate"><span class="pre">env_file</span></code> the closed allowlist
+<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>). Each setting that has a value reaches both under its uppercase
+name and its lowercase twin, both carrying the uppercase value; a setting with
+no value is not set in them at all, under either spelling, so whatever the
+container runtime injects is left alone (an empty lowercase name would turn the
+proxy off for that scheme). A lowercase <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> in the chain is not
+read, and reaches neither. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> decides which settings have a value,
+from its own environment first and then the chain, each time it renders the
+stack; change one and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. On a deployment that renders web
+terminals, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns when the chain gives a lowercase name a value and
+its uppercase twin none, naming the file and the variable; the value is left as
+written.</p>
+<p>Both of those containers make calls of their own, which is why they get these
+settings. The login service fetches the identity provider’s discovery document at
 the first login; the agent in a terminal reaches the model provider on every
 turn. On a proxied host without these names those calls go out directly, so the
 stack comes up, the health check is green, and they fail. Nothing

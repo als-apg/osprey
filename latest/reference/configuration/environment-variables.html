@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -393,6 +393,7 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/simulation-bundle.html">Simulation Bundle Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
@@ -574,6 +575,85 @@ honoured as given.</p></td>
 managed or a hand-run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code>. What they configure is the build — a
 container that is already running reads nothing from them.</p>
 </section>
+<section id="virtual-accelerator-source">
+<h2>Virtual accelerator source<a class="headerlink" href="#virtual-accelerator-source" title="Link to this heading">#</a></h2>
+<p>Three variables in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> decide what the virtual
+accelerator container runs and serves.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code></p></td>
+<td><p>The Python module the container runs. Operator-set. Empty or unset runs
+<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint</span></code>. It must be
+importable inside the image; see <a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_CHANNELS_FILE</span></code></p></td>
+<td><p>The generated channel manifest’s file name, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+writes. Required by the container, which refuses to boot without it.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code></p></td>
+<td><p>The served tree’s lattice file name, or <code class="docutils literal notranslate"><span class="pre">none</span></code>, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>How the build writes the last two — append-only, with a value already on
+file winning — is in <a class="reference internal" href="../../how-to/deploy-project/env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a>.</p>
+</section>
+<section id="the-phoebus-server-s-overrides">
+<h2>The Phoebus server’s overrides<a class="headerlink" href="#the-phoebus-server-s-overrides" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">phoebus</span></code> MCP server reads these three from its own environment each
+time a tool runs, and each one outranks a config key. They reach the server
+from the environment of the process that starts the agent;
+<a class="reference internal" href="../../how-to/deploy-project/env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a> covers how a deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+gets there.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PHOEBUS_BRIDGE_URL</span></code></p></td>
+<td><p>The agent bridge’s full base URL, outranking <code class="docutils literal notranslate"><span class="pre">phoebus.host</span></code> /
+<code class="docutils literal notranslate"><span class="pre">phoebus.port</span></code>. The build renders it into the server’s entry as a
+<code class="docutils literal notranslate"><span class="pre">${PHOEBUS_BRIDGE_URL:-…}</span></code> reference whose fallback is the configured
+host and port, so a value in the environment of the process that
+starts the agent wins and an unset one leaves the keys in charge. A
+second instance declared with <code class="docutils literal notranslate"><span class="pre">extends</span></code> sets its own value in its
+<code class="docutils literal notranslate"><span class="pre">env:</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PHOEBUS_REQUIRE_HANDLE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code>/<code class="docutils literal notranslate"><span class="pre">true</span></code>/<code class="docutils literal notranslate"><span class="pre">yes</span></code>/<code class="docutils literal notranslate"><span class="pre">on</span></code> or <code class="docutils literal notranslate"><span class="pre">0</span></code>/<code class="docutils literal notranslate"><span class="pre">false</span></code>/<code class="docutils literal notranslate"><span class="pre">no</span></code>/<code class="docutils literal notranslate"><span class="pre">off</span></code>,
+outranking <code class="docutils literal notranslate"><span class="pre">phoebus.require_handle</span></code> either way. Any other value falls
+through to the key. A multi-user web-terminal deployment stamps <code class="docutils literal notranslate"><span class="pre">1</span></code> on
+every terminal whose project runs a Phoebus server. Elsewhere it is
+unset, so the switch is off by default and is turned on with
+<code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">true</span></code> or this variable set to <code class="docutils literal notranslate"><span class="pre">1</span></code>.
+<code class="docutils literal notranslate"><span class="pre">phoebus.require_handle:</span> <span class="pre">false</span></code> keeps <code class="docutils literal notranslate"><span class="pre">&quot;active&quot;</span></code> in a multi-user
+deployment too.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PHOEBUS_ARCHIVER_URL</span></code></p></td>
+<td><p>The archiver bound into generated Data Browser plots, outranking
+<code class="docutils literal notranslate"><span class="pre">phoebus.archiver_url</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
 <section id="names-the-framework-stamps">
 <h2>Names the framework stamps<a class="headerlink" href="#names-the-framework-stamps" title="Link to this heading">#</a></h2>
 <p>A deployment’s containers carry more OSPREY variables than the ones above, and
@@ -678,6 +758,8 @@ compose files are resolved.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#secrets-and-env">Secrets, and <code class="docutils literal notranslate"><span class="pre">.env</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#host-level-knobs">Host-level knobs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#virtual-accelerator-source">Virtual accelerator source</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-phoebus-server-s-overrides">The Phoebus server’s overrides</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#names-the-framework-stamps">Names the framework stamps</a></li>
 </ul>
   </nav></div>

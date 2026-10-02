@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -388,6 +388,7 @@
 
 
 
+
 <li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
@@ -571,8 +572,9 @@ surface belongs to the <code class="docutils literal notranslate"><span class="p
 </section>
 <section id="physics-is-optional">
 <h2>Physics is optional<a class="headerlink" href="#physics-is-optional" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code> boots the same service with no lattice: pyAT is never
-imported and the served model is the empty <code class="docutils literal notranslate"><span class="pre">NullModel</span></code>. The Channel Access
+<p><code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> names the lattice file the container serves; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+writes it, and the value <code class="docutils literal notranslate"><span class="pre">none</span></code> boots the same service with no lattice: pyAT
+is never imported and the served model is the empty <code class="docutils literal notranslate"><span class="pre">NullModel</span></code>. The Channel Access
 namespace is <em>identical</em> to a lattice-backed boot; the only difference is that
 a pyat-coupled setpoint simply latches its written value. That is what makes
 the service usable for a facility that has a channel list but no model behind
@@ -631,13 +633,25 @@ which variables exist, and how a boot failure should read.</p>
 </section>
 <section id="bringing-your-own-model">
 <h2>Bringing your own model<a class="headerlink" href="#bringing-your-own-model" title="Link to this heading">#</a></h2>
-<p>Because that one boundary is the only way to the ring, replacing the physics
-replaces one object: a different backend — a surrogate, Cheetah, Bmad, or
-another facility’s pyAT ring — is injected through <code class="docutils literal notranslate"><span class="pre">model=</span></code> without the
-serving layer changing. Model variables are keyed by their full channel
-address and resolved before the backend sees them, so a backend parses no
-channel names. The seam, its floor (<code class="docutils literal notranslate"><span class="pre">NullModel</span></code>) and its ceiling are written
-up under <a class="reference internal" href="../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p>
+<p>The runner is built around one <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>, and the entrypoint is what
+chooses it. The shipped <code class="docutils literal notranslate"><span class="pre">entrypoint.py</span></code> builds <code class="docutils literal notranslate"><span class="pre">PyATRingModel</span></code> when
+<code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> names a lattice and <code class="docutils literal notranslate"><span class="pre">NullModel</span></code> when it is <code class="docutils literal notranslate"><span class="pre">none</span></code>, and hands
+that to the runner. Nothing in a profile, <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or <code class="docutils literal notranslate"><span class="pre">.env</span></code> passes it
+another.</p>
+<p><strong>A pyAT ring is data.</strong> Any facility’s pyAT deck is served by the shipped
+model. The served tree stages it as <code class="docutils literal notranslate"><span class="pre">data/simulation/lattice.json</span></code> beside the
+<code class="docutils literal notranslate"><span class="pre">va_bindings.json</span></code> that ties channels to it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes that
+file’s name into <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>. How a tree comes to carry one is in
+<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
+<p><strong>Any other backend is a different entrypoint.</strong> A surrogate, Cheetah or Bmad
+is a different <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>, so it arrives as a replacement entrypoint module.
+The image runs
+<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-u</span> <span class="pre">-m</span> <span class="pre">${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}</span></code>,
+and the module must be importable inside an image the facility builds.</p>
+<p>Either way the serving layer does not change. Model variables are keyed by
+their full channel address and resolved before the backend sees them, so a
+backend parses no channel names. The contract a replacement entrypoint honours
+is under <a class="reference internal" href="../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p>
 <section id="served-and-model-only-variables">
 <h3>Served and model-only variables<a class="headerlink" href="#served-and-model-only-variables" title="Link to this heading">#</a></h3>
 <p>A model declares more variables than the facility serves as channels. The line

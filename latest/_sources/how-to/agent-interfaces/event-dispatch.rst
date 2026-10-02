@@ -4,7 +4,8 @@
 Event Dispatch
 ==============
 
-How to turn external events (webhooks, cron ticks) into headless OSPREY agent runs.
+How to turn external events (a webhook call, a fixed interval or a time of day,
+an EPICS channel crossing a threshold) into headless OSPREY agent runs.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -14,6 +15,7 @@ How to turn external events (webhooks, cron ticks) into headless OSPREY agent ru
    - How to bring the pipeline up and fire your first trigger
    - How to fire a trigger from a web-terminal session, and who the job runs as
    - How to author your own triggers in ``triggers.yml``
+   - Which trigger sources ship, and what each one's ``source_config`` takes
    - How the two bearer tokens guard inbound and internal traffic
 
    **Prerequisites:** A project built from the ``control-assistant`` preset
@@ -27,8 +29,8 @@ Event dispatch lets an external event start an agent run with no human at a
 keyboard. It is built from two services:
 
 - **Event dispatcher** (``python -m osprey.dispatch``, port ``10010``) — accepts
-  authenticated webhook ``POST``\s (and cron ticks), matches them to a trigger,
-  applies the trigger's tool allowlist and error policy, and forwards the run to
+  authenticated webhook ``POST``\s, interval and clock-time ticks and EPICS channel crossings,
+  matches each to a trigger, applies the trigger's tool allowlist and error policy, and forwards the run to
   a worker. It also serves the monitoring **dashboard**.
 - **Dispatch worker** (``python -m osprey.mcp_server.dispatch_worker``, port
   ``10011``) — runs the headless agent session and streams progress back.
@@ -222,7 +224,8 @@ A deployment that declares the EVENTS panel also hands the agent in each web
 terminal a small ``event_dispatcher`` MCP server, so a job can be started from
 the session an operator is already working in. Three of its tools read and
 answer straight away — ``list_triggers``, ``trigger_status`` and
-``trigger_history``. The fourth, ``manual_fire``, starts a job and asks first.
+``trigger_history``. The times they report are in the facility zone. The
+fourth, ``manual_fire``, starts a job and asks first.
 
 Ask for it in plain language — *"fire the save-report trigger"* — and an
 approval prompt appears. It names the trigger the fire would start, and the
@@ -247,10 +250,11 @@ for everyone. Your name goes into the audit ledger instead, as ``owner=`` on
 the job's write records beside the worker name, which is how a line in the
 gateway's put-log is joined back to you. See :ref:`audit-trail-attribution`.
 
-A job that cron or an inbound webhook started carries no name, and neither does
-one whose account name the dispatcher cannot read — a name that is not a plain
-account spelling is refused, and the only trace is a warning in the dispatcher's
-own log. No chip narrows a job with no name: it runs with whatever writes the
+A job that a trigger source started — an interval or clock-time tick, a channel
+crossing or an inbound webhook — carries no name, and neither does one whose
+account name the dispatcher cannot read — a name that is not a plain account
+spelling is refused, and the only trace is a warning in the dispatcher's own
+log. No chip narrows a job with no name: it runs with whatever writes the
 deployment gives it.
 
 Where the tools work
@@ -311,7 +315,7 @@ Authoring Triggers
 
       triggers:
         - name: hello-dispatch
-          source: webhook                # or "cron"
+          source: webhook                # webhook, cron or epics_ca
           action:
             prompt: >-
               Reply with a single sentence confirming the pipeline works.
@@ -329,6 +333,11 @@ Authoring Triggers
    holds fifty events waiting for a slot. A build writes both keys from the
    profile's ``dispatch:`` block, which starts at the same pair.
 
+   **Allowed tools.** ``action.allowed_tools`` is the list of tool names the run
+   may use, written as a list even for one tool (``[get_pv]``). Left out or
+   blank, it is empty. The dispatcher refuses the triggers file at load if it is
+   anything else.
+
    **Turn ceiling.** How many agentic turns one dispatched run may take is
    ``dispatch.max_turns`` in the build profile (default 25) — the third budget
    beside ``dispatch.timeout_sec`` and ``dispatch.inactivity_sec``, and the one
@@ -338,11 +347,24 @@ Authoring Triggers
    be a whole number of turns of at least one, and the dispatcher refuses the
    triggers file at load if it is not.
 
+   **Surface prompt and tools.** ``action.surface_prompt`` is a fixed piece of
+   text appended to the dispatched agent's system prompt on every run of that
+   trigger. It is not filled in per event: the event itself reaches the agent
+   as the payload. The dispatcher refuses the triggers file at load if it is not
+   a string. ``action.surface_tools`` is a list of tool names that narrows
+   ``allowed_tools`` to the ones it also names. It can only remove a tool, never
+   add one, and the worker's denylist applies either way. Left out or empty, the
+   run gets ``allowed_tools`` as written. The dispatcher refuses the triggers
+   file at load if it is not a list of tool names.
+
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,
-   the Playwright browser tools, and all shell tools (``Bash``, ``BashOutput``,
-   ``KillShell``). This sits on top of the per-trigger allowlist, so a trigger
-   can never widen its way to a shell or the open network.
+   every plugin's and claude.ai connector's MCP tools, all shell tools (``Bash``, ``TaskOutput``,
+   ``TaskStop``, ``Monitor``), the tools that fire or schedule jobs
+   (``Workflow``, ``CronCreate``, ``ScheduleWakeup``, and the dispatcher's own
+   ``manual_fire``), ``SendMessage`` and ``EnterWorktree``. This sits on top of
+   the per-trigger allowlist, so a trigger can never widen its way to a shell,
+   another session or the open network.
 
    **Retry policy.** ``on_error: retry`` fires only when the *dispatch itself*
    fails — the worker being unreachable (connection error or timeout), returning
@@ -351,6 +373,156 @@ Authoring Triggers
    run that the agent itself ends in error, so firing a trigger against a healthy
    stack never exercises it; the behaviour is covered by
    ``tests/dispatch/test_server_routes.py``.
+
+.. _event-dispatch-trigger-sources:
+
+Trigger sources
+---------------
+
+A trigger's ``source:`` names what fires it, and its optional
+``source_config:`` mapping carries that source's own settings. A
+``source_config`` that is not a mapping, like an ``action`` or ``on_error``
+that is not one, stops the triggers file from loading, with an error naming
+the trigger; a blank one is empty. Three sources ship. A ``source:`` that no installed source registers is logged when the
+dispatcher starts, and its triggers are skipped while the rest of the file
+loads.
+
+.. code-block:: yaml
+
+   triggers:
+     - name: hourly-summary
+       source: cron
+       source_config:
+         interval_sec: 3600
+       action:
+         prompt: >-
+           Summarise what changed in the last hour.
+         allowed_tools: []
+     - name: morning-summary
+       source: cron
+       source_config:
+         at: ["07:45"]
+         days: [mon, tue, wed, thu, fri]
+       action:
+         prompt: >-
+           Summarise what happened overnight.
+         allowed_tools: []
+     - name: vacuum-alarm
+       source: epics_ca
+       source_config:
+         pv: demo:vacuum:pressure
+         threshold: 3.0
+         edge: rising
+         cool_down_sec: 300
+       action:
+         prompt: >-
+           The pressure crossed its threshold; describe the event.
+         allowed_tools: []
+
+``source: webhook``
+   Fires on an authenticated ``POST /webhook/<name>`` carrying the
+   ``EVENT_DISPATCHER_TOKEN`` bearer, and takes no ``source_config``. The JSON
+   body is folded into the prompt as untrusted payload. A body that is not a
+   JSON object counts as empty, and one declared larger than 32 MB is refused
+   with HTTP 413. The answer is 202 with the ``dispatch_id``, 401 for a wrong
+   or missing bearer, 404 for an unknown trigger, 409 for a disabled one, 429
+   when the queue is full, and 503 while the token is unset.
+   :ref:`Fire a Trigger <event-dispatch-fire>` walks through one call.
+
+``source: cron``
+   Fires on a fixed interval or at clock times; a trigger uses ``interval_sec``
+   or ``at``, never both.
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 20 20 60
+
+      * - Key
+        - Default
+        - Meaning
+      * - ``interval_sec``
+        - none (required without ``at``)
+        - Seconds between fires, a finite number greater than zero.
+      * - ``at``
+        - none
+        - A list of quoted 24-hour ``"HH:MM"`` times, read in the facility zone.
+      * - ``days``
+        - every day
+        - A list of ``mon`` … ``sun`` limiting ``at`` to those weekdays.
+
+   An ``interval_sec`` trigger first fires one full interval after the
+   dispatcher starts, then an interval after each fire is handed to the queue.
+   Nothing aligns to the wall clock, and a restart starts the count again, so
+   ``interval_sec: 86400`` means once a day counted from start, not at a set
+   hour. A trigger whose value is missing, a boolean, or not a finite number
+   greater than zero is not armed (a quoted number such as ``"90"`` is read as
+   that number): the dispatcher logs a warning naming it, and
+   the file still loads with every other trigger running. A tick on a disabled
+   trigger is recorded in its history as ``ignored: disabled``. A tick that
+   meets a full queue is dropped with a warning and not retried; the next one
+   comes an interval later. The payload carries ``source``, ``trigger`` and
+   ``timestamp``.
+
+   **Clock times.** An ``at`` trigger reads its times in the zone named by
+   ``system.timezone``; the container's ``TZ`` does not matter. A time that
+   daylight saving skips fires once at the first minute after the jump
+   (``02:30`` fires at ``03:00`` that night). A time that happens twice fires
+   once, at its first occurrence. A time that passes while the dispatcher is
+   stopped, or while its host is asleep, is skipped and not made up. At start
+   the dispatcher logs each clock trigger's zone, the slot before start and the
+   next fire, and the dashboard's trigger list shows the next fire. Times must
+   be quoted, because YAML reads an unquoted ``17:00`` as a number. A schedule
+   the dispatcher cannot read stops it from starting, with an error naming the
+   trigger: a bad time or day, ``days`` without ``at``, ``at`` beside
+   ``interval_sec``, or any other key beside ``at``, whereas a bad
+   ``interval_sec`` only skips its trigger. A tick on a disabled trigger, and a
+   tick that meets a full queue, behave as for an interval trigger.
+
+``source: epics_ca``
+   Monitors one EPICS Channel Access PV and fires when its value crosses a
+   threshold.
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 20 20 60
+
+      * - Key
+        - Default
+        - Meaning
+      * - ``pv``
+        - none (required)
+        - The PV to monitor.
+      * - ``threshold``
+        - ``0.0``
+        - The value a crossing is measured against, a finite number.
+      * - ``edge``
+        - ``rising``
+        - ``rising``, ``falling`` or ``both``.
+      * - ``cool_down_sec``
+        - ``60.0``
+        - The fewest seconds between two fires of this trigger, a number zero or
+          greater.
+
+   - The first value after connecting is recorded and never fires.
+   - ``rising`` means the previous value was below the threshold and the new
+     one is at or above it; ``falling`` is the mirror; ``both`` is either.
+   - The cool-down counts from the last fire, so the first fire is never held
+     back.
+   - A value that is not a number is ignored with a warning.
+   - A trigger with no ``pv``, an ``edge`` outside the three, or a
+     ``threshold`` or ``cool_down_sec`` that is not such a number is not armed;
+     the dispatcher logs a warning naming it and the value, and its siblings
+     still arm. A blank value takes the default.
+   - The payload carries ``source``, ``pv``, ``value``, ``previous_value``,
+     ``threshold``, ``edge`` and ``timestamp``.
+
+   *Reaching the Machine* below covers the variables that point the
+   dispatcher at a Channel Access gateway.
+
+The agent reads an event's ``timestamp`` in the facility zone that
+``system.timezone`` names, with its UTC offset, the same zone as its own clock.
+A webhook body reaches the agent as it was sent, times included. The dispatcher
+keeps its own history in UTC.
 
 Reaching the Machine
 ====================
@@ -410,6 +582,22 @@ Anything that drives the pipeline from outside holds both. A :doc:`chat bridge
 ``EVENT_DISPATCHER_TOKEN`` and then collects the finished answer and its files
 from the worker with ``DISPATCH_WORKER_TOKEN``, so a bridge that has only one of
 them stalls partway through every question.
+
+``EVENT_DISPATCHER_TOKEN`` is an admin credential. One value covers the
+webhook, the ``/mcp`` transport and every dashboard write — re-firing a
+trigger, cancelling a run, clearing the run history, and enabling or disabling
+a trigger — and there is no narrower per-trigger token. Hand it only to the
+web terminal and to the bridges that fire triggers.
+
+The dispatcher records who asked, but it does not check it. A fire or re-fire
+made from the web terminal carries your account name, added by the terminal's
+panel proxy, and the dispatcher stores it as ``owner`` on the trigger's history
+entry and on the run record; cancelling a run, clearing the history and
+enabling or disabling a trigger log the same name. A webhook, a ``cron``
+trigger and a chat-bridge fire name nobody and are recorded without an owner.
+The recorded owner is attribution, never authorization: the token decides what
+a request may do, and anyone holding it can call the dispatcher's port directly
+under any account name or none.
 
 .. dropdown:: How the tokens work
    :icon: shield-lock

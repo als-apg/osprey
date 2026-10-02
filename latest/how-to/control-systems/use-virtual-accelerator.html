@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -584,10 +585,11 @@ against a live target</a>.</p></td>
 <p>The Virtual Accelerator is a <strong>local physics simulator</strong>, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
 exactly as it does the mock or a real machine; only the backend changes.</p>
-<p>The physics itself is pluggable: the container serves whatever LUME model it is
-given — the shipped one is a pyAT ring model over the facility-agnostic
-<code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code> package — and serving your own facility’s model is the LUME seam in
-<a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
+<p>The physics behind the ring channels is one of two things: the shipped pyAT
+ring model, built on the facility-agnostic <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code> package, over the
+lattice your data tree stages, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> names in <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>;
+or none, with <code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code>. A backend other than pyAT is a replacement
+entrypoint, covered in <a class="reference internal" href="#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
 </section>
 <section id="what-channels-it-serves">
 <h2>What channels it serves<a class="headerlink" href="#what-channels-it-serves" title="Link to this heading">#</a></h2>
@@ -805,6 +807,41 @@ default applies. A variable exported in the deployment’s own <code class="docu
 the rendered default, so a single run can be made noisier or quieter without
 editing the configuration.</p>
 </section>
+<section id="serving-your-facility-s-own-model">
+<span id="va-serving-your-own-model"></span><h2>Serving your facility’s own model<a class="headerlink" href="#serving-your-facility-s-own-model" title="Link to this heading">#</a></h2>
+<section id="a-pyat-lattice">
+<h3>A pyAT lattice<a class="headerlink" href="#a-pyat-lattice" title="Link to this heading">#</a></h3>
+<p>Stage the deck as <code class="docutils literal notranslate"><span class="pre">data/simulation/lattice.json</span></code> with the
+<code class="docutils literal notranslate"><span class="pre">va_bindings.json</span></code> that ties your channels to it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span> <span class="pre">emit</span></code> writes
+both from an export that carries a virtual accelerator (see
+<a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>). Then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the file’s
+name into <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. A tree without bindings gets
+<code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code>. No code and no image are involved.</p>
+</section>
+<section id="another-backend">
+<h3>Another backend<a class="headerlink" href="#another-backend" title="Link to this heading">#</a></h3>
+<ol class="arabic">
+<li><p>Write the entrypoint module to the contract in <a class="reference internal" href="../../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p></li>
+<li><p>Build an image that carries OSPREY’s virtual-accelerator install and your
+module. The usual shape is a Dockerfile <code class="docutils literal notranslate"><span class="pre">FROM</span></code> the image OSPREY builds
+for the project, adding your package.</p></li>
+<li><p>Name it as the service’s image with <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code>,
+or <code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code> for one shell (<a class="reference internal" href="../../reference/configuration/config.html#deployment-image-overrides"><span class="std std-ref">Overriding Service Images</span></a>).</p></li>
+<li><p>Set <code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE=&lt;your.module&gt;</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. Empty
+or unset runs the shipped entrypoint. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> never writes it.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># project .env</span>
+<span class="nv">VA_ENTRYPOINT_MODULE</span><span class="o">=</span>my_facility.va_entrypoint
+</pre></div>
+</div>
+</li>
+</ol>
+<p>Naming the image in <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code> renders the service
+without a build, so no deploy rebuilds it from OSPREY’s recipe.
+<code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code> keeps it out of every build a start makes. Either way the
+image has to be on the host or pullable where it is named;
+<a class="reference internal" href="../deploy-project/compose-templates.html#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a> says when each start builds.</p>
+</section>
+</section>
 <section id="running-from-a-source-checkout">
 <h2>Running from a source checkout<a class="headerlink" href="#running-from-a-source-checkout" title="Link to this heading">#</a></h2>
 <p>If you are working from an OSPREY <strong>source checkout</strong> rather than a generated
@@ -823,7 +860,7 @@ that the container mounts read-only. It defaults to the <em>packaged preset’s<
 copy, <strong>not</strong> your project — so with no argument, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> in
 your project writes a scenario file the running IOC never sees. Pass your
 project’s directory explicitly to use its scenarios (the script then also
-mounts the sibling <code class="docutils literal notranslate"><span class="pre">_agent_data/simulation</span></code> state directory, which is what
+mounts the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code> state directory, which is what
 makes scenario switches reach the IOC):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/va/run_va.sh<span class="w"> </span>~/my-project/data/simulation
 </pre></div>
@@ -834,7 +871,7 @@ makes scenario switches reach the IOC):</p>
 <h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works in Virtual Accelerator mode exactly as it
 does for the mock. Applying a scenario writes the project’s
-<code class="docutils literal notranslate"><span class="pre">_agent_data/simulation/active_scenarios</span></code> file; the in-container engine polls
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code> file; the in-container engine polls
 it and, within about a second, composed channel values reflect the new scenario.
 One behavioral difference from the mock: in VA mode a scenario switch only
 refreshes the engine-composed channels — setpoints you wrote during the session
@@ -842,9 +879,11 @@ live in the IOC’s own records and <strong>survive</strong> the switch. (In moc
 values are reset.)</p>
 <p>The container mounts two of the project’s directories: <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code> for
 the machine model (rebuilt from your profile on every build) and
-<code class="docutils literal notranslate"><span class="pre">_agent_data/simulation</span></code> for that scenario state (written while the system
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code> for that scenario state (written while the system
 runs). Both are automatic for the deployed service; if you launched the
 container by hand, see the warning under <a class="reference internal" href="#running-from-a-source-checkout">Running from a source checkout</a>.</p>
+<p>What a scenario bundle may contain, how bundles compose, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span>
+<span class="pre">apply</span></code> refuses is the <a class="reference internal" href="../../reference/contracts/simulation-bundle.html"><span class="doc">Simulation Bundle Contract</span></a>.</p>
 </section>
 <section id="write-limits">
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
@@ -1170,6 +1209,11 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-back-to-the-mock">Switching back to the mock</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-pyat-lattice">A pyAT lattice</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a><ul class="visible nav section-nav flex-column">

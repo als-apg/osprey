@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -562,7 +563,8 @@ ones:</p>
 half-finished stubs and finished documents can coexist. <em>Consuming</em> validation
 requires only a <code class="docutils literal notranslate"><span class="pre">type</span></code> (a tolerant reader check); <em>authoring</em> validation also
 requires <code class="docutils literal notranslate"><span class="pre">title</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">validate</span></code> checks
-your bundle at the authoring level.</p>
+your bundle at the authoring level. It also fails when an <code class="docutils literal notranslate"><span class="pre">index.md</span></code> no longer
+matches its directory; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> fixes that.</p>
 </section>
 <section id="working-with-a-bundle">
 <h2>Working with a Bundle<a class="headerlink" href="#working-with-a-bundle" title="Link to this heading">#</a></h2>
@@ -765,8 +767,10 @@ failures in one pass (collect-all, never aborts on the first error):</p>
 </div>
 <p>Concept documents are checked at the <em>authoring</em> level (<code class="docutils literal notranslate"><span class="pre">type</span></code>,
 <code class="docutils literal notranslate"><span class="pre">title</span></code>, and <code class="docutils literal notranslate"><span class="pre">description</span></code> must be present and non-empty).  Index files
-are checked for frontmatter compliance (OKF §6/§11).  The command exits 0
-on a clean bundle, 1 if any file fails.</p>
+are checked for frontmatter compliance (OKF §6/§11) and must match what
+<code class="docutils literal notranslate"><span class="pre">regen-index</span></code> writes, so a page added, removed or retitled without
+regenerating fails validation.  The command exits 0 on a clean bundle, 1
+if any file fails.</p>
 <p><strong>seed-from-ttl</strong> — seeds one OKF stub document per device node in a
 NARAD/als-ontology Turtle file:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-from-ttl<span class="w"> </span>devices.ttl<span class="w"> </span>data/facility_knowledge

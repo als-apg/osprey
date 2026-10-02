@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Python Executor Contract" href="python-executor.html" />
+    <link rel="next" title="Simulation Bundle Contract" href="simulation-bundle.html" />
     <link rel="prev" title="The osprey health --json Contract" href="health-json.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -393,6 +393,7 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
@@ -753,7 +754,7 @@ hold no client, so they apply every other limit and leave this one to the
 connector, which makes it on the write itself.</p>
 <p>That read is bounded: <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.step_read_timeout_s</span></code>
 (default 2.0 seconds) is how long it waits, beside the connector’s own
-<code class="docutils literal notranslate"><span class="pre">timeout</span></code> and for the same reason — a gateway two hops away answers more
+<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> and for the same reason — a gateway two hops away answers more
 slowly than an IOC on the deploy host. The bound is fail-closed: a channel that
 does not answer inside it reads as “could not be measured”, which refuses the
 write. Raising it buys a slow channel room, never a weaker check. The python
@@ -887,11 +888,11 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
       </div>
     </a>
     <a class="right-next"
-       href="python-executor.html"
+       href="simulation-bundle.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Python Executor Contract</p>
+        <p class="prev-next-title">Simulation Bundle Contract</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -559,8 +560,9 @@ turn-key option when you have no existing observability stack.</p></li>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Traces are exported to the same endpoint as logs and metrics. The exporter
-appends <code class="docutils literal notranslate"><span class="pre">/v1/traces</span></code> to it, which is OpenObserve’s traces route. A Phase 1
-collector must accept traces.</p>
+appends <code class="docutils literal notranslate"><span class="pre">/v1/traces</span></code> to it, which is OpenObserve’s traces route. For a
+Phase 1 collector that takes no traces, leave them out with <code class="docutils literal notranslate"><span class="pre">signals</span></code> (see
+<a class="reference internal" href="#monitor-agent-signals"><span class="std std-ref">Export without traces</span></a>).</p>
 </div>
 </section>
 <section id="phase-1-emit-to-any-otlp-endpoint">
@@ -573,6 +575,8 @@ pointed at an endpoint:</p>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${OTEL_EXPORTER_OTLP_ENDPOINT}</span><span class="w">   </span><span class="c1"># your OTLP collector</span>
 <span class="w">    </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http/protobuf</span><span class="w">                    </span><span class="c1"># default; or grpc</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">token_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTLP_COLLECTOR_TOKEN</span><span class="w">          </span><span class="c1"># variable holding the bearer token</span>
 <span class="w">    </span><span class="nt">resource_attributes</span><span class="p">:</span><span class="w">                       </span><span class="c1"># attached to every record</span>
 <span class="w">      </span><span class="nt">service.name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey-agent</span>
 <span class="w">      </span><span class="nt">deployment.environment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dev</span>
@@ -606,11 +610,16 @@ for the Phase 2 add-on.</p></td>
 explicit <code class="docutils literal notranslate"><span class="pre">endpoint</span></code>: it is refused against the auto-derived
 <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> endpoint, which is HTTP-only.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">headers</span></code></p></td>
-<td><p>Extra OTLP headers (for example, routing or auth headers your backend
-requires).</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">signals</span></code></p></td>
+<td><p>Which of <code class="docutils literal notranslate"><span class="pre">metrics</span></code>, <code class="docutils literal notranslate"><span class="pre">logs</span></code> and <code class="docutils literal notranslate"><span class="pre">traces</span></code> to export. Defaults to all
+three; see <a class="reference internal" href="#monitor-agent-signals"><span class="std std-ref">Export without traces</span></a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">resource_attributes</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth.token_env</span></code></p></td>
+<td><p>The environment variable holding the collector’s bearer token; the agent
+sends <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;value&gt;</span></code>. Holds the variable’s name, never
+the token.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">resource_attributes</span></code></p></td>
 <td><p>Attributes stamped onto every emitted record — useful for separating
 environments or agent instances in your backend.</p></td>
 </tr>
@@ -619,11 +628,43 @@ environments or agent instances in your backend.</p></td>
 </div>
 <p>Set the endpoint in your profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> — the build derives the project’s
 from it — then run the agent as usual:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
-<span class="nv">OTEL_EXPORTER_OTLP_ENDPOINT</span><span class="o">=</span>https://otel-collector.example.com
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># .env
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com
+OTLP_COLLECTOR_TOKEN=&lt;the collector&#39;s token&gt;
 </pre></div>
 </div>
 <p>That is all Phase 1 requires — the agent begins emitting on its next run.</p>
+<p>On a web-terminal deploy, every <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> in the <code class="docutils literal notranslate"><span class="pre">telemetry</span></code> block that has
+no <code class="docutils literal notranslate"><span class="pre">:-default</span></code> must be set in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses
+the deploy and names the key and the variable. None of these values is copied
+into <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the one file every web terminal shares — the only
+exception is the store account name <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code> (Phase 2) — so a
+value the terminals need from this block does not reach them from there.</p>
+<p>The web terminals receive the variable <code class="docutils literal notranslate"><span class="pre">auth.token_env</span></code> names from the
+deploy <code class="docutils literal notranslate"><span class="pre">.env</span></code> through their own compose environment, never <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses the deploy when it is unset. Every other <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
+the block references reaches the terminals the same way. A collector that needs
+another header or another auth scheme sits behind an OpenTelemetry Collector
+that adds it.</p>
+<section id="export-without-traces">
+<span id="monitor-agent-signals"></span><h3>Export without traces<a class="headerlink" href="#export-without-traces" title="Link to this heading">#</a></h3>
+<p>A collector that takes no traces refuses every trace the agent sends. List
+the signals it does take:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${OTEL_EXPORTER_OTLP_ENDPOINT}</span>
+<span class="w">    </span><span class="nt">signals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">metrics</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">logs</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Each signal left out is exported as <code class="docutils literal notranslate"><span class="pre">none</span></code> rather than left unset, so an
+<code class="docutils literal notranslate"><span class="pre">OTEL_TRACES_EXPORTER</span></code> in your shell or in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> cannot
+turn it back on. An empty list or any other name stops <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>; to
+export nothing, set <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code>. Built-in tool output
+(<code class="docutils literal notranslate"><span class="pre">log_tool_content</span></code>, under <a class="reference internal" href="#content-capture">Content capture</a>) is recorded as trace span
+events, so a list without <code class="docutils literal notranslate"><span class="pre">traces</span></code> leaves it out of the store. The osprey
+tool-call record is written either way.</p>
+</section>
 </section>
 <section id="phase-2-the-local-openobserve-add-on">
 <h2>Phase 2 — The local OpenObserve add-on<a class="headerlink" href="#phase-2-the-local-openobserve-add-on" title="Link to this heading">#</a></h2>
@@ -897,6 +938,8 @@ to suppress that category from emitted telemetry:</p>
 <span class="w">    </span><span class="nt">log_raw_api_bodies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># raw provider request/response bodies</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">log_tool_content</span></code> is recorded on the traces signal: with <code class="docutils literal notranslate"><span class="pre">traces</span></code> left out
+of <code class="docutils literal notranslate"><span class="pre">signals</span></code> it records nothing.</p>
 <p><code class="docutils literal notranslate"><span class="pre">content_max_length</span></code> sets how many UTF-16 code units one content value may
 carry before Claude Code truncates it; Claude Code’s own limit, 61440, applies
 when it is unset. The control-assistant preset sets 262144. MCP tools, the
@@ -982,8 +1025,10 @@ is <code class="docutils literal notranslate"><span class="pre">localhost</span>
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.external_origin</span></code> (or <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> when that is
 unset). A store published to the network by a deployment that declares
 neither gets no link at all, rather than one pointing at whichever machine the
-operator’s browser happens to be. The link is rendered at deploy time, so
-changing either value takes effect at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
+operator’s browser happens to be. The link opens the organization named by
+<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.openobserve.org</span></code>, the same one the agent exports to.
+The link is rendered at deploy time, so changing either value takes effect at
+the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
 </ul>
 </section>
 </section>
@@ -1036,7 +1081,10 @@ changing either value takes effect at the next <code class="docutils literal not
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-emit-to-any-otlp-endpoint">Phase 1 — Emit to any OTLP endpoint</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-emit-to-any-otlp-endpoint">Phase 1 — Emit to any OTLP endpoint</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#export-without-traces">Export without traces</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-the-local-openobserve-add-on">Phase 2 — The local OpenObserve add-on</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-service-is-enabled">1. Check the service is enabled</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#know-the-store-s-two-identities">2. Know the store’s two identities</a></li>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -696,9 +697,10 @@ the actions. What writing to a machine means (<em>Writes move hardware</em>, or 
 of the <em>nothing moves</em> lines) sits with its endpoint and the server’s own
 label behind the small ⓘ beside each name, on hover or keyboard focus:</p>
 <ul class="simple">
-<li><p><strong>The writes switch</strong> — per machine, for the whole deployment. The switch
-position is the write state and clicking it is the gesture that changes it;
-where writes are locked the switch is disabled, with the reason on hover.</p></li>
+<li><p><strong>The writes switch</strong> — per machine, for every session of this login. The
+switch position is the write state and clicking it is the gesture that
+changes it; where writes are locked the switch is disabled, with the reason
+on hover.</p></li>
 <li><p><strong>Switch to</strong> — moves the deployment onto that machine. Where a switch is
 not available, the button’s place is taken by a short phrase for the reason
 — <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">set</span> <span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">needs</span> <span class="pre">gateway</span> <span class="pre">ack</span></code> — with the server’s full
@@ -809,12 +811,12 @@ posture, the archive — is <a class="reference internal" href="../control-syste
 </section>
 <section id="where-the-control-target-and-the-write-state-live">
 <h3>Where the control target and the write state live<a class="headerlink" href="#where-the-control-target-and-the-write-state-live" title="Link to this heading">#</a></h3>
-<p>Both belong to <strong>the deployment</strong>, not to any one session, and nothing is
-written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Two people working on the same deployment see the
-same machine and the same write states: one of them turning writes off on a
-machine takes them away from everyone, and a switch made in one window applies
-in the other. That is the point — a write state you can only see from the
-page you happen to be on is not a safety control.</p>
+<p>Both belong to <strong>the login the terminal acts as</strong>, not to any one session,
+and nothing is written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Every session, window and notebook
+kernel of that login sees the same machine and the same write states: turning
+writes off on a machine takes them away from all of them, and a switch made in
+one window applies in the other. That is the point — a write state you can
+only see from the page you happen to be on is not a safety control.</p>
 <p>Both are recorded together on disk, written as soon as you click and read back
 when a server starts, so restarting the container never quietly turns writes
 back on or moves the deployment off the machine somebody put it on. Coming back
@@ -873,12 +875,12 @@ to the &lt;target&gt; target. Turn writes back on from the control-target chip i
 the header; config.yml is not the gate here.”</em></p></li>
 <li><p>The connector — <em>“Write to ‘&lt;channel&gt;’ blocked: writes are off for the
 ‘&lt;target&gt;’ control target — turned off from the control-target chip in the
-header; applies deployment-wide. Turn writes back on for ‘&lt;target&gt;’ from the
-chip if the write is intended; config.yml is not the gate here. The store
-answered narrowing.”</em></p></li>
+header; applies to every session of this login. Turn writes back on for
+‘&lt;target&gt;’ from the chip if the write is intended; config.yml is not the gate
+here. The store answered narrowing.”</em></p></li>
 <li><p>The executor — <em>“Writes are off for the ‘&lt;target&gt;’ control target —
-turned off from the control-target chip in the header; applies
-deployment-wide.”</em> — offering a re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, and saying to turn
+turned off from the control-target chip in the header; applies to every
+session of this login.”</em> — offering a re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, and saying to turn
 writes back on from the chip if the write is intended.</p></li>
 </ul>
 <p>Those three are what writes you turned off from the chip sound like, and the
@@ -958,8 +960,9 @@ there is, drawn as it will look in the bar. From there:</p>
 header. Drag an item already in a bar to move it, within its own bar or
 across to the other one.</p></li>
 <li><p><strong>Drag an item off both bars</strong> to take it away.</p></li>
-<li><p><strong>Click an item</strong> to open its options — the clock’s zone, 24- or 12-hour
-format and seconds, a space’s width, what the Bluesky queue shows and which
+<li><p><strong>Click an item</strong> to open its options — the clock’s zone (yours, the
+facility’s, UTC, or yours beside UTC), 24- or 12-hour format and seconds, a
+space’s width, what the Bluesky queue shows and which
 of its controls it offers, what the system-health chip says and lists — along
 with <strong>Move left</strong> and <strong>Move right</strong> within its bar, <strong>Move to status bar</strong>
 (or back to the header) and <strong>Remove</strong>. Every item can go in either bar: the

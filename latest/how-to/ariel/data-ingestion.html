@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -616,6 +617,8 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </tbody>
 </table>
 </div>
+<p><strong>Entry times.</strong> A time with a UTC offset, a <code class="docutils literal notranslate"><span class="pre">Z</span></code> or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time; it counts as failed in the run’s totals (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span></code>), and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">ingest</span></code> reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.</p>
+<p><strong>Entry text.</strong> The ALS eLog adapter stores entry text as plain text. It decodes HTML entities, turns the logbook’s markup into line breaks, paragraphs and list items, and writes a link as its text followed by its address in parentheses. It also undoes the backslash escaping the logbook adds: <code class="docutils literal notranslate"><span class="pre">\'</span></code>, <code class="docutils literal notranslate"><span class="pre">\&quot;</span></code> and an encoded <code class="docutils literal notranslate"><span class="pre">\&amp;quot;</span></code> become plain quotes, and a doubled backslash becomes one. A single backslash before any other character is kept. Text without markup keeps its line breaks and indentation. Entries stored before this behaviour are rewritten once by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">sync</span></code> runs as its first step. Their enhancements are cleared, so the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code>, or each later sync or watch pass, embeds and summarises the plain text again.</p>
 <p><strong>Using a custom adapter:</strong></p>
 <p>An adapter written and registered as described in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> is selected the same way as a built-in one: set <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> to its registered name in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or pass it as <code class="docutils literal notranslate"><span class="pre">--adapter</span></code> — both accept every registered name, the framework’s and your own.</p>
 <div class="outreach admonition">
@@ -647,6 +650,15 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </div>
 <p>Write it only as a deliberate choice. Nothing about the connection is authenticated afterwards.</p>
 <p>The same settings cover the sidecar-metadata fetch described below, so one ingest never reaches the logbook host two different ways.</p>
+<section id="links-back-to-the-logbook">
+<h4>Links Back to the Logbook<a class="headerlink" href="#links-back-to-the-logbook" title="Link to this heading">#</a></h4>
+<p>The agent cites entries by ID. Give it your logbook’s address for one entry and it cites them as links instead:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">entry_url_template</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://logbook.example.org/entry/{entry_id}&quot;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">{entry_id}</span></code> is replaced with the entry’s URL-encoded id, and the ARIEL tools return the result as <code class="docutils literal notranslate"><span class="pre">entry_url</span></code> beside each entry. The agent links that URL as given and never builds one of its own, so without the key it shows plain IDs. Entries created through ARIEL and not yet published to the logbook get no link. The key, the tools that carry the URL and what a malformed template does are in <a class="reference internal" href="../../reference/configuration/config.html#config-ariel-entry-url"><span class="std std-ref">ariel.entry_url_template — links from an answer to the logbook entry</span></a>.</p>
+</section>
 <section id="sidecar-metadata">
 <h4>Sidecar Metadata<a class="headerlink" href="#sidecar-metadata" title="Link to this heading">#</a></h4>
 <p>An entry can carry its structured metadata in a JSON attachment beside the prose — session ids, model names, whatever the tooling that wrote the entry recorded. During ingestion that file is fetched and merged into the entry’s <code class="docutils literal notranslate"><span class="pre">metadata</span></code>.</p>
@@ -669,6 +681,11 @@ raw traces, lower it to keep the database small.</p>
 <section id="enhancement-pipeline">
 <span id="id3"></span><h3>Enhancement Pipeline<a class="headerlink" href="#enhancement-pipeline" title="Link to this heading">#</a></h3>
 <p>Enhancement modules run after ingestion to add computed fields to stored entries. While the base ingestion captures the raw logbook text and metadata, enhancement modules derive additional structure from that text — generating vector embeddings that enable semantic similarity search, using an LLM to extract keywords and summaries that improve search recall and the quality of the context the agent layer surfaces, or performing any other analysis that produces useful derived data. Each module inherits from <code class="docutils literal notranslate"><span class="pre">BaseEnhancementModule</span></code> and is discovered through the Osprey registry. Because enhancement is decoupled from ingestion, you can ingest a large dataset first and enhance it later, swap out models without re-ingesting, or run only the modules you need. Run them with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span></code>.</p>
+<p>Each module runs only on the entries it has not finished. An entry whose
+enhancement by a module fails three times is left out of that module’s later
+passes. Its status keeps the attempt count and the last error, a success clears
+the count, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--force</span></code> re-runs the entries it selects
+regardless.</p>
 <p>The built-in enhancement modules:</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
@@ -685,8 +702,16 @@ Text Embedding</label><div class="sd-tab-content docutils">
 <span class="w">      </span><span class="nt">models</span><span class="p">:</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nomic-embed-text</span>
 <span class="w">          </span><span class="nt">dimension</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">768</span>
+<span class="w">          </span><span class="nt">max_input_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">max_input_tokens</span></code> is the input window, in tokens, that the embedding
+server applies to the model. <code class="docutils literal notranslate"><span class="pre">ollama</span> <span class="pre">show</span> <span class="pre">nomic-embed-text</span></code> prints it as
+<code class="docutils literal notranslate"><span class="pre">context</span> <span class="pre">length</span> <span class="pre">2048</span></code>; the <code class="docutils literal notranslate"><span class="pre">num_ctx</span> <span class="pre">8192</span></code> it also prints is clamped to
+that. A longer entry is cut so its start is embedded, and the cut is logged
+with the entry’s id. The cut counts UTF-8 bytes, one per token, so it fits
+device names, numbers and non-Latin script, which tokenize far more densely
+than prose. A model listed without the key is cut to 512 tokens.</p>
 <p>The vector index over those tables is an HNSW index. It takes no sizing
 parameter, so there is nothing about it to author per deployment.</p>
 <div class="admonition note">
@@ -831,14 +856,17 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>watch<span class="w">
 <td><p>Multiply the poll interval by this factor on each consecutive failure</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">max_interval_seconds</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">int</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">number</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">3600</span></code></p></td>
 <td><p>Maximum poll interval after backoff (seconds)</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The base poll interval is set by the parent <code class="docutils literal notranslate"><span class="pre">poll_interval_seconds</span></code> key (default <code class="docutils literal notranslate"><span class="pre">3600</span></code>).</p>
+<p>The base poll interval is set by the parent <code class="docutils literal notranslate"><span class="pre">poll_interval_seconds</span></code> key (default <code class="docutils literal notranslate"><span class="pre">3600</span></code>).
+Both intervals are positive, finite numbers of seconds; any other value stops ARIEL from loading
+its config, with an error naming the key, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports it on the
+<code class="docutils literal notranslate"><span class="pre">ariel_last_ingestion</span></code> row.</p>
 </section>
 <section id="backoff-behavior">
 <h4>Backoff Behavior<a class="headerlink" href="#backoff-behavior" title="Link to this heading">#</a></h4>
@@ -1007,6 +1035,7 @@ recorded. A store that has never been ingested warns either way.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ingestion-architecture">Ingestion Architecture</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-adapters">Facility Adapters</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-your-logbook">Connecting to Your Logbook</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#links-back-to-the-logbook">Links Back to the Logbook</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#sidecar-metadata">Sidecar Metadata</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#attachment-size">Attachment Size</a></li>
 </ul>

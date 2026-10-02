@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -704,6 +705,20 @@ its share of the machine. A facility whose hosts publish no such statistics has
 to measure them itself, which is a <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code> module rather than a YAML
 check.</p>
 </section>
+<section id="recipe-a-large-shared-volume">
+<h2>Recipe: a large shared volume<a class="headerlink" href="#recipe-a-large-shared-volume" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">file_system.disk_space</span></code> warns when the filesystem holding the project is at
+least 90 % full or has less than 1 GB free. On a multi-terabyte shared volume
+that runs at 91 % by design, hundreds of GB are still free, yet the row warns
+on every run and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> exits 1. Raise the limits from the build
+profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">health.disk.max_used_percent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">97</span>
+<span class="w">  </span><span class="nt">health.disk.min_free_gb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
+</pre></div>
+</div>
+<p>The rules for both keys are in <a class="reference internal" href="../../reference/configuration/config.html#config-health"><span class="std std-ref">health: — the diagnostic suite</span></a>.</p>
+</section>
 <section id="recipe-archive-freshness-without-declaring-a-check">
 <h2>Recipe: archive freshness, without declaring a check<a class="headerlink" href="#recipe-archive-freshness-without-declaring-a-check" title="Link to this heading">#</a></h2>
 <p>A project that deploys its own archive — one whose build profile carries a
@@ -859,6 +874,7 @@ nothing is shared across sessions.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cost-classes-and-full">Cost classes and <code class="docutils literal notranslate"><span class="pre">--full</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-a-control-system-smoke-test">Recipe: a control-system smoke test</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-host-health-from-the-facility-s-own-host-ioc">Recipe: host health from the facility’s own host IOC</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-a-large-shared-volume">Recipe: a large shared volume</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-archive-freshness-without-declaring-a-check">Recipe: archive freshness, without declaring a check</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-account-each-card-and-worker-writes-as">Which account each card and worker writes as</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#checks-that-need-real-python">Checks that need real Python</a></li>

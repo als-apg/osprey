@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -526,6 +527,9 @@ system through the same connector the agent’s own Python uses, under the same
 write gates and with the same refusal text. Notebooks are ordinary files on a
 durable path, so they outlive the container, and the OSPREY agent can edit
 them alongside you.</p>
+<p>The panel starts one kernel, <strong>OSPREY</strong>. A request for any other kernelspec,
+the interpreter’s own <code class="docutils literal notranslate"><span class="pre">python3</span></code> included, is refused, and a notebook that
+names no kernel gets the OSPREY one, so every cell runs under the gates below.</p>
 <section id="turning-the-panel-on">
 <h2>Turning the panel on<a class="headerlink" href="#turning-the-panel-on" title="Link to this heading">#</a></h2>
 <p>The panel is a built-in with the id <code class="docutils literal notranslate"><span class="pre">jupyter</span></code>. Every persona built from the
@@ -724,20 +728,26 @@ toggle. Switching the terminal between light and dark leaves JupyterLab as it
 is. Pick a theme inside the tab from <em>Settings → Theme</em> instead. That pick is
 stored on the durable volume, so it comes back after a sidecar restart.</p>
 </section>
-<section id="when-the-tab-is-grey">
-<h2>When the tab is grey<a class="headerlink" href="#when-the-tab-is-grey" title="Link to this heading">#</a></h2>
-<p>A grey JUPYTER entry means the sidecar did not start. The terminal log says
-why, with the last lines of the sidecar’s own error output. The rest of the
-terminal is unaffected — only that one tab is unavailable, and it stays grey
-until the terminal is restarted.</p>
-<p>A sidecar that dies after it started shows itself differently. JupyterLab
-reads <em>Disconnected</em> and saves fail, and there is nowhere else to save to, so
-copy any unsaved cells out of the browser before you restart the terminal. The
-terminal log carries one <code class="docutils literal notranslate"><span class="pre">notebook</span> <span class="pre">sidecar</span> <span class="pre">exited</span></code> line with the sidecar’s
-last error lines. The tab greys on the next page load.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> does not probe the panel. It reports one row per enabled
-sidecar reading <em>not probed — served inside the web terminal</em>, so it never
-claims a panel is healthy on evidence it does not have.</p>
+<section id="when-the-tab-fails-to-start">
+<h2>When the tab fails to start<a class="headerlink" href="#when-the-tab-fails-to-start" title="Link to this heading">#</a></h2>
+<p>A dimmed JUPYTER entry whose tooltip reads <em>JUPYTER failed to start:
+&lt;reason&gt;</em> means the sidecar did not start. On a host where the first start is
+slow, the terminal gives up after 60 s. Set <code class="docutils literal notranslate"><span class="pre">web.sidecar_ready_timeout_s</span></code>
+(<a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback, the bars and the chat pool</span></a>) to give the sidecar longer. The reason is one line: what
+went wrong, and the sidecar’s last error line when it has one. The terminal log
+has the full error output. The rest of the terminal is unaffected — only that
+one tab is unavailable.</p>
+<p>Click the entry to start the sidecar again. The terminal runs one attempt at a
+time and waits as long as it does at startup; the tooltip reads <em>JUPYTER is
+starting</em> until the attempt settles. A start that succeeds opens the tab; one
+that fails again shows its new reason.</p>
+<p>A sidecar that dies after it started turns the entry the same way within about
+ten seconds. JupyterLab reads <em>Disconnected</em> first and saves fail, and there is
+nowhere else to save to, so copy any unsaved cells out of the browser before you
+click the entry to start it again.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> never fetches the panel. It shows the same <em>failed to start</em>
+sentence as a warning row when the terminal recorded a failure, and a skip row
+otherwise, so it never claims a panel is healthy on evidence it does not have.</p>
 </section>
 <section id="not-in-this-release">
 <h2>Not in this release<a class="headerlink" href="#not-in-this-release" title="Link to this heading">#</a></h2>
@@ -745,10 +755,9 @@ claims a panel is healthy on evidence it does not have.</p>
 <li><p>The agent cannot run cells. It edits notebook files; you run them.</p></li>
 <li><p>No real-time collaborative editing. Two people in one notebook fall back to
 the save-time dialog above.</p></li>
-<li><p>No health probe of the sidecar, only the skip row.</p></li>
+<li><p>No health probe of the sidecar; the row reports what the terminal recorded.</p></li>
 <li><p>No live theme following. The tab starts in the pinned theme and stays there
 until you pick another one inside it.</p></li>
-<li><p>No per-panel restart. Restart the terminal.</p></li>
 </ul>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
@@ -815,7 +824,7 @@ until you pick another one inside it.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notebooks-the-agent-also-edits">Notebooks the agent also edits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#notebooks-in-a-multi-user-deployment">Notebooks in a multi-user deployment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-tab-is-themed">How the tab is themed</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-tab-is-grey">When the tab is grey</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-tab-fails-to-start">When the tab fails to start</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#not-in-this-release">Not in this release</a></li>
 </ul>
   </nav></div>

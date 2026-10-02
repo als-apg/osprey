@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -685,6 +686,12 @@ whichever ones the service’s own build happened to ship. Every OSPREY color is
 a CSS variable there, and all eight themes are defined in that one file, so a
 service that restates its colors in terms of those variables gets the whole
 theme switch for free.</p>
+<p><strong>The fonts come from the terminal too.</strong> Like <code class="docutils literal notranslate"><span class="pre">/design-system/</span></code>, the
+terminal serves <code class="docutils literal notranslate"><span class="pre">/static/fonts/fonts.css</span></code> to every embedded panel, so a
+URL-backed panel links it and does not vendor the fonts:</p>
+<div class="highlight-html notranslate"><div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/static/fonts/fonts.css&quot;</span><span class="p">&gt;</span>
+</pre></div>
+</div>
 <p>Two boundaries are worth saying out loud:</p>
 <ul class="simple">
 <li><p><strong>Nothing happens on its own.</strong> The terminal only <em>tells</em> the panel the

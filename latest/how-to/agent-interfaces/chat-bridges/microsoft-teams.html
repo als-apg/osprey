@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -524,7 +525,7 @@
   <section id="microsoft-teams">
 <span id="how-to-microsoft-teams"></span><h1>Microsoft Teams<a class="headerlink" href="#microsoft-teams" title="Link to this heading">#</a></h1>
 <p>How to let your team ask the OSPREY agent questions from a Microsoft Teams
-channel or chat, and get answers and plots back in the same conversation.</p>
+channel or chat, and get answers, plots and files back in the same conversation.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-checklist" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm13.274 9.537v-.001l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425 4.026-3.932a.75.75 0 1 1 1.048 1.074ZM4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75Z"></path></svg></span><span class="sd-summary-text">Before you start</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -568,8 +569,8 @@ your queue.</p>
 position to keep: a message the bridge has not finished with stays on the queue,
 so anything sent while the bridge was down is waiting when it comes back.</p>
 <p>Each question gets an acknowledgement as soon as it is picked up and the answer
-when the run finishes, each as its own message; any plots follow as further
-messages. Nothing is edited after it is posted. In a channel all of them are
+when the run finishes, each as its own message; any plots and files follow as
+further messages. Nothing is edited after it is posted. In a channel all of them are
 threaded under the question itself; in a one-to-one or group chat, where Teams
 has no threads, the acknowledgement and the answer open with a quote of the
 question’s first line so it is clear which message is being answered.</p>
@@ -669,6 +670,16 @@ deployment at it.</p></td>
 <code class="docutils literal notranslate"><span class="pre">gcchigh</span></code> for a GCC High tenant; those are the only two values, and any
 other one stops the bridge at startup rather than failing later as an
 unexplained authentication error.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_FILES_DRIVE_ID</span></code></p></td>
+<td><p>Optional. The drive id of the one document library the bot shares files
+from (see step 9). Unset, files the bridge cannot post inline are named
+in a closing note rather than shared.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_FILES_FOLDER</span></code></p></td>
+<td><p>Optional. A folder inside that library, such as <code class="docutils literal notranslate"><span class="pre">osprey/answers</span></code>. Unset
+means the library root. Each run’s files go into their own folder below
+it.</p></td>
 </tr>
 </tbody>
 </table>
@@ -926,7 +937,48 @@ conversations it has been added to.</p>
 <span class="c1"># TEAMS_CLOUD=gcchigh                  # only on a GCC High tenant</span>
 </pre></div>
 </div>
-<p><strong>9. Bring the stack up.</strong> The bridge is registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so
+<p><strong>9. Optional: give the bot one file library.</strong> Without one, the bridge posts
+plots inline and names every other file it could not deliver. With one, it
+uploads those files there and shares each with the people in the conversation.
+Create or pick a SharePoint document library that <strong>nobody else reads</strong>: a
+shared file keeps the library’s own permissions as well as the per-conversation
+share, so a library with broad membership shares wider than the conversation.</p>
+<p>First look up the site and the library ids:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">SITE_ID</span><span class="o">=</span><span class="k">$(</span>az<span class="w"> </span>rest<span class="w"> </span>--method<span class="w"> </span>get<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--url<span class="w"> </span><span class="s2">&quot;https://graph.microsoft.com/v1.0/sites/contoso.sharepoint.com:/sites/osprey-files&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--query<span class="w"> </span>id<span class="w"> </span>-o<span class="w"> </span>tsv<span class="k">)</span>
+<span class="nv">LIST_ID</span><span class="o">=</span><span class="k">$(</span>az<span class="w"> </span>rest<span class="w"> </span>--method<span class="w"> </span>get<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--url<span class="w"> </span><span class="s2">&quot;https://graph.microsoft.com/v1.0/sites/</span><span class="nv">$SITE_ID</span><span class="s2">/lists&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--query<span class="w"> </span><span class="s2">&quot;value[?displayName==&#39;OSPREY files&#39;].id&quot;</span><span class="w"> </span>-o<span class="w"> </span>tsv<span class="k">)</span>
+</pre></div>
+</div>
+<p>In the app registration from step 4, add the Microsoft Graph <strong>application</strong>
+permission <code class="docutils literal notranslate"><span class="pre">Lists.SelectedOperations.Selected</span></code> and grant admin consent. That
+permission reaches no list until one is granted to the app. An administrator who
+holds <code class="docutils literal notranslate"><span class="pre">Sites.FullControl.All</span></code> then grants the app the <code class="docutils literal notranslate"><span class="pre">owner</span></code> role on this
+one library — owner is what lets it share a file; <code class="docutils literal notranslate"><span class="pre">write</span></code> is not enough:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST https://graph.microsoft.com/v1.0/sites/{site-id}/lists/{list-id}/permissions
+Content-Type: application/json
+
+{
+  &quot;roles&quot;: [&quot;owner&quot;],
+  &quot;grantedTo&quot;: {&quot;application&quot;: {&quot;id&quot;: &quot;&lt;TEAMS_APP_ID&gt;&quot;}}
+}
+</pre></div>
+</div>
+<p>Read the library’s drive id and add the two variables to the <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>rest<span class="w"> </span>--method<span class="w"> </span>get<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--url<span class="w"> </span><span class="s2">&quot;https://graph.microsoft.com/v1.0/sites/</span><span class="nv">$SITE_ID</span><span class="s2">/lists/</span><span class="nv">$LIST_ID</span><span class="s2">/drive&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--query<span class="w"> </span>id<span class="w"> </span>-o<span class="w"> </span>tsv
+
+<span class="nv">TEAMS_FILES_DRIVE_ID</span><span class="o">=</span>b!the-drive-id
+<span class="nv">TEAMS_FILES_FOLDER</span><span class="o">=</span>osprey/answers
+</pre></div>
+</div>
+<p>On GCC High the Graph host follows <code class="docutils literal notranslate"><span class="pre">TEAMS_CLOUD</span></code> (<code class="docutils literal notranslate"><span class="pre">graph.microsoft.us</span></code>).
+Confirm your cloud offers the <code class="docutils literal notranslate"><span class="pre">Selected</span></code> permissions before you set a library,
+and leave it unset if it does not.</p>
+<p><strong>10. Bring the stack up.</strong> The bridge is registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so
 it starts with everything else:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
 </pre></div>
@@ -972,24 +1024,31 @@ someone in it asks the agent to pass something on or to notify someone. It
 never does so on its own. Anyone not in the conversation is written as plain
 text. Set <code class="docutils literal notranslate"><span class="pre">mentions:</span> <span class="pre">false</span></code> in the profile block to have every mention posted
 as plain text instead.</p>
-<p><strong>Plots come back inside the conversation.</strong> Each plot arrives as its own
-message directly after the answer, one image per message, attached inline rather
-than linked from anywhere else, so it is visible exactly to the people who can
-see the conversation and to nobody else. This is the opposite
-of the <a class="reference internal" href="google-chat.html"><span class="doc">Google Chat</span></a> deployment, where files are published as
-public links.</p>
+<p><strong>Plots and files.</strong> Each plot arrives as its own message directly after the
+answer, one image per message, attached inline. Every other file — a table, a
+PDF, an image too large to attach — goes into the one file library set aside for
+the bot (step 9), into a folder of its own for the run, and is shared with the
+people in the conversation at the moment it was sent. One message per file
+carries an <strong>Open</strong> button; opening it takes a Microsoft 365 sign-in. People who
+join a channel later cannot open older files, the files do not appear in the
+channel’s Files tab, and the library’s own retention rules apply to them. No
+organisation-wide or anonymous link is ever made. This is the opposite of the
+<a class="reference internal" href="google-chat.html"><span class="doc">Google Chat</span></a> deployment, where files are published as public
+links.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>What the agent cannot exchange in Teams.</strong></p>
 <ul class="simple">
-<li><p><em>Only PNG images come back.</em> Each one is fitted into a 1024×1024 box and
-re-encoded before posting; anything still over 1 MB after that is dropped,
-and one last message names what was dropped so the answer never quietly
-omits a plot. Documents — PDFs, CSVs, tables saved to file — are not delivered at
-all in a Teams deployment.</p></li>
-<li><p><em>Images need Pillow.</em> It is installed with the <code class="docutils literal notranslate"><span class="pre">teams</span></code> extra, which the
-shipped image uses. Without it the agent still answers in full text and
-every image is named in the same note rather than attached.</p></li>
+<li><p><em>Inline images are PNGs up to 1 MB.</em> Each one is fitted into a 1024×1024
+box and re-encoded before posting; one still over 1 MB after that goes to
+the file library at its original size instead.</p></li>
+<li><p><em>Documents need the file library.</em> Without <code class="docutils literal notranslate"><span class="pre">TEAMS_FILES_DRIVE_ID</span></code>, PDFs,
+CSVs and other files are not delivered, and one last message names each one
+so the answer never quietly omits it. The same note names a file whose
+upload or share failed.</p></li>
+<li><p><em>Images need Pillow to be posted inline.</em> It is installed with the
+<code class="docutils literal notranslate"><span class="pre">teams</span></code> extra, which the shipped image uses. Without it every image takes
+the file library, or is named in the note when there is none.</p></li>
 <li><p><em>Files attached to a question are ignored.</em> Teams attachments are not
 downloaded, so a question that says “look at this log” and attaches one gets
 an answer written without it. Paste the relevant part into the message

@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="How to Use the Channel Finder" href="../use-channel-finder.html" />
+    <link rel="next" title="Connect the Agent to Phoebus Displays" href="phoebus-bridge.html" />
     <link rel="prev" title="Use the Virtual Accelerator" href="use-virtual-accelerator.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -870,11 +871,14 @@ deployment’s own baseline, which is come home to unprobed rather than made
 unreachable — and the roster says so by name. Naming the live machine’s probe
 channel is therefore a deliberate act by whoever knows the facility — the same
 posture as the acknowledgment key above.</p>
-<p>Two more keys bound the switch itself, both under
-<code class="docutils literal notranslate"><span class="pre">control_system.target_switch:</span></code>: <code class="docutils literal notranslate"><span class="pre">drain_timeout_s</span></code> (default 5) is how long
-work already in flight gets to finish on the old target before it is torn down
-regardless, and <code class="docutils literal notranslate"><span class="pre">probe_interval_s</span></code> (default 30) is how often the background
-reachability check runs.</p>
+<p>Three more keys bound the switch itself, all under
+<code class="docutils literal notranslate"><span class="pre">control_system.target_switch:</span></code>: <code class="docutils literal notranslate"><span class="pre">probe_timeout_s</span></code> (default 5) is how long
+the new connection gets to read the target’s <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code> before the
+switch is refused and the deployment stays where it was — raise it where a
+first read through your gateway takes longer; <code class="docutils literal notranslate"><span class="pre">drain_timeout_s</span></code> (default 5)
+is how long work already in flight gets to finish on the old target before it
+is torn down regardless (<code class="docutils literal notranslate"><span class="pre">0</span></code> tears it down at once); and <code class="docutils literal notranslate"><span class="pre">probe_interval_s</span></code> (default 30) is how often the
+background reachability check runs.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Changing the target is <strong>not</strong> a config change and not a rebuild.
@@ -1199,13 +1203,15 @@ deployment that is not yet wired to its facility, or whose machine is down.</p>
 <p>Flipping it back is three settings, not one, because the archive goes with the
 machine. The <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block records <em>this</em> deployment’s history from
 the stand-in, and the build refuses to serve that store as the facility’s past
-— so the recorded store is dropped and the archiver pointed at the facility’s
-own appliance in the same step:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics
-osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver
+— so the recorded store is dropped and the archiver pointed at the one that
+records the facility’s machine, in the same step:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics<span class="w">                      </span><span class="c1"># your control system</span>
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver<span class="w">  </span><span class="c1"># the archiver that records it</span>
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">va_archiver</span><span class="o">=</span>null
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">epics</span></code> stands for your control system; see <a class="reference internal" href="use-connectors.html"><span class="doc">Use Connectors</span></a> for the
+others and their archivers.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> does not offer the stand-in, and the build refuses
 <code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">live_standin</span></code> on a profile that asks for no
 <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code>: both would name a machine the deployment
@@ -1268,11 +1274,11 @@ target stamp pins them to.</p></li>
       </div>
     </a>
     <a class="right-next"
-       href="../use-channel-finder.html"
+       href="phoebus-bridge.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">How to Use the Channel Finder</p>
+        <p class="prev-next-title">Connect the Agent to Phoebus Displays</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

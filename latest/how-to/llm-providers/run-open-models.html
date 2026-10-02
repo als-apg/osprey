@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -432,6 +432,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
@@ -520,17 +521,17 @@
                   
   <section id="run-open-local-models">
 <span id="how-to-run-open-models"></span><h1>Run Open &amp; Local Models<a class="headerlink" href="#run-open-local-models" title="Link to this heading">#</a></h1>
-<p>OSPREY is built so the volatile pieces — the model and the agent harness — can be
-swapped without touching the framework. This guide covers what already works
-today: running the OSPREY agent on <strong>open-weight and locally hostable models</strong>.</p>
+<p>OSPREY runs Claude Code as its agent harness, and the model behind it is a
+configuration choice. This guide covers running the OSPREY agent on
+<strong>open-weight and locally hostable models</strong>.</p>
 <section id="two-independent-axes">
 <h2>Two independent axes<a class="headerlink" href="#two-independent-axes" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p><strong>The agent harness</strong> (the program that drives the model through tool calls) is
-swappable in <em>intent</em>. Today there is one, Claude Code; support for additional
-coding-agent harnesses is planned.</p></li>
-<li><p><strong>The model</strong> is already swappable. Any endpoint OSPREY can reach — remote or
-self-hosted — is a configuration choice, not a code change.</p></li>
+Claude Code, the one harness OSPREY ships. Its code sits in one adapter package
+(<a class="reference internal" href="../../contributing/extending-osprey.html#extending-agent-harness"><span class="std std-ref">Agent harness</span></a>).</p></li>
+<li><p><strong>The model</strong> is a configuration choice. Any endpoint OSPREY can reach — remote
+or self-hosted — is set in configuration, not in code.</p></li>
 </ul>
 </section>
 <section id="how-open-models-are-routed">

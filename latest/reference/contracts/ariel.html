@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -393,6 +393,7 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
@@ -572,6 +573,11 @@ OSPREY agent selects the appropriate tool based on the user’s query.</p>
 </tbody>
 </table>
 </div>
+<p>Search and <code class="docutils literal notranslate"><span class="pre">browse</span></code> results carry the first <code class="docutils literal notranslate"><span class="pre">ariel.entry_text.listing_chars</span></code>
+characters of each entry’s <code class="docutils literal notranslate"><span class="pre">raw_text</span></code>, and <code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code> the first
+<code class="docutils literal notranslate"><span class="pre">ariel.entry_text.read_chars</span></code>. An entry cut there also carries
+<code class="docutils literal notranslate"><span class="pre">raw_text_truncated:</span> <span class="pre">true</span></code> and its full <code class="docutils literal notranslate"><span class="pre">raw_text_length</span></code>. <code class="docutils literal notranslate"><span class="pre">entry_get</span></code>
+returns the whole entry. See <a class="reference internal" href="../configuration/config.html#config-ariel-entry-text"><span class="std std-ref">ariel.entry_text: — how much of each entry the agent reads</span></a>.</p>
 <p><strong>Source:</strong> <code class="file docutils literal notranslate"><span class="pre">src/osprey/mcp_server/ariel/tools/</span></code></p>
 </section>
 <section id="search-result-structure">
@@ -736,7 +742,27 @@ form adapts its credential prompt to it)</p></td>
 </tbody>
 </table>
 </div>
-<p class="sd-card-text">Additionally, a <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/health</span></code> endpoint at the root level returns a simple health check response.</p>
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/health</span></code> at the root level is the one route the sign-in gate leaves open. It
+reports <code class="docutils literal notranslate"><span class="pre">status</span></code> (<code class="docutils literal notranslate"><span class="pre">healthy</span></code> or <code class="docutils literal notranslate"><span class="pre">degraded</span></code>), a fixed <code class="docutils literal notranslate"><span class="pre">message</span></code>, <code class="docutils literal notranslate"><span class="pre">config_status</span></code>,
+and a <code class="docutils literal notranslate"><span class="pre">service</span></code> object carrying <code class="docutils literal notranslate"><span class="pre">entry_count</span></code>, <code class="docutils literal notranslate"><span class="pre">last_ingestion</span></code>,
+<code class="docutils literal notranslate"><span class="pre">enabled_search_modules</span></code> and <code class="docutils literal notranslate"><span class="pre">enabled_enhancement_modules</span></code>. <code class="docutils literal notranslate"><span class="pre">service</span></code> is <code class="docutils literal notranslate"><span class="pre">null</span></code>
+when the panel runs without its search service or the store does not answer. Everything
+that names the store (its address, <code class="docutils literal notranslate"><span class="pre">database_uri</span></code>, the embedding tables and the
+driver’s <code class="docutils literal notranslate"><span class="pre">errors</span></code>) is only on the signed-in <code class="docutils literal notranslate"><span class="pre">/api/status</span></code>.</p>
+<p class="sd-card-text"><strong>HealthResponse:</strong></p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;healthy&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ARIEL service healthy&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;config_status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ok&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;service&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;entry_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">48291</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;last_ingestion&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-09-30T08:00:00Z&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;enabled_search_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;enabled_enhancement_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;text_embedding&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
 <p class="sd-card-text"><strong>SearchResponse:</strong></p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;entries&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>

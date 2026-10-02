@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -759,18 +759,23 @@ copy these keys into the project’s <code class="docutils literal notranslate">
 from the block, and a second copy is free to disagree with the first.</p>
 <p><strong>Switch to real hardware.</strong> As in Hello World, moving to production is a
 configuration change, not a code change. Point the connectors at your facility
-in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — EPICS here, as the example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">va_archiver</span><span class="o">=</span>null
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">connector</span></code> names your control system — <code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">doocs</span></code> or <code class="docutils literal notranslate"><span class="pre">tango</span></code> —
+and <code class="docutils literal notranslate"><span class="pre">config.archiver.type</span></code> the archiver that records it;
+<a class="reference internal" href="../how-to/control-systems/use-connectors.html"><span class="doc">Use Connectors</span></a> lists every one and the keys
+each needs.</p>
 <p>The archive this tutorial deploys is a <em>simulated</em> machine’s history, which is
-not what you want against hardware — so the archiver moves to your facility’s
-appliance at the same time as the control system, and the recorded store is
-dropped. All three lines are needed: the build refuses a facility baseline that
-still carries a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block, because that store would be served as
-the real machine’s past.</p>
+not what you want against hardware — so the agent’s archiver switches to the
+one your facility runs at the same time as the control system, and the recorded
+store is dropped. All three lines are needed. The build refuses a facility
+baseline that still carries a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block, because that store would
+be served as the real machine’s past. It does not check the archiver line:
+without it the agent stays pointed at the MongoDB store you just dropped.</p>
 <p>Because these are build-time inputs, re-render the agent’s artifacts and
 relaunch:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
@@ -779,7 +784,7 @@ osprey<span class="w"> </span>chat
 </div>
 <p>Your queries don’t change — “Read the current in the booster’s defocusing
 quadrupole” and “Plot the storage-ring beam current over the last 24 hours” now
-run against live EPICS and your real archiver. The connectors handle the
+run against your control system and its archiver. The connectors handle the
 difference; the agent, the channel finder, and your prompts stay the same.</p>
 <section id="next-steps">
 <h3>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h3>

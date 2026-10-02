@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 30, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
   </head>
   
   
@@ -393,6 +393,7 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
@@ -885,6 +886,17 @@ card on the next one.</p>
 <p><code class="docutils literal notranslate"><span class="pre">detail</span></code> on these records names a claim at most. The asserted address, its
 domain, and the value of the hosted-domain claim are never written to the
 trail.</p>
+<p>A password login refused because a guess missed files <code class="docutils literal notranslate"><span class="pre">bad_credential</span></code>, the
+same for a wrong password, an unprovisioned user and an unknown name. A login
+whose user’s stored hash cannot be evaluated files <code class="docutils literal notranslate"><span class="pre">credential_unevaluable</span></code>
+instead: the browser sees the ordinary refusal, and the fix is
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">&lt;user&gt;</span></code>.</p>
+<p>A login at <code class="docutils literal notranslate"><span class="pre">/auth/enter</span></code>, which names no card
+(<a class="reference internal" href="../../how-to/web-terminal/multi-user/login.html#multi-user-own-terminal-entry"><span class="std std-ref">Log in without choosing a card</span></a>), files <code class="docutils literal notranslate"><span class="pre">no_card</span></code> when it proved who
+arrived but no card admits them; the fix is the roster or a card’s
+<code class="docutils literal notranslate"><span class="pre">access:</span></code>, never the password or the provider. A card-less single sign-on
+refused before any card is known files under the subject <code class="docutils literal notranslate"><span class="pre">(sign-in)</span></code>, never
+under the asserted identity.</p>
 </section>
 </section>
 <section id="the-full-tool-call-record">
