@@ -1557,6 +1557,10 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
 #: persona renders are checked by the build.
 BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__persona_served_models"})
 
+#: What a build prints before a stop in a persona render: the main render has written
+#: its views and noted, once, each view the control-assistant render omits.
+MAIN_RENDER_NOTES = "  view bluesky not written: services.bluesky\n"
+
 IDS = list(CASES)
 
 
@@ -1619,8 +1623,9 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
 
     result = run_build(repo)
 
+    before = MAIN_RENDER_NOTES if case in BUILD_ONLY else ""
     assert result.exit_code == 1, result.output
-    assert result.stderr == CASES[case][1] + "\n"
+    assert result.stderr == before + CASES[case][1] + "\n"
 
 
 @pytest.mark.slow
