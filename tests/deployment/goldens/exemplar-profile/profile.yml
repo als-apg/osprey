@@ -188,9 +188,6 @@ config:
   # (default_enabled=False); opt in so operators can run read-only stack checks.
   claude_code.servers.health.enabled: true
   system.timezone: America/Los_Angeles
-  # Facility display name, woven into the agent prompts (CLAUDE.md, the
-  # channel-finder agent) and the web-terminal landing page.
-  facility.name: Demo Facility
   # Exactly the three services this facility runs. Set explicitly because the
   # packaged control_assistant skeleton also declares `postgresql` — declared
   # is not deployed, and this list is what `osprey up` reads.
@@ -278,15 +275,6 @@ config:
 # schema both read.
 
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
   # Your facility's own registry module — the file that registers its
   # connectors, providers and ARIEL adapters with the framework (see
   # "Extending Osprey" in the docs). Relative to the project root; unset means

@@ -333,15 +333,6 @@ va_archiver:
 # `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
   # Your facility's own registry module — the file that registers its
   # connectors, providers and ARIEL adapters with the framework (see
   # "Extending Osprey" in the docs). Relative to the project root; unset means
@@ -2882,7 +2873,6 @@ data/
 │   └── TEMPLATE_EXAMPLE.json            # database format example
 ├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
 ├── channel_limits.json                   # per-channel write limits
-├── facility_ontology.json                # device vocabulary (facility.ontology)
 ├── machine_state_channels.json           # address list reconciled against the VA manifest
 ├── facility/                             # the facility's authored sources
 │   └── knowledge/                        # markdown knowledge bundle
@@ -2990,15 +2980,12 @@ BENCHMARK_QUERIES_JSON = """\
 ]
 """
 
-#: The exemplar's own compiled ontology — the table ``facility.ontology`` names.
+#: A compiled ontology table for the tests that stage a data tree by hand.
 #:
-#: A profile that carries a ``data:`` tree REPLACES the bundle's, so the copy
-#: control-assistant ships never reaches this repo: an exemplar facility
-#: declares its own vocabulary or it declares none, and a declared table that is
-#: not on disk stops the build by design. Written against this repo's own three
-#: families (``BPM``, ``DCCT``, ``HCM``) rather than copied from the demo
-#: machine, because that is what a real facility's table looks like and what the
-#: rendered terminology tables should show.
+#: Written against the exemplar's own three families (``BPM``, ``DCCT``,
+#: ``HCM``) rather than copied from the demo machine, because that is what a
+#: real facility's table looks like. The exemplar repo itself ships no table:
+#: no configuration key names one.
 FACILITY_ONTOLOGY_JSON = """\
 {
   "_generated": "Generated from facility_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
@@ -3305,7 +3292,6 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
     "data/benchmarks/cross_paradigm/queries/tier3_queries.json": BENCHMARK_QUERIES_JSON,
     "data/channel_limits.json": CHANNEL_LIMITS_JSON,
-    "data/facility_ontology.json": FACILITY_ONTOLOGY_JSON,
     "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
     "data/raw/address_list.csv": RAW_ADDRESS_LIST_CSV,
     "data/facility/knowledge/index.md": FK_INDEX_MD,
