@@ -584,7 +584,6 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.name": f"E2E Multiuser Fixture ({lane.posture})",
             "facility.prefix": lane.prefix,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
