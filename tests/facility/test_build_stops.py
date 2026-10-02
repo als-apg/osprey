@@ -412,6 +412,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "view-unsupported",
         "an in_context selection with zero tagged channels",
     ),
+    (
+        "view_unsupported__hierarchical_no_channel",
+        "view-unsupported",
+        "a hierarchical selection on a facility with no channel",
+    ),
+    (
+        "view_unsupported__hierarchical_meta_key",
+        "view-unsupported",
+        "a hierarchical tree key beginning with `_`",
+    ),
     ("profile_invalid__mirrored_facility_file", "profile-invalid", "`project/facility.json`"),
     (
         "profile_invalid__mirrored_simulator_view",
@@ -1472,6 +1482,23 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "or select another channel_finder_mode"
         ),
     ),
+    "view_unsupported__hierarchical_no_channel": (
+        _from(dict, ()),
+        (
+            "facility: view-unsupported: path channel_finder.pipeline_mode — selects "
+            "hierarchical and the facility has no channel; fix: author at least one channel, "
+            "or select another channel_finder_mode"
+        ),
+    ),
+    "view_unsupported__hierarchical_meta_key": (
+        _plain(append("records/channels.yaml", {"id": "_LAB:TEMP"})),
+        (
+            "facility: view-unsupported: channel _LAB:TEMP — its tree key `_LAB:TEMP` begins "
+            "with `_`, and a key beginning with `_` is a meta key of the hierarchical index; "
+            "fix: give the channel a key that does not begin with `_`, or select another "
+            "channel_finder_mode"
+        ),
+    ),
     "profile_invalid__mirrored_facility_file": (
         _plain(),
         (
@@ -1540,6 +1567,13 @@ def _select_in_context(repo: Path) -> None:
     (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
 
 
+def _select_hierarchical(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data["channel_finder_mode"] = "hierarchical"
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
 def _persona_serves_models(repo: Path) -> None:
     persona = repo / "personas" / "reader.yml"
     persona.parent.mkdir(parents=True, exist_ok=True)
@@ -1549,6 +1583,8 @@ def _persona_serves_models(repo: Path) -> None:
 #: The profile edit a case makes beside a clean tree.
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "view_unsupported__in_context_no_tagged_channel": _select_in_context,
+    "view_unsupported__hierarchical_no_channel": _select_hierarchical,
+    "view_unsupported__hierarchical_meta_key": _select_hierarchical,
     "profile_invalid__unknown_served_model": _serve_unknown_model,
     "profile_invalid__persona_served_models": _persona_serves_models,
 }

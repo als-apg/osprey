@@ -21,7 +21,7 @@ descriptions in the database and verify with a lookup rather than guessing.
 | Operator Language | MML Navigation |
 |---|---|
 {%- for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) %}
-| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | {% if entry.families %}Family: {{ '`' ~ (entry.families | join('` or `')) ~ '`' }} (class {{ name }}){% else %}Class {{ name }}: no family holds its devices; match on names and descriptions{% endif %} |
+| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | {% if middle_layer_families[name] %}Family: {% for family in middle_layer_families[name] %}`{{ family.name }}`{% if family.system %} (System {{ family.system }}){% endif %}{% if not loop.last %} or {% endif %}{% endfor %} (class {{ name }}){% else %}Class {{ name }}: no family holds its devices; match on names and descriptions{% endif %} |
 {%- endfor %}
 | "readback" / "monitor" | Navigate to system/family first, then select `Monitor` field |
 | "setpoint" / "control" | Navigate to system/family first, then select `Setpoint` field |

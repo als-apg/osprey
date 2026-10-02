@@ -209,6 +209,9 @@ SYNTHETIC_RESPONSE_LINES = ("response check SR: model BPMx/HC inside band 1.000 
 #: The first words of every line the response check prints.
 RESPONSE_CHECK = "response check "
 
+#: The first words of every note a written view prints on a clean run.
+VIEW_NOTE = "  view "
+
 
 def invoke(runner: CliRunner, *args: str) -> Result:
     """Run one ``osprey`` verb and insist it succeeded.
@@ -337,7 +340,8 @@ def apply_seed_invalid_remedies(
     exactly that record of the deployment's ``data/facility/limits.yaml`` is
     widened to hold the nominal the line states. The verb then runs once more,
     render included, and must print the tree's response-check lines and
-    nothing else.
+    nothing else; a note a written view prints about its own index is that
+    view's fact, asserted by its own tests, and is not read here.
 
     Args:
         runner: The CLI runner.
@@ -359,7 +363,7 @@ def apply_seed_invalid_remedies(
 
     clean = runner.invoke(cli, where, catch_exceptions=False)
     assert clean.exit_code == 0, clean.output
-    printed = clean.stderr.splitlines()
+    printed = [line for line in clean.stderr.splitlines() if not line.startswith(VIEW_NOTE)]
     if responses is None:
         assert all(line.startswith(RESPONSE_CHECK) for line in printed), clean.stderr
     else:

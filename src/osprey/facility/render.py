@@ -87,8 +87,9 @@ def render_facility_outputs(
         facility_dir: The build's ``data/facility`` directory, the source of the
             files a view copies.
         omitted_reported: The views this build has already named as not
-            written; a view in it is not named again and each view named is
-            added. ``None`` names every omitted view.
+            written, and the view notes it has printed; one in it is not
+            printed again and each one printed is added. ``None`` prints every
+            one.
 
     Each view whose predicate is false is named on stderr, one line each, once
     per build, unless a selector picks it from among its alternatives: a view
@@ -109,6 +110,7 @@ def render_facility_outputs(
         rendered_config=rendered_config,
         facility_dir=facility_dir,
         served=resolve_served(rendered_config, doc),
+        reported=omitted_reported,
     )
     target = render_dir / FACILITY_FILE
     target.write_bytes(facility_bytes(doc))

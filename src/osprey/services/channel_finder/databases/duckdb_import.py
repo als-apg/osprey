@@ -23,7 +23,10 @@ from datetime import UTC, datetime
 import duckdb
 
 from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
-from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
+from osprey.services.channel_finder.databases.middle_layer import (
+    MiddleLayerDatabase,
+    get_setup,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +190,7 @@ def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
 
 
 def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
-    """Import device maps (setup/DeviceList + CommonNames). Returns row count."""
+    """Import device maps (``setup`` or ``_setup``: DeviceList + CommonNames). Returns row count."""
     con.execute("DELETE FROM device_map")
     rows = []
 
@@ -196,7 +199,7 @@ def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) 
         for fam_info in db.list_families(system):
             family = fam_info["name"]
             family_data = db.data.get(system, {}).get(family, {})
-            setup = family_data.get("setup", {})
+            setup = get_setup(family_data)
             if not isinstance(setup, dict):
                 continue
             device_list = setup.get("DeviceList")
