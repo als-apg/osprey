@@ -1891,6 +1891,24 @@ def _build_graph_index(
     return target.index_path
 
 
+def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> str:
+    """The display name a build's facility document gives its facility.
+
+    The identity's name, else the project name: the precedence every reader of
+    a rendered facility file applies.
+
+    Args:
+        facility: The build's in-memory facility document.
+        project_name: The name of the project being rendered.
+
+    Returns:
+        The display name.
+    """
+    identity = facility.get("identity")
+    name = identity.get("name") if isinstance(identity, Mapping) else None
+    return str(name or project_name)
+
+
 def _render_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -2039,6 +2057,10 @@ def _render_project(
     # project's provenance; without it the first render says "hand-written" for
     # every project until the regen overwrites the file.
     context["preset"] = recorded_preset
+    # The facility's display name for the prompts this render writes. The
+    # facility file reaches the render only after them, so the name travels
+    # from the build's in-memory facility document.
+    context["facility_name"] = _facility_display_name(shared.facility, project_name)
 
     # The facility description is the profile's, not the render's. Ensured
     # before the render so the framework's create-only copy is not what a
