@@ -8,9 +8,9 @@
 # to operate on.
 #
 # Every resource this config produces is exact-named and obviously throwaway
-# (project_name/facility.prefix below), per the container-ops safety
+# (project_name below), per the container-ops safety
 # guardrail in tests/e2e/test_deploy_lifecycle.py's module docstring:
-#   - containers: e2e-web-<user>, e2e-nginx
+#   - containers: osprey-e2e-mus-p3-web-<user>, osprey-e2e-mus-p3-nginx
 #   - volumes:    osprey-e2e-mus-p3_<user>-claude-config / -agent-data
 #
 # The test copies this file into a throwaway deployment repo (never runs it in
