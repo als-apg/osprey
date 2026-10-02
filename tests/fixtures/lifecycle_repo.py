@@ -2980,45 +2980,6 @@ BENCHMARK_QUERIES_JSON = """\
 ]
 """
 
-#: A compiled ontology table for the tests that stage a data tree by hand.
-#:
-#: Written against the exemplar's own three families (``BPM``, ``DCCT``,
-#: ``HCM``) rather than copied from the demo machine, because that is what a
-#: real facility's table looks like. The exemplar repo itself ships no table:
-#: no configuration key names one.
-FACILITY_ONTOLOGY_JSON = """\
-{
-  "_generated": "Generated from facility_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
-  "root": "AcceleratorDevice",
-  "family_to_class": {
-    "BPM": "BeamPositionMonitor",
-    "DCCT": "BeamCurrentMonitor",
-    "HCM": "HCorrector"
-  },
-  "classes": {
-    "AcceleratorDevice": { "altLabels": [], "parent": null },
-    "BeamCurrentMonitor": {
-      "altLabels": ["beam current monitor", "current monitor", "dcct"],
-      "parent": "Instrumentation"
-    },
-    "BeamPositionMonitor": {
-      "altLabels": ["beam position monitor", "bpm", "position monitor"],
-      "parent": "Instrumentation"
-    },
-    "Corrector": {
-      "altLabels": ["corrector", "orbit corrector", "steering magnet"],
-      "parent": "Magnet"
-    },
-    "HCorrector": {
-      "altLabels": ["hcor", "horizontal corrector", "horizontal steering magnet"],
-      "parent": "Corrector"
-    },
-    "Instrumentation": { "altLabels": ["diagnostics", "instrumentation"], "parent": "AcceleratorDevice" },
-    "Magnet": { "altLabels": ["electromagnet", "magnet"], "parent": "AcceleratorDevice" }
-  }
-}
-"""
-
 CHANNEL_LIMITS_JSON = """\
 {
   "_comment": "Write limits, enforced by the limits hook before any write reaches the control system. A channel is writable if and only if it is a setpoint (:SP); every other address is read-only, whatever this file says.",
