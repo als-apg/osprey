@@ -61,7 +61,7 @@ from mcp.types import CallToolRequestParams
 
 import osprey
 from osprey.audit import writer
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates.manager import TemplateManager
 from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server import startup

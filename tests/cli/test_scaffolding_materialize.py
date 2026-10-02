@@ -44,7 +44,7 @@ _PRESET_QUERIES_DIR = _PRESET_DATA_DIR / "benchmarks" / "cross_paradigm" / "quer
 # by the same subtraction the CLI's ``click.Choice`` lists use: a graph build
 # materializes no ``channel_databases/<paradigm>.json``, so there is nothing for
 # these byte-comparisons to point at. See
-# tests/build/test_mode_registry_single_source.py.
+# tests/build/test_modes.py.
 _PARADIGMS: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
 

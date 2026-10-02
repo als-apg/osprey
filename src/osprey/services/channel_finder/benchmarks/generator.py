@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.channel_finder import naming
 from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER
 

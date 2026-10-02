@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.virtual_accelerator.manifest import classify, loaders
 from osprey.services.virtual_accelerator.manifest.build import (
     LIMITS_FILENAME,

@@ -200,7 +200,7 @@ def modes_for_preset(preset: str) -> list[str | None]:
     Returns:
         Either ``[None]`` or the full list of valid mode names.
     """
-    from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+    from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 
     agents = _packaged_preset(preset).get("agents") or []
     if CHANNEL_FINDER_AGENT not in agents:

@@ -2000,7 +2000,7 @@ def _render(repo: Path):
 # excluded by the same subtraction the CLI's ``click.Choice`` lists use: its
 # store is a graph service, so a graph build materializes no
 # ``channel_databases/<paradigm>.json`` for these tests to byte-compare against
-# a preset tier source. See tests/build/test_mode_registry_single_source.py.
+# a preset tier source. See tests/build/test_modes.py.
 _PARADIGMS_FOR_BUILD: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
 #: The flat channel databases a build materializes for those paradigms. Named

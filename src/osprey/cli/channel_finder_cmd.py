@@ -12,7 +12,7 @@ import os
 
 import click
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli import output
 from osprey.cli.altitude import lift_gate
 from osprey.cli.styles import Messages, Styles, console
@@ -23,7 +23,7 @@ from osprey.cli.styles import Messages, Styles, console
 #: ``graph`` is the one deliberate exclusion. A graph store is a service
 #: reached over the network, so ``validate`` (which opens a file and checks it)
 #: and ``generate`` (which writes one) have no file to work on. Derived by
-#: subtraction from :data:`~osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`
+#: subtraction from :data:`~osprey.build.modes.VALID_CHANNEL_FINDER_MODES`
 #: so registering a file-backed paradigm opens it up on both commands without a
 #: second edit, and so the exclusion stays a stated rule rather than a list that
 #: silently falls behind.

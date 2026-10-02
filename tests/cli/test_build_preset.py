@@ -987,7 +987,7 @@ class TestBuildProfileChannelFinderModeValidation:
         Read from :data:`VALID_CHANNEL_FINDER_MODES` rather than a literal list so
         registering a paradigm cannot leave this test asserting a stale set.
         """
-        from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+        from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
         from osprey.cli.build_profile import BuildProfile
 
         (tmp_path / "data").mkdir(exist_ok=True)

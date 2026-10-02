@@ -1,6 +1,6 @@
 """Pin the channel-finder paradigm registry to one source of truth.
 
-:data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES` is the registry.
+:data:`osprey.build.modes.VALID_CHANNEL_FINDER_MODES` is the registry.
 Every other place in the tree that enumerates paradigms derives from it, and
 the few places that deliberately do not are recorded here so that adding a
 paradigm cannot quietly leave one of them behind.
@@ -8,7 +8,8 @@ paradigm cannot quietly leave one of them behind.
 
 from __future__ import annotations
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES, default_tier_for_mode
+from osprey.build.build_tiers import default_tier_for_mode
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import manager, scaffolding
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.benchmarks.runner import PARADIGM_CONFIG_KEYS

@@ -12,7 +12,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates._rendering import render_template
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -425,7 +425,7 @@ def copy_template_data(
     logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
 
 
-#: Alias of the paradigm registry in :mod:`osprey.build.build_tiers`, kept
+#: Alias of the paradigm registry in :mod:`osprey.build.modes`, kept
 #: under the local name this module's guard reads. Adding a paradigm to the
 #: registry admits it here with no edit.
 _ALL_PARADIGMS: tuple[str, ...] = VALID_CHANNEL_FINDER_MODES
@@ -469,7 +469,7 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
             For ``graph`` the tier selects the query file only.
         channel_finder_mode: Paradigm selector from the build profile. Must
             be one of the paradigms in
-            :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`.
+            :data:`osprey.build.modes.VALID_CHANNEL_FINDER_MODES`.
 
     Raises:
         ValueError: If ``channel_finder_mode`` is not a registered paradigm

@@ -37,7 +37,7 @@ from tests._config_render_context import (
     render_config,
 )
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import _ariel_server_enabled
 from osprey.cli.derived_keys import is_derived_key
 from osprey.cli.templates.manager import TemplateManager, _enable_flags

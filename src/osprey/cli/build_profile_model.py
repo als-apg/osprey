@@ -19,10 +19,10 @@ from typing import Any
 import yaml
 
 from osprey.build.build_tiers import (
-    VALID_CHANNEL_FINDER_MODES,
     default_tier_for_mode,
     tier_mode_conflict,
 )
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     resolve_graphdb_service_config,
@@ -243,9 +243,9 @@ def provider_catalog_key_errors(config: Any) -> list[str]:
     ]
 
 
-# VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
-# imported from the build-time kernel (osprey.build.build_tiers) so the
-# validators below can use them while the definitions live below the cli layer.
+# VALID_CHANNEL_FINDER_MODES (osprey.build.modes) and default_tier_for_mode /
+# tier_mode_conflict (osprey.build.build_tiers) are imported from the build-time
+# kernel so the validators below can use them while the definitions live below the cli layer.
 
 
 @dataclass
