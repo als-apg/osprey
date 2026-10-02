@@ -430,13 +430,16 @@ def test_validate_reports_the_blocks_problems_alongside_the_profiles(
     """Reported from BuildProfile.validate() rather than raised at parse time,
     so a facility meets every problem its profile has in one pass."""
     path = _write_profile(
-        tmp_path, {"compression": "brotli"}, tier=2, default_panel="does-not-exist"
+        tmp_path,
+        {"compression": "brotli"},
+        channel_finder_mode="in-context",
+        default_panel="does-not-exist",
     )
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code != 0
     assert "compression" in result.output
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -572,12 +575,14 @@ def test_the_pairing_is_reported_with_the_profiles_other_problems(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """Accumulated into validate()'s one report, like every other profile rule."""
-    path = _write_profile(tmp_path, None, config={"control_system.type": _VA}, tier=2)
+    path = _write_profile(
+        tmp_path, None, config={"control_system.type": _VA}, channel_finder_mode="in-context"
+    )
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code != 0
     assert "archiver" in result.output
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
 
 
 def test_declaring_the_block_alone_does_not_lift_the_refusal(

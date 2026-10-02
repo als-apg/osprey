@@ -269,7 +269,6 @@ def test_hello_world_extension_surface_is_pinned() -> None:
     assert templated == {
         "model",
         "channel_finder_mode",
-        "tier",
         "default_panel",
         "deploy",
         "artifact_server",

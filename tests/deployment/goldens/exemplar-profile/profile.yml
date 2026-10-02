@@ -897,14 +897,6 @@ deploy_services: true
 # Named web-terminal layouts, as label -> list of panel ids.
 panel_presets: {}
 
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 ships the in_context paradigm only.
-#
-# tier: 3
-
 # --- Default web-terminal panel ----------------------------------------------
 # Panel id opened when the web terminal loads. Must be a built-in, an entry in
 # the web_panels list above, or a custom panel backed by a web.panels.<id>.url

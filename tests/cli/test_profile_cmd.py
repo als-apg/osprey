@@ -131,13 +131,14 @@ def test_validate_reports_all_errors_and_exits_2(runner: CliRunner, tmp_path: Pa
     """Every problem is reported at once, not just the first (SC7)."""
     _write_profile(
         tmp_path / "p",
-        "name: Broken\nextends: hello-world\ndata: data\ndata: ./nowhere\ntier: 5\n",
+        "name: Broken\nextends: hello-world\ndata: data\ndata: ./nowhere\n"
+        "channel_finder_mode: in-context\n",
     )
     result = runner.invoke(profile, ["validate", str(tmp_path / "p")])
 
     assert result.exit_code == 2, result.output
     assert "data directory not found" in result.output
-    assert "tier must be 1 or 3" in result.output
+    assert "channel_finder_mode must be one of" in result.output
 
 
 def test_validate_rejects_a_directory_without_a_profile(runner: CliRunner, tmp_path: Path) -> None:
@@ -282,7 +283,9 @@ def test_emit_helper_leaves_nothing_behind_on_an_invalid_override(tmp_path: Path
 
     target = tmp_path / "my-profile"
     with pytest.raises(click.UsageError):
-        _materialize_profile_directory(target, "hello-world", set_pairs=("tier=5",))
+        _materialize_profile_directory(
+            target, "hello-world", set_pairs=("channel_finder_mode=in-context",)
+        )
     assert not target.exists()
 
 

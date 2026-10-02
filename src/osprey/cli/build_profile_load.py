@@ -180,7 +180,6 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "provider",
         "model",
         "channel_finder_mode",
-        "tier",
         "config",
         "mcp_servers",
         "services",
@@ -470,6 +469,28 @@ _RETIRED_APP_TEMPLATE_REFUSAL = (
 )
 
 
+#: The profile key that no longer selects a channel-finder subset. The
+#: ``in_context`` tag on a channel record is what puts it in the in_context
+#: index, and ``channel_finder_mode`` picks the benchmark query set, so a
+#: profile that still spells it is stopped rather than told it is merely unknown.
+_RETIRED_TIER_KEY = "tier"
+
+
+def _retired_tier_refusal() -> FacilityBuildError:
+    """The ``profile-invalid`` stop for a profile that spells ``tier:``."""
+    return FacilityBuildError(
+        "profile-invalid",
+        _RETIRED_TIER_KEY,
+        ["profile.yml"],
+        f"remove `{_RETIRED_TIER_KEY}` from the profile",
+        record_kind="path",
+        detail=(
+            "`tier` is not a profile key; the `in_context` tag on a channel "
+            "selects the in_context subset"
+        ),
+    )
+
+
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """Reject unknown top-level profile keys, naming every one at once.
 
@@ -483,9 +504,12 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
 
     Raises:
         BuildProfileError: If any key is unrecognized.
+        FacilityBuildError: ``profile-invalid`` if the profile spells ``tier``.
     """
     if PRESET_DATA_BUNDLE_KEY in raw:
         raise BuildProfileError(_RETIRED_APP_TEMPLATE_REFUSAL)
+    if _RETIRED_TIER_KEY in raw:
+        raise _retired_tier_refusal()
     _reject_unknown_block_keys(raw.keys(), _KNOWN_PROFILE_KEYS, "profile")
 
 
@@ -1267,7 +1291,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),
-        tier=(int(raw["tier"]) if raw.get("tier") is not None else None),
         config=config,
         mcp_servers=mcp_servers,
         services=services,
