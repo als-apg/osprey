@@ -233,9 +233,9 @@ preset.
 
 `channel-finder-standalone` ships no `benchmark:` block, and adding one would
 name a phantom path: only the control-assistant bundle ships the query corpus,
-and `materialize_tier_artifacts` returns silently for bundles with no
-`data/channel_databases/tiers/` subtree (`cli/templates/scaffolding.py`), which
-the channel-finder bundle does not have.
+and the build copies the mode's benchmark query file to
+`data/benchmarks/queries.json` (`cli/templates/scaffolding.py`); a bundle that
+ships none, as the channel-finder bundle does, has no `queries.json`.
 
 So benchmark **is** deliberately control-assistant-only. The command still works
 in the channel-finder deployment via `--queries-path`, which bypasses the config

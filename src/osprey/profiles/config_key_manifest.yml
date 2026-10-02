@@ -1926,9 +1926,10 @@ keys:
     evidence: 'channel_finder\.benchmark\.dataset_path'
     note: >-
       control_assistant ONLY, deliberately. It is the only bundle shipping the
-      query corpus; materialize_tier_artifacts no-ops for bundles with no
-      data/channel_databases/tiers/ subtree, so a dataset_path in the other
-      templates would name a phantom. The channel-finder app runs the command
+      query corpus; the build copies the mode's benchmark query file to
+      data/benchmarks/queries.json, and a bundle that ships none has no
+      queries.json, so a dataset_path in the other templates would name a
+      phantom. The channel-finder app runs the command
       via --queries-path instead.
     default: {}
   channel_finder.benchmark.dataset_path:
