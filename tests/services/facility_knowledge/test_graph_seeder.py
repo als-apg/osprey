@@ -652,10 +652,12 @@ class TestImportTtl:
 
 
 class TestWipe:
-    def test_detach_deletes_everything(self):
+    def test_detach_deletes_everything_in_bounded_transactions(self):
         session = FakeSession()
         wipe(session)
-        assert session.queries == ["MATCH (n) DETACH DELETE n"]
+        assert session.queries == [
+            "CALL { MATCH (n) DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS"
+        ]
         assert session.results[0].consumed
 
 

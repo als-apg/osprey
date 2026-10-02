@@ -1,0 +1,1 @@
+Graph store: `osprey up` compares the store's seed marker with the digest of the configured knowledge-graph TTL and, on a mismatch, wipes the store in bounded transactions and imports the TTL, so a changed corpus reaches the store with no manual seeding step. A store already holding the corpus is left as it is.
