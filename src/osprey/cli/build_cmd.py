@@ -1902,8 +1902,7 @@ def _build_graph_index(
 def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> str:
     """The display name a build's facility document gives its facility.
 
-    The identity's name, else the project name: the precedence every reader of
-    a rendered facility file applies.
+    :func:`osprey.utils.facility.identity_record` holds the one precedence.
 
     Args:
         facility: The build's in-memory facility document.
@@ -1912,9 +1911,9 @@ def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> st
     Returns:
         The display name.
     """
-    identity = facility.get("identity")
-    name = identity.get("name") if isinstance(identity, Mapping) else None
-    return str(name or project_name)
+    from osprey.utils.facility import identity_record
+
+    return identity_record(facility["identity"], project_name)["name"]
 
 
 def _render_project(

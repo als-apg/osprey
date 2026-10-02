@@ -1039,6 +1039,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         resolve_facility_bundle_dir,
         shared_corpus_gid,
     )
+    from osprey.utils.facility import facility_name
 
     root = Path(repo_root)
     launch_token_personas_by_lane = check_bash_launch_token_conflict(config, root)
@@ -1083,28 +1084,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # refuses to start, pointing at a path nothing ever wrote.
         "terminal_secrets": _terminal_secrets(config, root),
         "proxy_env_names": proxy_env_names_with_a_value(root),
-        "facility_name": _facility_name(config, root),
+        "facility_name": facility_name(
+            web_artifacts_dir(root), as_dict(config).get("project_name")
+        ),
     }
-
-
-def _facility_name(config: Any, repo_root: Path) -> str:
-    """The display name of the facility the repo's build renders.
-
-    The build's facility identity is the one source: the name its facility file
-    records, else the project name, else nothing.
-
-    Args:
-        config: The parsed deploy config.
-        repo_root: The deployment repo root.
-
-    Returns:
-        The name, or ``""`` when the build names none and the config names no
-        project.
-    """
-    from osprey.utils.facility import facility_identity
-
-    identity = facility_identity(web_artifacts_dir(repo_root), as_dict(config).get("project_name"))
-    return identity["name"] if identity is not None else ""
 
 
 def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = None) -> list[Path]:

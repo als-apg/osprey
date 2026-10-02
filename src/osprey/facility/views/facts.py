@@ -60,14 +60,9 @@ FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
 
 
 def _identity(doc: Mapping[str, Any], project_name: str | None) -> dict[str, Any]:
-    recorded = doc["identity"]
-    code = str(recorded["code"])
-    description = recorded.get("description")
-    return {
-        "code": code,
-        "name": str(recorded.get("name") or project_name or code),
-        "description": str(description) if description else None,
-    }
+    from osprey.utils.facility import identity_record
+
+    return dict(identity_record(doc["identity"], project_name))
 
 
 def _place_levels(doc: Mapping[str, Any]) -> list[str]:
