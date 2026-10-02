@@ -110,6 +110,18 @@ def _write_facts(root: Path, inputs: ViewInputs) -> list[Path]:
     return write_facts_view(root, inputs)
 
 
+def _bluesky_configured(inputs: ViewInputs) -> bool:
+    from osprey.facility.views.bluesky import bluesky_configured
+
+    return bluesky_configured(inputs)
+
+
+def _write_bluesky(root: Path, inputs: ViewInputs) -> list[Path]:
+    from osprey.facility.views.bluesky import write_bluesky_view
+
+    return write_bluesky_view(root, inputs)
+
+
 #: Every view, in the order a render writes them.
 VIEWS: tuple[View, ...] = (
     View(
@@ -132,5 +144,12 @@ VIEWS: tuple[View, ...] = (
         written_when=_always,
         reason="always written",
         write=_write_facts,
+    ),
+    View(
+        name="bluesky",
+        path=".",
+        written_when=_bluesky_configured,
+        reason="services.bluesky",
+        write=_write_bluesky,
     ),
 )

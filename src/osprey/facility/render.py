@@ -77,6 +77,8 @@ def render_facility_outputs(
     doc: FacilityDocument,
     rendered_config: Mapping[str, Any],
     facility_dir: Path,
+    *,
+    omitted_reported: set[str] | None = None,
 ) -> list[Path]:
     """Write the facility outputs of one render.
 
@@ -86,8 +88,12 @@ def render_facility_outputs(
         rendered_config: The render's ``config.yml``, as a mapping.
         facility_dir: The build's ``data/facility`` directory, the source of the
             files a view copies.
+        omitted_reported: The views this build has already named as not
+            written; a view in it is not named again and each view named is
+            added. ``None`` names every omitted view.
 
-    Each view whose predicate is false is named on stderr, one line each.
+    Each view whose predicate is false is named on stderr, one line each, once
+    per build.
 
     Returns:
         The files written, sorted.
@@ -111,6 +117,8 @@ def render_facility_outputs(
     for view in views.VIEWS:
         if view.written_when(inputs):
             written.extend(view.write(render_dir / "data" / view.path, inputs))
-        else:
+        elif omitted_reported is None or view.name not in omitted_reported:
             views.report_omitted(view)
+            if omitted_reported is not None:
+                omitted_reported.add(view.name)
     return sorted(written)

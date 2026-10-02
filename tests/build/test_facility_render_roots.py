@@ -67,8 +67,9 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
 ) -> None:
     outputs = built_control_assistant.outputs
     assert len(outputs) == len(_render_roots(built_control_assistant.repo))
+    # The Bluesky view rides only on a render that runs a Bluesky lane.
     for render in outputs:
-        assert list(render.files) == [
+        assert [path for path in render.files if path != "data/bluesky_devices.yml"] == [
             "data/channel_limits.json",
             "data/facility_facts.json",
             "data/facility_facts.md",

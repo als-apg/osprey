@@ -119,8 +119,10 @@ def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> Iterato
     built = BuiltProject(repo)
     real = render.render_facility_outputs
 
-    def spy(render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path) -> list[Path]:
-        written = real(render_dir, doc, rendered_config, facility_dir)
+    def spy(
+        render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path, **kwargs: Any
+    ) -> list[Path]:
+        written = real(render_dir, doc, rendered_config, facility_dir, **kwargs)
         built.outputs.append(
             RenderOutputs(
                 render_dir,

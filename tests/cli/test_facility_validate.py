@@ -130,8 +130,10 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
     calls: list[tuple[Path, list[Path]]] = []
     real = render.render_facility_outputs
 
-    def spy(render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path) -> list[Path]:
-        written = real(render_dir, doc, rendered_config, facility_dir)
+    def spy(
+        render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path, **kwargs: Any
+    ) -> list[Path]:
+        written = real(render_dir, doc, rendered_config, facility_dir, **kwargs)
         assert (render_dir / "config.yml").is_file()
         calls.append((render_dir, written))
         return written
@@ -145,6 +147,10 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
     assert written == [
         render_dir / relative
         for relative in (
+            "data/bluesky_devices.yml",
+            "data/channel_limits.json",
+            "data/facility_facts.json",
+            "data/facility_facts.md",
             "data/simulator/addresses.json",
             "data/simulator/decks/SR.json",
             "data/simulator/served_models.json",

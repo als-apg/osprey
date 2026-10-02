@@ -96,6 +96,11 @@ def test_the_facility_file_is_written_in_every_render_with_its_header(
         assert json.loads(render.files[FACILITY_FILE])["schema"] == "osprey.facility.facility/1"
 
 
+def test_the_bluesky_devices_view_is_checked(built_control_assistant: BuiltProject) -> None:
+    content = built_control_assistant.outputs[0].files["data/bluesky_devices.yml"]
+    assert header_problem("data/bluesky_devices.yml", content) is None
+
+
 def test_every_binary_exemption_is_written(built_control_assistant: BuiltProject) -> None:
     build_dir = built_control_assistant.build_dir
     assert [
