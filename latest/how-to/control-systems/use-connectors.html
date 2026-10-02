@@ -659,8 +659,9 @@ feature: a supervised pvAccess write path is separate work with its own
 review, and until it exists a refusal is the honest answer.</p>
 <p>pvAccess <strong>RPC services</strong> are refused too, and for a different reason.
 Code the agent runs through the Python executor cannot call
-<code class="docutils literal notranslate"><span class="pre">Context.rpc(...)</span></code>: it is blocked at runtime and no approval can let it
-through, because an rpc payload carries an arbitrary request – there is
+<code class="docutils literal notranslate"><span class="pre">Context.rpc(...)</span></code>, or pvaPy’s <code class="docutils literal notranslate"><span class="pre">RpcClient(...).invoke(...)</span></code>, in a
+readonly run or wherever limits checking is on: it is blocked at
+runtime and no approval can let it through, because an rpc payload carries an arbitrary request – there is
 no way to tell a read from a write, and nothing for limits checking to
 validate. Use <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> for the operation
 you actually need.</p>

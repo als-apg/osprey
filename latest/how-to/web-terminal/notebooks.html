@@ -679,12 +679,15 @@ runtime’s call, which takes the same address and value:</p>
 <span class="n">write_channels</span><span class="p">({</span><span class="s2">&quot;DEMO:CORR1:SP&quot;</span><span class="p">:</span> <span class="mf">1.5</span><span class="p">,</span> <span class="s2">&quot;DEMO:CORR2:SP&quot;</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.4</span><span class="p">})</span>
 </pre></div>
 </div>
-<p>Reads through a client library are unchanged. So are p4p’s <code class="docutils literal notranslate"><span class="pre">rpc</span></code> and Tango
-commands, which carry no channel value and stay allowed in a kernel, and the
-PVAccess puts (a p4p <code class="docutils literal notranslate"><span class="pre">Context.put</span></code>, a pvaPy <code class="docutils literal notranslate"><span class="pre">Channel.put</span></code>): the connector
-does not write PVAccess yet, so <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> has no route to a PVAccess
-channel and a raw put is how one is written. A kernel does not limits-check
-it. A
+<p>Reads through a client library are unchanged. So are the rpc calls (p4p’s
+<code class="docutils literal notranslate"><span class="pre">rpc</span></code>, pvaPy’s <code class="docutils literal notranslate"><span class="pre">RpcClient.invoke</span></code>) and Tango commands, which carry no
+channel value and stay allowed in a kernel, and the PVAccess puts (a p4p
+<code class="docutils literal notranslate"><span class="pre">Context.put</span></code>, a pvaPy <code class="docutils literal notranslate"><span class="pre">Channel.put</span></code> on a channel opened on PVAccess): the
+connector does not write PVAccess yet, so <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> has no route to a
+PVAccess channel and a raw put is how one is written. A kernel does not
+limits-check it. A pvaPy channel opened with <code class="docutils literal notranslate"><span class="pre">pvaccess.CA</span></code> is a Channel
+Access channel, and its put is refused like <code class="docutils literal notranslate"><span class="pre">caput</span></code>; so is a pvaPy
+<code class="docutils literal notranslate"><span class="pre">MultiChannel</span></code> write. A
 <code class="docutils literal notranslate"><span class="pre">RunEngine</span></code> driving ophyd or ophyd-async devices inside a cell is refused
 the same way, because its devices end in a raw put; submit the plan to a
 Bluesky lane queue instead, where it runs unchanged. The refusal is filed in

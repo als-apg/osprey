@@ -656,7 +656,11 @@ cothread clients; <code class="docutils literal notranslate"><span class="pre">S
 <code class="docutils literal notranslate"><span class="pre">threading.client.PV.write</span></code>, <code class="docutils literal notranslate"><span class="pre">Batch.write</span></code>, <code class="docutils literal notranslate"><span class="pre">asyncio.client.PV.write</span></code></p></li>
 <li><p><strong>pvaPy</strong> — every <code class="docutils literal notranslate"><span class="pre">Channel.put*</span></code> method, including the typed setters
 such as <code class="docutils literal notranslate"><span class="pre">putDouble</span></code> and <code class="docutils literal notranslate"><span class="pre">putScalarArray</span></code>, and <code class="docutils literal notranslate"><span class="pre">asyncPut</span></code>,
-<code class="docutils literal notranslate"><span class="pre">parsePut</span></code> and <code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code> alongside them</p></li>
+<code class="docutils literal notranslate"><span class="pre">parsePut</span></code> and <code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code> alongside them, on a Channel Access
+channel and a PVAccess one alike; <code class="docutils literal notranslate"><span class="pre">MultiChannel.put</span></code> and
+<code class="docutils literal notranslate"><span class="pre">putAsDoubleArray</span></code>; <code class="docutils literal notranslate"><span class="pre">RpcClient.invoke</span></code>; and on the server side
+<code class="docutils literal notranslate"><span class="pre">PvaServer</span></code>/<code class="docutils literal notranslate"><span class="pre">PvaMirrorServer.update</span></code> and <code class="docutils literal notranslate"><span class="pre">updateUnchecked</span></code> and the
+in-process IOC’s <code class="docutils literal notranslate"><span class="pre">CaIoc.putField</span></code>, <code class="docutils literal notranslate"><span class="pre">dbpf</span></code>, <code class="docutils literal notranslate"><span class="pre">iocInit</span></code> and <code class="docutils literal notranslate"><span class="pre">start</span></code></p></li>
 <li><p><strong>doocs4py</strong> — <code class="docutils literal notranslate"><span class="pre">set</span></code>, the call the DOOCS connector writes through</p></li>
 <li><p><strong>Tango</strong> — <code class="docutils literal notranslate"><span class="pre">DeviceProxy.write_attribute</span></code> and its variants,
 <code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code>, <code class="docutils literal notranslate"><span class="pre">Group</span></code> attribute writes, and <code class="docutils literal notranslate"><span class="pre">command_inout</span></code>
@@ -717,7 +721,18 @@ recorded.</p>
 <li><p><strong>Tango</strong> — the attribute writes on <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code> (also under the
 legacy <code class="docutils literal notranslate"><span class="pre">PyTango</span></code> name), <code class="docutils literal notranslate"><span class="pre">AttributeProxy.write</span></code> and its variants, and
 <code class="docutils literal notranslate"><span class="pre">Group.write_attribute</span></code></p></li>
+<li><p><strong>pvaPy</strong> — <code class="docutils literal notranslate"><span class="pre">MultiChannel.put</span></code> and <code class="docutils literal notranslate"><span class="pre">putAsDoubleArray</span></code>, a write to a
+list of channels on either provider; and <code class="docutils literal notranslate"><span class="pre">CaIoc.putField</span></code>, <code class="docutils literal notranslate"><span class="pre">dbpf</span></code>,
+<code class="docutils literal notranslate"><span class="pre">iocInit</span></code> and <code class="docutils literal notranslate"><span class="pre">start</span></code>, because a record of an IOC running inside the
+script can carry an output link to a real channel, and setting it — or
+starting the IOC that scans it — writes that channel</p></li>
 </ul>
+<p>One class is answered per channel rather than per method. A pvaPy <code class="docutils literal notranslate"><span class="pre">Channel</span></code>
+opened with <code class="docutils literal notranslate"><span class="pre">pvaccess.CA</span></code> is a Channel Access channel, and every put on it
+is a raw Channel Access write — the one <code class="docutils literal notranslate"><span class="pre">caput</span></code> makes — so it is refused
+here like <code class="docutils literal notranslate"><span class="pre">caput</span></code> (<code class="docutils literal notranslate"><span class="pre">_ARMED_CA_PROVIDER</span></code>). pvaPy gives a channel no way to
+name its provider, so the block records the provider as each channel is
+constructed; a channel it holds no record for is refused rather than trusted.</p>
 <p><code class="docutils literal notranslate"><span class="pre">_ARMED_CHECKED</span></code> — <strong>limits-checked, not refused</strong>: the PVAccess puts.
 The connector reads PVAccess but does not write it yet, so a raw put is the
 one PVAccess write route a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run has, and refusing it would take
@@ -731,17 +746,20 @@ through. They move to <code class="docutils literal notranslate"><span class="pr
 <li><p><strong>p4p</strong> — <code class="docutils literal notranslate"><span class="pre">Context.put</span></code> for the raw, thread, asyncio and cothread
 clients</p></li>
 <li><p><strong>pvaPy</strong> — every <code class="docutils literal notranslate"><span class="pre">Channel.put*</span></code> method, typed setters included, and
-<code class="docutils literal notranslate"><span class="pre">asyncPut</span></code>, <code class="docutils literal notranslate"><span class="pre">parsePut</span></code> and <code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code></p></li>
+<code class="docutils literal notranslate"><span class="pre">asyncPut</span></code>, <code class="docutils literal notranslate"><span class="pre">parsePut</span></code> and <code class="docutils literal notranslate"><span class="pre">parsePutGet</span></code>, on a channel opened on
+PVAccess (pvaPy’s default) only</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">_ARMED_RPC</span></code> — p4p’s <code class="docutils literal notranslate"><span class="pre">Context.rpc</span></code> and Tango’s <code class="docutils literal notranslate"><span class="pre">command_inout</span></code> (on
-<code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code>, <code class="docutils literal notranslate"><span class="pre">Connection</span></code> and <code class="docutils literal notranslate"><span class="pre">Group</span></code>). An rpc payload or a Tango
-command has no channel value a connector write could carry, so no
-<code class="docutils literal notranslate"><span class="pre">write_channel</span></code> call can stand in for one. An executor run with the limits
-database on <strong>refuses</strong> them, because nothing could bound them; a run with
-limits off, and a notebook kernel, <strong>lets them through</strong>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">_ARMED_RPC</span></code> — p4p’s <code class="docutils literal notranslate"><span class="pre">Context.rpc</span></code>, pvaPy’s <code class="docutils literal notranslate"><span class="pre">RpcClient.invoke</span></code> and
+Tango’s <code class="docutils literal notranslate"><span class="pre">command_inout</span></code> (on <code class="docutils literal notranslate"><span class="pre">DeviceProxy</span></code>, <code class="docutils literal notranslate"><span class="pre">Connection</span></code> and <code class="docutils literal notranslate"><span class="pre">Group</span></code>).
+An rpc payload or a Tango command has no channel value a connector write could
+carry, so no <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> call can stand in for one. An executor run with
+the limits database on <strong>refuses</strong> them, because nothing could bound them; a
+run with limits off, and a notebook kernel, <strong>lets them through</strong>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">_ARMED_PASSED</span></code> — <strong>let through</strong>, because they write no device: p4p’s
-<code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> serve a PV rather than write one, and Tango’s
-<code class="docutils literal notranslate"><span class="pre">DeviceProxy.put_property</span></code> writes the Tango database, not a channel.</p>
+<code class="docutils literal notranslate"><span class="pre">SharedPV.post</span></code>/<code class="docutils literal notranslate"><span class="pre">open</span></code> and pvaPy’s <code class="docutils literal notranslate"><span class="pre">PvaServer</span></code>/<code class="docutils literal notranslate"><span class="pre">PvaMirrorServer</span></code>
+<code class="docutils literal notranslate"><span class="pre">update</span></code> and <code class="docutils literal notranslate"><span class="pre">updateUnchecked</span></code> serve a PV rather than write one, and
+Tango’s <code class="docutils literal notranslate"><span class="pre">DeviceProxy.put_property</span></code> writes the Tango database, not a
+channel.</p>
 <p>The acquisition frameworks and the routes out of Python are not rows of the
 armed block. ophyd-async and a Bluesky <code class="docutils literal notranslate"><span class="pre">RunEngine</span></code> are refused in a
 <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run by the client put underneath them — an ophyd-async signal
