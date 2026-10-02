@@ -3609,10 +3609,7 @@ def _build_repo(
         # follow, not something the operator ran the verb to find out.
         from . import output
 
-        output.note(
-            f"profile {build_profile.name} (bundle {_profile_data_bundle(build_profile)}, "
-            f"tier {build_profile.resolved_tier()})"
-        )
+        output.note(f"profile {build_profile.name} (bundle {_profile_data_bundle(build_profile)})")
         # Said out loud whenever a variant is in force: the same repo builds
         # differently on this host than on the next one, and an operator
         # reading a render has to be told which of the two they are looking at.

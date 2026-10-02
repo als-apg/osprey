@@ -100,9 +100,6 @@ ONTOLOGY_PATH = "data/facility_ontology.json"
 DATABASE_PATH = "data/channel_databases/middle_layer.json"
 TIERED_DATABASE = "data/channel_databases/tiers/tier3/middle_layer.json"
 
-#: Tier the middle-layer paradigm derives when no profile pins one.
-EXPECTED_TIER = 3
-
 #: The tier databases the control-assistant preset ships that are not emit's
 #: own ``tier3/middle_layer.json``; each must be named by the refusal.
 DEMO_TIER_SIBLINGS = (
@@ -840,9 +837,6 @@ class TestHelloWorldMiddleLayer:
             == "middle_layer"
         )
 
-    def test_the_build_resolves_to_tier_three(self, middle_layer_repo: dict) -> None:
-        assert f"tier {EXPECTED_TIER}" in middle_layer_repo["build"]
-
 
 class TestHelloWorldGraph:
     def test_validate_and_build_accept_the_recipe(self, graph_repo: dict) -> None:
@@ -900,10 +894,10 @@ class TestControlAssistant:
     ) -> None:
         """Flat, tiered and built copy are one file.
 
-        The build's tier materializer copies ``tiers/tier3/<paradigm>.json``
-        over the flat database. Emit dual-writes both, so the three agree --
-        and this goes red the moment the materializer puts preset material
-        where the harvest's own database belongs.
+        Emit dual-writes the flat and the tiered database, and the build copies
+        the flat one into the render unchanged, so the three agree -- and this
+        goes red the moment the build puts other material where the harvest's
+        own database belongs.
         """
         repo = control_assistant_repo["repo"]
         digests = {
@@ -917,7 +911,6 @@ class TestControlAssistant:
         self, control_assistant_repo: dict
     ) -> None:
         assert (control_assistant_repo["repo"] / "build/data/benchmarks/queries.json").is_file()
-        assert f"tier {EXPECTED_TIER}" in control_assistant_repo["build"]
 
     def test_the_bundle_index_lists_only_what_the_harvest_wrote(
         self, control_assistant_repo: dict

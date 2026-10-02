@@ -947,10 +947,12 @@ def test_force_with_a_rejected_layer_leaves_the_whole_zone_untouched(
     edited.write_text("# ours\n", encoding="utf-8")
     before = _zone_snapshot(target, MATERIALIZED_SOURCE_ENTRIES)
 
-    result = _new(runner, target, "hello-world", "--force", "--set", "tier=2")
+    result = _new(
+        runner, target, "hello-world", "--force", "--set", "channel_finder_mode=in-context"
+    )
 
     assert result.exit_code == 2
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
     assert _zone_snapshot(target, MATERIALIZED_SOURCE_ENTRIES) == before
     assert edited.read_text(encoding="utf-8") == "# ours\n"
 
@@ -1144,10 +1146,10 @@ def test_an_invalid_edit_leaves_no_partial_directory(runner: CliRunner, tmp_path
     """The atomicity guarantee: a bad edit fails and materializes nothing."""
     target = tmp_path / "p-facility"
 
-    result = _new(runner, target, "hello-world", "--set", "tier=2")
+    result = _new(runner, target, "hello-world", "--set", "channel_finder_mode=in-context")
 
     assert result.exit_code == 2
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
     assert not target.exists()
 
 

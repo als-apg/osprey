@@ -2768,54 +2768,6 @@ class TestCopyServiceTemplates:
         )
 
 
-# ---------------------------------------------------------------------------
-# Tier selection rules
-# ---------------------------------------------------------------------------
-
-
-class TestTierSelectionRules:
-    """Tier selection is restricted to {1, 3}, and tier 1 is in_context-only.
-
-    The tier is a profile key, so the rule is enforced where the profile
-    resolves — these cases pin that a tier-2 or a tier1+non-in_context profile
-    fails with a rule-naming error rather than an opaque downstream scaffolding
-    FileNotFoundError.
-    """
-
-    @pytest.fixture()
-    def test_profile_tier_2_rejected(self, tmp_path: Path) -> None:
-        """A profile YAML with ``tier: 2`` fails validation naming the {1,3} rule."""
-        from osprey.cli.build_profile import resolve_build_profile
-
-        prof = tmp_path / "profile.yml"
-        prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 2\n")
-        with pytest.raises(BuildProfileError, match="tier must be 1 or 3"):
-            resolve_build_profile(prof.resolve(), preset=None)
-
-    def test_profile_tier1_hierarchical_rejected(self, tmp_path: Path) -> None:
-        """tier 1 paired with a non-in_context paradigm fails at validation with
-        the tier rule — not later as a scaffolding FileNotFoundError."""
-        from osprey.cli.build_profile import resolve_build_profile
-
-        prof = tmp_path / "profile.yml"
-        prof.write_text("name: t\nchannel_finder_mode: hierarchical\ntier: 1\n")
-        with pytest.raises(
-            BuildProfileError, match="tier 1 requires channel_finder_mode: in_context"
-        ):
-            resolve_build_profile(prof.resolve(), preset=None)
-
-    def test_profile_tier1_in_context_accepted(self, tmp_path: Path) -> None:
-        """The valid tier-1 combo (in_context) resolves cleanly."""
-        from osprey.cli.build_profile import resolve_build_profile
-
-        (tmp_path / "data").mkdir()
-        prof = tmp_path / "profile.yml"
-        prof.write_text("name: t\ndata: data\nchannel_finder_mode: in_context\ntier: 1\n")
-        resolved, _ = resolve_build_profile(prof.resolve(), preset=None)
-        assert resolved.tier == 1
-        assert resolved.resolved_tier() == 1
-
-
 def test_preset_build_never_touches_the_presets_package_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

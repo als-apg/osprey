@@ -128,7 +128,9 @@ def test_non_path_data_values_are_rejected(tmp_path: Path, value: Any) -> None:
 
 def test_data_errors_accumulate_with_other_validation_errors(tmp_path: Path) -> None:
     """House convention: one raise carrying every problem, not the first."""
-    profile = _write_yaml(tmp_path / "profile.yml", {"name": "", "data": "data", "tier": 2})
+    profile = _write_yaml(
+        tmp_path / "profile.yml", {"name": "", "data": "data", "channel_finder_mode": "in-context"}
+    )
 
     with pytest.raises(BuildProfileError) as excinfo:
         load_profile(profile)
@@ -136,7 +138,7 @@ def test_data_errors_accumulate_with_other_validation_errors(tmp_path: Path) -> 
     message = str(excinfo.value)
     assert "data directory not found" in message
     assert "'name' is required" in message
-    assert "tier must be 1 or 3" in message
+    assert "channel_finder_mode must be one of" in message
 
 
 def test_resolved_data_root_is_none_without_the_key(tmp_path: Path) -> None:

@@ -369,16 +369,6 @@ def test_no_facility_gateway_addresses_are_shipped():
     assert not data_dir.exists() or not any(data_dir.rglob("*.py")), sorted(data_dir.rglob("*.py"))
 
 
-def test_tier_is_a_settable_key(runner, lifecycle_repo):
-    """Absorbs `build --tier`: the tier is profile content like anything else."""
-    result = _invoke(runner, lifecycle_repo, "tier=1", "channel_finder_mode=in_context")
-
-    assert result.exit_code == 0, result.output
-    after = _profile_text(lifecycle_repo)
-    assert "tier: 1" in after
-    assert "channel_finder_mode: in_context" in after
-
-
 # --- unrecognized keys ------------------------------------------------------
 
 
@@ -407,7 +397,11 @@ def test_recognized_and_config_prefixed_keys_are_never_called_out(runner, lifecy
     nothing) cannot read as a pass in either direction.
     """
     result = _invoke(
-        runner, lifecycle_repo, "model=claude-sonnet-5", "config.system.timezone=UTC", "tier=2"
+        runner,
+        lifecycle_repo,
+        "model=claude-sonnet-5",
+        "config.system.timezone=UTC",
+        "channel_finder_mode=hierarchical",
     )
 
     assert result.exit_code == 0, result.output
@@ -563,7 +557,6 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "provider: cborg\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
-        "tier: 1\n"
         "config:\n"
         "  control_system.type: mock\n"
         "  archiver.type: mock_archiver\n"

@@ -93,7 +93,6 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "provider",  # every bundled preset sets this one, so it emits active
         "model",  # the bundled presets carry it as a commented example
         "channel_finder_mode",
-        "tier",  # pinning it would break mode-edit parity — see PROPOSAL D-notes
         "default_panel",
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
@@ -339,20 +338,11 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # --- Channel-finder paradigm -------------------------------------------------
 # How the agent looks up the facility's channels. One of:
 # {_CHANNEL_FINDER_MODE_LIST}.
-# Most of them build a channel database into the project at the tier below;
+# Most of them build a channel-finder index into the project from the facility;
 # one reads the store named by services.graphdb instead and writes no database
 # of its own. The channel-finder guide compares what each one costs and answers.
 #
 # channel_finder_mode: <paradigm>
-""",
-    "tier": """
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 is the flat whole-database view, so it serves one paradigm only.
-#
-# tier: 3
 """,
     "default_panel": """
 # --- Default web-terminal panel ----------------------------------------------
@@ -526,7 +516,6 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "provider",
     "model",
     "channel_finder_mode",
-    "tier",
     "default_panel",
     "deploy",
     "mcp_servers",

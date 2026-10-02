@@ -334,9 +334,6 @@ class TestBuildPhases:
             # No panel selection: nothing for the bar-items warning to check.
             web_panels: list[str] = []
 
-            def resolved_tier(self) -> int:
-                return 1
-
             def resolved_data_root(self, profile_dir: Path) -> Path:
                 return profile_dir / "data"
 
