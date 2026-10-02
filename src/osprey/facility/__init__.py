@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["PN_LOCAL", "TEXTURE", "fold_code"]
+__all__ = ["FACILITY_FILE", "PN_LOCAL", "TEXTURE", "fold_code"]
 
 PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+#: The facility file's name at the root of every render.
+FACILITY_FILE = "facility.json"
 
 #: The built-in model that holds every channel no other model wires.
 TEXTURE = "texture"

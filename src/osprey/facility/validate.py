@@ -63,6 +63,7 @@ __all__ = [
     "sort_errors",
     "stating_files",
     "validate",
+    "vocabulary",
 ]
 
 #: The stages, in the order they run.
@@ -297,7 +298,13 @@ def validate(facility_dir: Path, *, project_name: str, file: IO[Any] | None = No
 
 
 @cache
-def _vocabulary() -> dict[str, Any]:
+def vocabulary() -> dict[str, Any]:
+    """The generated vocabulary table.
+
+    Returns:
+        The table read from ``schema/_generated/vocabulary.json``: ``classes`` and
+        ``signal_roles`` rows of ``{name, aliases, ...}``.
+    """
     table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
     data: dict[str, Any] = json.loads(table.read_text(encoding="utf-8"))
     return data
@@ -305,7 +312,7 @@ def _vocabulary() -> dict[str, Any]:
 
 def signal_roles() -> frozenset[str]:
     """The signal roles of the vocabulary."""
-    return frozenset(role["name"] for role in _vocabulary()["signal_roles"])
+    return frozenset(role["name"] for role in vocabulary()["signal_roles"])
 
 
 def known_classes(classes: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
@@ -317,7 +324,7 @@ def known_classes(classes: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
     Returns:
         Every class name a device may carry.
     """
-    names = {row["name"] for row in _vocabulary()["classes"]}
+    names = {row["name"] for row in vocabulary()["classes"]}
     names.update(str(row["class"]) for row in classes if isinstance(row.get("class"), str))
     return frozenset(names)
 

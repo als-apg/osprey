@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, TypedDict
 from zoneinfo import available_timezones
 
+from osprey.facility import FACILITY_FILE, fold_code
+
 __all__ = [
     "DEFAULT_FACILITY_ZONE",
     "SET_FACILITY_ZONE",
@@ -91,8 +93,6 @@ def facility_identity(
     if not project_name:
         return None
 
-    from osprey.facility import fold_code
-
     return {"code": fold_code(project_name), "name": project_name, "description": None}
 
 
@@ -109,8 +109,6 @@ def _recorded_identity(render_root: Path) -> dict[str, Any] | None:
         FacilityFileError: The file is present but cannot be read, is not
             JSON, or names no identity code.
     """
-    from osprey.facility.render import FACILITY_FILE
-
     path = Path(render_root) / FACILITY_FILE
     try:
         text = path.read_text(encoding="utf-8")

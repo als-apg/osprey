@@ -22,7 +22,7 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.render import render_facility_outputs
-from osprey.facility.validate import _vocabulary
+from osprey.facility.validate import vocabulary
 from osprey.facility.views.facts import (
     FACTS_FILE,
     FACTS_PAGE,
@@ -122,7 +122,7 @@ def test_each_device_class_carries_its_count_aliases_and_families(
     class_of = {device["id"]: device["class"] for device in facility["devices"]}
     assert list(classes) == sorted(set(class_of.values()))
     authored: dict[str, list[str]] = {}
-    for row in _vocabulary()["classes"]:
+    for row in vocabulary()["classes"]:
         authored.setdefault(row["name"], []).extend(row.get("aliases") or [])
     for row in facility["classes"]:
         authored.setdefault(row["class"], []).extend(row.get("aliases") or [])

@@ -44,6 +44,7 @@ from osprey.channel_roster.records import (
     RosterSourceKind,
 )
 from osprey.deployment.graphdb_service import GRAPHDB_INDEX_PATH_CONFIG_KEY
+from osprey.facility import FACILITY_FILE
 from osprey.utils.logger import get_logger
 
 logger = get_logger("channel_roster.sources")
@@ -138,8 +139,6 @@ def facility_file_path(config: dict) -> Path:
         ``<render root>/facility.json``. The file is not probed: whether a
         build has written it is the reader's answer.
     """
-    from osprey.facility.render import FACILITY_FILE
-
     render_dir = _render_dir(config)
     if render_dir is None:
         from osprey.utils.workspace import resolve_config_path
