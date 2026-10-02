@@ -659,9 +659,10 @@ def _announce(action: str) -> None:
     The second line is the disclosure, and it is printed whenever this deploy
     creates or re-issues the account rather than buried in a document nobody
     opens. OpenObserve has no ingest-only role in any edition: the account this
-    provisions can read back every log and metric in the store and list its
-    users. That is the whole scope, and an operator gets to know it at the
-    moment it is granted.
+    provisions can read back every log and metric in the store, list its users,
+    change a stream's retention, and delete a stream. It cannot create users.
+    That is the whole scope, and an operator gets to know it at the moment it is
+    granted.
     """
     written = {
         "created": "created the telemetry ingest account and saved its token",
@@ -673,12 +674,15 @@ def _announce(action: str) -> None:
         wrote=(
             ".env",
             f"{INGEST_TOKEN_VAR} (gitignored; keep it secret). The ingest account can also "
-            "read every log and metric in the store and list its users.",
+            "read every log and metric in the store, list its users, change a stream's "
+            "retention, and delete a stream.",
         ),
     )
     _report_fact(
-        "the ingest account can read all telemetry and the user roster: OpenObserve has no "
-        "ingest-only role in any edition. The root password stays on this host."
+        "the ingest account can read all telemetry, list the user roster, shorten a "
+        "stream's retention and delete a stream, so the credential that writes the record "
+        "can also erase it: OpenObserve has no ingest-only role in any edition. The root "
+        "password stays on this host."
     )
 
 

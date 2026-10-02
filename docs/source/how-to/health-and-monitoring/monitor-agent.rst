@@ -227,17 +227,24 @@ it to an address of your choosing; the token half is never yours to write.
 
 .. warning::
 
-   **The ingest identity can read everything the store holds.** It is a real
-   OpenObserve service account and it is genuinely restricted — it cannot
-   create users and it cannot delete them, so a leaked ingest token cannot mint
-   itself a way back in or lock you out. But it is write-**plus**-read: it can
-   search every log and metric already in the store, which means the agent's
-   full conversation transcripts, and it can list the store's user roster.
-   OpenObserve has no ingest-only role in any edition, so this is as narrow as
-   the shipped identity gets. Guard the ingest token as closely as the
-   telemetry itself. What it does buy you is that the root password stays on
-   the deploy host and never reaches a config file, a container environment, or
-   the network.
+   **The ingest identity can read, shorten, and delete everything the store
+   holds.** It is a real OpenObserve service account, and its token can do
+   more than write telemetry:
+
+   - search every stream already in the store, which means the agent's full
+     conversation transcripts;
+   - list the store's users;
+   - change a stream's retention, so it can shorten how long the record is
+     kept;
+   - delete a stream outright.
+
+   It cannot create users. So the credential that writes the record can also
+   read it back, shorten it, or erase it. OpenObserve has no ingest-only role
+   in any edition, so this is as narrow as the shipped identity gets. The token
+   reaches every process that exports telemetry, headless dispatch runs
+   included. Guard it as closely as the telemetry itself. What it does buy you
+   is that the root password stays on the deploy host and never reaches a
+   config file, a container environment, or the network.
 
 .. important::
 
