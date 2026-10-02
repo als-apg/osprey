@@ -33,10 +33,10 @@ spelled once in ``tests/e2e/_queue_drive.py``). That is transport only — what
 these proofs assert about the substrate is unchanged.
 
 No preset channel names are hardcoded: every address used below is derived
-from the deployment repo's own ``data/channel_limits.json`` — the same bytes
-the build copies into the build zone for the deployed containers (writable ⟺ a
-``:SP`` address) restricted to sp-echo pairs — the writable addresses the
-tree's own ``va_bindings.json`` does NOT claim. A write the lattice model is
+from the source zone's ``data/channel_limits.json`` (a ``:SP`` address with a
+``:RB`` sibling) restricted to sp-echo pairs — the writable addresses the
+tree's own ``va_bindings.json`` does NOT claim. A plan names each device by its
+address, the name the build's device file gives it. A write the lattice model is
 coupled to has ring-wide physics side effects, wrong for an isolated
 fault/equivalence probe; sp-echo is a pure software echo, exactly what P3-P5
 need.
@@ -80,7 +80,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _orm_stack, _queue_drive
@@ -138,16 +137,6 @@ BRIDGE_PORT = 18099
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
-
-# Device names this suite authors into the worker's device file — arbitrary,
-# resolved against explicit PV addresses (see _write_devices_file below), never
-# a preset naming convention. Synthetic on purpose: this is the one lane that
-# proves a device name need not BE its address, which is exactly what the
-# ``settables``/``readables`` entries' ``setpoint``/``pv`` fields are for.
-SCAN_MOTOR = "scan_motor"
-P3_DETECTOR = "p3_det"
-P4_DETECTOR = "p4_det"
-P5_DETECTOR = "p5_det"
 
 # The bridge's arming route (POST /queue/start) fails closed on an unset
 # BLUESKY_LAUNCH_TOKEN. `osprey up` mints one for the deployed bluesky
@@ -264,12 +253,12 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 
 def _channel_limits(repo: Path) -> dict[str, Any]:
-    """The deployment repo's own channel limits.
+    """The source zone's channel limits file, ``<repo>/data/channel_limits.json``.
 
-    ``osprey build`` copies ``<repo>/data`` into the build zone verbatim, so
-    this file and the ``build/data/`` copy the bridge and the VA both read are
-    the same bytes and name the same channels — but only this one exists before
-    the build, which is when the plan devices have to be chosen and authored.
+    This is the file ``init`` copies from the preset, not the limits database
+    the build writes to ``build/data/``: the build writes that one from the
+    facility's limits records, which bound far fewer channels than this file
+    lists. The sp-echo pairs and the scan bands are drawn from this one.
     """
     return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
@@ -313,12 +302,10 @@ def _select_sp_echo_pairs(
     repo: Path, channel_limits: dict[str, Any], count: int
 ) -> list[tuple[str, str]]:
     """Derive ``count`` disjoint sp-echo (``:SP``, ``:RB``) pairs from the
-    deployed render's own channel_limits.json -- no hardcoded preset
-    channels.
+    source zone's channel_limits.json -- no hardcoded preset channels.
 
-    A channel is writable (candidate ``:SP``) iff its channel_limits.json
-    entry exists with that address ending ``:SP`` (the connector's own
-    writability contract). Restricted to the sp-echo partition rather than
+    A candidate ``:SP`` is an entry of that file whose address ends ``:SP``
+    and whose ``:RB`` sibling is an entry too. Restricted to the sp-echo partition rather than
     every writable ``:SP``: a write the lattice model is coupled to has
     ring-wide physics side effects (it moves other monitors through the
     model), wrong for an isolated equivalence/fault probe -- sp-echo is a
@@ -356,51 +343,6 @@ def _select_sp_echo_pairs(
     return pairs[:count]
 
 
-def _write_devices_file(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
-    """Author this suite's plan devices at ``<repo>/data/bluesky_devices.yml``
-    -- BETWEEN ``osprey init`` and ``osprey build``.
-
-    The build copies ``<repo>/data`` into the build zone and stages the device
-    file it finds there into ``build/services/bluesky/bluesky_devices.yml``,
-    which the queueserver worker mounts. Written after the build, this file
-    would be picked up by nothing; written before ``init``, it would break
-    init's own copy of the preset's ``data/``.
-
-    Assembled here rather than through
-    ``osprey.services.bluesky_bridge.substrate_devices`` (which
-    ``_orm_stack.write_devices_file`` delegates to) because THIS suite's whole
-    point is synthetic device names: that producer names every device after its
-    own address, and P3/P4/P5 have to stay addressable under names the
-    equivalence assertions choose. The document SHAPE is still the product's --
-    its key names are imported, not restated -- so a schema change breaks this
-    lane rather than silently producing a file the worker skips.
-    """
-    from osprey.services.bluesky_bridge.devices._specs_from_file import (
-        READABLES_KEY,
-        SETTABLES_KEY,
-    )
-
-    p3_sp, p3_rb = pairs["p3"]
-    p4_sp, p4_rb = pairs["p4"]
-    p5_sp, p5_rb = pairs["p5"]
-
-    document = {
-        SETTABLES_KEY: [{"name": SCAN_MOTOR, "setpoint": p4_sp, "readback": p4_rb}],
-        READABLES_KEY: [
-            {"name": P3_DETECTOR, "pv": p3_rb},
-            {"name": P4_DETECTOR, "pv": p4_rb},
-            {"name": P5_DETECTOR, "pv": p5_rb},
-        ],
-    }
-
-    devices_path = repo / "data" / "bluesky_devices.yml"
-    devices_path.parent.mkdir(parents=True, exist_ok=True)
-    devices_path.write_text(
-        yaml.safe_dump(document, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
-    )
-
-
 def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
     """Append this suite's contract env vars to the repo's ``.env`` -- BEFORE
     ``osprey up`` (the bridge/VA compose templates pass these through from the
@@ -410,10 +352,10 @@ def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
     ``.env`` is the deployment's whole secret store, and ``up`` aborts when it
     is missing.
 
-    Only three values, and none of them is a device: the plan devices moved out
-    of the environment and into the mounted device file (``_write_devices_file``),
-    so what is left here is two credentials -- the bridge's launch token and the
-    VA's model-write token -- and the VA's stuck-channel fault.
+    Only three values, and none of them is a device: the plan devices are the
+    ones the build writes from the facility's channels, each named by its
+    address, so what is left here is two credentials -- the bridge's launch
+    token and the VA's model-write token -- and the VA's stuck-channel fault.
     """
     _p5_sp, _p5_rb = pairs["p5"]
 
@@ -522,13 +464,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
 
-    # STRICTLY between the two verbs -- see _write_devices_file. The pairs come
-    # from the repo's own channel limits, the same bytes the build is about to
-    # copy into the build zone.
+    # The pairs come from the source zone's channel limits file, which exists
+    # once `init` has written the repo.
     limits = _channel_limits(repo)
     sp3, sp4, sp5 = _select_sp_echo_pairs(repo, limits, count=3)
     pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
-    _write_devices_file(repo, pairs)
 
     build = _run(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -759,10 +699,11 @@ def _host_ca_op_spec(
 
     Carries the SAME ``get_config_value`` overrides the in-process connector
     used -- ``project_root`` is the deployment repo and
-    ``limits_checking.database_path`` names the RENDER's channel_limits.json, so
-    ``LimitsValidator`` enforces the very file this test selected channels from
-    (these proofs write only LISTED sp-echo ``:SP`` channels, so limits are
-    actually applied to them). Spelled absolute rather than repo-relative: a
+    ``limits_checking.database_path`` names the RENDER's channel_limits.json,
+    the limits database the build writes from the facility's limits records.
+    The sp-echo setpoints these proofs write hold no record there, so the
+    per-type mode below is ``optional``: a channel with no record is written
+    with no limits applied. Spelled absolute rather than repo-relative: a
     relative ``database_path`` resolves against ``CONFIG_FILE``'s directory when
     that is set and against ``project_root`` otherwise, and this subprocess sets
     neither anchor to the render.
@@ -969,10 +910,10 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "readbacks": [P3_DETECTOR],
+            "readbacks": [rb],
             "axes": [
                 {
-                    "setpoint": SCAN_MOTOR,
+                    "setpoint": m_sp,
                     "start": m_lo + 0.25 * (m_hi - m_lo),
                     "stop": m_lo + 0.75 * (m_hi - m_lo),
                     "num_points": 2,
@@ -988,9 +929,9 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], P3_DETECTOR)
+    col = _find_column(data["columns"], rb)
     bridge_value = data["rows"][0][col]
-    assert bridge_value is not None, f"no value recorded for {P3_DETECTOR}: {data}"
+    assert bridge_value is not None, f"no value recorded for {rb}: {data}"
 
     # sp-echo is a plain software copy — the host write should be exactly
     # reflected in both readers.
@@ -1024,8 +965,8 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         BRIDGE_URL,
         "grid_scan",
         {
-            "readbacks": [P4_DETECTOR],
-            "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
+            "readbacks": [rb],
+            "axes": [{"setpoint": sp, "start": start, "stop": stop, "num_points": num}],
         },
         client_id=_QUEUE_CLIENT_ID,
         token=token,
@@ -1085,10 +1026,10 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == num, f"expected {num} rows: {data}"
-    col = _find_column(data["columns"], P4_DETECTOR)
+    col = _find_column(data["columns"], rb)
     row_values = [row[col] for row in data["rows"]]
     assert len(row_values) == num and all(v is not None for v in row_values), (
-        f"incomplete {P4_DETECTOR} column: {row_values}"
+        f"incomplete {rb} column: {row_values}"
     )
 
     # The concurrent host read landed either before the first point settled
@@ -1147,10 +1088,10 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "readbacks": [P5_DETECTOR],
+            "readbacks": [rb],
             "axes": [
                 {
-                    "setpoint": SCAN_MOTOR,
+                    "setpoint": m_sp,
                     "start": m_lo + 0.25 * (m_hi - m_lo),
                     "stop": m_lo + 0.75 * (m_hi - m_lo),
                     "num_points": 2,
@@ -1166,9 +1107,9 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], P5_DETECTOR)
+    col = _find_column(data["columns"], rb)
     bridge_rb = data["rows"][0][col]
-    assert bridge_rb is not None, f"no value recorded for {P5_DETECTOR}: {data}"
+    assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
 
     # Both independent CA clients (host pyepics, bridge ophyd-async) must
     # agree on the frozen value -- honest divergence, not a per-client one.
