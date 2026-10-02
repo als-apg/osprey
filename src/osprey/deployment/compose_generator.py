@@ -2158,8 +2158,8 @@ def render_template(template_path, config, out_dir):
     return output_filepath
 
 
-def _stage_site_image_args_for_context(config, out_dir):
-    """The site build args a service's compose fragment renders, CA staged.
+def _site_image_args_for_context(config, out_dir):
+    """The site build args a service's compose fragment renders.
 
     The three images ``osprey up`` builds from a command line of its own get
     these as ``--build-arg`` flags
@@ -2168,97 +2168,38 @@ def _stage_site_image_args_for_context(config, out_dir):
     builds it from its own rendered context — so the same values have to reach
     it through the ``args:`` block of its compose fragment instead.
 
-    Staging and resolving are one step because the two halves have to agree:
-    ``COPY`` cannot reach outside the build context, so a rendered
-    ``OSPREY_SITE_CA`` must name the file staged NEXT TO the fragment that
-    names it, never the host path the operator configured.
+    ``OSPREY_SITE_CA`` renders as the fixed context filename, never the host
+    path the operator configured: ``COPY`` cannot reach outside the build
+    context. The copy that name points at is not made here. A render is not a
+    build, and the two need not run on the same host, so every start stages the
+    bundle into the contexts whose fragments name it just before compose can
+    build them, and clears it after
+    (:func:`~osprey.deployment.container_lifecycle.stage_service_site_ca`). The
+    rendered bytes are the same on every host that renders them.
 
     Only build contexts that contain a ``Dockerfile`` get any of it, for the
     reason :func:`_stage_dev_wheel_for_context` applies to the wheel: a
-    pure-image service (postgresql, openobserve) builds nothing, and a CA
-    staged into its context is dead weight that also churns the build-context
-    hash.
-
-    A render is not a build, and the two need not run on the same host: the
-    rendered value is the fixed context filename wherever the render happens,
-    so the compose a CI runner writes is the compose the deploy host writes.
-    Only the copy beside it is host-dependent, and the render that runs where
-    the bundle is stages it (``osprey up`` re-renders before it builds).
+    pure-image service (postgresql, openobserve) builds nothing, and an arg its
+    fragment never reads is noise in the render.
 
     :param config: The deployment's raw config.
     :type config: dict
-    :param out_dir: The service's build context — where the CA is staged.
+    :param out_dir: The service's build context.
     :type out_dir: str
     :return: ARG name -> value, empty when the deployment declares no axis.
     :rtype: dict[str, str]
     """
     # Function-local: container_lifecycle imports this module at module level,
     # and the same import back would close the cycle.
-    from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME, _stage_site_ca
+    from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME
 
     if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
         return {}
 
-    resolved = {}
-    for arg_name, value in resolve_site_image_axes(config).items():
-        if arg_name == "OSPREY_SITE_CA":
-            try:
-                _stage_site_ca(value, out_dir)
-            except FileNotFoundError:
-                # A bundle that is not on THIS host does not stop a render:
-                # the deployment is rendered wherever a build runs, including
-                # hosts that never deploy it. The value still renders, because
-                # a fragment whose args depend on the rendering host is a
-                # deployment that silently loses its CA. What is left is a
-                # context with no copy in it, and the build that reads it says
-                # so where it happens, at the layer that installs the CA.
-                logger.warning(
-                    f"images.site_ca names {value}, which is not a readable file here, "
-                    f"so no CA was staged into {out_dir}. Building this context on a "
-                    "host without the bundle fails at the layer that installs it."
-                )
-            value = SITE_CA_CONTEXT_FILENAME
-        resolved[arg_name] = value
-    return resolved
-
-
-def _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args):
-    """Remove the site CA staged beside a rendered fragment that builds nothing.
-
-    A build context holds the operator's CA bundle only while a build can read
-    it. :func:`_stage_site_image_args_for_context` stages it into any context
-    holding a ``Dockerfile``, before the fragment renders; a fragment that then
-    renders no ``build:`` (a service running an image OSPREY does not build)
-    leaves nothing that would read or clear it, so the copy goes here.
-
-    Only a copy this render staged is removed, and only when the rendered
-    document carries no service with a ``build`` key. An unreadable or
-    malformed document leaves the file alone.
-
-    :param compose_filepath: The fragment just rendered into ``out_dir``.
-    :type compose_filepath: str
-    :param out_dir: The service's build context the CA was staged into.
-    :type out_dir: str
-    :param site_image_build_args: What the staging step returned for it.
-    :type site_image_build_args: dict[str, str]
-    """
-    from osprey.deployment.container_lifecycle import (
-        SITE_CA_CONTEXT_FILENAME,
-        rendered_compose_services,
-    )
-
-    if site_image_build_args.get("OSPREY_SITE_CA") != SITE_CA_CONTEXT_FILENAME:
-        return
-    services = rendered_compose_services(Path(compose_filepath))
-    if services is None:
-        return
-    if any(isinstance(service, Mapping) and "build" in service for service in services.values()):
-        return
-    staged = Path(out_dir) / SITE_CA_CONTEXT_FILENAME
-    try:
-        staged.unlink(missing_ok=True)
-    except OSError:
-        logger.warning("Could not remove the staged site CA %s", staged)
+    return {
+        arg_name: SITE_CA_CONTEXT_FILENAME if arg_name == "OSPREY_SITE_CA" else value
+        for arg_name, value in resolve_site_image_axes(config).items()
+    }
 
 
 def _stage_dev_wheel_for_context(out_dir, dev_mode):
@@ -4367,9 +4308,9 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         # This will override the PyPI osprey after standard installation.
         wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
 
-        # The site's build settings, resolved and staged together with the
-        # context they are rendered next to (see the helper).
-        site_image_build_args = _stage_site_image_args_for_context(config, out_dir)
+        # The site's build settings, as the fragment rendered into this context
+        # names them (see the helper).
+        site_image_build_args = _site_image_args_for_context(config, out_dir)
 
     # Create the docker compose file from the template. The render context
     # carries dev_mode so service templates can emit dev-only build args
@@ -4399,7 +4340,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
-    _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args)
 
     if source_dir != SERVICES_DIR:  # ignore the top level dir
         # Rendered config files the container mounts (the qmd sidecar's
@@ -4577,12 +4517,11 @@ def _incremental_setup_build_dir(
                     logger.warning(f"Could not update {dst_path}: {e}")
 
         wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
-        site_image_build_args = _stage_site_image_args_for_context(config, out_dir)
+        site_image_build_args = _site_image_args_for_context(config, out_dir)
 
     # Create/update the docker compose file from the template (dev_mode,
     # channel_snapshot and bluesky_devices gated on staging success, exactly as
-    # in setup_build_dir; the site build args are staged with the context they
-    # are rendered beside, same as there).
+    # in setup_build_dir; the site build args resolve the same way as there).
     render_config = {
         **config,
         "dev_mode": dev_mode and wheel_staged,
@@ -4603,7 +4542,6 @@ def _incremental_setup_build_dir(
         "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
-    _unstage_site_ca_without_build(compose_filepath, out_dir, site_image_build_args)
 
     # Same rendered-config step as the full path (see setup_build_dir): a
     # service whose container mounts a rendered file must get it here too, or
