@@ -210,3 +210,48 @@ def test_regenerated_prompts_pick_up_the_facility_file_name(tmp_path_factory):
     prompt = _channel_finder_prompt(project_dir)
     assert _PROMPT_SENTENCE.format("Regenerated LS") in prompt
     assert _PROMPT_SENTENCE.format("regen-facility") not in prompt
+
+
+# ---------------------------------------------------------------------------
+# First render: the caller hands the identity's name through `context`
+# ---------------------------------------------------------------------------
+
+
+def _first_render(tmp_path_factory, name: str, context: dict) -> Path:
+    """``create_project`` alone: the render before any facility file is written."""
+    return TemplateManager().create_project(
+        project_name=name,
+        output_dir=tmp_path_factory.mktemp(name),
+        data_bundle="channel_finder_standalone",
+        data_root=_bundle_data_root("channel_finder_standalone"),
+        context={"channel_finder_mode": "in_context", "default_provider": "anthropic", **context},
+    )
+
+
+def test_the_first_render_carries_the_name_its_caller_hands_it(tmp_path_factory):
+    project_dir = _first_render(tmp_path_factory, "handed", {"facility_name": "Handed LS"})
+
+    assert _PROMPT_SENTENCE.format("Handed LS") in _channel_finder_prompt(project_dir)
+
+
+def test_the_first_render_without_a_handed_name_carries_the_project_name(tmp_path_factory):
+    project_dir = _first_render(tmp_path_factory, "unnamed", {})
+
+    assert _PROMPT_SENTENCE.format("unnamed") in _channel_finder_prompt(project_dir)
+
+
+@pytest.mark.parametrize(
+    ("identity", "expected"),
+    [
+        ({"code": "erf", "name": "Example Research Facility"}, "Example Research Facility"),
+        ({"code": "erf"}, "my-project"),
+        ({"code": "erf", "name": ""}, "my-project"),
+    ],
+    ids=["named", "unnamed", "blank name"],
+)
+def test_the_build_names_the_facility_from_its_in_memory_identity(identity, expected):
+    from osprey.cli.build_cmd import _facility_display_name
+
+    facility = {"schema": "osprey.facility.facility/1", "identity": identity}
+
+    assert _facility_display_name(facility, "my-project") == expected

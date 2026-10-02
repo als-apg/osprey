@@ -20,7 +20,6 @@ from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
-from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import repo_root_for_config
 from osprey_connectors import yaml_loader
 
@@ -360,11 +359,6 @@ class TemplateManager:
             system_config = rendered_config.get("system", {})
             ctx["system_timezone"] = system_config.get("timezone", "UTC")
 
-            # Facility identity: canonical `facility.name`, legacy top-level
-            # `facility_name` as fallback (see utils.facility.resolve_facility_name).
-            # setdefault so an explicit caller-supplied context value still wins.
-            ctx.setdefault("facility_name", resolve_facility_name(rendered_config, project_name))
-
             cf_config = rendered_config.get("channel_finder", {})
 
             # Embed hierarchy info for initial creation, through the same
@@ -375,8 +369,10 @@ class TemplateManager:
                     ctx["channel_finder_hierarchy"] = hierarchy
             ctx.setdefault("channel_finder_hierarchy", None)
 
-        # A bundle that renders no config.yml still needs a facility name for the
-        # agent/CLAUDE.md prompts rendered below.
+        # The facility's display name is the caller's: the build hands it the
+        # name its facility identity gives, and a render with no caller-supplied
+        # name carries the project name, the identity a facility that authors
+        # none is given.
         ctx.setdefault("facility_name", project_name)
 
         # Everything the Claude Code templates read out of config.yml, through
