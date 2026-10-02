@@ -1,10 +1,10 @@
 """Facility-name resolution.
 
-`resolve_facility_name` reads `facility.name`, then the top-level
-`facility_name`, then its default. The build path reads neither key: the agent
-context and the prompts rendered from it carry the name the render root
-reports, which is its facility file's identity, or the project name where the
-render holds no facility file.
+The facility identity is the one source of the facility's name, and no config
+key names it. The agent context and the prompts rendered from it carry the name
+the render root reports, which is its facility file's identity, or the project
+name where the render holds no facility file; the first render, which comes
+before the facility file, carries the name its caller hands it.
 """
 
 import json
@@ -15,7 +15,7 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.utils.facility import facility_identity, resolve_facility_name
+from osprey.utils.facility import facility_identity
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -59,54 +59,6 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     # `.claude/` from a config.yml that did not yet carry the preset's block.
     manager.regenerate_claude_code(project)
     return project
-
-
-# ---------------------------------------------------------------------------
-# resolve_facility_name — the shared resolution order
-# ---------------------------------------------------------------------------
-
-
-def test_canonical_key_wins():
-    config = {"facility": {"name": "Canonical Light Source"}, "facility_name": "Legacy Name"}
-    assert resolve_facility_name(config, "proj") == "Canonical Light Source"
-
-
-def test_legacy_key_is_the_fallback():
-    assert resolve_facility_name({"facility_name": "Legacy Name"}, "proj") == ("Legacy Name")
-
-
-def test_legacy_key_used_when_facility_block_carries_only_prefix():
-    config = {"facility": {"prefix": "ca"}, "facility_name": "Legacy Name"}
-    assert resolve_facility_name(config, "proj") == "Legacy Name"
-
-
-def test_neither_key_falls_back_to_the_supplied_default():
-    assert resolve_facility_name({}, "my-project") == "my-project"
-
-
-@pytest.mark.parametrize(
-    "config",
-    [
-        {"facility": {"name": ""}, "facility_name": "Legacy Name"},
-        {"facility": {"name": None}, "facility_name": "Legacy Name"},
-    ],
-)
-def test_empty_canonical_value_falls_through_to_legacy(config):
-    """A blank name would reach the prompts as a hole in the sentence."""
-    assert resolve_facility_name(config, "proj") == "Legacy Name"
-
-
-def test_empty_values_at_both_levels_fall_through_to_the_default():
-    config = {"facility": {"name": ""}, "facility_name": ""}
-    assert resolve_facility_name(config, "my-project") == "my-project"
-
-
-def test_non_mapping_facility_value_is_tolerated():
-    """A hand-edited `facility: something` must not crash the build."""
-    assert (
-        resolve_facility_name({"facility": "oops", "facility_name": "Legacy Name"}, "proj")
-        == "Legacy Name"
-    )
 
 
 # ---------------------------------------------------------------------------

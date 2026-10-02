@@ -41,8 +41,8 @@ what the agent thinks your devices are called.
    * - Key
      - What it does
    * - ``facility.name``
-     - Display name woven into the agent's prompts and the web-terminal landing
-       page. With no value set, the project name is used.
+     - Read by nothing. The facility's display name comes from the ``name`` in
+       ``data/facility/identity.yaml``, or the project name when it has none.
    * - ``facility.prefix``
      - Short abbreviation the multi-user web stack puts in front of its
        container names. Nothing else reads it.
