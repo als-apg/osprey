@@ -62,7 +62,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/cli/build_cmd.py": "rename:12",
     "src/osprey/cli/channel_finder_cmd.py": "rename:12",
     "src/osprey/cli/mml_cmd.py": "delete:7e",
-    "src/osprey/cli/set_cmd.py": "rename:12",
     "src/osprey/deployment/container_lifecycle.py": "rename:12",
     "src/osprey/interfaces/ariel/static/css/components.css": "rename:12",
     "src/osprey/interfaces/channel_finder/database_api.py": "rename:12",
