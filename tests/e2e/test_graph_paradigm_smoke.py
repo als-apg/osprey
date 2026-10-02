@@ -165,10 +165,6 @@ def graph_paradigm_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Pa
     :func:`seeded_graph_paradigm_project` rather than building a second time —
     ``osprey init`` + ``osprey build`` is the expensive step in this module and
     doing it once keeps the live lane's wall time honest.
-
-    ``tier`` is deliberately not passed: ``init_project`` asks
-    ``tier_mode_conflict`` and drops the derived tier for ``graph``, which ships
-    no tiered database files. Passing one would be rejected by the build.
     """
     tmp = tmp_path_factory.mktemp("graph-paradigm")
     try:
