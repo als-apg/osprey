@@ -1772,3 +1772,36 @@ def test_both_callers_name_a_busy_kernel_identically(monkeypatch) -> None:
     unresolved = te.evaluate_switch({}, LIVE, current_target=VA, baseline=VA, in_flight=(marker,))
     assert NOTEBOOK in " ".join(resolved.suggestions)
     assert f"notebook kernel {KERNEL_ID[:8]}" in " ".join(unresolved.suggestions)
+
+
+# ---------------------------------------------------------------------------
+# use_name_server read for what it spells
+# ---------------------------------------------------------------------------
+
+
+def _with_use_name_server(value: Any) -> dict[str, Any]:
+    gateway = {"address": "gw.example.org", "port": 5064, "use_name_server": value}
+    block = _epics_block(gateways={"read_only": gateway, "write_access": dict(gateway)})
+    return _config(connector={EPICS_TYPE: block, VA_TYPE: _va_block()})
+
+
+@pytest.mark.parametrize("off", ["false", "False", "0", "no", ""])
+def test_a_resolved_off_placeholder_derives_the_address_list_mode(off: str) -> None:
+    derivation = _derive(_with_use_name_server(off), LIVE)
+
+    assert derivation.endpoints["read_only"].mode == te.MODE_ADDR_LIST
+
+
+@pytest.mark.parametrize("on", ["true", "True", "1", "yes"])
+def test_a_resolved_on_placeholder_derives_the_name_server_mode(on: str) -> None:
+    derivation = _derive(_with_use_name_server(on), LIVE)
+
+    assert derivation.endpoints["read_only"].mode == te.MODE_NAME_SERVER
+
+
+def test_an_unreadable_use_name_server_is_ineligible_and_names_the_key() -> None:
+    verdict = _eligibility(_with_use_name_server("maybe"), LIVE)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_TARGET_UNRESOLVABLE
+    assert "use_name_server" in verdict.detail

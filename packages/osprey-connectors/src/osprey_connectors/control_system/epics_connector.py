@@ -15,7 +15,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import config_flag, get_facility_timezone
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
@@ -416,7 +416,9 @@ class EPICSConnector(ControlSystemConnector):
         # rejected by the gateway rather than trusted.
         readonly_run = is_readonly_run()
         write_gateway = gateways.get("write_access") or {}
+        gateway_role = "read_only"
         if writes_enabled and write_gateway:
+            gateway_role = "write_access"
             gateway_config = write_gateway
             logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
         else:
@@ -434,9 +436,11 @@ class EPICSConnector(ControlSystemConnector):
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
-            # Explicit configuration for connection method
-            # Config system automatically converts "true"/"false" strings to booleans
-            use_name_server = gateway_config.get("use_name_server", False)
+            use_name_server = config_flag(
+                gateway_config.get("use_name_server"),
+                key=f"control_system.connector.{self._connector_type}.gateways."
+                f"{gateway_role}.use_name_server",
+            )
 
             # Configure EPICS environment variables
             # Clear conflicting variables first — having both CA_ADDR_LIST and
@@ -498,8 +502,11 @@ class EPICSConnector(ControlSystemConnector):
             if pva_gateway:
                 pva_address = str(pva_gateway.get("address", ""))
                 pva_port = pva_gateway.get("port")
-                # Config system automatically converts "true"/"false" to booleans
-                pva_use_name_server = pva_gateway.get("use_name_server", False)
+                pva_use_name_server = config_flag(
+                    pva_gateway.get("use_name_server"),
+                    key=f"control_system.connector.{self._connector_type}.pva_gateway."
+                    "use_name_server",
+                )
                 # PVA carries the port inside the address entry itself — there is
                 # no client-side "server port" variable to set, unlike CA.
                 if pva_use_name_server:
