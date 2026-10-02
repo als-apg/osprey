@@ -200,7 +200,11 @@ resolved dynamically:
   ``threading.client.PV.write``, ``Batch.write``, ``asyncio.client.PV.write``
 - **pvaPy** --- every ``Channel.put*`` method, including the typed setters
   such as ``putDouble`` and ``putScalarArray``, and ``asyncPut``,
-  ``parsePut`` and ``parsePutGet`` alongside them
+  ``parsePut`` and ``parsePutGet`` alongside them, on a Channel Access
+  channel and a PVAccess one alike; ``MultiChannel.put`` and
+  ``putAsDoubleArray``; ``RpcClient.invoke``; and on the server side
+  ``PvaServer``/``PvaMirrorServer.update`` and ``updateUnchecked`` and the
+  in-process IOC's ``CaIoc.putField``, ``dbpf``, ``iocInit`` and ``start``
 - **doocs4py** --- ``set``, the call the DOOCS connector writes through
 - **Tango** --- ``DeviceProxy.write_attribute`` and its variants,
   ``AttributeProxy.write``, ``Group`` attribute writes, and ``command_inout``
@@ -265,6 +269,18 @@ recorded.
 - **Tango** --- the attribute writes on ``DeviceProxy`` (also under the
   legacy ``PyTango`` name), ``AttributeProxy.write`` and its variants, and
   ``Group.write_attribute``
+- **pvaPy** --- ``MultiChannel.put`` and ``putAsDoubleArray``, a write to a
+  list of channels on either provider; and ``CaIoc.putField``, ``dbpf``,
+  ``iocInit`` and ``start``, because a record of an IOC running inside the
+  script can carry an output link to a real channel, and setting it --- or
+  starting the IOC that scans it --- writes that channel
+
+One class is answered per channel rather than per method. A pvaPy ``Channel``
+opened with ``pvaccess.CA`` is a Channel Access channel, and every put on it
+is a raw Channel Access write --- the one ``caput`` makes --- so it is refused
+here like ``caput`` (``_ARMED_CA_PROVIDER``). pvaPy gives a channel no way to
+name its provider, so the block records the provider as each channel is
+constructed; a channel it holds no record for is refused rather than trusted.
 
 ``_ARMED_CHECKED`` --- **limits-checked, not refused**: the PVAccess puts.
 The connector reads PVAccess but does not write it yet, so a raw put is the
@@ -279,18 +295,21 @@ through. They move to ``_ARMED_BLOCKED`` once the connector writes PVAccess.
 - **p4p** --- ``Context.put`` for the raw, thread, asyncio and cothread
   clients
 - **pvaPy** --- every ``Channel.put*`` method, typed setters included, and
-  ``asyncPut``, ``parsePut`` and ``parsePutGet``
+  ``asyncPut``, ``parsePut`` and ``parsePutGet``, on a channel opened on
+  PVAccess (pvaPy's default) only
 
-``_ARMED_RPC`` --- p4p's ``Context.rpc`` and Tango's ``command_inout`` (on
-``DeviceProxy``, ``Connection`` and ``Group``). An rpc payload or a Tango
-command has no channel value a connector write could carry, so no
-``write_channel`` call can stand in for one. An executor run with the limits
-database on **refuses** them, because nothing could bound them; a run with
-limits off, and a notebook kernel, **lets them through**.
+``_ARMED_RPC`` --- p4p's ``Context.rpc``, pvaPy's ``RpcClient.invoke`` and
+Tango's ``command_inout`` (on ``DeviceProxy``, ``Connection`` and ``Group``).
+An rpc payload or a Tango command has no channel value a connector write could
+carry, so no ``write_channel`` call can stand in for one. An executor run with
+the limits database on **refuses** them, because nothing could bound them; a
+run with limits off, and a notebook kernel, **lets them through**.
 
 ``_ARMED_PASSED`` --- **let through**, because they write no device: p4p's
-``SharedPV.post``/``open`` serve a PV rather than write one, and Tango's
-``DeviceProxy.put_property`` writes the Tango database, not a channel.
+``SharedPV.post``/``open`` and pvaPy's ``PvaServer``/``PvaMirrorServer``
+``update`` and ``updateUnchecked`` serve a PV rather than write one, and
+Tango's ``DeviceProxy.put_property`` writes the Tango database, not a
+channel.
 
 The acquisition frameworks and the routes out of Python are not rows of the
 armed block. ophyd-async and a Bluesky ``RunEngine`` are refused in a

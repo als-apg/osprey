@@ -303,6 +303,195 @@ def test_pvaccess_sweep_uses_the_armed_replacement(monkeypatch, restore_patches)
     assert channel.get() == 3.0
 
 
+# --- pvaPy: the provider a channel was opened on decides --------------------
+
+_PROVIDER_ROWS = (("pvaccess.Channel", ("put", "asyncPut", "parsePut")),)
+
+_FAKE_PVACCESS = """
+class ProviderType(int):
+    pass
+
+PVA = ProviderType(0)
+CA = ProviderType(1)
+
+class Channel:
+    def __init__(self, name, provider=PVA):
+        # As the binding: any ProviderType, a subclass included; nothing else.
+        if not isinstance(provider, ProviderType):
+            raise TypeError("provider must be a ProviderType")
+        self._name = name
+
+    def getName(self):
+        return self._name
+
+    def put(self, value):
+        return "put-ok"
+
+    def putDouble(self, value):
+        return "double-ok"
+
+    def asyncPut(self, value, callback, error):
+        return "async-ok"
+
+    def parsePut(self, args):
+        return "parse-ok"
+
+    def get(self):
+        return 3.0
+"""
+
+
+@pytest.fixture
+def pvaccess(monkeypatch, restore_patches):  # noqa: F811
+    return _fake_module(monkeypatch, restore_patches, "pvaccess", _FAKE_PVACCESS)
+
+
+def _refused(call, address):
+    with pytest.raises(ChannelWriteBlockedError) as info:
+        call()
+    assert info.value.reason == "RAW_CLIENT_WRITE"
+    assert info.value.channel_address == address
+
+
+def test_a_channel_opened_on_ca_is_refused_across_the_put_family(pvaccess):
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+
+    channel = pvaccess.Channel("SR:CA", pvaccess.CA)
+    for call in (
+        lambda: channel.put(1.0),
+        lambda: channel.putDouble(1.0),
+        lambda: channel.asyncPut(1.0, None, None),
+        lambda: channel.parsePut(["1"]),
+        lambda: pvaccess.Channel.putDouble(channel, 1.0),
+    ):
+        _refused(call, "SR:CA")
+    with open_door():
+        assert channel.putDouble(1.0) == "double-ok"
+    assert channel.get() == 3.0
+
+
+def test_a_channel_opened_on_pva_calls_through(pvaccess):
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+
+    for channel in (pvaccess.Channel("SR:DEFAULT"), pvaccess.Channel("SR:PVA", pvaccess.PVA)):
+        assert channel.put(1.0) == "put-ok"
+        assert channel.putDouble(1.0) == "double-ok"
+        assert channel.parsePut(["1"]) == "parse-ok"
+
+
+def test_a_provider_that_only_claims_to_be_pva_is_refused(pvaccess):
+    """The binding takes a subclass of its provider enum; one holding CA that
+    compares equal to anything is still a CA channel."""
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+
+    class Claims(pvaccess.ProviderType):
+        def __eq__(self, other):
+            return True
+
+        __hash__ = int.__hash__
+
+    _refused(lambda: pvaccess.Channel("SR:X", Claims(1)).put(1.0), "SR:X")
+
+
+def test_rebinding_pva_after_the_block_changes_nothing(pvaccess):
+    """The PVA value is the one the module held when it was patched."""
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+    pvaccess.PVA = pvaccess.CA
+
+    _refused(lambda: pvaccess.Channel("SR:X", pvaccess.CA).put(1.0), "SR:X")
+
+
+def test_a_channel_built_before_the_block_is_refused(pvaccess):
+    """No provider was recorded for it, so it is not trusted."""
+    early = pvaccess.Channel("SR:EARLY")
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+
+    _refused(lambda: early.put(1.0), "SR:EARLY")
+
+
+def test_constructing_a_pva_channel_again_on_ca_revokes_it(pvaccess):
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+    channel = pvaccess.Channel("SR:PVA")
+    assert channel.put(1.0) == "put-ok"
+
+    pvaccess.Channel.__init__(channel, "SR:NOW-CA", pvaccess.CA)
+    _refused(lambda: channel.put(1.0), "SR:NOW-CA")
+
+    # A reconstruction that fails leaves the channel untrusted too.
+    pvaccess.Channel.__init__(channel, "SR:PVA")
+    assert channel.put(1.0) == "put-ok"
+    with pytest.raises(TypeError):
+        pvaccess.Channel.__init__(channel, "SR:BAD", "not-a-provider")
+    _refused(lambda: channel.put(1.0), "SR:PVA")
+
+
+def test_a_subclass_inherits_the_provider_its_constructor_passes(pvaccess):
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+
+    class OnCa(pvaccess.Channel):
+        def __init__(self, name):
+            super().__init__(name, pvaccess.CA)
+
+    class OnPva(pvaccess.Channel):
+        pass
+
+    _refused(lambda: OnCa("SR:SUB").putDouble(1.0), "SR:SUB")
+    assert OnPva("SR:SUB").putDouble(1.0) == "double-ok"
+
+
+def test_equality_cannot_borrow_another_channels_provider(pvaccess):
+    """A channel is trusted by identity, so a subclass that compares and hashes
+    equal to a PVAccess channel is still refused."""
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+    trusted = pvaccess.Channel("SR:PVA")
+
+    class Impostor(pvaccess.Channel):
+        def __eq__(self, other):
+            return True
+
+        def __hash__(self):
+            return hash(trusted)
+
+    impostor = Impostor("SR:CA", pvaccess.CA)
+    _refused(lambda: impostor.put(1.0), "SR:CA")
+    assert trusted.put(1.0) == "put-ok"
+
+
+def test_the_record_of_a_pva_channel_does_not_keep_it_alive(pvaccess):
+    """Trust is held weakly: a script that drops its channels does not leak
+    them into the block, and the identity check keeps a later object that
+    reuses the address from inheriting the record."""
+    import gc
+    import weakref
+
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+    channel = pvaccess.Channel("SR:PVA")
+    assert channel.put(1.0) == "put-ok"
+    alive = weakref.ref(channel)
+    del channel
+    gc.collect()
+
+    assert alive() is None
+
+
+def test_a_provider_row_is_not_a_blocked_row(pvaccess):
+    """Without the provider rows the class is left alone: the split is opt-in."""
+    _install()
+
+    assert pvaccess.Channel("SR:CA", pvaccess.CA).put(1.0) == "put-ok"
+
+
+def test_a_second_install_does_not_wrap_the_constructor_twice(pvaccess):
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+    init = pvaccess.Channel.__init__
+    put = pvaccess.Channel.put
+    _install(ca_provider_targets=_PROVIDER_ROWS)
+
+    assert pvaccess.Channel.__init__ is init
+    assert pvaccess.Channel.put is put
+    assert pvaccess.Channel("SR:PVA").put(1.0) == "put-ok"
+
+
 # --- rpc rows ---------------------------------------------------------------
 
 
@@ -586,6 +775,9 @@ def test_address_from_cadef_chid(monkeypatch):
             "SR:BAT",
         ),
         ("pvaccess.Channel", "put", (_Named(getName=lambda: "SR:PVA"), 1), {}, "SR:PVA"),
+        ("pvaccess.MultiChannel", "putAsDoubleArray", (object(), [1.0]), {}, "<unknown>"),
+        ("pvaccess.CaIoc", "putField", (object(), "SR:REC", 1.0), {}, "SR:REC"),
+        ("pvaccess.CaIoc", "iocInit", (object(),), {}, "<unknown>"),
         ("doocs4py", "set", ("XFEL/MAG/Q1/CURRENT", 1), {}, "XFEL/MAG/Q1/CURRENT"),
         (
             "tango.DeviceProxy",

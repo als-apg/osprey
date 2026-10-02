@@ -191,12 +191,15 @@ runtime's call, which takes the same address and value:
    write_channel("DEMO:CORR1:SP", 1.5)
    write_channels({"DEMO:CORR1:SP": 1.5, "DEMO:CORR2:SP": -0.4})
 
-Reads through a client library are unchanged. So are p4p's ``rpc`` and Tango
-commands, which carry no channel value and stay allowed in a kernel, and the
-PVAccess puts (a p4p ``Context.put``, a pvaPy ``Channel.put``): the connector
-does not write PVAccess yet, so ``write_channel`` has no route to a PVAccess
-channel and a raw put is how one is written. A kernel does not limits-check
-it. A
+Reads through a client library are unchanged. So are the rpc calls (p4p's
+``rpc``, pvaPy's ``RpcClient.invoke``) and Tango commands, which carry no
+channel value and stay allowed in a kernel, and the PVAccess puts (a p4p
+``Context.put``, a pvaPy ``Channel.put`` on a channel opened on PVAccess): the
+connector does not write PVAccess yet, so ``write_channel`` has no route to a
+PVAccess channel and a raw put is how one is written. A kernel does not
+limits-check it. A pvaPy channel opened with ``pvaccess.CA`` is a Channel
+Access channel, and its put is refused like ``caput``; so is a pvaPy
+``MultiChannel`` write. A
 ``RunEngine`` driving ophyd or ophyd-async devices inside a cell is refused
 the same way, because its devices end in a raw put; submit the plan to a
 Bluesky lane queue instead, where it runs unchanged. The refusal is filed in

@@ -78,7 +78,9 @@ rather than a channel write, or passes because it writes no device at all.
 :data:`_ARMED_BLOCKED`, :data:`_ARMED_CHECKED`, :data:`_ARMED_RPC` and
 :data:`_ARMED_PASSED` partition :data:`_CLIENT_WRITE_TARGETS` by that answer,
 each entry with its reason, so "which client calls an armed run lets through"
-has a written answer.
+has a written answer. One class answers per channel rather than per method: a
+pvaPy ``Channel`` opened on Channel Access is refused like a ``caput``, and
+only one opened on PVAccess keeps the limits check (:data:`_ARMED_CA_PROVIDER`).
 ``tests/services/python_executor/execution/test_limits_parity.py`` holds the
 partition to the table.
 """
@@ -129,6 +131,18 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # here. One name per family is listed so the table still names the library
     # and so a test that puts back what a guard patched covers all three.
     ("pvaccess.Channel", ("put", "putGet", "asyncPut", "parsePut", "parsePutGet")),
+    # ``MultiChannel`` writes a whole list of channels in one call, ``RpcClient``
+    # sends an rpc, and the server classes put values on the wire the way p4p's
+    # SharedPV does. ``PvaMirrorServer`` inherits ``update`` from ``PvaServer``
+    # and is named anyway, so the row survives a binding that stops sharing it.
+    # ``CaIoc`` runs an IOC inside the script, and a record of it can carry an
+    # output link to a real channel: setting the record, or starting the IOC
+    # that scans it, writes that channel.
+    ("pvaccess.MultiChannel", ("put", "putAsDoubleArray")),
+    ("pvaccess.RpcClient", ("invoke",)),
+    ("pvaccess.PvaServer", ("update", "updateUnchecked")),
+    ("pvaccess.PvaMirrorServer", ("update", "updateUnchecked")),
+    ("pvaccess.CaIoc", ("putField", "dbpf", "iocInit", "start")),
     # --- DOOCS (doocs4py). The client the shipped DOOCS connector writes
     # through (``osprey_connectors.control_system.doocs_connector``), so a
     # readonly script on a DOOCS deployment can reach the machine with the one
@@ -355,6 +369,24 @@ _ARMED_BLOCKED: dict[tuple[str, str], str] = {
         "tango.Group",
         "write_attribute_asynch",
     ): "Tango attribute write fanned out to every device the group matched",
+    ("pvaccess.MultiChannel", "put"): (
+        "pvaPy write to a list of channels, on either provider; put through the connector"
+    ),
+    ("pvaccess.MultiChannel", "putAsDoubleArray"): (
+        "pvaPy write to a list of channels, on either provider; put through the connector"
+    ),
+    ("pvaccess.CaIoc", "putField"): (
+        "sets a record of an in-process IOC, whose output link can write a real channel"
+    ),
+    ("pvaccess.CaIoc", "dbpf"): (
+        "sets a record of an in-process IOC, whose output link can write a real channel"
+    ),
+    ("pvaccess.CaIoc", "iocInit"): (
+        "starts an in-process IOC, whose scanned records can write real channels"
+    ),
+    ("pvaccess.CaIoc", "start"): (
+        "starts an in-process IOC, whose scanned records can write real channels"
+    ),
 }
 
 #: PVAccess client puts an armed run lets through to the limits check rather
@@ -364,6 +396,10 @@ _ARMED_BLOCKED: dict[tuple[str, str], str] = {
 #: it had before the raw-put block: the approval hook asks, and with limits
 #: checking on each put is validated before it reaches the network. It moves to
 #: :data:`_ARMED_BLOCKED` once the connector writes PVAccess.
+#:
+#: A pvaPy ``Channel`` is the exception inside the exception: it speaks Channel
+#: Access as well, and only its PVAccess channels are answered here. See
+#: :data:`_ARMED_CA_PROVIDER`.
 _ARMED_CHECKED: dict[tuple[str, str], str] = {
     ("p4p.client.raw.Context", "put"): (
         "PVAccess channel write through the raw client; limits-checked, no connector route yet"
@@ -378,19 +414,41 @@ _ARMED_CHECKED: dict[tuple[str, str], str] = {
         "PVAccess channel write through the cothread client; limits-checked, no connector route yet"
     ),
     ("pvaccess.Channel", "put"): (
-        "pvaPy channel write, swept with its typed setters; limits-checked, no connector route yet"
+        "pvaPy write on a PVAccess channel, swept with its typed setters; limits-checked, "
+        "no connector route yet"
     ),
     ("pvaccess.Channel", "putGet"): (
-        "pvaPy channel write, swept with its typed setters; limits-checked, no connector route yet"
+        "pvaPy write on a PVAccess channel, swept with its typed setters; limits-checked, "
+        "no connector route yet"
     ),
     ("pvaccess.Channel", "asyncPut"): (
-        "pvaPy channel write, swept with its family; limits-checked, no connector route yet"
+        "pvaPy write on a PVAccess channel, swept with its family; limits-checked, "
+        "no connector route yet"
     ),
     ("pvaccess.Channel", "parsePut"): (
         "pvaPy JSON put; refused by the limits check, which has no value to bound"
     ),
     ("pvaccess.Channel", "parsePutGet"): (
         "pvaPy JSON put; refused by the limits check, which has no value to bound"
+    ),
+}
+
+#: Classes of :data:`_ARMED_CHECKED` that also speak Channel Access, each with
+#: its reason. pvaPy opens a ``Channel`` on PVAccess by default and on Channel
+#: Access when it is handed ``pvaccess.CA`` — and a put on that channel is a raw
+#: Channel Access write, the same one ``caput`` makes, which the connector does
+#: carry. So an armed run answers the class's :data:`_ARMED_CHECKED` rows per
+#: channel: a channel opened on PVAccess keeps the limits check, and every other
+#: channel is refused like :data:`_ARMED_BLOCKED`. The binding gives a channel no
+#: way to name its provider, so the armed block records it as the channel is
+#: constructed; a channel it saw no provider for — built before the block was
+#: armed, or by a route around the constructor — is refused, not trusted. The
+#: constructor reading and the put sweep are pvaPy ``Channel``'s own, so the
+#: table is that one class rather than a place to list others.
+_ARMED_CA_PROVIDER: dict[str, str] = {
+    "pvaccess.Channel": (
+        "a pvaPy channel opened on pvaccess.CA is a raw Channel Access write; put through "
+        "the connector"
     ),
 }
 
@@ -436,6 +494,7 @@ _ARMED_RPC: dict[tuple[str, str], str] = {
         "PyTango.DeviceProxy",
         "command_inout",
     ): "a Tango command, reached under the legacy PyTango name",
+    ("pvaccess.RpcClient", "invoke"): "a pvaPy rpc: an arbitrary payload, not a channel write",
 }
 
 #: Client entry points an armed run lets through: they write no device, so the
@@ -448,12 +507,17 @@ _ARMED_PASSED: dict[tuple[str, str], str] = {
     ("p4p.server.asyncio.SharedPV", "post"): "server side: serves a PV, writes no device",
     ("p4p.server.asyncio.SharedPV", "open"): "server side: serves a PV, writes no device",
     ("tango.DeviceProxy", "put_property"): "writes the Tango database, not a device channel",
+    ("pvaccess.PvaServer", "update"): "server side: serves a PV, writes no device",
+    ("pvaccess.PvaServer", "updateUnchecked"): "server side: serves a PV, writes no device",
+    ("pvaccess.PvaMirrorServer", "update"): "server side: serves a PV, writes no device",
+    ("pvaccess.PvaMirrorServer", "updateUnchecked"): ("server side: serves a PV, writes no device"),
 }
 
 __all__ = [
     "READONLY_DENIED_IMPORTS",
     "_CLIENT_WRITE_TARGETS",
     "_ARMED_BLOCKED",
+    "_ARMED_CA_PROVIDER",
     "_ARMED_CHECKED",
     "_ARMED_PASSED",
     "_ARMED_RPC",

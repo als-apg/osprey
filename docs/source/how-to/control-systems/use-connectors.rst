@@ -159,8 +159,9 @@ Pick a control system
 
       pvAccess **RPC services** are refused too, and for a different reason.
       Code the agent runs through the Python executor cannot call
-      ``Context.rpc(...)``: it is blocked at runtime and no approval can let it
-      through, because an rpc payload carries an arbitrary request -- there is
+      ``Context.rpc(...)``, or pvaPy's ``RpcClient(...).invoke(...)``, in a
+      readonly run or wherever limits checking is on: it is blocked at
+      runtime and no approval can let it through, because an rpc payload carries an arbitrary request -- there is
       no way to tell a read from a write, and nothing for limits checking to
       validate. Use ``channel_read`` and ``channel_write`` for the operation
       you actually need.

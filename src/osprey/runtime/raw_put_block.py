@@ -13,8 +13,12 @@ channel the call was aimed at. Where ``osprey_connectors`` is not importable
 there is no connector and no door, and the refusal is a stdlib ``RuntimeError``
 carrying the marker the caller passed. The rpc and Tango command rows are
 refused with their own texts when the caller asks, and left alone otherwise.
-Armed mode patches exactly the rows it is passed: no escape route, no process
-spawning and no ``ctypes`` loader, all of which the readonly mode closes.
+A provider row answers per channel: pvaPy's ``Channel`` speaks Channel Access
+as well as PVAccess, so its constructor is wrapped to record the provider each
+channel was opened on, and a put is refused like any raw put unless the channel
+is a PVAccess one, which calls through untouched. Armed mode patches exactly
+the rows it is passed: no escape route, no process spawning and no ``ctypes``
+loader, all of which the readonly mode closes.
 
 ``install("readonly", ...)`` replaces every write entry point a table names with
 a function that refuses, and closes every route out of Python that could reach
@@ -66,6 +70,7 @@ import inspect
 import logging
 import platform
 import sys
+import weakref
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
@@ -189,8 +194,14 @@ def _find_channel(dotted: str, attr: str, args: tuple, kwargs: dict) -> Any:
         # Context.put(self, name, values, ...); the Context's own ``name`` is
         # the provider, not a channel.
         return kwargs.get("name", args[1] if len(args) > 1 else None)
-    if root == "pvaccess":
+    if dotted == "pvaccess.Channel":
         return args[0].getName()
+    if dotted == "pvaccess.CaIoc":
+        # putField/dbpf(name, value); iocInit and start name no record.
+        return args[1] if len(args) > 1 else None
+    if root == "pvaccess":
+        # A MultiChannel keeps the names it was built from to itself.
+        return None
     if root == "caproto":
         if dotted.endswith(".PV"):
             return args[0].name
@@ -500,6 +511,21 @@ def _install_readonly(
     _patch_rows("readonly guard", eager_targets, deferred_targets, _readonly_replacement)
 
 
+def _opened_on_pva(pva: Any, args: tuple) -> bool:
+    """Whether a pvaPy constructor call that succeeded opened PVAccess.
+
+    pvaPy takes the provider as an optional second positional argument, and
+    no keyword, and defaults to PVAccess without one. *pva* is the binding's
+    own ``PVA``, captured when the constructor was patched, so a script that
+    rebinds ``pvaccess.PVA`` changes nothing here. The type is compared
+    exactly because the binding accepts a subclass of its provider enum, and a
+    subclass holding ``CA`` can claim to equal anything.
+    """
+    if len(args) == 1:
+        return True
+    return len(args) == 2 and type(args[1]) is type(pva) and args[1] == pva
+
+
 def _install_armed(
     *,
     blocked_targets: Rows,
@@ -507,6 +533,7 @@ def _install_armed(
     refuse_rpc: bool,
     marker: str,
     rpc_refusals: Mapping[str, str],
+    ca_provider_targets: Rows = (),
 ) -> None:
     """Refuse raw client puts the door did not let through; optionally rpc."""
     if not isinstance(marker, str) or not marker:
@@ -523,9 +550,39 @@ def _install_armed(
             if text is None:
                 raise ValueError(f"armed mode has no rpc refusal text for {dotted}.{attr}")
             rpc_texts[(dotted, attr)] = text
+    # A provider row is patched with its constructor, which is what records the
+    # provider each channel was opened on.
+    provider = tuple((dotted, ("__init__", *attrs)) for dotted, attrs in ca_provider_targets)
+    provider_owners = {dotted for dotted, _attrs in provider}
     blocked_rows = {(dotted, attr) for dotted, attrs in blocked for attr in attrs}
     blocked_owners = {dotted for dotted, _attrs in blocked}
     logger = logging.getLogger(_LOGGER_NAME)
+
+    # Channels opened on PVAccess, keyed by ``id`` and held weakly, so an entry
+    # leaves with its channel. A lookup checks the entry IS the channel asked
+    # about: keying by identity rather than by the channel itself means a
+    # subclass's ``__eq__``/``__hash__`` cannot make one channel answer for
+    # another.
+    pva_channels: Any = weakref.WeakValueDictionary()
+
+    def _is_pva(channel: Any) -> bool:
+        return pva_channels.get(id(channel)) is channel
+
+    def _recording_init(dotted: str, original: Any) -> Any:
+        # Read now, while the client module is being patched and before the
+        # script holds it.
+        pva = getattr(sys.modules.get(dotted.split(".")[0]), "PVA", None)
+
+        def _osprey_armed_init(self: Any, *args: Any, **kwargs: Any) -> Any:
+            # Forgotten first: a channel constructed again is trusted only for
+            # the provider the new call names, and not at all if it fails.
+            pva_channels.pop(id(self), None)
+            result = original(self, *args, **kwargs)
+            if _opened_on_pva(pva, args):
+                pva_channels[id(self)] = self
+            return result
+
+        return _osprey_armed_init
 
     def _blocked(dotted: str, attr: str, original: Any) -> Any:
         def _refuse(args: tuple, kwargs: dict) -> Exception:
@@ -551,6 +608,16 @@ def _install_armed(
 
         return _osprey_armed_put
 
+    def _provider_gated(dotted: str, attr: str, original: Any) -> Any:
+        refuse = _blocked(dotted, attr, original)
+
+        def _osprey_armed_put(*args: Any, **kwargs: Any) -> Any:
+            if args and _is_pva(args[0]):
+                return original(*args, **kwargs)
+            return refuse(*args, **kwargs)
+
+        return _osprey_armed_put
+
     def _refused_rpc(text: str) -> Any:
         def _osprey_armed_rpc_refuse(*_args: Any, **_kwargs: Any) -> Any:
             raise RuntimeError(text)
@@ -559,15 +626,26 @@ def _install_armed(
 
     def _armed_replacement(dotted: str, attr: str, original: Any, owner: Any) -> Any:
         rpc_text = rpc_texts.get((dotted, attr))
+        by_provider = dotted in provider_owners
         # The owner fallback is the pvaPy sweep's: its verbs are blocked with
         # the row that named the class.
-        if rpc_text is None and (dotted, attr) not in blocked_rows and dotted not in blocked_owners:
+        if (
+            rpc_text is None
+            and not by_provider
+            and (dotted, attr) not in blocked_rows
+            and dotted not in blocked_owners
+        ):
             return original
 
         def marked(function: Any) -> Any:
-            new = (
-                _refused_rpc(rpc_text) if rpc_text is not None else _blocked(dotted, attr, function)
-            )
+            if rpc_text is not None:
+                new = _refused_rpc(rpc_text)
+            elif by_provider and attr == "__init__":
+                new = _recording_init(dotted, function)
+            elif by_provider:
+                new = _provider_gated(dotted, attr, function)
+            else:
+                new = _blocked(dotted, attr, function)
             setattr(new, _ARMED_ATTR, True)
             for meta in ("__name__", "__qualname__", "__doc__"):
                 try:
@@ -581,7 +659,7 @@ def _install_armed(
     # Every row is deferred: an armed script may import any client, so the
     # rows are replaced as their module finishes importing (or now, when it
     # already has), and a client the script never imports is never loaded.
-    _patch_rows("armed raw-put block", (), blocked + rpc, _armed_replacement)
+    _patch_rows("armed raw-put block", (), blocked + rpc + provider, _armed_replacement)
 
 
 def install(mode: str, **contract: Any) -> None:
@@ -596,13 +674,17 @@ def install(mode: str, **contract: Any) -> None:
     refused call raises ``RuntimeError(refusal)``.
 
     ``"armed"`` takes ``blocked_targets``, ``rpc_targets``, ``refuse_rpc``,
-    ``marker`` and ``rpc_refusals``. A blocked row calls through while a
-    connector holds the write door open; otherwise it logs a warning and raises
-    ``ChannelWriteBlockedError`` with reason ``RAW_CLIENT_WRITE`` — or, where
+    ``marker``, ``rpc_refusals`` and ``ca_provider_targets``. A blocked row
+    calls through while a connector holds the write door open; otherwise it
+    logs a warning and raises ``ChannelWriteBlockedError`` with reason
+    ``RAW_CLIENT_WRITE`` — or, where
     ``osprey_connectors`` is not importable, ``RuntimeError`` carrying
     *marker*. With *refuse_rpc*, each rpc row raises ``RuntimeError`` with the
     text *rpc_refusals* keys under the longest dotted prefix of ``dotted.attr``;
-    without it the rpc rows are left alone. Nothing else is touched.
+    without it the rpc rows are left alone. An optional ``ca_provider_targets``
+    names pvaPy-shaped classes whose puts are refused like a blocked row unless
+    the channel was constructed on PVAccess, which calls through. Nothing else
+    is touched.
     """
     if mode == "readonly":
         _install_readonly(**contract)

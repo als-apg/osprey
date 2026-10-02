@@ -457,3 +457,52 @@ def test_execution_mode_write_never_renders(tmp_path):
     for enabled in ({"controls"}, {"controls", "bluesky"}):
         content = _render_template_directly("epics", enabled)
         assert 'execution_mode: "write"' not in content, enabled
+
+
+#: The pvaccess example lines, stem before the ``#``, with the annotation each
+#: must carry. The split follows the provider: a Channel Access channel's put
+#: is refused, a pvAccess channel's put is the PVA exception.
+PVACCESS_LINES = {
+    "import pvaccess": "# A raw client: reads skip audit",
+    "ch.get()": "# DO NOT: bypasses audit logging; use read_channel",
+    "ch.monitor(callback)": "# DO NOT: bypasses audit logging; use read_channel",
+    "ch.putDouble(2.0)": "# PVA channel only: approval + limits check",
+    "ca.put(150)": RAW_PUT_ANNOTATION,
+    "ca.putDouble(150.0)": RAW_PUT_ANNOTATION,
+    "pvaccess.MultiChannel(names).putAsDoubleArray(v)": RAW_PUT_ANNOTATION,
+    'pvaccess.RpcClient("SR:SVC:ORBIT").invoke(req)': "# Not approvable — refused at runtime",
+}
+
+
+@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator"])
+def test_the_pvaccess_block_splits_on_the_provider(cs_type):
+    """pvaPy speaks both protocols, so the rule names both channels: the CA
+    one's puts refused like ``epics.caput``, the PVA one's under the PVA
+    exception, MultiChannel writes refused, and the rpc not approvable."""
+    content = _render_template_directly(cs_type, set())
+    annotated = {
+        line.split("#", 1)[0].strip(): "#" + line.split("#", 1)[1]
+        for line in content.splitlines()
+        if "#" in line
+    }
+
+    assert 'ca = pvaccess.Channel("SR:MAG:QF:01:CURRENT:SP", pvaccess.CA)' in content
+    for stem, annotation in PVACCESS_LINES.items():
+        assert stem in annotated, f"{cs_type}: pvaccess example missing: {stem!r}"
+        assert annotated[stem].strip() == annotation, f"{cs_type}: {stem!r} -> {annotated[stem]!r}"
+    prose = " ".join(content.split())
+    assert "the split follows the channel, not the library" in prose
+    assert "its puts are refused like `epics.caput`" in prose
+    assert "A `MultiChannel` write is refused whichever protocol it speaks" in prose
+    # The p4p block above is untouched: still exactly one ``ctxt.put(`` line.
+    assert len([line for line in content.splitlines() if line.startswith("ctxt.put(")]) == 1
+
+
+@pytest.mark.parametrize("cs_type", ["doocs", "tango", "opcua", "labview", "mock"])
+def test_non_epics_branches_have_no_pvaccess_lines(cs_type):
+    """pvaPy is an EPICS client; naming it elsewhere would describe a guard
+    the branch's deployment has no use for."""
+    content = _render_template_directly(cs_type, set())
+
+    assert "pvaccess" not in content
+    assert "RpcClient" not in content
