@@ -1284,6 +1284,14 @@ class _SharedRenderInputs(NamedTuple):
     names each page it finds.
     """
 
+    views_omitted_reported: set[str] | None = None
+    """Facility views this build has already named as not written.
+
+    Every render pass of a build asks the same views of the same profile, so an
+    omitted view is one fact about the build rather than one per render. ``None``
+    for a single render, which names each view it omits.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2365,7 +2373,13 @@ def _render_project(
         # manifest so both are taken over a render that already carries them.
         from osprey.facility.render import render_facility_outputs
 
-        render_facility_outputs(render_dir, shared.facility, rendered, data_root / "facility")
+        render_facility_outputs(
+            render_dir,
+            shared.facility,
+            rendered,
+            data_root / "facility",
+            omitted_reported=shared.views_omitted_reported,
+        )
         progress("  ✓ Wrote the facility file and its views")
         _warn_knowledge_links(
             data_root / "facility", shared.facility, shared.knowledge_links_reported, repo_root
@@ -3719,6 +3733,7 @@ def _build_repo(
             graph_facts_reported=set(),
             model_facts_reported=set(),
             knowledge_links_reported=set(),
+            views_omitted_reported=set(),
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,
