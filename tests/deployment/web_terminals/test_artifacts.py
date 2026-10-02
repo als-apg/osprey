@@ -31,7 +31,7 @@ from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL, PROXY_
 
 def _config(users):
     return {
-        "facility": {"prefix": "als", "name": "ERF"},
+        "facility": {"prefix": "als"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {
@@ -77,6 +77,22 @@ def test_write_web_terminal_artifacts_defaults_to_the_repos_build_zone(tmp_path,
     assert not (tmp_path / "docker-compose.web.yml").exists()
     assert not (tmp_path / "nginx").exists()
     assert {p.parent for p in written} <= {tmp_path / "build", tmp_path / "build" / "nginx"}
+
+
+def test_the_written_landing_page_is_titled_with_the_builds_facility_name(tmp_path):
+    """The config's own `facility.name` names nothing; the build's identity does."""
+    build = tmp_path / "build"
+    build.mkdir()
+    document = {"schema": "osprey.facility.facility/1", "identity": {"code": "erf", "name": "ERF"}}
+    (build / "facility.json").write_text(json.dumps(document), encoding="utf-8")
+    config = _config(["alice"])
+    config["facility"]["name"] = "Config Name"
+
+    write_web_terminal_artifacts(config, tmp_path)
+
+    landing = (build / "nginx" / "landing.html").read_text(encoding="utf-8")
+    assert "<title>ERF Web Terminals</title>" in landing
+    assert "Config Name" not in landing
 
 
 def test_write_web_terminal_artifacts_reflects_object_form_users(tmp_path):

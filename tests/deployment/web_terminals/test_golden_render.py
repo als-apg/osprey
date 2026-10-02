@@ -81,9 +81,11 @@ def _rendered_repo_id() -> str:
     return repo_identity(resolve_repo_root(EXAMPLE_CONFIG))
 
 
+#: The facility name the deploy hands the render from the build's identity.
+FACILITY_NAME = "Demo Light Source"
+
 EXAMPLE_CONFIG: dict = {
     "facility": {
-        "name": "Demo Light Source",
         "prefix": "dls",
     },
     "system": {"timezone": "America/Los_Angeles"},
@@ -135,19 +137,19 @@ def test_golden_fixtures_exist() -> None:
 
 def test_render_matches_golden_compose_byte_for_byte() -> None:
     """`docker-compose.web.yml` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG)
+    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
     assert artifacts["docker-compose.web.yml"] == _read_golden("docker-compose.web.yml")
 
 
 def test_render_matches_golden_nginx_conf_byte_for_byte() -> None:
     """`nginx/nginx.conf` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG)
+    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
     assert artifacts["nginx/nginx.conf"] == _read_golden("nginx.conf")
 
 
 def test_render_matches_golden_landing_html_byte_for_byte() -> None:
     """`nginx/landing.html` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG)
+    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
     assert artifacts["nginx/landing.html"] == _read_golden("landing.html")
 
 
@@ -204,7 +206,7 @@ def test_golden_tls_custom_port_fixture_exists() -> None:
 def test_render_matches_golden_tls_custom_port_nginx_conf_byte_for_byte() -> None:
     """`nginx/nginx.conf` for the non-default-TLS-port facility is byte-identical
     to its committed variant baseline."""
-    artifacts = render_web_terminals(_tls_custom_port_config())
+    artifacts = render_web_terminals(_tls_custom_port_config(), facility_name=FACILITY_NAME)
     assert artifacts["nginx/nginx.conf"] == _read_golden(_TLS_CUSTOM_PORT_GOLDEN)
 
 
@@ -253,7 +255,7 @@ def test_persona_users_render_persona_sublabel_badge() -> None:
     persona name as a sublabel badge (the demo's alice=operator / bob=physicist
     shape). The badge span is distinct from the `.landing-card-sublabel` CSS rule,
     so counting `class="landing-card-sublabel"` counts only rendered badges."""
-    artifacts = render_web_terminals(_persona_config())
+    artifacts = render_web_terminals(_persona_config(), facility_name=FACILITY_NAME)
     landing = artifacts["nginx/landing.html"]
 
     assert landing.count('class="landing-card-sublabel"') == 2
@@ -266,7 +268,7 @@ def test_bare_string_users_render_no_persona_sublabel() -> None:
     NO persona sublabel badge — resolve_personas() returns ``persona=None``, the
     caller omits the ``sublabel`` key, and the template's guard skips the span so
     the card stays a plain {label, url} card, unchanged from pre-persona output."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG)
+    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
     landing = artifacts["nginx/landing.html"]
 
     assert 'class="landing-card-sublabel"' not in landing
@@ -286,14 +288,14 @@ def _regenerate() -> None:
     running it.
     """
     repo_id = _rendered_repo_id()
-    artifacts = render_web_terminals(EXAMPLE_CONFIG)
+    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
     written = {
         "docker-compose.web.yml": artifacts["docker-compose.web.yml"],
         "nginx.conf": artifacts["nginx/nginx.conf"],
         "landing.html": artifacts["nginx/landing.html"],
-        _TLS_CUSTOM_PORT_GOLDEN: render_web_terminals(_tls_custom_port_config())[
-            "nginx/nginx.conf"
-        ],
+        _TLS_CUSTOM_PORT_GOLDEN: render_web_terminals(
+            _tls_custom_port_config(), facility_name=FACILITY_NAME
+        )["nginx/nginx.conf"],
     }
     for name, text in written.items():
         path = _GOLDEN_DIR / name

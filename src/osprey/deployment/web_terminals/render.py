@@ -78,7 +78,6 @@ from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 # A stdlib-only leaf of the sidecar: the throttle's defaults and its one
 # validity predicate, shared with the sidecar that builds the throttle.
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
-from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
 
@@ -788,6 +787,7 @@ def render_web_terminals(
     phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
     proxy_env_names: tuple[str, ...] = (),
+    facility_name: str = "",
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -979,6 +979,12 @@ def render_web_terminals(
             name and its lowercase twin, both ``${NAME:-}``; a name left out
             renders neither. ``()`` (the default, and the scaffold preview)
             renders none.
+        facility_name: The facility's display name: the landing page's title
+            and the sign-in page's ``OSPREY_WEB_APP_NAME``. The deploy resolves
+            it from the build's facility identity through
+            :func:`osprey.deployment.web_terminals.artifacts.resolve_render_inputs`,
+            because this function reads no file. ``""`` (the default) emits no
+            sign-in name and leaves the landing page its own title.
 
     Returns:
         Mapping of output-relative-path to rendered content: the three artifacts
@@ -1578,7 +1584,7 @@ def render_web_terminals(
         # unconditionally and gated in the template, so an unset value emits no
         # env line and the page keeps its built-in fallbacks.
         "web_theme": str(as_dict(root.get("web")).get("theme") or ""),
-        "web_app_name": resolve_facility_name(root, ""),
+        "web_app_name": facility_name,
         # The proxy names that hold a value, in the order PROXY_ENV_NAMES
         # spells them, so the render does not depend on the caller's order.
         "proxy_env_names": tuple(name for name in PROXY_ENV_NAMES if name in proxy_env_names),
@@ -1643,7 +1649,7 @@ def render_web_terminals(
 
     token_login_names = frozenset(token_login_users(root))
     landing_ctx = {
-        "facility_name": resolve_facility_name(root, ""),
+        "facility_name": facility_name,
         "groups": _build_groups(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),

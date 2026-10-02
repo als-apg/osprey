@@ -5,8 +5,8 @@
 label. Both read the identity of the render their config sits in: the facility
 file's name, else the project name, else each site's own default.
 
-The web-terminal landing title reads the project config, under both spellings
-of the key.
+The web-terminal landing title is handed the identity's name by its caller;
+``tests/deployment/web_terminals/test_render_facility_name.py`` pins it.
 """
 
 from __future__ import annotations
@@ -173,62 +173,3 @@ def test_pipeline_context_facility_name(
         assert registry.facility_name == _expected(config_keys, file_name, _CONTEXT_DEFAULT)
     finally:
         reset()
-
-
-# ---------------------------------------------------------------------------
-# Web-terminal landing title
-# ---------------------------------------------------------------------------
-
-
-def _web_terminals_config(facility_block: dict) -> dict:
-    """Minimal multi-user config the landing render accepts."""
-    return {
-        **facility_block,
-        "registry": {"url": "git.example.org:5050/physics/demo-profiles"},
-        "deploy": {"host": "demo-deploy", "fqdn": "demo-deploy.example.org"},
-        "modules": {
-            "web_terminals": {
-                "enabled": True,
-                "users": ["alice"],
-            }
-        },
-    }
-
-
-@pytest.mark.parametrize(
-    ("facility_block", "expected"),
-    [
-        (
-            {"facility": {"name": "Canonical Light Source", "prefix": "cls"}},
-            "Canonical Light Source",
-        ),
-        (
-            {"facility": {"prefix": "lls"}, "facility_name": "Legacy Light Source"},
-            "Legacy Light Source",
-        ),
-        (
-            {
-                "facility": {"name": "Canonical Light Source", "prefix": "cls"},
-                "facility_name": "Legacy Light Source",
-            },
-            "Canonical Light Source",
-        ),
-    ],
-    ids=["facility.name", "legacy facility_name", "canonical wins over legacy"],
-)
-def test_landing_title_facility_name(facility_block, expected):
-    """The landing page title resolves both spellings."""
-    from osprey.deployment.web_terminals.render import render_web_terminals
-
-    landing = render_web_terminals(_web_terminals_config(facility_block))["nginx/landing.html"]
-    assert f"<title>{expected} Web Terminals</title>" in landing
-
-
-def test_landing_title_without_any_facility_name_keeps_its_own_default():
-    """Neither spelling set: the template's own OSPREY fallback, not a blank title."""
-    from osprey.deployment.web_terminals.render import render_web_terminals
-
-    landing = render_web_terminals(_web_terminals_config({"facility": {"prefix": "dls"}}))[
-        "nginx/landing.html"
-    ]
-    assert "<title>OSPREY Web Terminals</title>" in landing

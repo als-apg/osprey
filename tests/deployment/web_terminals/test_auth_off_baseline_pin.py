@@ -191,7 +191,7 @@ from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
-from .test_golden_render import EXAMPLE_CONFIG, _rendered_repo_id
+from .test_golden_render import EXAMPLE_CONFIG, FACILITY_NAME, _rendered_repo_id
 
 _BASELINE_DIR = Path(__file__).parent / "golden" / "pre_audit_roles"
 
@@ -595,14 +595,14 @@ def _token_render() -> dict[str, str]:
     `_auth_tls_context` supplies. The explicit spelling is
     :func:`_explicit_token_render`, and the two are pinned equal below.
     """
-    return render_web_terminals(EXAMPLE_CONFIG)
+    return render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
 
 
 def _explicit_token_render() -> dict[str, str]:
     """The same posture written out: ``auth: {method: token}``, roles off."""
     explicit = copy.deepcopy(EXAMPLE_CONFIG)
     explicit["modules"]["web_terminals"]["auth"] = {"method": "token"}
-    return render_web_terminals(explicit)
+    return render_web_terminals(explicit, facility_name=FACILITY_NAME)
 
 
 def _is_comment(line: str) -> bool:
