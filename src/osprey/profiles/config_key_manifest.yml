@@ -144,9 +144,8 @@ keys:
       ships it live (`facility.prefix: ca`) because that preset is the one that
       deploys the web-terminal stack; `ariel-standalone` and
       `channel-finder-standalone` carry it commented, and `hello-world` omits
-      it. The ONLY enforcement anywhere is a non-emptiness lint
-      (deployment/web_terminals/lint.py `_check_empty_facility_prefix`); no
-      charset or length rule exists in code. See notes.prefix_rule_drift.
+      it. Nothing in the tree validates it: no emptiness, charset or length
+      rule exists in code. See notes.prefix_rule_drift.
     default: ''
 
   # ── Container runtime / deployment ──────────────────────────────────
@@ -3504,8 +3503,7 @@ notes:
       plus hyphens, 2-6 chars, as a hard requirement was the facility-config
       schema reference, which has been removed along with the rest of the
       facility-config surface. Nothing enforces that rule and nothing claims it
-      any more: the only validation in the tree is a non-emptiness lint at
-      deployment/web_terminals/lint.py `_check_empty_facility_prefix`.
+      any more: nothing in the tree validates facility.prefix.
     inert: >-
       Stronger than unenforced. facility.prefix reaches only two container-name
       interpolations and the personas path — never an nginx location key or a

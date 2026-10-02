@@ -263,8 +263,7 @@ omission.
    The 2-6-character lowercase-alnum-plus-hyphens rule this entry was opened
    against came from a schema document that no longer exists (it went with the
    `facility-config.yml` surface). The convention survives in prose only, and
-   the only validation anywhere is a non-emptiness lint
-   (`deployment/web_terminals/lint.py`, `_check_empty_facility_prefix`).
+   nothing in the tree validates `facility.prefix`.
 
    The absence is real, not an artifact of an incomplete search. The same lint
    module defines `_USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")`

@@ -240,7 +240,6 @@ def lint_web_terminals(
             profile_root=profile_root,
         )
     )
-    findings.extend(_check_empty_facility_prefix(root, users))
     findings.extend(_check_unknown_image_source(web_terminals))
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
@@ -2038,37 +2037,6 @@ def _check_unknown_persona_reference(
                 )
             )
     return findings
-
-
-def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """Every web container name is derived from ``facility.prefix``:
-    ``<prefix>-nginx`` and ``<prefix>-web-<user>`` (see the compose template /
-    :mod:`osprey.deployment.web_terminals.seeding`). An empty prefix renders
-    leading-dash names like ``-nginx``, which Docker rejects — and only at
-    ``osprey up``, which never runs this lint pass. This check pulls that
-    failure forward to lint/build time.
-
-    The effective prefix is derived exactly as ``render.py`` derives it
-    (``facility.get("prefix") or ""``). Scoped to a configured roster — an
-    empty ``users[]`` renders no per-user services and is handled by
-    :func:`_check_empty_users` instead.
-    """
-    if not users:
-        return []
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
-    if facility_prefix:
-        return []
-    return [
-        Finding(
-            severity="error",
-            code="web_terminals.empty_facility_prefix",
-            message=(
-                "modules.web_terminals has users configured but the effective "
-                "facility.prefix is empty; web container names render as "
-                "'-nginx'/'-web-<user>', which Docker rejects at `osprey up`"
-            ),
-        )
-    ]
 
 
 # --- mode-coherence checks --------------------------------------------------
