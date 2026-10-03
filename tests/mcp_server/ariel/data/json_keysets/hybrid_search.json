@@ -1,0 +1,23 @@
+{
+  "$": "dict",
+  "diagnostics": "list(empty)",
+  "entries": "list",
+  "entries[]": "dict",
+  "entries[].author": "str",
+  "entries[].entry_id": "str",
+  "entries[].entry_url": "str",
+  "entries[].raw_text": "str",
+  "entries[].raw_text_length": "int",
+  "entries[].raw_text_truncated": "bool",
+  "entries[].score": "float",
+  "entries[].source_system": "str",
+  "entries[].summary": "str",
+  "entries[].timestamp": "str",
+  "expanded_terms": "list(empty)",
+  "mode": "str",
+  "query": "str",
+  "reasoning": "str",
+  "results_found": "int",
+  "sources": "list",
+  "sources[]": "str"
+}

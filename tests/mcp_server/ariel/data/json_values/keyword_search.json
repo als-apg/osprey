@@ -1,0 +1,36 @@
+{
+  "diagnostics": [],
+  "entries": [
+    {
+      "author": "operator",
+      "entry_id": "keyset-001",
+      "entry_url": "https://elog.example/entry/keyset-001",
+      "raw_text": "Beam lost at injection after the kicker timing drifted. Step 0: checked BPM 0 orbit and corrector settings. Step 1: checked BPM 1 orbit and corrector settings. Step 2: checked BPM 2 orbit and corrector settings. Step 3: checked BPM 3 orbit and corrector settings. Step 4: checked BPM 4 orbit and corrector settings. Step 5: checked BPM 5 orbit and corrector settings. Step 6: checked BPM 6 orbit and corrector settings. Step 7: checked BPM 7 orbit and corrector settings. Step 8: checked BPM 8 orbit ",
+      "raw_text_length": 3275,
+      "raw_text_truncated": true,
+      "score": 0.75,
+      "source_system": "Example eLog",
+      "summary": "Injection beam loss traced to kicker timing drift.",
+      "timestamp": "2024-06-01T12:00:00+00:00"
+    },
+    {
+      "author": "physicist",
+      "entry_id": "keyset-002",
+      "entry_url": "https://elog.example/entry/keyset-002",
+      "raw_text": "Kicker timing restored; injection efficiency back to nominal.",
+      "score": 0.5,
+      "source_system": "Example eLog",
+      "summary": "Kicker timing fixed.",
+      "timestamp": "2024-06-02T08:30:00+00:00"
+    }
+  ],
+  "expanded_terms": [],
+  "mode": "keyword",
+  "query": "injection",
+  "reasoning": "Keyword search: 2 results",
+  "results_found": 2,
+  "sources": [
+    "keyset-001",
+    "keyset-002"
+  ]
+}

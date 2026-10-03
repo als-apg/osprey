@@ -1,0 +1,23 @@
+{
+  "$": "dict",
+  "attachments": "list",
+  "attachments[]": "dict",
+  "attachments[].filename": "str",
+  "attachments[].type": "str",
+  "attachments[].url": "str",
+  "author": "str",
+  "created_at": "str",
+  "entry_id": "str",
+  "entry_url": "str",
+  "keywords": "list(empty)",
+  "metadata": "dict",
+  "metadata.logbook": "str",
+  "metadata.shift": "str",
+  "metadata.tags": "list",
+  "metadata.tags[]": "str",
+  "raw_text": "str",
+  "source_system": "str",
+  "summary": "str",
+  "timestamp": "str",
+  "updated_at": "str"
+}
