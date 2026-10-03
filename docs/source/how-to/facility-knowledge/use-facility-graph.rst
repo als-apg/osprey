@@ -428,14 +428,8 @@ that file is what the running deployment reads. No process parses the corpus
 while the deployment is up, so a click answers in milliseconds however large
 the machine is.
 
-Four places read the index and get the same list:
+Three places read the index and get the same list:
 
-* **The queue server's devices.** With no device file of your own, ``osprey
-  build`` derives the plan device set from this list: every write-direction
-  binding becomes a settable, every read-direction one a readable. A settable
-  takes the ``:RB`` sibling of its ``:SP`` address as its readback where the
-  corpus enumerates that address as a read binding, and otherwise carries none.
-  See :doc:`../bluesky/write-plans`.
 * **The channel finder in graph mode.** It keeps no database of its own and
   turns phrases into addresses out of this same list. The OSPREY agent's
   ``search_channels`` tool looks addresses up here by keyword and facet; its
@@ -446,6 +440,11 @@ Four places read the index and get the same list:
   card is the exception: it reads the store, a single keyed lookup.
 * **The virtual accelerator.** Its channel manifest is derived from the same
   list, so a simulated machine serves addresses the deployment knows.
+
+The queue server's devices are not read from the index: ``osprey build`` writes
+the worker's device file from the facility file — one settable per setpoint
+channel, reading back through its ``pair``, one readable per readback channel —
+see :doc:`../bluesky/write-plans`.
 
 Because the direction of a binding is a property of the graph rather than a
 guess from the address, a graph-mode build reads the settable/readable split
