@@ -77,6 +77,29 @@ def categories(result: ARIELSearchResult) -> list[str]:
     return [d.category for d in result.diagnostics]
 
 
+def span_count(recorder: RecordingPool) -> int:
+    """Pattern spans in the entry search itself.
+
+    Each span is one ``(raw_text ~* … OR COALESCE(attachment_text,'') ~* …)``
+    group in the entry query; the supplementary caption-match statement filters
+    ``caption_text`` and is not counted.
+    """
+    return sum(text.count("raw_text ~*") for text in recorder.statements)
+
+
+def entry_query_in_transaction(recorder: RecordingPool) -> bool:
+    """Whether the entry search (the ``ts_rank`` statement) ran inside a transaction."""
+    in_transaction = False
+    for kind, text, _ in recorder.log:
+        if kind == "connection":
+            in_transaction = False
+        elif kind == "transaction":
+            in_transaction = True
+        elif kind.endswith("execute") and "ts_rank" in text:
+            return in_transaction
+    raise AssertionError("no entry search statement was issued")
+
+
 def build_service(config: ARIELConfig, pool: Any) -> Any:
     """Construct a service over an already-migrated pool."""
     from osprey.services.ariel_search import ARIELSearchService
@@ -371,7 +394,7 @@ class TestGlobSemantics:
 
         result = await search(service, r"/SR0[1-4]C___BPM\d+/?")
 
-        assert recorder.pattern_clause_count == 1
+        assert span_count(recorder) == 1
         assert r"SR0[1-4]C___BPM\d+" in recorder.bound_params
         assert GLOB_BPM3_ID in ids(result)
 
@@ -385,7 +408,7 @@ class TestGlobSemantics:
 
         await search(service, "/BPMs?/")
 
-        assert recorder.pattern_clause_count == 1
+        assert span_count(recorder) == 1
         assert "BPMs?" in recorder.bound_params
 
 
@@ -418,7 +441,7 @@ class TestSlashFormCollision:
 
         result = await search(service, r"t/s /SR0[1-4]C___BPM\d+/")
 
-        assert recorder.pattern_clause_count == 1
+        assert span_count(recorder) == 1
         assert r"SR0[1-4]C___BPM\d+" in recorder.bound_params
         assert groups(result) == [("t/s", ("troubleshoot",))]
 
@@ -573,15 +596,20 @@ class TestTimeoutMechanism:
     async def test_pattern_free_search_opens_no_transaction(
         self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
-        """An ordinary keyword search runs exactly as it always has."""
+        """An ordinary keyword search runs its entry query outside any transaction.
+
+        Only the supplementary caption match runs under a statement timeout,
+        one ``set_config`` per caption statement.
+        """
         config = vocabulary_config_factory(vocabulary_file)
         service, recorder = build_recording_service(config, migrated_pool)
 
         await search(service, "ts bpm")
 
-        assert recorder.opened_transaction is False
-        assert recorder.timeouts_inside == []
-        assert not any("set_config" in text for text in recorder.statements)
+        assert entry_query_in_transaction(recorder) is False
+        set_config_statements = [text for text in recorder.statements if "set_config" in text]
+        caption_statements = [text for text in recorder.statements if "caption_text" in text]
+        assert len(set_config_statements) == len(caption_statements)
 
 
 class TestTimeoutEffect:

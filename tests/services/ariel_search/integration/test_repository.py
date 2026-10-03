@@ -586,6 +586,172 @@ class TestRepositoryAttachmentPreservation:
 
 
 @pytest.mark.usefixtures("_seed_integ_prefix")
+class TestRepositoryUpsertReturning:
+    """The in-transaction upsert keeps native items and returns the stored columns."""
+
+    NATIVE = {"url": "/api/attachments/web123", "type": "image/png", "filename": "web.png"}
+    UPSTREAM = {"url": "https://elog.example/img/1", "type": "image/png", "filename": "up.png"}
+
+    async def test_upsert_returning_new_entry_returns_its_attachments(
+        self, repository, seed_entry_factory
+    ):
+        """A first insert returns the written list and NULL text/captions."""
+        entry = seed_entry_factory(
+            entry_id=f"{INTEG_PREFIX}upsret-001", attachments=[self.UPSTREAM]
+        )
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(entry, conn=conn)
+
+        assert row == {
+            "attachments": [self.UPSTREAM],
+            "attachment_text": None,
+            "attachment_captions": None,
+        }
+
+    async def test_upsert_returning_reingest_keeps_web_uploaded_native_item(
+        self, repository, seed_entry_factory
+    ):
+        """A re-ingest with upstream pictures appends the stored native item."""
+        entry_id = f"{INTEG_PREFIX}upsret-002"
+        stale = {"url": "https://elog.example/img/old", "type": "image/png", "filename": "o.png"}
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, attachments=[stale, self.NATIVE])
+        )
+
+        reingested = seed_entry_factory(entry_id=entry_id, attachments=[self.UPSTREAM])
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(reingested, conn=conn)
+
+        # Upstream replaces upstream items; the native item survives, after them.
+        assert row["attachments"] == [self.UPSTREAM, self.NATIVE]
+        retrieved = await repository.get_entry(entry_id)
+        assert retrieved is not None
+        assert retrieved["attachments"] == [self.UPSTREAM, self.NATIVE]
+
+    async def test_upsert_returning_empty_incoming_list_keeps_stored_list(
+        self, repository, seed_entry_factory
+    ):
+        """An empty incoming list keeps the old JSONB, non-native items included."""
+        entry_id = f"{INTEG_PREFIX}upsret-003"
+        stored = [self.UPSTREAM, self.NATIVE]
+        await repository.upsert_entry(seed_entry_factory(entry_id=entry_id, attachments=stored))
+
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(
+                seed_entry_factory(entry_id=entry_id, attachments=[], raw_text="edited"),
+                conn=conn,
+            )
+
+        assert row["attachments"] == stored
+        retrieved = await repository.get_entry(entry_id)
+        assert retrieved is not None
+        assert retrieved["attachments"] == stored
+        assert retrieved["raw_text"] == "edited"
+
+    async def test_upsert_returning_does_not_duplicate_a_native_url_already_incoming(
+        self, repository, seed_entry_factory
+    ):
+        """A native item whose url the incoming list already carries is not appended."""
+        entry_id = f"{INTEG_PREFIX}upsret-004"
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, attachments=[self.NATIVE])
+        )
+        incoming_native = {**self.NATIVE, "filename": "renamed.png"}
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(
+                seed_entry_factory(entry_id=entry_id, attachments=[incoming_native, self.UPSTREAM]),
+                conn=conn,
+            )
+
+        assert row["attachments"] == [incoming_native, self.UPSTREAM]
+
+    async def test_upsert_returning_native_match_is_anchored(self, repository, seed_entry_factory):
+        """Only urls that are exactly /api/attachments/<id> count as native."""
+        entry_id = f"{INTEG_PREFIX}upsret-005"
+        lookalikes = [
+            {"url": "/api/attachments/a/b", "type": "image/png", "filename": "x.png"},
+            {"url": "https://h/api/attachments/zz", "type": "image/png", "filename": "y.png"},
+            {"url": "/api/attachments/q?x=1", "type": "image/png", "filename": "z.png"},
+            {"type": "image/png", "filename": "nourl.png"},
+        ]
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, attachments=[*lookalikes, self.NATIVE])
+        )
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(
+                seed_entry_factory(entry_id=entry_id, attachments=[self.UPSTREAM]), conn=conn
+            )
+
+        assert row["attachments"] == [self.UPSTREAM, self.NATIVE]
+
+    async def test_upsert_returning_returns_stored_text_and_captions(
+        self, repository, seed_entry_factory
+    ):
+        """The stored attachment_text and attachment_captions come back unchanged."""
+        entry_id = f"{INTEG_PREFIX}upsret-006"
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, attachments=[self.UPSTREAM])
+        )
+        async with repository.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE enhanced_entries SET attachment_text = %(t)s,"
+                " attachment_captions = %(c)s::jsonb WHERE entry_id = %(e)s",
+                {"t": "a picture", "c": '{"k": {"m": "cap"}}', "e": entry_id},
+            )
+
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(
+                seed_entry_factory(entry_id=entry_id, attachments=[self.UPSTREAM]), conn=conn
+            )
+
+        assert row["attachment_text"] == "a picture"
+        assert row["attachment_captions"] == {"k": {"m": "cap"}}
+
+    async def test_upsert_returning_rolls_back_with_the_caller_transaction(
+        self, repository, seed_entry_factory
+    ):
+        """The write belongs to the caller's transaction and holds the entry lock."""
+        entry_id = f"{INTEG_PREFIX}upsret-007"
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, raw_text="before", attachments=[self.NATIVE])
+        )
+
+        class _Abort(Exception):
+            pass
+
+        with pytest.raises(_Abort):
+            async with repository.pool.connection() as conn, conn.transaction():
+                await repository.upsert_entry_returning(
+                    seed_entry_factory(entry_id=entry_id, raw_text="after"), conn=conn
+                )
+                async with repository.pool.connection() as other:
+                    await other.execute("SET lock_timeout = '200ms'")
+                    with pytest.raises(Exception, match="lock"):
+                        await other.execute(
+                            "SELECT 1 FROM enhanced_entries WHERE entry_id = %(e)s FOR UPDATE",
+                            {"e": entry_id},
+                        )
+                raise _Abort
+
+        retrieved = await repository.get_entry(entry_id)
+        assert retrieved is not None
+        assert retrieved["raw_text"] == "before"
+
+    async def test_upsert_returning_without_conn_uses_its_own_connection(
+        self, repository, seed_entry_factory
+    ):
+        """Called without a connection, the upsert commits on its own."""
+        entry_id = f"{INTEG_PREFIX}upsret-008"
+        row = await repository.upsert_entry_returning(
+            seed_entry_factory(entry_id=entry_id, attachments=[self.NATIVE])
+        )
+        assert row["attachments"] == [self.NATIVE]
+        retrieved = await repository.get_entry(entry_id)
+        assert retrieved is not None
+        assert retrieved["attachments"] == [self.NATIVE]
+
+
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryBulkOperations:
     """Test ARIELRepository bulk operations."""
 
@@ -750,3 +916,194 @@ class TestConcurrentOperations:
         for i in range(5):
             entry = await repository.get_entry(f"{base_id}-{i:03d}")
             assert entry is not None
+
+
+# ============================================================================
+# Image-embedding tables: status listing and purge
+# ============================================================================
+
+#: A one-pixel PNG; the stub embeds any content to a deterministic vector.
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00"
+    b"\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00"
+    b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+#: The text-embedding table the status tests create by hand.
+_TEXT_TABLE = "text_embeddings_probe"
+
+
+@pytest.fixture
+def _hybrid_reader(monkeypatch):
+    """Report the hybrid search module as on, whatever config this process loaded."""
+    from osprey.services.ariel_search.enhancement.image_embedding import module as embed_mod
+
+    monkeypatch.setattr(embed_mod, "hybrid_search_enabled", lambda: True)
+
+
+def _image_config(uri: str, url: str, **image: object) -> dict:
+    """The raw ``ariel`` block: keyword + hybrid search and the image-embedding module."""
+    from tests.services.ariel_search.llama_stub import MODEL
+
+    return {
+        "database": {"uri": uri},
+        "attachments": {"copy_on_ingest": "images"},
+        "search_modules": {"keyword": {"enabled": True}, "hybrid": {"enabled": True}},
+        "enhancement_modules": {
+            "image_embedding": {
+                "enabled": True,
+                "provider": {"name": "llama-cpp", "base_url": url},
+                "model": MODEL,
+                "dimensions": 1024,
+                **image,
+            }
+        },
+    }
+
+
+def _seed_picture(uri: str, entry_id: str, attachment_id: str) -> None:
+    """One entry holding one copied picture with a rendition."""
+    import psycopg
+
+    with psycopg.connect(uri, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO enhanced_entries (entry_id, source_system, timestamp, raw_text)"
+            " VALUES (%s, 'test', NOW(), 'text')",
+            (entry_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO attachment_files (
+                attachment_id, entry_id, filename, mime_type, source_url, copy_status,
+                rendition_bytes, rendition_mime, rendition_w, rendition_h, rendition_sha256
+            ) VALUES (%s, %s, 'f.png', 'image/png', 'https://h.example/f.png', 'copied',
+                      %s, 'image/png', 1, 1, %s)
+            """,
+            (attachment_id, entry_id, _PNG, "ab" * 32),
+        )
+
+
+def _create_text_table(uri: str) -> None:
+    import psycopg
+
+    with psycopg.connect(uri, autocommit=True) as conn:
+        conn.execute(f"CREATE TABLE {_TEXT_TABLE} (entry_id TEXT PRIMARY KEY, embedding vector(3))")
+
+
+def _vector_count(uri: str, table: str) -> int | None:
+    """Stored vectors in *table*, None when the table does not exist."""
+    import psycopg
+
+    with psycopg.connect(uri) as conn:
+        exists = conn.execute("SELECT to_regclass(%s) IS NOT NULL", (table,)).fetchone()
+        if not (exists and exists[0]):
+            return None
+        row = conn.execute(f"SELECT COUNT(embedding) FROM {table}").fetchone()
+    return int(row[0]) if row else 0
+
+
+def _status_keys(uri: str) -> list[dict]:
+    import psycopg
+
+    with psycopg.connect(uri) as conn:
+        rows = conn.execute("SELECT enhancement_status FROM enhanced_entries").fetchall()
+    return [row[0] or {} for row in rows]
+
+
+@pytest.mark.timeout(180)
+@pytest.mark.usefixtures("_hybrid_reader")
+class TestImageEmbeddingTables:
+    """The image tables in ``status``, ``purge`` and the re-embed after a purge."""
+
+    async def test_purge_drops_image_tables_and_catchup_re_embeds(
+        self, scratch_database, llama_stub
+    ):
+        from osprey.services.ariel_search import cli_operations as ops
+        from osprey.services.ariel_search.database.migrations import image_table_name
+        from tests.services.ariel_search.llama_stub import MODEL
+
+        stub = llama_stub()
+        table = image_table_name(MODEL, 1024)
+        cfg = _image_config(scratch_database, stub.url)
+        await ops.run_migrate(cfg)
+        _seed_picture(scratch_database, "img-1", "att-1")
+
+        await ops.run_catchup(cfg, budget_s=None, stop_event=None)
+        assert _vector_count(scratch_database, table) == 1
+        assert all("image_embedding" in s for s in _status_keys(scratch_database))
+
+        info = await ops.get_purge_info(cfg)
+        assert info.image_embedding_tables == [table]
+        assert table not in info.embedding_tables
+
+        await ops.execute_purge(cfg, embeddings_only=True)
+        assert _vector_count(scratch_database, table) is None
+        assert not any("image_embedding" in s for s in _status_keys(scratch_database))
+        assert (await ops.get_purge_info(cfg)).image_embedding_tables == []
+
+        await ops.run_migrate(cfg)
+        assert _vector_count(scratch_database, table) == 0
+        await ops.run_catchup(cfg, budget_s=None, stop_event=None)
+        assert _vector_count(scratch_database, table) == 1
+
+        status = await ops.get_status(cfg)
+        assert status["status"] == "healthy", status
+        assert status["image_embedding_tables"] == [
+            {"table": table, "pictures": 1, "dimension": 1024, "active": True}
+        ]
+        assert table not in [t["table"] for t in status["embedding_tables"]]
+        assert status["enhancement_modules"]["image_embedding"]["complete"] == 1
+
+    async def test_full_purge_drops_image_tables(self, scratch_database, llama_stub):
+        from osprey.services.ariel_search import cli_operations as ops
+        from osprey.services.ariel_search.database.migrations import image_table_name
+        from tests.services.ariel_search.llama_stub import MODEL
+
+        stub = llama_stub()
+        table = image_table_name(MODEL, 1024)
+        cfg = _image_config(scratch_database, stub.url)
+        await ops.run_migrate(cfg)
+        assert _vector_count(scratch_database, table) == 0
+
+        await ops.execute_purge(cfg, embeddings_only=False)
+        assert _vector_count(scratch_database, table) is None
+
+    async def test_image_embedding_tables_status_names_a_down_server(
+        self, scratch_database, llama_stub
+    ):
+        from osprey.services.ariel_search import cli_operations as ops
+
+        stub = llama_stub()
+        cfg = _image_config(scratch_database, stub.url)
+        await ops.run_migrate(cfg)
+
+        up = await ops.get_status(cfg)
+        assert up["status"] == "healthy", up
+        assert up["attachments"]["picture_search"] is True
+        assert up["attachments"]["picture_search_unavailable"] is None
+
+        stub.stop()
+        down = await ops.get_status(cfg)
+        assert down["attachments"]["picture_search"] is True
+        assert down["attachments"]["picture_search_unavailable"] == "unreachable"
+        assert down["enhancement_modules"]["image_embedding"]["health"]["reachable"] is False
+
+    async def test_image_embedding_tables_status_with_a_misconfigured_block(
+        self, scratch_database, llama_stub
+    ):
+        from osprey.services.ariel_search import cli_operations as ops
+
+        stub = llama_stub()
+        await ops.run_migrate({"database": {"uri": scratch_database}})
+        _create_text_table(scratch_database)
+        cfg = _image_config(scratch_database, stub.url, dimensions=5000)
+
+        status = await ops.get_status(cfg)
+
+        assert status["status"] == "healthy", status
+        assert [t["table"] for t in status["embedding_tables"]] == [_TEXT_TABLE]
+        assert status["image_embedding_tables"] == []
+        image = status["enhancement_modules"]["image_embedding"]
+        assert image["health"]["reachable"] is False
+        assert image["health"]["reason"] == "config"
+        assert status["attachments"]["picture_search_unavailable"] == "config"
