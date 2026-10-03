@@ -61,11 +61,14 @@ SELF_EXEMPT: tuple[str, ...] = (
 #: Retired token -> the stage that deleted its last producer or reader.
 RETIRED: dict[str, str] = {
     "DIRECTION_UNDERIVABLE": "2",
+    "DatabaseWriteError": "4b",
     "GRAPH_MALFORMED": "2",
     "GRAPH_NO_TTL": "2",
     "GRAPH_SOURCE_PARADIGM": "2",
     "TierSpec": "4a",
+    "_DerivedDevices": "4b",
     "_check_empty_facility_prefix": "3b",
+    "_hierarchical_write": "4b",
     "allow_unlisted_channels": "3a",
     "assign_readbacks": "2",
     "build_tiers": "4a",
