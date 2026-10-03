@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -788,3 +789,42 @@ async def test_the_phase_holds_the_key_lock_so_a_second_acquire_waits():
     assert result.plan.action == ACTION_TAKEOVER
     assert registry(app).attached_owner(KEY) is second
     assert_released(app)
+
+
+async def test_a_replaced_same_channel_acquire_carrying_out_leaves_the_new_slot_alone():
+    """Phase (c) releases from its own task, yet only the slot its caller registered.
+
+    Two acquires share one channel; the second replaced the first's pending
+    record while both waited. The first then carries its plan out — in the
+    shielded task, not the task that registered — and must neither release
+    the second's slot nor mark it as no longer waiting. The second, carrying
+    out in turn, releases its own slot.
+    """
+    app = make_app()
+    gates: list[asyncio.Event] = []
+
+    async def gated_wait(_app, _plan):
+        gate = asyncio.Event()
+        gates.append(gate)
+        await gate.wait()
+        return WaitOutcome(REASON_NONE)
+
+    channel = object()
+    spawn = chat_spawner(app)
+    with patch.object(session_handoff, "_wait_for_idle", gated_wait):
+        first = asyncio.create_task(acquire(app, KEY, "simple", channel, spawn=spawn))
+        await until(lambda: len(gates) == 1)
+        second = asyncio.create_task(acquire(app, KEY, "simple", channel, spawn=spawn))
+        await until(lambda: len(gates) == 2)
+        second_record = get_state(app).pending[KEY]
+
+        gates[0].set()
+        await first
+        assert get_state(app).pending.get(KEY) is second_record
+        assert second_record.waiting
+        assert registry(app).is_reserved(KEY)
+
+        gates[1].set()
+        await second
+    assert_released(app)
+    assert len(spawn.calls) == 1

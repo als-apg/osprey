@@ -95,7 +95,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
@@ -432,8 +432,9 @@ class PendingAcquire:
 
     Registered at the end of phase (a), released at the end of phase (c) — or
     by phase (b) itself when its wait is cancelled, so (c) never runs. Callers
-    never release the slot; the phases own it. While it stands, any other
-    connection's acquire of the same key sees a holder.
+    never release the slot; the phases own it, and each record is owned by the
+    one call that registered it. While it stands, any other connection's
+    acquire of the same key sees a holder.
 
     Attributes:
         channel: The token identifying the connection that made the call —
@@ -442,7 +443,11 @@ class PendingAcquire:
         surface: Which surface the call is acquiring for.
         task: The task running the acquire, so a diagnostic or a shutdown can
             see what is in flight — and so a superseding acquire can cancel
-            it. ``None`` outside a task.
+            it. ``None`` outside a task. With ``channel`` it identifies the
+            record's owner — the call that registered it — for the release and
+            for the phases' reads of their own record, so a later acquire from
+            the same channel that replaced the record is never touched by the
+            earlier call.
         superseded: A newer Simple acquire with an interrupt has cancelled
             this call's wait. Set before the cancel is delivered, so the
             waiter can tell it from any other cancellation and end in
@@ -605,6 +610,10 @@ class AcquirePlan:
         displaced_owner: On ``takeover``, the attach token of the Expert
             connection currently holding the PTY, to be closed with 4409 by
             phase (c). ``None`` otherwise.
+        task: The task that registered the call's pending record — set by
+            registration, ``None`` on a plan not yet registered. The owner the
+            phases match the record against, carried on the plan because
+            phase (c) releases from a task of its own.
     """
 
     key: str
@@ -617,6 +626,7 @@ class AcquirePlan:
     wait_for_idle: bool
     spawn: SpawnCallback
     displaced_owner: object | None = None
+    task: asyncio.Task[Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -757,20 +767,28 @@ async def acquire_surface(
     return await _phase_c(app, plan, outcome)
 
 
-def release_pending(app: Any, key: str, channel: object) -> bool:
+def release_pending(app: Any, key: str, channel: object, *, task: asyncio.Task[Any] | None) -> bool:
     """Drop *channel*'s pending acquire of *key* and the reservation that came with it.
 
-    Owner-checked: a slot held by another channel is left alone, so a caller
-    cleaning up after its own cancelled wait cannot release the acquire that
-    took the key after it. Safe to call when nothing is pending. The phases
-    call it themselves; a caller of :func:`acquire_surface` never has to.
+    Owner-checked by *channel* and *task* — the registering call's own pair,
+    which is ``plan.task`` and not necessarily the current task — so a call
+    cleaning up after its own cancelled wait cannot release an acquire that
+    took the key after it, from another connection or from the same one. Safe
+    to call when nothing is pending. The phases call it themselves; a caller
+    of :func:`acquire_surface` never has to.
+
+    Args:
+        app: The application holding the hand-off state and the PTY registry.
+        key: The session key whose slot is released.
+        channel: The channel token the slot was registered with.
+        task: The task that registered the slot.
 
     Returns:
         True when a slot was released.
     """
     state = get_state(app)
     pending = state.pending.get(key)
-    if pending is None or pending.channel is not channel:
+    if pending is None or pending.channel is not channel or pending.task is not task:
         return False
     del state.pending[key]
     _pty_registry(app).unreserve(key)
@@ -989,12 +1007,15 @@ def _register(state: HandoffState, registry: PtyRegistry, plan: AcquirePlan) -> 
 
     Caller holds the key's lock. The reservation keeps the outgoing PTY — now
     attached to nobody — off the eviction pass for as long as the slot
-    stands; :func:`release_pending` drops both together.
+    stands; :func:`release_pending` drops both together. The returned plan
+    carries the registering task, which is the record's owner for the rest of
+    the call.
     """
+    plan = replace(plan, task=asyncio.current_task())
     state.pending[plan.key] = PendingAcquire(
         channel=plan.channel,
         surface=plan.surface,
-        task=asyncio.current_task(),
+        task=plan.task,
     )
     registry.reserve(plan.key)
     return plan
@@ -1057,7 +1078,7 @@ async def _phase_b(app: Any, plan: AcquirePlan) -> WaitOutcome:
     acquire superseded (see :func:`_supersede`) ends in
     :class:`HandoffSuperseded` instead, so the route that made it answers a
     refusal rather than dying cancelled. The mark is read off this call's own
-    pending record before the record is released — a record another channel
+    pending record before the record is released — a record another call
     holds by then says nothing about this wait. The task's cancellation
     request is withdrawn with ``uncancel`` — safe because an acquire never
     runs under ``asyncio.timeout``, ``wait_for`` or a ``TaskGroup``, whose
@@ -1075,7 +1096,7 @@ async def _phase_b(app: Any, plan: AcquirePlan) -> WaitOutcome:
         return await _wait_for_idle(app, plan)
     except asyncio.CancelledError as cancelled:
         superseded = _superseded(get_state(app), plan) and not isinstance(cancelled, ChannelClosed)
-        release_pending(app, plan.key, plan.channel)
+        release_pending(app, plan.key, plan.channel, task=plan.task)
         if superseded and _withdraw_cancellation():
             logger.info(
                 "The %s acquire of session %s was superseded by a newer request",
@@ -1085,14 +1106,22 @@ async def _phase_b(app: Any, plan: AcquirePlan) -> WaitOutcome:
             raise HandoffRefused.superseded(plan.key) from None
         raise
     except BaseException:
-        release_pending(app, plan.key, plan.channel)
+        release_pending(app, plan.key, plan.channel, task=plan.task)
         raise
 
 
 def _superseded(state: HandoffState, plan: AcquirePlan) -> bool:
     """Whether *plan*'s own pending record — still registered — carries the superseded mark."""
+    pending = _own_pending(state, plan)
+    return pending is not None and pending.superseded
+
+
+def _own_pending(state: HandoffState, plan: AcquirePlan) -> PendingAcquire | None:
+    """*plan*'s own pending record, or ``None`` once it has been released or replaced."""
     pending = state.pending.get(plan.key)
-    return pending is not None and pending.channel is plan.channel and pending.superseded
+    if pending is None or pending.channel is not plan.channel or pending.task is not plan.task:
+        return None
+    return pending
 
 
 def _withdraw_cancellation() -> bool:
@@ -1352,8 +1381,8 @@ async def _phase_c(app: Any, plan: AcquirePlan, outcome: WaitOutcome) -> Acquire
     # must not reach it. Cleared before the shielded task exists, in the same
     # loop step that left phase (b), so no look at the key sees a waiting
     # record with a phase (c) behind it.
-    pending = get_state(app).pending.get(plan.key)
-    if pending is not None and pending.channel is plan.channel:
+    pending = _own_pending(get_state(app), plan)
+    if pending is not None:
         pending.waiting = False
     task = asyncio.ensure_future(_carry_out(app, plan, outcome))
     abandoned = False
@@ -1388,7 +1417,7 @@ async def _carry_out(app: Any, plan: AcquirePlan, outcome: WaitOutcome) -> Acqui
         try:
             return await _teardown_and_spawn(app, state, plan, outcome)
         finally:
-            release_pending(app, plan.key, plan.channel)
+            release_pending(app, plan.key, plan.channel, task=plan.task)
 
 
 async def _teardown_and_spawn(
