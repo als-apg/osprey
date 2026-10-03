@@ -3,6 +3,10 @@
 POST /api/chat?stream={true|false}
 Body: {"prompt": "...", "chat_id": "..."}
 
+GET /api/chat/commands
+Answers {"commands": [{"name", "description", "argument_hint", "kind"}, ...]},
+the slash commands the chat agent accepts in this project.
+
 The Simple-mode chat is keyed on a caller-supplied ``chat_id`` and backed by a
 registry-managed :class:`OperatorSession` (the ``ChatSessionPool``). Each POST
 mints a per-session turn guard, then consumes one
@@ -17,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -44,6 +50,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     acquire_surface,
 )
 from osprey.interfaces.web_terminal.session_key import is_posture_key
+from osprey.interfaces.web_terminal.slash_commands import list_project_slash_commands
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +436,17 @@ async def delete_chat(chat_id: str, request: Request) -> Response:
     registry = request.app.state.operator_registry
     await registry.terminate_chat_session(chat_id)
     return Response(status_code=204)
+
+
+@router.get("/api/chat/commands")
+def list_chat_commands(request: Request) -> dict[str, Any]:
+    """The slash commands the chat agent accepts in this project.
+
+    Read from the directory the chat agent is started in, so every name listed
+    is one the agent expands.
+    """
+    cwd: str = request.app.state.project_cwd
+    return {"commands": [asdict(c) for c in list_project_slash_commands(Path(cwd))]}
 
 
 def _sse(event: dict[str, Any]) -> str:

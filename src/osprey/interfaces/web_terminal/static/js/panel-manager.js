@@ -260,6 +260,10 @@ export async function initPanelManager(panelId) {
     getActive: getActiveTabId,
     ensureActive: ensureActivePanel,
     activate: activateTab,
+    navigatePending: (id) => {
+      const s = panelState[id];
+      if (s?.iframe && s.pendingUrl) navigatePanel(id, s.pendingUrl);
+    },
   });
 
   initAgentAttention(railEl);
@@ -776,6 +780,10 @@ function navigatePanel(panelId, url) {
   state.pendingUrl = url;
 
   if (!state.iframe) return;
+  // An iframe exists only for a panel that has answered, so an unhealthy one
+  // has just missed a poll. Loading a new address now would trade the last
+  // good page for an error page. The address waits in pendingUrl.
+  if (!state.healthy) return;
 
   // buildEmbedSrc preserves the already-server-prefixed root-relative url
   // verbatim (never strip/re-add window.__OSPREY_PREFIX__ — see its docstring).

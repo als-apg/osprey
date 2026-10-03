@@ -25,7 +25,6 @@ shape asserted here is load-bearing.
 
 from __future__ import annotations
 
-import json
 import re
 import string
 import uuid
@@ -40,6 +39,7 @@ from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 from osprey.interfaces.web_terminal.app import compute_url_prefix, create_app
 from tests.interfaces.web_terminal._fakes import FakePtySession
+from tests.interfaces.web_terminal._ws import recv_json
 
 # (page id, request path) -- both served HTML documents in scope.
 _PAGES = [
@@ -314,17 +314,6 @@ class TestPrefixEmptyWhenUnset:
 # ---- The websocket route under a prefix ----
 
 
-def _recv_json(ws, msg_type: str, max_frames: int = 30) -> dict:
-    """Receive frames until a JSON message of ``msg_type`` arrives."""
-    for _ in range(max_frames):
-        raw = ws.receive()
-        if "text" in raw:
-            data = json.loads(raw["text"])
-            if data.get("type") == msg_type:
-                return data
-    raise AssertionError(f"'{msg_type}' not received within {max_frames} frames")
-
-
 @pytest.fixture
 def ws_client(workspace_dir, tmp_path, monkeypatch):
     """The app under ``/u/alice``, with no PTY behind it.
@@ -355,7 +344,7 @@ class TestWebSocketUnderPrefix:
         url = f"/ws/terminal?session_id={session_id}&mode=resume"
         with ws_client.websocket_connect(url) as ws:
             ws.send_json({"type": "resize", "cols": 80, "rows": 24})
-            msg = _recv_json(ws, "transcript_missing")
+            msg = recv_json(ws, "transcript_missing")
             assert msg["session_id"] == session_id
 
     def test_literal_prefixed_ws_path_is_not_routed(self, ws_client):

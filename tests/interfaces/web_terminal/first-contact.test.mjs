@@ -71,6 +71,8 @@ const transport = vi.hoisted(() => ({
   // on notifySessionChange above.
   fetchHistory: vi.fn(() => Promise.resolve([])),
   requestHandoff: vi.fn(),
+  // The message box's slash-command list loads through it.
+  fetchCommands: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => transport);

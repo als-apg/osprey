@@ -1739,6 +1739,44 @@ html[data-rail-position="top"] .panel-utility-label {
   pointer-events: none;
 }
 
+/* Not-answering notice over a whole tile body. dock-iframe.js sizes one of
+   these to each managed panel's group rectangle (in fallback mode, one fills
+   the #panel-content host). It is a sibling of the panel iframe rather than
+   anything inside it because the iframe is another document this stylesheet
+   cannot reach.
+
+   It takes no pointer events, strip and wash alike, so the page underneath
+   stays scrollable and clickable. While the backend is not answering, the wash
+   greys the page so a stale view is not mistaken for a live one, and the page
+   stays readable under it. While the panel answers the element stays laid out
+   but empty, so its polite live region exists before its text arrives and the
+   arrival is announced. */
+.tile-notice {
+  z-index: 2;              /* above the iframes and the agent glow (z 1) */
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.panel-content > .tile-notice { inset: 0; }   /* fallback host: the wash covers it all */
+.tile-notice:not([data-unreachable]) { background: none; }
+.tile-notice:not([data-unreachable]) .tile-notice-text { display: none; }
+.tile-notice[data-unreachable] {
+  /* grey wash over the whole page; text underneath stays readable */
+  background: color-mix(in srgb, var(--bg-primary) 35%, transparent);
+}
+.tile-notice-text {
+  display: block;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--bg-elevated));
+  border-bottom: 1px solid var(--color-warning);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-warning);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- Terminal panel ---- */
 
 .terminal-panel {

@@ -34,10 +34,12 @@ import anyio
 import pytest
 
 from osprey.interfaces.web_terminal import session_handoff
+from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.session_handoff import (
     ACTION_HANDOFF,
     ACTION_REUSE,
     ATTACH_POLL_S,
+    ERROR_HANDOFF_STARTED_COMMANDS,
     ERROR_HANDOFF_SUPERSEDED,
     ERROR_OUTGOING_VANISHED,
     ERROR_SESSION_ATTACHED_ELSEWHERE,
@@ -47,6 +49,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     REASON_FORCED,
     REASON_IDLE,
     REASON_INTERRUPTED,
+    WS_CLOSE_STARTED_COMMANDS,
     ChannelClosed,
     ChannelToken,
     HandoffError,
@@ -59,6 +62,7 @@ from tests.interfaces.web_terminal._fakes import FakeChatSession
 from tests.interfaces.web_terminal._handoff_harness import (
     INTERRUPT_ENTRY,
     KEY,
+    Chat,
     Recorder,
     RecordingPty,
     acquire,
@@ -128,6 +132,106 @@ async def test_chat_dying_while_pooled_ends_the_wait_as_exited():
         chat._active = False
         await task
     assert recorder.calls[-1][1] == WaitOutcome(REASON_EXITED)
+
+
+def _started(chat: FakeChatSession) -> FakeChatSession:
+    """*chat* with one command its agent started still running."""
+    chat.running_commands = [
+        ProcessGroup(
+            pgid=4242,
+            members=((4242, 0.0),),
+            label="magnet_scan.py",
+            command="python magnet_scan.py",
+        )
+    ]
+    return chat
+
+
+async def test_an_expert_acquire_of_an_idle_chat_with_started_commands_is_refused():
+    app = make_app()
+    chat = _started(FakeChatSession())
+    chats(app).sessions[KEY] = chat
+
+    with pytest.raises(HandoffRefused) as excinfo:
+        await acquire(app, KEY, "expert", object())
+
+    refused = excinfo.value
+    assert refused.error == ERROR_HANDOFF_STARTED_COMMANDS
+    assert refused.ws_close_code == WS_CLOSE_STARTED_COMMANDS
+    assert refused.extra == {
+        "commands": [{"label": "magnet_scan.py", "command": "python magnet_scan.py"}]
+    }
+    assert chat.teardowns == 0
+    assert_released(app)
+
+
+async def test_an_interrupting_expert_acquire_asks_before_the_turn_is_cut():
+    app = make_app()
+    chat = _started(Chat(busy=True))
+    chats(app).sessions[KEY] = chat
+
+    with pytest.raises(HandoffRefused) as excinfo:
+        await acquire(app, KEY, "expert", object(), interrupt=True)
+
+    assert excinfo.value.error == ERROR_HANDOFF_STARTED_COMMANDS
+    assert chat.cancels == 0
+    assert chat.is_busy is True
+    assert chat.teardowns == 0
+    assert_released(app)
+
+
+async def test_a_busy_chat_is_looked_at_only_once_it_is_idle():
+    app = make_app()
+    chat = _started(FakeChatSession(busy=True))
+    chats(app).sessions[KEY] = chat
+    task = asyncio.create_task(acquire(app, KEY, "expert", object()))
+    await ticks(app, 5)
+    assert chat.started_calls == 0
+
+    chat.is_busy = False
+    with pytest.raises(HandoffRefused) as excinfo:
+        await task
+
+    assert excinfo.value.error == ERROR_HANDOFF_STARTED_COMMANDS
+    assert chat.started_calls == 1
+
+
+async def test_end_started_lets_the_expert_acquire_proceed():
+    app = make_app()
+    chat = _started(FakeChatSession())
+    chats(app).sessions[KEY] = chat
+    recorder = Recorder()
+    with patch.object(session_handoff, "_phase_c", recorder):
+        plan = await acquire(app, KEY, "expert", object(), end_started=True)
+
+    assert plan.action == ACTION_HANDOFF and plan.end_started is True
+    assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
+    assert chat.started_calls == 0
+
+
+async def test_a_simple_acquire_reusing_its_chat_never_looks():
+    app = make_app()
+    chat = _started(FakeChatSession())
+    chats(app).sessions[KEY] = chat
+    recorder = Recorder()
+    with patch.object(session_handoff, "_phase_c", recorder):
+        plan = await acquire(app, KEY, "simple", object())
+
+    assert plan.action == ACTION_REUSE
+    assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
+    assert chat.started_calls == 0
+
+
+async def test_with_nothing_started_the_expert_acquire_goes_straight_through():
+    app = make_app()
+    chat = FakeChatSession()
+    chats(app).sessions[KEY] = chat
+    recorder = Recorder()
+    with patch.object(session_handoff, "_phase_c", recorder):
+        await acquire(app, KEY, "expert", object())
+
+    assert recorder.calls[-1][1] == WaitOutcome(REASON_IDLE)
+    assert chat.started_calls == 1
 
 
 # ---------------------------------------------------------------------------

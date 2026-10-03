@@ -1818,6 +1818,106 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
   });
 });
 
+describe('tile notice — a docked panel that stops answering says so over its own tile', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.documentElement.removeAttribute('data-ui-mode');
+  });
+
+  /** @param {string} id */
+  const entry = (id) => document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`);
+  /** @param {string} id @returns {HTMLElement | null} */
+  const notice = (id) => document.querySelector(`.tile-notice[data-panel="${id}"]`);
+  /** @param {string} id */
+  const railSince = (id) =>
+    /** @type {HTMLElement} */ (entry(id)).title.replace('not answering since ', '');
+  /** @param {string} id @returns {HTMLIFrameElement} */
+  const frame = (id) =>
+    /** @type {HTMLIFrameElement} */ (document.querySelector(`iframe[data-panel-id="${id}"]`));
+
+  /**
+   * Boot artifacts and system-health, both docked, on the 10 s maintenance
+   * cadence: the recipe of panel_arrange's "never painted over" test.
+   * @param {Set<string>} down
+   */
+  async function bootBothDocked(down) {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    const booted = await bootWorkspace({ panels: ['artifacts', 'system-health'], down });
+    await vi.advanceTimersByTimeAsync(1000); // onto the 10 s maintenance cadence
+    rightClick(/** @type {Element} */ (entry('system-health')));
+    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    /** @type {HTMLElement} */ (entry('artifacts')).click(); // the operator looks back
+    expect(dockedTiles(booted.api).sort()).toEqual(['artifacts', 'system-health']);
+    return booted;
+  }
+
+  test('the notice appears on the same poll that dims the rail, with the same time', async () => {
+    const down = new Set();
+    await bootBothDocked(down);
+
+    down.add('system-health');
+    await vi.advanceTimersByTimeAsync(10_000);
+    // One miss flickers nothing.
+    expect(entry('system-health')?.classList.contains('unreachable')).toBe(false);
+    expect(notice('system-health')?.hasAttribute('data-unreachable')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(entry('system-health')?.classList.contains('unreachable')).toBe(true);
+    const el = /** @type {HTMLElement} */ (notice('system-health'));
+    expect(el.hasAttribute('data-unreachable')).toBe(true);
+    expect(el.textContent).toContain(railSince('system-health'));
+    expect(notice('artifacts')?.hasAttribute('data-unreachable')).toBe(false);
+  });
+
+  test('the first answer clears it', async () => {
+    const down = new Set();
+    await bootBothDocked(down);
+    const before = frame('system-health');
+    const src = before.src;
+
+    down.add('system-health');
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(notice('system-health')?.hasAttribute('data-unreachable')).toBe(true);
+
+    down.delete('system-health');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(entry('system-health')?.classList.contains('unreachable')).toBe(false);
+    const el = /** @type {HTMLElement} */ (notice('system-health'));
+    expect(el.hasAttribute('data-unreachable')).toBe(false);
+    expect(el.textContent).toBe('');
+    // The view resumes in place: the same frame, never reloaded.
+    expect(frame('system-health')).toBe(before);
+    expect(frame('system-health').src).toBe(src);
+  });
+
+  test('a panel that never answered gets no notice', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    // Its config resolves a url, but its /health never answers.
+    await bootWorkspace({ panels: ['artifacts', 'system-health'], down: new Set(['system-health']) });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(document.querySelector('.tile-notice[data-unreachable]')).toBeNull();
+    expect(entry('system-health')?.classList.contains('disabled')).toBe(true);
+    expect(entry('system-health')?.classList.contains('unreachable')).toBe(false);
+  });
+  test('a jump into a panel that is not answering waits for its next answer', async () => {
+    const down = new Set();
+    const { emit } = await bootBothDocked(down);
+    const src = frame('system-health').src;
+
+    down.add('system-health');
+    await vi.advanceTimersByTimeAsync(10_000);
+    emit({ type: 'panel_focus', panel: 'system-health', url: '/panel/system-health/x', source: 'agent' });
+    // The last good page stays: no error page under the notice.
+    expect(frame('system-health').src).toBe(src);
+
+    down.delete('system-health');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(new URL(frame('system-health').src).pathname).toBe('/panel/system-health/x');
+  });
+});
+
 describe('SSE reconnect resync — membership re-converges from /api/panels', () => {
   /**
    * Boot against a MUTABLE server state and an EventSource stub whose

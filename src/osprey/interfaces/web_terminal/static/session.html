@@ -13,7 +13,10 @@
     (and < > &) but leaves " alone. -#}
 {#- data-facility-timezone: this page renders the same hook and session times
     the index does, so it carries the same stamp. -#}
-<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
+{#- data-theme / data-theme-mode: the theme stamp is the deployment's default,
+    read by theme-boot.js when no preference is stored and by the hub role on
+    a first visit. -#}
+<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
