@@ -46,6 +46,7 @@ WHITELIST: dict[str, set[str]] = {
     "scripts/test_config_key_guard.py": {"sys.modules"},
     "scripts/test_changelog_fragments.py": {"sys.modules"},
     "scripts/test_docs_publish.py": {"sys.modules"},
+    "scripts/test_fusion_calibration.py": {"sys.modules"},
     # The Teams relay ships as a service template, not a package: its
     # validation.py is loaded by path the same way, and the module-level load
     # feeds a parametrize decorator, which is evaluated at import.
