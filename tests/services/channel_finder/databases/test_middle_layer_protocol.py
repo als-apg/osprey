@@ -27,11 +27,11 @@ DUAL_KEY = {
         "KICK": {
             "Voltage": {
                 "ChannelNames": ["K1:V", " K2:V "],
-                "TangoNames": ["ring/kick/1/v", "ring/kick/2/v"],
+                "TangoNames": ["dom/kick/1/v", "dom/kick/2/v"],
                 "Description": "Kicker voltage",
             },
             "Current": {
-                "X": {"ChannelNames": "K:IX", "TangoNames": "ring/kick/ix"},
+                "X": {"ChannelNames": "K:IX", "TangoNames": "dom/kick/ix"},
             },
             "setup": {"DeviceList": [[1, 1], [1, 2]]},
         }
@@ -42,10 +42,10 @@ TANGO_ONLY = {
     "RING": {
         "KICK": {
             "Voltage": {
-                "TangoNames": ["ring/kick/1/v", "ring/kick/2/v"],
+                "TangoNames": ["dom/kick/1/v", "dom/kick/2/v"],
                 "_description": "Kicker voltage",
             },
-            "Current": {"X": {"TangoNames": "ring/kick/ix"}},
+            "Current": {"X": {"TangoNames": "dom/kick/ix"}},
             "setup": {"DeviceList": [[1, 1], [1, 2]]},
         }
     }
@@ -69,9 +69,9 @@ class TestChannelMapProtocol:
         """CA names are ``ca``, Tango attributes ``tango``, on one field."""
         assert dual.channel_map["K1:V"]["memberships"][0]["protocol"] == "ca"
         assert dual.channel_map["K2:V"]["memberships"][0]["protocol"] == "ca"
-        assert dual.channel_map["ring/kick/1/v"]["memberships"][0]["protocol"] == "tango"
+        assert dual.channel_map["dom/kick/1/v"]["memberships"][0]["protocol"] == "tango"
         assert dual.channel_map["K:IX"]["memberships"][0]["protocol"] == "ca"
-        assert dual.channel_map["ring/kick/ix"]["memberships"][0]["protocol"] == "tango"
+        assert dual.channel_map["dom/kick/ix"]["memberships"][0]["protocol"] == "tango"
 
     def test_tango_only_entries_are_tango(self, tango):
         """A Tango-only database yields only ``tango`` entries."""
@@ -80,7 +80,7 @@ class TestChannelMapProtocol:
             for entry in tango.channel_map.values()
             for membership in entry["memberships"]
         } == {"tango"}
-        assert tango.channel_map["ring/kick/ix"]["memberships"][0]["subfield"] == ["X"]
+        assert tango.channel_map["dom/kick/ix"]["memberships"][0]["subfield"] == ["X"]
 
     def test_a_name_under_both_keys_keeps_the_first_key(self, tmp_path):
         """A string listed under both keys of one field resolves in key order."""
@@ -142,18 +142,18 @@ class TestListChannelNamesProtocol:
         """No protocol: ``ChannelNames`` on dual-key, ``TangoNames`` on Tango-only."""
         assert dual.list_channel_names("RING", "KICK", "Voltage") == ["K1:V", "K2:V"]
         assert tango.list_channel_names("RING", "KICK", "Voltage") == [
-            "ring/kick/1/v",
-            "ring/kick/2/v",
+            "dom/kick/1/v",
+            "dom/kick/2/v",
         ]
 
     def test_tango_protocol_on_dual_key(self, dual):
         """``protocol='tango'`` returns the ``TangoNames`` list."""
         assert dual.list_channel_names("RING", "KICK", "Voltage", protocol="tango") == [
-            "ring/kick/1/v",
-            "ring/kick/2/v",
+            "dom/kick/1/v",
+            "dom/kick/2/v",
         ]
         assert dual.list_channel_names("RING", "KICK", "Current", "X", protocol="tango") == [
-            "ring/kick/ix"
+            "dom/kick/ix"
         ]
 
     def test_ca_protocol_on_dual_key(self, dual):
@@ -167,7 +167,7 @@ class TestListChannelNamesProtocol:
         """Device filtering applies to the selected key's list."""
         assert dual.list_channel_names(
             "RING", "KICK", "Voltage", None, None, [2], protocol="tango"
-        ) == ["ring/kick/2/v"]
+        ) == ["dom/kick/2/v"]
 
     def test_absent_protocol_names_the_keys_present(self, tango):
         """Asking a Tango-only field for ``ca`` names what it does carry."""

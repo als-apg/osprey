@@ -153,9 +153,9 @@ class TestExploreChannelsProtocol:
             "KICK": {
                 "Voltage": {
                     "ChannelNames": ["K1:V", "K2:V"],
-                    "TangoNames": ["ring/kick/1/v", "ring/kick/2/v"],
+                    "TangoNames": ["dom/kick/1/v", "dom/kick/2/v"],
                 },
-                "Current": {"TangoNames": ["ring/kick/1/i", "ring/kick/2/i"]},
+                "Current": {"TangoNames": ["dom/kick/1/i", "dom/kick/2/i"]},
                 "setup": {"DeviceList": [[1, 1], [1, 2]]},
             }
         }
@@ -189,7 +189,7 @@ class TestExploreChannelsProtocol:
                 "/api/explore/channels?system=RING&family=KICK&field=Voltage&protocol=tango"
             )
         assert resp.status_code == 200
-        assert resp.json() == {"channels": ["ring/kick/1/v", "ring/kick/2/v"], "total": 2}
+        assert resp.json() == {"channels": ["dom/kick/1/v", "dom/kick/2/v"], "total": 2}
 
     def test_absent_protocol_key_names_the_keys_present(self, client, tmp_path):
         client.app.state.pipeline_type = "middle_layer"
