@@ -51,12 +51,6 @@ Profile YAML reference
        ``in_context``, ``graph``). ``graph`` searches the deployment's graph
        store instead of a channel database, so it needs a ``services.graphdb``
        block (see :ref:`profile-graph-mode`).
-   * - ``tier``
-     - int
-     - derived
-     - Channel-database tier (1 or 3). Defaults from the channel finder mode;
-       tier 1 is ``in_context``-only. ``graph`` has no tiered artifacts at all —
-       leave ``tier`` unset there.
    * - ``connector``
      - string
      - *from preset*
@@ -863,9 +857,9 @@ Graph-mode channel finding
 ``channel_finder_mode: graph`` points the channel finder at the deployment's
 graph store: the agent searches the facility knowledge graph for channels
 instead of reading a channel database. The store *is* the database, so the
-profile ships no channel-database inputs and pins no ``tier`` — what it does
-need is a ``services.graphdb`` block, and the paradigm works with either shape
-that block comes in.
+profile ships no channel-database inputs. What it does need is a
+``services.graphdb`` block, and the paradigm works with either shape that block
+comes in.
 
 A deployment that runs its own store already has one.
 ``osprey init --preset control-assistant`` writes the ``services.graphdb.*``
@@ -877,7 +871,7 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
 
    name: control-room
    provider: anthropic
-   channel_finder_mode: graph     # no `tier` — graph has no tiered artifacts
+   channel_finder_mode: graph
    data: data
    config:
      services.graphdb.path: ./services/graphdb

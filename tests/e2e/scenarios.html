@@ -16,13 +16,12 @@
   ul { margin: 4px 0 8px; padding-left: 22px; }
   li { margin-bottom: 2px; }
   .meta { color: #666; font-size: 0.85rem; }
-  .warn { background: #fef2f0; border-left: 3px solid #9c4221; padding: 6px 12px; margin: 8px 0; font-size: 0.9rem; }
 </style>
 </head>
 <body>
 
 <h1>OSPREY E2E Scenarios</h1>
-<p class="meta">Two cross-paradigm scenarios. Tier ≥ 2 required (tier 1 lacks vacuum gauges and most cavity PVs in every paradigm).</p>
+<p class="meta">Two cross-paradigm scenarios.</p>
 
 <h2>A &mdash; SR07 vacuum burst</h2>
 <p class="meta">File: <code>tests/e2e/test_vacuum_burst_scenario.py</code> &middot; pure telemetry, no logbook.</p>
@@ -101,8 +100,6 @@
   <li><strong>Decoy in logbook:</strong> <code>DEMO-001</code> mentions a Sector 4 vacuum spike (same magnitude as A) but rebases to ~17 days back &mdash; outside any "yesterday" window. <code>DEMO-002</code> uses "Sector 7" in a magnet-temperature context, also 17 days back.</li>
   <li><strong>CAVITY01 &harr; "01" bridge is natural-language only.</strong> No alias table; channel description says "cavity 01", logbook says "CAVITY01" &mdash; the agent must connect the flat device designator to the channel's device index.</li>
 </ul>
-
-<div class="warn"><strong>Tier setting (critical).</strong> <code>init_project</code> in <code>tests/e2e/sdk_helpers.py</code> derives the tier from the preset's paradigm when none is passed (<code>in_context</code> &rarr; tier 1, otherwise tier 3); tier 1 contains no <code>SR:VAC:GAUGE</code> channels, so the vacuum agent cannot discover the gauges and spins without retrieving data. Both scenario tests therefore pass <code>tier=3</code> explicitly so the full simulated facility is discoverable regardless of paradigm. If you clone these scenarios, do the same.</div>
 
 </body>
 </html>
