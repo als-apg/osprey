@@ -24,10 +24,11 @@
 
 import { uuid4 } from '/design-system/js/uuid.js';
 
-import { fetchHistory, interrupt, requestHandoff, sendPrompt } from './chat-client.js';
+import { fetchCommands, fetchHistory, interrupt, requestHandoff, sendPrompt } from './chat-client.js';
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
+import { attachSlashComplete } from './slash-complete.js';
 import { notifySessionChange } from './terminal.js';
 import {
   HANDOFF_PENDING_MESSAGE,
@@ -272,6 +273,7 @@ export function initChat(containerId = 'operator-container') {
   const { bar, led, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
+  const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
 
   const renderer = createChatRenderer(messages);
 
@@ -369,6 +371,7 @@ export function initChat(containerId = 'operator-container') {
     newBtn.disabled = blocked;
     stopBtn.hidden = !streaming;
     stopBtn.disabled = false;
+    if (blocked) slash.close();
   }
 
   /**
@@ -634,6 +637,7 @@ export function initChat(containerId = 'operator-container') {
     emptyState?.remove();
     emptyState = null;
     textarea.value = '';
+    slash.close();
     autoResize();
     scrollToBottom();
     setStreaming(true);
@@ -700,7 +704,10 @@ export function initChat(containerId = 'operator-container') {
 
   textarea.addEventListener('input', autoResize);
   textarea.addEventListener('keydown', (e) => {
-    // Enter sends; Shift+Enter inserts a newline. Skip while an IME is composing.
+    // An open suggestion list owns its keys, Enter included, so picking a
+    // command fills the box and never sends. Otherwise Enter sends and
+    // Shift+Enter inserts a newline; nothing is taken while an IME is composing.
+    if (slash.handleKeydown(e)) return;
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       submit();

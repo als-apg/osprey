@@ -13,7 +13,7 @@
  * boundary completes a frame.
  */
 
-import { withPrefix } from './api.js';
+import { fetchJSON, withPrefix } from './api.js';
 
 /** Base path for the chat REST + streaming endpoint (prefixed per-call via
  * `withPrefix` so multi-user `/u/<user>/` deployments reach this container). */
@@ -24,6 +24,9 @@ const SESSION_ENDPOINT = '/api/session';
 
 /** Read-only transcript endpoint backing the Simple view's replay. */
 const SESSION_CHAT_ENDPOINT = '/api/session-chat';
+
+/** The project's slash commands, backing the Simple view's suggestions. */
+const COMMANDS_ENDPOINT = '/api/chat/commands';
 
 /**
  * A single decoded server event. Every event carries a `type`; the remaining
@@ -325,4 +328,18 @@ export async function fetchHistory(key) {
   if (!res.ok) throw await transportError(res);
   const data = await res.json();
   return Array.isArray(data?.turns) ? data.turns : [];
+}
+
+/** @typedef {{ name: string, description: string, argument_hint: string, kind: string }} SlashCommand */
+
+/**
+ * Read the slash commands the chat agent accepts in this project.
+ *
+ * A body without a `commands` array yields an empty list; a transport failure
+ * or a non-2xx status rejects.
+ * @returns {Promise<SlashCommand[]>}
+ */
+export async function fetchCommands() {
+  const body = await fetchJSON(COMMANDS_ENDPOINT);
+  return Array.isArray(body?.commands) ? body.commands : [];
 }
