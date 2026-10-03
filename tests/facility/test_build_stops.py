@@ -29,6 +29,7 @@ import osprey.facility
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
+from osprey.facility.views import VIEWS
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
@@ -417,6 +418,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "view-unsupported",
         "a hierarchical tree key beginning with `_`",
     ),
+    (
+        "view_unsupported__hierarchical_two_level_words",
+        "view-unsupported",
+        "two place level words at one depth",
+    ),
+    (
+        "view_unsupported__middle_layer_no_groups",
+        "view-unsupported",
+        "a middle_layer selection with no groups",
+    ),
     ("profile_invalid__mirrored_facility_file", "profile-invalid", "`project/facility.json`"),
     (
         "profile_invalid__mirrored_simulator_view",
@@ -438,6 +449,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile-invalid",
         "a persona on a VA target sets `simulation.models`",
     ),
+    ("profile_invalid__tier", "profile-invalid", "a profile `tier` field"),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -1486,6 +1498,27 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "channel_finder_mode"
         ),
     ),
+    "view_unsupported__hierarchical_two_level_words": (
+        _plain(
+            put(
+                "records/places.yaml",
+                [{"id": "A", "level": "machine"}, {"id": "B", "level": "line"}],
+            )
+        ),
+        (
+            "facility: view-unsupported: place A — levels `line` and `machine` both first "
+            "appear at depth 0; fix: give the places at one depth one level word, or select "
+            "another channel_finder_mode"
+        ),
+    ),
+    "view_unsupported__middle_layer_no_groups": (
+        _plain(),
+        (
+            "facility: view-unsupported: path channel_finder.pipeline_mode — selects "
+            "middle_layer and no group carries `signals`; fix: give at least one group "
+            "`signals`, or select another channel_finder_mode"
+        ),
+    ),
     "profile_invalid__mirrored_facility_file": (
         _plain(),
         (
@@ -1527,6 +1560,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "`simulation.models` from personas/reader.yml"
         ),
     ),
+    "profile_invalid__tier": (
+        _plain(),
+        (
+            "facility: profile-invalid: path tier — `tier` is not a profile key; the "
+            "`in_context` tag on a channel selects the in_context subset; fix: remove `tier` "
+            "from the profile"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -1561,6 +1602,20 @@ def _select_hierarchical(repo: Path) -> None:
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
+def _select_middle_layer(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data["channel_finder_mode"] = "middle_layer"
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _spell_tier(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data["tier"] = 1
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
 def _persona_serves_models(repo: Path) -> None:
     persona = repo / "personas" / "reader.yml"
     persona.parent.mkdir(parents=True, exist_ok=True)
@@ -1571,17 +1626,22 @@ def _persona_serves_models(repo: Path) -> None:
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "view_unsupported__in_context_no_tagged_channel": _select_in_context,
     "view_unsupported__hierarchical_meta_key": _select_hierarchical,
+    "view_unsupported__hierarchical_two_level_words": _select_hierarchical,
+    "view_unsupported__middle_layer_no_groups": _select_middle_layer,
     "profile_invalid__unknown_served_model": _serve_unknown_model,
     "profile_invalid__persona_served_models": _persona_serves_models,
+    "profile_invalid__tier": _spell_tier,
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
 #: persona renders are checked by the build.
 BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__persona_served_models"})
 
-#: What a build prints before a stop in a persona render: the main render has written
-#: its views and noted, once, each view the control-assistant render omits.
-MAIN_RENDER_NOTES = "  view bluesky not written: services.bluesky\n"
+#: The lines a build may print before a stop in a persona render: the main render has
+#: written its views and noted, once each, the views it omits that no mode selects.
+MAIN_RENDER_NOTES = frozenset(
+    f"  view {view.name} not written: {view.reason}" for view in VIEWS if view.selected_by is None
+)
 
 IDS = list(CASES)
 
@@ -1645,9 +1705,14 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
 
     result = run_build(repo)
 
-    before = MAIN_RENDER_NOTES if case in BUILD_ONLY else ""
     assert result.exit_code == 1, result.output
-    assert result.stderr == before + CASES[case][1] + "\n"
+    if case not in BUILD_ONLY:
+        assert result.stderr == CASES[case][1] + "\n"
+        return
+    *notes, last = result.stderr.splitlines()
+    assert last == CASES[case][1]
+    assert set(notes) <= MAIN_RENDER_NOTES
+    assert len(notes) == len(set(notes))
 
 
 @pytest.mark.slow
