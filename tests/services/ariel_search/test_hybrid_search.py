@@ -9,6 +9,7 @@ ranking and filenames onto ARIEL's rows.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import threading
 import time
@@ -79,11 +80,69 @@ class StubRepository:
         self._by_id = {entry["entry_id"]: entry for entry in entries}
         self.requested: list[list[str]] = []
 
+        self.caption_calls: list[dict[str, Any]] = []
+
     async def get_entries_by_ids(self, entry_ids: list[str]) -> list[dict[str, Any]]:
         self.requested.append(list(entry_ids))
         # Deliberately returned in table order, not request order: the real
         # repository's ``= ANY(...)`` makes no ordering promise either.
         return [self._by_id[eid] for eid in sorted(self._by_id) if eid in set(entry_ids)]
+
+    async def caption_matches(
+        self, entry_ids: list[str], model_id: str | None, **kwargs: Any
+    ) -> dict[str, list[str]]:
+        """No caption matches anything; records the call."""
+        self.caption_calls.append({"entry_ids": list(entry_ids), "model_id": model_id, **kwargs})
+        return {}
+
+
+#: The English stop words the captions and queries below exercise.
+_STOP_WORDS = frozenset({"a", "an", "and", "at", "in", "of", "on", "the", "to"})
+
+
+def _lexemes(text: str) -> set[str]:
+    """Approximate ``to_tsvector('english', text)`` lexemes for plain words."""
+    return {word for word in re.findall(r"[a-z0-9]+", text.lower()) if word not in _STOP_WORDS}
+
+
+class CaptionRepository(StubRepository):
+    """A stub whose attachments carry captions, matched by lexeme coverage.
+
+    Mirrors the coverage form of ``ARIELRepository.caption_matches``: the
+    caption's lexemes shared with the flattened query, capped at the original
+    query's lexeme count, must reach ``ceil(min_fraction * n(original))``.
+    """
+
+    def __init__(
+        self,
+        entries: list[dict[str, Any]],
+        captions: dict[str, dict[str, str]],
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        super().__init__(entries)
+        self._captions = captions
+        self._error = error
+
+    async def caption_matches(
+        self, entry_ids: list[str], model_id: str | None, **kwargs: Any
+    ) -> dict[str, list[str]]:
+        await super().caption_matches(entry_ids, model_id, **kwargs)
+        if self._error is not None:
+            raise self._error
+        original = _lexemes(kwargs["query_original"])
+        flattened = _lexemes(kwargs.get("query_flattened") or kwargs["query_original"])
+        needed = math.ceil(kwargs["min_fraction"] * len(original))
+        out: dict[str, list[str]] = {}
+        for entry_id in entry_ids:
+            ids = sorted(
+                attachment_id
+                for attachment_id, caption in self._captions.get(entry_id, {}).items()
+                if original and min(len(_lexemes(caption) & flattened), len(original)) >= needed
+            )
+            if ids:
+                out[entry_id] = ids
+        return out
 
 
 def make_hit(
@@ -1163,3 +1222,871 @@ class TestVocabularyExpansion:
     def test_descriptor_declares_no_query_parser(self):
         """Hybrid search matches whole text — there is nothing to parse."""
         assert get_tool_descriptor().query_parser is None
+
+
+# --------------------------------------------------------------------------
+# Caption evidence
+# --------------------------------------------------------------------------
+
+#: An expansion of "orbit kick near BPM 7" that folds one alternative in.
+KICK_EXPANSION = QueryExpansion(
+    groups=(ExpansionGroup(original="kick", alternatives=("kicker",)),),
+    flattened_text="orbit kick kicker near BPM 7",
+)
+
+
+class TestCaptionMatchedIds:
+    """Hybrid marks the results whose attachment captions cover the query.
+
+    The ids are evidence only: the sidecar's ordering and scores are kept, and a
+    failing caption lookup degrades to no ids rather than a failed search.
+    """
+
+    @staticmethod
+    def _repository(**kwargs: Any) -> CaptionRepository:
+        return CaptionRepository(
+            [make_entry("e1"), make_entry("e2")],
+            {
+                "e1": {"att-kick": "orbit kick at BPM 7", "att-other": "vacuum gauge readout"},
+                "e2": {"att-rf": "RF cavity trip"},
+            },
+            **kwargs,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_covering_caption_marks_its_attachment(self):
+        """Image embedding is off (the default config): captions still match."""
+        config = make_config()
+        assert config.is_enhancement_module_enabled("image_embedding") is False
+        repository = self._repository()
+
+        results = await hybrid_search(
+            "orbit kick near BPM 7",
+            repository,
+            config,
+            client=StubClient([make_hit("e1", score=0.9), make_hit("e2", score=0.4)]),
+        )
+
+        assert isinstance(results, list)
+        by_id = {entry["entry_id"]: entry for entry, _score, _snippets in results}
+        assert by_id["e1"]["_matched_attachment_ids"] == ["att-kick"]
+        assert "_matched_attachment_ids" not in by_id["e2"]
+
+    @pytest.mark.asyncio
+    async def test_the_call_carries_the_coverage_form(self):
+        repository = self._repository()
+
+        await hybrid_search(
+            "orbit kick near BPM 7",
+            repository,
+            make_config(),
+            client=StubClient([make_hit("e1"), make_hit("e2")]),
+        )
+
+        [call] = repository.caption_calls
+        assert sorted(call["entry_ids"]) == ["e1", "e2"]
+        assert call["model_id"] is None
+        assert call["query_original"] == "orbit kick near BPM 7"
+        assert call["query_flattened"] == "orbit kick near BPM 7"
+        assert call["min_fraction"] == 0.5
+        assert "tsquery_sql" not in call
+        assert "pattern_bodies" not in call
+
+    @pytest.mark.asyncio
+    async def test_the_configured_caption_model_is_passed(self):
+        """The module's enabled flag is ignored: existing captions stay searchable."""
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/ariel"},
+                "search_modules": {"hybrid": {"enabled": True}},
+                "enhancement_modules": {
+                    "image_caption": {"enabled": False, "model": {"model_id": "cap-model"}}
+                },
+            }
+        )
+        repository = self._repository()
+
+        await hybrid_search(
+            "orbit kick near BPM 7",
+            repository,
+            config,
+            client=StubClient([make_hit("e1")]),
+        )
+
+        assert repository.caption_calls[0]["model_id"] == "cap-model"
+
+    @pytest.mark.asyncio
+    async def test_with_vocabulary_expansion_the_flattened_text_is_counted(self):
+        repository = self._repository()
+
+        output = await hybrid_search(
+            "orbit kick near BPM 7",
+            repository,
+            make_config(),
+            client=StubClient([make_hit("e1"), make_hit("e2")]),
+            query_expansion=KICK_EXPANSION,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        by_id = {entry["entry_id"]: entry for entry, _score, _snippets in output.entries}
+        assert by_id["e1"]["_matched_attachment_ids"] == ["att-kick"]
+        [call] = repository.caption_calls
+        assert call["query_original"] == "orbit kick near BPM 7"
+        assert call["query_flattened"] == "orbit kick kicker near BPM 7"
+
+    @pytest.mark.asyncio
+    async def test_ordering_and_scores_are_unchanged(self):
+        hits = [make_hit("e2", score=0.8, snippet="1: rf"), make_hit("e1", score=0.3)]
+        plain = await hybrid_search(
+            "orbit kick near BPM 7",
+            StubRepository([make_entry("e1"), make_entry("e2")]),
+            make_config(),
+            client=StubClient(hits),
+        )
+        marked = await hybrid_search(
+            "orbit kick near BPM 7",
+            self._repository(),
+            make_config(),
+            client=StubClient(hits),
+        )
+
+        assert isinstance(plain, list) and isinstance(marked, list)
+        assert [(e["entry_id"], s, h) for e, s, h in marked] == [
+            (e["entry_id"], s, h) for e, s, h in plain
+        ]
+        assert [e["entry_id"] for e, _s, _h in marked] == ["e2", "e1"]
+
+    @pytest.mark.asyncio
+    async def test_a_query_below_half_coverage_marks_nothing(self):
+        repository = self._repository()
+
+        results = await hybrid_search(
+            "vacuum interlock trip sector four",
+            repository,
+            make_config(),
+            client=StubClient([make_hit("e1"), make_hit("e2")]),
+        )
+
+        assert isinstance(results, list)
+        assert all("_matched_attachment_ids" not in entry for entry, _s, _h in results)
+
+    @pytest.mark.asyncio
+    async def test_no_results_makes_no_caption_call(self):
+        repository = self._repository()
+
+        await hybrid_search(
+            "orbit kick near BPM 7", repository, make_config(), client=StubClient([])
+        )
+
+        assert repository.caption_calls == []
+
+    @pytest.mark.asyncio
+    async def test_filtered_out_hits_are_not_looked_up(self):
+        repository = CaptionRepository(
+            [make_entry("e1", author="alice"), make_entry("e2", author="bob")],
+            {"e1": {"att-kick": "orbit kick at BPM 7"}, "e2": {"att-b": "orbit kick at BPM 7"}},
+        )
+
+        await hybrid_search(
+            "orbit kick near BPM 7",
+            repository,
+            make_config(),
+            author="alice",
+            client=StubClient([make_hit("e1"), make_hit("e2")]),
+        )
+
+        assert repository.caption_calls[0]["entry_ids"] == ["e1"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("error_kind", ["timeout", "database"])
+    async def test_a_failing_lookup_warns_and_keeps_the_results(self, error_kind, caplog):
+        """An unmigrated or slow store degrades to no ids, never to a failed search."""
+        from osprey.services.ariel_search.exceptions import (
+            DatabaseQueryError,
+            SearchTimeoutError,
+        )
+
+        error = (
+            SearchTimeoutError(
+                "caption statement timed out", timeout_seconds=1.0, operation="caption_matches"
+            )
+            if error_kind == "timeout"
+            else DatabaseQueryError('column "attachment_captions" does not exist')
+        )
+        repository = self._repository(error=error)
+
+        with caplog.at_level("WARNING", logger="ariel"):
+            results = await hybrid_search(
+                "orbit kick near BPM 7",
+                repository,
+                make_config(),
+                client=StubClient([make_hit("e1"), make_hit("e2")]),
+            )
+
+        assert isinstance(results, list)
+        assert [entry["entry_id"] for entry, _s, _h in results] == ["e1", "e2"]
+        assert all("_matched_attachment_ids" not in entry for entry, _s, _h in results)
+        assert any("caption matching skipped" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_an_unmigrated_store_returns_results_without_ids(self):
+        """A store without copy state answers ``{}``: results come back unmarked."""
+        repository = StubRepository([make_entry("e1")])
+
+        results = await hybrid_search(
+            "orbit kick near BPM 7",
+            repository,
+            make_config(),
+            client=StubClient([make_hit("e1")]),
+        )
+
+        assert isinstance(results, list)
+        assert [entry["entry_id"] for entry, _s, _h in results] == ["e1"]
+        assert "_matched_attachment_ids" not in results[0][0]
+
+
+# --------------------------------------------------------------------------
+# Picture lane integration
+# --------------------------------------------------------------------------
+
+from osprey.services.ariel_search.capabilities import attachments_capability  # noqa: E402
+from osprey.services.ariel_search.search import fusion, image_lane  # noqa: E402
+from osprey.services.ariel_search.search.fusion import ImageHit  # noqa: E402
+from osprey.services.qmd import QMDClientError  # noqa: E402
+from tests.services.ariel_search.conftest import _FakePool  # noqa: E402
+from tests.services.ariel_search.llama_stub import MODEL as _LLAMA_MODEL  # noqa: E402
+
+
+def lane_config(url: str = "http://127.0.0.1:1", *, enabled: bool = True) -> ARIELConfig:
+    """A config with hybrid on and a llama-cpp ``image_embedding`` block at *url*."""
+    config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost/ariel"},
+            "search_modules": {"hybrid": {"enabled": True}},
+            "enhancement_modules": {
+                "image_embedding": {
+                    "enabled": enabled,
+                    "provider": {"name": "llama-cpp", "base_url": url},
+                    "model": _LLAMA_MODEL,
+                    "dimensions": 1024,
+                }
+            },
+        }
+    )
+    return config
+
+
+class LaneRepository(StubRepository):
+    """A stub repository with an empty image table behind a fake pool."""
+
+    def __init__(self, entries: list[dict[str, Any]]) -> None:
+        super().__init__(entries)
+        self.pool = _FakePool(rows_for={"FROM ": []})
+
+
+class FakeLane:
+    """Stands in for ``image_lane.search_images``; records each call."""
+
+    def __init__(self, result: dict[str, ImageHit] | None) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    async def __call__(self, query, repository, config, *, fetch_limit):  # noqa: ARG002
+        self.calls.append({"query": query, "fetch_limit": fetch_limit})
+        return self.result
+
+
+@pytest.fixture
+def fake_lane(monkeypatch):
+    def _install(result: dict[str, ImageHit] | None) -> FakeLane:
+        lane = FakeLane(result)
+        monkeypatch.setattr(image_lane, "search_images", lane)
+        return lane
+
+    return _install
+
+
+@pytest.fixture
+def fuse_spy(monkeypatch):
+    calls: list[dict[str, Any]] = []
+    real = fusion.fuse_lanes
+
+    def _spy(text_hits, image_hits, **kwargs):
+        calls.append({"text_hits": list(text_hits), "image_hits": dict(image_hits), **kwargs})
+        return real(text_hits, image_hits, **kwargs)
+
+    monkeypatch.setattr(fusion, "fuse_lanes", _spy)
+    return calls
+
+
+@pytest.fixture
+def provider_spy(monkeypatch):
+    calls: list[Any] = []
+
+    def _resolve(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("the picture lane must not resolve a provider")
+
+    monkeypatch.setattr(image_lane, "resolve_provider", _resolve)
+    return calls
+
+
+def _entries(result) -> list[tuple[dict[str, Any], float, list[str]]]:
+    return list(result.entries) if isinstance(result, ModuleOutput) else list(result)
+
+
+def _ids(result) -> list[str]:
+    return [entry["entry_id"] for entry, _score, _snippets in _entries(result)]
+
+
+def _strip_lane_keys(rows):
+    """The rows with the keys only the picture lane adds removed."""
+    out = []
+    for entry, score, snippets in rows:
+        clean = {k: v for k, v in entry.items() if k != "_matched_via"}
+        out.append((clean, score, snippets))
+    return out
+
+
+def _picture_diagnostics(result) -> list[Any]:
+    if not isinstance(result, ModuleOutput):
+        return []
+    return [d for d in result.diagnostics if d.message.startswith("Picture search unavailable")]
+
+
+REQ4_TEXT = ["T1", "ORB", "T3"]
+REQ4_IMAGES = {
+    "ORB": ImageHit("att-orb", 0.70),
+    "I2": ImageHit("att-i2", 0.68),
+    "I3": ImageHit("att-i3", 0.66),
+}
+
+
+def _req4_fixture():
+    client = StubClient(
+        [make_hit(e, score=s) for e, s in zip(REQ4_TEXT, [0.9, 0.8, 0.7], strict=True)]
+    )
+    repo = LaneRepository([make_entry(e) for e in [*REQ4_TEXT, "I2", "I3"]])
+    return client, repo
+
+
+class TestPictureLaneFusion:
+    """Requirement 4: the picture lane fused into the text ranking."""
+
+    async def test_fused_order_matched_via_and_picture_ids(self, fake_lane, fuse_spy):
+        lane = fake_lane(dict(REQ4_IMAGES))
+        client, repo = _req4_fixture()
+
+        result = await hybrid_search(
+            "orbit plot", repo, lane_config(), client=client, max_results=10, include_images=True
+        )
+
+        rows = _entries(result)
+        assert _ids(result) == ["ORB", "T1", "I2", "T3", "I3"]
+        via = {entry["entry_id"]: entry["_matched_via"] for entry, _, _ in rows}
+        assert via == {
+            "ORB": ["image", "text"],
+            "T1": ["text"],
+            "I2": ["image"],
+            "T3": ["text"],
+            "I3": ["image"],
+        }
+        pictures = {entry["entry_id"]: entry.get("_matched_attachment_ids") for entry, _, _ in rows}
+        assert pictures == {
+            "ORB": ["att-orb"],
+            "T1": None,
+            "I2": ["att-i2"],
+            "T3": None,
+            "I3": ["att-i3"],
+        }
+        # Fused scores are normalised by the best: the top entry scores 1.0.
+        assert rows[0][1] == pytest.approx(1.0)
+        assert all(rows[i][1] >= rows[i + 1][1] for i in range(len(rows) - 1))
+        # Image-only entries carry no snippet.
+        assert {e["entry_id"]: s for e, _, s in rows}["I2"] == []
+        # Both lanes hydrate in one read.
+        assert len(repo.requested) == 1
+        assert set(repo.requested[0]) == {"T1", "ORB", "T3", "I2", "I3"}
+        assert fuse_spy[0]["cap"] == 4
+        assert lane.calls == [{"query": "orbit plot", "fetch_limit": 10}]
+
+    async def test_i3_ties_t3_and_is_ranked_after_it(self, fake_lane):
+        fake_lane(dict(REQ4_IMAGES))
+        client, repo = _req4_fixture()
+
+        rows = _entries(
+            await hybrid_search("q", repo, lane_config(), client=client, include_images=True)
+        )
+
+        scores = {entry["entry_id"]: score for entry, score, _ in rows}
+        assert scores["I3"] == pytest.approx(scores["T3"])
+        assert _ids(rows).index("T3") < _ids(rows).index("I3")
+
+    async def test_picture_caption_ids_come_before_the_picture_id(self, fake_lane):
+        fake_lane({"T1": ImageHit("att-pic", 0.9)})
+        client = StubClient([make_hit("T1")])
+        repo = CaptionRepository([make_entry("T1")], {"T1": {"att-cap": "orbit plot"}})
+        repo.pool = _FakePool()
+
+        rows = _entries(
+            await hybrid_search(
+                "orbit plot", repo, lane_config(), client=client, include_images=True
+            )
+        )
+
+        assert rows[0][0]["_matched_attachment_ids"] == ["att-cap", "att-pic"]
+
+    async def test_caption_and_picture_naming_the_same_id_list_it_once(self, fake_lane):
+        fake_lane({"T1": ImageHit("att-cap", 0.9)})
+        client = StubClient([make_hit("T1")])
+        repo = CaptionRepository([make_entry("T1")], {"T1": {"att-cap": "orbit plot"}})
+
+        rows = _entries(
+            await hybrid_search(
+                "orbit plot", repo, lane_config(), client=client, include_images=True
+            )
+        )
+
+        assert rows[0][0]["_matched_attachment_ids"] == ["att-cap"]
+
+    @pytest.mark.parametrize(("distance", "admitted"), [(0.30, True), (0.70, False)])
+    async def test_similarity_floor_admits_070_and_drops_030(self, fake_lane, distance, admitted):
+        fake_lane({"PIC": ImageHit("att-pic", 1 - distance)})
+        client = StubClient([make_hit("T1")])
+        repo = LaneRepository([make_entry("T1"), make_entry("PIC")])
+
+        ids = _ids(
+            await hybrid_search("q", repo, lane_config(), client=client, include_images=True)
+        )
+
+        assert ("PIC" in ids) is admitted
+        assert "T1" in ids
+
+    async def test_an_empty_lane_result_marks_text_hits_and_keeps_qmd_order(self, fake_lane):
+        fake_lane({})
+        hits = [make_hit("a", score=0.9), make_hit("b", score=0.4)]
+        repo = LaneRepository([make_entry("a"), make_entry("b")])
+
+        rows = _entries(
+            await hybrid_search(
+                "q", repo, lane_config(), client=StubClient(hits), include_images=True
+            )
+        )
+
+        assert [(e["entry_id"], s, e["_matched_via"]) for e, s, _ in rows] == [
+            ("a", 0.9, ["text"]),
+            ("b", 0.4, ["text"]),
+        ]
+
+    async def test_no_text_hits_still_fuse_the_picture_matches(self, fake_lane):
+        fake_lane({"PIC": ImageHit("att-pic", 0.8)})
+        repo = LaneRepository([make_entry("PIC")])
+
+        rows = _entries(
+            await hybrid_search(
+                "q", repo, lane_config(), client=StubClient([]), include_images=True
+            )
+        )
+
+        assert [(e["entry_id"], e["_matched_via"]) for e, _, _ in rows] == [("PIC", ["image"])]
+
+    async def test_image_only_entries_pass_the_filters(self, fake_lane):
+        fake_lane({"MINE": ImageHit("a1", 0.8), "THEIRS": ImageHit("a2", 0.8)})
+        repo = LaneRepository(
+            [make_entry("T1"), make_entry("MINE"), make_entry("THEIRS", author="someone else")]
+        )
+
+        ids = _ids(
+            await hybrid_search(
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient([make_hit("T1")]),
+                author="operator",
+                include_images=True,
+            )
+        )
+
+        assert "MINE" in ids
+        assert "THEIRS" not in ids
+
+    async def test_a_picture_hit_without_a_row_is_dropped(self, fake_lane):
+        fake_lane({"GONE": ImageHit("a1", 0.8)})
+        repo = LaneRepository([make_entry("T1")])
+
+        ids = _ids(
+            await hybrid_search(
+                "q", repo, lane_config(), client=StubClient([make_hit("T1")]), include_images=True
+            )
+        )
+
+        assert ids == ["T1"]
+
+    async def test_the_lane_sees_the_typed_query_not_the_expansion(self, fake_lane):
+        lane = fake_lane({})
+        client = StubClient([make_hit("a")])
+        expansion = QueryExpansion(
+            groups=(ExpansionGroup(original="BPM", alternatives=("beam position monitor",)),),
+            flattened_text="BPM beam position monitor",
+        )
+
+        await hybrid_search(
+            "BPM",
+            LaneRepository([make_entry("a")]),
+            lane_config(),
+            client=client,
+            query_expansion=expansion,
+            include_images=True,
+        )
+
+        assert lane.calls[0]["query"] == "BPM"
+        assert client.calls[0]["text"] == "BPM beam position monitor"
+
+
+class TestPictureLaneWindow:
+    """Image-only entries never push fetched text hits out."""
+
+    async def test_ten_text_hits_and_five_image_only_keep_all_ten_text_hits(self, fake_lane):
+        images = {f"I{i}": ImageHit(f"a{i}", 0.70 - i * 0.001) for i in range(1, 6)}
+        fake_lane(images)
+        text = [f"T{i:02d}" for i in range(1, 11)]
+        repo = LaneRepository([make_entry(e) for e in [*text, *images]])
+
+        rows = _entries(
+            await hybrid_search(
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient([make_hit(e) for e in text]),
+                max_results=10,
+                include_images=True,
+            )
+        )
+
+        text_rows = [e["entry_id"] for e, _, _ in rows if e["_matched_via"] != ["image"]]
+        image_rows = [e["entry_id"] for e, _, _ in rows if e["_matched_via"] == ["image"]]
+        assert sorted(text_rows) == text
+        assert len(image_rows) == math.ceil(10 / 3)
+
+    async def test_fusion_runs_over_every_filter_accepted_text_hit(self, fake_lane, fuse_spy):
+        fake_lane({"I1": ImageHit("a1", 0.7)})
+        text = [f"T{i:02d}" for i in range(1, 16)]
+        repo = LaneRepository([make_entry(e) for e in [*text, "I1"]])
+
+        rows = _entries(
+            await hybrid_search(
+                "q",
+                repo,
+                lane_config(),
+                client=StubClient([make_hit(e) for e in text]),
+                max_results=15,
+                include_images=True,
+            )
+        )
+
+        assert [eid for eid, _ in fuse_spy[0]["text_hits"]] == text
+        assert len([e for e, _, _ in rows if e["_matched_via"] == ["text"]]) == 15
+
+    async def test_at_most_max_results_text_lane_entries_are_kept(self, fake_lane):
+        fake_lane({"T01": ImageHit("a1", 0.7)})
+        text = [f"T{i:02d}" for i in range(1, 13)]
+        repo = LaneRepository([make_entry(e) for e in text])
+
+        # The fetch limit asks qmd for max_results hits; a client that answers
+        # more stands for a window that over-fetched.
+        client = StubClient([make_hit(e) for e in text])
+        client.query = lambda collection, q, **kw: [make_hit(e) for e in text]  # type: ignore[method-assign]
+
+        rows = _entries(
+            await hybrid_search(
+                "q", repo, lane_config(), client=client, max_results=10, include_images=True
+            )
+        )
+
+        assert len(rows) == 10
+        assert rows[0][0]["entry_id"] == "T01"
+
+
+class TestPictureLaneOff:
+    """With the lane off the B1 path runs unchanged."""
+
+    async def test_explicit_false_runs_no_lane(self, monkeypatch, fuse_spy, provider_spy):
+        lane_calls: list[Any] = []
+        real = image_lane.search_images
+
+        async def _spy(*args, **kwargs):
+            lane_calls.append(args)
+            return await real(*args, **kwargs)
+
+        monkeypatch.setattr(image_lane, "search_images", _spy)
+        hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
+        repo = LaneRepository([make_entry("a"), make_entry("b")])
+
+        result = await hybrid_search(
+            "q", repo, lane_config(), client=StubClient(hits), include_images=False
+        )
+
+        assert lane_calls == []
+        assert provider_spy == []
+        assert fuse_spy == []
+        assert isinstance(result, list)
+        assert all("_matched_via" not in e for e, _, _ in result)
+        assert [(e["entry_id"], s) for e, s, _ in result] == [("a", 0.9), ("b", 0.5)]
+
+    async def test_disabled_module_and_unset_flag_runs_no_lane(self, fake_lane, fuse_spy):
+        lane = fake_lane({"x": ImageHit("a", 0.9)})
+
+        result = await hybrid_search(
+            "q",
+            LaneRepository([make_entry("a")]),
+            lane_config(enabled=False),
+            client=StubClient([make_hit("a")]),
+        )
+
+        assert lane.calls == []
+        assert fuse_spy == []
+        assert all("_matched_via" not in e for e, _, _ in result)
+
+    async def test_unset_flag_with_the_module_enabled_runs_the_lane(self, fake_lane):
+        lane = fake_lane({})
+
+        await hybrid_search(
+            "q",
+            LaneRepository([make_entry("a")]),
+            lane_config(),
+            client=StubClient([make_hit("a")]),
+        )
+
+        assert len(lane.calls) == 1
+
+    async def test_lane_off_keeps_the_early_stop_at_max_results(self):
+        hits = [make_hit(e) for e in ["a", "b", "c"]]
+        repo = LaneRepository([make_entry(e) for e in ["a", "b", "c"]])
+
+        result = await hybrid_search(
+            "q", repo, lane_config(), client=StubClient(hits), max_results=2, include_images=False
+        )
+
+        assert _ids(result) == ["a", "b"]
+
+
+class TestPictureLaneFailure:
+    """A failed or cooling-down lane leaves qmd's output plus one diagnostic."""
+
+    async def test_failed_lane_gives_the_text_result_plus_the_diagnostic(self, fake_lane, fuse_spy):
+        hits = [make_hit("a", score=0.9), make_hit("b", score=0.5), make_hit("c", score=0.1)]
+        rows = [make_entry("a"), make_entry("b"), make_entry("c")]
+
+        off = await hybrid_search(
+            "q",
+            LaneRepository(rows),
+            lane_config(),
+            client=StubClient(hits),
+            max_results=2,
+            include_images=False,
+        )
+        fake_lane(None)
+        failed = await hybrid_search(
+            "q",
+            LaneRepository([make_entry(r["entry_id"]) for r in rows]),
+            lane_config(),
+            client=StubClient(hits),
+            max_results=2,
+            include_images=True,
+        )
+
+        assert isinstance(failed, ModuleOutput)
+        assert list(failed.entries) == list(off)
+        assert all("_matched_via" not in e for e, _, _ in failed.entries)
+        assert fuse_spy == []
+        (diag,) = failed.diagnostics
+        assert diag.level is DiagnosticLevel.WARNING
+        assert diag.message.startswith("Picture search unavailable")
+        assert diag.category == "picture_search"
+
+    async def test_failed_lane_with_a_rerank_fallback_carries_both_diagnostics(self, fake_lane):
+        fake_lane(None)
+
+        class FlakyReranker(StubClient):
+            def query(self, collection, text, **kwargs):
+                if kwargs.get("rerank"):
+                    raise RuntimeError("reranker down")
+                return super().query(collection, text, **kwargs)
+
+        result = await hybrid_search(
+            "q",
+            LaneRepository([make_entry("a")]),
+            lane_config(),
+            client=FlakyReranker([make_hit("a")]),
+            rerank=True,
+            include_images=True,
+        )
+
+        assert [d.category for d in result.diagnostics] == ["rerank", "picture_search"]
+
+    async def test_qmd_client_error_leaves_no_pending_lane_task(self):
+        held: list[int] = []
+        tasks: list[asyncio.Task[Any]] = []
+
+        async def _slow_lane(*_args: Any, **_kwargs: Any) -> dict[str, ImageHit]:
+            tasks.append(asyncio.current_task())
+            held.append(1)  # a pooled connection checked out
+            try:
+                await asyncio.sleep(30)
+            finally:
+                held.pop()
+            return {}
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(image_lane, "search_images", _slow_lane)
+            client = StubClient([make_hit("a")], error=QMDClientError("sidecar broke"))
+            with pytest.raises(QMDClientError):
+                await hybrid_search(
+                    "q",
+                    LaneRepository([make_entry("a")]),
+                    lane_config(),
+                    client=client,
+                    rerank=False,
+                    include_images=True,
+                )
+
+        assert len(tasks) == 1
+        assert tasks[0].done()
+        assert tasks[0].cancelled()
+        assert held == []
+        pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        assert tasks[0] not in pending
+
+    async def test_qmd_down_with_picture_hits_returns_them_with_a_diagnostic(self, fake_lane):
+        fake_lane({"PIC": ImageHit("att-pic", 0.8)})
+        client = StubClient(available=False)
+
+        result = await hybrid_search(
+            "q",
+            LaneRepository([make_entry("PIC")]),
+            lane_config(),
+            client=client,
+            include_images=True,
+        )
+
+        assert isinstance(result, ModuleOutput)
+        assert [(e["entry_id"], e["_matched_via"]) for e, _, _ in result.entries] == [
+            ("PIC", ["image"])
+        ]
+        assert result.entries[0][0]["_matched_attachment_ids"] == ["att-pic"]
+        (diag,) = result.diagnostics
+        assert diag.message.startswith("Text ranking unavailable — picture matches only")
+        assert client.calls == []
+
+    @pytest.mark.parametrize("lane_result", [{}, None])
+    async def test_qmd_down_without_picture_hits_still_raises(self, fake_lane, lane_result):
+        fake_lane(lane_result)
+
+        with pytest.raises(QMDUnavailableError):
+            await hybrid_search(
+                "q",
+                LaneRepository([]),
+                lane_config(),
+                client=StubClient(available=False),
+                include_images=True,
+            )
+
+    async def test_qmd_down_with_the_lane_off_raises_as_before(self, fake_lane):
+        lane = fake_lane({"PIC": ImageHit("a", 0.9)})
+
+        with pytest.raises(QMDUnavailableError):
+            await hybrid_search(
+                "q",
+                LaneRepository([make_entry("PIC")]),
+                lane_config(),
+                client=StubClient(available=False),
+                include_images=False,
+            )
+        assert lane.calls == []
+
+
+@pytest.fixture
+def lane_clock(monkeypatch):
+    class _Clock:
+        now = 1000.0
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = _Clock()
+    monkeypatch.setattr(image_lane, "_now", clock)
+    return clock
+
+
+def _closed_port_url() -> str:
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+
+
+class TestPictureLaneAgainstAServer:
+    """Owner ruling 17: no llama-server, or the wrong one, answers text-only."""
+
+    async def test_closed_port_answers_text_only_fast_and_reports_unreachable(
+        self, llama_stub, lane_clock
+    ):
+        # llama_stub empties LLAMA_CPP_HOST and the container fallbacks, so the
+        # bound does not depend on the host's name resolution.
+        config = lane_config(_closed_port_url())
+        hits = [make_hit("a", score=0.9), make_hit("b", score=0.5)]
+
+        def repo() -> LaneRepository:
+            return LaneRepository([make_entry("a"), make_entry("b")])
+
+        started = time.monotonic()
+        off = await hybrid_search(
+            "q", repo(), config, client=StubClient(hits), include_images=False
+        )
+        off_s = time.monotonic() - started
+
+        started = time.monotonic()
+        first = await hybrid_search("q", repo(), config, client=StubClient(hits))
+        first_s = time.monotonic() - started
+
+        assert first_s - off_s < 1.0
+        assert isinstance(first, ModuleOutput)
+        assert list(first.entries) == list(off)
+        assert len(_picture_diagnostics(first)) == 1
+        caps = attachments_capability(config)
+        assert caps["picture_search"] is True
+        assert caps["picture_search_unavailable"] == "unreachable"
+
+        lane_clock.now += 0.5
+        started = time.monotonic()
+        second = await hybrid_search("q", repo(), config, client=StubClient(hits))
+        assert time.monotonic() - started < 1.0
+        assert list(second.entries) == list(off)
+        assert len(_picture_diagnostics(second)) == 1
+
+        # The cooldown ends, but no query has tried the lane again.
+        lane_clock.now += image_lane.IMAGE_LANE_COOLDOWN_S + 1
+        assert attachments_capability(config)["picture_search_unavailable"] == "unreachable"
+
+        stub = llama_stub()
+        working = lane_config(stub.url)
+        result = await hybrid_search("q", repo(), working, client=StubClient(hits))
+        assert _picture_diagnostics(result) == []
+        assert [e["_matched_via"] for e, _, _ in _entries(result)] == [["text"], ["text"]]
+        assert attachments_capability(working)["picture_search_unavailable"] is None
+
+    async def test_a_server_serving_another_model_answers_text_only(self, llama_stub):
+        stub = llama_stub()
+        stub.alias = "other"
+        config = lane_config(stub.url)
+
+        result = await hybrid_search(
+            "q", LaneRepository([make_entry("a")]), config, client=StubClient([make_hit("a")])
+        )
+
+        assert _ids(result) == ["a"]
+        assert len(_picture_diagnostics(result)) == 1
+        assert all("_matched_via" not in e for e, _, _ in _entries(result))
+        assert attachments_capability(config)["picture_search_unavailable"] == "model"
+        assert stub.embeddings == []

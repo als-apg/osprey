@@ -34,7 +34,8 @@ from osprey.services.ariel_search.search.base import (
     SearchToolDescriptor,
 )
 from osprey.services.ariel_search.search.keyword import parse_keyword_query
-from osprey.services.ariel_search.service import ARIELSearchService
+from osprey.services.ariel_search.service import INCLUDE_IMAGES_PARAM, ARIELSearchService
+from tests.services.ariel_search.repo_fakes import attach_fake_fts
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -95,6 +96,7 @@ def _descriptor(
     execute: Any,
     *,
     accepts_expansion: bool = False,
+    accepts_include_images: bool = False,
     query_parser: Any = None,
 ) -> SearchToolDescriptor:
     """Build a fake module descriptor with the given opt-ins."""
@@ -106,6 +108,7 @@ def _descriptor(
         execute=execute,
         format_result=lambda *a, **k: {},
         accepts_expansion=accepts_expansion,
+        accepts_include_images=accepts_include_images,
         query_parser=query_parser,
     )
 
@@ -133,12 +136,19 @@ def _service(
     vocabulary: dict[str, Any] | None = None,
     yml: str | None = VOCABULARY_YML,
     modes: tuple[str, ...] = ("keyword",),
+    image_embedding: bool | None = None,
 ) -> ARIELSearchService:
-    """Build a service whose config carries a real, loaded vocabulary file."""
+    """Build a service whose config carries a real, loaded vocabulary file.
+
+    ``image_embedding`` adds an ``enhancement_modules.image_embedding`` block
+    with that ``enabled`` value; ``None`` leaves the block out entirely.
+    """
     config_dict: dict[str, Any] = {
         "database": {"uri": "postgresql://localhost:5432/test"},
         "search_modules": {mode: {"enabled": True} for mode in modes},
     }
+    if image_embedding is not None:
+        config_dict["enhancement_modules"] = {"image_embedding": {"enabled": image_embedding}}
     if vocabulary is not None:
         block = dict(vocabulary)
         if yml is not None and "path" not in block:
@@ -153,6 +163,7 @@ def _service(
     repository = MagicMock()
     repository.health_check = AsyncMock(return_value=(True, "OK"))
     repository.validate_search_model_table = AsyncMock()
+    attach_fake_fts(repository, has_v2=False, has_copy_state=False)
     return ARIELSearchService(config=config, pool=pool, repository=repository)
 
 
@@ -726,3 +737,177 @@ class TestTruncation:
         truncation = [d for d in result.diagnostics if d.category == "truncation"]
         assert len(truncation) == 1
         assert truncation[0].level is DiagnosticLevel.WARNING
+
+
+# --- include_images: one channel, resolved by the service -------------------
+
+PICTURE_SEARCH_KEY = "ariel.enhancement_modules.image_embedding.enabled"
+
+
+class TestIncludeImagesResolution:
+    """``include_images`` reaches a module only as the service's resolved value."""
+
+    async def _kwargs_and_result(
+        self,
+        tmp_path: Path,
+        *,
+        advanced_params: dict[str, Any] | None = None,
+        image_embedding: bool | None = None,
+        accepts_include_images: bool = True,
+    ) -> tuple[dict[str, Any], Any]:
+        recorder = _Recorder()
+        service = _service(tmp_path, modes=("hybrid",), image_embedding=image_embedding, yml=None)
+        descriptors = {
+            "hybrid": _descriptor("hybrid", recorder, accepts_include_images=accepts_include_images)
+        }
+        with patch("osprey.registry.get_registry", return_value=_registry(descriptors)):
+            result = await service.search(
+                "orbit kick", mode="hybrid", advanced_params=advanced_params
+            )
+        return recorder.kwargs, result
+
+    @staticmethod
+    def _picture_diagnostics(result: Any) -> list[Any]:
+        return [d for d in result.diagnostics if PICTURE_SEARCH_KEY in d.message]
+
+    def test_param_constant_names_the_wire_key(self) -> None:
+        """The single channel is the ``include_images`` advanced parameter."""
+        assert INCLUDE_IMAGES_PARAM == "include_images"
+
+    @pytest.mark.asyncio
+    async def test_explicit_false_reaches_the_module_as_false(self, tmp_path: Path) -> None:
+        """An explicit opt-out with the module enabled is passed through as False."""
+        kwargs, result = await self._kwargs_and_result(
+            tmp_path, advanced_params={"include_images": False}, image_embedding=True
+        )
+
+        assert kwargs["include_images"] is False
+        assert self._picture_diagnostics(result) == []
+
+    @pytest.mark.asyncio
+    async def test_unset_is_on_when_the_module_is_enabled(self, tmp_path: Path) -> None:
+        """Silence means "on" exactly when image_embedding is enabled."""
+        kwargs, result = await self._kwargs_and_result(tmp_path, image_embedding=True)
+
+        assert kwargs["include_images"] is True
+        assert self._picture_diagnostics(result) == []
+
+    @pytest.mark.parametrize("image_embedding", [False, None])
+    @pytest.mark.asyncio
+    async def test_unset_is_off_when_the_module_is_disabled(
+        self, tmp_path: Path, image_embedding: bool | None
+    ) -> None:
+        """Silence with the module off (or unconfigured) is off, with no diagnostic."""
+        kwargs, result = await self._kwargs_and_result(tmp_path, image_embedding=image_embedding)
+
+        assert kwargs["include_images"] is False
+        assert self._picture_diagnostics(result) == []
+
+    @pytest.mark.asyncio
+    async def test_explicit_true_while_disabled_is_a_noop_with_an_info_diagnostic(
+        self, tmp_path: Path
+    ) -> None:
+        """Asking for pictures the deployment cannot search is reported, not raised."""
+        kwargs, result = await self._kwargs_and_result(
+            tmp_path, advanced_params={"include_images": True}, image_embedding=False
+        )
+
+        assert kwargs["include_images"] is False
+        reported = self._picture_diagnostics(result)
+        assert len(reported) == 1
+        assert reported[0].level is DiagnosticLevel.INFO
+        assert reported[0].message == f"picture search is not enabled ({PICTURE_SEARCH_KEY})"
+        assert reported[0].source == "service.hybrid"
+        assert len(result.entries) == 1
+
+    @pytest.mark.asyncio
+    async def test_explicit_true_while_enabled_is_on(self, tmp_path: Path) -> None:
+        """An explicit opt-in on an enabled deployment is passed through as True."""
+        kwargs, result = await self._kwargs_and_result(
+            tmp_path, advanced_params={"include_images": True}, image_embedding=True
+        )
+
+        assert kwargs["include_images"] is True
+        assert self._picture_diagnostics(result) == []
+
+    @pytest.mark.asyncio
+    async def test_module_without_the_opt_in_never_sees_the_key(self, tmp_path: Path) -> None:
+        """A module that did not opt in is called exactly as before, silently."""
+        kwargs, result = await self._kwargs_and_result(
+            tmp_path,
+            advanced_params={"include_images": True},
+            image_embedding=False,
+            accepts_include_images=False,
+        )
+
+        assert "include_images" not in kwargs
+        assert set(kwargs) == {"max_results", "start_date", "end_date"}
+        assert self._picture_diagnostics(result) == []
+
+    @pytest.mark.asyncio
+    async def test_advanced_params_dict_is_not_mutated(self, tmp_path: Path) -> None:
+        """Stripping the key works on a copy; the caller's dict is untouched."""
+        advanced_params: dict[str, Any] = {"include_images": True, "rerank": False}
+        before = dict(advanced_params)
+
+        kwargs, _ = await self._kwargs_and_result(
+            tmp_path, advanced_params=advanced_params, image_embedding=False
+        )
+
+        assert advanced_params == before
+        assert kwargs["rerank"] is False
+
+
+class TestIncludeImagesDescriptors:
+    """Which modules opt in, and when the panel knob is described."""
+
+    def test_descriptor_flag_defaults_to_false(self) -> None:
+        """A facility module that says nothing does not receive the argument."""
+        descriptor = _descriptor("keyword", _Recorder())
+        assert descriptor.accepts_include_images is False
+
+    def test_qmd_descriptor_opts_in(self) -> None:
+        """The built-in hybrid module accepts the resolved value."""
+        from osprey.services.ariel_search.search.qmd import get_tool_descriptor
+
+        assert get_tool_descriptor().accepts_include_images is True
+
+    @staticmethod
+    def _names(config: ARIELConfig | None) -> dict[str, Any]:
+        from osprey.services.ariel_search.search.qmd import get_parameter_descriptors
+
+        return {d.name: d for d in get_parameter_descriptors(config)}
+
+    @staticmethod
+    def _config(*, hybrid: bool, image_embedding: bool) -> ARIELConfig:
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "search_modules": {"hybrid": {"enabled": hybrid}},
+                "enhancement_modules": {"image_embedding": {"enabled": image_embedding}},
+            }
+        )
+
+    def test_parameter_described_when_both_modules_are_on(self) -> None:
+        """Picture search is a panel knob, defaulting on, only where it can run."""
+        described = self._names(self._config(hybrid=True, image_embedding=True))
+
+        knob = described["include_images"]
+        assert knob.param_type == "bool"
+        assert knob.default is True
+
+    @pytest.mark.parametrize(
+        ("hybrid", "image_embedding"), [(True, False), (False, True), (False, False)]
+    )
+    def test_parameter_absent_unless_both_modules_are_on(
+        self, hybrid: bool, image_embedding: bool
+    ) -> None:
+        """A knob that could only ever no-op is not offered."""
+        described = self._names(self._config(hybrid=hybrid, image_embedding=image_embedding))
+
+        assert "include_images" not in described
+        assert {"rerank", "candidate_limit"} <= set(described)
+
+    def test_parameter_absent_without_config(self) -> None:
+        """Shipped defaults have image_embedding off, so no knob."""
+        assert "include_images" not in self._names(None)

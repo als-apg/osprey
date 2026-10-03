@@ -39,9 +39,11 @@ from osprey.services.ariel_search.models import (
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from psycopg_pool import AsyncConnectionPool
 
-    from osprey.models.embeddings.base import BaseEmbeddingProvider
+    from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.search.base import (
@@ -57,6 +59,20 @@ logger = get_logger("ariel")
 #: The service resolves it and strips it from the kwargs a module receives --
 #: modules never see it (FR4).
 EXPAND_QUERY_PARAM = "expand_query"
+
+#: Advanced parameter a caller sets to ask for, or decline, picture search. The
+#: service resolves it against ``image_embedding.enabled`` and strips it from
+#: the kwargs a module receives; a module that opted in through
+#: ``SearchToolDescriptor.accepts_include_images`` gets the resolved bool as
+#: ``include_images=`` instead.
+INCLUDE_IMAGES_PARAM = "include_images"
+
+#: The config key that switches picture search on, named in the diagnostic a
+#: caller sees when it asks for pictures the deployment cannot search.
+_PICTURE_SEARCH_KEY = "ariel.enhancement_modules.image_embedding.enabled"
+
+#: Advanced parameters that are the service's own controls, never a module's.
+_SERVICE_PARAMS = frozenset({EXPAND_QUERY_PARAM, INCLUDE_IMAGES_PARAM})
 
 
 def _expansion_dicts(groups: tuple[ExpansionGroup, ...]) -> tuple[dict[str, Any], ...]:
@@ -135,22 +151,31 @@ class ARIELSearchService:
         self.pool = pool
         self.readonly_pool = readonly_pool
         self.repository = repository
-        self._embedder: BaseEmbeddingProvider | None = None
+        self._embedder: BaseProvider | None = None
         self._validated_search_model = False
 
-    def _get_embedder(self) -> BaseEmbeddingProvider:
-        """Lazy-load the embedding provider.
+    def _get_embedder(self) -> BaseProvider:
+        """Return the provider adapter that embeds semantic-search queries.
 
-        Uses Osprey's provider configuration system to select the appropriate
-        embedding provider based on config.embedding.provider.
+        The class is resolved once, from the provider
+        :func:`~osprey.services.ariel_search.search.semantic.semantic_provider`
+        names, so a query is embedded by the provider that built the table it
+        searches. Class resolution only: no network I/O, so a down server never
+        stalls the caller (the query path finds a reachable one off the event
+        loop). A preset ``_embedder`` is used as it is.
 
         Returns:
-            Configured embedding provider instance
+            The embedding provider adapter instance.
+
+        Raises:
+            ModuleConfigError: If the named provider is unknown or serves no
+                embeddings; the message names the config key it came from. A
+                ``ValueError``.
         """
         if self._embedder is None:
-            from osprey.models.embeddings import get_embedding_provider
+            from osprey.services.ariel_search.search.semantic import semantic_provider_class
 
-            self._embedder = get_embedding_provider(self.config.embedding.provider)
+            self._embedder = semantic_provider_class(self.config)()
         return self._embedder
 
     @staticmethod
@@ -492,6 +517,53 @@ class ARIELSearchService:
             return None, ()
         return expansion, ()
 
+    def _resolve_include_images(
+        self,
+        advanced_params: Mapping[str, Any],
+        descriptor: SearchToolDescriptor,
+    ) -> tuple[bool | None, tuple[SearchDiagnostic, ...]]:
+        """Resolve the caller's picture-search preference for one module.
+
+        The single source of truth for whether the picture lane runs. Read
+        only when the module opted in through ``accepts_include_images``; the
+        caller's mapping is never mutated.
+
+        * unset (or ``None``) -- on exactly when ``image_embedding`` is enabled;
+        * explicit ``False`` -- off;
+        * explicit ``True`` -- on when enabled; while disabled it is a no-op
+          reported by an INFO diagnostic naming the key that enables it, so the
+          caller learns why no picture matched rather than reading silence as
+          "no picture matched".
+
+        Args:
+            advanced_params: The request's advanced parameters, read-only.
+            descriptor: The descriptor of the module being dispatched.
+
+        Returns:
+            ``(effective, diagnostics)``. ``effective`` is None when the module
+            did not opt in -- it then receives no ``include_images=`` at all --
+            and otherwise the bool to pass.
+        """
+        if not descriptor.accepts_include_images:
+            return None, ()
+
+        enabled = self.config.is_enhancement_module_enabled("image_embedding")
+        flag = advanced_params.get(INCLUDE_IMAGES_PARAM)
+        if flag is None:
+            return enabled, ()
+        if not flag:
+            return False, ()
+        if enabled:
+            return True, ()
+        return False, (
+            SearchDiagnostic(
+                level=DiagnosticLevel.INFO,
+                source=f"service.{descriptor.search_mode}",
+                message=f"picture search is not enabled ({_PICTURE_SEARCH_KEY})",
+                category="picture_search",
+            ),
+        )
+
     async def _run_module(
         self,
         mode: str,
@@ -507,9 +579,12 @@ class ARIELSearchService:
         only when the descriptor declared a ``query_parser``, and
         ``query_expansion=`` only when it set ``accepts_expansion`` *and* an
         expansion was actually resolved. A module that declares neither is
-        called exactly as it is today. ``expand_query`` is stripped from the
-        advanced parameters -- it is the service's to resolve, never a
-        module's to read (FR4).
+        called exactly as it is today. ``expand_query`` and
+        ``include_images`` are stripped from the advanced parameters -- they
+        are the service's to resolve, never a module's to read (FR4). A module
+        that set ``accepts_include_images`` receives the resolved
+        ``include_images=`` bool, and any diagnostic the resolution produced
+        joins ``extra_diagnostics`` on the result.
 
         Args:
             mode: Search module name, normalized to lowercase by the request.
@@ -569,6 +644,11 @@ class ARIELSearchService:
                 config_key=f"search_modules.{mode}.enabled",
             )
 
+        include_images, image_diagnostics = self._resolve_include_images(
+            request.advanced_params, descriptor
+        )
+        extra_diagnostics = _merge_diagnostics(extra_diagnostics, image_diagnostics)
+
         start_date, end_date = request.time_range if request.time_range else (None, None)
 
         args: list[Any] = [request.query, self.repository, self.config]
@@ -576,10 +656,11 @@ class ARIELSearchService:
             args.append(self._get_embedder())
 
         # Advanced params come first so the request's own fields win on
-        # collision. ``expand_query`` is the service's own control and is
-        # dropped from the copy -- the caller's dict itself is untouched.
+        # collision. ``expand_query`` and ``include_images`` are the service's
+        # own controls and are dropped from the copy -- the caller's dict
+        # itself is untouched.
         kwargs: dict[str, Any] = {
-            **{k: v for k, v in request.advanced_params.items() if k != EXPAND_QUERY_PARAM},
+            **{k: v for k, v in request.advanced_params.items() if k not in _SERVICE_PARAMS},
             "max_results": request.max_results,
             "start_date": start_date,
             "end_date": end_date,
@@ -588,6 +669,8 @@ class ARIELSearchService:
             kwargs["parsed"] = parsed
         if descriptor.accepts_expansion and expansion is not None:
             kwargs["query_expansion"] = expansion
+        if include_images is not None:
+            kwargs["include_images"] = include_images
 
         parse_diagnostics = parsed.diagnostics if parsed is not None else ()
 
