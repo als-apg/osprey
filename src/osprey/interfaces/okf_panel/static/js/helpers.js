@@ -58,12 +58,8 @@ export function isFallback(id, title) {
 //
 // Generalizable panel-parameter shape. Today the only param is the deep-link
 // target carried in the panel's OWN URL hash (e.g. "#control-system/channel-
-// finding"). Keeping this as a small structured reader — rather than one-off
-// hash parsing scattered through boot — is deliberate: when the framework-wide
-// iframe URL-parameter convention lands (uniform theme / deep-link target /
-// etc. for every embedded panel), this one function is where it plugs in, with
-// no change to the navigation code below. Cross-boundary "the web terminal
-// opens the KNOWLEDGE tab on a concept" stays OUT of scope until then.
+// finding"). The panel also follows a change of this fragment after boot,
+// which is how the hub opens it on a concept.
 /**
  * @returns {PanelParams}
  */
@@ -82,4 +78,22 @@ export function readPanelParams() {
     params.concept = hash;
   }
   return params;
+}
+
+/**
+ * Decide what a `hashchange` should show. A target `historyState` already
+ * holds was reached by a back/forward step that `popstate` handles; an id the
+ * loaded tree does not list is an in-page anchor.
+ * @param {PanelParams} params - readPanelParams() after the change
+ * @param {any} historyState - history.state after the change
+ * @param {Set<string> | null} knownIds - concept ids the tree lists; null before it loads
+ * @returns {string | null} the concept id or STRUCTURE_MARKER to show, or null to leave alone
+ */
+export function hashChangeTarget(params, historyState, knownIds) {
+  if (!params.raw) return null;
+  const target = params.structure ? STRUCTURE_MARKER : params.concept;
+  if (target === null) return null;
+  if (historyState && historyState.id === target) return null;
+  if (target !== STRUCTURE_MARKER && knownIds && !knownIds.has(target)) return null;
+  return target;
 }
