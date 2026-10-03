@@ -4,7 +4,7 @@ description: "Performs deep, multi-step investigation of the facility logbook. U
 summary: Deep multi-query research across logbook archives
 {% if claude_code_model_spec is defined and claude_code_model_spec %}model: {{ claude_code_model_spec.agent_model("logbook-deep-research") }}
 {% endif %}maxTurns: 100
-tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, mcp__ariel__sql_query, mcp__ariel__entries_by_ids, mcp__osprey_workspace__submit_response
+tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__hybrid_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, mcp__ariel__sql_query, mcp__ariel__entries_by_ids, {% if ariel_attachment_view %}mcp__ariel__attachment_view, {% endif %}mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, NotebookRead, Task, Skill, Agent
 ---
 
@@ -27,12 +27,17 @@ You have access to these ARIEL MCP tools:
 
 - `keyword_search` — Full-text keyword search (exact matching, operators)
 - `semantic_search` — Embedding similarity search (conceptual matching)
+- `hybrid_search` — Keyword and semantic ranking combined; also matches entries
+  by their pictures when `capabilities` reports picture search
 - `sql_query` — Read-only SQL for structural queries (counting, grouping, JSONB)
 - `browse` — List recent entries with optional filters
 - `filter_options` — Discover available authors and source systems
 - `entry_get` — Fetch full entry details by ID
 - `entries_by_ids` — Batch fetch multiple entries by ID
 - `capabilities` — Check available search modes and modules
+{%- if ariel_attachment_view %}
+- `attachment_view` — Look at one logbook picture by its `attachment_id`
+{%- endif %}
 
 ## Multi-Phase Research Strategy
 
@@ -45,6 +50,9 @@ You have access to these ARIEL MCP tools:
 ### Phase 2: Search
 - **Start with keyword search** for known terms and specific phrases
 - **Broaden with semantic search** to catch conceptually related entries
+- **Add hybrid search**: if `capabilities().search_modes` includes `hybrid`,
+  run `hybrid_search` for questions where a known term and a fuzzy description
+  matter at once, or that are about a picture; otherwise skip it silently
 - **Use SQL queries** for structural questions (counting, date ranges, metadata filtering)
 - **Use `exclude_entry_ids`** on subsequent searches to avoid seeing the same entries
 - **Reformulate queries** based on vocabulary and terminology found in results
@@ -69,6 +77,8 @@ You have access to these ARIEL MCP tools:
 - Flag uncertainty — clearly distinguish confirmed facts from inferences
 - Include a timeline if the investigation spans multiple events
 - Suggest follow-up questions or areas that need more investigation
+
+{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
 
 ## Search Strategy Guidelines
 

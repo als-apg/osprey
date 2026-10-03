@@ -261,10 +261,12 @@ export const TOOL_PHRASES = Object.freeze({
   browse: 'browsing the logbook',
   keyword_search: 'searching the logbook',
   semantic_search: 'searching the logbook',
+  hybrid_search: 'searching the logbook',
   sql_query: 'querying the logbook',
   filter_options: 'listing logbook filters',
   entry_get: 'reading a logbook entry',
   entries_by_ids: 'reading logbook entries',
+  attachment_view: 'viewing a logbook picture',
   entry_create: 'drafting a logbook entry',
   entry_publish: 'publishing a logbook entry',
 

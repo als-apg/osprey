@@ -6,7 +6,7 @@ import re
 import shutil
 import sys
 import warnings
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -20,6 +20,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
+from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
@@ -327,6 +328,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
 
     control_system = config.get("control_system", {}) or {}
     declared_hooks = _build_declared_hook_rules(config, project_dir)
+    ariel_attachment_view = _ariel_attachment_view(config)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -388,6 +390,15 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # resolve_servers runs, which both render paths do, so both refuse an
         # unknown value.
         "phoebus_agent_access": _phoebus_agent_access(config),
+        # `ariel.attachments.view.enabled`: whether the ARIEL agents may look at
+        # logbook pictures. resolve_servers reads it to withhold
+        # attachment_view, and the logbook templates read it to leave the tool
+        # and its viewing rules out of the rendered guidance.
+        "ariel_attachment_view": ariel_attachment_view,
+        # The ARIEL read tools the control-assistant CLAUDE.md tells the main
+        # agent never to call itself, from the static registry entry (never
+        # create_server(), which has start-up side effects).
+        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view),
         # The device vocabulary the channel-finder terminology partials render
         # their rows from, out of the deployment's own compiled ontology
         # (`facility.ontology`). None when no ontology is declared — the
@@ -438,6 +449,40 @@ def _phoebus_agent_access(config: dict) -> str:
         return phoebus_agent_access(config)
     except ValueError as exc:
         raise BuildProfileError(str(exc)) from exc
+
+
+def _ariel_attachment_view(config: dict) -> bool:
+    """The ``ariel.attachments.view.enabled`` value; ``True`` when absent.
+
+    Raises:
+        BuildProfileError: If the value is present but not a boolean, or a
+            parent block is not a mapping.
+    """
+    ariel = config.get("ariel") or {}
+    if not isinstance(ariel, Mapping):
+        return True
+    try:
+        return attachment_view_enabled(ariel)
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
+
+
+_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset({"capabilities", "status"})
+
+
+def _ariel_read_tools(view_enabled: bool) -> list[str]:
+    """The ARIEL read tools only the logbook subagents call, in registry order.
+
+    Every ``permissions_allow`` tool of the ``ariel`` registry entry except
+    ``capabilities`` and ``status``, and except ``attachment_view`` while the
+    view is off (the server then does not offer it).
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    excluded = set(_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL)
+    if not view_enabled:
+        excluded.add("attachment_view")
+    return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
 
 
 def _transcripts_retention_days(config: dict) -> int | None:

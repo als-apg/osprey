@@ -247,6 +247,17 @@ describe('tool vocabulary', () => {
     expect(activityLabel({ type: 'tool_use', tool_name_raw: raw })).toBe(expected);
   });
 
+  test('the logbook picture and hybrid search tools have their own phrases', () => {
+    expect(TOOL_PHRASES.attachment_view).toBe('viewing a logbook picture');
+    expect(TOOL_PHRASES.hybrid_search).toBe('searching the logbook');
+    expect(activityLabel({ type: 'tool_use', tool_name_raw: 'mcp__ariel__attachment_view' })).toBe(
+      'Viewing a logbook picture…'
+    );
+    expect(activityLabel({ type: 'tool_use', tool_name_raw: 'mcp__ariel__hybrid_search' })).toBe(
+      'Searching the logbook…'
+    );
+  });
+
   test('an unmapped tool has no phrase and keeps its raw name', () => {
     const event = /** @type {const} */ ({
       type: 'tool_use',

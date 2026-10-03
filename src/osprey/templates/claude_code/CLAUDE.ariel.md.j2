@@ -40,14 +40,15 @@ own tools:
 
 ## ARIEL Tool Surface
 
-You have access to the 12 ARIEL MCP tools for logbook search:
+You have access to these ARIEL MCP tools for logbook search:
 
 **Search**
 - `keyword_search` — Full-text keyword search (exact matching, operators)
 - `semantic_search` — Embedding similarity search (conceptual matching)
 - `hybrid_search` — Keyword and semantic ranking combined, with optional
   query expansion and reranking; the strongest single search when the
-  deployment runs the hybrid module (check `capabilities`)
+  deployment runs the hybrid module (`capabilities().search_modes` includes
+  hybrid)
 - `sql_query` — Read-only SQL for structural queries (counting, grouping, JSONB)
 
 **Browse & Discovery**
@@ -59,6 +60,9 @@ You have access to the 12 ARIEL MCP tools for logbook search:
 **Entry Retrieval**
 - `entry_get` — Fetch full entry details by ID
 - `entries_by_ids` — Batch fetch multiple entries by ID
+{%- if ariel_attachment_view %}
+- `attachment_view` — Look at one logbook picture by its attachment_id
+{%- endif %}
 
 **Entry Authoring** (gated by the approval hook)
 - `entry_create` — Create a new logbook entry (requires user approval)
@@ -66,13 +70,20 @@ You have access to the 12 ARIEL MCP tools for logbook search:
 
 Plus workspace MCP tools for artifact handoff (`mcp__osprey_workspace__*`).
 
+{% set attachments_heading = "###" %}{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
+
 ## When to use which search
 
 - **Keyword first** for known terms, channel names, identifiers, exact phrases.
 - **Broaden with semantic** when the user's wording may not match the entry's
   vocabulary (e.g. "beam loss" vs "lost beam" vs "trip").
 - **Hybrid** when both matter at once — a known term plus a fuzzy
-  description — and `capabilities` reports the hybrid module is on.
+  description — and `capabilities().search_modes` includes hybrid.
+- **Pictures** when the question is about what a plot, screenshot or photo
+  shows: if `capabilities().attachments.picture_search` is true, run
+  `hybrid_search` next to `keyword_search`; entries whose matched_via
+  contains image matched by their pictures{% if ariel_attachment_view %}, then open it with
+  `attachment_view`{% endif %}.
 - **SQL** for structural questions — counts, date ranges, group-by-author,
   group-by-source, JSONB metadata filters.
 - **Browse** for chronological exploration of a date range.

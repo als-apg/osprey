@@ -62,7 +62,13 @@ results are findings, not dead ends.**
 - Pass `exclude_entry_ids` to skip IDs already returned by Phase 2a to
   avoid duplicate review.
 
-### 2c. SQL / structural queries
+### 2c. Hybrid search
+
+- If `capabilities().search_modes` includes `hybrid`, run `hybrid_search`
+  for sub-questions where a known term and a fuzzy description matter at
+  once, or that are about a picture; otherwise skip it silently.
+
+### 2d. SQL / structural queries
 
 - Use `sql_query` for structural questions:
   - Counts (`COUNT(*)` of entries matching a tag or author)
@@ -70,7 +76,7 @@ results are findings, not dead ends.**
   - JSONB metadata filters
 - The query is read-only; it cannot mutate the database.
 
-### 2d. Browse and filter discovery
+### 2e. Browse and filter discovery
 
 - Use `browse` with date filters for chronological exploration of an event
   window.
@@ -79,6 +85,8 @@ results are findings, not dead ends.**
 
 After each search, write down: what you queried, how many results, and what
 the results suggest for the next query.
+
+{% set attachments_heading = "###" %}{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
 
 ---
 
