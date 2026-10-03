@@ -17,7 +17,7 @@ from typing import Any
 
 from fastmcp.exceptions import ToolError
 
-from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.graph.gate import GateRefusal, vet_query
 from osprey.mcp_server.graph.server import make_error, mcp
 from osprey.mcp_server.graph.server_context import (
@@ -144,7 +144,7 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
             return make_error(
                 "no_results",
                 _EMPTY_GRAPH_MESSAGE,
-                [f"Seed it with `{GRAPHDB_SEED_COMMAND}`."],
+                [f"Seed it with `{GRAPHDB_REBUILD_HINT}`."],
             )
 
         payload: dict[str, Any] = {

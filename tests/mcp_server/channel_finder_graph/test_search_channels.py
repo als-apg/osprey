@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from fastmcp.exceptions import ToolError
 
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.channel_finder_graph.tools import search_channels as tool_module
 from osprey.mcp_server.channel_finder_graph.tools.search_channels import (
     DIRECTIONS,
@@ -365,7 +366,7 @@ class TestAbsence:
         assert envelope["error_type"] == "service_unavailable"
         assert str(render / _INDEX_RELPATH) in envelope["error_message"]
         assert envelope["details"]["reason"] == "missing"
-        assert any("osprey knowledge build-index" in s for s in envelope["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in s for s in envelope["suggestions"])
         assert any("osprey build" in s for s in envelope["suggestions"])
 
     def test_no_corpus_configured_names_the_corpus_key_instead(
@@ -378,7 +379,7 @@ class TestAbsence:
 
         suggestions = _envelope(exc)["suggestions"]
         assert any("services.graphdb.ttl_path" in s for s in suggestions)
-        assert not any("osprey knowledge build-index" in s for s in suggestions)
+        assert not any(GRAPHDB_REBUILD_HINT in s for s in suggestions)
 
     def test_a_stale_schema_asks_for_a_rebuild_not_a_first_build(
         self, render: Path, monkeypatch: pytest.MonkeyPatch
@@ -402,7 +403,7 @@ class TestAbsence:
         assert envelope["details"]["reason"] == "schema_mismatch"
         suggestions = envelope["suggestions"]
         assert any("rebuilt" in s for s in suggestions)
-        assert any("osprey knowledge build-index" in s for s in suggestions)
+        assert any(GRAPHDB_REBUILD_HINT in s for s in suggestions)
         assert not any("osprey build` renders" in s for s in suggestions)
 
     def test_an_absence_is_not_remembered(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

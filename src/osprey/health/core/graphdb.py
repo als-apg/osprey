@@ -50,7 +50,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.deployment.graphdb_service import (
     GRAPHDB_PASSWORD_ENV,
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     GraphdbConnection,
     resolve_graphdb_connection,
@@ -97,11 +97,6 @@ _DIGEST_PREFIX_LEN = 12
 #: only place the digest is read from the store, so anything that needs to
 #: compare against it parses it back out here rather than re-querying.
 SEED_DIGEST_DETAIL_PREFIX = "Seeded corpus sha256: "
-
-#: Named by both the empty-graph row and the deploy that auto-seeds, so an
-#: operator reading either is pointed at the same verb — imported rather than
-#: re-spelled, which is what makes that true rather than merely intended.
-_SEED_COMMAND = GRAPHDB_SEED_COMMAND
 
 
 def graphdb(
@@ -287,7 +282,7 @@ def _resources_row(count: int | None, error: str) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             "Graph holds no Resource nodes — it has been bootstrapped but not seeded",
-            details=f"Import the TTL corpus with `{_SEED_COMMAND}`.",
+            details=f"Import the TTL corpus with `{GRAPHDB_REBUILD_HINT}`.",
         )
     return CheckResult(
         _RESOURCES_ROW,
@@ -364,7 +359,7 @@ def _unmarked_row(count: int | None) -> CheckResult:
             "Graph store carries no seed marker",
             details=(
                 "Its Resource count could not be read either, so whether it holds a corpus "
-                f"is unknown. Import the TTL corpus with `{_SEED_COMMAND}`."
+                f"is unknown. Import the TTL corpus with `{GRAPHDB_REBUILD_HINT}`."
             ),
         )
     if count > 0:
@@ -376,7 +371,7 @@ def _unmarked_row(count: int | None) -> CheckResult:
             details=(
                 "The marker is written last, so an import that failed partway leaves this "
                 "state — as does a store seeded outside osprey. Either way the corpus it "
-                f"holds cannot be identified: re-import it with `{_SEED_COMMAND}`."
+                f"holds cannot be identified: re-import it with `{GRAPHDB_REBUILD_HINT}`."
             ),
         )
     return CheckResult(
@@ -384,7 +379,7 @@ def _unmarked_row(count: int | None) -> CheckResult:
         CATEGORY,
         Status.WARNING,
         "Graph store is unseeded: no TTL corpus has been imported",
-        details=f"Import the TTL corpus with `{_SEED_COMMAND}`.",
+        details=f"Import the TTL corpus with `{GRAPHDB_REBUILD_HINT}`.",
     )
 
 

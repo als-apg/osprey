@@ -28,7 +28,7 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.channel_finder_graph.server import make_error, mcp
 from osprey.mcp_server.graph.server_context import (
     QUERY_MAX_ROWS_CONFIG_KEY,
@@ -198,7 +198,7 @@ _NOTES: tuple[str, ...] = (
     "This manifest is static and never dials the store, so it is not a health "
     "check: a successful response says nothing about whether the graph is "
     "reachable or seeded. read_cypher and get_schema report that.",
-    f"An empty graph is a seeding gap, not a query bug — run `{GRAPHDB_SEED_COMMAND}` "
+    f"An empty graph is a seeding gap, not a query bug — run `{GRAPHDB_REBUILD_HINT}` "
     "to load the corpus.",
 )
 

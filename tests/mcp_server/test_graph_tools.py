@@ -187,9 +187,9 @@ class TestCapabilitiesPayload:
         assert "services.graphdb.query_timeout_s" in notes
 
     def test_capabilities_payload_names_the_seed_command(self, payload):
-        from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+        from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 
-        assert GRAPHDB_SEED_COMMAND in " ".join(payload["notes"])
+        assert GRAPHDB_REBUILD_HINT in " ".join(payload["notes"])
 
     def test_capabilities_tool_names_are_not_destructive(self, payload):
         for tool in payload["tools"]:

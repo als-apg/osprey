@@ -92,11 +92,10 @@ __all__ = [
     "DEFAULT_DATABASE",
     "DEFAULT_TTL_PATH",
     "DEFAULT_USERNAME",
-    "GRAPHDB_BUILD_INDEX_COMMAND",
     "GRAPHDB_HTTP_PORT_CONFIG_KEY",
     "GRAPHDB_PASSWORD_ENV",
     "GRAPHDB_PORT_CONFIG_KEY",
-    "GRAPHDB_SEED_COMMAND",
+    "GRAPHDB_REBUILD_HINT",
     "GRAPHDB_SERVICE_NAME",
     "GRAPHDB_TTL_PATH_CONFIG_KEY",
     "GraphdbConnection",
@@ -219,20 +218,13 @@ GRAPHDB_PORT_CONFIG_KEY = "services.graphdb.port_host"
 #: would send them to edit the wrong number.
 GRAPHDB_HTTP_PORT_CONFIG_KEY = "services.graphdb.http_port_host"
 
-#: The verb that fills or repairs the graph by hand, named by every surface that
-#: has to send an operator to it: the deploy-time staging step's warnings and the
-#: health category's empty-graph remedy. Not a config key, but it lives here for
-#: the same reason those do — two modules that spell one operator-facing string
-#: separately agree only by coincidence, and an operator following a stale copy
-#: of it is told to run a command that no longer exists.
-GRAPHDB_SEED_COMMAND = "osprey knowledge seed-graph"
-
-#: The verb that builds or rebuilds the search index from the corpus by hand,
-#: named by every surface that has to send an operator to it: the route that
-#: refuses when the index is missing and the health row that reports a stale
-#: one. Spelled once beside
-#: :data:`GRAPHDB_SEED_COMMAND` for the same reason that one is.
-GRAPHDB_BUILD_INDEX_COMMAND = "osprey knowledge build-index"
+#: The one operator-facing command that rebuilds the graph corpus, its search
+#: index and the seeded store, named by every surface that has to send an
+#: operator to it: the deploy-time staging step's warnings, the health remedies
+#: and the agent-facing refusals. Not a config key, but it lives here for the
+#: same reason those do -- modules that spell one operator-facing string
+#: separately agree only by coincidence.
+GRAPHDB_REBUILD_HINT = "osprey build && osprey up"
 
 #: Config key naming the Turtle corpus the store is seeded from and the search
 #: index is derived from. Spelled once, because the surfaces that send an operator to it -- the ``build-index``

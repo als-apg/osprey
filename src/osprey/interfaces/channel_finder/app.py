@@ -173,7 +173,7 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
         The open index, or the absence saying why there is none.
     """
     from osprey.deployment.graphdb_service import (
-        GRAPHDB_BUILD_INDEX_COMMAND,
+        GRAPHDB_REBUILD_HINT,
         resolve_graph_index_path,
     )
     from osprey.services.channel_finder.graph_index.reader import (
@@ -195,10 +195,9 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
         # find it.
         log = logger.info if opened.reason == "missing" else logger.warning
         log(
-            "%s Build it with `%s`, or re-run `osprey build`. Search, the ontology and "
-            "the statistics report this.",
+            "%s Build it with `%s`. Search, the ontology and the statistics report this.",
             opened.detail,
-            GRAPHDB_BUILD_INDEX_COMMAND,
+            GRAPHDB_REBUILD_HINT,
         )
     else:
         logger.info(

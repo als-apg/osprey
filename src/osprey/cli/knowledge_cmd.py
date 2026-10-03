@@ -1495,7 +1495,7 @@ def build_index(ttl: Path | None, output: Path | None) -> None:
     build writes the index into the image it starts from.
     """
     from osprey.deployment.graphdb_service import (
-        GRAPHDB_BUILD_INDEX_COMMAND,
+        GRAPHDB_REBUILD_HINT,
         GRAPHDB_TTL_PATH_CONFIG_KEY,
     )
     from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
@@ -1507,7 +1507,7 @@ def build_index(ttl: Path | None, output: Path | None) -> None:
         # wrong with how the verb was called, only with what the project says.
         raise click.ClickException(
             f"set {GRAPHDB_TTL_PATH_CONFIG_KEY} to the corpus this store was seeded from, "
-            f"then run {GRAPHDB_BUILD_INDEX_COMMAND}"
+            f"then run {GRAPHDB_REBUILD_HINT}"
         ) from exc
 
     index_path = _resolve_index_output(output)

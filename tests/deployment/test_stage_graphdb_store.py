@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment import container_lifecycle
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.services.facility_knowledge.seeder import graph_seeder, prompt_snapshot
 
 TTL_TEXT = "@prefix ex: <http://example.org/> .\nex:beam a ex:Device .\n"
@@ -370,7 +371,7 @@ def test_a_drifted_graph_config_warns_and_refuses_to_seed(graphdb_stubs, tmp_pat
     # Assert
     assert graph_seeder.CONFIG_DRIFT_MESSAGE.split(" — ")[0] in caplog.text
     assert "handleMultival" in caplog.text
-    assert "osprey knowledge seed-graph --force" in caplog.text
+    assert GRAPHDB_REBUILD_HINT in caplog.text
     assert graphdb_stubs["imported"] == []
     assert graphdb_stubs["markers"] == []
 
@@ -390,7 +391,7 @@ def test_a_failed_import_is_never_marked_as_a_good_seed(graphdb_stubs, tmp_path,
 
     # Assert
     assert graphdb_stubs["markers"] == []
-    assert "osprey knowledge seed-graph" in caplog.text
+    assert GRAPHDB_REBUILD_HINT in caplog.text
     assert "bad IRI" in caplog.text
 
 
@@ -412,7 +413,7 @@ def test_an_unreachable_store_warns_and_leaves_the_deploy_standing(
         _stage(GRAPHDB_CONFIG, tmp_path)
 
     # Assert
-    assert "osprey knowledge seed-graph" in caplog.text
+    assert GRAPHDB_REBUILD_HINT in caplog.text
     assert "connection refused" in caplog.text
     assert graphdb_stubs["events"] == ["up"]
 
@@ -428,7 +429,7 @@ def test_a_missing_ttl_file_warns_and_leaves_the_deploy_standing(graphdb_stubs, 
         _stage(GRAPHDB_CONFIG, tmp_path)
 
     # Assert
-    assert "osprey knowledge seed-graph" in caplog.text
+    assert GRAPHDB_REBUILD_HINT in caplog.text
     assert graphdb_stubs["markers"] == []
 
 

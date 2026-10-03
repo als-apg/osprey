@@ -195,7 +195,7 @@ def test_build_index_refuses_when_no_corpus_is_configured(
     render: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No ttl_path and no --ttl: one sentence naming the key and the verb."""
-    from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
+    from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 
     _patch_config(monkeypatch, {})
 
@@ -204,7 +204,7 @@ def test_build_index_refuses_when_no_corpus_is_configured(
     assert result.exit_code == 1
     assert (
         "set services.graphdb.ttl_path to the corpus this store was seeded from, "
-        f"then run {GRAPHDB_BUILD_INDEX_COMMAND}"
+        f"then run {GRAPHDB_REBUILD_HINT}"
     ) in _flat(result)
     assert not (render / "data" / "channel_databases").exists()
 
