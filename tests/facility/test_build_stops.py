@@ -428,6 +428,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "view-unsupported",
         "a middle_layer selection with no groups",
     ),
+    (
+        "view_unsupported__middle_layer_meta_key",
+        "view-unsupported",
+        "a middle-layer System or Family key beginning with `_`",
+    ),
+    (
+        "view_unsupported__middle_layer_schema_key",
+        "view-unsupported",
+        "a top place whose id is `schema`",
+    ),
     ("profile_invalid__mirrored_facility_file", "profile-invalid", "`project/facility.json`"),
     (
         "profile_invalid__mirrored_simulator_view",
@@ -1524,6 +1534,36 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "`signals`, or select another channel_finder_mode"
         ),
     ),
+    "view_unsupported__middle_layer_meta_key": (
+        _plain(
+            put("records/places.yaml", [{"id": "SR"}]),
+            update("records/devices.yaml", 0, place="SR"),
+            put(
+                "records/groups.yaml",
+                [{"id": "SR/_X", "members": ["SR/Q1"], "signals": {"SP": "the setpoint"}}],
+            ),
+        ),
+        (
+            "facility: view-unsupported: group SR/_X — its tree key `_X` begins with `_`, and a "
+            "key beginning with `_` is a meta key of the middle-layer index; fix: give the group "
+            "a key that does not begin with `_`, or select another channel_finder_mode"
+        ),
+    ),
+    "view_unsupported__middle_layer_schema_key": (
+        _plain(
+            put("records/places.yaml", [{"id": "schema"}]),
+            update("records/devices.yaml", 0, place="schema"),
+            put(
+                "records/groups.yaml",
+                [{"id": "QUADS", "members": ["SR/Q1"], "signals": {"SP": "the setpoint"}}],
+            ),
+        ),
+        (
+            "facility: view-unsupported: place schema — its System key `schema` is the document "
+            "key of the middle-layer index; fix: give the place an id other than `schema`, or "
+            "select another channel_finder_mode"
+        ),
+    ),
     "profile_invalid__mirrored_facility_file": (
         _plain(),
         (
@@ -1643,6 +1683,8 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "view_unsupported__hierarchical_meta_key": _select_hierarchical,
     "view_unsupported__hierarchical_two_level_words": _select_hierarchical,
     "view_unsupported__middle_layer_no_groups": _select_middle_layer,
+    "view_unsupported__middle_layer_meta_key": _select_middle_layer,
+    "view_unsupported__middle_layer_schema_key": _select_middle_layer,
     "profile_invalid__unknown_served_model": _serve_unknown_model,
     "profile_invalid__persona_served_models": _persona_serves_models,
     "profile_invalid__tier": _spell_tier,

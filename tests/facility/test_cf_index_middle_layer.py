@@ -235,6 +235,61 @@ def test_a_member_with_no_place_sits_under_system_none() -> None:
     assert _fields(document["-"]["F"])["X"]["ChannelNames"] == ["A:X"]
 
 
+def _one_family(place: str, group: str) -> dict[str, Any]:
+    return {
+        "places": [{"id": place}],
+        "devices": [{"id": "A", "place": place, "names": ["a"]}],
+        "groups": [{"id": group, "members": ["A"], "signals": {"X": "x"}}],
+        "channels": [{"id": "A:X", "on": {"device": "A"}}],
+    }
+
+
+def test_a_family_name_beginning_with_an_underscore_stops_with_view_unsupported() -> None:
+    from osprey.facility.errors import FacilityBuildError
+
+    with pytest.raises(FacilityBuildError) as caught:
+        _document(_one_family("M", "M/_X"))
+
+    assert caught.value.format_message() == (
+        "facility: view-unsupported: group M/_X — its tree key `_X` begins with `_`, and a key "
+        "beginning with `_` is a meta key of the middle-layer index; fix: give the group a key "
+        "that does not begin with `_`, or select another channel_finder_mode"
+    )
+
+
+def test_a_system_beginning_with_an_underscore_stops_with_view_unsupported() -> None:
+    from osprey.facility.errors import FacilityBuildError
+
+    with pytest.raises(FacilityBuildError) as caught:
+        _document(_one_family("_M", "F"))
+
+    assert caught.value.format_message() == (
+        "facility: view-unsupported: place _M — its tree key `_M` begins with `_`, and a key "
+        "beginning with `_` is a meta key of the middle-layer index; fix: give the place a key "
+        "that does not begin with `_`, or select another channel_finder_mode"
+    )
+
+
+def test_a_system_named_schema_stops_with_view_unsupported() -> None:
+    from osprey.facility.errors import FacilityBuildError
+
+    with pytest.raises(FacilityBuildError) as caught:
+        _document(_one_family("schema", "F"))
+
+    assert caught.value.format_message() == (
+        "facility: view-unsupported: place schema — its System key `schema` is the document key "
+        "of the middle-layer index; fix: give the place an id other than `schema`, or select "
+        "another channel_finder_mode"
+    )
+
+
+def test_keys_not_beginning_with_an_underscore_are_unchanged() -> None:
+    document, _left_out, _by_address = _document(_one_family("M_", "M_/X_"))
+
+    assert sorted(document) == ["M_", "schema"]
+    assert sorted(document["M_"]) == ["X_"]
+
+
 def test_the_loader_reads_the_index_back_and_skips_its_schema(tmp_path: Path) -> None:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 

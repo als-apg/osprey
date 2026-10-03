@@ -86,7 +86,9 @@ channels it left out and how many it keyed by address in one note. A render
 carries the index when its ``channel_finder.pipeline_mode`` is
 ``middle_layer``; a facility with no family group stops the build with
 ``view-unsupported``, as does a host where DuckDB cannot load its
-full-text-search extension, which the database's search index needs.
+full-text-search extension, which the database's search index needs, and a
+System or Family key the loader would not read back: one beginning with
+``_``, or a System ``schema``.
 """
 
 from __future__ import annotations
@@ -263,8 +265,16 @@ def _unsupported(place: Mapping[str, Any], detail: str, remedy: str) -> Exceptio
 _META_PREFIX = "_"
 
 
-def _checked_key(key: str, record: Mapping[str, Any], record_kind: str) -> str:
+def _checked_key(
+    key: str, record: Mapping[str, Any], record_kind: str, index: str = HIERARCHICAL_MODE
+) -> str:
     """``key``, unless it begins with ``_`` and so would be read as a meta key.
+
+    Args:
+        key: The key the index would write.
+        record: The facility record the key comes from.
+        record_kind: The kind of ``record``, as a stop names it.
+        index: The index whose loader reads the key, as a stop names it.
 
     Raises:
         FacilityBuildError: ``view-unsupported`` naming ``record`` and the key.
@@ -281,7 +291,7 @@ def _checked_key(key: str, record: Mapping[str, Any], record_kind: str) -> str:
         "or select another channel_finder_mode",
         record_kind=record_kind,
         detail=f"its tree key `{key}` begins with `_`, "
-        "and a key beginning with `_` is a meta key of the hierarchical index",
+        f"and a key beginning with `_` is a meta key of the {index} index",
     )
 
 
@@ -744,6 +754,34 @@ def _family_fields(
     return out, by_address
 
 
+#: The middle-layer index as a stop names it.
+_MIDDLE_LAYER_INDEX = "middle-layer"
+
+#: The document keys of the middle-layer index besides its Systems.
+_MIDDLE_LAYER_DOCUMENT_KEYS = frozenset({"schema"})
+
+
+def _checked_system(system: str, place: Mapping[str, Any]) -> None:
+    """Stop on a System key the middle-layer loader would not read as a System.
+
+    Raises:
+        FacilityBuildError: ``view-unsupported`` naming the place, when the key
+            is a document key of the index or begins with ``_``.
+    """
+    from osprey.facility.errors import FacilityBuildError
+
+    if system in _MIDDLE_LAYER_DOCUMENT_KEYS:
+        raise FacilityBuildError(
+            "view-unsupported",
+            str(place["id"]),
+            _record_sources(place),
+            f"give the place an id other than `{system}`, or select another channel_finder_mode",
+            record_kind="place",
+            detail=f"its System key `{system}` is the document key of the middle-layer index",
+        )
+    _checked_key(system, place, "place", _MIDDLE_LAYER_INDEX)
+
+
 def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, int]:
     """The middle-layer index of one facility file.
 
@@ -754,6 +792,10 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
         ``{schema, <System>: {<Family>: {...}}}``; the number of channels in no
         family, which the index leaves out; and the number of channels the
         index keys by their address.
+
+    Raises:
+        FacilityBuildError: ``view-unsupported`` when a System or Family key
+            begins with ``_``, or a System key is ``schema``.
     """
     places = {str(place["id"]): place for place in doc.get("places", [])}
 
@@ -768,6 +810,8 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
     by_address = 0
     for system, entries in _families_by_system(doc).items():
         place = places.get(system)
+        if system != ABSENT:
+            _checked_system(system, place or {"id": system})
         node: dict[str, Any] = {}
         if system == ABSENT:
             node["_description"] = "no place"
@@ -776,6 +820,7 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
             if description:
                 node["_description"] = description
         for group, name, members in entries:
+            _checked_key(name, group, "group", _MIDDLE_LAYER_INDEX)
             for member in members:
                 in_family.update(str(c["id"]) for c in channels_of.get(str(member["id"]), ()))
             fields, keyed = _family_fields(members, channels_of, group["signals"])
