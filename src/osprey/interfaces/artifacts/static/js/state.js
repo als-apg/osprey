@@ -3,7 +3,7 @@
  * OSPREY Artifact Gallery — shared state, fetch layer, and filtering.
  *
  * Owns the gallery's core mutable state (the artifact list, the selected/
- * focused artifact, and the current-session scoping) behind explicit
+ * focused artifact, the rows picked for a bulk delete, and the current-session scoping) behind explicit
  * get/set accessors, not raw exported `let`
  * bindings — ES modules only give importers a read-only live view of an
  * exported binding, so reassignment has to go through a function here.
@@ -36,6 +36,10 @@ let artifacts = [];
 let selectedArtifact = null;
 /** @type {any|null} */
 let focusedArtifact = null;
+/** @type {Set<string>} */
+let picked = new Set();         // ids picked for a bulk action; only rows the sidebar shows
+/** @type {string|null} */
+let pickAnchor = null;          // the row a Shift-click run starts from
 /** @type {string|null} */
 let currentSessionId = null;
 let showAllSessions = false;
@@ -66,6 +70,22 @@ export function setSelectedArtifact(a) { selectedArtifact = a; }
 export function getFocusedArtifact() { return focusedArtifact; }
 /** @param {any|null} a */
 export function setFocusedArtifact(a) { focusedArtifact = a; }
+
+/** @returns {Set<string>} a copy of the picked ids, so a caller cannot change the picks */
+export function getPickedIds() { return new Set(picked); }
+/** @param {Iterable<string>} ids */
+export function setPicked(ids) { picked = new Set(ids); }
+/** @param {string} id */
+export function togglePicked(id) {
+  if (!picked.delete(id)) picked.add(id);
+}
+/** @returns {void} */
+export function clearPicked() { picked = new Set(); }
+
+/** @returns {string|null} */
+export function getPickAnchor() { return pickAnchor; }
+/** @param {string|null} id */
+export function setPickAnchor(id) { pickAnchor = id; }
 
 /** @returns {string|null} */
 export function getCurrentSessionId() { return currentSessionId; }
@@ -193,6 +213,9 @@ export async function fetchArtifacts(callbacks = {}) {
     nextCursor = data.next_cursor ?? null;
     lastSearch = search;
     heldUncounted = new Set();
+    // A new search or scope is a new list: nothing in it is picked yet.
+    picked = new Set();
+    pickAnchor = null;
     settledGeneration = generation;
     callbacks.onHealthChange?.(true);
     callbacks.onArtifactsUpdated?.();
@@ -278,12 +301,13 @@ export function addArtifact(entry, { counted = false } = {}) {
 }
 
 /**
- * Drop an artifact from the held list and from the total. An id the list does
+ * Drop an artifact from the held list, the picks and the total. An id the list does
  * not hold leaves both alone: it may be out of scope as much as on a page not yet fetched.
  * @param {string} id
  * @returns {void}
  */
 export function removeArtifact(id) {
+  picked.delete(id);
   const kept = artifacts.filter((a) => a.id !== id);
   if (kept.length === artifacts.length) return;
   artifacts = kept;

@@ -44,6 +44,12 @@ import {
   addArtifact,
   removeArtifact,
   getListSearch,
+  getPickedIds,
+  setPicked,
+  togglePicked,
+  clearPicked,
+  getPickAnchor,
+  setPickAnchor,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 
 afterEach(() => {
@@ -557,5 +563,72 @@ describe('paging', () => {
     removeArtifact('x');
     expect(getArtifacts().map((a) => a.id)).toEqual(['a1']);
     expect(getArtifactTotal()).toBe(3);
+  });
+});
+
+describe('picks', () => {
+  afterEach(() => {
+    clearPicked();
+    setPickAnchor(null);
+  });
+
+  test('getPickedIds returns a fresh copy, so a caller cannot change the picks', () => {
+    setPicked(['a', 'b']);
+    const copy = getPickedIds();
+    expect([...copy]).toEqual(['a', 'b']);
+    copy.add('c');
+    expect([...getPickedIds()]).toEqual(['a', 'b']);
+    expect(getPickedIds()).not.toBe(copy);
+  });
+
+  test('setPicked replaces the picks', () => {
+    setPicked(['a', 'b']);
+    setPicked(['c']);
+    expect([...getPickedIds()]).toEqual(['c']);
+  });
+
+  test('togglePicked adds a row that is not picked and removes one that is', () => {
+    togglePicked('a');
+    togglePicked('b');
+    expect([...getPickedIds()]).toEqual(['a', 'b']);
+    togglePicked('a');
+    expect([...getPickedIds()]).toEqual(['b']);
+  });
+
+  test('clearPicked empties the picks', () => {
+    setPicked(['a', 'b']);
+    clearPicked();
+    expect(getPickedIds().size).toBe(0);
+  });
+
+  test('getPickAnchor/setPickAnchor round-trip, including null', () => {
+    expect(getPickAnchor()).toBeNull();
+    setPickAnchor('a');
+    expect(getPickAnchor()).toBe('a');
+    setPickAnchor(null);
+    expect(getPickAnchor()).toBeNull();
+  });
+
+  test('removeArtifact also drops the id from the picks', () => {
+    setArtifacts([{ id: 'a' }, { id: 'b' }]);
+    setPicked(['a', 'b']);
+    removeArtifact('a');
+    expect([...getPickedIds()]).toEqual(['b']);
+  });
+
+  test('a first-page fetch clears the picks and the anchor', async () => {
+    setCurrentSessionId(null);
+    setShowAllSessions(false);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ artifacts: [{ id: 'a' }, { id: 'b' }] }),
+    }));
+    setPicked(['a', 'b']);
+    setPickAnchor('a');
+
+    await fetchArtifacts({ search: 'beam' });
+
+    expect(getPickedIds().size).toBe(0);
+    expect(getPickAnchor()).toBeNull();
   });
 });
