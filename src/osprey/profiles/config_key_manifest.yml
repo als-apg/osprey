@@ -1855,23 +1855,6 @@ keys:
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
-  channel_finder.channel_name_generation.llm_model.provider:
-    rendered: false
-    evidence: 'llm_config\.get\("provider"\)'
-    note: Documented as a commented override in the presets.
-    default: no-fallback
-    default_note: the channel namer refuses to run without a provider
-  channel_finder.channel_name_generation.llm_model.model_id:
-    rendered: false
-    evidence: 'llm_config\.get\("model_id"\)'
-    note: Documented as a commented override in the presets.
-    default: derived
-    default_note: the deployment's main model
-  channel_finder.channel_name_generation.llm_model.max_tokens:
-    rendered: false
-    evidence: 'llm_config\.get\("max_tokens", 1000\)'
-    note: Documented as a commented override in the presets.
-    default: 1000
   channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
@@ -3037,6 +3020,11 @@ deleted:
 - control_system.connector.tango.limits_checking.allow_unlisted_channels
 - control_system.connector.live_standin.limits_checking.allow_unlisted_channels
 - services.bluesky.devices_file
+  # The CSV database builder and its LLM channel namer are gone; nothing names a
+  # model for channel names.
+- channel_finder.channel_name_generation.llm_model.provider
+- channel_finder.channel_name_generation.llm_model.model_id
+- channel_finder.channel_name_generation.llm_model.max_tokens
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3261,6 +3249,30 @@ orphan_sites:
       template comment or a tool reply still spelling it. The bare token,
       because `limits_checking.mode` replaced it on every surface and nothing
       under src/osprey has a reason to name it.
+  channel_finder.channel_name_generation.llm_model.provider:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.provider\b|llm_config\.get\("provider"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+  channel_finder.channel_name_generation.llm_model.model_id:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.model_id\b|llm_config\.get\("model_id"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+  channel_finder.channel_name_generation.llm_model.max_tokens:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.max_tokens\b|llm_config\.get\("max_tokens"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
 
 # ---------------------------------------------------------------------------
 # render_contexts — the matrix the guard renders every template under, then
