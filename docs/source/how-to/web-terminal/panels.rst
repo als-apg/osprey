@@ -92,6 +92,8 @@ URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be
 opened again until its backend answers.
+If the agent points a panel that is not answering at a new page, the page
+loads on the backend's next answer.
 
 Panels backed by a URL
 ----------------------

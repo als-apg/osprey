@@ -1901,6 +1901,21 @@ describe('tile notice — a docked panel that stops answering says so over its o
     expect(entry('system-health')?.classList.contains('disabled')).toBe(true);
     expect(entry('system-health')?.classList.contains('unreachable')).toBe(false);
   });
+  test('a jump into a panel that is not answering waits for its next answer', async () => {
+    const down = new Set();
+    const { emit } = await bootBothDocked(down);
+    const src = frame('system-health').src;
+
+    down.add('system-health');
+    await vi.advanceTimersByTimeAsync(10_000);
+    emit({ type: 'panel_focus', panel: 'system-health', url: '/panel/system-health/x', source: 'agent' });
+    // The last good page stays: no error page under the notice.
+    expect(frame('system-health').src).toBe(src);
+
+    down.delete('system-health');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(new URL(frame('system-health').src).pathname).toBe('/panel/system-health/x');
+  });
 });
 
 describe('SSE reconnect resync — membership re-converges from /api/panels', () => {
