@@ -521,6 +521,18 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         "are derived from the facility file, and a hand copy would be searched in their place",
         mirror=True,
     ),
+    ReservedPattern(
+        "data/graph/**",
+        "the build, from the profile's `data/facility/` tree — the graph view is derived "
+        "from the facility file, and a hand copy would be seeded in its place",
+        mirror=True,
+    ),
+    ReservedPattern(
+        "data/channel_databases/graph.duckdb",
+        "the build, from the profile's `data/facility/` tree — the graph index is derived "
+        "from the facility file, and a hand copy would be searched in its place",
+        mirror=True,
+    ),
 )
 
 
@@ -531,9 +543,11 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
 #: (:func:`facility_mirror_violation`) ahead of profile validation, so
 #: :func:`_mirror_violations` leaves them out and the gathered profile errors
 #: never repeat that stop. The simulator view under ``data/simulator/``, the
-#: facts view at ``data/facility_facts.json`` and ``data/facility_facts.md``, and
-#: the channel-finder index views under ``data/channel_finder/`` are written by
-#: the build from the same tree.
+#: facts view at ``data/facility_facts.json`` and ``data/facility_facts.md``, the
+#: channel-finder index views under ``data/channel_finder/``, the graph view
+#: under ``data/graph/`` and the graph index at
+#: ``data/channel_databases/graph.duckdb`` are written by the build from the
+#: same tree.
 RESERVED_MIRROR_PATTERNS: tuple[str, ...] = tuple(
     reserved.pattern for reserved in RESERVED_PATH_PATTERNS if reserved.mirror
 )

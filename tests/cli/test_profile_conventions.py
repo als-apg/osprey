@@ -331,6 +331,8 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
         "data/facility_facts.json",
         "data/facility_facts.md",
         "data/channel_finder/**",
+        "data/graph/**",
+        "data/channel_databases/graph.duckdb",
     )
 
 
@@ -375,6 +377,20 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
             "facility: profile-invalid: path project/data/channel_finder/in_context.json — the "
             "project/ mirror writes data/channel_finder/in_context.json, which the build writes "
             "from data/facility/; fix: remove project/data/channel_finder/in_context.json and "
+            "author the facility in data/facility/",
+        ),
+        (
+            "data/graph/facility.ttl",
+            "facility: profile-invalid: path project/data/graph/facility.ttl — the "
+            "project/ mirror writes data/graph/facility.ttl, which the build writes "
+            "from data/facility/; fix: remove project/data/graph/facility.ttl and "
+            "author the facility in data/facility/",
+        ),
+        (
+            "data/channel_databases/graph.duckdb",
+            "facility: profile-invalid: path project/data/channel_databases/graph.duckdb — the "
+            "project/ mirror writes data/channel_databases/graph.duckdb, which the build writes "
+            "from data/facility/; fix: remove project/data/channel_databases/graph.duckdb and "
             "author the facility in data/facility/",
         ),
     ],
@@ -1039,6 +1055,8 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         ("data/channel_finder/hierarchical.json", "`data/facility/`"),
         ("data/channel_finder/middle_layer.json", "`data/facility/`"),
         ("data/channel_finder/middle_layer.duckdb", "`data/facility/`"),
+        ("data/graph/facility.ttl", "`data/facility/`"),
+        ("data/channel_databases/graph.duckdb", "`data/facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
