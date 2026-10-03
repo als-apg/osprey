@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import logging
 import os
 import shutil
 import signal
@@ -13,6 +14,7 @@ import time
 
 import pytest
 
+from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
@@ -29,9 +31,6 @@ from tests.interfaces.web_terminal._pty_child import (
 
 needs_ps = pytest.mark.skipif(
     shutil.which("ps") is None, reason="needs ps to read the process tree"
-)
-misses_started = pytest.mark.xfail(
-    strict=True, reason="terminate reaches only the child's process group"
 )
 
 
@@ -161,7 +160,6 @@ class TestPtySession:
             session.terminate()
 
     @needs_ps
-    @misses_started
     def test_terminate_ends_the_process_groups_the_child_started(self, tmp_path):
         pid_file = tmp_path / "pids"
         scripts = [
@@ -184,7 +182,6 @@ class TestPtySession:
             kill_quietly(pids)
 
     @needs_ps
-    @misses_started
     def test_terminate_ends_a_helper_that_outlives_the_hang_up(self, tmp_path):
         pid_file = tmp_path / "pids"
         source = detaching_child_script(pid_file, scripts=[], helper_ignores_hup=True)
@@ -200,7 +197,6 @@ class TestPtySession:
             kill_quietly(pids)
 
     @needs_ps
-    @misses_started
     def test_terminate_ends_a_started_process_that_ignores_sigterm(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGTERM, signal.SIGHUP))
@@ -216,6 +212,41 @@ class TestPtySession:
         finally:
             session.terminate()
             kill_quietly(pids)
+
+    @needs_ps
+    def test_terminate_logs_what_it_ended(self, tmp_path, caplog):
+        pid_file = tmp_path / "pids"
+        script = sleeper_script(tmp_path, "magnet_scan.py")
+        session = PtySession(
+            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 2)
+            with caplog.at_level(logging.INFO):
+                session.terminate()
+            assert any(
+                "magnet_scan.py" in record.getMessage() and str(pids[0]) in record.getMessage()
+                for record in caplog.records
+            ), [record.getMessage() for record in caplog.records]
+        finally:
+            session.terminate()
+            kill_quietly(pids)
+
+    def test_terminate_of_a_dead_child_looks_for_nothing(self, monkeypatch):
+        session = PtySession(["/bin/sh", "-c", "exit 0"])
+        session.start()
+        wait_for_exit(session)
+        calls: list[None] = []
+
+        def spy() -> None:
+            calls.append(None)
+            return None
+
+        monkeypatch.setattr(process_tree, "snapshot", spy)
+        session.terminate()
+        assert calls == []
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
@@ -329,7 +360,6 @@ class TestPtyRegistry:
             registry.cleanup_all()
 
     @needs_ps
-    @misses_started
     def test_eviction_ends_the_evicted_terminals_started_processes(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = detaching_child_script(
@@ -348,7 +378,6 @@ class TestPtyRegistry:
             kill_quietly(pids)
 
     @needs_ps
-    @misses_started
     def test_cleanup_all_ends_every_terminals_started_processes(self, tmp_path):
         registry = PtyRegistry()
         pids: list[int] = []
