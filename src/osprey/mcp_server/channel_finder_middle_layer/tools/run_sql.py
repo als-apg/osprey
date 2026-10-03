@@ -26,12 +26,14 @@ def run_sql(sql: str) -> str:
 
     The database contains these tables:
 
-    **channels** — One row per channel and family it belongs to.
+    **channels** — One row per place a channel is listed.
     Columns: row_id (PK), channel_name, system, family, field, subfield,
     description, units, data_type, mode, member_of, source, updated_at.
-    Key: (channel_name, system, family). A channel appears once per family
-    it belongs to, so COUNT(*) counts memberships and
-    COUNT(DISTINCT channel_name) counts channels.
+    Key: (channel_name, system, family, field, subfield). A channel appears
+    once per place it is listed (System, Family, Field, Subfield), so
+    COUNT(*) counts listings and COUNT(DISTINCT channel_name) counts
+    channels; COUNT(DISTINCT (channel_name, family)) counts family
+    memberships.
 
     **systems** — Top-level systems.
     Columns: name (PK), description.

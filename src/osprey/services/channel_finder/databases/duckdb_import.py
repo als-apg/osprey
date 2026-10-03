@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS channels (
     member_of    TEXT DEFAULT '',
     source       TEXT DEFAULT 'mml',
     updated_at   TIMESTAMP DEFAULT current_timestamp,
-    UNIQUE (channel_name, system, family)
+    UNIQUE (channel_name, system, family, field, subfield)
 );
 
 CREATE TABLE IF NOT EXISTS device_map (
@@ -145,11 +145,11 @@ def _engineering_unit(meta: dict) -> str:
 
 
 def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
-    """Import one row per channel and family it belongs to. Returns row count.
+    """Import one row per place a channel is listed. Returns row count.
 
-    A channel listed under several (System, Family) pairs is one row per pair,
-    so ``COUNT(*)`` counts memberships and ``COUNT(DISTINCT channel_name)``
-    counts channels.
+    A channel listed under several (System, Family, Field, Subfield) paths is
+    one row per path, so ``COUNT(*)`` counts listings and
+    ``COUNT(DISTINCT channel_name)`` counts channels.
     """
     now = datetime.now(UTC)
 
@@ -243,8 +243,9 @@ def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) 
 def _create_fts_index(con: duckdb.DuckDBPyConnection) -> None:
     """Create the full-text search index on the channels table, keyed by ``row_id``.
 
-    A channel holds one row per family it belongs to, so the index's document
-    id is the row's unique ``row_id``, never ``channel_name``.
+    A channel holds one row per (System, Family, Field, Subfield) path that
+    lists it, so the index's document id is the row's unique ``row_id``, never
+    ``channel_name``.
     """
     # Drop existing FTS index if present (overwrite=1)
     con.execute(

@@ -228,7 +228,7 @@ def facility_mapping_of(tree: Path) -> Path | None:
 def _duck_counts(path: Path) -> dict[str, int]:
     """The channel and system counts of a DuckDB import.
 
-    A channel is one ``channels`` row per family it belongs to, so the channel
+    A channel is one ``channels`` row per place it is listed, so the channel
     count is the number of distinct channel names.
     """
     import duckdb
