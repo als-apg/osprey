@@ -128,32 +128,34 @@ Declare the devices a plan may drive
 ====================================
 
 A plan names channels through its parameters, but *which* devices exist at all
-is the deployment's answer, not the plan's. One short file gives it: a list of
-every device the queue server may drive or record, named in the build profile
-by ``bluesky.devices_file`` — ``data/bluesky_devices.yml`` inside your project
-unless you point it elsewhere.
+is the deployment's answer, not the plan's. ``osprey build`` gives it from your
+facility file: it writes ``data/bluesky_devices.yml`` into the build output, a
+list of every device the queue server may drive or record, and the queue server
+mounts that file unchanged.
 
 .. code-block:: yaml
 
-   # data/bluesky_devices.yml
+   # build/data/bluesky_devices.yml
+   schema: osprey.facility.bluesky_devices/1
    settables:
-     - name: SR:MAG:HCM:01
+     - name: SR:MAG:HCM:01:CURRENT:SP
        setpoint: SR:MAG:HCM:01:CURRENT:SP
        readback: SR:MAG:HCM:01:CURRENT:RB
-     - name: BTS:QF3
-       setpoint: BTS:QF3,PS:CURRENT:SP   # a comma in an address is fine, and
-                                         # no readback means "read the setpoint"
-
    readables:
-     - name: SR:DIAG:BPM:01:X
-       pv: SR:DIAG:BPM:01:X:RB
+     - name: SR:MAG:HCM:01:CURRENT:RB
+       pv: SR:MAG:HCM:01:CURRENT:RB
+     - name: SR:DIAG:BPM:01:POSITION:X
+       pv: SR:DIAG:BPM:01:POSITION:X
 
-**Settables** are devices a plan may drive: a name, the channel a value is
-written to, and — optionally — a separate channel it is read back from. Leave
-the readback out and the device reads its own setpoint. **Readables** are
-recorded and never written. The name is what a plan and the agent refer to, and
-it is also the column heading in the run's data, so each name may appear only
-once across both lists.
+**Settables** are devices a plan may drive: one per setpoint channel of the
+facility file, written to that channel and read back from the channel it is
+paired with. A setpoint the facility pairs with no readback reads its own
+setpoint. **Readables** are recorded and never written: one per readback
+channel. A device's name is its address, which is also the column heading in
+the run's data.
+
+The build rewrites the file every time, so it is not a file to edit: to change
+the device set, change the channels under ``data/facility/`` and build again.
 
 When a plan drives a settable, the write is followed by a poll of the readback
 until it reaches the demand. Two profile keys bound that wait:
@@ -165,71 +167,10 @@ device that physically moves — a magnet, an insertion-device gap — needs bot
 raised. Running out of budget always fails the plan: neither key can turn an
 unsettled move into a successful one.
 
-Nothing in the file is split on any character, which is the point of writing it
-this way: an address containing a comma — as some real magnet power supplies
-have — is written out plainly and needs no escaping.
-
-``osprey build`` reads the file and refuses to build on an entry it cannot use,
-naming ``bluesky.devices_file`` and the entry at fault. That refusal is
-deliberate: the queue server itself skips a bad entry with a warning, so a
-deployment built from an unchecked file would come up looking healthy while
-missing exactly the devices you meant to add.
-
-A deployment ends up with its device set in one of three ways:
-
-- **You write the file.** The normal case at a real facility. A path inside the
-  project travels with the built deployment; an absolute path is yours alone —
-  OSPREY reads it where it is and never rewrites or moves it. Either way the
-  build takes its own copy for the queue server to mount, so an edit to your
-  file reaches a running deployment at the next ``osprey build``.
-- **The build derives one from your facility's own description.** A deployment
-  on a real control system, with no file yet at a project path, gets a device
-  set derived from the same description of the machine the channel finder
-  reads: the knowledge graph corpus in graph mode, and otherwise the
-  channel-finder database for the paradigm in force —
-  ``channel_finder.pipeline_mode`` where it is set, and otherwise whichever
-  pipeline has a database configured. That source says which channels exist.
-  Which of them are *settable* depends on which source it is, and the two
-  differ:
-
-  - **A graph corpus says so itself.** Every binding carries a direction —
-    ``writesSignal`` or ``readsSignal`` — so the split into settables and
-    readables is read out of the corpus rather than inferred.
-  - **A channel-finder database does not.** No paradigm database records a
-    direction, so the build derives one: from the write-limits file
-    (``control_system.limits_checking.database_path``) when the deployment has
-    one, read exactly as the write path reads it; failing that, from the
-    address grammar, where a final ``:SP`` token is a setpoint and everything
-    else is read. With neither — no limits file, and no ``:SP`` address in the
-    database — the build stages nothing and says the channels are known but
-    their directions are not.
-
-  A settable's readback is address grammar in both cases: the final ``:SP``
-  becomes ``:RB``, and that readback is adopted only if the source enumerates
-  that address as a read channel. Where it does not, the device carries no
-  readback and the worker reads the setpoint back. The build says which source
-  it read and how many devices came out of it — and, where some channels'
-  directions could not be stated, how many it left out, so a smaller device set
-  is never a silently smaller machine. The derived set is written straight into
-  the build output and rewritten every time you build, so it is not a file to
-  edit — to take over, put your own file at the path the key names. An
-  **absolute** ``devices_file`` with no file at it derives nothing: that path
-  says an operator supplies the file, so its absence means "not staged yet",
-  not "choose a device set for me".
-- **Neither.** The queue server comes up able to browse and describe plans and
-  to run none of them. That is a plain statement about the deployment, not a
-  fault, and the build says so in its output, in the words of whatever was
-  missing: no channel source configured at all, no ``bluesky.devices_file``
-  configured, graph mode naming no readable corpus, a source that is not there,
-  one that was read and declares no channel, or one whose channels are known
-  while which of them are settable is not. A deployment pointed at the ``mock``
-  control system is browse-only this way whatever file is present.
-
-One case is neither derived nor browse-only: a roster source that is **there
-and unreadable** refuses the build. An absent source is a facility this project
-did not describe; a corrupt one is a facility it meant to describe and got
-wrong, and deriving past it would stage a partial device set that looks exactly
-like a complete one.
+A deployment pointed at the ``mock`` control system drives no channels, so its
+queue server comes up able to browse and describe plans and to run none of
+them. That is a plain statement about the deployment, not a fault, and the
+build says so in its output.
 
 .. note::
 
@@ -237,25 +178,21 @@ like a complete one.
    states the range a write to a listed channel has to fall inside. It gates
    writes over a subset of the machine, and nothing *enumerates* the facility
    from it: a file listing a few hundred writable channels says nothing about
-   the few thousand the facility has. It does still answer one question about a
-   derived set — outside graph mode it is what says which of the enumerated
-   channels are settable, as above. That is the practical argument for a graph
-   corpus where you have one: it carries the direction itself, so the device
-   set does not inherit the shape of a limits file.
+   the few thousand the facility has. The device set comes from the facility
+   file, which lists every channel and says which way each one points.
 
 .. note::
 
    **Two lanes, one device file.** A profile that turns on ``second_lane`` runs
    one plan lane for the live machine and one for the virtual accelerator — and
    both mount the *same* device file, because a facility has one namespace, not
-   one per lane. So a lane can only drive the devices that file names: a file
-   written for the live machine leaves the virtual-accelerator lane with
-   nothing to address unless those channels are served there too.
+   one per lane. A channel the file names that one lane does not serve fails
+   that lane's pre-run probe, described below.
 
 Deriving for a live lane is deliberate
 --------------------------------------
 
-The derived set is the facility's namespace, and the live lane mounts it like
+The device set is the facility's namespace, and the live lane mounts it like
 any other. That is a decision, not an oversight. A device in the worker's
 namespace is a name a plan *may* reference; it is not a write that has
 happened. The gates deciding whether a write lands sit on the write path — the
@@ -429,5 +366,4 @@ Three rules keep a view honest, and the framework enforces all three:
       How a queued plan actually runs, and what refusals mean.
 
    :doc:`/how-to/build-profiles`
-      The build profile that owns ``plan_dir``, ``excluded_plans`` and
-      ``devices_file``.
+      The build profile that owns ``plan_dir`` and ``excluded_plans``.

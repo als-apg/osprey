@@ -615,22 +615,9 @@ The named plan is then invisible to the agent and non-runnable. The same
 block's ``plan_dir`` key does the opposite — it installs a directory of your
 facility's own plans; see :doc:`bluesky/write-plans`.
 
-``bluesky.devices_file`` names the third piece: the file listing the devices
-those plans may drive or record.
-
-.. code-block:: yaml
-
-   bluesky:
-     devices_file: data/bluesky_devices.yml
-
-That default puts the file inside the project, so it is built and shipped with
-the deployment. An absolute path is yours instead — the build reads it where it
-is and never rewrites or relocates it. A malformed entry fails the build, and a
-deployment on a real control system with no file yet at a project path gets one
-written for it, derived from the same description of the facility the channel
-finder reads: its knowledge graph corpus in graph mode, its channel-finder
-database otherwise. The file's format and the three cases are in
-:doc:`bluesky/write-plans`.
+The third piece, the file listing the devices those plans may drive or
+record, is not a profile key: the build writes it from your facility file. Its
+format is in :doc:`bluesky/write-plans`.
 
 
 .. _profile-host-variants:

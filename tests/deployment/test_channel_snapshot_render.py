@@ -392,10 +392,8 @@ readables:
 def _devices_config(repo: Path, *, authored: bool, mock: bool = False) -> dict:
     """The config slice the device staging reads.
 
-    ``services.bluesky.devices_file`` is where the build injector writes the
-    path on every lane, so that is where the staging looks; the control-system
-    type is read first, because a mock deployment drives no channels and is
-    browse-only whatever file is lying around.
+    The control-system type is read first, because a mock deployment drives no
+    channels and is browse-only whatever file is lying around.
     """
     config = _config(repo)
     config["control_system"] = {"type": "mock" if mock else "epics", "writes_enabled": False}
@@ -403,7 +401,6 @@ def _devices_config(repo: Path, *, authored: bool, mock: bool = False) -> dict:
         document = repo / DEVICES_RELPATH
         document.parent.mkdir(parents=True, exist_ok=True)
         document.write_text(DEVICES_DOCUMENT, encoding="utf-8")
-        config["services"]["bluesky"]["devices_file"] = DEVICES_RELPATH
     return config
 
 

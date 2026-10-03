@@ -765,11 +765,9 @@ class TestPutProtectedDocumentDiff:
         because ``artifacts.*`` sits beside it. The ones that are not are the
         ones whose subtree the flatten can lose, and each of today's names a
         path value that cannot be made to point anywhere by planting a block
-        there -- ``simulation.state_dir`` and ``services.*.devices_file``
-        because their readers treat a block as unset (the devices reader is
-        ``isinstance(str)``-gated and the worker's own path is baked into its
-        environment at build), the feedback store because its reader chokes on
-        it and leaves the store off. A new pattern gets neither guarantee for
+        there -- ``simulation.state_dir`` because its reader treats a block as
+        unset, the feedback store because its reader chokes on it and leaves
+        the store off. A new pattern gets neither guarantee for
         free, so if this fails the PUT gate's note needs re-deciding, not
         extending.
         """
@@ -777,7 +775,6 @@ class TestPutProtectedDocumentDiff:
         known_inert = {
             "simulation.state_dir",
             "services.channel_finder.pipelines.hierarchical.feedback.store_path",
-            "services.*.devices_file",
         }
 
         leaky = {
