@@ -19,7 +19,10 @@ the handler owes the client around that door:
   the client's size by the handler itself;
 - the spawn resumes the key's current transcript when one is on disk and
   starts fresh under the key otherwise;
-- ``switch_session`` to a chat-held key hands off the same way.
+- ``switch_session`` to a chat-held key hands off the same way;
+- a chat whose agent started commands still running refuses the terminal
+  with a ``handoff_refused`` frame naming them and a 4428 close, unless the
+  resume URL carries ``end_started=1``.
 
 Harness as in ``test_ws_resume_confirm.py``: a real app and ``PtyRegistry``
 with ``_spawn_session`` patched to a fake, and a stand-in operator registry
@@ -43,12 +46,15 @@ import pytest
 from starlette.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
+from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, env_fingerprint
 from osprey.interfaces.web_terminal.routes.websocket import _spawn_pooled_pty
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_handoff import (
+    ERROR_HANDOFF_STARTED_COMMANDS,
     WS_CLOSE_OUTGOING_RUNNING,
     WS_CLOSE_SESSION_ATTACHED,
+    WS_CLOSE_STARTED_COMMANDS,
     HandoffError,
     HandoffState,
     get_state,
@@ -155,9 +161,26 @@ def _uuid() -> str:
     return str(uuid_mod.uuid4())
 
 
-def _resume_url(session_id: str, *, interrupt: bool = False) -> str:
+def _resume_url(session_id: str, *, interrupt: bool = False, end_started: bool = False) -> str:
     url = f"/ws/terminal?session_id={session_id}&mode=resume"
-    return f"{url}&interrupt=1" if interrupt else url
+    if interrupt:
+        url += "&interrupt=1"
+    if end_started:
+        url += "&end_started=1"
+    return url
+
+
+def _with_started_command(chat: Chat) -> Chat:
+    """*chat* with one command its agent started still running."""
+    chat.running_commands = [
+        ProcessGroup(
+            pgid=4242,
+            members=((4242, 0.0),),
+            label="magnet_scan.py",
+            command="python magnet_scan.py",
+        )
+    ]
+    return chat
 
 
 def _send_resize(ws, cols: int = 80, rows: int = 24) -> None:
@@ -488,6 +511,46 @@ def test_an_outgoing_child_that_survives_its_kill_is_refused_with_4503(app):
     assert app.state.pty_registry.get_session(sid) is None
 
 
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_chat_with_started_commands_refuses_the_terminal_with_the_list(app):
+    """The list rides on a ``handoff_refused`` frame; the close code is the question's."""
+    sid = _uuid()
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        chat = _chats(app).hold(sid, _with_started_command(Chat()))
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            frames = _json_frames_until(ws, "handoff_refused")
+            closed = ws.receive()
+
+    assert [f["type"] for f in frames] == ["handoff_pending", "handoff_refused"]
+    assert frames[-1] == {
+        "type": "handoff_refused",
+        "error": ERROR_HANDOFF_STARTED_COMMANDS,
+        "session_id": sid,
+        "commands": [{"label": "magnet_scan.py", "command": "python magnet_scan.py"}],
+    }
+    assert closed["type"] == "websocket.close"
+    assert closed["code"] == WS_CLOSE_STARTED_COMMANDS
+    assert chat.teardowns == 0
+    assert spawns == []
+
+
+@pytest.mark.usefixtures("sessions_dir")
+def test_end_started_on_the_resume_url_hands_the_key_off(app):
+    sid = _uuid()
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        chat = _chats(app).hold(sid, _with_started_command(Chat()))
+        with client.websocket_connect(_resume_url(sid, end_started=True)) as ws:
+            _send_resize(ws)
+            info = _recv_json(ws, "session_info")
+
+    assert info["session_id"] == sid
+    assert chat.teardowns == 1
+    assert len(spawns) == 1
+
+
 def test_a_handoff_error_is_an_error_frame_and_a_close(app, sessions_dir):
     """An error from inside the door reaches the client as ``error``, then the socket closes."""
     sid = _uuid()
@@ -535,8 +598,17 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, session
     sid = _uuid()
     (sessions_dir / f"{sid}.jsonl").write_text("")
 
-    # ``acquire_surface``'s signature: the websocket route names ``interrupt``.
-    async def spawn_then_linger(app_, key, _surface, channel, *, interrupt=False, spawn=None):  # noqa: ARG001
+    # ``acquire_surface``'s signature: the websocket route names ``interrupt`` and ``end_started``.
+    async def spawn_then_linger(
+        app_,
+        key,
+        _surface,
+        channel,
+        *,
+        interrupt=False,  # noqa: ARG001
+        spawn=None,
+        end_started=False,  # noqa: ARG001
+    ):
         session = await spawn(SimpleNamespace(key=key, resume_id=None, transcript_id=key))
         app_.state.pty_registry.attach_session(key, channel)
         # The door is still busy after the spawn; the client's resize lands now.
@@ -602,6 +674,31 @@ def test_switching_to_a_chat_held_key_hands_off(app, sessions_dir):
     assert chat.teardowns == 1
     assert len(spawns) == 2
     assert spawns[1].command[spawns[1].command.index("--session-id") + 1] == target
+
+
+def test_a_switch_to_a_chat_with_started_commands_is_refused_with_the_list(app, sessions_dir):
+    initial, target = _uuid(), _uuid()
+    (sessions_dir / f"{initial}.jsonl").write_text("")
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        chat = _chats(app).hold(target, _with_started_command(Chat()))
+        with client.websocket_connect(_resume_url(initial)) as ws:
+            _send_resize(ws)
+            _recv_json(ws, "session_info")
+
+            ws.send_json({"type": "switch_session", "session_id": target})
+            frames = _json_frames_until(ws, "handoff_refused")
+            closed = ws.receive()
+
+    assert [f["type"] for f in frames] == ["handoff_pending", "handoff_refused"]
+    assert frames[-1]["session_id"] == target
+    assert frames[-1]["commands"] == [
+        {"label": "magnet_scan.py", "command": "python magnet_scan.py"}
+    ]
+    assert closed["type"] == "websocket.close"
+    assert closed["code"] == WS_CLOSE_STARTED_COMMANDS
+    assert chat.teardowns == 0
+    assert len(spawns) == 1
 
 
 def test_a_switch_whose_spawn_fails_is_an_error_frame_and_a_close(app, sessions_dir):

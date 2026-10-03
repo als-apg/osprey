@@ -59,8 +59,11 @@ and the entry point sequences them.
     ``interrupt=True`` the wait is cut short: the PTY is sent Escape and
     given :data:`INTERRUPT_GRACE_S` to show the interrupt marker or an idle
     edge, after which it is terminated — the operator asked for exactly that.
-    The phase ends in a :class:`WaitOutcome` naming *why* the wait ended, and
-    that outcome is what (c) is handed.
+    Before it reports a chat it would end idle or interrupted, the wait looks
+    for commands the agent started and refuses with the list unless the
+    request agreed to end them (``end_started``). The phase ends in a
+    :class:`WaitOutcome` naming *why* the wait ended, and that outcome is
+    what (c) is handed.
 
 (c) *Under the lock again, shielded* — :func:`_phase_c`. Tear the outgoing
     process down, confirm it is dead, spawn the incoming surface's process,
@@ -94,7 +97,7 @@ import inspect
 import logging
 import os
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
@@ -108,6 +111,7 @@ from osprey.mcp_server.workspace.transcript_reader import TranscriptReader, tail
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
     from osprey.interfaces.web_terminal.operator_session import OperatorSession
+    from osprey.interfaces.web_terminal.process_tree import ProcessGroup
     from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
 
 logger = logging.getLogger(__name__)
@@ -190,11 +194,16 @@ ERROR_HANDOFF_NEEDS_INTERRUPT = "handoff_needs_interrupt"
 ERROR_HANDOFF_SUPERSEDED = "handoff_superseded"
 ERROR_OUTGOING_VANISHED = "outgoing_vanished"
 ERROR_SPAWN_NOT_POOLED = "spawn_not_pooled"
+ERROR_HANDOFF_STARTED_COMMANDS = "handoff_started_commands"
 
 #: Websocket close codes for the refusals a terminal socket can meet. The
 #: browser side treats both as terminal (no reconnect); see ``api.js``.
 WS_CLOSE_SESSION_ATTACHED = 4409
 WS_CLOSE_OUTGOING_RUNNING = 4503
+#: The outgoing agent started commands that are still running and the request
+#: did not agree to end them. Its own code, because the client answers it with
+#: a question, not a notice.
+WS_CLOSE_STARTED_COMMANDS = 4428
 
 _WS_CLOSE_BY_STATUS: dict[int, int] = {
     409: WS_CLOSE_SESSION_ATTACHED,
@@ -208,12 +217,15 @@ class HandoffRefused(Exception):
     Routes send ``status`` with a body of ``{"detail": {"error": <error>}}``;
     the terminal websocket closes with :attr:`ws_close_code`. Every refusal
     is a classmethod, so a caller never assembles a status/slug pair by hand.
+    :attr:`extra` holds the fields a refusal adds to its ``detail`` and to its
+    websocket frame.
     """
 
     def __init__(self, status: int, error: str, message: str | None = None) -> None:
         super().__init__(message or error)
         self.status = status
         self.error = error
+        self.extra: dict[str, Any] = {}
 
     @property
     def ws_close_code(self) -> int | None:
@@ -263,6 +275,14 @@ class HandoffRefused(Exception):
         See :class:`HandoffSuperseded`.
         """
         return HandoffSuperseded(key)
+
+    @classmethod
+    def started_commands(cls, key: str, commands: Sequence[ProcessGroup]) -> HandoffStartedCommands:
+        """409 — the agent the hand-off would end started commands still running.
+
+        See :class:`HandoffStartedCommands`.
+        """
+        return HandoffStartedCommands(key, commands)
 
 
 class HandoffNeedsInterrupt(HandoffRefused):
@@ -318,6 +338,29 @@ class HandoffSuperseded(HandoffRefused):
     @property
     def ws_close_code(self) -> int | None:
         return None
+
+
+class HandoffStartedCommands(HandoffRefused):
+    """The agent this hand-off would end started commands that are still running.
+
+    Ending the agent ends them too, so the hand-off does not proceed until the
+    request carries the operator's agreement (``end_started``). The commands
+    are in :attr:`commands` and, for the client, in :attr:`extra`.
+    """
+
+    def __init__(self, key: str, commands: Sequence[ProcessGroup]) -> None:
+        super().__init__(
+            409,
+            ERROR_HANDOFF_STARTED_COMMANDS,
+            f"session {key!r}: the agent this hand-off would end started commands "
+            "that are still running",
+        )
+        self.commands = list(commands)
+        self.extra = {"commands": [c.to_json() for c in commands]}
+
+    @property
+    def ws_close_code(self) -> int | None:
+        return WS_CLOSE_STARTED_COMMANDS
 
 
 class HandoffError(Exception):
@@ -610,6 +653,8 @@ class AcquirePlan:
         displaced_owner: On ``takeover``, the attach token of the Expert
             connection currently holding the PTY, to be closed with 4409 by
             phase (c). ``None`` otherwise.
+        end_started: The operator agreed that the hand-off ends the commands
+            the outgoing agent started.
         task: The task that registered the call's pending record — set by
             registration, ``None`` on a plan not yet registered. The owner the
             phases match the record against, carried on the plan because
@@ -626,6 +671,7 @@ class AcquirePlan:
     wait_for_idle: bool
     spawn: SpawnCallback
     displaced_owner: object | None = None
+    end_started: bool = False
     task: asyncio.Task[Any] | None = None
 
 
@@ -712,6 +758,7 @@ async def acquire_surface(
     *,
     spawn: SpawnCallback,
     interrupt: bool = False,
+    end_started: bool = False,
 ) -> AcquireResult:
     """Take session key *key* for *surface* on behalf of *channel*.
 
@@ -725,7 +772,9 @@ async def acquire_surface(
     another connection or view is consuming it (or, as
     :class:`HandoffNeedsInterrupt`, when a hook-less PTY holds it and no
     interrupt was asked for; or, as :class:`HandoffSuperseded`, when a newer
-    Simple acquire with an interrupt ended this call's wait), 503 when the
+    Simple acquire with an interrupt ended this call's wait; or, as
+    :class:`HandoffStartedCommands`, when the agent the hand-off would end
+    started commands still running and *end_started* is False), 503 when the
     outgoing process survived its kill, 429 when the chat pool is full; the
     caller maps ``.status`` and
     ``.error`` to its channel (HTTP status with a ``detail.error`` body, or
@@ -756,13 +805,19 @@ async def acquire_surface(
             implementing :class:`AcquireChannel` is polled for closure during
             the wait; see :class:`ChannelToken`.
         interrupt: Abort the outgoing turn instead of waiting for it.
+        end_started: The operator agreed that ending the outgoing agent also
+            ends the commands it started. Without it, a hand-off that would
+            end an agent with started commands still running is refused with
+            :class:`HandoffStartedCommands`, which lists them.
         spawn: How the incoming surface starts its process; see
             :data:`SpawnCallback`. Called only when the key holds no live
             entry of the incoming surface, so a Simple caller that is merely
             taking its next turn on its own pooled chat is handed that chat
             back without a spawn.
     """
-    plan = await _phase_a(app, key, surface, channel, interrupt=interrupt, spawn=spawn)
+    plan = await _phase_a(
+        app, key, surface, channel, interrupt=interrupt, spawn=spawn, end_started=end_started
+    )
     outcome = await _phase_b(app, plan)
     return await _phase_c(app, plan, outcome)
 
@@ -816,6 +871,7 @@ async def _phase_a(
     *,
     interrupt: bool,
     spawn: SpawnCallback,
+    end_started: bool = False,
 ) -> AcquirePlan:
     """Decide what acquiring *key* for *surface* means right now.
 
@@ -835,7 +891,14 @@ async def _phase_a(
         async with lock:
             try:
                 return await _inspect_and_register(
-                    app, state, key, surface, channel, interrupt=interrupt, spawn=spawn
+                    app,
+                    state,
+                    key,
+                    surface,
+                    channel,
+                    interrupt=interrupt,
+                    spawn=spawn,
+                    end_started=end_started,
                 )
             except _Blocked as blocked:
                 reason = blocked.reason
@@ -863,6 +926,7 @@ async def _inspect_and_register(
     *,
     interrupt: bool,
     spawn: SpawnCallback,
+    end_started: bool = False,
 ) -> AcquirePlan:
     """One look at the key. Caller holds the key's lock.
 
@@ -917,6 +981,7 @@ async def _inspect_and_register(
             wait_for_idle=False,
             displaced_owner=registry.attached_owner(key),
             spawn=spawn,
+            end_started=end_started,
         )
         return _register(state, registry, plan)
 
@@ -935,6 +1000,7 @@ async def _inspect_and_register(
             teardown=False,
             wait_for_idle=False,
             spawn=spawn,
+            end_started=end_started,
         )
         return _register(state, registry, plan)
 
@@ -987,6 +1053,7 @@ async def _inspect_and_register(
         teardown=teardown,
         wait_for_idle=wait_for_idle,
         spawn=spawn,
+        end_started=end_started,
     )
     return _register(state, registry, plan)
 
@@ -1162,11 +1229,16 @@ async def _wait_for_chat_idle(app: Any, state: HandoffState, plan: AcquirePlan) 
     here: the turn is left to phase (c), which on ``interrupted`` must cancel
     it — ``pool.terminate(key)`` when ``plan.teardown`` is True, ``await
     session.cancel()`` on the ``OperatorSession`` when the plan is ``reuse``.
+
+    Before it reports a chat it would end idle or interrupted, the wait looks
+    for commands the agent started and refuses with the list unless the
+    request agreed to end them (:func:`_check_started`).
     """
     assert plan.outgoing is not None
     session = cast("OperatorSession", plan.outgoing.session)
     pool = _chat_pool(app)
     if plan.interrupt:
+        await _check_started(state, plan, session.started_commands)
         return WaitOutcome(REASON_INTERRUPTED)
     while True:
         _raise_if_superseded(state, plan)
@@ -1178,6 +1250,7 @@ async def _wait_for_chat_idle(app: Any, state: HandoffState, plan: AcquirePlan) 
             return WaitOutcome(REASON_EXITED)
         if not session.is_busy:
             _raise_if_superseded(state, plan)
+            await _check_started(state, plan, session.started_commands)
             return WaitOutcome(REASON_IDLE)
         await state.sleep(IDLE_POLL_S)
 
@@ -1236,6 +1309,38 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
             _raise_if_superseded(state, plan)
             return WaitOutcome(REASON_FORCED)
         await state.sleep(IDLE_POLL_S)
+
+
+async def _check_started(
+    state: HandoffState,
+    plan: AcquirePlan,
+    started: Callable[[], Sequence[ProcessGroup]],
+) -> None:
+    """Refuse a hand-off that would end commands the outgoing agent started.
+
+    Only a plan that ends the outgoing agent (``plan.teardown``) and does not
+    carry the operator's agreement (``plan.end_started``) looks. *started*
+    runs ``ps``, so it runs in a worker thread. The look runs right before
+    the door would act, so it is never stale; a command started between the
+    question and the consent is ended with the rest.
+
+    Raises:
+        HandoffStartedCommands: Commands the agent started are still running.
+    """
+    if plan.end_started or not plan.teardown:
+        return
+    running = list(await asyncio.to_thread(started))
+    _raise_if_superseded(state, plan)
+    if running:
+        assert plan.outgoing is not None
+        logger.info(
+            "Session %s: the %s agent has %d started command(s) running; asking before "
+            "the hand-off ends them",
+            plan.key,
+            plan.outgoing.surface,
+            len(running),
+        )
+        raise HandoffRefused.started_commands(plan.key, running)
 
 
 async def _raise_if_channel_closed(plan: AcquirePlan) -> None:

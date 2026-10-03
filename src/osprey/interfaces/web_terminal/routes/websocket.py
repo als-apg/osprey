@@ -666,7 +666,13 @@ class _TerminalChannel:
             pass
 
     async def acquire(
-        self, app: Any, key: str, *, interrupt: bool, spawn: SpawnCallback
+        self,
+        app: Any,
+        key: str,
+        *,
+        interrupt: bool,
+        spawn: SpawnCallback,
+        end_started: bool = False,
     ) -> AcquireResult:
         """Take *key* for the Expert surface while reading the socket.
 
@@ -685,6 +691,7 @@ class _TerminalChannel:
                 self.token,
                 interrupt=interrupt,
                 spawn=spawn,
+                end_started=end_started,
             )
         finally:
             reader.cancel()
@@ -721,14 +728,18 @@ async def _open_surface(
     *,
     interrupt: bool,
     spawn: SpawnCallback,
+    end_started: bool = False,
 ) -> AcquireResult | None:
     """Take *key* for this terminal, answering the client for every way that can end.
 
     Returns the result on success. Returns None once the client has been
     answered — a refusal closes the socket with the refusal's close code
     (4409 attached elsewhere, 4503 the outgoing process survived its kill,
-    which the client offers a retry for); a hand-off error is an ``error``
-    frame and a close; a channel that closed during the wait gets nothing.
+    which the client offers a retry for, 4428 the chat's agent started
+    commands still running, which the client asks the operator about, and
+    before which a ``handoff_refused`` frame carries their list); a hand-off
+    error is an ``error`` frame and a close; a channel that closed during the
+    wait gets nothing.
     The ``handoff_pending`` frame goes out first whenever the chat surface
     holds the key, which is the one case the door waits on a foreign entry
     for a terminal; the client shows the transitional state until
@@ -743,9 +754,20 @@ async def _open_surface(
     if _chat_pool_answers_to(app, key):
         await channel.send_json({"type": "handoff_pending", "busy": _chat_is_busy(app, key)})
     try:
-        return await channel.acquire(app, key, interrupt=interrupt, spawn=spawn)
+        return await channel.acquire(
+            app, key, interrupt=interrupt, spawn=spawn, end_started=end_started
+        )
     except session_handoff.HandoffRefused as refused:
         logger.info("Refusing the terminal session %s: %s", key, refused)
+        if refused.extra:
+            await channel.send_json(
+                {
+                    "type": "handoff_refused",
+                    "error": refused.error,
+                    "session_id": key,
+                    **refused.extra,
+                }
+            )
         await channel.close(refused.ws_close_code or session_handoff.WS_CLOSE_SESSION_ATTACHED)
         return None
     except session_handoff.ChannelClosed:
@@ -835,13 +857,16 @@ async def terminal_ws(websocket: WebSocket):
     - Server -> Client JSON: {"type": "session_switched", "session_id": UUID}
     - Server -> Client JSON: {"type": "session_info", "session_id": UUID}
     - Server -> Client JSON: {"type": "handoff_pending", "busy": bool}
+    - Server -> Client JSON: {"type": "handoff_refused", "error": str, "session_id": UUID,
+      "commands": [{"label": str, "command": str}]}
     - Server -> Client JSON: {"type": "transcript_missing", "session_id": UUID, "code"?: N}
     - Server -> Client JSON: {"type": "error", "message": str}
 
     Query: ``session_id`` and ``mode=resume`` name the session key to
     resume; without them a new key is minted. ``interrupt=1`` on a resume
     cuts short a turn the chat surface is running on that key instead of
-    waiting for it.
+    waiting for it. ``end_started=1`` on a resume says the operator agreed
+    that the hand-off ends the commands the chat agent started.
 
     Every PTY this handler serves comes through
     :func:`~osprey.interfaces.web_terminal.session_handoff.acquire_surface`:
@@ -876,6 +901,7 @@ async def terminal_ws(websocket: WebSocket):
     req_session_id = websocket.query_params.get("session_id")
     mode = websocket.query_params.get("mode", "new")
     interrupt = mode == "resume" and _query_flag(websocket, "interrupt")
+    end_started = mode == "resume" and _query_flag(websocket, "end_started")
 
     effort = _read_effort_level(app.state.config_path)
 
@@ -971,7 +997,9 @@ async def terminal_ws(websocket: WebSocket):
     stop_event = asyncio.Event()
     output_task: asyncio.Task[None] | None = None
     try:
-        result = await _open_surface(channel, app, current_key, interrupt=interrupt, spawn=spawn)
+        result = await _open_surface(
+            channel, app, current_key, interrupt=interrupt, spawn=spawn, end_started=end_started
+        )
         if result is None or channel.closed.is_set():
             return
         session = cast("PtySession", result.session)
@@ -1068,7 +1096,12 @@ async def terminal_ws(websocket: WebSocket):
                         current_key = target_id
                         try:
                             result = await _open_surface(
-                                channel, app, target_id, interrupt=False, spawn=spawn
+                                channel,
+                                app,
+                                target_id,
+                                interrupt=False,
+                                spawn=spawn,
+                                end_started=False,
                             )
                         except Exception:
                             logger.exception("Session switch to %s failed", target_id)
