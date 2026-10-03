@@ -867,10 +867,11 @@ services:
       # build` writes the devices view from the channels under data/facility/,
       # and the staging step copies it unchanged into this service's build
       # context under a fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so
-      # no configured path is left here to resolve. Both plan lanes declare the same service
-      # `path` and therefore render this one directory, staging identical bytes
-      # on the second pass; one staged file consequently serves both lanes, and
-      # any per-lane device split lives inside the document, not in this mount.
+      # no configured path is left here to resolve. Both plan lanes declare the
+      # same service `path` and therefore render this one directory, staging
+      # identical bytes on the second pass; one staged file consequently serves
+      # both lanes, and any per-lane device split lives inside the document,
+      # not in this mount.
       - ./build/services/bluesky/bluesky_devices.yml:/app/project/data/bluesky_devices.yml:ro
 {% endif %}
 {% if svc.plan_dir %}
