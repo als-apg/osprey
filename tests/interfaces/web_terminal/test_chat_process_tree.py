@@ -187,6 +187,55 @@ async def test_reaping_an_idle_chat_ends_what_it_started(tmp_path):
         kill_quietly(pids)
 
 
+async def test_an_idle_chat_whose_agent_runs_a_started_command_is_not_reaped(tmp_path):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    pool = _pool(idle_seconds=0.01)
+    pids: list[int] = []
+    try:
+        with sdk_seam(factory):
+            session, _ = await pool.get_or_create(KEY, str(tmp_path))
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        await asyncio.sleep(0.05)
+        before = time.monotonic()
+
+        assert await pool.reap_idle() == 0
+
+        assert pool.get(KEY) is session
+        assert session.is_active
+        assert not any(pid_gone(pid, within=0.0) for pid in pids)
+        assert session.last_activity >= before
+    finally:
+        await pool.drain_all()
+        kill_quietly(pids)
+
+
+async def test_an_idle_chat_is_reaped_once_its_started_command_has_exited(tmp_path):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    pool = _pool(idle_seconds=1.0)
+    pids: list[int] = []
+    try:
+        with sdk_seam(factory):
+            session, _ = await pool.get_or_create(KEY, str(tmp_path))
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        grandchild, helper = pids
+        await asyncio.sleep(1.05)
+        assert await pool.reap_idle() == 0
+
+        kill_quietly([grandchild])
+        assert pid_gone(grandchild)
+        # The clock counts from the sweep that last saw the command, not from the last turn.
+        assert await pool.reap_idle() == 0
+
+        await asyncio.sleep(1.05)
+        assert await pool.reap_idle() == 1
+        assert pool.get(KEY) is None
+        assert session.process_exited is True
+        assert pid_gone(helper)
+    finally:
+        await pool.drain_all()
+        kill_quietly(pids)
+
+
 async def test_a_launch_change_ends_what_the_old_child_started(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     pool = _pool()
