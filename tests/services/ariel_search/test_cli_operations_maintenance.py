@@ -13,13 +13,13 @@ progress narration, and the accounting the functions return. Two shapes matter:
 * ``conn.cursor()`` with no ``row_factory`` yields **positional tuple** rows —
   ``get_purge_info``, ``execute_purge``, ``run_reembed`` and ``_embed_batch``
   all read them positionally, so the scripts below supply tuples.
-* ``get_embedding_provider`` returns a provider whose ``execute_embedding`` is
-  **synchronous**; ARIEL calls it from async code without awaiting.
+* the provider registry returns a provider *class* whose ``execute_embedding``
+  is **synchronous**; ARIEL calls it from async code without awaiting.
 
 ``cli_operations`` imports its collaborators lazily inside each function, so
 each is monkeypatched at its *source* module: ``create_connection_pool`` on
 ``...database.connection``, ``run_migrations`` on ``...database.migrations``,
-``get_embedding_provider`` on ``osprey.models.embeddings``. No real database,
+``get_provider`` on ``ProviderRegistry``. No real database,
 network or embedding backend is touched.
 
 One purge contract is asserted here at the SQL level only: both
@@ -38,6 +38,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
+from osprey.services.ariel_search.database.repository import SchemaFacts, attachment_text_md5
 from tests.services.ariel_search._cli_ops_doubles import (
     _Adapter,
     _Enhancer,
@@ -49,7 +50,7 @@ from tests.services.ariel_search._cli_ops_doubles import (
     _patch_service,
     _StubService,
 )
-from tests.services.ariel_search.conftest import _FakeEmbeddingProvider
+from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 # Minimal config dict accepted by ARIELConfig.from_dict.
 _DB = {"database": {"uri": "postgresql://localhost/test"}}
@@ -60,6 +61,7 @@ _TABLE = "text_embeddings_nomic_embed_text"
 
 # SQL fragments the code under test emits, quoted here once.
 _SELECT_ENTRIES = "SELECT entry_id, raw_text FROM enhanced_entries"
+_SELECT_ENTRIES_WITH_PICTURES = "SELECT entry_id, raw_text, attachment_text FROM enhanced_entries"
 _SELECT_EMBEDDING_TABLES = "SELECT table_name FROM information_schema.tables"
 _PGVECTOR_PROBE = "pg_available_extensions"
 
@@ -80,26 +82,35 @@ _UNRECORD_MIGRATION = (
 
 
 def _patch_embedding_provider(monkeypatch, provider):
-    """Route ``get_embedding_provider``; returns the provider names requested."""
-    import osprey.models.embeddings as embeddings_mod
+    """Route ``ProviderRegistry.get_provider``; returns the provider names requested.
+
+    Args:
+        provider: A fake provider instance (its class answers every lookup), a
+            ``{name: class}`` mapping (unlisted names answer ``None``), or an
+            exception to raise.
+    """
+    from osprey.models.provider_registry import ProviderRegistry
 
     asked: list[str] = []
 
-    def _fake_get(name):
+    def _fake_get(_self, name):
         asked.append(name)
         if isinstance(provider, Exception):
             raise provider
-        return provider
+        if isinstance(provider, dict):
+            return provider.get(name)
+        return type(provider)
 
-    monkeypatch.setattr(embeddings_mod, "get_embedding_provider", _fake_get)
+    monkeypatch.setattr(ProviderRegistry, "get_provider", _fake_get)
     return asked
 
 
-def _reembed_repo(*, tables=(), entry_count=0):
-    """Repository mock with just what ``run_reembed`` awaits."""
+def _reembed_repo(*, tables=(), entry_count=0, has_copy_state=False):
+    """Repository mock with just what ``run_reembed`` awaits (schema-behind by default)."""
     repo = MagicMock()
     repo.get_embedding_tables = AsyncMock(return_value=list(tables))
     repo.count_entries = AsyncMock(return_value=entry_count)
+    repo.schema_facts = AsyncMock(return_value=SchemaFacts(False, has_copy_state))
     return repo
 
 
@@ -140,9 +151,23 @@ class TestRunMigrate:
         _patch_pool(monkeypatch, fake_pool)
         calls = _patch_migrations(monkeypatch)
 
-        assert await ops.run_migrate(dict(_DB)) is None
+        assert await ops.run_migrate(dict(_DB)) == []
 
         assert len(calls) == 1
+        assert fake_pool.closed
+
+    async def test_returns_the_busy_skipped_migrations(self, monkeypatch, fake_pool):
+        """The names the runner skipped as busy are what the CLI reports."""
+        import osprey.services.ariel_search.database.migrations as mig_mod
+
+        _patch_pool(monkeypatch, fake_pool)
+
+        async def _busy(_pool, _config, **_kwargs):
+            return mig_mod.MigrationResult(["core_schema"], ["attachment_text_columns"], False)
+
+        monkeypatch.setattr(mig_mod, "run_migrations_detailed", _busy)
+
+        assert await ops.run_migrate(dict(_DB)) == ["attachment_text_columns"]
         assert fake_pool.closed
 
     async def test_pool_is_closed_when_migrations_raise(self, monkeypatch, fake_pool):
@@ -330,12 +355,14 @@ class TestRunReembed:
         assert result.processed == 1
         assert pool.matching("ON CONFLICT (entry_id) DO NOTHING")
         assert not pool.matching("DO UPDATE SET")
-        # Provider comes from config.embedding.provider; base_url falls back to
-        # the provider's own default because ARIEL config carries none.
+        # With no text_embedding block the provider comes from
+        # config.embedding.provider; base_url falls back to the provider's own
+        # default because ARIEL config carries none.
         assert asked == ["ollama"]
         call = fake_embedding_provider.calls[0]
         assert call["model_id"] == _MODEL
         assert call["base_url"] == fake_embedding_provider.default_base_url
+        assert "dimensions" not in call
         # A NULL raw_text is embedded as the empty string, not None.
         assert call["texts"] == [""]
 
@@ -400,6 +427,220 @@ class TestRunReembed:
         assert fake_embedding_provider.calls[0]["texts"] == ["x" * 504]
 
 
+class TestRunReembedAttachmentText:
+    """On a store with copy state the picture text joins the input of entries that have it."""
+
+    _CONFIG = {
+        **_DB,
+        "enhancement_modules": {
+            "text_embedding": {"models": [{"name": _MODEL, "dimension": 4, "max_input_tokens": 40}]}
+        },
+    }
+
+    async def _reembed(self, monkeypatch, pool, repo, provider):
+        _patch_service(monkeypatch, _StubService(repo, pool))
+        _patch_embedding_provider(monkeypatch, provider)
+        return await ops.run_reembed(
+            self._CONFIG,
+            model=_MODEL,
+            dimension=4,
+            batch_size=10,
+            dry_run=False,
+            force=True,
+            progress=None,
+        )
+
+    async def test_only_entries_with_attachment_text_get_the_helper_input(
+        self, monkeypatch, fake_pool_factory, fake_embedding_provider
+    ):
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            embedding_input,
+        )
+
+        pool = fake_pool_factory(
+            rows_for={
+                _SELECT_ENTRIES_WITH_PICTURES: [
+                    ("E1", "x" * 100, "[picture a.png - upstream caption] trip"),
+                    ("E2", "y" * 100, None),
+                    ("E3", None, "  "),
+                ],
+            }
+        )
+        repo = _reembed_repo(tables=[_embedding_table(_TABLE)], entry_count=3, has_copy_state=True)
+
+        result = await self._reembed(monkeypatch, pool, repo, fake_embedding_provider)
+
+        assert result.processed == 3
+        assert fake_embedding_provider.calls[0]["texts"] == [
+            embedding_input("x" * 100, "[picture a.png - upstream caption] trip", 40),
+            "y" * 32,
+            "",
+        ]
+        assert fake_embedding_provider.calls[0]["texts"][0] == "x" * 23 + "\n[picture"
+        assert any(_SELECT_ENTRIES_WITH_PICTURES in sql for sql in pool.sql)
+
+    async def test_a_schema_behind_store_keeps_the_b1_query(
+        self, monkeypatch, fake_pool_factory, fake_embedding_provider
+    ):
+        pool = fake_pool_factory(rows_for={_SELECT_ENTRIES: [("E1", "x" * 100)]})
+        repo = _reembed_repo(tables=[_embedding_table(_TABLE)], entry_count=1)
+
+        await self._reembed(monkeypatch, pool, repo, fake_embedding_provider)
+
+        assert fake_embedding_provider.calls[0]["texts"] == ["x" * 32]
+        assert not any("attachment_text" in sql for sql in pool.sql)
+
+
+class TestRunEnhanceMarks:
+    """run_enhance marks text modules under the md5 of the picture text they read."""
+
+    def _repo(self, has_copy_state, entry):
+        repo = MagicMock()
+        repo.schema_facts = AsyncMock(return_value=SchemaFacts(False, has_copy_state))
+        repo.get_incomplete_entries = AsyncMock(return_value=[entry])
+        repo.mark_enhancement_complete = AsyncMock()
+        repo.mark_enhancement_failed = AsyncMock(return_value=1)
+        return repo
+
+    async def _enhance(self, monkeypatch, fake_pool, repo, names):
+        import osprey.services.ariel_search.enhancement as enhancement_pkg
+
+        enhancers = [_Enhancer(name) for name in names]
+        monkeypatch.setattr(
+            enhancement_pkg, "create_enhancers_from_config", lambda *_a, **_k: enhancers
+        )
+        _patch_service(monkeypatch, _StubService(repo, fake_pool))
+        return await ops.run_enhance(dict(_DB), module=None, force=False, limit=10)
+
+    async def test_copy_state_text_modules_mark_with_md5_others_without(
+        self, monkeypatch, fake_pool
+    ):
+        entry = {"entry_id": "E1", "raw_text": "t", "attachment_text": "[picture] trip"}
+        repo = self._repo(True, entry)
+
+        await self._enhance(
+            monkeypatch, fake_pool, repo, ["text_embedding", "qmd_export", "semantic_processor"]
+        )
+
+        calls = {c.args[1]: c for c in repo.mark_enhancement_complete.await_args_list}
+        digest = attachment_text_md5(entry)
+        assert calls["text_embedding"].args == ("E1", "text_embedding")
+        assert calls["text_embedding"].kwargs == {"md5": digest}
+        assert calls["qmd_export"].kwargs == {"md5": digest}
+        assert calls["semantic_processor"].kwargs == {}
+
+    async def test_schema_behind_store_marks_exactly_as_b1(self, monkeypatch, fake_pool):
+        entry = {"entry_id": "E1", "raw_text": "t"}
+        repo = self._repo(False, entry)
+
+        await self._enhance(monkeypatch, fake_pool, repo, ["text_embedding"])
+
+        repo.mark_enhancement_complete.assert_awaited_once_with("E1", "text_embedding")
+
+
+class TestRunReembedProvider:
+    """run_reembed resolves its provider exactly as the text_embedding module does."""
+
+    @staticmethod
+    def _wire(monkeypatch, fake_pool_factory):
+        pool = fake_pool_factory(
+            rows_for={_SELECT_ENTRIES: [("E1", "first text")], f"SELECT 1 FROM {_TABLE}": []}
+        )
+        repo = _reembed_repo(tables=[_embedding_table(_TABLE)], entry_count=1)
+        _patch_service(monkeypatch, _StubService(repo, pool))
+
+    async def test_the_text_embedding_module_provider_wins_and_gets_the_cli_dimension(
+        self, monkeypatch, fake_pool_factory
+    ):
+        self._wire(monkeypatch, fake_pool_factory)
+        llama = make_fake_embedding_provider(
+            name="llama-cpp", truncates_to_dimensions=True, default_base_url="http://llama:8080"
+        )
+        ollama = make_fake_embedding_provider()
+        asked = _patch_embedding_provider(monkeypatch, {"llama-cpp": llama, "ollama": ollama})
+        config = {
+            **_DB,
+            "embedding": {"provider": "ollama"},
+            "enhancement_modules": {
+                "text_embedding": {
+                    "enabled": True,
+                    "provider": "llama-cpp",
+                    "models": [{"name": _MODEL, "dimension": 768}],
+                }
+            },
+        }
+
+        result = await ops.run_reembed(
+            config,
+            model=_MODEL,
+            dimension=1024,
+            batch_size=10,
+            dry_run=False,
+            force=False,
+            progress=None,
+        )
+
+        assert result.processed == 1
+        assert asked == ["llama-cpp"]
+        assert ollama.calls == []
+        assert llama.calls[0]["dimensions"] == 1024
+        assert llama.calls[0]["base_url"] == "http://llama:8080"
+
+    async def test_no_text_embedding_block_embeds_through_ollama_without_dimensions(
+        self, monkeypatch, fake_pool_factory
+    ):
+        self._wire(monkeypatch, fake_pool_factory)
+        ollama = make_fake_embedding_provider()
+        asked = _patch_embedding_provider(monkeypatch, {"ollama": ollama})
+
+        await ops.run_reembed(
+            {**_DB, "embedding": {"provider": "ollama"}},
+            model=_MODEL,
+            dimension=4,
+            batch_size=10,
+            dry_run=False,
+            force=False,
+            progress=None,
+        )
+
+        assert asked == ["ollama"]
+        assert len(ollama.calls) == 1
+        assert "dimensions" not in ollama.calls[0]
+
+    @pytest.mark.parametrize(
+        ("config", "key"),
+        [
+            (
+                {
+                    **_DB,
+                    "enhancement_modules": {
+                        "text_embedding": {"enabled": True, "provider": "nonesuch"}
+                    },
+                },
+                "ariel.enhancement_modules.text_embedding.provider",
+            ),
+            ({**_DB, "embedding": {"provider": "nonesuch"}}, "ariel.embedding.provider"),
+        ],
+    )
+    async def test_an_unknown_provider_is_refused_naming_its_key(
+        self, monkeypatch, fake_pool_factory, config, key
+    ):
+        self._wire(monkeypatch, fake_pool_factory)
+        _patch_embedding_provider(monkeypatch, {})
+
+        with pytest.raises(ValueError, match="nonesuch") as exc:
+            await ops.run_reembed(
+                config,
+                model=_MODEL,
+                dimension=4,
+                batch_size=10,
+                dry_run=False,
+                force=False,
+                progress=None,
+            )
+        assert key in str(exc.value)
+
+
 # ---------------------------------------------------------------------------
 # _embed_batch
 # ---------------------------------------------------------------------------
@@ -454,7 +695,7 @@ class TestEmbedBatch:
         assert not fake_pool.matching("DO UPDATE SET")
 
     async def test_embedding_failure_counts_the_whole_batch_as_errors(self, fake_pool):
-        provider = _FakeEmbeddingProvider(error=RuntimeError("embedding backend down"))
+        provider = make_fake_embedding_provider(error=RuntimeError("embedding backend down"))()
         cur = fake_pool.conn.cursor()
 
         messages: list[str] = []
@@ -476,7 +717,7 @@ class TestEmbedBatch:
 
     async def test_vector_count_mismatch_is_an_error_not_a_partial_write(self, fake_pool):
         # Provider returns fewer vectors than texts -> zip(strict=True) rejects it.
-        provider = _FakeEmbeddingProvider(vectors=[[0.1, 0.2]])
+        provider = make_fake_embedding_provider(vectors=[[0.1, 0.2]])()
         cur = fake_pool.conn.cursor()
 
         processed, errors = await ops._embed_batch(
@@ -497,7 +738,7 @@ class TestEmbedBatch:
         assert len(fake_pool.matching(f"INSERT INTO {_TABLE}")) == 1
 
     async def test_failure_without_progress_callback_is_silent(self, fake_pool):
-        provider = _FakeEmbeddingProvider(error=RuntimeError("boom"))
+        provider = make_fake_embedding_provider(error=RuntimeError("boom"))()
         cur = fake_pool.conn.cursor()
 
         assert await ops._embed_batch(

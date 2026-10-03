@@ -9,6 +9,11 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.ariel import ariel_group
+from osprey.services.ariel_search.database.repository import SchemaFacts
+
+#: A store without attachment copy state: ingest stores each entry with the
+#: plain upsert and fetches no pictures.
+SCHEMA_WITHOUT_COPY_STATE = SchemaFacts(has_v2_fts=True, has_copy_state=False)
 
 
 class TestARIELCLIGroup:
@@ -161,6 +166,7 @@ class TestARIELCLIGroup:
         mock_repo.start_ingestion_run = AsyncMock(return_value=42)
         mock_repo.complete_ingestion_run = AsyncMock()
         mock_repo.fail_ingestion_run = AsyncMock()
+        mock_repo.schema_facts = AsyncMock(return_value=SCHEMA_WITHOUT_COPY_STATE)
         mock_repo.upsert_entry = AsyncMock()
         mock_repo.mark_enhancement_complete = AsyncMock()
         mock_repo.mark_enhancement_failed = AsyncMock()
@@ -274,6 +280,7 @@ class TestARIELCLIGroup:
             mock_service.repository = MagicMock()
             mock_service.repository.start_ingestion_run = AsyncMock(return_value=1)
             mock_service.repository.fail_ingestion_run = AsyncMock()
+            mock_service.repository.schema_facts = AsyncMock(return_value=SCHEMA_WITHOUT_COPY_STATE)
             mock_service.repository.upsert_entry = AsyncMock(side_effect=error)
             mock_service.pool = MagicMock()
             mock_service.pool.connection = MagicMock(return_value=AsyncMock())
@@ -534,6 +541,7 @@ class TestQuickstartCommand:
         mock_service.__aenter__ = AsyncMock(return_value=mock_service)
         mock_service.__aexit__ = AsyncMock(return_value=None)
         mock_service.repository = MagicMock()
+        mock_service.repository.schema_facts = AsyncMock(return_value=SCHEMA_WITHOUT_COPY_STATE)
         mock_service.repository.upsert_entry = AsyncMock()
 
         with (
@@ -671,6 +679,47 @@ class TestSyncCommand:
         assert "osprey up" in result.stderr
 
 
+class TestMigrateCommand:
+    """Tests for the ariel migrate command's busy-tables exit."""
+
+    @pytest.fixture
+    def runner(self, monkeypatch):
+        """A CLI runner with an ARIEL config in place."""
+        mock_config = {"database": {"uri": "postgresql://localhost/test"}}
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+        return CliRunner()
+
+    def _invoke(self, runner, busy: list[str]):
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "osprey.services.ariel_search.cli_operations.run_migrate",
+            new_callable=AsyncMock,
+            return_value=busy,
+        ):
+            return runner.invoke(ariel_group, ["migrate"])
+
+    def test_busy_migration_exits_one_and_names_it(self, runner):
+        """A migration skipped on busy tables is named, and the exit is 1."""
+        result = self._invoke(runner, ["attachment_text_columns"])
+
+        assert result.exit_code == 1, result.output
+        assert (
+            "attachment_text_columns: tables busy, not applied. Run `osprey ariel migrate` again."
+            in result.output
+        )
+
+    def test_nothing_busy_exits_zero(self, runner):
+        """With nothing skipped as busy, migrate succeeds quietly."""
+        result = self._invoke(runner, [])
+
+        assert result.exit_code == 0, result.output
+        assert "tables busy" not in result.output
+
+
 class TestEnhanceCommand:
     """Tests for the ariel enhance command."""
 
@@ -691,7 +740,7 @@ class TestEnhanceCommand:
             lambda key, default=None: mock_config if key == "ariel" else default,
         )
 
-        async def fake_run_enhance(*_args, progress=None):
+        async def fake_run_enhance(*_args, progress=None, **_kwargs):
             progress(
                 "Enhancement complete: 2 entries, 2 succeeded, 0 failed, "
                 "0 set aside after 3 failed attempts"
@@ -706,6 +755,92 @@ class TestEnhanceCommand:
 
         assert result.exit_code == 0, result.output
         assert result.output.count("Enhancement complete") == 1
+
+    @staticmethod
+    def _patched(monkeypatch):
+        """Patch the config and ``run_enhance``; return the recorded calls."""
+        from osprey.services.ariel_search import cli_operations
+        from osprey.services.ariel_search.cli_operations import EnhanceResult
+
+        mock_config = {"database": {"uri": "postgresql://localhost/test"}}
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+        calls: list[tuple[tuple, dict]] = []
+
+        async def fake_run_enhance(*args, **kwargs):
+            calls.append((args, kwargs))
+            return EnhanceResult(entries_processed=0, module_names=[])
+
+        monkeypatch.setattr(cli_operations, "run_enhance", fake_run_enhance)
+        return calls
+
+    @pytest.mark.parametrize("module", ["image_caption", "image_embedding"])
+    def test_force_with_a_picture_module_is_refused_with_the_sentence(
+        self, runner, monkeypatch, module
+    ):
+        from osprey.services.ariel_search.cli_operations import FORCE_REFUSAL
+
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(ariel_group, ["enhance", "--module", module, "--force"])
+
+        assert result.exit_code == 1
+        assert FORCE_REFUSAL in " ".join(result.output.split())
+        assert FORCE_REFUSAL == (
+            "--force does not re-run image_caption/image_embedding: their results are kept "
+            "per picture and model. Change model.model_id (captions) or model/dimensions "
+            "(embeddings) to re-run, or use --retry-failed for per-picture failures."
+        )
+        assert calls == []
+
+    def test_force_with_a_text_module_runs(self, runner, monkeypatch):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(ariel_group, ["enhance", "--module", "text_embedding", "--force"])
+
+        assert result.exit_code == 0, result.output
+        assert [c[0][1:4] for c in calls] == [("text_embedding", True, 100)]
+
+    def test_bare_force_reaches_run_enhance(self, runner, monkeypatch):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(ariel_group, ["enhance", "--force"])
+
+        assert result.exit_code == 0, result.output
+        assert [c[0][1:4] for c in calls] == [(None, True, 100)]
+
+    @pytest.mark.parametrize("module", ["image_caption", "image_embedding", "text_embedding"])
+    def test_retry_failed_is_passed_through(self, runner, monkeypatch, module):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(
+            ariel_group, ["enhance", "--module", module, "--retry-failed", "--limit", "7"]
+        )
+
+        assert result.exit_code == 0, result.output
+        ((args, kwargs),) = calls
+        assert args[1:4] == (module, False, 7)
+        assert kwargs["retry_failed"] is True
+
+    def test_without_retry_failed_the_flag_is_false(self, runner, monkeypatch):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(ariel_group, ["enhance", "--module", "image_caption"])
+
+        assert result.exit_code == 0, result.output
+        ((_args, kwargs),) = calls
+        assert kwargs["retry_failed"] is False
+
+    def test_retry_failed_without_a_module_is_refused(self, runner, monkeypatch):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(ariel_group, ["enhance", "--retry-failed"])
+
+        assert result.exit_code == 1
+        assert "--retry-failed needs --module" in result.output
+        assert calls == []
 
 
 class TestSearchResultRendering:

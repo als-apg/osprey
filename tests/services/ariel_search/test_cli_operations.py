@@ -31,6 +31,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
+from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
 # A minimal config dict accepted by ARIELConfig.from_dict.
@@ -124,21 +125,49 @@ def _embedding_table(name="text_embeddings_nomic", count=5, dim=768, active=True
     return SimpleNamespace(table_name=name, entry_count=count, dimension=dim, is_active=active)
 
 
-def _status_repo(stats=None, tables=(), last_ingestion=None):
-    """Repository double answering the three queries ``get_status`` makes.
+def _status_repo(
+    stats=None,
+    tables=(),
+    last_ingestion=None,
+    *,
+    copy_state=True,
+    attachment_bytes=0,
+    copy_counts=(0, {}),
+):
+    """Repository double answering every query ``get_status`` makes.
 
     Args:
         stats: ``get_enhancement_stats`` payload; an empty store by default.
-        tables: ``get_embedding_tables`` payload.
+        tables: ``get_embedding_tables`` payload (no image tables).
         last_ingestion: ``get_last_ingestion`` result.
+        copy_state: ``schema_facts().has_copy_state``.
+        attachment_bytes: ``get_attachment_bytes`` result, or an exception to raise.
+        copy_counts: ``get_attachment_copy_counts`` result ``(pending, {code: n})``.
     """
     repo = MagicMock()
     repo.get_enhancement_stats = AsyncMock(
         return_value={"total_entries": 0} if stats is None else stats
     )
     repo.get_embedding_tables = AsyncMock(return_value=list(tables))
+    repo.get_image_embedding_tables = AsyncMock(return_value=[])
     repo.get_last_ingestion = AsyncMock(return_value=last_ingestion)
+    repo.schema_facts = AsyncMock(
+        return_value=SchemaFacts(has_v2_fts=copy_state, has_copy_state=copy_state)
+    )
+    if isinstance(attachment_bytes, BaseException):
+        repo.get_attachment_bytes = AsyncMock(side_effect=attachment_bytes)
+    else:
+        repo.get_attachment_bytes = AsyncMock(return_value=attachment_bytes)
+    repo.get_attachment_copy_counts = AsyncMock(return_value=copy_counts)
     return repo
+
+
+@pytest.fixture(autouse=True)
+def render_probe(monkeypatch):
+    """Answer the render probe ``ok`` without spawning a worker; tests may flip it."""
+    probe = AsyncMock(return_value=True)
+    monkeypatch.setattr("osprey.imaging.render.probe_render_worker", probe)
+    return probe
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +331,7 @@ class TestGetStatus:
             "complete": 0,
             "failed": 0,
             "pending": 0,
+            "gave_up": 0,
         }
 
     async def test_store_key_with_no_registered_module_is_reported_as_orphaned(self, monkeypatch):
@@ -318,10 +348,47 @@ class TestGetStatus:
         out = await ops.get_status(dict(_DB))
 
         assert out["orphaned_enhancement_modules"] == {
-            "retired_tagger": {"complete": 1, "failed": 2, "pending": 0}
+            "retired_tagger": {"complete": 1, "failed": 2, "pending": 0, "gave_up": 0}
         }
         assert "retired_tagger" not in out["enhancement_modules"]
         assert out["enhancement_modules"]["text_embedding"]["complete"] == 3
+
+    async def test_stats_are_read_without_markers_when_no_caption_model(self, monkeypatch):
+        """No caption model configured: the stats call is B1's, with no argument."""
+        repo = _status_repo(stats={"total_entries": 3})
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        await ops.get_status(dict(_DB))
+
+        repo.get_enhancement_stats.assert_awaited_once_with()
+
+    async def test_stats_are_read_under_the_caption_marker(self, monkeypatch):
+        """A configured caption model is passed as the image_caption marker."""
+        repo = _status_repo(
+            stats={
+                "total_entries": 3,
+                "image_caption": {"complete": 1, "failed": 1, "pending": 1, "gave_up": 1},
+            }
+        )
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        config = {
+            **_DB,
+            "enhancement_modules": {"image_caption": {"model": {"model_id": "vis-a"}}},
+        }
+
+        out = await ops.get_status(config)
+
+        repo.get_enhancement_stats.assert_awaited_once_with(markers={"image_caption": "vis-a"})
+        counts = (
+            out["enhancement_modules"].get("image_caption")
+            or out["orphaned_enhancement_modules"]["image_caption"]
+        )
+        assert {k: counts[k] for k in ("complete", "failed", "pending", "gave_up")} == {
+            "complete": 1,
+            "failed": 1,
+            "pending": 1,
+            "gave_up": 1,
+        }
 
     async def test_total_entries_is_not_a_module_in_either_table(self, monkeypatch):
         """It is the store's own count, and it already has its own key."""
@@ -333,6 +400,131 @@ class TestGetStatus:
         assert "total_entries" not in out["enhancement_modules"]
         assert "total_entries" not in out["orphaned_enhancement_modules"]
         assert out["entries"] == 3
+
+
+class TestGetStatusAttachments:
+    """The ``attachments`` object of ``osprey ariel status``."""
+
+    async def test_attachments_block_carries_capability_counts_and_render(self, monkeypatch):
+        repo = _status_repo(attachment_bytes=4096, copy_counts=(3, {"too_large": 2}))
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        attachments = out["attachments"]
+        assert list(attachments) == [
+            "copy_on_ingest",
+            "formats",
+            "view",
+            "captions",
+            "picture_search",
+            "picture_search_unavailable",
+            "bytes",
+            "pending",
+            "skipped",
+            "render",
+        ]
+        assert attachments["copy_on_ingest"] == "images"
+        assert "png" in attachments["formats"]["viewable"]
+        assert "svg" in attachments["formats"]["reserved"]
+        assert attachments["view"] is True
+        assert attachments["captions"] is False
+        assert attachments["picture_search"] is False
+        assert attachments["bytes"] == 4096
+        assert attachments["pending"] == 3
+        assert attachments["skipped"] == {"too_large": 2}
+        assert attachments["render"] == "ok"
+
+    async def test_attachments_matches_the_capability_block(self, monkeypatch):
+        from osprey.services.ariel_search.capabilities import attachments_capability
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        config = {**_DB, "attachments": {"copy_on_ingest": "all", "view": {"enabled": False}}}
+
+        out = await ops.get_status(config)
+
+        expected = attachments_capability(ops._ariel_config(config))
+        assert {k: out["attachments"][k] for k in expected} == expected
+        assert out["attachments"]["view"] is False
+        assert out["attachments"]["copy_on_ingest"] == "all"
+
+    async def test_attachments_render_unavailable_when_probe_fails(self, monkeypatch, render_probe):
+        render_probe.return_value = False
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["attachments"]["render"] == "unavailable"
+        render_probe.assert_awaited_once()
+
+    async def test_attachments_schema_behind_nulls_pending_and_skipped(self, monkeypatch):
+        repo = _status_repo(copy_state=False, attachment_bytes=1024)
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "healthy"
+        assert out["attachments"]["pending"] is None
+        assert out["attachments"]["skipped"] is None
+        assert out["attachments"]["bytes"] == 1024
+        repo.get_attachment_copy_counts.assert_not_awaited()
+
+    async def test_attachments_bytes_null_when_store_cannot_size_it(self, monkeypatch):
+        repo = _status_repo(attachment_bytes=DatabaseQueryError("no attachment_files"))
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "healthy"
+        assert out["attachments"]["bytes"] is None
+
+    async def test_attachments_absent_on_error_paths(self, monkeypatch):
+        _patch_service_raises(monkeypatch, RuntimeError("could not connect to server"))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["status"] == "error"
+        assert "attachments" not in out
+
+
+class TestStatusTextAttachments:
+    """``osprey ariel status`` prints the attachments object for an operator."""
+
+    def _run(self, monkeypatch, repo):
+        from click.testing import CliRunner
+
+        from osprey.cli.ariel import ariel_group
+
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_DB))
+        result = CliRunner().invoke(ariel_group, ["status"])
+        assert result.exit_code == 0, result.output
+        return result.output
+
+    def test_attachments_text_lists_each_non_zero_skip_code_with_its_reason(self, monkeypatch):
+        from osprey.imaging.formats import skip_reason_text
+
+        repo = _status_repo(copy_counts=(2, {"too_large": 3, "fetch_failed": 0}))
+
+        text = self._run(monkeypatch, repo)
+
+        assert "render: ok" in text
+        assert "pending: 2" in text
+        assert skip_reason_text("too_large") in text
+        assert "too_large: 3" in text
+        assert "fetch_failed" not in text
+        assert "schema behind code" not in text
+
+    def test_attachments_text_render_unavailable(self, monkeypatch, render_probe):
+        render_probe.return_value = False
+
+        assert "render: unavailable" in self._run(monkeypatch, _status_repo())
+
+    def test_attachments_text_schema_behind_code(self, monkeypatch):
+        text = self._run(monkeypatch, _status_repo(copy_state=False))
+
+        assert "schema behind code: run osprey ariel migrate" in text
+        assert "pending:" not in text
 
 
 class TestGetStatusVocabulary:
@@ -576,6 +768,31 @@ class TestRunSearch:
         assert out["entries"][0]["title"] == "First line"
         assert out["entries"][0]["score"] == 0.9
 
+    async def test_hybrid_with_picture_only_hits_returns_exactly_limit_entries(self, monkeypatch):
+        # The picture lane may add up to ceil(limit/3) picture-only entries
+        # beyond ``limit``; the CLI shows ``limit`` and the sources of those.
+        rows = [
+            {"entry_id": f"E{i}", "raw_text": f"entry {i}", "_score": 1 - i / 10} for i in range(4)
+        ]
+        result = SimpleNamespace(
+            answer=None,
+            sources=[r["entry_id"] for r in rows],
+            search_modes_used=["hybrid"],
+            reasoning="Hybrid search: 4 results",
+            entries=rows,
+        )
+        service = MagicMock()
+        service.__aenter__ = AsyncMock(return_value=service)
+        service.__aexit__ = AsyncMock(return_value=False)
+        service.search = AsyncMock(return_value=result)
+        _patch_service(monkeypatch, service)
+
+        out = await ops.run_search(dict(_DB), "orbit kick", "hybrid", 3)
+
+        assert [e["entry_id"] for e in out["entries"]] == ["E0", "E1", "E2"]
+        assert out["sources"] == ["E0", "E1", "E2"]
+        assert service.search.await_args.kwargs["max_results"] == 3
+
 
 # ---------------------------------------------------------------------------
 # run_enhance — no-enhancers short-circuit
@@ -586,7 +803,7 @@ class TestRunEnhance:
     async def test_no_enhancers_returns_empty_result(self, monkeypatch):
         import osprey.services.ariel_search.enhancement as enh
 
-        monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config: [])
+        monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config, **_: [])
         # create_ariel_service must never be reached; make it explode if it is.
         _patch_service_raises(monkeypatch, AssertionError("service should not be created"))
 
@@ -599,7 +816,7 @@ class TestRunEnhance:
         import osprey.services.ariel_search.enhancement as enh
 
         enhancer = SimpleNamespace(name="text_embedding")
-        monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config: [enhancer])
+        monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config, **_: [enhancer])
         _patch_service_raises(monkeypatch, AssertionError("service should not be created"))
 
         # Selecting a module that no configured enhancer provides -> empty.
@@ -628,7 +845,7 @@ class TestRunIngestDryRun:
                     yield {"entry_id": f"E{i}"}
 
         monkeypatch.setattr(ing, "get_adapter", lambda config: _Adapter())
-        monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config: [])
+        monkeypatch.setattr(enh, "create_enhancers_from_config", lambda config, **_: [])
         # Dry-run must not create the service.
         _patch_service_raises(monkeypatch, AssertionError("service should not be created"))
 
@@ -663,7 +880,7 @@ class TestRunIngestDryRun:
         monkeypatch.setattr(
             enh,
             "create_enhancers_from_config",
-            lambda config: [SimpleNamespace(name="text_embedding")],
+            lambda config, **_: [SimpleNamespace(name="text_embedding")],
         )
         _patch_service_raises(monkeypatch, AssertionError("service should not be created"))
 
@@ -848,3 +1065,421 @@ class TestListModels:
 
         out = await ops.list_models(dict(_DB))
         assert out == []
+
+
+# ---------------------------------------------------------------------------
+# get_status: per-module health
+# ---------------------------------------------------------------------------
+
+
+class _HealthModule:
+    """A module double whose ``health_check`` answers *verdict* (or runs *check*)."""
+
+    def __init__(self, name, verdict=None, *, check=None, runs_inline=True, reason=None):
+        self.name = name
+        self.runs_inline = runs_inline
+        self._verdict = verdict
+        self._check = check
+        self._reason = reason
+
+    async def health_check(self):
+        if self._check is not None:
+            return await self._check()
+        return self._verdict
+
+    def health_reason(self):
+        return self._reason
+
+    def required_relations(self):
+        return []
+
+
+def _enable(*names, **blocks):
+    """A config with *names* enabled; *blocks* add keys to a module's block."""
+    modules = {name: {"enabled": True, **blocks.get(name, {})} for name in names}
+    return {**_DB, "enhancement_modules": modules}
+
+
+def _patch_modules(monkeypatch, modules):
+    """Build each module from *modules* ``{name: module | exception}``; record stages."""
+    import osprey.services.ariel_search.enhancement as enhancement_pkg
+
+    stages = []
+
+    def _create(_config, *, stage="inline", names=None):
+        stages.append(stage)
+        built = []
+        for name in names or []:
+            item = modules.get(name)
+            if isinstance(item, BaseException):
+                raise item
+            if item is not None:
+                built.append(item)
+        return built
+
+    monkeypatch.setattr(enhancement_pkg, "create_enhancers_from_config", _create)
+    return stages
+
+
+def _health(out, name):
+    return out["enhancement_modules"][name]["health"]
+
+
+class TestGetStatusModuleHealth:
+    """Every enabled module carries ``health`` from its own check."""
+
+    @pytest.mark.parametrize("reason", ["auth", "model", "unreachable", "config"])
+    async def test_each_unhealthy_reason_is_reported(self, monkeypatch, reason):
+        from osprey.models.providers.health import HealthResult
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        _patch_modules(
+            monkeypatch,
+            {"text_embedding": _HealthModule("text_embedding", HealthResult(False, "x", reason))},
+        )
+
+        out = await ops.get_status(_enable("text_embedding"))
+
+        assert _health(out, "text_embedding") == {
+            "reachable": False,
+            "reason": reason,
+            "probed_from": "this process",
+        }
+        assert out["status"] == "healthy"
+
+    async def test_healthy_module_reports_reachable_with_no_reason(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        _patch_modules(
+            monkeypatch,
+            {"qmd_export": _HealthModule("qmd_export", HealthResult(True, "OK", None))},
+        )
+
+        out = await ops.get_status(_enable("qmd_export"))
+
+        assert _health(out, "qmd_export") == {
+            "reachable": True,
+            "reason": None,
+            "probed_from": "this process",
+        }
+
+    async def test_module_without_a_health_check_reports_null(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        verdict = HealthResult(None, "no health check", None)
+        _patch_modules(monkeypatch, {"qmd_export": _HealthModule("qmd_export", verdict)})
+
+        out = await ops.get_status(_enable("qmd_export"))
+
+        assert _health(out, "qmd_export")["reachable"] is None
+        assert _health(out, "qmd_export")["reason"] is None
+
+    async def test_a_legacy_tuple_is_normalised(self, monkeypatch):
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        _patch_modules(
+            monkeypatch, {"qmd_export": _HealthModule("qmd_export", (False, "mirror gone"))}
+        )
+
+        out = await ops.get_status(_enable("qmd_export"))
+
+        assert _health(out, "qmd_export")["reachable"] is False
+        assert _health(out, "qmd_export")["reason"] == "unreachable"
+
+    async def test_health_reason_overrides_and_keeps_reachable(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        module = _HealthModule("qmd_export", HealthResult(True, "OK", None), reason="no_reader")
+        _patch_modules(monkeypatch, {"qmd_export": module})
+
+        out = await ops.get_status(_enable("qmd_export"))
+
+        assert _health(out, "qmd_export")["reachable"] is True
+        assert _health(out, "qmd_export")["reason"] == "no_reader"
+
+    async def test_disabled_modules_carry_no_health(self, monkeypatch):
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        _patch_modules(monkeypatch, {})
+
+        out = await ops.get_status(dict(_DB))
+
+        assert all("health" not in entry for entry in out["enhancement_modules"].values())
+
+    async def test_each_module_is_built_alone_with_stage_all(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        ok = HealthResult(True, "OK", None)
+        stages = _patch_modules(
+            monkeypatch,
+            {
+                "qmd_export": _HealthModule("qmd_export", ok),
+                "text_embedding": _HealthModule("text_embedding", ok),
+            },
+        )
+
+        await ops.get_status(_enable("qmd_export", "text_embedding"))
+
+        assert stages == ["all", "all"]
+
+    async def test_configure_error_reports_config_and_status_stays_healthy(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        _patch_modules(
+            monkeypatch,
+            {
+                "image_caption": ModuleConfigError("provider is required", key="x.provider"),
+                "text_embedding": _HealthModule("text_embedding", HealthResult(True, "OK", None)),
+            },
+        )
+
+        out = await ops.get_status(_enable("image_caption", "text_embedding"))
+
+        assert out["status"] == "healthy"
+        assert _health(out, "image_caption") == {
+            "reachable": False,
+            "reason": "config",
+            "probed_from": "this process",
+        }
+        assert _health(out, "text_embedding")["reachable"] is True
+
+    async def test_misconfigured_image_caption_through_the_real_factory(self, monkeypatch):
+        """The real module refuses a provider-less block; the store's status is untouched."""
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+
+        out = await ops.get_status(
+            _enable("image_caption", image_caption={"model": {"model_id": "vis"}})
+        )
+
+        assert out["status"] == "healthy"
+        assert _health(out, "image_caption")["reason"] == "config"
+        assert _health(out, "image_caption")["reachable"] is False
+
+    async def test_a_check_that_raises_is_classified(self, monkeypatch):
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+
+        async def boom():
+            raise ConnectionError("refused")
+
+        _patch_modules(monkeypatch, {"text_embedding": _HealthModule("text_embedding", check=boom)})
+
+        out = await ops.get_status(_enable("text_embedding"))
+
+        assert _health(out, "text_embedding")["reason"] == "unreachable"
+
+    async def test_a_synchronously_sleeping_check_returns_within_6_s(self, monkeypatch, tmp_path):
+        """The real qmd_export check runs off the loop, so the 5 s timeout returns."""
+        import time
+
+        from osprey.services.ariel_search.enhancement.qmd_export.exporter import (
+            QmdExportModule,
+        )
+
+        def slow(_root):
+            time.sleep(30)
+
+        monkeypatch.setattr(QmdExportModule, "_mirror_health", staticmethod(slow))
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        config = _enable("qmd_export", qmd_export={"mirror_path": str(tmp_path / "m")})
+
+        started = time.monotonic()
+        out = await ops.get_status(config)
+
+        assert time.monotonic() - started < 6
+        assert _health(out, "qmd_export") == {
+            "reachable": False,
+            "reason": "unreachable",
+            "probed_from": "this process",
+        }
+
+    async def test_checks_run_concurrently(self, monkeypatch):
+        """Two checks of 4 s each finish in under 6 s together."""
+        import asyncio
+        import time
+
+        from osprey.models.providers.health import HealthResult
+
+        async def four_seconds():
+            await asyncio.sleep(4)
+            return HealthResult(True, "OK", None)
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        _patch_modules(
+            monkeypatch,
+            {
+                "qmd_export": _HealthModule("qmd_export", check=four_seconds),
+                "text_embedding": _HealthModule("text_embedding", check=four_seconds),
+            },
+        )
+
+        started = time.monotonic()
+        out = await ops.get_status(_enable("qmd_export", "text_embedding"))
+
+        assert time.monotonic() - started < 6
+        assert _health(out, "qmd_export")["reachable"] is True
+        assert _health(out, "text_embedding")["reachable"] is True
+
+
+@pytest.fixture
+def caption_isolation(monkeypatch):
+    """Fresh availability/offload/local-server state; no real Ollama fallback answers."""
+    from osprey.models.providers import _local_server
+    from osprey.models.providers.ollama import OllamaProviderAdapter
+    from osprey.services.ariel_search.enhancement import _offload, availability
+
+    availability.reset_availability()
+    _offload.reset_offload_state()
+    _local_server.reset_cache()
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.setattr(_local_server, "container_fallback_urls", lambda *_a, **_k: [])
+    monkeypatch.setattr(OllamaProviderAdapter, "_get_fallback_urls", staticmethod(lambda u: []))
+    yield
+    availability.reset_availability()
+    _offload.reset_offload_state()
+    _local_server.reset_cache()
+
+
+@pytest.mark.usefixtures("caption_isolation")
+class TestGetStatusImageModuleHealth:
+    """Picture modules answer through the catch-up's own pre-pass check."""
+
+    @staticmethod
+    def _caption_config(monkeypatch, base_url):
+        monkeypatch.setattr(
+            "osprey.models.config.get_provider_config",
+            lambda name: {"base_url": base_url} if name == "ollama" else {},
+        )
+        return _enable(
+            "image_caption",
+            image_caption={"provider": "ollama", "model": {"model_id": "qwen3-vl:4b"}},
+        )
+
+    async def test_model_without_vision_reports_model(self, monkeypatch):
+        from tests.services.ariel_search.test_image_caption import StubOllama
+
+        stub = StubOllama({"qwen3-vl:4b": ["completion"]})
+        try:
+            _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+            out = await ops.get_status(self._caption_config(monkeypatch, stub.url))
+        finally:
+            stub.stop()
+
+        assert out["enhancement_modules"]["image_caption"]["health"]["reason"] == "model"
+        assert out["status"] == "healthy"
+
+    async def test_schema_behind_reports_config_and_store_stays_healthy(self, monkeypatch):
+        _patch_service(monkeypatch, _StubService(repository=_status_repo(copy_state=False)))
+
+        out = await ops.get_status(self._caption_config(monkeypatch, "http://127.0.0.1:9"))
+
+        assert out["status"] == "healthy"
+        assert out["enhancement_modules"]["image_caption"]["health"] == {
+            "reachable": False,
+            "reason": "config",
+            "probed_from": "this process",
+        }
+
+
+class TestStatusTextModuleHealth:
+    """``osprey ariel status`` prints one line per enabled module it found unusable."""
+
+    def _run(self, monkeypatch, verdicts, config):
+        from click.testing import CliRunner
+
+        from osprey.cli.ariel import ariel_group
+
+        _patch_service(monkeypatch, _StubService(repository=_status_repo()))
+        _patch_modules(monkeypatch, {n: _HealthModule(n, v) for n, v in verdicts.items()})
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: (
+                config
+                if key == "ariel"
+                else ("http://user:secret@gpu:8080/x?k=1" if key.endswith("base_url") else default)
+            ),
+        )
+        result = CliRunner().invoke(ariel_group, ["status"])
+        assert result.exit_code == 0, result.output
+        return result.output
+
+    def test_model_line_names_model_provider_and_fix(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        config = _enable(
+            "image_caption",
+            image_caption={"provider": "ollama", "model": {"model_id": "qwen3-vl:4b"}},
+        )
+        text = self._run(
+            monkeypatch, {"image_caption": HealthResult(False, "no vision", "model")}, config
+        )
+
+        assert (
+            "image_caption: skipped, model qwen3-vl:4b not available on ollama (pull it, "
+            "or set ariel.enhancement_modules.image_caption.enabled: false)"
+        ) in text
+
+    def test_unreachable_line_redacts_the_base_url(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        config = _enable("text_embedding", text_embedding={"provider": "llama-cpp"})
+        text = self._run(
+            monkeypatch, {"text_embedding": HealthResult(False, "down", "unreachable")}, config
+        )
+
+        assert "text_embedding: skipped, llama-cpp not reachable at http://gpu:8080/x" in text
+        assert "start llama-server, see the picture-search guide" in text
+        assert "secret" not in text
+        assert "ariel.enhancement_modules.text_embedding.enabled: false" in text
+
+    def test_auth_line(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        config = _enable("semantic_processor", semantic_processor={"provider": "cborg"})
+        text = self._run(
+            monkeypatch, {"semantic_processor": HealthResult(False, "401", "auth")}, config
+        )
+
+        assert "semantic_processor: skipped, cborg refused the API key" in text
+        assert "api.providers.cborg" in text
+
+    def test_config_line_names_migrate(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        config = _enable("image_caption", image_caption={"provider": "ollama"})
+        text = self._run(
+            monkeypatch, {"image_caption": HealthResult(False, "schema", "config")}, config
+        )
+
+        assert "image_caption: skipped," in text
+        assert "osprey ariel migrate" in text
+
+    def test_no_reader_line(self):
+        from osprey.cli.ariel import module_skip_line
+
+        line = module_skip_line(
+            "image_caption",
+            "no_reader",
+            _enable("image_caption", image_caption={"provider": "x", "base_url": "http://h"}),
+        )
+
+        assert line.startswith("image_caption: skipped, x cannot read pictures")
+
+    def test_healthy_and_unchecked_modules_print_nothing(self, monkeypatch):
+        from osprey.models.providers.health import HealthResult
+
+        config = _enable("qmd_export", "text_embedding")
+        text = self._run(
+            monkeypatch,
+            {
+                "qmd_export": HealthResult(True, "OK", None),
+                "text_embedding": HealthResult(None, "no health check", None),
+            },
+            config,
+        )
+
+        assert "skipped," not in text

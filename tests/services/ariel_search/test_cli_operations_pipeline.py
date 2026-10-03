@@ -45,7 +45,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
-from osprey.services.ariel_search.database.repository import MAX_ENHANCEMENT_ATTEMPTS
+from osprey.services.ariel_search.database.repository import (
+    MAX_ENHANCEMENT_ATTEMPTS,
+    SchemaFacts,
+)
+from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
 from osprey.services.ariel_search.ingestion.scheduler import StopReason
 from tests.services.ariel_search._cli_ops_doubles import (
     _Adapter,
@@ -90,6 +94,17 @@ def _no_ariel_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     for name in ("ARIEL_SOCKS_PROXY", "ARIEL_WRITE_USER", "ARIEL_WRITE_PASSWORD"):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _store_without_copy_state(mock_repository) -> None:
+    """The mocked store predates the attachment copy state, so nothing is fetched.
+
+    Copy behaviour on real rows lives in ``integration/test_cli_ingest_copy.py``.
+    """
+    mock_repository.schema_facts = AsyncMock(
+        return_value=SchemaFacts(has_v2_fts=False, has_copy_state=False)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +228,27 @@ class TestRunSync:
         assert f"Polling for new entries (source: {_SOURCE})..." in messages
         assert "  3 entries ingested" in messages
         assert "  (initial full ingest)" in messages
+
+    async def test_busy_skipped_migrations_are_reported(
+        self, monkeypatch, mock_repository, fake_pool
+    ):
+        import osprey.services.ariel_search.database.migrations as mig_mod
+
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_scheduler(monkeypatch, _poll_result(added=0))
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        _patch_enhancers(monkeypatch, [])
+
+        async def _detailed(*_args, **_kw):
+            return mig_mod.MigrationResult(["001"], ["004_x"], False)
+
+        monkeypatch.setattr(mig_mod, "run_migrations_detailed", _detailed)
+
+        out = await ops.run_sync(_config(adapter="generic_json", source_url=_SOURCE))
+
+        assert out.migrations_applied == 1
+        assert out.busy_skipped == ["004_x"]
 
     async def test_sync_overrides_require_initial_ingest_without_touching_caller_config(
         self, monkeypatch, mock_repository, fake_pool
@@ -612,6 +648,179 @@ class TestRunIngestStoring:
 
         assert out.count == 100
         assert "  Parsed 100 entries..." in messages
+
+
+# ---------------------------------------------------------------------------
+# run_ingest / run_quickstart -- the shared per-entry path
+# ---------------------------------------------------------------------------
+
+
+def _record_ingest_one(
+    monkeypatch: pytest.MonkeyPatch, outcome: EntryIngestOutcome | None = None
+) -> list[dict[str, Any]]:
+    """Replace ``ingest_one`` at its owning module; returns the calls it saw."""
+    import osprey.services.ariel_search.ingestion.ingest as ingest_mod
+
+    calls: list[dict[str, Any]] = []
+
+    async def _fake(entry, adapter, repo, enhancers, _config, copy_run):
+        calls.append(
+            {
+                "entry_id": entry["entry_id"],
+                "adapter": adapter,
+                "repo": repo,
+                "enhancers": list(enhancers),
+                "copy_run": copy_run,
+            }
+        )
+        return outcome or EntryIngestOutcome()
+
+    monkeypatch.setattr(ingest_mod, "ingest_one", _fake)
+    return calls
+
+
+class TestRunIngestSharedPath:
+    async def test_every_entry_goes_through_ingest_one_with_one_copy_run(
+        self, monkeypatch, mock_repository
+    ):
+        from osprey.services.ariel_search.attachments.copy import CopyRun
+
+        adapter = _Adapter(_entries(3))
+        enhancer = _Enhancer("text_embedding")
+        _patch_adapter(monkeypatch, adapter)
+        _patch_enhancers(monkeypatch, [enhancer])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        calls = _record_ingest_one(monkeypatch)
+
+        await ops.run_ingest(
+            dict(_DB), source=_SOURCE, adapter="generic_json", since=None, limit=None, dry_run=False
+        )
+
+        assert [c["entry_id"] for c in calls] == ["E0", "E1", "E2"]
+        assert all(c["adapter"] is adapter for c in calls)
+        assert all(c["repo"] is mock_repository for c in calls)
+        assert all(c["enhancers"] == [enhancer] for c in calls)
+        runs = {id(c["copy_run"]) for c in calls}
+        assert len(runs) == 1
+        assert isinstance(calls[0]["copy_run"], CopyRun)
+
+    async def test_ingest_holds_no_outer_pool_connection(self, monkeypatch, mock_repository):
+        _patch_adapter(monkeypatch, _Adapter(_entries(2)))
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        _record_ingest_one(monkeypatch)
+        opened: list[object] = []
+        real_connection = mock_repository.pool.connection
+
+        def _counting_connection(*args, **kwargs):
+            opened.append(object())
+            return real_connection(*args, **kwargs)
+
+        monkeypatch.setattr(mock_repository.pool, "connection", _counting_connection)
+
+        await ops.run_ingest(
+            dict(_DB), source=_SOURCE, adapter="generic_json", since=None, limit=None, dry_run=False
+        )
+
+        assert opened == []
+
+    async def test_unrecorded_attachments_count_the_entry_failed(
+        self, monkeypatch, mock_repository
+    ):
+        _patch_adapter(monkeypatch, _Adapter(_entries(2)))
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding")])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        _record_ingest_one(
+            monkeypatch,
+            EntryIngestOutcome(enhanced=0, enhancer_failed=1, attachments_recorded=False),
+        )
+
+        out = await ops.run_ingest(
+            dict(_DB), source=_SOURCE, adapter="generic_json", since=None, limit=None, dry_run=False
+        )
+
+        assert (out.count, out.enhanced_count, out.failed_count) == (2, 0, 4)
+        mock_repository.complete_ingestion_run.assert_awaited_once_with(
+            1, entries_added=2, entries_updated=0, entries_failed=4
+        )
+
+    async def test_sidecar_metadata_is_merged_before_the_entry_is_stored(
+        self, monkeypatch, mock_repository
+    ):
+        import osprey.services.ariel_search.ingestion.ingest as ingest_mod
+
+        adapter = _Adapter(_entries(1))
+        _patch_adapter(monkeypatch, adapter)
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        seen: list[tuple[str, Any]] = []
+
+        async def _extract(entry, *, adapter=None, **_kw):
+            seen.append((entry["entry_id"], adapter))
+            entry["metadata"] = {"from": "sidecar"}
+
+        monkeypatch.setattr(ingest_mod, "extract_metadata_from_attachments", _extract)
+
+        await ops.run_ingest(
+            dict(_DB), source=_SOURCE, adapter="generic_json", since=None, limit=None, dry_run=False
+        )
+
+        assert seen == [("E0", adapter)]
+        stored = mock_repository.upsert_entry.await_args.args[0]
+        assert stored["metadata"] == {"from": "sidecar"}
+
+
+class TestRunQuickstartSharedPath:
+    async def test_counts_match_the_per_entry_outcomes(
+        self, monkeypatch, fake_pool, mock_repository
+    ):
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_adapter(monkeypatch, _Adapter(_entries(3)))
+        enhancers = [
+            _Enhancer("text_embedding"),
+            _Enhancer("semantic_processor", fails_on=["E0", "E1", "E2"]),
+        ]
+        _patch_enhancers(monkeypatch, enhancers)
+        _patch_service(monkeypatch, _StubService(mock_repository, mock_repository.pool))
+
+        messages: list[str] = []
+        out = await ops.run_quickstart(dict(_DB), source=_SOURCE, progress=messages.append)
+
+        assert (out.count, out.enhanced_count, out.failed_count) == (3, 3, 3)
+        assert mock_repository.upsert_entry.await_count == 3
+        assert "  Enhancements: 3 applied, 3 failed" in messages
+        assert fake_pool.closed
+
+    async def test_every_entry_shares_one_copy_run(self, monkeypatch, fake_pool, mock_repository):
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_adapter(monkeypatch, _Adapter(_entries(2)))
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository, mock_repository.pool))
+        calls = _record_ingest_one(monkeypatch)
+
+        await ops.run_quickstart(dict(_DB), source=_SOURCE)
+
+        assert [c["entry_id"] for c in calls] == ["E0", "E1"]
+        assert len({id(c["copy_run"]) for c in calls}) == 1
+
+    async def test_upsert_failure_propagates_and_closes_the_pool(
+        self, monkeypatch, fake_pool, mock_repository
+    ):
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_adapter(monkeypatch, _Adapter(_entries(2)))
+        _patch_enhancers(monkeypatch, [])
+        service = _StubService(mock_repository, mock_repository.pool)
+        _patch_service(monkeypatch, service)
+        mock_repository.upsert_entry.side_effect = RuntimeError("db is gone")
+
+        with pytest.raises(RuntimeError, match="db is gone"):
+            await ops.run_quickstart(dict(_DB), source=_SOURCE)
+
+        assert service.exits == 1
+        assert fake_pool.closed
 
 
 # ---------------------------------------------------------------------------
@@ -1173,8 +1382,11 @@ class TestSchedulerPollOnceEntryFailures:
         self, monkeypatch, mock_repository, caplog
     ):
         # The real scheduler here -- only the adapter, the enhancers and the
-        # service are faked.
-        _patch_adapter(monkeypatch, _Adapter(_entries(3)))
+        # service are faked. The poll builds its copy run from the adapter's
+        # origin set, so the double declares an empty one.
+        adapter = _Adapter(_entries(3))
+        adapter.attachment_origins = frozenset  # type: ignore[attr-defined]
+        _patch_adapter(monkeypatch, adapter)
         _patch_enhancers(monkeypatch, [])
         _patch_service(monkeypatch, _StubService(mock_repository))
         mock_repository.get_last_successful_run = _async_return(datetime(2026, 3, 3, tzinfo=UTC))

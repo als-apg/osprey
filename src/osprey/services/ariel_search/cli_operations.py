@@ -9,15 +9,25 @@ formatting, and ``SystemExit`` translation.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+import time
+from collections.abc import Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Sequence
+    from contextlib import AbstractAsyncContextManager
     from datetime import datetime
 
+    from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search import ARIELConfig
+    from osprey.services.ariel_search.attachments.copy import CopyRun
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+    from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
     from osprey.services.ariel_search.ingestion.scheduler import StopReason
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
@@ -82,8 +92,17 @@ class QuickstartResult:
 
 @dataclass
 class PurgeInfo:
+    """What a purge would delete, for its confirmation prompt.
+
+    Attributes:
+        entry_count: Logbook entries in the store.
+        embedding_tables: The ``text_embeddings_*`` tables.
+        image_embedding_tables: The ``image_embeddings_*`` tables.
+    """
+
     entry_count: int
     embedding_tables: list[str]
+    image_embedding_tables: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -93,6 +112,7 @@ class SyncResult:
     entries_enhanced: int
     entries_failed: int
     was_initial_ingest: bool
+    busy_skipped: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -351,18 +371,183 @@ def vocabulary_status(config_dict: dict, config_dir: Path | None = None) -> dict
     }
 
 
-_EMPTY_MODULE_COUNTS = {"complete": 0, "failed": 0, "pending": 0}
+_EMPTY_MODULE_COUNTS = {"complete": 0, "failed": 0, "pending": 0, "gave_up": 0}
 
 
 def _module_counts(entry: object) -> dict[str, int]:
-    """Return the ``{complete, failed, pending}`` counts carried by *entry*.
+    """Return the ``{complete, failed, pending, gave_up}`` counts carried by *entry*.
 
     A module the store has never seen has no entry at all, and reads as zeros —
-    the count of rows it has produced, which is what "never seen" means.
+    the count of rows it has produced, which is what "never seen" means. Only
+    marker modules carry ``gave_up``; every other module reads it as 0.
     """
     if not isinstance(entry, dict):
         return dict(_EMPTY_MODULE_COUNTS)
     return {key: int(entry.get(key, 0)) for key in _EMPTY_MODULE_COUNTS}
+
+
+async def _attachments_status(config: ARIELConfig, repository: ARIELRepository) -> dict[str, Any]:
+    """Return the ``attachments`` object of ``osprey ariel status``.
+
+    The capability block of :func:`attachments_capability` plus what only a
+    status call can know: ``bytes`` (the on-disk size of ``attachment_files``,
+    ``None`` when the store cannot size it), ``pending`` and ``skipped`` (the
+    copy-state counts, ``{code: count}`` for skips; both ``None`` while the
+    schema predates the copy state) and ``render`` (``ok`` when a render worker
+    can be spawned, else ``unavailable``).
+    """
+    from osprey.imaging.render import probe_render_worker
+    from osprey.services.ariel_search.capabilities import attachments_capability
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    try:
+        size: int | None = await repository.get_attachment_bytes()
+    except DatabaseQueryError:
+        size = None
+
+    pending: int | None = None
+    skipped: dict[str, int] | None = None
+    if (await repository.schema_facts()).has_copy_state:
+        pending, skipped = await repository.get_attachment_copy_counts()
+
+    return {
+        **attachments_capability(config),
+        "bytes": size,
+        "pending": pending,
+        "skipped": skipped,
+        "render": "ok" if await probe_render_worker() else "unavailable",
+    }
+
+
+#: Seconds ``status`` gives each module's ``health_check()``.
+_STATUS_HEALTH_TIMEOUT_S = 5.0
+
+#: Where a module's ``health`` verdict was taken: the process answering ``status``.
+_PROBED_FROM = "this process"
+
+
+def _health_entry(reachable: bool | None, reason: str | None) -> dict[str, Any]:
+    """One module's ``health`` object of ``osprey ariel status``."""
+    return {"reachable": reachable, "reason": reason, "probed_from": _PROBED_FROM}
+
+
+async def _module_health(
+    config: ARIELConfig, name: str, repository: ARIELRepository
+) -> dict[str, Any]:
+    """The ``health`` object of one enabled module.
+
+    The module is built alone (``stage='all'``), so a ``configure()`` error
+    reports ``config`` for it and leaves the rest of the status intact. A
+    picture module (``runs_inline=False``) answers through
+    :func:`~osprey.services.ariel_search.enhancement.availability.preflight`,
+    the same check a catch-up pass runs; any other module's ``health_check()``
+    is awaited under a 5 s timeout. ``health_reason()``, when the module
+    states one, overrides the reason; ``reachable`` stays the check's answer.
+
+    Args:
+        config: The ARIEL configuration.
+        name: An enabled registered module.
+        repository: Repository of the store the status describes.
+
+    Returns:
+        ``{"reachable": bool | None, "reason": str | None, "probed_from": "this process"}``.
+    """
+    from osprey.services.ariel_search.enhancement import create_enhancers_from_config
+    from osprey.services.ariel_search.enhancement.availability import (
+        preflight,
+        unavailable_reason,
+    )
+    from osprey.services.ariel_search.enhancement.base import HealthResult, as_health_result
+
+    try:
+        built = [
+            m
+            for m in create_enhancers_from_config(config, stage="all", names=[name])
+            if m.name == name
+        ]
+    except Exception as exc:  # one misconfigured module never hides the others
+        return _health_entry(False, unavailable_reason(exc) or "config")
+    if not built:
+        return _health_entry(None, None)
+    module = built[0]
+
+    try:
+        if getattr(module, "runs_inline", True):
+            result = as_health_result(
+                await asyncio.wait_for(module.health_check(), _STATUS_HEALTH_TIMEOUT_S)
+            )
+        else:
+            result = await preflight(module, repository)
+    except TimeoutError:
+        result = HealthResult(False, "no answer in time", "unreachable")
+    except Exception as exc:
+        result = HealthResult(False, str(exc), unavailable_reason(exc) or "unreachable")
+
+    reason = result.reason
+    if result.reachable is False and reason is None:
+        reason = "unreachable"
+    try:
+        override = module.health_reason()
+    except Exception:
+        override = None
+    if override:
+        reason = override
+    return _health_entry(result.reachable, reason)
+
+
+async def _modules_health(
+    config: ARIELConfig, names: Sequence[str], repository: ARIELRepository
+) -> dict[str, dict[str, Any]]:
+    """The ``health`` object of every enabled module in *names*, checked concurrently."""
+    enabled = [name for name in names if config.is_enhancement_module_enabled(name)]
+    results = await asyncio.gather(*(_module_health(config, name, repository) for name in enabled))
+    return dict(zip(enabled, results, strict=True))
+
+
+#: ``health`` reasons of ``image_embedding`` that ``picture_search_unavailable`` names.
+_PICTURE_SEARCH_REASONS = frozenset({"unreachable", "model", "auth", "config"})
+
+
+def _image_embedding_marker(config: ARIELConfig) -> tuple[str | None, bool]:
+    """The completion marker of an enabled ``image_embedding`` block.
+
+    Returns:
+        ``(table, False)`` when the block resolves, ``(None, True)`` when it is
+        enabled but misconfigured, and ``(None, False)`` when it is off.
+    """
+    from osprey.services.ariel_search.database.migrations import image_embedding_target
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+    if not config.is_enhancement_module_enabled("image_embedding"):
+        return None, False
+    try:
+        target = image_embedding_target(
+            config.get_enhancement_module_config("image_embedding") or {}
+        )
+    except ModuleConfigError:
+        return None, True
+    return target.table, False
+
+
+def _picture_search_unavailable(
+    config: ARIELConfig, health: Mapping[str, Mapping[str, Any]]
+) -> str | None:
+    """Why picture search cannot answer, from the ``image_embedding`` health verdict.
+
+    Returns:
+        ``unreachable``, ``model``, ``auth`` or ``config`` while the enabled
+        module is not reachable; None when it is reachable, unchecked, off, or
+        has no reader (``no_reader``: ``picture_search`` is already false then).
+    """
+    if not config.is_enhancement_module_enabled("image_embedding"):
+        return None
+    entry = health.get("image_embedding") or {}
+    if entry.get("reachable") is not False:
+        return None
+    reason = entry.get("reason")
+    if reason == "no_reader":
+        return None
+    return reason if reason in _PICTURE_SEARCH_REASONS else "unreachable"
 
 
 async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> dict:
@@ -383,12 +568,22 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
 
         On the healthy paths ``enhancement_modules`` is one table over the
         registered modules, each carrying ``enabled`` alongside its
-        ``complete``/``failed``/``pending`` counts, and
+        ``complete``/``failed``/``pending``/``gave_up`` counts, and
         ``orphaned_enhancement_modules`` carries the same counts for store keys
         no registered module claims — rows present with nothing left to write
-        them.
+        them. Every enabled module's entry also carries ``health``
+        (:func:`_module_health`): ``reachable`` (None when the module has no
+        health check), ``reason`` (``auth``, ``model``, ``unreachable``,
+        ``no_reader``, ``config`` or None) and ``probed_from``. ``attachments``
+        is the object :func:`_attachments_status` builds, its
+        ``picture_search_unavailable`` taken from the ``image_embedding``
+        health verdict (:func:`_picture_search_unavailable`).
+        ``image_embedding_tables`` lists the picture tables
+        (``table``, ``pictures``, ``dimension``, ``active``) apart from the
+        text tables of ``embedding_tables``.
     """
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.config import registered_ariel_names
 
     # Computed first and unconditionally: the vocabulary line must survive a
@@ -403,10 +598,28 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         service = await create_ariel_service(config)
         async with service:
             healthy, message = await service.health_check()
-            stats = await service.repository.get_enhancement_stats()
+            markers: dict[str, str] = {}
+            caption_marker = caption_model_id(config)
+            if caption_marker is not None:
+                markers["image_caption"] = caption_marker
+            image_marker, image_config_bad = _image_embedding_marker(config)
+            if image_marker is not None:
+                markers["image_embedding"] = image_marker
+            if markers:
+                stats = await service.repository.get_enhancement_stats(markers=markers)
+            else:
+                stats = await service.repository.get_enhancement_stats()
             registered = registered_ariel_names("ariel_enhancement_modules")
             tables = await service.repository.get_embedding_tables()
+            image_tables = await service.repository.get_image_embedding_tables()
             last_ingestion = await service.repository.get_last_ingestion()
+            attachments = await _attachments_status(config, service.repository)
+            health = await _modules_health(config, registered, service.repository)
+            if image_config_bad:
+                health["image_embedding"] = _health_entry(False, "config")
+            # After the shared capability block: this process's lane state is
+            # empty, so the module's own health verdict is the answer here.
+            attachments["picture_search_unavailable"] = _picture_search_unavailable(config, health)
 
             return {
                 "status": "healthy" if healthy else "unhealthy",
@@ -430,10 +643,20 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                     }
                     for t in tables
                 ],
+                "image_embedding_tables": [
+                    {
+                        "table": t.table_name,
+                        "pictures": t.entry_count,
+                        "dimension": t.dimension,
+                        "active": t.is_active,
+                    }
+                    for t in image_tables
+                ],
                 "enhancement_modules": {
                     name: {
                         "enabled": config.is_enhancement_module_enabled(name),
                         **_module_counts(stats.get(name)),
+                        **({"health": health[name]} if name in health else {}),
                     }
                     for name in registered
                 },
@@ -447,6 +670,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                     for name in registered_ariel_names("ariel_search_modules")
                 },
                 "vocabulary": vocabulary,
+                "attachments": attachments,
             }
 
     except Exception as e:
@@ -464,10 +688,15 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
 async def run_migrate(
     config_dict: dict,
     progress: _ProgressCb = None,
-) -> None:
-    """Run database migrations."""
+) -> list[str]:
+    """Run database migrations, waiting for any other session migrating.
+
+    Returns:
+        Migrations skipped because their tables were busy; empty when every
+        pending migration ran (or skipped for a missing prerequisite).
+    """
     from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
+    from osprey.services.ariel_search.database.migrations import run_migrations_detailed
 
     config = _ariel_config(config_dict)
 
@@ -479,9 +708,10 @@ async def run_migrate(
     try:
         if progress:
             progress("Running migrations...")
-        await run_migrations(pool, config)
+        result = await run_migrations_detailed(pool, config)
         if progress:
             progress("Migrations complete.")
+        return result.busy_skipped
     finally:
         await pool.close()
 
@@ -498,14 +728,15 @@ async def run_sync(
     1. Run database migrations (skips already-applied)
     2. Incremental ingest via ``IngestionScheduler.poll_once`` — fetches
        only entries added since the last successful run
-    3. Enhance cleanup — processes entries with incomplete enhancements
-       from prior runs (new entries are enhanced inline during step 2)
+    3. Catch-up (:func:`run_catchup`) — processes entries with incomplete
+       enhancements from prior runs (new entries are enhanced inline during
+       step 2), then the picture modules within :func:`catchup_budget`
     """
     import copy
 
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
+    from osprey.services.ariel_search.database.migrations import run_migrations_detailed
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
     _require_ingestion_block(config_dict)
@@ -517,8 +748,9 @@ async def run_sync(
 
     pool = await create_connection_pool(config.database)
     try:
-        applied = await run_migrations(pool, config)
-        migrations_applied = len(applied) if applied else 0
+        migrated = await run_migrations_detailed(pool, config)
+        migrations_applied = len(migrated.applied)
+        busy_skipped = list(migrated.busy_skipped)
         if migrations_applied and progress:
             progress(f"  {migrations_applied} migrations applied")
         elif progress:
@@ -541,6 +773,7 @@ async def run_sync(
             source = (ingestion.source_url if ingestion else None) or "unknown"
             progress(f"Polling for new entries (source: {source})...")
 
+        poll_start = time.monotonic()
         poll_result = await scheduler.poll_once(limit=limit)
         was_initial = poll_result.since is None
 
@@ -549,12 +782,12 @@ async def run_sync(
         if was_initial:
             progress("  (initial full ingest)")
 
-    # Step 3: Enhance cleanup — catch up previously-failed enhancements
-    enhance_result = await run_enhance(
+    # Step 3: Catch-up — enhancements earlier runs left incomplete, then the
+    # picture modules, bounded by one poll interval like a watch pass.
+    enhance_result = await run_catchup(
         config_dict,
-        module=None,
-        force=False,
-        limit=1000,
+        budget_s=catchup_budget(config_dict, time.monotonic() - poll_start),
+        stop_event=asyncio.Event(),
         progress=progress,
     )
 
@@ -564,7 +797,38 @@ async def run_sync(
         entries_enhanced=enhance_result.entries_processed,
         entries_failed=poll_result.entries_failed,
         was_initial_ingest=was_initial,
+        busy_skipped=busy_skipped,
     )
+
+
+@asynccontextmanager
+async def _ingest_copy_run(
+    repository: ARIELRepository, adapter: FacilityAdapter, config: ARIELConfig
+) -> AsyncIterator[CopyRun]:
+    """Yield the one :class:`CopyRun` an ingest or quickstart shares across its entries.
+
+    On a store with the attachment copy state the run is entered, so every
+    fetch of the run goes through one session and one host breaker. On a
+    store whose schema predates it nothing is fetched; the run is yielded
+    unentered and only scopes the once-per-run schema warning.
+    """
+    from osprey.services.ariel_search.attachments.copy import CopyRun
+    from osprey.services.ariel_search.attachments.fetch import origins_for
+
+    if not (await repository.schema_facts()).has_copy_state:
+        yield CopyRun(adapter, frozenset())
+        return
+    async with CopyRun(adapter, origins_for(adapter, config)) as copy_run:
+        yield copy_run
+
+
+def _entry_failures(outcome: EntryIngestOutcome) -> int:
+    """Return what one stored entry adds to a run's failure count.
+
+    Each failed enhancer counts once, and the entry counts once more when its
+    attachment rows were not recorded.
+    """
+    return outcome.enhancer_failed + (0 if outcome.attachments_recorded else 1)
 
 
 async def run_ingest(
@@ -597,6 +861,7 @@ async def run_ingest(
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
+    from osprey.services.ariel_search.ingestion.ingest import ingest_one
     from osprey.utils.config import localize_facility
 
     if "ingestion" not in config_dict:
@@ -613,6 +878,7 @@ async def run_ingest(
         progress(f"Using adapter: {adapter_instance.source_system_name}")
         progress(f"Source: {source}")
 
+    # The default stage is inline: a catch-up module never runs during ingest.
     enhancers = create_enhancers_from_config(config)
     enhancer_names = [e.name for e in enhancers]
     if enhancers and progress:
@@ -643,27 +909,14 @@ async def run_ingest(
         failed_count = 0
 
         try:
-            async with service.pool.connection() as conn:
+            async with _ingest_copy_run(service.repository, adapter_instance, config) as copy_run:
                 async for entry in adapter_instance.fetch_entries(since=since, limit=limit):
-                    await service.repository.upsert_entry(entry)
+                    outcome = await ingest_one(
+                        entry, adapter_instance, service.repository, enhancers, config, copy_run
+                    )
                     count += 1
-
-                    if enhancers:
-                        for enhancer in enhancers:
-                            try:
-                                await enhancer.enhance(entry, conn)
-                                await service.repository.mark_enhancement_complete(
-                                    entry["entry_id"],
-                                    enhancer.name,
-                                )
-                                enhanced_count += 1
-                            except Exception as e:
-                                await service.repository.mark_enhancement_failed(
-                                    entry["entry_id"],
-                                    enhancer.name,
-                                    str(e),
-                                )
-                                failed_count += 1
+                    enhanced_count += outcome.enhanced
+                    failed_count += _entry_failures(outcome)
 
                     if count % 100 == 0 and progress:
                         if enhancers:
@@ -703,6 +956,7 @@ async def run_watch(
     require_initial_ingest: bool | None = None,
     install_signal_handlers: bool = True,
     stop_reason_out: list[str] | None = None,
+    initial_busy_skipped: Sequence[str] | None = (),
 ) -> WatchOnceResult | None:
     """Watch a source for new logbook entries.
 
@@ -722,6 +976,13 @@ async def run_watch(
         stop_reason_out: When given, the reason the daemon loop ended is
             appended to this list. A loop that reports no reason appends
             nothing.
+        initial_busy_skipped: Migrations an earlier sync skipped because their
+            tables were busy. While any remain, each poll first retries the
+            migrations (never waiting on the migrate lock) and replaces the set
+            with what is still busy. The empty default retries nothing, as a
+            standalone watch does; ``None`` means the earlier sync's outcome is
+            unknown, so one attempt is made before the first poll and its busy
+            set adopted.
 
     Returns:
         A ``WatchOnceResult`` when *once* is ``True``.
@@ -800,16 +1061,42 @@ async def run_watch(
         # exception escaping it would be counted as an ingestion failure and
         # could stop the daemon on the consecutive-failure cap.
         inner_poll_once = scheduler.poll_once
+        busy: list[str] | None = (
+            None if initial_busy_skipped is None else list(initial_busy_skipped)
+        )
+
+        async def _retry_busy_migrations() -> None:
+            nonlocal busy
+            from osprey.services.ariel_search.database.migrations import (
+                run_migrations_detailed,
+            )
+
+            log = get_logger("ariel")
+            try:
+                migrated = await run_migrations_detailed(service.pool, config, lock="try")
+            except Exception as e:  # a failed retry must not fail the poll.
+                log.warning(f"Migration retry failed, continuing: {e}")
+                return
+            if migrated.lock_held:
+                log.info("migrate running elsewhere; retrying busy migrations next poll")
+                return
+            if migrated.applied:
+                # The repository's pool outlives this migrate, so its cached
+                # schema facts would hide the new objects until the TTL ran out.
+                service.repository.invalidate_schema_facts()
+            busy = list(migrated.busy_skipped)
 
         async def _poll_once_with_resync(*args: Any, **kwargs: Any):
+            poll_start = time.monotonic()
+            if busy is None or busy:
+                await _retry_busy_migrations()
             await resync_qmd_mirror_best_effort(config_dict, progress)
             result = await inner_poll_once(*args, **kwargs)
             try:
-                await run_enhance(
+                await run_catchup(
                     config_dict,
-                    module=None,
-                    force=False,
-                    limit=1000,
+                    budget_s=catchup_budget(config_dict, time.monotonic() - poll_start),
+                    stop_event=scheduler._stop_event,
                     progress=progress,
                 )
             except Exception as e:  # cleanup is not an ingestion failure.
@@ -861,13 +1148,16 @@ async def run_sync_watch(
     from osprey.utils.logger import get_logger
 
     async def _sync_then_watch() -> StopReason | None:
+        busy_skipped: list[str] | None
         try:
-            await run_sync(config_dict, progress=progress)
+            synced = await run_sync(config_dict, progress=progress)
+            busy_skipped = list(synced.busy_skipped)
         except Exception as e:  # the loop's backoff owns the retries.
             failure = f"{type(e).__name__}: {e}"
             get_logger("ariel").warning(f"Initial sync failed, watching anyway: {failure}")
             if progress:
                 progress(f"  Initial sync failed ({failure}); watching anyway")
+            busy_skipped = None
 
         reasons: list[str] = []
         await run_watch(
@@ -881,6 +1171,7 @@ async def run_sync_watch(
             require_initial_ingest=False,
             install_signal_handlers=False,
             stop_reason_out=reasons,
+            initial_busy_skipped=busy_skipped,
         )
         return StopReason(reasons[0]) if reasons else None
 
@@ -1334,27 +1625,143 @@ async def resync_qmd_mirror_best_effort(
     return result
 
 
+def _runs_in_catchup(module: str) -> bool:
+    """Return whether the registered module ``module`` runs only in the catch-up.
+
+    Reads ``runs_inline`` from the registered class without instantiating or
+    configuring it, so a misconfigured catch-up module cannot raise here.
+    """
+    from osprey.registry import get_registry
+
+    registry = get_registry()
+    registry.initialize(silent=True)
+    found = registry.get_ariel_enhancement_module(module)
+    if found is None:
+        return False
+    cls, _registration = found
+    return not getattr(cls, "runs_inline", True)
+
+
+#: Why ``enhance --force`` refuses a picture module.
+FORCE_REFUSAL = (
+    "--force does not re-run image_caption/image_embedding: their results are kept per "
+    "picture and model. Change model.model_id (captions) or model/dimensions (embeddings) "
+    "to re-run, or use --retry-failed for per-picture failures."
+)
+
+
 async def run_enhance(
     config_dict: dict,
     module: str | None,
     force: bool,
     limit: int,
     progress: _ProgressCb = None,
+    *,
+    stop_event: asyncio.Event | None = None,
+    retry_failed: bool = False,
 ) -> EnhanceResult:
-    """Run enhancement modules on entries."""
+    """Run enhancement modules on entries.
+
+    Text modules (``runs_inline=True``) run entry-major through their
+    ``enhance()``. Picture modules (``runs_inline=False``) run through
+    :func:`~osprey.services.ariel_search.enhancement.image_driver.drive_image_module`
+    with no budget, each under its advisory lock ``ariel_enhance:<module>``;
+    their ``enhance()`` is never called and no picture is fetched.
+
+    Args:
+        config_dict: Raw ``ariel`` config block.
+        module: Only this module when given; every enabled module otherwise,
+            the text modules first.
+        force: Re-run the text modules on the newest entries instead of the
+            incomplete ones. Picture modules keep their results per picture
+            and model, so ``force`` skips them.
+        limit: Most entries read per text module, and most entries handed to
+            ``run_entry`` per picture module.
+        progress: Optional progress callback.
+        stop_event: Checked before each entry; once set, the remaining entries
+            are left for a later pass.
+        retry_failed: With ``module``, give its failed entries a new set of
+            attempts first (see :func:`retry_failed_entries`).
+
+    Raises:
+        ValueError: With :data:`FORCE_REFUSAL` when ``force`` names a picture module.
+    """
+    config = _ariel_config(config_dict)
+    if module and _runs_in_catchup(module):
+        if force:
+            raise ValueError(FORCE_REFUSAL)
+        modules = _build_image_modules(config, [module], progress)
+        if not modules:
+            return EnhanceResult(entries_processed=0, module_names=[])
+        if retry_failed:
+            await retry_failed_entries(config, module, progress)
+        walked = await _drive_image_modules(
+            config, modules, budget=None, stop_event=stop_event, progress=progress, limit=limit
+        )
+        return EnhanceResult(entries_processed=walked, module_names=[m.name for m in modules])
+
+    if module and retry_failed:
+        await retry_failed_entries(config, module, progress)
+    image_names = [] if module else _catchup_module_names(config)
+    text = await _run_text_enhance(
+        config,
+        module,
+        force,
+        limit,
+        progress,
+        stop_event=stop_event,
+        report_empty=not image_names,
+    )
+    if not image_names:
+        return text
+    if force and progress:
+        progress(
+            f"--force re-runs the text modules only; {', '.join(image_names)}"
+            " run their normal (unforced) pass"
+        )
+    modules = _build_image_modules(config, image_names, progress)
+    walked = 0
+    if modules:
+        walked = await _drive_image_modules(
+            config, modules, budget=None, stop_event=stop_event, progress=progress, limit=limit
+        )
+    return EnhanceResult(
+        entries_processed=text.entries_processed + walked,
+        module_names=[*text.module_names, *(m.name for m in modules)],
+        succeeded=text.succeeded,
+        failed=text.failed,
+        set_aside=text.set_aside,
+    )
+
+
+async def _run_text_enhance(
+    config: ARIELConfig,
+    module: str | None,
+    force: bool,
+    limit: int,
+    progress: _ProgressCb,
+    *,
+    stop_event: asyncio.Event | None,
+    report_empty: bool = True,
+) -> EnhanceResult:
+    """Run the text modules (``runs_inline=True``) entry-major over their owed entries."""
     from osprey.services.ariel_search import create_ariel_service
-    from osprey.services.ariel_search.database.repository import MAX_ENHANCEMENT_ATTEMPTS
+    from osprey.services.ariel_search.database.repository import (
+        MAX_ENHANCEMENT_ATTEMPTS,
+        text_mark_kwargs,
+    )
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.utils.logger import get_logger
 
     logger = get_logger("ariel")
-    config = _ariel_config(config_dict)
-    enhancers = create_enhancers_from_config(config)
+    enhancers = create_enhancers_from_config(
+        config, stage="inline", names=[module] if module else None
+    )
     if module:
         enhancers = [e for e in enhancers if e.name == module]
 
     if not enhancers:
-        if progress:
+        if progress and report_empty:
             progress("No enhancement modules enabled or selected")
         return EnhanceResult(entries_processed=0, module_names=[])
 
@@ -1390,17 +1797,22 @@ async def run_enhance(
         if progress:
             progress(f"Processing {len(entries)} entries...")
 
+        has_copy_state = (await service.repository.schema_facts()).has_copy_state
         succeeded = failed = set_aside = 0
         async with service.pool.connection() as conn:
             for i, entry in enumerate(entries):
+                if stop_event is not None and stop_event.is_set():
+                    break
                 for enhancer in enhancers:
                     if enhancer.name not in owed[entry["entry_id"]]:
                         continue
+                    mark_kwargs = text_mark_kwargs(enhancer.name, entry, has_copy_state)
                     try:
                         await enhancer.enhance(entry, conn)
                         await service.repository.mark_enhancement_complete(
                             entry["entry_id"],
                             enhancer.name,
+                            **mark_kwargs,
                         )
                         succeeded += 1
                     except Exception as e:
@@ -1432,6 +1844,454 @@ async def run_enhance(
         succeeded=succeeded,
         failed=failed,
         set_aside=set_aside,
+    )
+
+
+def _build_image_modules(config: ARIELConfig, names: list[str], progress: _ProgressCb) -> list[Any]:
+    """Build each named picture module alone; a ``configure()`` error skips only that one."""
+    from osprey.services.ariel_search.enhancement import create_enhancers_from_config
+    from osprey.services.ariel_search.enhancement.availability import (
+        fix_for,
+        report_unavailable,
+    )
+
+    modules: list[Any] = []
+    for name in names:
+        try:
+            built = [
+                m
+                for m in create_enhancers_from_config(config, stage="catchup", names=[name])
+                if m.name == name and not getattr(m, "runs_inline", True)
+            ]
+        except Exception as exc:  # one misconfigured module never stops the others
+            report_unavailable(name, "config", str(exc), fix_for(name, "config", exc))
+            if progress:
+                progress(f"{name}: skipped, unavailable (config: {exc})")
+            continue
+        if not built and progress:
+            progress(f"{name}: not enabled")
+        modules.extend(built)
+    return modules
+
+
+async def _drive_image_modules(
+    config: ARIELConfig,
+    modules: list[Any],
+    *,
+    budget: float | None,
+    stop_event: asyncio.Event | None,
+    progress: _ProgressCb,
+    limit: int | None = None,
+) -> int:
+    """Drive each picture module once, module-major, under its advisory lock.
+
+    With a ``budget``, each module gets an equal share of what is left, so one
+    that finishes early leaves its rest to the next. A connection is held only
+    around the driver's own statements, never across a model call.
+
+    Returns:
+        The entries handed to ``run_entry`` over every module.
+    """
+    from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.enhancement.image_driver import drive_image_module
+    from osprey.utils.logger import get_logger
+
+    logger = get_logger("ariel")
+    walked = 0
+    started = time.monotonic()
+    service = await create_ariel_service(config)
+    async with service:
+        repository = service.repository
+        for index, module in enumerate(modules):
+            if stop_event is not None and stop_event.is_set():
+                break
+            share = None
+            if budget is not None:
+                left = max(0.0, budget - (time.monotonic() - started))
+                share = left / (len(modules) - index)
+            async with _module_lock(repository.pool, module.name) as held:
+                if not held:
+                    _say(progress, logger, f"{module.name}: running in another process")
+                    continue
+                try:
+                    outcome = await drive_image_module(
+                        module,
+                        repository,
+                        budget=share,
+                        stop_event=stop_event,
+                        progress=progress,
+                        limit=limit,
+                    )
+                except Exception as exc:  # one module never stops the others
+                    logger.warning(f"{module.name}: picture pass failed, continuing: {exc}")
+                    continue
+            walked += outcome.entries_walked
+            if outcome.skipped == "unavailable":
+                _say(progress, logger, f"{module.name}: skipped, unavailable ({outcome.ended})")
+            elif outcome.skipped == "busy":
+                _say(progress, logger, f"{module.name}: skipped, a cancelled call is still running")
+            elif progress:
+                progress(f"{module.name}: {outcome.entries_walked} entries walked")
+    return walked
+
+
+def _module_lock(pool: Any, module: str) -> AbstractAsyncContextManager[bool]:
+    """The advisory lock ``ariel_enhance:<module>`` every pass of ``module`` takes, not waiting."""
+    from osprey.services.ariel_search.database import connection as connection_mod
+
+    # The pool is always built from a DSN string.
+    return connection_mod.try_advisory_lock(cast(str, pool.conninfo), f"ariel_enhance:{module}")
+
+
+def _say(progress: _ProgressCb, logger: Any, message: str) -> None:
+    """Report ``message`` through ``progress`` when there is one, else log it at INFO."""
+    if progress:
+        progress(message)
+    else:
+        logger.info(message)
+
+
+#: Resets the attempt count of a module's failed entries, ``gave_up`` included.
+_RESET_ATTEMPTS_SQL = """
+UPDATE enhanced_entries
+SET enhancement_status = jsonb_set(
+    enhancement_status,
+    %(path)s::text[],
+    (enhancement_status->%(module)s) - 'gave_up' - 'attempts'
+)
+WHERE enhancement_status->%(module)s->>'status' = 'failed'
+AND (enhancement_status->%(module)s ? 'gave_up' OR enhancement_status->%(module)s ? 'attempts')
+RETURNING entry_id
+"""
+
+#: Drops a module's key from one entry's status, only when it is there.
+_CLEAR_MODULE_KEY_SQL = (
+    "UPDATE enhanced_entries SET enhancement_status = enhancement_status - %(module)s"
+    " WHERE entry_id = %(entry_id)s AND enhancement_status ? %(module)s"
+)
+
+#: Entries holding a failed caption under ``%(model)s`` other than ``over_image_cap``.
+_CAPTION_ERROR_ENTRIES_SQL = """
+SELECT e.entry_id FROM enhanced_entries e
+WHERE jsonb_typeof(e.attachment_captions) = 'object'
+AND EXISTS (
+    SELECT 1 FROM jsonb_each(e.attachment_captions) AS c(attachment_id, per_model)
+    WHERE jsonb_typeof(c.per_model) = 'object'
+    AND jsonb_typeof(c.per_model->%(model)s) = 'object'
+    AND c.per_model->%(model)s ? 'error'
+    AND c.per_model->%(model)s->>'error' IS DISTINCT FROM 'over_image_cap'
+)
+ORDER BY e.entry_id
+"""
+
+#: The caption error that is a decision, not a failure, and is never retried.
+_OVER_IMAGE_CAP = "over_image_cap"
+
+
+async def retry_failed_entries(config: ARIELConfig, module: str, progress: _ProgressCb) -> int:
+    """Give ``module``'s failed entries a new set of attempts.
+
+    Every module: a failed status loses its ``gave_up`` and ``attempts``. The
+    picture modules also forget their per-picture failures under the current
+    model, one transaction per entry, the entry row locked first:
+    ``image_caption`` deletes the current model's ``{error}`` captions (keeping
+    ``over_image_cap``), recomposes ``attachment_text`` and clears the text keys
+    when it changed; ``image_embedding`` deletes the current table's rows with a
+    ``skip_reason``. An entry that lost a failure then has its module key
+    cleared, so the next pass walks it again.
+
+    The whole step runs under the module's advisory lock
+    ``ariel_enhance:<module>``, the one every pass of that module takes, so a
+    concurrent pass cannot undo it from a stale read. When another process
+    holds the lock, nothing is changed. A misconfigured ``image_embedding``
+    (no current table) is reported as unavailable and changes nothing.
+
+    Returns:
+        The distinct entries given a new set of attempts.
+    """
+    from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.enhancement.availability import (
+        fix_for,
+        report_unavailable,
+    )
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
+    from osprey.utils.logger import get_logger
+
+    logger = get_logger("ariel")
+    table: str | None = None
+    if module == "image_embedding":
+        try:
+            table = image_embedding_current_table(config)
+        except ModuleConfigError as exc:
+            report_unavailable(module, "config", str(exc), fix_for(module, "config", exc))
+            _say(progress, logger, f"{module}: skipped, unavailable (config: {exc})")
+            return 0
+
+    retried: set[str] = set()
+    service = await create_ariel_service(config)
+    async with service:
+        pool = service.repository.pool
+        async with _module_lock(pool, module) as held:
+            if not held:
+                _say(progress, logger, f"{module}: running in another process")
+                return 0
+            async with pool.connection() as conn:
+                cursor = await conn.execute(
+                    _RESET_ATTEMPTS_SQL, {"path": [module], "module": module}
+                )
+                retried.update(row[0] for row in await cursor.fetchall())
+            if module == "image_caption":
+                retried |= await _forget_caption_failures(pool, config)
+            elif table is not None:
+                retried |= await _forget_embedding_failures(pool, table)
+    if progress:
+        progress(f"{module}: {len(retried)} failed entries will be retried")
+    return len(retried)
+
+
+async def _forget_caption_failures(pool: Any, config: ARIELConfig) -> set[str]:
+    """Delete the current model's failed captions, one entry per transaction."""
+    from psycopg.types.json import Jsonb
+
+    from osprey.services.ariel_search.attachments.compose import (
+        caption_model_id,
+        compose_attachment_text,
+    )
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+
+    model_id = caption_model_id(config)
+    if not model_id:
+        return set()
+    async with pool.connection() as conn:
+        cursor = await conn.execute(_CAPTION_ERROR_ENTRIES_SQL, {"model": model_id})
+        entry_ids = [row[0] for row in await cursor.fetchall()]
+    forgotten: set[str] = set()
+    for entry_id in entry_ids:
+        async with pool.connection() as conn, conn.transaction():
+            cursor = await conn.execute(
+                "SELECT attachments, attachment_text, attachment_captions"
+                " FROM enhanced_entries WHERE entry_id = %(entry_id)s FOR UPDATE",
+                {"entry_id": entry_id},
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                continue
+            attachments, old_text, stored = row
+            captions: dict[str, Any] = dict(stored) if isinstance(stored, Mapping) else {}
+            removed = False
+            for attachment_id, per_model in list(captions.items()):
+                if not isinstance(per_model, Mapping):
+                    continue
+                value = per_model.get(model_id)
+                if not isinstance(value, Mapping) or "error" not in value:
+                    continue
+                if value.get("error") == _OVER_IMAGE_CAP:
+                    continue
+                kept = {k: v for k, v in per_model.items() if k != model_id}
+                if kept:
+                    captions[attachment_id] = kept
+                else:
+                    del captions[attachment_id]
+                removed = True
+            if not removed:
+                continue
+            text = compose_attachment_text(entry_id, attachments, captions, model_id)
+            await conn.execute(
+                "UPDATE enhanced_entries"
+                " SET attachment_text = %(text)s, attachment_captions = %(captions)s::jsonb"
+                " WHERE entry_id = %(entry_id)s",
+                {"entry_id": entry_id, "text": text, "captions": Jsonb(captions)},
+            )
+            if text != old_text:
+                await ARIELRepository.clear_text_status_keys(conn, entry_id)
+            await conn.execute(
+                _CLEAR_MODULE_KEY_SQL, {"entry_id": entry_id, "module": "image_caption"}
+            )
+            forgotten.add(entry_id)
+    return forgotten
+
+
+def image_embedding_current_table(config: ARIELConfig) -> str:
+    """The image table ``image_embedding`` writes under ``config``.
+
+    Raises:
+        ModuleConfigError: If the module's model or dimensions are not usable.
+    """
+    from osprey.services.ariel_search.database.migrations import image_embedding_target
+
+    module_cfg = config.get_enhancement_module_config("image_embedding") or {}
+    return image_embedding_target(module_cfg).table
+
+
+async def _forget_embedding_failures(pool: Any, table: str) -> set[str]:
+    """Delete ``table``'s skip rows, one entry per transaction."""
+    from psycopg import sql
+
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+
+    async with pool.connection() as conn:
+        cursor = await conn.execute("SELECT to_regclass(%(table)s)", {"table": table})
+        found = await cursor.fetchone()
+        if found is None or found[0] is None:
+            return set()
+        cursor = await conn.execute(
+            sql.SQL(
+                "SELECT DISTINCT f.entry_id FROM {table} t"
+                " JOIN attachment_files f ON f.attachment_id = t.attachment_id"
+                " WHERE t.skip_reason IS NOT NULL ORDER BY f.entry_id"
+            ).format(table=sql.Identifier(table))
+        )
+        entry_ids = [row[0] for row in await cursor.fetchall()]
+    forgotten: set[str] = set()
+    delete = sql.SQL(
+        "DELETE FROM {table} t USING attachment_files f"
+        " WHERE f.attachment_id = t.attachment_id AND f.entry_id = %(entry_id)s"
+        " AND t.skip_reason IS NOT NULL"
+    ).format(table=sql.Identifier(table))
+    for entry_id in entry_ids:
+        async with pool.connection() as conn, conn.transaction():
+            if not await ARIELRepository.lock_entry(conn, entry_id):
+                continue
+            cursor = await conn.execute(delete, {"entry_id": entry_id})
+            if cursor.rowcount == 0:
+                continue
+            await conn.execute(
+                _CLEAR_MODULE_KEY_SQL, {"entry_id": entry_id, "module": "image_embedding"}
+            )
+            forgotten.add(entry_id)
+    return forgotten
+
+
+#: Seconds a picture call may take when a module states no ``timeout_seconds``.
+_DEFAULT_MODULE_TIMEOUT_S = 300.0
+
+#: Slack added to the image stage's backstop on top of budget and module timeout.
+_CATCHUP_BACKSTOP_SLACK_S = 60.0
+
+_BUDGET_KEY = "ariel.enhancement.catchup_budget_seconds"
+
+
+def catchup_budget(config_dict: Mapping[str, Any], poll_elapsed: float) -> float:
+    """Return the seconds one catch-up pass may spend after a poll.
+
+    The authored ``ariel.enhancement.catchup_budget_seconds`` when set, else the
+    rest of the poll interval: ``max(0, poll_interval_seconds - poll_elapsed)``,
+    so the next poll stays on schedule.
+
+    Args:
+        config_dict: Raw ``ariel`` config block.
+        poll_elapsed: Seconds the poll before this catch-up took.
+
+    Returns:
+        The budget in seconds, never negative.
+
+    Raises:
+        ValueError: If the key is present but not null or a number >= 0.
+    """
+    raw = (config_dict.get("enhancement", {}) or {}).get("catchup_budget_seconds")
+    if raw is not None:
+        if isinstance(raw, bool) or not isinstance(raw, int | float) or not raw >= 0:
+            raise ValueError(f"{_BUDGET_KEY} must be null or a number >= 0, got {raw!r}")
+        return float(raw)
+    ingestion = _ariel_config(dict(config_dict)).ingestion
+    interval = float(ingestion.poll_interval_seconds) if ingestion else 3600.0
+    return max(0.0, interval - poll_elapsed)
+
+
+def _catchup_module_names(config: ARIELConfig) -> list[str]:
+    """Enabled registered ``runs_inline=False`` modules, in execution order."""
+    from osprey.registry import get_registry
+
+    registry = get_registry()
+    registry.initialize(silent=True)
+    return [
+        name
+        for name in registry.list_ariel_enhancement_modules()
+        if config.is_enhancement_module_enabled(name) and _runs_in_catchup(name)
+    ]
+
+
+def _module_timeout(module: Any) -> float:
+    """The per-call timeout a module states, or the default."""
+    value = getattr(module, "timeout_seconds", None)
+    if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+        return float(value)
+    return _DEFAULT_MODULE_TIMEOUT_S
+
+
+async def run_catchup(
+    config_dict: dict,
+    *,
+    budget_s: float | None,
+    stop_event: asyncio.Event | None,
+    progress: _ProgressCb = None,
+) -> EnhanceResult:
+    """Run one catch-up pass: the text modules, then the picture modules.
+
+    Never fetches or renders a picture; copying is the poll's job.
+
+    1. Text modules (``runs_inline=True``) catch up as :func:`run_enhance` does,
+       up to 1000 entries and with no outer timeout.
+    2. Picture modules (``runs_inline=False``) share what is left of
+       ``budget_s`` module-major: each gets an equal share of the remaining
+       time, so one that finishes early leaves its rest to the next. Each is
+       built alone (a ``configure()`` error skips only it), runs under its own
+       advisory lock ``ariel_enhance:<module>`` and through
+       :func:`~osprey.services.ariel_search.enhancement.image_driver.drive_image_module`.
+       The whole stage runs under ``budget + largest module timeout + 60 s``.
+
+    Args:
+        config_dict: Raw ``ariel`` config block.
+        budget_s: Seconds the pass may spend; None for no limit.
+        stop_event: Checked before each entry and each picture.
+        progress: Optional progress callback.
+
+    Returns:
+        The text stage's result, with the picture entries walked added to
+        ``entries_processed`` and the picture modules to ``module_names``.
+    """
+    from osprey.utils.logger import get_logger
+
+    logger = get_logger("ariel")
+    started = time.monotonic()
+    config = _ariel_config(config_dict)
+    text = await _run_text_enhance(config, None, False, 1000, progress, stop_event=stop_event)
+    names = _catchup_module_names(config)
+    if not names:
+        return text
+    image_budget = None if budget_s is None else max(0.0, budget_s - (time.monotonic() - started))
+
+    modules = _build_image_modules(config, names, None)
+    if not modules:
+        return text
+
+    walked = 0
+
+    async def _image_stage() -> None:
+        nonlocal walked
+        walked = await _drive_image_modules(
+            config, modules, budget=image_budget, stop_event=stop_event, progress=progress
+        )
+
+    if image_budget is None:
+        await _image_stage()
+    else:
+        backstop = image_budget + max(_module_timeout(m) for m in modules)
+        backstop += _CATCHUP_BACKSTOP_SLACK_S
+        try:
+            await asyncio.wait_for(_image_stage(), backstop)
+        except TimeoutError:
+            logger.warning(
+                f"Picture catch-up stopped after its {backstop:.0f} s backstop; "
+                "the rest waits for the next pass"
+            )
+
+    return EnhanceResult(
+        entries_processed=text.entries_processed + walked,
+        module_names=[*text.module_names, *(m.name for m in modules)],
+        succeeded=text.succeeded,
+        failed=text.failed,
+        set_aside=text.set_aside,
     )
 
 
@@ -1511,13 +2371,20 @@ async def run_search(config_dict: dict, query: str, mode: str | None, limit: int
                 mode=search_mode,
             )
 
+            # Hybrid may add picture-only entries beyond ``limit``; the CLI shows
+            # ``limit`` entries and only the sources of the entries it shows.
+            entries = list(result.entries)[:limit]
+            sources = list(result.sources)
+            if len(result.entries) > limit:
+                shown = {e.get("entry_id") for e in entries}
+                sources = [s for s in sources if s in shown]
             return {
                 "query": query,
                 "answer": result.answer,
-                "sources": list(result.sources),
+                "sources": sources,
                 "search_modes": list(result.search_modes_used),
                 "reasoning": result.reasoning,
-                "entries": [_entry_summary(e) for e in result.entries],
+                "entries": [_entry_summary(e) for e in entries],
             }
     except Exception as e:
         msg = str(e)
@@ -1552,6 +2419,47 @@ def _embedding_input_limit(config: ARIELConfig, model: str) -> int:
     return DEFAULT_MAX_INPUT_TOKENS
 
 
+def _reembed_provider(config: ARIELConfig) -> tuple[type[BaseProvider], dict[str, Any]]:
+    """Resolve the provider ``run_reembed`` embeds with, as the text_embedding module does.
+
+    The provider comes from ``enhancement_modules.text_embedding`` (its own
+    ``provider``, else ``ariel.embedding.provider``); a deployment with no
+    ``text_embedding`` block uses ``ariel.embedding.provider`` (default
+    ``ollama``).
+
+    Args:
+        config: The loaded ``ARIELConfig``.
+
+    Returns:
+        ``(provider class, its api.providers entry)``.
+
+    Raises:
+        ValueError: If the provider is unknown or serves no embeddings; the
+            message names the config key it came from.
+    """
+    from osprey.models.provider_registry import get_provider_registry
+
+    module_config = config.get_enhancement_module_config("text_embedding")
+    if module_config is not None:
+        name = module_config.get("provider") or "ollama"
+        key = module_config["provider_key"]
+    else:
+        name = config.embedding.provider or "ollama"
+        key = "ariel.embedding.provider"
+
+    provider_cls = get_provider_registry().get_provider(name)
+    if provider_cls is None or not provider_cls.supports_embeddings():
+        raise ValueError(f"{key}: {name!r} is not a provider that serves embeddings")
+
+    try:
+        from osprey.models.config import get_provider_config
+
+        provider_config = get_provider_config(name)
+    except FileNotFoundError:
+        provider_config = {}
+    return provider_cls, provider_config
+
+
 async def run_reembed(
     config_dict: dict,
     model: str,
@@ -1566,6 +2474,7 @@ async def run_reembed(
     from osprey.services.ariel_search.database.migrations import model_to_table_name
     from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingMigration
     from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+        embedding_input,
         fit_to_input_limit,
     )
 
@@ -1606,26 +2515,39 @@ async def run_reembed(
                 progress("No entries to embed.")
             return ReembedResult(processed=0, skipped=0, errors=0, dry_run=False)
 
-        from osprey.models.embeddings import get_embedding_provider
-
-        embedder = get_embedding_provider(config.embedding.provider)
-        base_url = getattr(config.embedding, "base_url", None) or embedder.default_base_url
+        provider_cls, provider_config = _reembed_provider(config)
+        embedder = provider_cls()
+        base_url = provider_cls.effective_base_url(provider_config.get("base_url"))
+        api_key = provider_config.get("api_key")
+        # Only a truncating provider is told the length; every other one is
+        # called exactly as before, since models such as ada-002 refuse it.
+        dimensions = dimension if provider_cls.truncates_to_dimensions else None
 
         processed = 0
         skipped = 0
         errors = 0
 
+        has_copy_state = (await service.repository.schema_facts()).has_copy_state
+
         async with service.pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT entry_id, raw_text FROM enhanced_entries ORDER BY entry_id"
-                )
-                rows = await cur.fetchall()
+                rows: list[Any]
+                if has_copy_state:
+                    await cur.execute(
+                        "SELECT entry_id, raw_text, attachment_text FROM enhanced_entries "
+                        "ORDER BY entry_id"
+                    )
+                    rows = list(await cur.fetchall())
+                else:
+                    await cur.execute(
+                        "SELECT entry_id, raw_text FROM enhanced_entries ORDER BY entry_id"
+                    )
+                    rows = [(*row, None) for row in await cur.fetchall()]
 
                 batch_texts: list[str] = []
                 batch_ids: list[str] = []
 
-                for entry_id, raw_text in rows:
+                for entry_id, raw_text, attachment_text in rows:
                     if not force:
                         await cur.execute(
                             f"SELECT 1 FROM {table_name} WHERE entry_id = %s",
@@ -1635,7 +2557,10 @@ async def run_reembed(
                             skipped += 1
                             continue
 
-                    batch_texts.append(fit_to_input_limit(raw_text or "", limit))
+                    if attachment_text and attachment_text.strip():
+                        batch_texts.append(embedding_input(raw_text or "", attachment_text, limit))
+                    else:
+                        batch_texts.append(fit_to_input_limit(raw_text or "", limit))
                     batch_ids.append(entry_id)
 
                     if len(batch_texts) >= batch_size:
@@ -1649,6 +2574,8 @@ async def run_reembed(
                             table_name,
                             force,
                             progress,
+                            api_key=api_key,
+                            dimensions=dimensions,
                         )
                         processed += p
                         errors += e
@@ -1666,6 +2593,8 @@ async def run_reembed(
                         table_name,
                         force,
                         progress,
+                        api_key=api_key,
+                        dimensions=dimensions,
                     )
                     processed += p
                     errors += e
@@ -1683,13 +2612,26 @@ async def _embed_batch(
     table_name: str,
     force: bool,
     progress: _ProgressCb,
+    *,
+    api_key: str | None = None,
+    dimensions: int | None = None,
 ) -> tuple[int, int]:
-    """Embed a batch of texts and upsert into the table. Returns (processed, errors)."""
+    """Embed a batch of texts and upsert into the table. Returns (processed, errors).
+
+    ``dimensions`` is passed to the provider only when given, so a provider that
+    does not cut vectors to the table's length is called without the key.
+    """
     try:
+        embed_kwargs: dict[str, Any] = {}
+        if api_key is not None:
+            embed_kwargs["api_key"] = api_key
+        if dimensions is not None:
+            embed_kwargs["dimensions"] = dimensions
         embeddings = embedder.execute_embedding(
             texts=batch_texts,
             model_id=model,
             base_url=base_url,
+            **embed_kwargs,
         )
 
         conflict_clause = (
@@ -1727,6 +2669,7 @@ async def run_quickstart(
     from osprey.services.ariel_search.database.migrations import run_migrations
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
+    from osprey.services.ariel_search.ingestion.ingest import ingest_one
     from osprey.utils.logger import get_logger
 
     logger = get_logger("ariel")
@@ -1772,34 +2715,28 @@ async def run_quickstart(
                 progress(f"Ingesting data from: {config.ingestion.source_url}")
             adapter_instance = get_adapter(config)
 
+            # The default stage is inline: a catch-up module never runs here.
             enhancers = create_enhancers_from_config(config)
             if enhancers and progress:
                 progress(f"  Enhancement modules: {[e.name for e in enhancers]}")
 
             service = await create_ariel_service(config)
             async with service:
-                async with service.pool.connection() as conn:
+                async with _ingest_copy_run(
+                    service.repository, adapter_instance, config
+                ) as copy_run:
                     async for entry in adapter_instance.fetch_entries():
-                        await service.repository.upsert_entry(entry)
+                        outcome = await ingest_one(
+                            entry, adapter_instance, service.repository, enhancers, config, copy_run
+                        )
                         count += 1
-
-                        if enhancers:
-                            for enhancer in enhancers:
-                                try:
-                                    await enhancer.enhance(entry, conn)
-                                    await service.repository.mark_enhancement_complete(
-                                        entry["entry_id"],
-                                        enhancer.name,
-                                    )
-                                    enhanced_count += 1
-                                except Exception as e:
-                                    await service.repository.mark_enhancement_failed(
-                                        entry["entry_id"],
-                                        enhancer.name,
-                                        str(e),
-                                    )
-                                    failed_count += 1
-                                    logger.debug(f"Enhancement failed for {entry['entry_id']}: {e}")
+                        enhanced_count += outcome.enhanced
+                        failed_count += _entry_failures(outcome)
+                        if outcome.enhancer_failed:
+                            logger.debug(
+                                f"Enhancement failed for {entry['entry_id']}: "
+                                f"{outcome.enhancer_failed} module(s)"
+                            )
 
                 if progress:
                     progress(f"  Entries: {count} ingested")
@@ -1838,6 +2775,7 @@ async def run_quickstart(
 async def get_purge_info(config_dict: dict) -> PurgeInfo:
     """Get current counts for purge confirmation display."""
     from osprey.services.ariel_search.database.connection import create_connection_pool
+    from osprey.services.ariel_search.database.repository import image_embedding_table_names
 
     config = _ariel_config(config_dict)
     pool = await create_connection_pool(config.database)
@@ -1854,10 +2792,44 @@ async def get_purge_info(config_dict: dict) -> PurgeInfo:
                     WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'
                 """)
                 embedding_tables = [r[0] for r in await cur.fetchall()]
+                image_tables = await image_embedding_table_names(cur)
     finally:
         await pool.close()
 
-    return PurgeInfo(entry_count=entry_count, embedding_tables=embedding_tables)
+    return PurgeInfo(
+        entry_count=entry_count,
+        embedding_tables=embedding_tables,
+        image_embedding_tables=image_tables,
+    )
+
+
+async def _drop_image_embedding_tables(cur, progress: _ProgressCb = None) -> list[str]:
+    """Drop every image-embedding table and forget which entries were embedded.
+
+    The image migration counts as applied while its table exists, so the next
+    ``osprey ariel migrate`` recreates the dropped table; removing the
+    ``image_embedding`` key from every ``enhancement_status`` lets the next
+    catch-up pass embed the pictures again.
+
+    Returns:
+        The dropped table names.
+    """
+    from osprey.services.ariel_search.database.repository import image_embedding_table_names
+
+    tables = await image_embedding_table_names(cur)
+    for table in tables:
+        await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+        if progress:
+            progress(f"  Dropped {table}")
+    if tables:
+        await cur.execute(
+            """
+            UPDATE enhanced_entries
+            SET enhancement_status = enhancement_status - 'image_embedding'
+            WHERE enhancement_status ? 'image_embedding'
+            """
+        )
+    return tables
 
 
 async def _unrecord_embedding_migration(cur) -> None:
@@ -1900,6 +2872,7 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
                         if progress:
                             progress(f"  Dropped {table}")
                     await _unrecord_embedding_migration(cur)
+                    await _drop_image_embedding_tables(cur, progress)
                     if progress:
                         progress("\n✓ Embedding tables purged. Entries preserved.")
                 else:
@@ -1913,6 +2886,7 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
                     for table in embedding_tables:
                         await cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
                     await _unrecord_embedding_migration(cur)
+                    await _drop_image_embedding_tables(cur)
                     if progress:
                         progress("\n✓ All ARIEL data purged.")
     finally:
@@ -1986,3 +2960,629 @@ async def seed_logbook_entries(
     if progress:
         progress(f"✓ Seeded {count} logbook entries.")
     return count
+
+
+# ---------------------------------------------------------------------------
+# osprey ariel attachments backfill
+# ---------------------------------------------------------------------------
+
+#: Entries one backfill page locks, records and then copies.
+BACKFILL_PAGE_SIZE = 500
+
+#: Host label for a relative path read from a file source.
+_FILE_HOST = "(file)"
+
+#: Host label for a url that names no host.
+_NO_HOST = "(none)"
+
+#: Type label for an item or row that declares no usable type.
+_NO_TYPE = "(none)"
+
+
+@dataclass
+class BackfillDryRun:
+    """What a backfill would do, counted with no network and no write.
+
+    Every counter maps ``(declared type, host)`` to a count. The census
+    counters say what the store holds; the plan counters say what a backfill
+    would do with it.
+
+    Attributes:
+        no_row: JSONB items that are fetchable but have no ``attachment_files`` row.
+        pending: Rows still ``pending``.
+        skipped: Config- and source-skipped rows, by skip code.
+        would_fetch: Items and rows a backfill would fetch.
+        per_entry_limit: Items and rows a backfill would leave ``per_entry_limit``
+            because their entry's copy budget is spent; never in ``would_fetch``.
+        still_skipped: Items and rows the current configuration still skips, by code.
+        not_fetchable: JSONB items whose url can never be fetched from this source
+            (a relative path on an http source, a ``..`` segment); never in
+            ``would_fetch``.
+        would_render: Copied rows holding their bytes but no rendition yet.
+        entries: Entries examined.
+        candidates: The urls behind ``would_fetch``, in visiting order.
+    """
+
+    no_row: dict[tuple[str, str], int] = field(default_factory=dict)
+    pending: dict[tuple[str, str], int] = field(default_factory=dict)
+    skipped: dict[str, dict[tuple[str, str], int]] = field(default_factory=dict)
+    would_fetch: dict[tuple[str, str], int] = field(default_factory=dict)
+    per_entry_limit: dict[tuple[str, str], int] = field(default_factory=dict)
+    still_skipped: dict[str, dict[tuple[str, str], int]] = field(default_factory=dict)
+    not_fetchable: dict[tuple[str, str], int] = field(default_factory=dict)
+    would_render: dict[tuple[str, str], int] = field(default_factory=dict)
+    entries: int = 0
+    candidates: list[str] = field(default_factory=list)
+
+
+@dataclass
+class BackfillProbe:
+    """An extrapolated estimate from ``HEAD`` requests to a random sample.
+
+    Attributes:
+        sampled: ``HEAD`` requests sent.
+        reachable: Sampled urls the source answered as fetchable.
+        outcomes: Sampled outcomes by kind (``ok``, ``transient`` or a skip code).
+        estimate: ``reachable / sampled`` of the would-fetch total, rounded; an
+            estimate, never a count.
+    """
+
+    sampled: int
+    reachable: int
+    outcomes: dict[str, int]
+    estimate: int
+
+
+@dataclass
+class BackfillResult:
+    """Outcome of ``osprey ariel attachments backfill``.
+
+    Attributes:
+        status: ``done`` after a backfill or dry run; ``locked`` when another
+            process holds the copy lock (nothing was done); ``no_copy_state``
+            when the schema predates the copy state (run ``osprey ariel migrate``
+            first).
+        dry_run: Whether nothing was written.
+        entries: Entries whose rows were recorded and whose pictures were copied.
+        record_failed: Entries whose record step failed; their pictures were not copied.
+        copy_failed: Entries whose copy step raised.
+        fetches: Fetch calls made.
+        copied: Rows written ``copied``.
+        rendered: Render-only rows given a rendition or a content skip.
+        pending: Fetch candidates left ``pending``.
+        skipped: Rows written ``skipped``, by code.
+        decoder_reset: ``decoder_failed`` rows cleared for a re-render
+            (``--retry-decoder-failed``).
+        plan: The dry-run counts; set for a dry run.
+        probe: The probe estimate; set when ``--probe`` ran.
+        proxy: The adapter's proxy, redacted, or ``None`` for a direct connection.
+        ca_bundle: The CA bundle fetches verify against, or ``None`` for the
+            image trust store.
+    """
+
+    status: str
+    dry_run: bool = False
+    entries: int = 0
+    record_failed: int = 0
+    copy_failed: int = 0
+    fetches: int = 0
+    copied: int = 0
+    rendered: int = 0
+    pending: int = 0
+    skipped: dict[str, int] = field(default_factory=dict)
+    decoder_reset: int = 0
+    plan: BackfillDryRun | None = None
+    probe: BackfillProbe | None = None
+    proxy: str | None = None
+    ca_bundle: str | None = None
+
+
+def backfill_runtime_name(config: Any) -> str:
+    """Return the container runtime named in the backfill hint, without probing.
+
+    ``CONTAINER_RUNTIME`` when it is ``docker`` or ``podman``, else the config's
+    ``container_runtime`` when it is one of those, else ``docker``. Nothing is
+    executed or looked up on ``PATH``: the hint is printed inside the ariel-sync
+    container, where no runtime binary exists.
+
+    Args:
+        config: The full project config mapping (``container_runtime`` is a
+            top-level key), or ``None``.
+    """
+    import os
+
+    for candidate in (
+        os.environ.get("CONTAINER_RUNTIME"),
+        config.get("container_runtime") if isinstance(config, dict) else None,
+    ):
+        if isinstance(candidate, str) and candidate.strip().lower() in ("docker", "podman"):
+            return candidate.strip().lower()
+    return "docker"
+
+
+def backfill_exec_line(config: Any, args: Sequence[str] = ()) -> str:
+    """Return the canonical invocation that runs backfill in the ariel-sync container.
+
+    ``<runtime> exec <project_name>-ariel-sync osprey ariel attachments backfill
+    <args>``, with no ``-it`` so it pastes into cron and scripts.
+
+    Args:
+        config: The full project config mapping (``container_runtime``,
+            ``project_name``, ``project_root``), or ``None``.
+        args: The backfill options to repeat after the command.
+    """
+    import shlex
+
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    project = resolve_project_name(config if isinstance(config, dict) else {})
+    words = [
+        backfill_runtime_name(config),
+        "exec",
+        f"{project}-ariel-sync",
+        "osprey",
+        "ariel",
+        "attachments",
+        "backfill",
+        *args,
+    ]
+    return " ".join(shlex.quote(w) for w in words)
+
+
+def _bump(counter: dict, key: Any, by: int = 1) -> None:
+    counter[key] = counter.get(key, 0) + by
+
+
+def _type_label(declared: object) -> str:
+    from osprey.services.ariel_search.attachments.copy import validated_declared_type
+
+    return validated_declared_type(declared) or _NO_TYPE
+
+
+def _host_label(url: object) -> str:
+    from osprey.services.ariel_search.attachments.fetch import origin_of
+
+    origin = origin_of(url if isinstance(url, str) else None)
+    if origin is not None:
+        return origin[1]
+    if isinstance(url, str) and url and "://" not in url and not url.startswith(("/", "\\")):
+        return _FILE_HOST
+    return _NO_HOST
+
+
+async def _backfill_page(
+    repository: ARIELRepository,
+    cursor: tuple[Any, str] | None,
+    limit: int,
+    *,
+    conn: Any = None,
+    lock: bool,
+) -> list[dict[str, Any]]:
+    """Return one page of entries holding attachments, newest first below ``cursor``.
+
+    Args:
+        repository: The repository whose pool serves the read when ``conn`` is None.
+        cursor: ``(timestamp, entry_id)`` of the last entry already visited.
+        limit: Most entries returned.
+        conn: Connection inside the page transaction; required with ``lock``.
+        lock: Take ``FOR UPDATE`` on every returned entry row.
+
+    Returns:
+        Dict rows with ``entry_id``, ``timestamp``, ``attachments``,
+        ``attachment_text`` and ``attachment_captions``.
+    """
+    from psycopg.rows import dict_row
+
+    params: dict[str, Any] = {"limit": limit}
+    cursor_sql = ""
+    if cursor is not None:
+        cursor_sql = "AND (timestamp, entry_id) < (%(after_ts)s, %(after_id)s)"
+        params["after_ts"], params["after_id"] = cursor
+    sql = f"""
+        SELECT entry_id, timestamp, attachments, attachment_text, attachment_captions
+        FROM enhanced_entries
+        WHERE attachments <> '[]'::jsonb
+        {cursor_sql}
+        ORDER BY timestamp DESC, entry_id DESC
+        LIMIT %(limit)s
+        {"FOR UPDATE" if lock else ""}
+    """
+
+    async def _read(c: Any) -> list[dict[str, Any]]:
+        async with c.cursor(row_factory=dict_row) as cur:
+            await cur.execute(sql, params)
+            return list(await cur.fetchall())
+
+    if conn is not None:
+        return await _read(conn)
+    async with repository.pool.connection() as c:
+        return await _read(c)
+
+
+async def _plan_entry(
+    repository: ARIELRepository,
+    row: dict[str, Any],
+    config: ARIELConfig,
+    adapter: FacilityAdapter,
+    origins: frozenset[Any],
+    plan: BackfillDryRun,
+) -> None:
+    """Count what a backfill would do with one entry, with no network and no write."""
+    from osprey.services.ariel_search.attachments import (
+        attachment_id_for,
+        fetchable_url,
+        is_native_item,
+    )
+    from osprey.services.ariel_search.attachments.copy import (
+        BYTE_BUDGET_FILES,
+        COPY_MAX_PER_ENTRY,
+        _attachment_list,
+        still_skipped,
+    )
+    from osprey.services.ariel_search.attachments.fetch import is_file_source
+    from osprey.services.ariel_search.attachments.formats import (
+        CONFIG_SKIP_REASONS,
+        SOURCE_SKIP_REASONS,
+    )
+
+    entry_id = row["entry_id"]
+    file_source = is_file_source(adapter)
+    stored = {r["attachment_id"]: r for r in await repository.get_copy_rows(entry_id)}
+
+    # Fetch candidates in JSONB list order, as copy_entry takes them; rows the
+    # list no longer names follow.
+    ordered: list[tuple[str, dict[str, Any] | None, Mapping[str, Any] | None]] = []
+    seen: set[str] = set()
+    for item in _attachment_list(row.get("attachments")):
+        if not isinstance(item, Mapping):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or not url or is_native_item(item):
+            continue
+        attachment_id = attachment_id_for(entry_id, item)
+        if not fetchable_url(url, file_source=file_source) or attachment_id is None:
+            _bump(plan.not_fetchable, (_type_label(item.get("type")), _host_label(url)))
+            continue
+        if attachment_id in seen:
+            continue
+        seen.add(attachment_id)
+        ordered.append((attachment_id, stored.get(attachment_id), item))
+    ordered.extend((aid, r, None) for aid, r in stored.items() if aid not in seen)
+
+    to_fetch: list[tuple[str, tuple[str, str]]] = []
+    for _aid, stored_row, item in ordered:
+        if stored_row is None:
+            assert item is not None
+            url = item["url"]
+            key = (_type_label(item.get("type")), _host_label(url))
+            _bump(plan.no_row, key)
+            decided: dict[str, Any] = {
+                "source_url": url,
+                "mime_type": item.get("type"),
+                "size_bytes": None,
+            }
+        else:
+            url = stored_row.get("source_url")
+            key = (_type_label(stored_row.get("mime_type")), _host_label(url))
+            status, reason = stored_row.get("copy_status"), stored_row.get("skip_reason")
+            if (
+                status == "copied"
+                and stored_row.get("has_data")
+                and stored_row.get("rendition_sha256") is None
+                and reason is None
+            ):
+                _bump(plan.would_render, key)
+                continue
+            if status == "pending":
+                _bump(plan.pending, key)
+            elif status == "skipped" and reason in (CONFIG_SKIP_REASONS | SOURCE_SKIP_REASONS):
+                _bump(plan.skipped.setdefault(reason, {}), key)
+            else:
+                continue
+            decided = dict(stored_row)
+            if reason in SOURCE_SKIP_REASONS:
+                decided["mime_type"] = None
+        code = still_skipped(decided, config, origins, file_source=file_source)
+        if code is not None:
+            _bump(plan.still_skipped.setdefault(code, {}), key)
+        else:
+            to_fetch.append((str(url), key))
+
+    if not to_fetch:
+        return
+    cap = config.attachments.max_file_mb * 1024 * 1024
+    count, used = await repository.count_copied_attachments(entry_id)
+    slots = max(0, COPY_MAX_PER_ENTRY - count) if BYTE_BUDGET_FILES * cap - used > 0 else 0
+    for url, key in to_fetch[:slots]:
+        _bump(plan.would_fetch, key)
+        plan.candidates.append(url)
+    for _url, key in to_fetch[slots:]:
+        _bump(plan.per_entry_limit, key)
+
+
+async def _probe_sample(
+    plan: BackfillDryRun,
+    n: int,
+    config: ARIELConfig,
+    adapter: FacilityAdapter,
+    origins: frozenset[Any],
+) -> BackfillProbe:
+    """``HEAD`` a random sample of the would-fetch urls inside the origin set."""
+    import random
+
+    from osprey.services.ariel_search.attachments import copy as copy_mod
+    from osprey.services.ariel_search.attachments.fetch import origin_of
+
+    inside = [u for u in dict.fromkeys(plan.candidates) if origin_of(u) in origins]
+    sample = random.sample(inside, min(n, len(inside)))
+    cap = config.attachments.max_file_mb * 1024 * 1024
+    outcomes: dict[str, int] = {}
+    reachable = 0
+    async with copy_mod.CopyRun(adapter, origins) as run:
+        for url in sample:
+            outcome = await copy_mod.fetch_attachment_bytes(
+                url, cap, origins, adapter, "HEAD", semaphore=run.semaphore, session=run.session
+            )
+            if outcome.ok:
+                reachable += 1
+                kind = "ok"
+            else:
+                kind = outcome.code or "transient"
+            _bump(outcomes, kind)
+    total = sum(plan.would_fetch.values())
+    estimate = round(total * reachable / len(sample)) if sample else 0
+    return BackfillProbe(
+        sampled=len(sample), reachable=reachable, outcomes=outcomes, estimate=estimate
+    )
+
+
+async def _backfill_dry_run(
+    repository: ARIELRepository,
+    config: ARIELConfig,
+    adapter: FacilityAdapter,
+    limit: int | None,
+) -> BackfillDryRun:
+    """Walk the store newest first and count what a backfill would do."""
+    from osprey.services.ariel_search.attachments.fetch import origins_for
+
+    origins = origins_for(adapter, config)
+    plan = BackfillDryRun()
+    cursor: tuple[Any, str] | None = None
+    while True:
+        page_limit = (
+            BACKFILL_PAGE_SIZE if limit is None else min(BACKFILL_PAGE_SIZE, limit - plan.entries)
+        )
+        if page_limit <= 0:
+            break
+        rows = await _backfill_page(repository, cursor, page_limit, lock=False)
+        for row in rows:
+            await _plan_entry(repository, row, config, adapter, origins, plan)
+        plan.entries += len(rows)
+        if len(rows) < page_limit:
+            break
+        cursor = (rows[-1]["timestamp"], rows[-1]["entry_id"])
+    return plan
+
+
+async def _reset_decoder_failed(repository: ARIELRepository, entry_id: str) -> int:
+    """Clear the copy-side reason and rendition of an entry's ``decoder_failed`` rows.
+
+    One transaction, entry row locked first. Such a row keeps its stored
+    original and has never had a rendition, so it has no image-table row and
+    no caption to delete; the render-only pass of ``copy_entry`` then renders
+    it again, and a written rendition clears the image-module status keys.
+
+    Args:
+        repository: The repository.
+        entry_id: The entry whose rows are reset.
+
+    Returns:
+        The number of rows reset.
+    """
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+
+    async with repository.pool.connection() as conn, conn.transaction():
+        if not await ARIELRepository.lock_entry(conn, entry_id):
+            return 0
+        cur = await conn.execute(
+            """
+            UPDATE attachment_files
+            SET skip_reason = NULL,
+                rendition_bytes = NULL,
+                rendition_mime = NULL,
+                rendition_w = NULL,
+                rendition_h = NULL,
+                rendition_sha256 = NULL
+            WHERE entry_id = %(entry_id)s
+              AND copy_status = 'copied'
+              AND skip_reason = 'decoder_failed'
+            """,
+            {"entry_id": entry_id},
+        )
+        return max(cur.rowcount, 0)
+
+
+async def backfill_store(
+    repository: ARIELRepository,
+    adapter: FacilityAdapter,
+    config: ARIELConfig,
+    *,
+    limit: int | None = None,
+    dry_run: bool = False,
+    probe: int | None = None,
+    wait: bool = False,
+    retry_decoder_failed: bool = False,
+    progress: _ProgressCb = None,
+    lock_factory: Any = None,
+) -> BackfillResult:
+    """Record and copy the pictures of every stored entry, newest first.
+
+    Each page of :data:`BACKFILL_PAGE_SIZE` entries is one transaction: the
+    page SELECT locks the entry rows (``FOR UPDATE``) and returns their
+    ``attachments``, ``attachment_text`` and ``attachment_captions``;
+    ``record_and_compose`` runs on each locked row in its own savepoint; the
+    page COMMITs. Only then does ``copy_entry(…, retry_skipped=True)`` run on
+    each entry, outside any transaction, because its per-row writes take the
+    entry lock the page transaction would still hold. The whole run holds the
+    ``ariel_copy`` advisory lock; held elsewhere, nothing is done (``--wait``
+    waits for it instead).
+
+    With ``retry_decoder_failed``, each entry's ``decoder_failed`` rows are
+    reset in their own transaction just before its ``copy_entry``, which then
+    renders the stored originals again.
+
+    A dry run (and a ``probe``, which implies one) writes nothing and takes no
+    lock; only the probe touches the network, with ``HEAD`` requests.
+
+    Args:
+        repository: The repository.
+        adapter: The ingestion adapter whose source the attachments come from.
+        config: The ARIEL config.
+        limit: Most entries visited.
+        dry_run: Count what would be done instead of doing it.
+        probe: ``HEAD`` this many randomly chosen would-fetch urls inside the
+            origin set and extrapolate an estimate.
+        wait: Wait for the copy lock instead of returning ``locked``.
+        retry_decoder_failed: Reset ``decoder_failed`` rows so they render again.
+        progress: Optional callback for human-readable progress lines.
+        lock_factory: The advisory-lock context manager factory; defaults to
+            ``try_advisory_lock``.
+
+    Returns:
+        The :class:`BackfillResult`.
+    """
+    from osprey.services.ariel_search.attachments import copy as copy_mod
+    from osprey.services.ariel_search.attachments.fetch import origins_for, redact_url
+    from osprey.services.ariel_search.ingestion.scheduler import COPY_LOCK_KEY
+    from osprey.utils.logger import get_logger
+
+    logger = get_logger("ariel")
+    result = BackfillResult(
+        status="done",
+        dry_run=dry_run or probe is not None,
+        proxy=redact_url(adapter.proxy_url) if adapter.proxy_url else None,
+        ca_bundle=adapter.ca_bundle,
+    )
+    if not (await repository.schema_facts()).has_copy_state:
+        result.status = "no_copy_state"
+        return result
+
+    if result.dry_run:
+        result.plan = await _backfill_dry_run(repository, config, adapter, limit)
+        if probe is not None and probe > 0:
+            result.probe = await _probe_sample(
+                result.plan, probe, config, adapter, origins_for(adapter, config)
+            )
+        return result
+
+    if lock_factory is None:
+        from osprey.services.ariel_search.database.connection import try_advisory_lock
+
+        lock_factory = try_advisory_lock
+
+    async with lock_factory(repository.pool.conninfo, COPY_LOCK_KEY, wait=wait) as held:
+        if not held:
+            result.status = "locked"
+            return result
+        async with copy_mod.CopyRun(adapter, origins_for(adapter, config)) as copy_run:
+            cursor: tuple[Any, str] | None = None
+            visited = 0
+            while True:
+                page_limit = (
+                    BACKFILL_PAGE_SIZE
+                    if limit is None
+                    else min(BACKFILL_PAGE_SIZE, limit - visited)
+                )
+                if page_limit <= 0:
+                    break
+                recorded: list[str] = []
+                async with repository.pool.connection() as conn, conn.transaction():
+                    rows = await _backfill_page(
+                        repository, cursor, page_limit, conn=conn, lock=True
+                    )
+                    for row in rows:
+                        try:
+                            async with conn.transaction():
+                                await copy_mod.record_and_compose(
+                                    conn, row["entry_id"], row, config, adapter
+                                )
+                            recorded.append(row["entry_id"])
+                        except Exception as exc:
+                            result.record_failed += 1
+                            logger.warning(
+                                "%s: attachments not recorded by backfill (%s)",
+                                row["entry_id"],
+                                exc,
+                            )
+                for entry_id in recorded:
+                    try:
+                        if retry_decoder_failed:
+                            result.decoder_reset += await _reset_decoder_failed(
+                                repository, entry_id
+                            )
+                        report = await copy_mod.copy_entry(
+                            repository, entry_id, config, copy_run, retry_skipped=True
+                        )
+                    except Exception as exc:
+                        result.copy_failed += 1
+                        logger.warning("%s: backfill copy failed (%s)", entry_id, exc)
+                        continue
+                    result.fetches += report.fetches
+                    result.copied += report.copied
+                    result.rendered += report.rendered
+                    result.pending += report.pending
+                    for code, n in report.skipped.items():
+                        _bump(result.skipped, code, n)
+                result.entries += len(recorded)
+                visited += len(rows)
+                if progress and rows:
+                    progress(f"  Backfilled {visited} entries...")
+                if len(rows) < page_limit:
+                    break
+                cursor = (rows[-1]["timestamp"], rows[-1]["entry_id"])
+    return result
+
+
+async def run_backfill(
+    config_dict: dict,
+    *,
+    limit: int | None = None,
+    dry_run: bool = False,
+    probe: int | None = None,
+    wait: bool = False,
+    retry_decoder_failed: bool = False,
+    progress: _ProgressCb = None,
+) -> BackfillResult:
+    """Run ``osprey ariel attachments backfill`` against the configured store.
+
+    Args:
+        config_dict: The raw ``ariel`` section.
+        limit: Most entries visited.
+        dry_run: Count what would be done instead of doing it.
+        probe: ``HEAD`` this many sampled urls and print an estimate (implies
+            a dry run).
+        wait: Wait for the copy lock held by another process.
+        retry_decoder_failed: Reset ``decoder_failed`` rows so they render again.
+        progress: Optional callback for human-readable progress lines.
+
+    Returns:
+        The :class:`BackfillResult`.
+    """
+    from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.ingestion import get_adapter
+
+    config = _ariel_config(config_dict)
+    adapter = get_adapter(config)
+    service = await create_ariel_service(config)
+    async with service:
+        return await backfill_store(
+            service.repository,
+            adapter,
+            config,
+            limit=limit,
+            dry_run=dry_run,
+            probe=probe,
+            wait=wait,
+            retry_decoder_failed=retry_decoder_failed,
+            progress=progress,
+        )

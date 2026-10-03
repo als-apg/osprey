@@ -112,6 +112,7 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
             "default_mode": "hybrid",
             "shared_parameters": [...],
             "vocabulary": {"enabled": ..., "concepts": ..., "expand_by_default": ...},
+            "attachments": {...},  # see attachments_capability()
         }
     """
     categories: dict[str, dict[str, Any]] = {
@@ -130,6 +131,48 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
             "concepts": config.loaded_vocabulary.concept_count if config.loaded_vocabulary else 0,
             "expand_by_default": config.vocabulary.expand_by_default if enabled else False,
         },
+        "attachments": attachments_capability(config),
+    }
+
+
+def attachments_capability(config: ARIELConfig) -> dict[str, Any]:
+    """Build the ``attachments`` capability block.
+
+    Read from configuration, the format table and the picture lane's in-process
+    state only -- no database or network call -- so ``osprey ariel status`` can
+    extend the same block with its store counts and render probe.
+
+    Args:
+        config: ARIEL configuration.
+
+    Returns:
+        ``{copy_on_ingest, formats: {viewable, reserved}, view, captions,
+        picture_search, picture_search_unavailable}``: ``formats`` lists the
+        format-table row names by status, ``view`` is
+        ``ariel.attachments.view.enabled``, ``captions`` is whether
+        ``image_caption`` is enabled, ``picture_search`` is whether
+        ``image_embedding`` and the ``hybrid`` search module are both enabled,
+        and ``picture_search_unavailable`` is the reason this process last saw
+        the picture lane fail (``unreachable``, ``model``, ``auth`` or
+        ``config``), kept until the next lane attempt resolves it, or ``None``
+        when the lane has not failed or its last attempt succeeded.
+    """
+    from osprey.imaging.formats import ROWS
+    from osprey.services.ariel_search.search import image_lane
+
+    return {
+        "copy_on_ingest": config.attachments.copy_on_ingest,
+        "formats": {
+            "viewable": [name for name, row in ROWS.items() if row.status == "accepted"],
+            "reserved": [name for name, row in ROWS.items() if row.status == "reserved"],
+        },
+        "view": bool(config.attachments.view_enabled),
+        "captions": config.is_enhancement_module_enabled("image_caption"),
+        "picture_search": (
+            config.is_enhancement_module_enabled("image_embedding")
+            and config.is_search_module_enabled("hybrid")
+        ),
+        "picture_search_unavailable": image_lane.last_unavailable_reason(),
     }
 
 
@@ -177,4 +220,9 @@ def _add_search_modules(
         )
 
 
-__all__ = ["SHARED_PARAMETERS", "get_capabilities", "shared_parameters"]
+__all__ = [
+    "SHARED_PARAMETERS",
+    "attachments_capability",
+    "get_capabilities",
+    "shared_parameters",
+]
