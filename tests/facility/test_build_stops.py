@@ -1530,8 +1530,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(),
         (
             "facility: view-unsupported: path channel_finder.pipeline_mode — selects "
-            "middle_layer and no group carries `signals`; fix: give at least one group "
-            "`signals`, or select another channel_finder_mode"
+            "middle_layer and the facility has no group; fix: add at least one group, or "
+            "select another channel_finder_mode"
         ),
     ),
     "view_unsupported__middle_layer_meta_key": (

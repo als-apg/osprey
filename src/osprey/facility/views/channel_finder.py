@@ -40,11 +40,11 @@ of bare placeholders spells each address exactly.
 A leaf is keyed by its channel's signal when no other leaf of its device node
 shares it, else by ``<signal>:<role>`` when that is unique, else by its address;
 a channel with no signal is keyed by its address. A leaf's ``_description`` is
-the sentence its device's family group keeps for the channel's kind of signal
-(the group's ``signals`` key, longest first, whose ``/``-separated parts are the
-last alphanumeric runs of the address), else the channel's own. A place node is
-described by its place, a class node by the smallest described group holding
-every device under it (else by its class), and a device node by its device
+the ``signals`` sentence of a group naming its device for the channel's kind of
+signal (the group's ``signals`` key, longest first, whose ``/``-separated parts
+are the last alphanumeric runs of the address), else the channel's own. A place
+node is described by its place, a class node by the smallest described group
+holding every device under it (else by its class), and a device node by its device
 (else by the smallest described group naming it). A render carries the index
 when its ``channel_finder.pipeline_mode`` is ``hierarchical``; a facility
 with no channel writes an empty tree. The build stops with
@@ -68,23 +68,24 @@ The middle-layer index is written to
       }
     }
 
-A Family is a family group: a group that carries ``signals``. It is filed
-under the System of each member, the top place of the member's place (``-``
-for a member with no place), and named by its id less a leading
-``<System>/``. A channel belongs to its ``on`` device and to every device it
-is an ``endpoint_of``. A channel's field is the family's ``signals`` key its
-address ends with (the longest), else its signal. A Field lists, for each
-member in ``CommonNames`` order (members by ``s``, then id), its one channel
-with that field, so ``ChannelNames`` aligns with ``DeviceList``; a channel
-whose field some member lacks or holds twice, or that has no field, is its own
-Field keyed by its address. A Field's ``_description`` is the family's
+A Family is a group: every group is filed under the System of each member,
+the top place of the member's place (``-`` for a member with no place), and
+named by its id less a leading ``<System>/``. A channel belongs to its ``on``
+device and to every device it is an ``endpoint_of``, and so to every Family
+whose group holds one of those devices. A channel's field is the family's
+``signals`` key its address ends with (the longest), else its signal. A Field
+lists, for each member in ``CommonNames`` order (members by ``s``, then id), its
+one channel with that field, so ``ChannelNames`` aligns with ``DeviceList``; a
+channel whose field some member lacks or holds twice, or that has no field, is
+its own Field keyed by its address. A Field's ``_description`` is the family's
 ``signals`` sentence under the longest key every one of its addresses ends
-with. ``_setup`` holds each member's last name (its common name) and its
-``DeviceList`` and ``ElementList`` attributes, each list only when every member
-states it. A channel of no family is left out; the build names how many
-channels it left out and how many it keyed by address in one note. A render
+with; a group without ``signals`` writes no Field sentence. ``_setup`` holds
+each member's last name (its common name) and its ``DeviceList`` and
+``ElementList`` attributes, each list only when every member states it. A
+channel of no family is left out; the build names how many channels it left
+out and how many it keyed by address in one note. A render
 carries the index when its ``channel_finder.pipeline_mode`` is
-``middle_layer``; a facility with no family group stops the build with
+``middle_layer``; a facility with no group stops the build with
 ``view-unsupported``, as does a host where DuckDB cannot load its
 full-text-search extension, which the database's search index needs, and a
 System or Family key the loader would not read back: one beginning with
@@ -656,15 +657,13 @@ def _families_by_system(
 ) -> dict[str, list[tuple[Mapping[str, Any], str, list[Mapping[str, Any]]]]]:
     """Each System's families: the group, its Family name and its members there.
 
-    A family group is filed under the System of each member, the top place of
+    A group is filed under the System of each member, the top place of
     the member's place (``-`` for a member with no place); its members under
     one System are ordered by ``s``, then id.
     """
     devices = {str(device["id"]): device for device in doc.get("devices", [])}
     split: dict[str, list[tuple[Mapping[str, Any], list[Mapping[str, Any]]]]] = defaultdict(list)
     for group in doc.get("groups", []):
-        if not group.get("signals"):
-            continue
         by_system: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for member_id in group.get("members") or []:
             device = devices.get(str(member_id))
@@ -823,7 +822,7 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
             _checked_key(name, group, "group", _MIDDLE_LAYER_INDEX)
             for member in members:
                 in_family.update(str(c["id"]) for c in channels_of.get(str(member["id"]), ()))
-            fields, keyed = _family_fields(members, channels_of, group["signals"])
+            fields, keyed = _family_fields(members, channels_of, group.get("signals") or {})
             by_address += keyed
             family: dict[str, Any] = {"_setup": _setup(members), **fields}
             description = group.get("description") or next(iter(group.get("names") or []), None)
@@ -851,7 +850,7 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
 
     Raises:
         FacilityBuildError: ``view-unsupported`` when the facility has no
-            family group, or when DuckDB cannot write the database (its
+            group, or when DuckDB cannot write the database (its
             full-text-search extension is neither installed nor reachable).
     """
     from osprey.facility.errors import FacilityBuildError
@@ -864,9 +863,9 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
             "view-unsupported",
             PIPELINE_MODE_KEY,
             [CONFIG_SOURCE],
-            "give at least one group `signals`, or select another channel_finder_mode",
+            "add at least one group, or select another channel_finder_mode",
             record_kind="path",
-            detail=f"selects {MIDDLE_LAYER_MODE} and no group carries `signals`",
+            detail=f"selects {MIDDLE_LAYER_MODE} and the facility has no group",
         )
     root.mkdir(parents=True, exist_ok=True)
     target = root / MIDDLE_LAYER_FILE

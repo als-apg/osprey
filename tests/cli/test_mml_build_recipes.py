@@ -9,7 +9,7 @@ makes:
 * **hello-world, middle layer.** The export enters the facility description
   first, past the stop ``osprey facility import mml`` makes over the preset's
   authored record sources, so the build writes the middle-layer index and its
-  DuckDB copy from the imported family groups. The export reads one corrector
+  DuckDB copy from the imported groups. The export reads one corrector
   readback for two setpoints, so the build stops ``pair-invalid``; the recipe
   applies the printed remedy as a ``fixes.yaml`` entry, pairing each later
   setpoint the line names with itself, and builds again. The rendered config

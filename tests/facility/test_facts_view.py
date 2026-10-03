@@ -132,15 +132,18 @@ def test_each_device_class_carries_its_count_aliases_and_families(
             "count": len(members),
             "aliases": sorted(authored.get(name, [])),
             "families": sorted(
-                group["id"]
-                for group in facility["groups"]
-                if group.get("signals") and members & set(group["members"])
+                group["id"] for group in facility["groups"] if members & set(group["members"])
             ),
         }
-    systems = {group["id"] for group in facility["groups"] if not group.get("signals")}
-    assert systems
-    for entry in classes.values():
-        assert not systems & set(entry["families"])
+    assert classes["BeamPositionMonitor"]["families"] == [
+        "BR/BPM",
+        "BR/DIAG",
+        "BTS/BPM",
+        "BTS/DIAG",
+        "SR/BPM",
+        "SR/DIAG",
+    ]
+    assert {"SR/MAG", "SR/QF"} <= set(classes["Quadrupole"]["families"])
     assert classes["Quadrupole"]["aliases"]
     assert classes["Quadrupole"]["families"]
     assert {"BPM", "PM"} <= set(classes["BeamPositionMonitor"]["aliases"])
@@ -195,7 +198,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
     assert QUAD not in classes
 
 
-def test_only_a_group_carrying_signal_sentences_is_a_family(tmp_path: Path) -> None:
+def test_both_groups_over_the_same_device_are_listed(tmp_path: Path) -> None:
     tree = plain_tree()
     tree["records/groups.yaml"] = [
         {"id": "SR/QF", "members": ["SR/Q1"], "signals": {"SP": "the quadrupole setpoint"}},
@@ -205,8 +208,18 @@ def test_only_a_group_carrying_signal_sentences_is_a_family(tmp_path: Path) -> N
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
     classes = facts_document(document, [TEXTURE], "p")["device_classes"]
 
-    assert classes[QUAD]["families"] == ["SR/QF"]
+    assert classes[QUAD]["families"] == ["SR/MAG", "SR/QF"]
     assert classes[BPM]["families"] == []
+
+
+def test_a_group_without_signals_is_a_family(tmp_path: Path) -> None:
+    tree = plain_tree()
+    tree["records/groups.yaml"] = [{"id": "SR/MAG", "members": ["SR/Q1"]}]
+
+    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
+    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+
+    assert classes[QUAD]["families"] == ["SR/MAG"]
 
 
 # --- zero sources --------------------------------------------------------------------

@@ -1,9 +1,9 @@
-"""The middle-layer channel-finder index: the facility's family groups as System -> Family -> Field.
+"""The middle-layer channel-finder index: the facility's groups as System -> Family -> Field.
 
 ``data/channel_finder/middle_layer.json`` carries
 ``"schema": "osprey.facility.channel_finder/1"``, which the middle-layer loader
-skips, and one System per top place. A Family is a group carrying ``signals``,
-named by its id less a leading ``<System>/``; its Fields list one channel per
+skips, and one System per top place. A Family is a group, named by its id
+less a leading ``<System>/``; its Fields list one channel per
 member, in ``CommonNames`` order, so ``ChannelNames`` aligns with
 ``DeviceList``. The DuckDB copy ``run_sql`` queries is written beside it.
 """
@@ -48,7 +48,7 @@ def _fields(family: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {key: value for key, value in family.items() if not key.startswith("_")}
 
 
-#: Two machines; one family group spans both, one lives on the first only.
+#: Two machines; one group spans both, one lives on the first only.
 SYNTHETIC: dict[str, Any] = {
     "places": [
         {"id": "M", "level": "machine", "description": "the machine"},
@@ -106,7 +106,7 @@ def test_a_family_is_filed_under_each_system_of_its_members() -> None:
     document, _left_out, _by_address = _document(SYNTHETIC)
 
     assert sorted(document) == ["M", "N", "schema"]
-    assert sorted(document["M"]) == ["QUAD", "_description"]
+    assert sorted(document["M"]) == ["ALL", "QUAD", "_description"]
     assert sorted(document["N"]) == ["M/QUAD", "_description"]
     assert _fields(document["N"]["M/QUAD"])["CURRENT/SP"]["ChannelNames"] == ["N:Q1:CURRENT:SP"]
 
@@ -116,7 +116,10 @@ def test_each_class_lists_the_families_the_index_files_its_members_under() -> No
 
     document, _left_out, _by_address = _document(SYNTHETIC)
 
-    assert middle_layer_families(SYNTHETIC) == {"Quadrupole": [("M", "QUAD"), ("N", "M/QUAD")]}
+    assert middle_layer_families(SYNTHETIC) == {
+        "Gauge": [("M", "ALL")],
+        "Quadrupole": [("M", "ALL"), ("M", "QUAD"), ("N", "M/QUAD")],
+    }
     for pairs in middle_layer_families(SYNTHETIC).values():
         assert all(family in document[system] for system, family in pairs)
 
@@ -171,9 +174,9 @@ def test_a_channel_in_no_family_is_left_out_and_counted() -> None:
         for address in field["ChannelNames"]
     }
 
-    assert "M:G1:P" not in addresses
+    assert "M:G1:P" in addresses
     assert "M:TUNE" not in addresses
-    assert (left_out, by_address) == (2, 0)
+    assert (left_out, by_address) == (1, 5)
 
 
 def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
@@ -204,6 +207,43 @@ def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
     }
     assert sorted(fields) == sorted(["X", *keyed])
     assert (left_out, by_address) == (0, 5)
+
+
+def test_a_group_without_signals_is_a_family_keyed_by_signal_else_address() -> None:
+    doc = {
+        "devices": [
+            {"id": "A", "place": "M", "names": ["a"], "s": 1.0},
+            {"id": "B", "place": "M", "names": ["b"], "s": 2.0},
+        ],
+        "groups": [{"id": "M/F", "description": "the family", "members": ["A", "B"]}],
+        "channels": [
+            {"id": "A:X", "on": {"device": "A"}, "signal": "current"},
+            {"id": "B:X", "on": {"device": "B"}, "signal": "current"},
+            {"id": "A:BARE", "on": {"device": "A"}},
+        ],
+    }
+
+    document, left_out, by_address = _document(doc)
+    family = document["M"]["F"]
+
+    assert family["_description"] == "the family"
+    assert _fields(family) == {
+        "current": {"ChannelNames": ["A:X", "B:X"]},
+        "A:BARE": {"ChannelNames": ["A:BARE"]},
+    }
+    assert (left_out, by_address) == (0, 1)
+
+
+def test_an_umbrella_group_is_its_own_family_beside_its_members_groups() -> None:
+    document, _left_out, _by_address = _document(SYNTHETIC)
+
+    quad = _fields(document["M"]["QUAD"])
+    umbrella = _fields(document["M"]["ALL"])
+    assert document["M"]["ALL"]["_description"] == "everything"
+    assert quad["CURRENT/SP"]["ChannelNames"] == ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"]
+    in_umbrella = {address for field in umbrella.values() for address in field["ChannelNames"]}
+    assert {"M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP", "M:G1:P"} <= in_umbrella
+    assert all("_description" not in field for field in umbrella.values())
 
 
 def test_a_shared_endpoint_is_listed_once_per_device_it_ends() -> None:
@@ -297,6 +337,7 @@ def test_the_loader_reads_the_index_back_and_skips_its_schema(tmp_path: Path) ->
     loaded = MiddleLayerDatabase(str(index))
 
     assert sorted(loaded.channel_map) == [
+        "M:G1:P",
         "M:Q1:CURRENT:SP",
         "M:Q1:TEMP",
         "M:Q2:CURRENT:SP",
@@ -334,7 +375,7 @@ def test_the_writer_writes_the_index_and_its_duckdb_database(tmp_path: Path) -> 
     assert json.loads(raw)["schema"] == CHANNEL_FINDER_SCHEMA
     con = duckdb.connect(str(written[1]), read_only=True)
     try:
-        assert con.execute("SELECT count(*) FROM channels").fetchone() == (5,)
+        assert con.execute("SELECT count(*) FROM channels").fetchone() == (6,)
         assert con.execute(
             "SELECT common_name FROM device_map WHERE system = 'M' ORDER BY device_index"
         ).fetchall() == [("Quad 1",), ("Quad 2",)]
@@ -367,7 +408,7 @@ def test_the_counts_are_one_note_per_build(
     assert captured.out == ""
     assert (
         captured.err
-        == "  view middle_layer: 2 channels in no family left out, 0 keyed by address\n"
+        == "  view middle_layer: 1 channels in no family left out, 5 keyed by address\n"
     )
 
 
@@ -385,17 +426,17 @@ def test_a_facility_whose_every_channel_is_filed_prints_no_note(
     assert capsys.readouterr() == ("", "")
 
 
-def test_no_family_group_stops_with_view_unsupported(tmp_path: Path) -> None:
+def test_no_group_stops_with_view_unsupported(tmp_path: Path) -> None:
     from osprey.facility.errors import FacilityBuildError
 
-    doc = {**SYNTHETIC, "groups": [{"id": "M/ALL", "members": ["M/Q1"]}]}
+    doc = {**SYNTHETIC, "groups": []}
     with pytest.raises(FacilityBuildError) as caught:
         _write(tmp_path, doc)
 
     assert caught.value.format_message() == (
         "facility: view-unsupported: path channel_finder.pipeline_mode — selects middle_layer "
-        "and no group carries `signals`; fix: give at least one group `signals`, or select "
-        "another channel_finder_mode"
+        "and the facility has no group; fix: add at least one group, or select another "
+        "channel_finder_mode"
     )
     assert not (tmp_path / "channel_finder").exists()
 
@@ -490,14 +531,29 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
 
 @pytest.mark.slow
 @pytest.mark.xdist_group("built_control_assistant")
-def test_the_demo_families_are_today_s_family_names(
+def test_every_demo_group_is_a_family(
     built_control_assistant: BuiltProject,
 ) -> None:
     document, left_out, by_address = _document(built_control_assistant.facility)
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    umbrellas = {"BR": ["DIAG", "MAG"], "BTS": ["DIAG", "MAG"], "SR": ["DIAG", "MAG", "RF", "VAC"]}
 
-    assert _families(document) == _families(golden)
-    assert by_address == 0
+    assert _families(document) == {
+        system: sorted([*families, *umbrellas[system]])
+        for system, families in _families(golden).items()
+    }
+    assert sum(len(families) for families in _families(document).values()) == 36
+    fields = [
+        field
+        for system, families in document.items()
+        if system != "schema"
+        for key, family in families.items()
+        if not key.startswith("_")
+        for field in _fields(family)
+    ]
+    assert len(fields) == 1172
+    assert by_address == 1011
+    assert left_out == 4
     assert left_out == sum(
         1
         for channel in built_control_assistant.facility["channels"]

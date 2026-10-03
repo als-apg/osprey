@@ -218,7 +218,7 @@ def test_every_middle_layer_family_cell_names_a_family_of_the_index(
     """A ``Family:`` cell names what ``list_families`` returns for that System.
 
     The facts keep each group's id as authored; the middle-layer index files a
-    family group under the System of each member and names it there. A token
+    group under the System of each member and names it there. A token
     the server never returns sends the agent to a family that does not exist,
     so each token is looked up in the index the middle-layer view writes for
     the same facility, under the System the cell names, or under the one
@@ -294,6 +294,7 @@ def test_a_cell_names_each_family_as_the_index_files_it_under_each_system():
     ``M/QUAD`` has members on Systems ``M`` and ``N``: the index files it as
     ``QUAD`` under ``M`` and as ``M/QUAD`` under ``N``, so the cell names both,
     each with its System. ``MAG/QF`` sits on System ``M`` and keeps its id.
+    ``M/ALL``, a group without ``signals``, is a family too: ``ALL`` under ``M``.
     """
     facility = {
         "places": [{"id": "M", "level": "machine"}, {"id": "N", "level": "machine"}],
@@ -311,8 +312,12 @@ def test_a_cell_names_each_family_as_the_index_files_it_under_each_system():
     }
 
     assert _middle_layer_families(facility) == {
-        "Quadrupole": [{"name": "QUAD", "system": "M"}, {"name": "M/QUAD", "system": "N"}],
-        "Sextupole": [{"name": "MAG/QF", "system": None}],
+        "Quadrupole": [
+            {"name": "ALL", "system": "M"},
+            {"name": "QUAD", "system": "M"},
+            {"name": "M/QUAD", "system": "N"},
+        ],
+        "Sextupole": [{"name": "ALL", "system": None}, {"name": "MAG/QF", "system": None}],
     }
 
 
