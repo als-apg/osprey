@@ -18,6 +18,13 @@ A group is the one a snapshot saw only while at least one of its snapshotted
 members, with the same pid, the same start time and the same group, is still
 in it. A process group id the kernel has since reused is therefore never
 signalled as the group that was seen.
+
+A group is named by what the agent launched: its leader, which is the shell
+wrapper the agent CLI starts a command through, reduced to the command line
+the wrapper was given (:func:`agent_command`). The name never comes from a
+process the command started in turn, so a loop is not named after whichever
+of its children is alive at the moment of a look, and the same command reads
+the same on every look while the group lives.
 """
 
 from __future__ import annotations
@@ -37,8 +44,13 @@ logger = get_logger("process_tree")
 
 # Every process with its parent, group, state, full start time and command line, no header.
 _PS_COMMAND = ["ps", "-A", "-o", "pid=,ppid=,pgid=,stat=,lstart=,command="]
-# Programs whose process is a wrapper around the command it runs, never the command.
+# Programs that are shells: the agent CLI starts every command through one of them.
 _SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"})
+# The script the agent CLI's shell wrapper runs: setup pieces joined by ``&&``, then
+# ``eval`` of the command as one word, then a record of the working directory.
+_WRAPPER_EVAL = " && eval "
+_WRAPPER_CWD = " && pwd -P >| "
+_WRAPPER_STDIN = " < /dev/null"
 # How long started processes get to exit on SIGTERM before SIGKILL.
 END_TERM_WAIT_S = 3.0
 # How long started processes get to disappear after SIGKILL.
@@ -47,11 +59,14 @@ END_KILL_WAIT_S = 2.0
 _POLL_S = 0.05
 # Longest label kept for a group.
 _LABEL_MAX = 40
-# Longest command line kept for a group.
+# Longest command line sent to the browser for a group.
 _COMMAND_MAX = 160
 
 # A file name with an extension, such as ``magnet_scan.py``.
 _FILE_NAME = re.compile(r"^[\w.-]+\.[A-Za-z0-9]{1,5}$")
+# What makes a command line shell syntax rather than one program and its arguments: a
+# separator, a pipe, a redirection, a substitution, quoting, or a leading assignment.
+_SHELL_SYNTAX = re.compile(r"[;|&<>()$`'\"\\]|^\S+=")
 
 
 @dataclass(frozen=True)
@@ -107,7 +122,18 @@ def _program(command: str) -> str:
     return os.path.basename(tokens[0]).lstrip("-") if tokens else ""
 
 
-def label_for(command: str) -> str:
+def _file_name(tokens: Sequence[str]) -> str | None:
+    """The first argument after the program that is not an option and names a file."""
+    for arg in tokens[1:]:
+        if arg.startswith("-"):
+            continue
+        name = os.path.basename(arg)
+        if _FILE_NAME.match(name):
+            return name
+    return None
+
+
+def name_for(command: str) -> str:
     """Return the name an operator knows a command line by.
 
     That is the first argument after the program that is not an option and
@@ -116,22 +142,83 @@ def label_for(command: str) -> str:
         python /x/magnet_scan.py --sector 3  ->  magnet_scan.py
         uv run python scan.py                ->  scan.py
         sleep 60                             ->  sleep
+
+    Never more than one file or program name: it carries none of the
+    command's arguments, so it is what a log line names a process by.
     """
     tokens = command.split()
     if not tokens:
         return ""
-    for arg in tokens[1:]:
-        if arg.startswith("-"):
-            continue
-        name = os.path.basename(arg)
-        if _FILE_NAME.match(name):
-            return _truncate(name, _LABEL_MAX)
+    return _truncate(_file_name(tokens) or _program(command), _LABEL_MAX)
+
+
+def label_for(command: str) -> str:
+    """Return what the operator is shown a command line as.
+
+    The file name the command runs when it runs one, else the program's
+    basename when the command is one program and its arguments, else the
+    command line itself — shell syntax such as a loop, a pipeline or an
+    assignment, which no one program names — cut to a fixed length::
+
+        python /x/magnet_scan.py --sector 3        ->  magnet_scan.py
+        sleep 60                                   ->  sleep
+        while true; do date >> /tmp/beat; done     ->  while true; do date >> /tmp/beat; done
+        bash -c 'while true; do sleep 1; done'     ->  bash -c 'while true; do sleep 1; done'
+    """
+    tokens = command.split()
+    if not tokens:
+        return ""
+    name = _file_name(tokens)
+    if name is not None:
+        return _truncate(name, _LABEL_MAX)
+    if _SHELL_SYNTAX.search(command):
+        return _truncate(command.strip(), _LABEL_MAX)
     return _truncate(_program(command), _LABEL_MAX)
+
+
+def _unquote(word: str) -> str:
+    """Return the text the wrapper's shell reads *word* as.
+
+    The agent CLI quotes a command as one bare word or as one single-quoted
+    word in which a single quote is written ``'"'"'``.
+    """
+    if not word.startswith("'"):
+        return word
+    body = word[1:-1] if len(word) > 1 and word.endswith("'") else word[1:]
+    return body.replace("'\"'\"'", "'")
+
+
+def agent_command(command: str) -> str | None:
+    """Return the command line *command* runs through the agent CLI's shell wrapper.
+
+    The agent CLI runs each command as ``<shell> -c <script>``: setup pieces
+    joined by ``&&``, then ``eval`` of the command as one quoted word, with
+    its standard input from ``/dev/null`` unless the command redirects it,
+    then a record of the working directory. The command line is that word,
+    unquoted. ``None`` when *command* is not such a wrapper.
+    """
+    parts = command.split(None, 2)
+    if len(parts) != 3 or parts[1] != "-c" or os.path.basename(parts[0]) not in _SHELLS:
+        return None
+    script = parts[2]
+    start = script.find(_WRAPPER_EVAL)
+    end = script.rfind(_WRAPPER_CWD)
+    if start < 0 or end < start:
+        return None
+    word = script[start + len(_WRAPPER_EVAL) : end].removesuffix(_WRAPPER_STDIN)
+    return _unquote(word)
 
 
 @dataclass(frozen=True)
 class ProcessGroup:
-    """A process group seen in a PTY child's tree."""
+    """A process group seen in a PTY child's tree.
+
+    ``command`` is the command line the agent launched the group with, held
+    whole so that a log line names the group by its file or program name
+    (:func:`name_for`) whatever the path length, and ``label`` is what the
+    operator is shown it as (:func:`label_for`). :meth:`to_json` cuts the
+    command line to a fixed length for the browser.
+    """
 
     pgid: int
     members: tuple[tuple[int, float], ...]  # (pid, started) of every member seen
@@ -139,21 +226,26 @@ class ProcessGroup:
     command: str
 
     def to_json(self) -> dict[str, str]:
-        return {"label": self.label, "command": self.command}
+        return {"label": self.label, "command": _truncate(self.command, _COMMAND_MAX)}
 
 
 def _group(pgid: int, rows: Sequence[ProcessRow]) -> ProcessGroup:
+    """Return the group *rows* make up, named by what the agent launched.
+
+    That is the group's leader, the process whose pid is the group id: the
+    one the agent CLI started for the command. Once the leader has exited
+    the earliest-started member stands in. A leader that is the agent CLI's
+    shell wrapper is reduced to the command line it was given. A process the
+    command started in turn never names the group.
+    """
     ordered = sorted(rows, key=lambda row: (row.started, row.pid))
-    named = next((row for row in ordered if _program(row.command) not in _SHELLS), None)
-    if named is not None:
-        label, command = label_for(named.command), named.command
-    else:
-        label, command = "shell command", ordered[0].command
+    leader = next((row for row in ordered if row.pid == pgid), ordered[0])
+    command = agent_command(leader.command) or leader.command
     return ProcessGroup(
         pgid=pgid,
         members=tuple((row.pid, row.started) for row in ordered),
-        label=label,
-        command=_truncate(command, _COMMAND_MAX),
+        label=label_for(command),
+        command=command,
     )
 
 
@@ -380,19 +472,21 @@ def end_processes(
 def describe_processes(rows: Sequence[ProcessRow]) -> str:
     """Return one line naming the processes *rows* name.
 
-    Command lines come from processes the agent started and may carry any
-    text, so their labels are logged through ``repr``.
+    A process is named by :func:`name_for`, a file or program name and never
+    the command line. Names come from processes the agent started and may
+    carry any text, so they are logged through ``repr``.
     """
-    return "; ".join(f"pid {row.pid} {label_for(row.command)!r}" for row in rows)
+    return "; ".join(f"pid {row.pid} {name_for(row.command)!r}" for row in rows)
 
 
 def describe(groups: Sequence[ProcessGroup]) -> str:
     """Return one line naming *groups*.
 
-    Labels and command lines come from processes the agent started and may
-    carry any text, so they are logged through ``repr``.
+    A group is named by :func:`name_for` of its command, a file or program
+    name and never the command line. Names come from processes the agent
+    started and may carry any text, so they are logged through ``repr``.
     """
     return "; ".join(
-        f"pgid {g.pgid} {g.label!r} (pids {', '.join(str(p) for p, _ in g.members)})"
+        f"pgid {g.pgid} {name_for(g.command)!r} (pids {', '.join(str(p) for p, _ in g.members)})"
         for g in groups
     )
