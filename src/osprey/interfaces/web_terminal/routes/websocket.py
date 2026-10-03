@@ -7,7 +7,6 @@ import copy
 import json
 import logging
 import os
-import re
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
@@ -62,14 +61,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# The loose shape check the resume path (``switch_session``) applies to ids
-# Claude itself wrote: any 36 characters drawn from ``[a-f0-9-]``, which is
-# fine for "does this look like a session file stem" and much too wide for a
-# key that is written to a store on disk and later decides a child process's
-# execution mode. The posture surface's *closed* key grammar is
-# :func:`~osprey.interfaces.web_terminal.session_key.is_posture_key`.
-_UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
 
 # ── Per-target runtime posture ───────────────────────────────────────────────
 #
@@ -816,7 +807,11 @@ async def terminal_ws(websocket: WebSocket):
     ``switch_session`` — of an id no surface holds and no transcript on disk
     names.
     Nothing is spawned for it: on the connect path the socket is then closed,
-    on the switch path the current session stays attached. The same frame,
+    on the switch path the current session stays attached. An id outside the
+    session-key grammar
+    (:func:`~osprey.interfaces.web_terminal.session_key.is_posture_key`) gets
+    the same answer on each path without the pool, the chat pool or the
+    transcript directory being consulted. The same frame,
     with the exit ``code``, replaces ``exit`` when a ``--resume`` child prints
     that it found no such conversation and quits.
     """
@@ -849,6 +844,17 @@ async def terminal_ws(websocket: WebSocket):
     channel = _TerminalChannel(websocket)
     token = channel.token
     state = session_handoff.get_state(app)
+
+    # A resume key outside the session-key grammar is refused before any
+    # lookup: no store will ever answer for it, and the pool, the chat pool
+    # and the transcript directory are not asked about a string that cannot
+    # be a key. Same answer as a key that names no session, so the client
+    # renders one state and drops the pointer that sent it.
+    if mode == "resume" and req_session_id and not is_posture_key(req_session_id):
+        logger.info("Refusing to resume %r: not a session key", req_session_id)
+        await channel.send_text(_transcript_missing_frame(req_session_id))
+        await channel.close()
+        return
 
     # The resume boundary. ``--resume`` on an id with no transcript exits at
     # once with "No conversation found", and a PTY that dies on attach is a
@@ -966,7 +972,7 @@ async def terminal_ws(websocket: WebSocket):
 
                     if msg.get("type") == "switch_session":
                         target_id = msg.get("session_id", "")
-                        if not _UUID_RE.match(target_id):
+                        if not is_posture_key(target_id):
                             await websocket.send_text(
                                 json.dumps(
                                     {
