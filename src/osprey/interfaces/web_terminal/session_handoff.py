@@ -59,9 +59,10 @@ and the entry point sequences them.
     ``interrupt=True`` the wait is cut short: the PTY is sent Escape and
     given :data:`INTERRUPT_GRACE_S` to show the interrupt marker or an idle
     edge, after which it is terminated — the operator asked for exactly that.
-    Before it reports a chat it would end idle or interrupted, the wait looks
-    for commands the agent started and refuses with the list unless the
-    request agreed to end them (``end_started``). The phase ends in a
+    Before either wait reports an agent it would end idle, and before it
+    interrupts one, it looks for commands the agent started and refuses with
+    the list unless the request agreed to end them (``end_started``). The
+    phase ends in a
     :class:`WaitOutcome` naming *why* the wait ended, and that outcome is
     what (c) is handed.
 
@@ -1266,7 +1267,9 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
     the transcript, or an idle edge, ends it as ``interrupted``; the grace
     expiring ends it as ``forced`` after ``terminate`` has been called on the
     PTY in a worker thread. A PTY already idle when an interrupt arrives is
-    not sent anything.
+    not sent anything. Before it interrupts, and before it reports a PTY
+    idle, the wait looks for commands the agent started and refuses with the
+    list unless the request agreed to end them (:func:`_check_started`).
     """
     assert plan.outgoing is not None
     session = cast("PtySession", plan.outgoing.session)
@@ -1287,8 +1290,14 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
             return WaitOutcome(REASON_EXITED)
         if await _pty_turn_idle(app, plan.key, memo):
             _raise_if_superseded(state, plan)
-            return WaitOutcome(REASON_INTERRUPTED if interrupt_sent else REASON_IDLE)
+            if interrupt_sent:
+                return WaitOutcome(REASON_INTERRUPTED)
+            await _check_started(state, plan, session.started_commands)
+            return WaitOutcome(REASON_IDLE)
         if plan.interrupt and not interrupt_sent:
+            # Escape is how the TUI itself stops a running command, so nothing
+            # is sent before the operator has agreed to end what it started.
+            await _check_started(state, plan, session.started_commands)
             try:
                 session.write_input(_INTERRUPT_KEY)
             except OSError as exc:

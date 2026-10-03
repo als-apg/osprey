@@ -37,6 +37,7 @@ from osprey.interfaces.web_terminal.chat_session_pool import (
     ChatSessionTerminatedError,
 )
 from osprey.interfaces.web_terminal.operator_session import POSTURE_SOURCE_LIVE
+from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.session_handoff import router
 from osprey.interfaces.web_terminal.session_handoff import (
@@ -368,6 +369,50 @@ def test_a_terminal_that_survives_its_kill_is_a_503(tmp_path):
     assert registry(app).get_session(KEY) is pty
     assert app.state.operator_registry.spawns == []
     assert_released(app)
+
+
+def _terminal_with_a_started_command(app: FastAPI) -> RecordingPty:
+    """Pool a terminal whose agent started one command that is still running."""
+    pty = RecordingPty()
+    pty.started = [
+        ProcessGroup(
+            pgid=4242,
+            members=((4242, 0.0),),
+            label="magnet_scan.py",
+            command="python magnet_scan.py",
+        )
+    ]
+    return pool_pty(app, pty)
+
+
+def test_a_started_commands_refusal_carries_the_commands(tmp_path):
+    """Stopping the terminal agent would end its commands: the 409 names them."""
+    app = make_app(tmp_path, hook=False)
+    pty = _terminal_with_a_started_command(app)
+
+    resp = post(app, interrupt=True)
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error"] == "handoff_started_commands"
+    assert detail["commands"] == [{"label": "magnet_scan.py", "command": "python magnet_scan.py"}]
+    assert pty.writes == []
+    assert pty.terminates == 0
+    assert app.state.operator_registry.spawns == []
+    assert_released(app)
+
+
+def test_end_started_lets_the_hand_off_proceed(tmp_path):
+    """The operator's consent: the same stop with ``end_started`` goes through."""
+    app = make_app(tmp_path, hook=False)
+    pty = _terminal_with_a_started_command(app)
+
+    resp = post(app, interrupt=True, end_started=True)
+
+    assert resp.status_code == 200
+    assert pty.writes == [b"\x1b"] or pty.terminates >= 1
+    assert registry(app).get_session(KEY) is None
+    assert app.state.operator_registry.spawns == [(KEY, str(tmp_path), None)]
 
 
 def test_a_spawn_the_pool_does_not_hold_is_a_503(tmp_path):
