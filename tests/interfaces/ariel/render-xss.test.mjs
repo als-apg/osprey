@@ -68,6 +68,9 @@ const JS_BREAKOUT_PAYLOAD = "'-alert(1)-'";
 /** Both payload shapes the onclick-conversion tests drive through the converted sinks. */
 const HOSTILE_PAYLOADS = [JS_BREAKOUT_PAYLOAD, PAYLOAD];
 
+/** A well-formed rendition URL, the only shape a viewable thumbnail is drawn from. */
+const RENDITION_URL = '/api/attachments/att-0123456789ab/rendition';
+
 /**
  * Assert the PAYLOAD reached `root` as inert text: none of these templates
  * legitimately produce an <img>/<svg>/<script> element on the fixtures used
@@ -165,9 +168,9 @@ describe('renderEntryDetail (entries-detail.js, via showEntry)', () => {
       source_system: PAYLOAD,
       raw_text: `${PAYLOAD}\ndetails ${PAYLOAD}`,
       keywords: [PAYLOAD],
-      // filename/type deliberately don't resolve as an image, so the only
-      // legitimate <img> in this suite's fixtures is the lightbox test's.
-      attachments: [{ filename: PAYLOAD, url: PAYLOAD, type: PAYLOAD }],
+      // No `viewable: true`, so this is a file card and the only legitimate
+      // <img> in this suite's fixtures is the lightbox test's.
+      attachments: [{ filename: PAYLOAD, url: PAYLOAD, mime_type: PAYLOAD }],
       summary: PAYLOAD,
       metadata: {
         logbook: PAYLOAD,
@@ -406,7 +409,7 @@ describe('cited-source link (components.js renderAnswerBox, via performSearch + 
 });
 
 describe('attachment thumbnail (entries-detail.js renderEntryDetail, via showEntry + delegated click)', () => {
-  test.each(HOSTILE_PAYLOADS)('carries lightbox url/filename %j as data only and opens the lightbox via delegated click', async (payload) => {
+  test.each(HOSTILE_PAYLOADS)('carries lightbox filename %j as data only and opens the lightbox via delegated click', async (payload) => {
     vi.mocked(entriesApi.get).mockResolvedValueOnce({
       entry_id: 'entry-1',
       timestamp: '2026-01-01T00:00:00Z',
@@ -414,7 +417,7 @@ describe('attachment thumbnail (entries-detail.js renderEntryDetail, via showEnt
       source_system: 'sys',
       raw_text: 'body',
       keywords: [],
-      attachments: [{ filename: payload, url: payload, type: 'image/png' }],
+      attachments: [{ filename: payload, viewable: true, display_url: RENDITION_URL, mime_type: 'image/png' }],
     });
 
     await showEntry('entry-1');
@@ -424,7 +427,7 @@ describe('attachment thumbnail (entries-detail.js renderEntryDetail, via showEnt
 
     const thumb = /** @type {HTMLElement|null} */ (modalBody.querySelector('[data-lightbox-url]'));
     expect(thumb, 'attachment thumbnail rendered').not.toBeNull();
-    expect(/** @type {HTMLElement} */ (thumb).dataset.lightboxUrl).toBe(payload);
+    expect(/** @type {HTMLElement} */ (thumb).dataset.lightboxUrl).toBe(RENDITION_URL);
     expect(/** @type {HTMLElement} */ (thumb).dataset.lightboxName).toBe(payload);
 
     /** @type {HTMLElement} */ (thumb).dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -432,6 +435,27 @@ describe('attachment thumbnail (entries-detail.js renderEntryDetail, via showEnt
     const overlay = document.getElementById('image-lightbox');
     expect(overlay, 'lightbox overlay opened via delegated click').not.toBeNull();
     expect(/** @type {Element} */ (overlay).textContent).toContain(payload);
+  });
+
+  test.each(HOSTILE_PAYLOADS)('a hostile display_url %j renders no thumbnail and no href', async (payload) => {
+    vi.mocked(entriesApi.get).mockResolvedValueOnce({
+      entry_id: 'entry-1',
+      timestamp: '2026-01-01T00:00:00Z',
+      author: 'author',
+      source_system: 'sys',
+      raw_text: 'body',
+      keywords: [],
+      attachments: [{ filename: 'beam.png', viewable: true, display_url: payload, mime_type: 'image/png' }],
+    });
+
+    await showEntry('entry-1');
+
+    const modalBody = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
+    assertNoEventHandlerAttributes(modalBody);
+    expect(modalBody.querySelector('img'), 'no thumbnail').toBeNull();
+    expect(modalBody.querySelector('[data-lightbox-url]'), 'no lightbox target').toBeNull();
+    expect(modalBody.querySelector('[href]'), 'no href').toBeNull();
+    expect(modalBody.textContent).toContain('beam.png');
   });
 });
 

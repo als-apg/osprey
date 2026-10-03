@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json as _json
 import os
+import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -19,7 +20,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
+from osprey.imaging.formats import OCTET_STREAM
+from osprey.interfaces.ariel.api.attachment_response import attachment_response
 from osprey.interfaces.ariel.api.schemas import (
+    AttachmentResponse,
     DiagnosticResponse,
     EmbeddingTableStatus,
     EntriesListResponse,
@@ -86,19 +90,120 @@ def _require_service(request: Request) -> ARIELSearchService:
     return cast("ARIELSearchService", service)
 
 
+_ATTACHMENT_ROUTE_PREFIX = "/api/attachments/"
+
+
+def _safe_url(url: Any) -> str | None:
+    """Return ``url`` when the page may link to it, else None.
+
+    Only absolute http(s) urls and this API's own attachment routes pass; any
+    other scheme (``javascript:``, ``file:``, ``data:``) or relative path is
+    dropped so it never reaches an ``href`` or ``src``.
+    """
+    if not isinstance(url, str) or not url:
+        return None
+    if url.startswith(_ATTACHMENT_ROUTE_PREFIX):
+        return url
+    lowered = url.lower()
+    if lowered.startswith(("http://", "https://")):
+        return url
+    return None
+
+
+def _display_url(
+    entry_id: str,
+    summary: Mapping[str, Any],
+    item: Mapping[str, Any],
+    *,
+    copy_state: bool,
+) -> str | None:
+    """Return where the web page shows or downloads one attachment from.
+
+    ===========================================  ==========================================
+    The attachment                               ``display_url``
+    ===========================================  ==========================================
+    viewable                                     ``/api/attachments/{id}/rendition``
+    copied, not viewable                         ``/api/attachments/{id}``
+    no copy state, native item                   ``/api/attachments/{id parsed from url}``
+    anything else with an absolute http(s) url   that url
+    anything else                                null
+    ===========================================  ==========================================
+
+    Args:
+        entry_id: The entry the attachment belongs to.
+        summary: The attachment's summary.
+        item: The JSONB attachment item the summary was built from.
+        copy_state: Whether the store holds attachment copy state.
+
+    Returns:
+        The display url, or None.
+    """
+    from osprey.services.ariel_search.attachments import attachment_id_for, is_native_item
+
+    attachment_id = summary.get("attachment_id")
+    if attachment_id and summary.get("viewable"):
+        return f"{_ATTACHMENT_ROUTE_PREFIX}{attachment_id}/rendition"
+    if attachment_id and summary.get("copy_status") == "copied":
+        return f"{_ATTACHMENT_ROUTE_PREFIX}{attachment_id}"
+    if not copy_state and is_native_item(item):
+        return f"{_ATTACHMENT_ROUTE_PREFIX}{attachment_id_for(entry_id, item)}"
+    return summary.get("url")
+
+
 def _entry_to_response(
     entry: Mapping[str, Any],
+    *,
+    attachment_rows: list[dict[str, Any]] | None,
+    model_id: str | None,
+    file_source: bool,
     score: float | None = None,
     highlights: list[str] | None = None,
 ) -> EntryResponse:
-    """Convert database entry to response model."""
-    from osprey.services.ariel_search.attachments import guess_mime_type
+    """Convert a database entry to the web response model.
 
-    # Enrich attachments that have no MIME type but have a filename
-    attachments = entry.get("attachments", [])
-    for att in attachments:
-        if not att.get("type") and att.get("filename"):
-            att["type"] = guess_mime_type(att["filename"])
+    Every attachment is kept, with its caption and visible text whole, matched
+    attachments first. ``_matched_via`` and ``_matched_attachment_ids`` on the
+    entry come out as ``matched_via`` and ``matched_attachment_ids``.
+
+    Args:
+        entry: The entry dict.
+        attachment_rows: The entry's ``attachment_files`` rows, or None when the
+            store holds no copy state.
+        model_id: The configured caption model id (``caption_model_id``).
+        file_source: Whether the entry's source resolves relative attachment
+            paths (``file_source_for``).
+        score: The search score, if any.
+        highlights: The search highlights, if any.
+
+    Returns:
+        The entry response.
+    """
+    from osprey.services.ariel_search.attachments.summaries import (
+        build_attachment_summary_pairs,
+    )
+
+    entry_id = str(entry.get("entry_id") or "")
+    pairs = build_attachment_summary_pairs(
+        entry,
+        attachment_rows,
+        None,
+        entry.get("_matched_attachment_ids", ()),
+        file_source=file_source,
+        full_captions=True,
+        model_id=model_id,
+    )
+    attachments = []
+    for summary, item in pairs:
+        display_url = _display_url(entry_id, summary, item, copy_state=attachment_rows is not None)
+        attachments.append(
+            AttachmentResponse(
+                **{
+                    **summary,
+                    "url": _safe_url(summary.get("url")),
+                    "display_url": _safe_url(display_url),
+                }
+            )
+        )
 
     # Render the three timestamp fields facility-local (ISO with offset) via the
     # shared egress helper, so the web wire format matches the MCP path
@@ -118,7 +223,71 @@ def _entry_to_response(
         keywords=entry.get("keywords", []),
         score=score,
         highlights=highlights or [],
+        matched_via=list(entry.get("_matched_via") or ()),
+        matched_attachment_ids=list(entry.get("_matched_attachment_ids") or ()),
     )
+
+
+async def _attachment_rows_by_entry(
+    service: ARIELSearchService, entries: list[Mapping[str, Any]]
+) -> Mapping[str, list[dict[str, Any]]] | None:
+    """Read the attachment rows of a page of entries in one call.
+
+    A ``DatabaseQueryError`` from the reader is treated as a store without copy
+    state: the entries keep their fallback summaries and the process logs the
+    schema-gap warning once, so a failing reader never costs a result.
+
+    Args:
+        service: The ARIEL service whose repository is read.
+        entries: The entries of the response; no read is made when empty.
+
+    Returns:
+        The rows per entry id, or None when the store holds no copy state.
+
+    Raises:
+        TypeError: If the reader returned something other than None or a dict.
+    """
+    from osprey.services.ariel_search.database.repository import read_attachment_rows
+
+    if not entries:
+        return {}
+    return await read_attachment_rows(service.repository, [e["entry_id"] for e in entries])
+
+
+async def _entry_responses(
+    service: ARIELSearchService,
+    entries: list[Mapping[str, Any]],
+    *,
+    with_scores: bool = False,
+) -> list[EntryResponse]:
+    """Convert a page of entries to responses with their attachment summaries.
+
+    Args:
+        service: The ARIEL service; its config resolves the caption model id and
+            the file-source flag, and its repository supplies the rows.
+        entries: The entries, in output order.
+        with_scores: Carry each entry's ``_score`` and ``_highlights`` across.
+
+    Returns:
+        One response per entry, in the given order.
+    """
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
+    from osprey.services.ariel_search.attachments.summaries import file_source_for
+
+    mapping = await _attachment_rows_by_entry(service, entries)
+    model_id = caption_model_id(service.config)
+    file_source = file_source_for(service.config)
+    return [
+        _entry_to_response(
+            e,
+            attachment_rows=None if mapping is None else mapping.get(e["entry_id"], []),
+            model_id=model_id,
+            file_source=file_source,
+            score=e.get("_score") if with_scores else None,
+            highlights=e.get("_highlights") if with_scores else None,
+        )
+        for e in entries
+    ]
 
 
 def _capabilities_modes(service: ARIELSearchService) -> list[str]:
@@ -181,12 +350,13 @@ def _resolve_search_mode(service: ARIELSearchService, requested: str | None) -> 
 def _validate_hybrid_overrides(advanced_params: dict[str, Any]) -> None:
     """Reject malformed hybrid per-query overrides before the search runs.
 
-    The search panel sends ``rerank`` from a toggle and ``candidate_limit`` from
-    a number field, so real traffic is already well-formed; a hand-written HTTP
-    caller is not. Both keys are forwarded to the hybrid module verbatim, where
-    ``"false"`` is truthy and would silently run the slow reranked path the
-    caller asked to skip, and a zero or negative width is a nonsense retrieval
-    size. The wording matches the config-side parser, so an operator who sets
+    The search panel sends ``rerank`` and ``include_images`` from toggles and
+    ``candidate_limit`` from a number field, so real traffic is already
+    well-formed; a hand-written HTTP caller is not. A string ``"false"`` is
+    truthy and would silently run the slow reranked path, or the picture lane,
+    the caller asked to skip, and a zero or negative width is a nonsense
+    retrieval size. Only the type is checked here: whether ``include_images``
+    takes effect is the search service's to resolve. The wording matches the config-side parser, so an operator who sets
     the same value badly in ``config.yml`` reads the same sentence either way.
 
     A missing key -- and an explicit ``null``, which is how JSON spells the same
@@ -203,6 +373,13 @@ def _validate_hybrid_overrides(advanced_params: dict[str, Any]) -> None:
         raise HTTPException(
             status_code=400,
             detail=f"rerank must be a boolean, got {rerank!r}",
+        )
+
+    include_images = advanced_params.get("include_images")
+    if include_images is not None and not isinstance(include_images, bool):
+        raise HTTPException(
+            status_code=400,
+            detail=f"include_images must be a boolean, got {include_images!r}",
         )
 
     candidate_limit = advanced_params.get("candidate_limit")
@@ -400,6 +577,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     Routes to the search module named by ``mode``; an unknown or disabled mode
     is rejected with 400 rather than falling back to another module.
     """
+    from osprey.services.ariel_search.database.repository import schema_behind_diagnostics
     from osprey.services.ariel_search.exceptions import PatternError, VocabularyError
 
     service = _require_service(request)
@@ -443,15 +621,22 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
 
         execution_time = int((time.time() - start_time) * 1000)
 
-        entries = [
-            _entry_to_response(e, score=e.get("_score"), highlights=e.get("_highlights"))
-            for e in result.entries
-        ]
+        # A fused hybrid result may hold image-only entries beyond the text
+        # hits; the page shows at most max_results, and its sources name
+        # exactly the entries shown.
+        page: list[Mapping[str, Any]] = [*result.entries[: search_req.max_results]]
+        sources = (
+            [entry["entry_id"] for entry in page]
+            if any("_matched_via" in entry for entry in page)
+            else list(result.sources)
+        )
+        entries = await _entry_responses(service, page, with_scores=True)
+        schema_behind = await schema_behind_diagnostics(service.repository)
 
         return SearchResponse(
             entries=entries,
             answer=result.answer,
-            sources=list(result.sources),
+            sources=sources,
             search_modes_used=list(result.search_modes_used),
             reasoning=result.reasoning,
             total_results=len(entries),
@@ -463,7 +648,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
                     message=d.message,
                     category=d.category,
                 )
-                for d in result.diagnostics
+                for d in (*result.diagnostics, *schema_behind)
             ],
             expanded_terms=_expanded_terms(result),
         )
@@ -527,7 +712,7 @@ async def list_entries(
             source_system=source_system,
         )
 
-        entry_responses = [_entry_to_response(e) for e in entries]
+        entry_responses = await _entry_responses(service, list(entries))
 
         total_pages = (total + page_size - 1) // page_size
 
@@ -553,7 +738,7 @@ async def get_entry(request: Request, entry_id: str) -> EntryResponse:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
 
-        return _entry_to_response(entry)
+        return (await _entry_responses(service, [entry]))[0]
 
     except HTTPException:
         raise
@@ -692,27 +877,58 @@ async def create_entry(
     )
 
 
+#: The one 404 detail both attachment routes answer; it never echoes the id.
+_PICTURE_NOT_AVAILABLE = "picture not available"
+
+
+def _require_attachment_id(attachment_id: str) -> None:
+    """Answer 404 for an id that is not an attachment id, before any lookup."""
+    from osprey.services.ariel_search.attachments import ATTACHMENT_ID_RE
+
+    if re.fullmatch(ATTACHMENT_ID_RE, attachment_id) is None:
+        raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+
+
 @router.get("/attachments/{attachment_id}")
 async def get_attachment(request: Request, attachment_id: str) -> Response:
-    """Serve an attachment file by its ID.
+    """Serve the stored original bytes of an attachment.
 
-    Returns the raw binary data with the correct Content-Type header.
+    The bytes are served through :func:`attachment_response`, which sniffs them:
+    a raster picture opens inline, anything else downloads as a file. The stored
+    MIME type is never used for serving.
     """
     service = _require_service(request)
+    _require_attachment_id(attachment_id)
 
     try:
-        attachment = await service.repository.get_attachment(attachment_id)
-        if not attachment:
-            raise HTTPException(status_code=404, detail=f"Attachment {attachment_id} not found")
+        original = await service.repository.get_attachment_original(attachment_id)
+        if not original:
+            raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+        return attachment_response(bytes(original["data"]), original.get("filename") or "file")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
-        return Response(
-            content=attachment["data"],
-            media_type=attachment.get("mime_type") or "application/octet-stream",
-            headers={
-                "Content-Disposition": f'inline; filename="{attachment.get("filename", "file")}"',
-            },
-        )
 
+@router.get("/attachments/{attachment_id}/rendition")
+async def get_attachment_rendition(request: Request, attachment_id: str) -> Response:
+    """Serve the stored display rendition of a viewable picture.
+
+    Only bytes already stored are served; this route never renders. An
+    attachment that is not viewable (no finished copy, a skipped or non-picture
+    row, no rendition yet) answers 404.
+    """
+    from osprey.services.ariel_search.attachments.formats import is_viewable
+
+    service = _require_service(request)
+    _require_attachment_id(attachment_id)
+
+    try:
+        row = await service.repository.get_rendition(attachment_id)
+        if not row or not is_viewable(row):
+            raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+        return attachment_response(bytes(row["rendition_bytes"]), row.get("filename") or "file")
     except HTTPException:
         raise
     except Exception as e:
@@ -728,30 +944,24 @@ async def _store_and_link_attachments(
 
     Files are stored in ARIEL's own attachment store and referenced on the entry
     record. The adapter write contract carries no attachments, so they are never
-    pushed to an external logbook — they live in ARIEL only.
+    pushed to an external logbook — they live in ARIEL only. Each picture is
+    stored with its rendition, so it is viewable as soon as the request returns.
 
     Returns:
         The number of attachments stored.
     """
-    from osprey.services.ariel_search.attachments import generate_attachment_id
+    from osprey.services.ariel_search.attachments import store_native_attachment
 
     attachment_infos: list[AttachmentInfo] = []
     for filename, mime_type, data in staged:
-        attachment_id = generate_attachment_id()
-        await service.repository.store_attachment(
-            entry_id=entry_id,
-            attachment_id=attachment_id,
-            filename=filename,
-            mime_type=mime_type,
-            data=data,
-            size_bytes=len(data),
-        )
         attachment_infos.append(
-            {
-                "url": f"/api/attachments/{attachment_id}",
-                "type": mime_type,
-                "filename": filename,
-            }
+            await store_native_attachment(
+                service.repository,
+                entry_id,
+                filename=filename,
+                declared_mime=mime_type,
+                data=data,
+            )
         )
 
     if attachment_infos:
@@ -814,7 +1024,12 @@ async def create_entry_with_attachments(
             validate_file_size(len(data), upload_file.filename)
         except AttachmentValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        mime_type = upload_file.content_type or guess_mime_type(upload_file.filename)
+        # A browser re-uploading a blob it downloaded declares octet-stream; that
+        # says nothing about the file, so the name decides instead.
+        declared = upload_file.content_type
+        if not declared or declared == OCTET_STREAM:
+            declared = guess_mime_type(upload_file.filename)
+        mime_type = declared
         staged.append((upload_file.filename, mime_type, data))
 
     facility_request = FacilityEntryCreateRequest(

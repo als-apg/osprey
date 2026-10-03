@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
+from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
 
 
@@ -102,6 +103,10 @@ def mock_ariel_service():
     service = AsyncMock()
     service.health_check = AsyncMock(return_value=(True, "Service healthy"))
     service.repository = AsyncMock()
+    # A schema that records attachment copy state: native writers prepare pictures.
+    service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(True, True))
+    # A migrated store with no attachment rows; tests that need rows replace it.
+    service.repository.get_attachment_rows = AsyncMock(return_value={})
 
     # Provide a real config so /api/capabilities works
     service.config = ARIELConfig.from_dict(
@@ -488,7 +493,8 @@ def test_upload_falls_back_local_with_attachments(client, mock_ariel_service):
     data = response.json()
     assert data["sync_status"] == "local_only"
     assert data["attachment_count"] == 1
-    mock_ariel_service.repository.store_attachment.assert_called_once()
+    mock_ariel_service.repository.insert_native_attachment.assert_called_once()
+    mock_ariel_service.repository.store_attachment.assert_not_called()
 
 
 def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_service):
@@ -529,7 +535,7 @@ def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_se
     assert data["sync_status"] == "pending_sync"
     assert data["attachment_count"] == 1
     # Files were stored in ARIEL and the operator is told they were not published.
-    mock_ariel_service.repository.store_attachment.assert_called_once()
+    mock_ariel_service.repository.insert_native_attachment.assert_called_once()
     assert "ariel" in data["message"].lower()
 
 
@@ -626,7 +632,14 @@ def test_entry_to_response_helper():
         "keywords": ["test"],
     }
 
-    result = routes._entry_to_response(entry, score=0.95, highlights=["highlight1"])
+    result = routes._entry_to_response(
+        entry,
+        attachment_rows=None,
+        model_id=None,
+        file_source=False,
+        score=0.95,
+        highlights=["highlight1"],
+    )
 
     assert result.entry_id == "test-123"
     assert result.author == "Test Author"
@@ -929,6 +942,71 @@ def test_capabilities_names_the_facility_zone(client):
     assert response.json()["facility_timezone"] == "Asia/Tokyo"
 
 
+def _attachments_config(*, image_embedding=True, hybrid=True, view=None) -> ARIELConfig:
+    """An ARIEL config for one attachments-capability scenario."""
+    section: dict = {
+        "database": {"uri": "postgresql://localhost:5432/test"},
+        "search_modules": {
+            "keyword": {"enabled": True},
+            "semantic": {"enabled": True, "model": "test-model"},
+            "hybrid": {"enabled": hybrid},
+        },
+        "enhancement_modules": {
+            "image_embedding": {"enabled": image_embedding},
+            "image_caption": {"enabled": True},
+        },
+    }
+    if view is not None:
+        section["attachments"] = {"view": {"enabled": view}}
+    return ARIELConfig.from_dict(section)
+
+
+def test_capabilities_reports_the_attachments_block(client, mock_ariel_service):
+    """The web payload carries the service's attachments block unchanged."""
+    from osprey.services.ariel_search.capabilities import attachments_capability
+
+    config = _attachments_config()
+    mock_ariel_service.config = config
+
+    block = client.get("/api/capabilities").json()["attachments"]
+
+    assert block == attachments_capability(config)
+    assert set(block) == {
+        "copy_on_ingest",
+        "formats",
+        "view",
+        "captions",
+        "picture_search",
+        "picture_search_unavailable",
+    }
+    assert block["view"] is True
+    assert block["picture_search"] is True
+
+
+@pytest.mark.parametrize("missing", ["image_embedding", "hybrid"])
+def test_capabilities_picture_search_needs_both_modules(client, mock_ariel_service, missing):
+    """Picture search is false when either image embeddings or hybrid is disabled."""
+    mock_ariel_service.config = _attachments_config(**{missing: False})
+
+    block = client.get("/api/capabilities").json()["attachments"]
+
+    assert block["picture_search"] is False
+
+
+def test_capabilities_reports_view_disabled(client, mock_ariel_service):
+    """``view.enabled: false`` flips only ``view``; the rest of the block is unchanged."""
+    mock_ariel_service.config = _attachments_config()
+    enabled = client.get("/api/capabilities").json()["attachments"]
+    mock_ariel_service.config = _attachments_config(view=False)
+    disabled = client.get("/api/capabilities").json()["attachments"]
+
+    assert enabled["view"] is True
+    assert disabled["view"] is False
+    assert {k: v for k, v in disabled.items() if k != "view"} == {
+        k: v for k, v in enabled.items() if k != "view"
+    }
+
+
 def test_put_config_backs_up_into_the_state_zone(client, tmp_path):
     """ARIEL's config save copies the old file into the agent-data state zone.
 
@@ -1185,3 +1263,568 @@ class TestConfigPanelTierGate:
         payload = client.get("/api/capabilities").json()
 
         assert payload["config_panel_enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# Native upload: the picture is stored with its rendition in the request
+# ---------------------------------------------------------------------------
+
+
+def _real_png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 12), (10, 120, 200)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _local_only(service) -> dict:
+    """Make ``service`` save uploads local-only and keep native rows in memory.
+
+    Returns:
+        The in-memory ``attachment_files`` rows, keyed by attachment id.
+    """
+    rows: dict[str, dict] = {}
+
+    async def insert_native_attachment(entry_id, attachment_id, **kw):
+        rendition = kw["rendition"]
+        rows[attachment_id] = {
+            "attachment_id": attachment_id,
+            "entry_id": entry_id,
+            "filename": kw["filename"],
+            "mime_type": kw["mime_type"],
+            "data": kw["data"],
+            "size_bytes": len(kw["data"]),
+            "copy_status": "copied",
+            "skip_reason": kw["skip_reason"],
+            "rendition_sha256": rendition.sha256 if rendition else None,
+        }
+
+    async def get_attachment_original(attachment_id):
+        row = rows.get(attachment_id)
+        if row is None or row["copy_status"] != "copied" or row["data"] is None:
+            return None
+        return {"filename": row["filename"], "mime_type": row["mime_type"], "data": row["data"]}
+
+    service.create_entry = AsyncMock(side_effect=NotImplementedError("read-only"))
+    service.repository.upsert_entry = AsyncMock()
+    service.repository.store_attachment = AsyncMock()
+    service.repository.get_entry = AsyncMock(
+        return_value={
+            "entry_id": "ariel-xyz",
+            "source_system": "ARIEL Web",
+            "timestamp": datetime.now(),
+            "author": "Anonymous",
+            "raw_text": "Test\n\nBody",
+            "attachments": [],
+            "metadata": {},
+        }
+    )
+    service.repository.insert_native_attachment = AsyncMock(side_effect=insert_native_attachment)
+    service.repository.get_attachment_original = AsyncMock(side_effect=get_attachment_original)
+    return rows
+
+
+def test_native_web_upload_picture_is_viewable_at_once(client, mock_ariel_service):
+    """The upload request itself renders the picture; no sync runs in between."""
+    from osprey.services.ariel_search.attachments.formats import is_viewable
+
+    rows = _local_only(mock_ariel_service)
+    png = _real_png()
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=[("files", ("beam.png", png, "image/png"))],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["attachment_count"] == 1
+    (row,) = rows.values()
+    assert row["data"] == png
+    assert is_viewable(row), row
+    mock_ariel_service.repository.store_attachment.assert_not_called()
+    linked = mock_ariel_service.repository.upsert_entry.call_args_list[-1].args[0]
+    assert linked["attachments"] == [
+        {
+            "url": f"/api/attachments/{row['attachment_id']}",
+            "type": "image/png",
+            "filename": "beam.png",
+        }
+    ]
+
+
+def test_native_web_upload_render_unavailable_stores_without_rendition(
+    client, mock_ariel_service, monkeypatch
+):
+    """An unavailable worker leaves a copied row the poll's render step finishes."""
+    from osprey.services.ariel_search.attachments import prepare as prepare_module
+
+    async def unavailable(*_args, **_kwargs):
+        raise prepare_module.RenderUnavailable("no worker")
+
+    monkeypatch.setattr(prepare_module, "prepare_picture", unavailable)
+    rows = _local_only(mock_ariel_service)
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=[("files", ("beam.png", _real_png(), "image/png"))],
+    )
+
+    assert response.status_code == 200
+    (row,) = rows.values()
+    assert row["copy_status"] == "copied"
+    assert row["skip_reason"] is None
+    assert row["rendition_sha256"] is None
+    assert row["mime_type"] == "image/png"
+
+
+def test_native_web_upload_on_schema_without_copy_state_uses_b1_columns(
+    client, mock_ariel_service, monkeypatch
+):
+    """A schema that predates copy state still accepts uploads, through the B1 insert."""
+    from osprey.services.ariel_search.attachments import prepare as prepare_module
+
+    async def never(*_args, **_kwargs):
+        raise AssertionError("prepare_picture must not run on a schema without copy state")
+
+    monkeypatch.setattr(prepare_module, "prepare_picture", never)
+    rows = _local_only(mock_ariel_service)
+    mock_ariel_service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(False, False))
+    png = _real_png()
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=[("files", ("beam.png", png, "image/png"))],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["attachment_count"] == 1
+    assert rows == {}
+    mock_ariel_service.repository.store_attachment.assert_awaited_once()
+    kwargs = mock_ariel_service.repository.store_attachment.call_args.kwargs
+    assert set(kwargs) == {
+        "entry_id",
+        "attachment_id",
+        "filename",
+        "mime_type",
+        "data",
+        "size_bytes",
+    }
+    assert kwargs["data"] == png
+    assert kwargs["mime_type"] == "image/png"
+
+
+@pytest.mark.parametrize("mode", ["images", "none"])
+def test_native_pdf_upload_keeps_data_whatever_copy_on_ingest(client, mock_ariel_service, mode):
+    """A PDF is kept as a copied row with ``reserved_format`` and is served back."""
+    mock_ariel_service.config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "attachments": {"copy_on_ingest": mode},
+        }
+    )
+    rows = _local_only(mock_ariel_service)
+    pdf = b"%PDF-1.4\n%fake pdf body\n%%EOF\n"
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=[("files", ("report.pdf", pdf, "application/pdf"))],
+    )
+
+    assert response.status_code == 200
+    (row,) = rows.values()
+    assert row["data"] == pdf
+    assert row["copy_status"] == "copied"
+    assert row["skip_reason"] == "reserved_format"
+    assert row["mime_type"] == "application/pdf"
+    assert row["rendition_sha256"] is None
+
+    served = client.get(f"/api/attachments/{row['attachment_id']}")
+    assert served.status_code == 200
+    assert served.content == pdf
+    assert served.headers["content-type"] == "application/octet-stream"
+    assert served.headers["content-disposition"] == "attachment; filename*=UTF-8''report.pdf"
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+
+# ---------------------------------------------------------------------------
+# Entry responses carry attachment summaries and a display url
+# ---------------------------------------------------------------------------
+
+_NATIVE_ID = "att-0123456789ab"
+_PNG_URL = "https://logbook.invalid/pic.png"
+_PDF_URL = "https://logbook.invalid/doc.pdf"
+
+
+def _att_entry(attachments, **extra):
+    """An entry dict carrying the given JSONB attachment items."""
+    entry = {
+        "entry_id": "e-att",
+        "source_system": "Test",
+        "timestamp": datetime(2024, 1, 1, 12, 0, 0),
+        "author": "op",
+        "raw_text": "text",
+        "attachments": attachments,
+        "metadata": {},
+        "created_at": datetime(2024, 1, 1, 12, 0, 0),
+        "updated_at": datetime(2024, 1, 1, 12, 0, 0),
+        "summary": None,
+        "keywords": [],
+    }
+    entry.update(extra)
+    return entry
+
+
+def _row(entry_id, item, *, mime_type, viewable):
+    """An ``attachment_files`` row for an item, copied, viewable or not."""
+    from osprey.services.ariel_search.attachments import attachment_id_for
+
+    return {
+        "attachment_id": attachment_id_for(entry_id, item),
+        "entry_id": entry_id,
+        "filename": item.get("filename"),
+        "mime_type": mime_type,
+        "copy_status": "copied",
+        "skip_reason": None,
+        "source_url": item.get("url"),
+        "rendition_sha256": "ab" * 32 if viewable else None,
+    }
+
+
+def _to_response(entry, rows):
+    return routes._entry_to_response(entry, attachment_rows=rows, model_id=None, file_source=False)
+
+
+def test_attachment_response_fields_are_summary_keys_plus_display_url():
+    from osprey.interfaces.ariel.api.schemas import AttachmentResponse
+    from osprey.services.ariel_search.attachments.summaries import SUMMARY_KEYS
+
+    assert set(AttachmentResponse.model_fields) == set(SUMMARY_KEYS) | {"display_url"}
+
+
+def test_display_url_viewable_is_rendition():
+    from osprey.services.ariel_search.attachments import attachment_id_for
+
+    item = {"url": _PNG_URL, "filename": "pic.png", "type": "image/png"}
+    entry = _att_entry([item])
+    rows = [_row("e-att", item, mime_type="image/png", viewable=True)]
+
+    att = _to_response(entry, rows).attachments[0]
+
+    att_id = attachment_id_for("e-att", item)
+    assert att.viewable is True
+    assert att.display_url == f"/api/attachments/{att_id}/rendition"
+    assert att.url == _PNG_URL
+
+
+def test_display_url_copied_not_viewable_is_original():
+    from osprey.services.ariel_search.attachments import attachment_id_for
+
+    item = {"url": _PDF_URL, "filename": "doc.pdf"}
+    entry = _att_entry([item])
+    rows = [_row("e-att", item, mime_type="application/pdf", viewable=False)]
+
+    att = _to_response(entry, rows).attachments[0]
+
+    assert att.viewable is False
+    assert att.copy_status == "copied"
+    assert att.display_url == f"/api/attachments/{attachment_id_for('e-att', item)}"
+
+
+def test_display_url_pending_falls_back_to_source_url():
+    item = {"url": _PNG_URL, "filename": "pic.png"}
+
+    att = _to_response(_att_entry([item]), []).attachments[0]
+
+    assert att.copy_status == "pending"
+    assert att.display_url == _PNG_URL
+
+
+def test_display_url_null_without_url():
+    item = {"url": "relative/pic.png", "filename": "pic.png"}
+
+    att = _to_response(_att_entry([item]), []).attachments[0]
+
+    assert att.url is None
+    assert att.display_url is None
+
+
+def test_display_url_unmigrated_native_item_is_original():
+    item = {"url": f"/api/attachments/{_NATIVE_ID}", "filename": "pic.png", "type": "image/png"}
+
+    att = _to_response(_att_entry([item]), None).attachments[0]
+
+    assert att.attachment_id is None
+    assert att.display_url == f"/api/attachments/{_NATIVE_ID}"
+
+
+def test_display_url_migrated_native_without_row_is_null():
+    """With copy state a native item without a finished row has nowhere to show."""
+    item = {"url": f"/api/attachments/{_NATIVE_ID}", "filename": "pic.png"}
+
+    att = _to_response(_att_entry([item]), []).attachments[0]
+
+    assert att.display_url is None
+
+
+@pytest.mark.parametrize(
+    "url", ["javascript:alert(1)", "file:///etc/passwd", "data:image/png;base64,AA"]
+)
+@pytest.mark.parametrize("rows", [None, []])
+def test_unsafe_urls_are_nulled(url, rows):
+    item = {"url": url, "filename": "x.png"}
+
+    att = _to_response(_att_entry([item]), rows).attachments[0]
+
+    assert att.url is None
+    assert att.display_url is None
+
+
+def test_safe_url_rule():
+    assert routes._safe_url("https://a.invalid/x") == "https://a.invalid/x"
+    assert routes._safe_url("HTTP://a.invalid/x") == "HTTP://a.invalid/x"
+    assert routes._safe_url("/api/attachments/att-0123456789ab") is not None
+    assert routes._safe_url("/other/path") is None
+    assert routes._safe_url("javascript:x") is None
+    assert routes._safe_url(None) is None
+
+
+def test_entry_response_carries_match_fields():
+    item = {"url": _PNG_URL, "filename": "pic.png"}
+    entry = _att_entry([item], _matched_via=("text", "caption"), _matched_attachment_ids=("a",))
+
+    result = _to_response(entry, [])
+
+    assert result.matched_via == ["text", "caption"]
+    assert result.matched_attachment_ids == ["a"]
+
+
+def test_entry_response_match_fields_default_empty():
+    result = _to_response(_att_entry([]), None)
+
+    assert result.matched_via == []
+    assert result.matched_attachment_ids == []
+
+
+def test_entry_response_orders_matched_attachment_first():
+    from osprey.services.ariel_search.attachments import attachment_id_for
+
+    first = {"url": "https://logbook.invalid/a.png", "filename": "a.png"}
+    second = {"url": "https://logbook.invalid/b.png", "filename": "b.png"}
+    second_id = attachment_id_for("e-att", second)
+    entry = _att_entry([first, second], _matched_attachment_ids=(second_id,))
+    rows = [
+        _row("e-att", first, mime_type="image/png", viewable=True),
+        _row("e-att", second, mime_type="image/png", viewable=True),
+    ]
+
+    atts = _to_response(entry, rows).attachments
+
+    assert [a.filename for a in atts] == ["b.png", "a.png"]
+    # display_url follows the item, not the position.
+    assert atts[0].display_url == f"/api/attachments/{second_id}/rendition"
+
+
+# -- routes: search, list, detail ------------------------------------------------
+
+
+def _seven_attachment_entry():
+    items = [
+        {"url": f"https://logbook.invalid/p{i}.png", "filename": f"p{i}.png", "type": "image/png"}
+        for i in range(7)
+    ]
+    items[0]["caption"] = "c" * 600
+    return _att_entry(items)
+
+
+def _route_entries(client, service, route, entry):
+    """Serve ``entry`` from the given route and return the response entries."""
+    if route == "search":
+        service.search.return_value.entries = [entry]
+        service.search.return_value.diagnostics = []
+        response = client.post("/api/search", json={"query": "q", "mode": "keyword"})
+        assert response.status_code == 200, response.text
+        return response.json()["entries"]
+    if route == "list":
+        service.repository.count_entries = AsyncMock(return_value=1)
+        service.repository.search_by_time_range = AsyncMock(return_value=[entry])
+        response = client.get("/api/entries")
+        assert response.status_code == 200, response.text
+        return response.json()["entries"]
+    service.repository.get_entry = AsyncMock(return_value=entry)
+    response = client.get(f"/api/entries/{entry['entry_id']}")
+    assert response.status_code == 200, response.text
+    return [response.json()]
+
+
+_ROUTES = ["search", "list", "detail"]
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_routes_return_every_attachment_and_whole_caption(client, mock_ariel_service, route):
+    entries = _route_entries(client, mock_ariel_service, route, _seven_attachment_entry())
+
+    atts = entries[0]["attachments"]
+    assert len(atts) == 7
+    captions = [a["caption"] for a in atts if a["caption"]]
+    assert captions == ["c" * 600]
+    assert "caption_truncated" not in atts[0]
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_routes_read_attachment_rows_once(client, mock_ariel_service, route):
+    _route_entries(client, mock_ariel_service, route, _seven_attachment_entry())
+
+    mock_ariel_service.repository.get_attachment_rows.assert_awaited_once_with(["e-att"])
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_routes_use_rows_for_display_url(client, mock_ariel_service, route):
+    item = {"url": _PNG_URL, "filename": "pic.png", "type": "image/png"}
+    row = _row("e-att", item, mime_type="image/png", viewable=True)
+    mock_ariel_service.repository.get_attachment_rows = AsyncMock(return_value={"e-att": [row]})
+
+    att = _route_entries(client, mock_ariel_service, route, _att_entry([item]))[0]["attachments"][0]
+
+    assert att["display_url"] == f"/api/attachments/{row['attachment_id']}/rendition"
+    assert set(att) == set(routes.AttachmentResponse.model_fields)
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_routes_unmigrated_store_returns_fallback_summaries(client, mock_ariel_service, route):
+    native = {"url": f"/api/attachments/{_NATIVE_ID}", "filename": "n.png", "type": "image/png"}
+    remote = {"url": _PNG_URL, "filename": "pic.png", "type": "image/png"}
+    mock_ariel_service.repository.get_attachment_rows = AsyncMock(return_value=None)
+
+    atts = _route_entries(client, mock_ariel_service, route, _att_entry([native, remote]))[0][
+        "attachments"
+    ]
+
+    assert [a["copy_status"] for a in atts] == ["pending", "pending"]
+    assert all(a["viewable"] is False and a["attachment_id"] is None for a in atts)
+    assert atts[0]["display_url"] == f"/api/attachments/{_NATIVE_ID}"
+    assert atts[1]["display_url"] == _PNG_URL
+
+
+@pytest.mark.parametrize("route", _ROUTES)
+def test_routes_failing_reader_equals_unmigrated(client, mock_ariel_service, route):
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    native = {"url": f"/api/attachments/{_NATIVE_ID}", "filename": "n.png", "type": "image/png"}
+    entry = _att_entry([native])
+    mock_ariel_service.repository.get_attachment_rows = AsyncMock(return_value=None)
+    unmigrated = _route_entries(client, mock_ariel_service, route, dict(entry))
+
+    mock_ariel_service.repository.get_attachment_rows = AsyncMock(
+        side_effect=DatabaseQueryError("boom")
+    )
+    with patch(
+        "osprey.services.ariel_search.database.repository.warn_attachment_schema_gap_once"
+    ) as warn:
+        failing = _route_entries(client, mock_ariel_service, route, dict(entry))
+
+    warn.assert_called_once_with()
+    assert failing[0]["attachments"] == unmigrated[0]["attachments"]
+
+
+def test_failing_reader_logs_schema_warning_once_per_process(
+    client, mock_ariel_service, monkeypatch, caplog
+):
+    import logging
+
+    from osprey.services.ariel_search.database import repository as repository_module
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    monkeypatch.setattr(repository_module, "_attachment_schema_gap_warned", False)
+    caplog.set_level(logging.WARNING, logger="ariel")
+    mock_ariel_service.repository.get_attachment_rows = AsyncMock(
+        side_effect=DatabaseQueryError("boom")
+    )
+
+    for _ in range(2):
+        _route_entries(client, mock_ariel_service, "detail", _seven_attachment_entry())
+
+    gap = [
+        r
+        for r in caplog.records
+        if r.getMessage() == repository_module.ATTACHMENT_SCHEMA_GAP_WARNING
+    ]
+    assert len(gap) == 1
+
+
+def test_routes_skip_reader_without_entries(client, mock_ariel_service):
+    mock_ariel_service.repository.count_entries = AsyncMock(return_value=0)
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=[])
+
+    assert client.get("/api/entries").status_code == 200
+    assert client.post("/api/search", json={"query": "q"}).status_code == 200
+
+    mock_ariel_service.repository.get_attachment_rows.assert_not_awaited()
+
+
+def test_unmigrated_native_display_url_is_served_by_original_route(client, mock_ariel_service):
+    """The native picture stays reachable between upgrade and migrate."""
+    native = {"url": f"/api/attachments/{_NATIVE_ID}", "filename": "n.png", "type": "image/png"}
+    mock_ariel_service.repository.get_attachment_rows = AsyncMock(return_value=None)
+    mock_ariel_service.repository.get_attachment_original = AsyncMock(
+        return_value={"filename": "n.png", "mime_type": "image/png", "data": _real_png()}
+    )
+
+    att = _route_entries(client, mock_ariel_service, "detail", _att_entry([native]))[0][
+        "attachments"
+    ][0]
+    served = client.get(att["display_url"])
+
+    assert served.status_code == 200
+    mock_ariel_service.repository.get_attachment_original.assert_awaited_once_with(_NATIVE_ID)
+
+
+def _fused_entry(entry_id, via):
+    return _att_entry([], entry_id=entry_id, _score=0.5, _matched_via=list(via))
+
+
+def test_search_hybrid_page_and_sources_stop_at_max_results(client, mock_ariel_service):
+    """A lane admitting image-only hits beyond max_results: the page holds max_results.
+
+    The route slices the fused entries itself and names exactly the shown
+    entries in ``sources``, so ``total_results == len(sources)``.
+    """
+    _enable_hybrid(mock_ariel_service)
+    entries = [_fused_entry(f"T{i}", ["text"]) for i in range(1, 11)] + [
+        _fused_entry(f"I{i}", ["image"]) for i in range(1, 5)
+    ]
+    result = mock_ariel_service.search.return_value
+    result.entries = tuple(entries)
+    result.sources = tuple(e["entry_id"] for e in entries)
+    result.search_modes_used = ("hybrid",)
+    result.diagnostics = ()
+    result.expanded_terms = ()
+
+    response = client.post("/api/search", json={"query": "q", "mode": "hybrid", "max_results": 10})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_results"] == len(data["sources"]) == len(data["entries"]) == 10
+    assert data["sources"] == [e["entry_id"] for e in data["entries"]]
+    assert data["sources"] == [f"T{i}" for i in range(1, 11)]
+
+
+def test_search_keeps_the_service_sources_without_matched_via(client, mock_ariel_service):
+    """Without a fused result the route reports the service's sources unchanged."""
+    entries = [_att_entry([], entry_id=f"e{i}", _score=0.5) for i in range(2)]
+    result = mock_ariel_service.search.return_value
+    result.entries = tuple(entries)
+    result.sources = ("e0", "e1", "cited")
+    result.diagnostics = ()
+    result.expanded_terms = ()
+
+    response = client.post("/api/search", json={"query": "q", "mode": "keyword", "max_results": 10})
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == ["e0", "e1", "cited"]

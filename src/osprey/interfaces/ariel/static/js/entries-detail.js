@@ -13,7 +13,62 @@ import {
   renderErrorState,
   escapeHtml,
 } from './components.js';
-import { isImageAttachment, parseEntryText } from './entries-helpers.js';
+import { parseEntryText } from './entries-helpers.js';
+
+/**
+ * Return `u` when it is safe to place in an href or src built from
+ * attachment data, else null. Safe means an absolute http(s) URL or a path
+ * on this server's attachment routes; every other scheme (javascript:,
+ * data:, vbscript:, protocol-relative //host, ...) is refused.
+ * @param {unknown} u - Candidate URL
+ * @returns {string|null} The URL unchanged, or null when it is not safe
+ */
+export function safeHref(u) {
+  if (typeof u !== 'string') return null;
+  if (/^https?:\/\//i.test(u) || u.startsWith('/api/attachments/')) return u;
+  return null;
+}
+
+/**
+ * Render one attachment as a thumbnail card or a file card. A thumbnail is
+ * drawn only when the server marks the attachment `viewable: true` and its
+ * `display_url` is safe; everything else is a file card, linked to the
+ * download when `display_url` is safe and link-less otherwise.
+ * @param {any} att - Attachment from the entry response
+ * @returns {string} HTML string
+ */
+function renderAttachmentCard(att) {
+  const href = safeHref(att.display_url);
+  const escapedName = escapeHtml(att.filename || 'attachment');
+  if (att.viewable === true && href) {
+    const escapedUrl = escapeHtml(href);
+    return `
+    <div class="card" style="width: 150px; cursor: pointer;"
+         data-lightbox-url="${escapedUrl}" data-lightbox-name="${escapedName}">
+      <div class="card-body" style="padding: 12px; text-align: center;">
+        <img src="${escapedUrl}" alt="${escapedName}"
+             style="width: 126px; height: 100px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 8px;">
+        <div class="truncate text-sm">${escapedName}</div>
+        <div class="text-xs text-muted">${escapeHtml(att.mime_type || 'image')}</div>
+      </div>
+    </div>`;
+  }
+  const body = `
+    <div class="card-body" style="padding: 12px; text-align: center;">
+      <div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>
+      <div class="truncate text-sm">${escapedName}</div>
+      <div class="text-xs text-muted">${escapeHtml(att.mime_type || 'file')}</div>
+    </div>`;
+  if (!href) {
+    return `
+  <div class="card" style="width: 150px; color: inherit;">${body}
+  </div>`;
+  }
+  return `
+  <a href="${escapeHtml(href)}" target="_blank" rel="noopener"
+     class="card" style="width: 150px; text-decoration: none; color: inherit; cursor: pointer;">${body}
+  </a>`;
+}
 
 // Current entry detail
 /** @type {any} */
@@ -32,7 +87,7 @@ export function initEntryDetail() {
   modalBody?.addEventListener('click', (e) => {
     const thumb = /** @type {HTMLElement} */ (e.target).closest('[data-lightbox-url]');
     if (!thumb) return;
-    const url = /** @type {HTMLElement} */ (thumb).dataset.lightboxUrl;
+    const url = safeHref(/** @type {HTMLElement} */ (thumb).dataset.lightboxUrl);
     const name = /** @type {HTMLElement} */ (thumb).dataset.lightboxName;
     if (url) showImageLightbox(url, name || '');
   });
@@ -98,33 +153,7 @@ function renderEntryDetail(container, entry) {
             <div class="entry-detail-content" style="margin-top: 24px;">
               <h3>Attachments (${attachments.length})</h3>
               <div style="display: flex; flex-wrap: wrap; gap: 16px;">
-                ${attachments.map((/** @type {any} */ att) => {
-                  const image = isImageAttachment(att);
-                  const url = att.url || '#';
-                  const escapedUrl = escapeHtml(url);
-                  const escapedName = escapeHtml(att.filename || 'attachment');
-                  if (image) {
-                    return `
-                    <div class="card" style="width: 150px; cursor: pointer;"
-                         data-lightbox-url="${escapedUrl}" data-lightbox-name="${escapedName}">
-                      <div class="card-body" style="padding: 12px; text-align: center;">
-                        <img src="${escapedUrl}" alt="${escapedName}"
-                             style="width: 126px; height: 100px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 8px;">
-                        <div class="truncate text-sm">${escapedName}</div>
-                        <div class="text-xs text-muted">${escapeHtml(att.type || 'image')}</div>
-                      </div>
-                    </div>`;
-                  }
-                  return `
-                  <a href="${escapedUrl}" target="_blank" rel="noopener"
-                     class="card" style="width: 150px; text-decoration: none; color: inherit; cursor: pointer;">
-                    <div class="card-body" style="padding: 12px; text-align: center;">
-                      <div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>
-                      <div class="truncate text-sm">${escapedName}</div>
-                      <div class="text-xs text-muted">${escapeHtml(att.type || 'file')}</div>
-                    </div>
-                  </a>`;
-                }).join('')}
+                ${attachments.map(renderAttachmentCard).join('')}
               </div>
             </div>
           ` : ''}

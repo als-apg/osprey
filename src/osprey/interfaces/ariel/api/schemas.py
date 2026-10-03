@@ -10,13 +10,25 @@ from pydantic import BaseModel, Field
 
 
 class AttachmentResponse(BaseModel):
-    """Attachment metadata in response."""
+    """One attachment of an entry: its summary plus the web-only ``display_url``.
 
-    url: str
-    type: str | None = None
+    The fields other than ``display_url`` are the attachment summary keys
+    (``SUMMARY_KEYS``). ``url`` is the attachment's absolute http(s) source url,
+    when it has one; ``display_url`` is where the web page shows or downloads
+    the attachment from, or null when there is nowhere to.
+    """
+
+    attachment_id: str | None = None
     filename: str | None = None
-    thumbnail_url: str | None = None
+    mime_type: str | None = None
+    viewable: bool = False
+    copy_status: str | None = None
+    skip_reason: str | None = None
     caption: str | None = None
+    caption_source: str | None = None
+    visible_text: str | None = None
+    url: str | None = None
+    display_url: str | None = None
 
 
 class EntryResponse(BaseModel):
@@ -41,6 +53,9 @@ class EntryResponse(BaseModel):
     keywords: list[str] = []
     score: float | None = None
     highlights: list[str] = []
+    # How a search found the entry, and which of its attachments it matched.
+    matched_via: list[str] = []
+    matched_attachment_ids: list[str] = []
 
 
 class SearchRequest(BaseModel):

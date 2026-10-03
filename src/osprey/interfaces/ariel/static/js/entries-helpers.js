@@ -6,20 +6,6 @@
  */
 
 /**
- * Check if an attachment is an image, inferring from filename when type is missing.
- * @param {{type?: string, filename?: string}} att - Attachment object with optional type and filename
- * @returns {boolean} True if the attachment is an image
- */
-export function isImageAttachment(att) {
-  if (att.type && att.type.startsWith('image/')) return true;
-  if (att.filename) {
-    const ext = (att.filename.split('.').pop() || '').toLowerCase();
-    return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
-  }
-  return false;
-}
-
-/**
  * Format file size in human-readable format.
  * @param {number} bytes - Size in bytes
  * @returns {string} Formatted size

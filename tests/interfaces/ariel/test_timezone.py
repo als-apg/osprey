@@ -20,6 +20,9 @@ from osprey.services.ariel_search.models import DEFAULT_LISTING_TEXT_CHARS
 
 TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST → stable offset
 
+# A store without copy state, no caption model, no file source.
+_NO_ROWS = {"attachment_rows": None, "model_id": None, "file_source": False}
+
 
 @pytest.fixture()
 def facility_tokyo(monkeypatch):
@@ -47,8 +50,15 @@ def _entry() -> dict:
 
 @pytest.mark.usefixtures("facility_tokyo")
 def test_web_and_mcp_render_same_facility_local_timestamp():
-    web = _entry_to_response(_entry())
-    mcp = serialize_entry(_entry(), text_limit=DEFAULT_LISTING_TEXT_CHARS)
+    web = _entry_to_response(_entry(), **_NO_ROWS)
+    mcp = serialize_entry(
+        _entry(),
+        text_limit=DEFAULT_LISTING_TEXT_CHARS,
+        attachment_limit=0,
+        attachment_rows=None,
+        model_id=None,
+        file_source=False,
+    )
 
     # Midnight UTC → 09:00 Tokyo with an explicit +09:00 offset, identical on both.
     assert web.timestamp == "2026-06-01T09:00:00+09:00"
@@ -58,7 +68,7 @@ def test_web_and_mcp_render_same_facility_local_timestamp():
 @pytest.mark.usefixtures("facility_tokyo")
 def test_qmd_body_states_the_web_timestamp():
     """The qmd mirror body carries the exact string the web API returns."""
-    web = _entry_to_response(_entry())
+    web = _entry_to_response(_entry(), **_NO_ROWS)
 
     assert web.timestamp == "2026-06-01T09:00:00+09:00"
     assert web.timestamp in render_entry(_entry())
@@ -68,7 +78,7 @@ def test_qmd_body_states_the_web_timestamp():
 def test_web_localizes_all_three_timestamp_fields():
     """timestamp AND created_at/updated_at must localize — leaving two of three in
     UTC would reintroduce an intra-object asymmetry on the same entry."""
-    web = _entry_to_response(_entry())
+    web = _entry_to_response(_entry(), **_NO_ROWS)
     assert web.created_at.endswith("+09:00")
     assert web.updated_at.endswith("+09:00")
 
@@ -78,5 +88,5 @@ def test_web_handles_naive_or_missing_gracefully():
     """Naive datetimes degrade to str (no crash); the response stays a string."""
     entry = _entry()
     entry["timestamp"] = datetime(2026, 6, 1, 0, 0, 0)  # naive
-    web = _entry_to_response(entry)
+    web = _entry_to_response(entry, **_NO_ROWS)
     assert isinstance(web.timestamp, str)
