@@ -1122,13 +1122,12 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
 
     ``device_page_size`` is a SECOND contract: omit-when-EQUALS-DEFAULT. It is
     not omit-when-unset like ``plan_dir`` and ``excluded_plans``, because the
-    key is never unset — it is an ``int`` with a
-    dataclass default, so "unset" and "authored at the default" arrive here as
-    the same value and cannot be told apart. Writing it unconditionally would
-    put a line into every existing project's config.yml and an env var into
-    every rendered bridge, changing renders that are otherwise unchanged; so
-    the line is written only when the profile asks for something OTHER than the
-    default. A profile that authors the default explicitly therefore renders no
+    key is never unset — it is an ``int`` with a dataclass default, so "unset"
+    and "authored at the default" arrive here as the same value and cannot be
+    told apart. Writing it unconditionally would put a line into every existing
+    project's config.yml and an env var into every rendered bridge, changing
+    renders that are otherwise unchanged; so the line is written only when the
+    profile asks for something OTHER than the default. A profile that authors the default explicitly therefore renders no
     line at all — and that is exactly right, because the bridge falls back to
     the same default when the env var is absent, so the two spellings deploy
     identical behaviour. The comparison is against
