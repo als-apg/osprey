@@ -58,6 +58,27 @@ def test_a_started_group_and_the_roots_own_group_are_found(tmp_path):
         kill_quietly(pids)
 
 
+def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
+    """Groups whose earliest members started in the same second come back by pgid."""
+    # ``ps`` reports whole seconds, so commands started within one second compare equal.
+    second = 1_700_000_000.0
+    rows = {
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        for pid, ppid, pgid, started, command in [
+            (4202, 1, 4202, second - 5.0, "agent"),
+            (4208, 4202, 4208, second, "python orbit_poll.py"),
+            (4201, 4202, 4201, second, "python magnet_scan.py"),
+        ]
+    }
+    monkeypatch.setattr(process_tree, "snapshot", lambda: rows)
+    monkeypatch.setattr(process_tree.os, "getpgrp", lambda: 100)
+
+    groups = process_tree.tree_groups(4202)
+
+    assert [g.pgid for g in groups] == [4202, 4201, 4208]
+    assert [g.label for g in groups] == ["agent", "magnet_scan.py", "orbit_poll.py"]
+
+
 @pytest.mark.parametrize(
     ("command", "label"),
     [

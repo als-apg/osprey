@@ -163,7 +163,9 @@ def tree_groups(root: int) -> list[ProcessGroup]:
     *root* is included. The server's own group and groups 0 and 1 are never
     returned. A group's members are every process in it, including one already
     reparented out of the tree, since a signal to the group reaches it.
-    Ordered by earliest member start.
+    Ordered by earliest member start, then by pgid: ``ps`` reports start times
+    in whole seconds, so groups started within one second tie on time, and the
+    pgid keeps their order the same from one look to the next.
 
     Must run while *root* is alive: a process that put itself in a new session
     keeps its parent link only until its parent exits.
@@ -189,7 +191,7 @@ def tree_groups(root: int) -> list[ProcessGroup]:
         for pgid in pgids
         if pgid > 1
     ]
-    return sorted(groups, key=lambda g: min(started for _, started in g.members))
+    return sorted(groups, key=lambda g: (min(started for _, started in g.members), g.pgid))
 
 
 def started_groups(root: int) -> list[ProcessGroup]:
@@ -212,7 +214,7 @@ def server_group_members(root: int) -> list[ProcessRow]:
     A process in the server's own group cannot be ended through its group,
     which :func:`tree_groups` never returns and :func:`end_groups` never
     signals, so these are ended one by one with :func:`end_processes`.
-    *root* itself and the server are never listed. Ordered by start time.
+    *root* itself and the server are never listed. Ordered by start time, then pid.
     Must run while *root* is alive, for the same reason as :func:`tree_groups`.
     """
     rows = snapshot()
