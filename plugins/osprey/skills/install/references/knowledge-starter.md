@@ -14,7 +14,7 @@ Each starter file carries one of five provenances, and the ledger records which:
 | ported | the facility's own file, copied in unchanged |
 | stated | written from the user's own words, marked `status: unverified` |
 | derived | distilled from a source the user named, marked `status: unverified`, carrying `source: <path>`; no fact in it that is not in that source |
-| built | produced by an OSPREY verb from facility input (`channel-finder build-database`, `knowledge build-ttl`, `seed-from-ttl`, a build's seeded directories) |
+| built | produced by an OSPREY verb from facility input (`knowledge build-ttl`, `seed-from-ttl`, a build's seeded directories) |
 
 There is no sixth. Do not fill a missing value with a plausible one, and do not
 derive from a document the user did not name. A thing with no source gets no file.
@@ -126,7 +126,6 @@ through OSPREY verbs — nothing in it is typed by the agent.
 | Source named | Chain | Lands as |
 | --- | --- | --- |
 | Documents (a wiki export, operations manuals, design reports) | One `derived` stub per subsystem, device or procedure the documents describe, filed under the matching OKF directory; then `regen-index` and `validate` | `derived`, this facility |
-| A channel list as CSV (`address, description, family_name, instances, sub_channel`) | `osprey channel-finder build-database --csv <file> --output data/channel_databases/<name>.json` (without `--output` it lands at `processed/channel_database.json` in the profile's data tree) | `built`, this facility |
 | An IOC database or a channel database already in OSPREY's format | Copy in unchanged, then `osprey knowledge build-ttl data/<facility>.ttl --channel-db <hierarchical.json> --descriptions <in_context.json> --facility <prefix>`; set `config.services.graphdb.ttl_path=./data/<facility>.ttl`. `--facility` is required here: its default is `demo`, and it is stamped into every IRI the corpus mints. `--ontology` defaults to the demo machine's family-to-class table; a facility whose device families differ compiles its own with `osprey knowledge compile-ontology` and names it | `ported` (the database), `built` (the TTL) |
 | That TTL corpus, for the graph | After `osprey up`: `osprey knowledge seed-graph` loads it into the store; `osprey knowledge build-index` derives the search index | `built` |
 | That TTL corpus, for the OKF bundle | `osprey knowledge seed-from-ttl data/<facility>.ttl data/facility/knowledge` writes one device stub per device node (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
@@ -281,8 +280,8 @@ modify". Answering there is how the block's `null` slots are filled; `map --chec
 
 ## 4. Channel databases
 
-Pull the template, port the facility's own file, build one from its CSV (§3), or emit
-one from its MATLAB Middle Layer export (§3.1):
+Pull the template, port the facility's own file, or emit one from its MATLAB Middle
+Layer export (§3.1):
 
 ```
 osprey scaffold pull control-assistant:data/channel_databases/TEMPLATE_EXAMPLE.json

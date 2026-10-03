@@ -83,32 +83,12 @@ The database is a flat JSON structure loaded by ``TemplateChannelDatabase``,
 with standalone entries and template entries for device families --- see
 :doc:`/reference/contracts/channel-finder` for the schema.
 
-Build a database from CSV, then validate and preview:
+Validate and preview:
 
 .. code-block:: bash
 
-   osprey channel-finder build-database --use-llm
    osprey channel-finder validate
    osprey channel-finder preview
-
-.. note::
-
-   ``build-database`` writes into the **profile** the project was built from
-   (``processed/channel_database.json`` inside its ``data/`` tree), not into the
-   project — a generated database belongs beside the inputs it came from, and
-   survives a rebuild there. That deliberately marks the project stale; clear
-   the advisory by rebuilding:
-
-   .. code-block:: bash
-
-      osprey channel-finder build-database
-      osprey build
-
-   The pipelines — and a bare ``validate`` / ``preview`` — read the database
-   referenced in ``config.yml`` (under ``data/channel_databases/``). If you
-   built to a different name, either point the commands at it with
-   ``--database`` or update the config path; otherwise you are silently
-   validating the old database.
 
 
 Hierarchical Pipeline
@@ -150,9 +130,12 @@ The database follows MATLAB Middle Layer (MML) functional organization
 writes it from the facility description as
 ``data/channel_finder/middle_layer.json``, with the DuckDB copy ``run_sql``
 reads beside it as ``data/channel_finder/middle_layer.duckdb``: a System is a
-top place, a Family is a group that carries ``signals``, and a Field is the
-signal a family's members share. A facility description with no such group
-stops the build with ``view-unsupported``. A facility that runs a Middle Layer
+top place, a Family is a group (every group of the facility is one), and a
+Field is the longest ``signals`` key a channel's address ends with, else the
+channel's ``signal``, else its address, one channel per member; a channel whose
+Field some member lacks or has twice is keyed by its address instead. A
+facility description with no such group stops the build with
+``view-unsupported``. A facility that runs a Middle Layer
 already has that structure: ``osprey facility import mml``
 (:doc:`/how-to/import-mml-export`) brings it into the facility description,
 and the ``osprey mml`` verbs write the rest of the deployment's files

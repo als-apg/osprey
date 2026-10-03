@@ -107,14 +107,3 @@ def test_validate_pipeline_choice_is_the_file_backed_paradigms():
     """
     expected = tuple(sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"}))
     assert _cli_choices("validate", "pipeline") == expected
-
-
-def test_generate_format_choice_is_the_file_backed_paradigms_plus_all():
-    """``generate --format`` offers the same paradigms, plus the ``all`` fan-out.
-
-    ``generate`` writes a database file per paradigm, so it shares
-    ``validate``'s exclusion of ``graph`` and adds ``all`` as the
-    write-every-format shorthand.
-    """
-    expected = tuple(sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"})) + ("all",)
-    assert _cli_choices("generate", "fmt") == expected

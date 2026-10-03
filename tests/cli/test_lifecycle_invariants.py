@@ -409,6 +409,10 @@ _RETIRED_SPELLINGS = {
     "the renamed `users env-production` verb": re.compile(r"\benv-production\b"),
     "the retired sibling-profile layout": re.compile(r"-profile/profile\.yml"),
     "the retired positional build invocation": re.compile(r"\bosprey build \S+ \S*profile\.ya?ml"),
+    "the deleted `channel-finder build-database` verb": re.compile(
+        r"\bchannel-finder build-database\b"
+    ),
+    "the deleted `channel-finder generate` verb": re.compile(r"\bchannel-finder generate\b"),
 }
 
 #: One line each pattern MUST match, so every pattern proves it still works.
@@ -435,6 +439,10 @@ _RETIRED_SPELLING_EXAMPLES = {
     "the renamed `users env-production` verb": "osprey users env-production --output .env.users",
     "the retired sibling-profile layout": "reads my-facility-profile/profile.yml",
     "the retired positional build invocation": "osprey build my-app ./my-profile/profile.yml",
+    "the deleted `channel-finder build-database` verb": (
+        "osprey channel-finder build-database --csv data/raw/address_list.csv"
+    ),
+    "the deleted `channel-finder generate` verb": "osprey channel-finder generate --demo",
 }
 
 

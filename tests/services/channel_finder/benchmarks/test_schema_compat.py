@@ -8,42 +8,29 @@ import pytest
 
 from osprey.services.channel_finder.benchmarks.generator import (
     TEMPLATE_DB_PATH,
-    TIER_1,
-    TIER_3,
     expand_hierarchy,
-    filter_channels,
-    format_hierarchical,
-    format_in_context,
-    format_middle_layer,
 )
+from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER, generate
 
 
 @pytest.fixture(scope="module")
 def generated_dbs(tmp_path_factory):
-    """Generate all three databases once per module."""
+    """Generate the tier-3 paradigms and the tier-1 subset once per module."""
     tmp = tmp_path_factory.mktemp("schema_compat")
 
-    tree_data = json.loads(TEMPLATE_DB_PATH.read_text(encoding="utf-8"))
-    channels = expand_hierarchy(tree_data)
+    written = generate(TEMPLATE_DB_PATH.parent, tmp / "tier3")
+    channels = expand_hierarchy(json.loads(TEMPLATE_DB_PATH.read_text(encoding="utf-8")))
 
-    ic_data = format_in_context(channels, TIER_1)
-    ic_path = tmp / "in_context.json"
-    ic_path.write_text(json.dumps(ic_data))
-
-    hier_data = format_hierarchical(tree_data, TIER_3)
-    hier_path = tmp / "hierarchical.json"
-    hier_path.write_text(json.dumps(hier_data))
-
-    ml_data = format_middle_layer(channels, TIER_3)
-    ml_path = tmp / "middle_layer.json"
-    ml_path.write_text(json.dumps(ml_data))
+    def entry(name: str) -> tuple:
+        path = written[name]
+        return path, json.loads(path.read_text(encoding="utf-8"))
 
     return {
-        "tier1_count": len(filter_channels(channels, TIER_1)),
-        "tier3_count": len(filter_channels(channels, TIER_3)),
-        "in_context": (ic_path, ic_data),
-        "hierarchical": (hier_path, hier_data),
-        "middle_layer": (ml_path, ml_data),
+        "tier1_count": sum(TIER1_FILTER.matches(ch["pv"]) for ch in channels),
+        "tier3_count": len(channels),
+        "in_context": entry("tier1_in_context"),
+        "hierarchical": entry("hierarchical"),
+        "middle_layer": entry("middle_layer"),
     }
 
 

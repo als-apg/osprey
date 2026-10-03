@@ -1267,8 +1267,7 @@ def _has_anthropic_api_key() -> bool:
 def _has_any_provider_api_key() -> bool:
     """True if any supported LLM provider key is set.
 
-    Mirrors the inline detection in tests/e2e/test_llm_channel_namer.py:
-    als-apg, cborg, amsc-i2, anthropic.
+    Checks ALS_APG_API_KEY, CBORG_API_KEY, AMSC_I2_API_KEY and ANTHROPIC_API_KEY.
     """
     import os as _os
 
