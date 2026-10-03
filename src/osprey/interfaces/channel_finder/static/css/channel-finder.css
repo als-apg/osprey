@@ -1276,49 +1276,6 @@ textarea.form-input {
 
 .item-action-btn.action-delete:hover { color: var(--color-error); border-color: var(--color-error); }
 .item-action-btn.action-edit:hover { color: var(--color-accent-light); border-color: var(--color-accent-light); }
-.item-action-btn.action-save { color: var(--color-success); }
-.item-action-btn.action-save:hover { border-color: var(--color-success); }
-.item-action-btn.action-cancel:hover { color: var(--text-secondary); }
-
-.ic-action-group {
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-}
-
-.ic-inline-input {
-  width: 100%;
-  background: var(--bg-panel);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--cf-radius-sm);
-  padding: var(--cf-space-1) var(--cf-space-2);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--cf-text-xs);
-  outline: none;
-  box-shadow: 0 0 0 2px var(--accent-tint-25);
-}
-
-.ic-editing-row {
-  background: var(--surface-hover);
-}
-
-.column-add-btn {
-  padding: var(--cf-space-2) var(--cf-space-3);
-  color: var(--text-muted);
-  font-size: var(--cf-text-xs);
-  cursor: pointer;
-  border-top: 1px dashed var(--neutral-tint-10);
-  text-align: center;
-  transition: color var(--transition-fast), background var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.column-add-btn:hover {
-  color: var(--color-accent-light);
-  background: var(--accent-tint-08);
-}
-
 /* ================================================================
    Database Schema Section (always visible for structured pipelines)
    ================================================================ */
@@ -1842,15 +1799,14 @@ html[data-ui-mode="simple"] .db-schema-section {
 
 /* Search box front and centre: the filter bar becomes a single large
    input. Hide the "Filter:" / "N of M" labels (Simple prints its own
-   friendly count above the cards) and the inline Add-Channel button. */
+   friendly count above the cards). */
 html[data-ui-mode="simple"] .filter-bar {
   max-width: 720px;
   margin: 0 auto var(--cf-space-5);
   padding: var(--cf-space-2) var(--cf-space-3);
 }
 
-html[data-ui-mode="simple"] .filter-bar .filter-label,
-html[data-ui-mode="simple"] #ic-add-channel {
+html[data-ui-mode="simple"] .filter-bar .filter-label {
   display: none;
 }
 

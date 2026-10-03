@@ -18,7 +18,6 @@ class ChannelDatabase(FlatChannelDatabase):
 
     # Populated by load_database().
     metadata: dict[str, Any]
-    _original_entries: list[dict[str, Any]]
 
     def __init__(self, db_path: str, presentation_mode: str = "explicit"):
         """
@@ -43,8 +42,6 @@ class ChannelDatabase(FlatChannelDatabase):
         else:
             entries = raw_data
             self.metadata = {}
-
-        self._original_entries = list(entries)
 
         # Expand templates into explicit channels
         self.channels = []
@@ -373,13 +370,3 @@ class ChannelDatabase(FlatChannelDatabase):
         base_stats["template_entries"] = self.template_entry_count
         base_stats["standalone_entries"] = self.standalone_entry_count
         return base_stats
-
-    # ------------------------------------------------------------------
-    # Serialization
-    # ------------------------------------------------------------------
-
-    def _serialize(self) -> dict | list:
-        """Serialize in-memory state back to JSON-compatible structure."""
-        if self.metadata:
-            return {**self.metadata, "channels": self._original_entries}
-        return self._original_entries

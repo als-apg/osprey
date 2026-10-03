@@ -697,9 +697,3 @@ class MiddleLayerDatabase(BaseDatabase):
             "devices_per_sector": dict(sector_counts),
             "total_devices": len(device_list),
         }
-
-    # === Persistence ===
-
-    def _serialize(self) -> dict:
-        """Serialize the MML tree back to JSON-compatible dict."""
-        return self.data
