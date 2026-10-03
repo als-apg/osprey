@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
+from osprey.deployment.graphdb_service import resolve_graph_index_path
 from osprey.health.core.channel_finder import channel_finder
 from osprey.health.models import CheckResult, Status
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
@@ -397,12 +398,15 @@ class _GraphModeCase:
     def _isolate(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Keep the case off the host's password and off any real search index.
 
-        ``index_path`` is pointed into ``tmp_path`` for every case, so a case
-        that says nothing about the index gets a reliably absent one rather
-        than whatever the developer's working tree happens to hold.
+        ``OSPREY_CONFIG`` names a render inside ``tmp_path`` for every case, so
+        the index resolves there, and a case that says nothing about the index
+        gets a reliably absent one rather than whatever the developer's working
+        tree happens to hold.
         """
         monkeypatch.delenv("GRAPHDB_PASSWORD", raising=False)
-        self.index_path = tmp_path / "render" / "graph.duckdb"
+        render = tmp_path / "render"
+        monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
+        self.index_path = resolve_graph_index_path(None, render)
 
     @staticmethod
     def _install_driver(monkeypatch: pytest.MonkeyPatch, driver: _FakeDriver) -> list[tuple]:
@@ -423,7 +427,7 @@ class _GraphModeCase:
         cf: dict = {"pipeline_mode": "graph"}
         if pipelines is not None:
             cf["pipelines"] = pipelines
-        block = {"path": "./services/graphdb", "index_path": str(self.index_path)}
+        block = {"path": "./services/graphdb"}
         block.update(graphdb_block)
         return {"channel_finder": cf, "services": {"graphdb": block}}
 
@@ -662,24 +666,13 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.OK
         assert row.value.endswith("(store's seed unknown)")
 
-    async def test_relative_index_path_resolves_against_the_config_directory(
+    async def test_the_index_resolves_against_the_config_directory(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """The render zone, not the repo root — the anchor ``ttl_path`` uses."""
         self._install_driver(monkeypatch, _FakeDriver(sha256=DIGEST))
         render = tmp_path / "build"
-        _make_index(render / "data" / "graph.duckdb", digest=DIGEST)
-        row = (await _run(self._cfg(index_path="./data/graph.duckdb"), cwd=render))[
-            "channel_finder_search_index"
-        ]
+        _make_index(resolve_graph_index_path(None, render), digest=DIGEST)
+        row = (await _run(self._cfg(), cwd=render))["channel_finder_search_index"]
         assert row.status is Status.OK
         assert row.value.endswith(DIGEST[:12])
-
-    async def test_malformed_index_path_warns_and_names_the_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A bad key is reported as the row, not raised out of the suite."""
-        self._install_driver(monkeypatch, _FakeDriver())
-        row = (await _run(self._cfg(index_path="   ")))["channel_finder_search_index"]
-        assert row.status is Status.WARNING
-        assert "services.graphdb.index_path" in row.details

@@ -902,7 +902,7 @@ def test_every_render_local_key_names_its_own_services_file_and_is_not_projected
             assert key not in projected, f"{key} is both render-local and projected"
             declared.add(key)
     assert render_local_keys() == frozenset(declared)
-    assert {"services.graphdb.ttl_path", "services.graphdb.index_path"} <= declared
+    assert {"services.graphdb.ttl_path"} <= declared
 
 
 def test_an_attached_render_is_told_its_hosts_service_and_is_not_refused():

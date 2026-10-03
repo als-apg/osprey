@@ -131,21 +131,17 @@ answers questions about structure — which device an address belongs to, what a
 class is a kind of — and the device card and the agent's Cypher tools read it.
 ``osprey build`` also derives a flat search index from the same file, and a
 graph-mode project ships that index as ``data/channel_databases/graph.duckdb``
-(``services.graphdb.index_path``). Nothing parses the corpus while the
-deployment runs; rebuild the index with ``osprey knowledge build-index``
+under the render, a fixed path no key moves. Nothing parses the corpus while
+the deployment runs; rebuild the index with ``osprey knowledge build-index``
 whenever the corpus changes, and seed the store from the same file so the two
 agree.
 
-The corpus is also this deployment's **channel roster** — the one answer to
-which channels the facility has, and which of them are written. The web
-interface enumerates and validates against it, and ``osprey build`` derives the
-queue server's plan devices from it (:doc:`/how-to/bluesky/write-plans`). Both
-read the index built from the corpus, not the store, and both need a corpus
-this deployment holds (``services.graphdb.ttl_path``), or an ``index_path``
-that names an index built elsewhere: a deployment pointed at a store the
-facility runs, holding no corpus file of its own and no such index, has
-nothing to enumerate, and the two web routes say so — naming that key —
-instead of reporting a facility with no channels.
+The deployment's **channel roster** — the one answer to which channels the
+facility has, and which of them are written — is the facility file
+(``facility.json``) the build writes at the root of the render, not the corpus
+or the index. The web interface enumerates and validates against it, and
+``osprey build`` derives the queue server's plan devices from it
+(:doc:`/how-to/bluesky/write-plans`).
 
 
 Configuration Reference

@@ -1741,7 +1741,7 @@ class GraphIndexTarget:
     """The staged Turtle corpus, as ``services.graphdb.ttl_path`` resolves."""
 
     index_path: Path
-    """Where ``services.graphdb.index_path`` says the index goes."""
+    """``data/channel_databases/graph.duckdb`` under the render, where the index goes."""
 
 
 def _graph_index_target(
@@ -1751,12 +1751,13 @@ def _graph_index_target(
 ) -> GraphIndexTarget | None:
     """The corpus and index path for a graph-mode render, or ``None`` with a reason.
 
-    Only the rendered config can answer this: both keys are render-relative
+    Only the rendered config can answer this: the corpus key and the fixed
+    index path are render-relative
     (:func:`osprey.utils.config_paths.resolve_render_relative_path`), so they
     are resolved against the render that wrote them rather than against the repo
-    or the working directory. That is the same resolution the roster, the
-    ``osprey knowledge`` verbs and the deploy's seeding step apply, which is what
-    keeps the build writing the index where every reader afterwards looks.
+    or the working directory. That is the same resolution the ``osprey
+    knowledge`` verbs and the deploy's seeding step apply, which is what keeps
+    the build writing the index where every reader afterwards looks.
 
     The three answers that are not a target are facts rather than failures. A
     project with no corpus staged is a legal project: it keeps its device card
@@ -4378,10 +4379,11 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
 
     One kind of ``services.<name>`` key is not a claim about the stack at all:
     a key that names a file in the render's OWN data tree —
-    ``services.graphdb.ttl_path``, the corpus, and ``index_path``, the search
-    index the build derives from it. An attached render stages that ``data/``
-    tree like any other, and its build and its containers read both files from
-    it, so the key is as true for the persona as for its host. Which keys those
+    ``services.graphdb.ttl_path``, the corpus the build derives the search
+    index from, which it writes to ``data/channel_databases/graph.duckdb`` in
+    the same tree. An attached render stages that ``data/`` tree like any
+    other, and its build and its containers read both files from it, so the key
+    is as true for the persona as for its host. Which keys those
     are is the Reach Contract's declaration
     (:attr:`osprey.deployment.reach.ReachContract.render_local`), read here
     through :func:`osprey.deployment.reach.render_local_keys`, and they are
