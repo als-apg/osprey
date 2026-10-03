@@ -517,6 +517,9 @@ Launch the browser-based channel explorer:
    osprey channel-finder web
    osprey channel-finder web --port 9000
 
+The explorer is read-only. To correct a channel, edit
+``data/facility/fixes.yaml`` and run ``osprey build``.
+
 The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
 the search box and it keeps the channels that match all of them — against the
