@@ -465,3 +465,47 @@ class PatternError(ARIELException):
         details["pattern"] = pattern
         super().__init__(message, ErrorCategory.SEARCH, details)
         self.pattern = pattern
+
+
+class ModuleConfigError(ValueError):
+    """An enhancement module's configuration cannot work as written.
+
+    A ``ValueError`` so every caller that already expects one keeps working;
+    ``key`` names the configuration key (or the command) that fixes it.
+
+    Attributes:
+        key: Dotted configuration key, or command, that fixes the problem.
+    """
+
+    def __init__(self, message: str, *, key: str) -> None:
+        """Initialize ModuleConfigError.
+
+        Args:
+            message: Human-readable error description
+            key: Dotted configuration key, or command, that fixes the problem
+        """
+        super().__init__(message)
+        self.key = key
+
+
+class ModuleUnavailable(Exception):
+    """A check has already decided that a module's service is unavailable.
+
+    Attributes:
+        reason: ``unreachable``, ``auth``, ``model`` or ``config``.
+        message: Human-readable detail.
+        fix: The configuration key or command that fixes it, when known.
+    """
+
+    def __init__(self, reason: str, message: str, fix: str | None = None) -> None:
+        """Initialize ModuleUnavailable.
+
+        Args:
+            reason: ``unreachable``, ``auth``, ``model`` or ``config``
+            message: Human-readable detail
+            fix: The configuration key or command that fixes it, when known
+        """
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+        self.fix = fix

@@ -229,3 +229,43 @@ def test_an_abandoned_thread_finishing_after_the_loop_closed_says_nothing() -> N
         threading.excepthook = previous
 
     assert thread_errors == [], thread_errors
+
+
+@pytest.mark.asyncio
+async def test_custom_on_abandon_bypasses_the_abandoned_accounting() -> None:
+    """A caller's own ``on_abandon`` receives the thread; the module counter is untouched."""
+    release = threading.Event()
+    seen: list[threading.Thread] = []
+    before = offload.abandoned_count()
+    try:
+        with pytest.raises(TimeoutError):
+            await offload.run_sync(
+                lambda: release.wait(timeout=10.0), timeout_s=0.05, on_abandon=seen.append
+            )
+        assert len(seen) == 1
+        assert seen[0].is_alive()
+        assert offload.abandoned_count() == before
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_timeout_none_awaits_without_limit_and_cancel_abandons() -> None:
+    """``timeout_s=None`` waits for the result; a cancelled await calls ``on_abandon`` at once."""
+    assert await offload.run_sync(lambda: time.sleep(0.05) or "done", timeout_s=None) == "done"
+
+    release = threading.Event()
+    seen: list[threading.Thread] = []
+    task = asyncio.ensure_future(
+        offload.run_sync(lambda: release.wait(timeout=10.0), timeout_s=None, on_abandon=seen.append)
+    )
+    await asyncio.sleep(0.05)
+    start = time.monotonic()
+    task.cancel()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert time.monotonic() - start < 1.0
+        assert len(seen) == 1
+    finally:
+        release.set()

@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
+from osprey.services.ariel_search.enhancement._offload import run_blocking
+from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule, HealthResult
 from osprey.services.ariel_search.enhancement.semantic_processor.migration import (
     SemanticProcessorMigration,
 )
@@ -298,27 +299,78 @@ class SemanticProcessorModule(BaseEnhancementModule):
             [keywords, summary, entry_id],
         )
 
-    async def health_check(self) -> tuple[bool, str]:
-        """Check if module is ready.
+    async def health_check(self) -> HealthResult:
+        """Check whether the module's LLM can be reached, off the event loop.
 
-        Verifies that the LLM model is accessible.
+        On a route whose provider class declares ``models_probe`` and resolves
+        a probe base, the verdict is
+        :func:`~osprey.models.providers.health.probe_models_endpoint`'s,
+        unchanged: the model listing is asked, and no model is called. On any
+        other route a one-line ``Say OK`` completion is made (one billed call
+        per check), so no route reports ``reachable: None``.
 
         Returns:
-            Tuple of (healthy, message)
+            The verdict; ``reason`` is set whenever ``reachable`` is False.
         """
+        return await run_blocking(self._health_sync)
+
+    def _probe_route(self) -> tuple[Any, str | None, str | None] | None:
+        """``(provider_cls, base_url, api_key)`` when the models probe would probe, else None."""
+        provider = self._model_config.get("provider")
+        if not provider:
+            return None
+        try:
+            from osprey.models.provider_registry import get_provider_registry
+
+            provider_cls = get_provider_registry().get_provider(provider)
+        except Exception:
+            return None
+        if provider_cls is None or getattr(provider_cls, "models_probe", None) is None:
+            return None
+        try:
+            from osprey.models.config import get_provider_config
+
+            provider_cfg = get_provider_config(provider) or {}
+        except Exception:
+            provider_cfg = {}
+        base_url = self._model_config.get("base_url") or provider_cfg.get("base_url")
+        base = (
+            provider_cls.effective_base_url(base_url)
+            or getattr(provider_cls, "models_probe_base_url", None)
+            or getattr(provider_cls, "default_base_url", None)
+        )
+        if not base:
+            return None
+        return provider_cls, base_url, provider_cfg.get("api_key")
+
+    def _health_sync(self) -> HealthResult:
+        """The blocking half of :meth:`health_check`."""
+        from osprey.models.providers.health import failure_reason
+
+        route = self._probe_route()
+        if route is not None:
+            from osprey.models.providers.health import probe_models_endpoint
+
+            provider_cls, base_url, api_key = route
+            try:
+                model_config = self._completion_model_config() or {}
+            except Exception as e:
+                return HealthResult(False, f"no model to probe: {e}", "config")
+            return probe_models_endpoint(
+                provider_cls, base_url, api_key, model_config.get("model_id")
+            )
+
         try:
             from osprey.models.completion import get_chat_completion
-
+        except ImportError:
+            return HealthResult(False, "osprey.models.completion not available", "config")
+        try:
             response = get_chat_completion(
                 message="Say OK",
                 model_config=self._completion_model_config(),
             )
-
-            if response:
-                return (True, "OK")
-            return (False, "Empty response from LLM")
-
-        except ImportError:
-            return (False, "osprey.models.completion not available")
         except Exception as e:
-            return (False, str(e))
+            return HealthResult(False, str(e), failure_reason(e) or "unreachable")
+        if response:
+            return HealthResult(True, "OK", None)
+        return HealthResult(False, "Empty response from LLM", "unreachable")
