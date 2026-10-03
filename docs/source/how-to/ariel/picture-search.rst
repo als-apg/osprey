@@ -26,12 +26,20 @@ On by default, skipped when unavailable
 ========================================
 
 The ``control-assistant`` and ``ariel-standalone`` presets turn captions,
-picture search and the view tool on. Like semantic search without Ollama, each
-picture module degrades gracefully: it runs when its server and model answer,
-and otherwise it is skipped while the rest of ARIEL keeps working.
+picture search and the view tool on, and they choose a service and model for
+each: Ollama with ``qwen3-vl:4b`` for captions, and a site-run llama-server
+with ``qwen3-vl-embedding-2b`` for picture search. These are preset defaults,
+not requirements. Every one of them is a key in your ``profile.yml``, so you
+can point captions at any vision-capable chat provider, run a different
+embedding model, or turn a module off (see `Captions`_ and below). The names in
+the rest of this guide are the preset defaults.
 
-A deployment **without the caption model** (Ollama not running, or
-``qwen3-vl:4b`` not pulled) sees:
+Like semantic search without Ollama, each picture module degrades gracefully:
+it runs when its configured server and model answer, and otherwise it is
+skipped while the rest of ARIEL keeps working.
+
+A deployment **without its caption model** (with the preset defaults: Ollama
+not running, or ``qwen3-vl:4b`` not pulled) sees:
 
 - ``osprey ariel status`` printing a line that names the skipped module and
   why, for example
@@ -122,17 +130,25 @@ skipped.
 Captions
 ========
 
-Captions come from any chat provider with a vision-capable model. The presets
-use Ollama with ``qwen3-vl:4b``:
+Captions come from any chat provider with a vision-capable model. The
+provider and model are the module's own, never the deployment's main model,
+and the presets set them in ``profile.yml`` as:
+
+.. code-block:: yaml
+
+   config:
+     ariel.enhancement_modules.image_caption.provider: ollama
+     ariel.enhancement_modules.image_caption.model.model_id: qwen3-vl:4b
+
+Change either line to use another provider or model. With the preset
+defaults, pull the model once:
 
 .. code-block:: bash
 
    ollama pull qwen3-vl:4b
 
-The provider and model are the module's own
-(``ariel.enhancement_modules.image_caption.provider`` and
-``.model.model_id``), never the deployment's main model. On a CPU, a local
-vision model can spend minutes on one picture; the measured values are in
+On a CPU, a local vision model can spend minutes on one picture; the measured
+values are in
 :ref:`ariel-picture-search-measurements`, and
 ``image_caption.timeout_seconds`` (default 1320) is sized from them.
 
@@ -149,10 +165,18 @@ time.
 Build
 -----
 
-Use llama.cpp tag ``b11277`` (commit
-``eae11d2217fe9225d1aaba48773b6cca45ae4de9``). It contains PR #29556, the
-multimodal embedding support picture search depends on; earlier releases,
-including Homebrew's ``llama.cpp 0.5.0``, do not.
+Picture search needs multimodal embeddings in llama-server, which llama.cpp
+added in `PR #29556 <https://github.com/ggml-org/llama.cpp/pull/29556>`_ (merged
+2026-09-28). Until that support reaches the packaged llama.cpp your site
+installs from, build tag ``b11277``, the build OSPREY is tested against.
+
+.. note::
+
+   ``b11277`` is commit ``eae11d2217fe9225d1aaba48773b6cca45ae4de9``. Builds
+   from before PR #29556, including Homebrew's ``llama.cpp 0.5.0``, do not
+   have the support. A later build that carries the PR is untested here: run
+   ``osprey ariel status`` and one picture search after switching, and treat
+   it like a model change in the `Upgrade notes`_ if the picture vectors move.
 
 .. code-block:: bash
 
@@ -284,55 +308,81 @@ Measured values
 ===============
 
 The values below were measured with the command above on one native x86_64
-Linux host, CPU only (llama-server built without CUDA and started without
-GPU access, Ollama with no GPU visible), while other users kept the host
-lightly loaded (load average 1.3--2.9 on 64 threads). They describe that host;
-a different CPU gives different times.
+Linux host, twice: once on its CPU alone, once on its GPU. They describe that
+host; different hardware gives different times. The defaults OSPREY ships
+(the query timeout, ``image_embedding.timeout_seconds`` and
+``image_caption.timeout_seconds``) are sized from the CPU run, the slower of
+the two, so they hold on a host without a GPU.
 
 **Host:** ``uname -m`` ``x86_64``; CPU ``AMD EPYC 7313 16-Core Processor``
 (2 sockets x 16 cores x 2 threads, 64 logical CPUs); 503 GiB RAM; docker host
-architecture ``x86_64``; Rocky Linux 8.10, docker 28.0.4. llama-server ran
-with 32 threads and 2 slots.
+architecture ``x86_64``; Rocky Linux 8.10, docker 28.0.4.
+
+- **CPU run:** llama-server built without CUDA and started without GPU access,
+  32 threads and 2 slots; Ollama with no GPU visible. Other users kept the host
+  lightly loaded (load average 1.3--2.9 on 64 threads).
+- **GPU run:** NVIDIA H100 PCIe 80 GB, driver 590.48.01. llama-server
+  ``b11277`` built with CUDA 12.8 for compute capability 9.0, started with the
+  same command on another port and no GPU flags; Ollama 0.15.2 offloaded all
+  37 layers of ``qwen3-vl:4b`` to the GPU. Another job shared the GPU
+  throughout (36.4 GiB in use and 43% utilisation before the run), so these
+  times are an upper bound for an idle H100.
 
 .. list-table::
    :header-rows: 1
-   :widths: 35 65
+   :widths: 28 36 36
 
    * - Value
-     - Result
-   * - CPU time per picture (s/picture, 1024x768 rendition)
+     - CPU (AMD EPYC 7313)
+     - GPU (NVIDIA H100)
+   * - Time per picture (s/picture, 1024x768 rendition)
      - 3.77 s mean (771 tokens) without the cap; 1.14 s (237 tokens) with
        ``--image-max-tokens 256``
+     - 0.21 s without the cap; 0.071 s with the cap
    * - Pictures per hour (derived, 3600 / s/picture)
      - about 3,150 with the cap; about 950 without
+     - about 50,800 with the cap; about 16,900 without
    * - llama-server peak RSS
      - 4.74 GiB with the cap; 7.57 GiB without; 3.44 GiB loaded and idle
+     - 1.86 GiB with the cap; 3.65 GiB without; plus 4.8 GiB of GPU memory
    * - Idle query embed
      - p50 0.059 s, p95 0.072 s
+     - p50 0.008 s, p95 0.020 s
    * - Query p95 under bulk ``image_embedding`` (2 s target)
      - 3.83 s without the cap (fails); 0.94 s with ``--image-max-tokens 256``
        (passes). The latency gate failed, so the documented command carries
        the cap
+     - 0.18 s without the cap; 0.059 s with it. Both pass
    * - Query timeout chosen
      - 5 s (``max(5, 2 x 0.94)``); ``image_embedding.timeout_seconds`` 120
+     - the same defaults, sized from the CPU run
    * - Render worker ``VmSize``
      - 30.6 MiB after start-up (target: at most 512 MiB), under a 1 GiB address-space
        limit; a 48 Mpx JPEG renders in 0.43 s with a peak of 119 MiB
-   * - ``qwen3-vl:4b`` with ``think:false`` (Ollama, CPU)
+     - not GPU-dependent
+   * - ``qwen3-vl:4b`` with ``think:false`` (Ollama)
      - 75.7 s, 199.4 s and 119.4 s per caption, mean 131.5 s; resident 4.25
        GiB. ``think:false`` is not honoured: every reply still carries
        thinking output
-   * - Captions per hour at the defaults (derived, 3600 / 131.5 s)
+     - 59.6 s for the first caption, 49.0 s of it loading the model; then
+       2.6 s and 9.4 s. 5.0 GiB of GPU memory. ``think:false`` is still not
+       honoured
+   * - Captions per hour at the defaults (derived, 3600 / mean)
      - about 27
+     - about 600 once the model is loaded (mean 6.0 s)
    * - Upgrade fold, 135,000 rows (half captioned)
      - 57.6 s (PostgreSQL 16.15)
+     - not GPU-dependent
    * - v2 full-text index build, 135,000 rows
      - 27.2 s (99 MB index)
+     - not GPU-dependent
    * - Trigram index build, 135,000 rows
      - 2.6 s (24 MB index)
+     - not GPU-dependent
    * - Fusion calibration
      - Uncalibrated: no labelled set; defaults ``relative_margin`` 0.08 and
        ``min_similarity`` 0.45 kept
+     - the same
 
 
 .. _ariel-picture-search-upgrade:

@@ -244,7 +244,7 @@ def test_upgrade_note_purge_sentence() -> None:
 
 #: One row label per SC10 measurement, each with the value the guide states.
 _SC10_ROWS = {
-    "CPU time per picture": "3.77 s",
+    "Time per picture": "3.77 s",
     "llama-server peak RSS": "7.57 GiB",
     "Query p95 under bulk": "0.94 s",
     "Render worker ``VmSize``": "30.6 MiB",
