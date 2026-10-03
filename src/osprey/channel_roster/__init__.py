@@ -51,6 +51,7 @@ from .records import (
 )
 from .sources import (
     RosterSourceResolution,
+    channel_record,
     read_facility_roster,
     resolve_roster_source,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "RosterResult",
     "RosterSource",
     "RosterSourceKind",
+    "channel_record",
     "registered_channels",
     "resolve_roster_source",
 ]

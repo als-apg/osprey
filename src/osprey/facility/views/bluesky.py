@@ -47,10 +47,10 @@ def _source(facility_file: Path) -> Any:
 
 
 def _records(doc: Mapping[str, Any], facility_file: Path) -> list[Any]:
-    from osprey.channel_roster.sources import _record
+    from osprey.channel_roster import channel_record
 
     source = _source(facility_file)
-    return [_record(channel, source) for channel in doc.get("channels", [])]
+    return [channel_record(channel, source) for channel in doc.get("channels", [])]
 
 
 def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, str]]]:

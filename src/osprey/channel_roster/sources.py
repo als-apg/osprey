@@ -186,7 +186,7 @@ def read_facility_roster(source: RosterSource) -> RosterResult:
         return _corrupt(source, str(e))
 
     try:
-        records = tuple(_record(channel, source) for channel in json.loads(text)["channels"])
+        records = tuple(channel_record(channel, source) for channel in json.loads(text)["channels"])
     except (ValueError, KeyError, TypeError) as e:
         return _corrupt(source, _failure(e))
 
@@ -223,7 +223,7 @@ def _failure(error: Exception) -> str:
     return str(error).rstrip(".") or type(error).__name__
 
 
-def _record(channel: Mapping[str, Any], source: RosterSource) -> ChannelRecord:
+def channel_record(channel: Mapping[str, Any], source: RosterSource) -> ChannelRecord:
     """Turn one facility-file channel record into the roster's.
 
     Raises:
