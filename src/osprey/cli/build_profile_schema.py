@@ -758,20 +758,6 @@ class BlueskyConfig:
     enabled (dev/local convenience). Production uses the
     ``BLUESKY_EXCLUDED_PLANS`` env var instead.
     """
-    devices_file: str = "data/bluesky_devices.yml"
-    """Where the plan device file is AUTHORED — the YAML/JSON document naming
-    the devices Bluesky plans may address.
-
-    A RELATIVE path (the default) is resolved against the RENDERED CONFIG's own
-    directory, so it names a file that lives inside the built project and
-    travels with it. An ABSOLUTE path is operator-owned: the build reads it
-    as-is and never rewrites, relocates or copies it.
-
-    Unlike :attr:`plan_dir` and :attr:`excluded_plans`, this key is written to
-    every lane's service block on every deploy — a deployment always addresses
-    devices, so the only question is which file names them, and an unwritten
-    key would leave the staging step re-deriving this default for itself.
-    """
     device_page_size: int = 500
     """How many devices one page of the bridge's device listing carries.
 

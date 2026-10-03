@@ -1322,12 +1322,6 @@ PROTECTED_KEY_FAMILIES = [
     ("config.yml", "artifacts.x", "artifact.x", "services.artifacts.x"),
     (
         "config.yml",
-        "services.bluesky.devices_file",
-        "service.bluesky.devices_file",
-        "services.bluesky.devices",
-    ),
-    (
-        "config.yml",
         "services.graphdb.ttl_path",
         "service.graphdb.ttl_path",
         "services.graphdb.ttl",

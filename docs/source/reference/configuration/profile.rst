@@ -1419,10 +1419,6 @@ build** and prints the valid set:
        :doc:`/how-to/bluesky/write-plans`.
    * - ``excluded_plans``
      - Plans to remove from the catalog entirely, e.g. ``[orm]``.
-   * - ``devices_file``
-     - The file listing the devices plans may drive or record
-       (default ``data/bluesky_devices.yml``) — see
-       :doc:`/how-to/bluesky/write-plans`.
    * - ``device_page_size``
      - How many devices the bridge lists at once (default 500). A larger set
        is served a page at a time and can be narrowed by an exact name

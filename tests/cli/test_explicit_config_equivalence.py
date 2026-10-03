@@ -943,6 +943,26 @@ def _dispatcher_name_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _devices_file_deltas() -> tuple[Delta, ...]:
+    """The Bluesky lane's device-file path.
+
+    The worker's device file is the build's Bluesky view of the facility file,
+    staged unchanged, so no lane block names a path for it. The fixtures were
+    frozen while every lane carried the profile's device-file path.
+
+    Returns:
+        One delta, on the root document.
+    """
+    return (
+        Delta(
+            document="root",
+            path="services.bluesky.devices_file",
+            fixture="data/bluesky_devices.yml",
+            live=ABSENT,
+        ),
+    )
+
+
 def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
     """The two standalone personas, now with nothing that reaches the machine.
 
@@ -1211,6 +1231,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
+    + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1236,6 +1257,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
+    + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1261,6 +1283,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
+    + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1286,6 +1309,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _probe_timeout_deltas()
     + _knowledge_bundle_deltas()
     + _dispatcher_name_deltas()
+    + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)

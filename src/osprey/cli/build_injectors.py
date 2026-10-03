@@ -1082,12 +1082,6 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
 
     The contract here is MIXED, and the split is deliberate.
 
-    ``devices_file`` is written ALWAYS, on every lane of every deploy, authored
-    or defaulted. A deployment always addresses devices, so its absence would
-    not mean "no device file" — it would mean the staging step has to re-derive
-    this default for itself, which is how the build and the bridge end up
-    disagreeing about which file is authoritative.
-
     ``plan_dir`` and ``excluded_plans`` stay omit-when-unset, because for them
     the ABSENCE is the signal the compose template's ``{% if %}`` guards read:
     an unset ``plan_dir`` means no mount and no ``BLUESKY_PLAN_DIRS`` env var at
@@ -1095,9 +1089,9 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     ``os.pathsep`` join is done Python-side because the Jinja render context has
     no ``os`` module.
 
-    ``device_page_size`` is a THIRD contract: omit-when-EQUALS-DEFAULT. It is
-    neither always-written like ``devices_file`` nor omit-when-unset like its
-    two neighbours, because the key is never unset — it is an ``int`` with a
+    ``device_page_size`` is a SECOND contract: omit-when-EQUALS-DEFAULT. It is
+    not omit-when-unset like ``plan_dir`` and ``excluded_plans``, because the
+    key is never unset — it is an ``int`` with a
     dataclass default, so "unset" and "authored at the default" arrive here as
     the same value and cannot be told apart. Writing it unconditionally would
     put a line into every existing project's config.yml and an env var into
@@ -1119,7 +1113,7 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     # than a literal repeated on this side of the build.
     from osprey.cli.build_profile_schema import BlueskyConfig
 
-    keys: dict[str, Any] = {"devices_file": bluesky.devices_file}
+    keys: dict[str, Any] = {}
     if bluesky.plan_dir:
         keys["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
@@ -1291,10 +1285,8 @@ def _inject_bluesky(
         # than inferring a control target it is never told about. `target` and
         # the addressing keys are the LANE-SCOPED ones: a single-lane block on
         # any other baseline still carries neither (the stand-in case below is
-        # the one exception, and the comment there says why). That is a
-        # narrower claim than it used to be — the facility plan keys are NOT
-        # lane-scoped, and `_facility_plan_keys` now writes `devices_file` on
-        # every lane of every deploy, single-lane deploys included.
+        # the one exception, and the comment there says why). The facility
+        # plan keys are NOT lane-scoped.
         baseline = _baseline_lane_target(config, virtual_accelerator)
         second = _SECOND_LANE_TARGET[baseline]
         second_config: dict[str, Any] = {

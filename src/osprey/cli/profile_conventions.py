@@ -574,7 +574,6 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "agent_data.*",
         "file_paths.*",
         "artifacts.*",
-        "services.*.devices_file",
         # The roster a plan may drive is enumerated from these two: the
         # knowledge graph a deployment builds against, or the channel-finder
         # pipeline database that stands in for it. Repointing either swaps

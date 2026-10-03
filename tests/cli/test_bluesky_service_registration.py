@@ -60,7 +60,7 @@ def test_inject_bluesky_default_config(tmp_path: Path) -> None:
     assert svc["port"] == 10080
     assert svc["tiled_enabled"] is False
     assert svc["tiled_port"] == 10070
-    assert svc["devices_file"] == "data/bluesky_devices.yml"
+    assert "devices_file" not in svc
     # No pinned image: the service builds the project's local image (compose
     # template defaults to <project>-bluesky-bridge:local + a build: section).
     assert "image" not in svc
@@ -271,40 +271,10 @@ def test_inject_bluesky_no_excluded_plans_omits_key(tmp_path: Path) -> None:
     assert "excluded_plans" not in config["services"]["bluesky"]
 
 
-def test_inject_bluesky_devices_file_written_to_config(tmp_path: Path) -> None:
-    """A configured devices_file is emitted into services.bluesky config."""
-    project_path = tmp_path / "project"
-    project_path.mkdir()
-    _write_config(project_path)
-
-    _inject_bluesky(BlueskyConfig(devices_file="/opt/facility/devices.yml"), project_path)
-
-    config = _read_config(project_path)
-    assert config["services"]["bluesky"]["devices_file"] == "/opt/facility/devices.yml"
-
-
-def test_inject_bluesky_devices_file_default_written_when_unset(tmp_path: Path) -> None:
-    """Unset devices_file -> the DEFAULT path is written anyway, not omitted.
-
-    The one facility plan key that breaks the omit-when-unset pattern its two
-    neighbours follow: a deployment always addresses devices, so the staging
-    step reads a key that is always present instead of re-deriving the default
-    from a key that is missing.
-    """
-    project_path = tmp_path / "project"
-    project_path.mkdir()
-    _write_config(project_path)
-
-    _inject_bluesky(BlueskyConfig(), project_path)
-
-    config = _read_config(project_path)
-    assert config["services"]["bluesky"]["devices_file"] == "data/bluesky_devices.yml"
-
-
 # ---------------------------------------------------------------------------
 # Device-listing page size: the omit-when-EQUALS-DEFAULT facility plan key.
 #
-# The third contract in `_facility_plan_keys`, and the only one whose key is
+# The second contract in `_facility_plan_keys`, and the only one whose key is
 # never "unset": `device_page_size` is an int with a dataclass default, so a
 # profile that says nothing and a profile that authors 500 arrive identical.
 # Both must render NO line, so that every project built before the key existed
@@ -346,8 +316,7 @@ def test_inject_bluesky_device_page_size_authored_at_default_omits_key(
 ) -> None:
     """Authoring the default EXPLICITLY renders no line either.
 
-    Where this key parts company with `devices_file`: spelling the default out
-    is not a request for a line in config.yml, because the value it would carry
+    Spelling the default out is not a request for a line in config.yml, because the value it would carry
     is the one the bridge already falls back to. Same deployed behaviour, same
     rendered artifact — asserted against the dataclass default rather than a
     literal, so the test cannot drift from the schema.
@@ -385,23 +354,6 @@ def test_inject_bluesky_device_page_size_written_to_both_lanes(tmp_path: Path) -
     config = _read_config(project_path)
     assert config["services"]["bluesky"]["device_page_size"] == 250
     assert config["services"]["bluesky_live"]["device_page_size"] == 250
-
-
-def test_inject_bluesky_devices_file_survives_the_omit_when_unset_neighbours(
-    tmp_path: Path,
-) -> None:
-    """A deploy that configures neither plan_dir nor excluded_plans still
-    carries devices_file — the mixed contract in one assertion."""
-    project_path = tmp_path / "project"
-    project_path.mkdir()
-    _write_config(project_path)
-
-    _inject_bluesky(BlueskyConfig(devices_file="devices/beamline.yml"), project_path)
-
-    svc = _read_config(project_path)["services"]["bluesky"]
-    assert svc["devices_file"] == "devices/beamline.yml"
-    assert "plan_dir" not in svc
-    assert "excluded_plans" not in svc
 
 
 def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> None:
@@ -560,31 +512,6 @@ def test_profile_bluesky_excluded_plans_non_list_raises() -> None:
 def test_profile_bluesky_excluded_plans_non_str_element_raises() -> None:
     with pytest.raises(BuildProfileError):
         _parse_profile({"name": "bad", "bluesky": {"excluded_plans": ["orm", 7]}})
-
-
-def test_profile_bluesky_devices_file_parses() -> None:
-    profile = _parse_profile(
-        {"name": "with-devices", "bluesky": {"devices_file": "/facility/devices.yml"}}
-    )
-    assert profile.bluesky is not None
-    assert profile.bluesky.devices_file == "/facility/devices.yml"
-
-
-def test_profile_bluesky_devices_file_defaults_to_the_project_relative_path() -> None:
-    profile = _parse_profile({"name": "no-devices", "bluesky": {}})
-    assert profile.bluesky is not None
-    assert profile.bluesky.devices_file == "data/bluesky_devices.yml"
-
-
-def test_profile_bluesky_devices_file_non_str_raises() -> None:
-    with pytest.raises(BuildProfileError):
-        _parse_profile({"name": "bad", "bluesky": {"devices_file": 5}})
-
-
-def test_profile_bluesky_devices_file_empty_raises() -> None:
-    """An empty string is a path to nothing, not an opt-out of the default."""
-    with pytest.raises(BuildProfileError):
-        _parse_profile({"name": "bad", "bluesky": {"devices_file": ""}})
 
 
 # ---------------------------------------------------------------------------
