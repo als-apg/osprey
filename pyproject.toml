@@ -305,11 +305,6 @@ ariel-proxy = [
     "aiohttp-socks>=0.8.0",
 ]
 
-# Google Sheets database backend for channel finder
-sheets = [
-    "gspread>=6.2.1",
-]
-
 # Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
 # Chat/Drive API access, and GCS artifact storage.
 gchat = [
@@ -434,7 +429,7 @@ virtual-accelerator = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat,teams]"
+    "osprey-framework[docs,dev,ariel,screen-capture-linux,knowledge,gchat,teams]"
 ]
 
 [tool.uv.workspace]
