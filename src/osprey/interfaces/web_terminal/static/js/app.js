@@ -10,7 +10,14 @@ import {
   stopTerminal,
 } from './terminal.js';
 import { logout } from './logout.js';
-import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
+import {
+  initPanelManager,
+  broadcastMode,
+  handleUiModeFlip,
+  navigateAndActivatePanel,
+  getPanelStandaloneUrl,
+} from './panel-manager.js';
+import { wireAgentLinks } from './agent-links.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -65,6 +72,12 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init operator chat:', err);
     renderChatBootFailure('operator-container');
+  }
+  // Guarded the same way: a link failure must not break the rest of boot.
+  try {
+    initAgentLinks();
+  } catch (err) {
+    console.error('Failed to init agent answer links:', err);
   }
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
@@ -387,6 +400,27 @@ function initBars() {
 }
 
 /* ---- Iframe Paste Bridge ---- */
+
+/**
+ * Route clicks on links in the Simple view's agent answers: a link to a panel
+ * this hub hosts opens it in the workspace, any other http(s) link opens in a
+ * new tab, and the hub page itself never navigates away. Whether a panel is
+ * hosted is read at click time, so a panel whose URL has not resolved opens in
+ * a new tab instead.
+ *
+ * Exported so the wiring can be driven directly in tests: the bootstrap above
+ * runs on DOMContentLoaded, which has already fired by then.
+ */
+export function initAgentLinks() {
+  const operatorRoot = document.getElementById('operator-container');
+  if (!operatorRoot) return;
+  wireAgentLinks(operatorRoot, {
+    prefix: window.__OSPREY_PREFIX__ || '',
+    isHostedPanel: (id) => getPanelStandaloneUrl(id) !== null,
+    openPanel: navigateAndActivatePanel,
+    openWindow: (url, target, features) => { window.open(url, target, features); },
+  });
+}
 
 /**
  * Let an embedded panel put text where the operator is composing.
