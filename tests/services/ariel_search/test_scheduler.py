@@ -14,11 +14,15 @@ from osprey.services.ariel_search.config import (
     IngestionConfig,
     WatchConfig,
 )
+from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.ingestion.scheduler import (
     IngestionPollResult,
     IngestionScheduler,
     StopReason,
 )
+
+#: A store without the attachment copy state: ``ingest_one`` takes the plain upsert.
+_PLAIN_STORE = SchemaFacts(has_v2_fts=False, has_copy_state=False)
 
 
 def _make_config(
@@ -128,6 +132,8 @@ class TestIngestionScheduler:
         repo.upsert_entry = AsyncMock()
         repo.mark_enhancement_complete = AsyncMock()
         repo.mark_enhancement_failed = AsyncMock()
+        repo.schema_facts = AsyncMock(return_value=_PLAIN_STORE)
+        repo.get_copy_retry_candidates = AsyncMock(return_value=[])
         return repo
 
     @pytest.mark.asyncio
@@ -820,11 +826,11 @@ class TestIngestionRunTracking:
 
 
 class TestSidecarMetadataWiring:
-    """The scheduler hands the sidecar step the adapter and the ingestion config."""
+    """The scheduler hands the sidecar step the adapter, which carries its transport."""
 
     @pytest.mark.asyncio
-    async def test_the_step_receives_the_adapter_and_the_ingestion_config(self) -> None:
-        """Without both, the step matches one hard-coded name over a bare session."""
+    async def test_the_step_receives_the_adapter(self) -> None:
+        """Without it, the step has no sidecar names, origins or file base and fetches nothing."""
         config = _make_config()
         adapter = _mock_adapter([_make_entry("e1")])
 
@@ -838,6 +844,7 @@ class TestSidecarMetadataWiring:
             return_value=datetime(2026, 1, 1, tzinfo=UTC)
         )
         repository.upsert_entry = AsyncMock()
+        repository.schema_facts = AsyncMock(return_value=_PLAIN_STORE)
 
         extract = AsyncMock()
         with (
@@ -850,8 +857,7 @@ class TestSidecarMetadataWiring:
                 return_value=[],
             ),
             patch(
-                "osprey.services.ariel_search.ingestion.metadata_attachment."
-                "extract_metadata_from_attachments",
+                "osprey.services.ariel_search.ingestion.ingest.extract_metadata_from_attachments",
                 extract,
             ),
         ):
@@ -861,4 +867,633 @@ class TestSidecarMetadataWiring:
         extract.assert_awaited_once()
         kwargs = extract.await_args.kwargs
         assert kwargs["adapter"] is adapter
-        assert kwargs["ingestion"] is config.ingestion
+        assert "ingestion" not in kwargs
+
+
+def _poll_patches(adapter, enhancers: list | None = None):
+    """Patch the poll's adapter and enhancer factories at their owning modules."""
+    return (
+        patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter),
+        patch(
+            "osprey.services.ariel_search.enhancement.create_enhancers_from_config",
+            return_value=enhancers or [],
+        ),
+    )
+
+
+class _RunLedger:
+    """An in-memory ``ingestion_runs``: the watermark is the latest successful start."""
+
+    def __init__(self, seed: datetime) -> None:
+        self.runs: dict[int, dict] = {0: {"started_at": seed, "status": "success"}}
+
+    async def start(self, _source: str) -> int:
+        run_id = len(self.runs)
+        self.runs[run_id] = {"started_at": datetime.now(UTC), "status": "running"}
+        return run_id
+
+    async def complete(self, run_id: int, **_counts) -> None:
+        self.runs[run_id]["status"] = "success"
+
+    async def fail(self, run_id: int, _message: str) -> None:
+        self.runs[run_id]["status"] = "failed"
+
+    async def watermark(self, _source: str) -> datetime | None:
+        starts = [r["started_at"] for r in self.runs.values() if r["status"] == "success"]
+        return max(starts, default=None)
+
+    def install(self, repo: MagicMock) -> None:
+        repo.start_ingestion_run = AsyncMock(side_effect=self.start)
+        repo.complete_ingestion_run = AsyncMock(side_effect=self.complete)
+        repo.fail_ingestion_run = AsyncMock(side_effect=self.fail)
+        repo.get_last_successful_run = AsyncMock(side_effect=self.watermark)
+
+
+class TestPollThroughIngestOne:
+    """Every polled entry goes through ``ingest_one``; only an all-unstored poll fails."""
+
+    @pytest.fixture
+    def repository(self) -> MagicMock:
+        repo = MagicMock()
+        repo.pool = MagicMock()
+        repo.pool.connection = MagicMock(return_value=AsyncMock())
+        repo.upsert_entry = AsyncMock()
+        repo.mark_enhancement_complete = AsyncMock()
+        repo.mark_enhancement_failed = AsyncMock()
+        repo.schema_facts = AsyncMock(return_value=_PLAIN_STORE)
+        repo.get_copy_retry_candidates = AsyncMock(return_value=[])
+        _RunLedger(datetime(2024, 1, 1, tzinfo=UTC)).install(repo)
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_every_entry_failing_leaves_the_watermark_and_returns(self, repository):
+        """Nothing stored: the run is failed, the poll returns, the watermark holds."""
+        repository.upsert_entry = AsyncMock(side_effect=RuntimeError("db is gone"))
+        before = await repository.get_last_successful_run("test_system")
+        adapter = _mock_adapter([_make_entry("e1"), _make_entry("e2")])
+
+        get_adapter, get_enhancers = _poll_patches(adapter)
+        with get_adapter, get_enhancers:
+            scheduler = IngestionScheduler(config=_make_config(), repository=repository)
+            result = await scheduler.poll_once()
+
+        assert result.entries_added == 0
+        assert result.entries_failed == 2
+        repository.fail_ingestion_run.assert_awaited_once()
+        repository.complete_ingestion_run.assert_not_awaited()
+        assert await repository.get_last_successful_run("test_system") == before
+
+    @pytest.mark.asyncio
+    async def test_all_entries_failing_does_not_feed_the_failure_cap(self, repository):
+        """run_forever counts only raised polls; an all-unstored poll returns normally."""
+        repository.upsert_entry = AsyncMock(side_effect=RuntimeError("db is gone"))
+        adapter = _mock_adapter([_make_entry("e1")])
+        config = _make_config(max_failures=1, poll_interval=0)
+
+        get_adapter, get_enhancers = _poll_patches(adapter)
+        with get_adapter, get_enhancers:
+            scheduler = IngestionScheduler(config=config, repository=repository)
+            real_poll = scheduler.poll_once
+            polls = 0
+
+            async def _poll_twice(dry_run=False):  # noqa: ARG001 - the poll_once signature
+                nonlocal polls
+                polls += 1
+                if polls == 2:
+                    await scheduler.stop()
+                return await real_poll()
+
+            scheduler.poll_once = _poll_twice
+            stop = await asyncio.wait_for(scheduler.run_forever(), timeout=5.0)
+
+        assert stop is StopReason.SIGNAL
+        assert scheduler._consecutive_failures == 0
+        assert repository.fail_ingestion_run.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_every_enhancer_failing_still_advances_the_watermark(self, repository):
+        """The text is stored, so the run succeeds and its start becomes the watermark."""
+        before = await repository.get_last_successful_run("test_system")
+        failing = MagicMock()
+        failing.name = "text_embedding"
+        failing.enhance = AsyncMock(side_effect=RuntimeError("model unavailable"))
+        adapter = _mock_adapter([_make_entry("e1"), _make_entry("e2")])
+
+        get_adapter, get_enhancers = _poll_patches(adapter, [failing])
+        with get_adapter, get_enhancers:
+            scheduler = IngestionScheduler(config=_make_config(), repository=repository)
+            result = await scheduler.poll_once()
+
+        assert result.entries_added == 2
+        assert result.entries_failed == 2
+        repository.complete_ingestion_run.assert_awaited_once()
+        repository.fail_ingestion_run.assert_not_awaited()
+        assert await repository.get_last_successful_run("test_system") > before
+
+    @pytest.mark.asyncio
+    async def test_attachment_recording_failure_counts_but_the_run_succeeds(self, repository):
+        """A savepoint failure keeps the text: one failed count, no pinned watermark."""
+        from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
+
+        adapter = _mock_adapter([_make_entry("e1")])
+        outcome = EntryIngestOutcome(enhanced=0, enhancer_failed=0, attachments_recorded=False)
+
+        get_adapter, get_enhancers = _poll_patches(adapter)
+        with (
+            get_adapter,
+            get_enhancers,
+            patch(
+                "osprey.services.ariel_search.ingestion.ingest.ingest_one",
+                AsyncMock(return_value=outcome),
+            ),
+        ):
+            scheduler = IngestionScheduler(config=_make_config(), repository=repository)
+            result = await scheduler.poll_once()
+
+        assert (result.entries_added, result.entries_failed) == (1, 1)
+        repository.complete_ingestion_run.assert_awaited_once()
+        repository.fail_ingestion_run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_entry_written_during_a_slow_fetch_is_picked_up_next_poll(self, repository):
+        """The watermark is the run's start, so a mid-fetch write is newer than ``since``."""
+        old = _make_entry("old")
+        old["timestamp"] = datetime(2024, 6, 1, tzinfo=UTC)
+        source: list[dict] = [old]
+        stored: list[str] = []
+        repository.upsert_entry = AsyncMock(side_effect=lambda e: stored.append(e["entry_id"]))
+
+        adapter = MagicMock()
+        adapter.source_system_name = "test_system"
+        adapter.unreadable_entries = 0
+
+        async def _slow_fetch(since=None, until=None, limit=None):  # noqa: ARG001 - the ingestion adapter fetch_entries signature
+            snapshot = [e for e in source if since is None or e["timestamp"] > since]
+            await asyncio.sleep(0.01)
+            late = _make_entry("written-mid-poll")
+            late["timestamp"] = datetime.now(UTC)
+            if not any(e["entry_id"] == late["entry_id"] for e in source):
+                source.append(late)
+            await asyncio.sleep(0.01)
+            for entry in snapshot:
+                yield entry
+
+        adapter.fetch_entries = _slow_fetch
+
+        get_adapter, get_enhancers = _poll_patches(adapter)
+        with get_adapter, get_enhancers:
+            scheduler = IngestionScheduler(config=_make_config(), repository=repository)
+            first = await scheduler.poll_once()
+            second = await scheduler.poll_once()
+
+        assert first.entries_added == 1
+        assert second.entries_added == 1
+        assert stored == ["old", "written-mid-poll"]
+
+    @pytest.mark.asyncio
+    async def test_no_fetch_for_an_entry_without_attachments(self, repository, attachment_fetch):
+        """On a store with the copy state, an entry with no pictures fetches nothing."""
+        repository.schema_facts = AsyncMock(
+            return_value=SchemaFacts(has_v2_fts=True, has_copy_state=True)
+        )
+        repository.get_copy_rows = AsyncMock(return_value=[])
+        adapter = _mock_adapter([_make_entry("e1")])
+
+        get_adapter, get_enhancers = _poll_patches(adapter)
+        with (
+            get_adapter,
+            get_enhancers,
+            patch(
+                "osprey.services.ariel_search.ingestion.ingest._store",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            scheduler = IngestionScheduler(config=_make_config(), repository=repository)
+            result = await scheduler.poll_once()
+
+        assert (result.entries_added, result.entries_failed) == (1, 0)
+        repository.get_copy_rows.assert_awaited_once_with("e1")
+        assert attachment_fetch is None or attachment_fetch.calls == []
+
+    @pytest.mark.asyncio
+    async def test_one_copy_run_and_breaker_span_exactly_one_poll(self, repository):
+        """Every entry of a poll shares one CopyRun; five refused connects trip its breaker.
+
+        The tripped breaker then refuses that host for the rest of the poll, and
+        the next poll starts with a fresh breaker.
+        """
+        from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
+
+        host = ("https", "elog.example", 443)
+        runs: list = []
+
+        async def _refusing_ingest(entry, adapter, repo, enhancers, config, copy_run):  # noqa: ARG001 - the ingest_one signature
+            runs.append(copy_run)
+            assert copy_run.breaker.allow(host)
+            copy_run.breaker.record(host, transient=True)
+            return EntryIngestOutcome()
+
+        adapter = _mock_adapter([_make_entry(f"e{i}") for i in range(5)])
+
+        get_adapter, get_enhancers = _poll_patches(adapter)
+        with (
+            get_adapter,
+            get_enhancers,
+            patch("osprey.services.ariel_search.ingestion.ingest.ingest_one", _refusing_ingest),
+        ):
+            scheduler = IngestionScheduler(config=_make_config(), repository=repository)
+            await scheduler.poll_once()
+            first_poll = runs[:]
+            await scheduler.poll_once()
+
+        assert len(first_poll) == 5
+        assert all(run is first_poll[0] for run in first_poll)
+        assert first_poll[0].breaker.is_open(host)
+        assert not first_poll[0].breaker.allow(host)
+        assert runs[5] is not first_poll[0]
+        assert all(run is runs[5] for run in runs[5:])
+
+
+# --- copy retry step ------------------------------------------------------------
+
+#: A store carrying the attachment copy state: the poll's retry step runs.
+_COPY_STORE = SchemaFacts(has_v2_fts=True, has_copy_state=True)
+
+
+def _lock_factory(held: bool = True, calls: list | None = None):
+    """A stand-in for ``try_advisory_lock`` that yields ``held`` and records its calls."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _factory(conninfo, key, **kwargs):
+        if calls is not None:
+            calls.append((conninfo, key, kwargs))
+        yield held
+
+    return _factory
+
+
+def _keyset(pairs: list[tuple[datetime, str]]) -> AsyncMock:
+    """``get_copy_retry_candidates`` over ``pairs``: newest first below the cursor."""
+    ordered = sorted(pairs, reverse=True)
+
+    async def _get(after, limit):
+        return [p for p in ordered if after is None or p < after][:limit]
+
+    return AsyncMock(side_effect=_get)
+
+
+def _pairs(prefix: str, count: int, *, day: int = 1) -> list[tuple[datetime, str]]:
+    """``count`` candidates, one per minute of day ``day`` of 2024."""
+    return [(datetime(2024, 1, day, 0, i, tzinfo=UTC), f"{prefix}{i:02d}") for i in range(count)]
+
+
+class TestCopyRetryStep:
+    """After its new entries, a poll retries the copy of other stored entries."""
+
+    @pytest.fixture
+    def repository(self) -> MagicMock:
+        repo = MagicMock()
+        repo.pool = MagicMock()
+        repo.pool.conninfo = "postgresql://localhost/test"
+        repo.schema_facts = AsyncMock(return_value=_COPY_STORE)
+        repo.get_copy_retry_candidates = AsyncMock(return_value=[])
+        _RunLedger(datetime(2024, 1, 1, tzinfo=UTC)).install(repo)
+        return repo
+
+    @staticmethod
+    def _patches(adapter, copy_entry, ingest=None):
+        from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
+
+        async def _ingest(*_args, **_kwargs):
+            return EntryIngestOutcome()
+
+        get_adapter, get_enhancers = _poll_patches(adapter)
+        return (
+            get_adapter,
+            get_enhancers,
+            patch("osprey.services.ariel_search.ingestion.ingest.ingest_one", ingest or _ingest),
+            patch("osprey.services.ariel_search.attachments.copy.copy_entry", copy_entry),
+        )
+
+    async def _poll(self, scheduler, adapter, copy_entry, polls: int = 1, ingest=None):
+        a, b, c, d = self._patches(adapter, copy_entry, ingest)
+        results = []
+        with a, b, c, d:
+            for _ in range(polls):
+                results.append(await scheduler.poll_once())
+        return results
+
+    @pytest.mark.asyncio
+    async def test_retry_step_copies_other_entries_with_the_poll_copy_run(self, repository):
+        """New entries are passed over; the others are copied with the poll's CopyRun."""
+        ts = datetime(2024, 1, 2, tzinfo=UTC)
+        repository.get_copy_retry_candidates = AsyncMock(
+            return_value=[(ts, "new-1"), (ts, "old-2"), (ts, "old-1")]
+        )
+        ingest_runs: list = []
+
+        async def _ingest(entry, adapter, repo, enhancers, config, copy_run):  # noqa: ARG001 - the ingest_one signature
+            from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
+
+            ingest_runs.append(copy_run)
+            return EntryIngestOutcome()
+
+        copy_entry = AsyncMock()
+        lock_calls: list = []
+        scheduler = IngestionScheduler(
+            _make_config(), repository, lock_factory=_lock_factory(True, lock_calls)
+        )
+        (result,) = await self._poll(
+            scheduler, _mock_adapter([_make_entry("new-1")]), copy_entry, ingest=_ingest
+        )
+
+        assert result.entries_added == 1
+        assert [c.args[1] for c in copy_entry.await_args_list] == ["old-2", "old-1"]
+        assert all(c.args[0] is repository for c in copy_entry.await_args_list)
+        assert all(c.args[3] is ingest_runs[0] for c in copy_entry.await_args_list)
+        assert lock_calls == [("postgresql://localhost/test", "ariel_copy", {})]
+        # The new entry is not counted against the step's budget.
+        repository.get_copy_retry_candidates.assert_awaited_once_with(None, 21)
+
+    @pytest.mark.asyncio
+    async def test_retry_step_visits_at_most_twenty_entries(self, repository):
+        repository.get_copy_retry_candidates = _keyset(_pairs("c", 30))
+        copy_entry = AsyncMock()
+        scheduler = IngestionScheduler(_make_config(), repository, lock_factory=_lock_factory())
+        await self._poll(scheduler, _mock_adapter([]), copy_entry)
+
+        visited = [c.args[1] for c in copy_entry.await_args_list]
+        assert visited == [f"c{i:02d}" for i in range(29, 9, -1)]
+
+    @pytest.mark.asyncio
+    async def test_retry_step_rotating_cursor_continues_below_and_wraps(self, repository):
+        """45 candidates: polls visit 20, 20, the last 5, then the newest 20 again."""
+        repository.get_copy_retry_candidates = _keyset(_pairs("c", 45))
+        copy_entry = AsyncMock()
+        scheduler = IngestionScheduler(_make_config(), repository, lock_factory=_lock_factory())
+
+        per_poll = []
+        for _ in range(4):
+            copy_entry.reset_mock()
+            await self._poll(scheduler, _mock_adapter([]), copy_entry)
+            per_poll.append([c.args[1] for c in copy_entry.await_args_list])
+
+        newest_first = [f"c{i:02d}" for i in range(44, -1, -1)]
+        assert per_poll[0] == newest_first[:20]
+        assert per_poll[1] == newest_first[20:40]
+        assert per_poll[2] == newest_first[40:]
+        assert per_poll[3] == newest_first[:20]
+
+    @pytest.mark.asyncio
+    async def test_retry_step_cursor_at_the_end_wraps_in_the_same_poll(self, repository):
+        """Exactly 20 candidates: the second poll finds nothing below and restarts at the top."""
+        repository.get_copy_retry_candidates = _keyset(_pairs("c", 20))
+        copy_entry = AsyncMock()
+        scheduler = IngestionScheduler(_make_config(), repository, lock_factory=_lock_factory())
+        await self._poll(scheduler, _mock_adapter([]), copy_entry)
+        copy_entry.reset_mock()
+        await self._poll(scheduler, _mock_adapter([]), copy_entry)
+        assert len(copy_entry.await_args_list) == 20
+
+    @pytest.mark.asyncio
+    async def test_retry_step_stuck_newest_entries_do_not_starve_an_older_one(self, repository):
+        """20 newest entries that never copy plus one older: the older is visited by poll 2."""
+        stuck = _pairs("stuck-", 20, day=3)
+        older = (datetime(2024, 1, 2, tzinfo=UTC), "older")
+        repository.get_copy_retry_candidates = _keyset([*stuck, older])
+        copy_entry = AsyncMock()
+        scheduler = IngestionScheduler(_make_config(), repository, lock_factory=_lock_factory())
+
+        await self._poll(scheduler, _mock_adapter([]), copy_entry)
+        assert "older" not in [c.args[1] for c in copy_entry.await_args_list]
+        await self._poll(scheduler, _mock_adapter([]), copy_entry)
+        assert "older" in [c.args[1] for c in copy_entry.await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_retry_step_lock_held_elsewhere_skips_the_step(self, repository):
+        copy_entry = AsyncMock()
+        scheduler = IngestionScheduler(
+            _make_config(), repository, lock_factory=_lock_factory(held=False)
+        )
+        with patch("osprey.services.ariel_search.ingestion.scheduler.logger") as log:
+            (result,) = await self._poll(scheduler, _mock_adapter([_make_entry()]), copy_entry)
+
+        assert result.entries_added == 1
+        copy_entry.assert_not_awaited()
+        repository.get_copy_retry_candidates.assert_not_awaited()
+        log.info.assert_any_call("copy: running in another process")
+
+    @pytest.mark.asyncio
+    async def test_retry_step_skipped_without_copy_state_schema(self, repository):
+        """A store without the copy state: the poll completes, no lock, no walk."""
+        repository.schema_facts = AsyncMock(return_value=_PLAIN_STORE)
+        lock_calls: list = []
+        copy_entry = AsyncMock()
+        scheduler = IngestionScheduler(
+            _make_config(), repository, lock_factory=_lock_factory(True, lock_calls)
+        )
+        (result,) = await self._poll(scheduler, _mock_adapter([_make_entry()]), copy_entry)
+
+        assert result.entries_added == 1
+        assert lock_calls == []
+        repository.get_copy_retry_candidates.assert_not_awaited()
+        copy_entry.assert_not_awaited()
+        repository.complete_ingestion_run.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_step_copy_failure_does_not_stop_the_step_or_fail_the_poll(
+        self, repository
+    ):
+        ts = datetime(2024, 1, 2, tzinfo=UTC)
+        repository.get_copy_retry_candidates = AsyncMock(return_value=[(ts, "b"), (ts, "a")])
+        copy_entry = AsyncMock(side_effect=[RuntimeError("boom"), None])
+        scheduler = IngestionScheduler(_make_config(), repository, lock_factory=_lock_factory())
+        (result,) = await self._poll(scheduler, _mock_adapter([]), copy_entry)
+
+        assert [c.args[1] for c in copy_entry.await_args_list] == ["b", "a"]
+        assert result.entries_failed == 0
+        repository.complete_ingestion_run.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_step_database_failure_is_absorbed(self, repository):
+        """A failing candidate query or lock never reaches run_forever's failure cap."""
+        repository.get_copy_retry_candidates = AsyncMock(side_effect=RuntimeError("db down"))
+        copy_entry = AsyncMock()
+        scheduler = IngestionScheduler(_make_config(), repository, lock_factory=_lock_factory())
+        (result,) = await self._poll(scheduler, _mock_adapter([]), copy_entry)
+        assert result.entries_added == 0
+        copy_entry.assert_not_awaited()
+
+        def _broken_lock(*_args, **_kwargs):
+            raise OSError("connection refused")
+
+        scheduler = IngestionScheduler(_make_config(), repository, lock_factory=_broken_lock)
+        await self._poll(scheduler, _mock_adapter([]), copy_entry)
+        copy_entry.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_step_not_run_on_dry_run_or_before_initial_ingest(self, repository):
+        copy_entry = AsyncMock()
+        lock_calls: list = []
+        repository.get_last_successful_run = AsyncMock(return_value=None)
+        scheduler = IngestionScheduler(
+            _make_config(require_initial=True),
+            repository,
+            lock_factory=_lock_factory(True, lock_calls),
+        )
+        await self._poll(scheduler, _mock_adapter([_make_entry()]), copy_entry)
+        a, b, c, d = self._patches(_mock_adapter([_make_entry()]), copy_entry)
+        with a, b, c, d:
+            await scheduler.poll_once(dry_run=True)
+        assert lock_calls == []
+        copy_entry.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Image modules stay out of the poll
+# ---------------------------------------------------------------------------
+
+
+class _ImageModuleCalls:
+    """Every touch of the fake picture module, across the instances a poll builds."""
+
+    events: list[str] = []
+
+
+def _image_module_classes():
+    """A recording inline ``text_embedding`` and a misconfigured ``image_caption``."""
+    from osprey.services.ariel_search.enhancement.base import (
+        BaseEnhancementModule,
+        ImageEntryOutcome,
+    )
+
+    class _TextEmbedding(BaseEnhancementModule):
+        @property
+        def name(self) -> str:
+            return "text_embedding"
+
+        async def enhance(self, entry, conn) -> None:  # noqa: ARG002 - the enhancement module signature
+            _ImageModuleCalls.events.append(f"text_embedding:{entry['entry_id']}")
+
+    class _ImageCaption(BaseEnhancementModule):
+        runs_inline = False
+
+        def __init__(self) -> None:
+            _ImageModuleCalls.events.append("image_caption:init")
+
+        @property
+        def name(self) -> str:
+            return "image_caption"
+
+        def configure(self, config) -> None:  # noqa: ARG002 - the enhancement module signature
+            _ImageModuleCalls.events.append("image_caption:configure")
+            raise ValueError("image_caption is misconfigured")
+
+        async def enhance(self, entry, conn) -> None:  # noqa: ARG002 - the enhancement module signature
+            _ImageModuleCalls.events.append("image_caption:enhance")
+
+        async def run_entry(self, entry, repository, *, gate):  # noqa: ARG002 - the enhancement module signature
+            _ImageModuleCalls.events.append("image_caption:run_entry")
+            return ImageEntryOutcome.done()
+
+    return _TextEmbedding, _ImageCaption
+
+
+def _register_image_modules(monkeypatch) -> None:
+    """Swap the mocked registry's ``text_embedding`` and add ``image_caption``."""
+    from osprey.registry import get_registry
+    from osprey.registry.base import ArielEnhancementModuleRegistration
+
+    text_cls, image_cls = _image_module_classes()
+    registry = get_registry()
+    table = dict(registry.get_ariel_enhancement_module.side_effect.__self__)
+    for cls, name, order in ((text_cls, "text_embedding", 20), (image_cls, "image_caption", 40)):
+        table[name] = (
+            cls,
+            ArielEnhancementModuleRegistration(
+                name=name,
+                module_path=__name__,
+                class_name=cls.__name__,
+                description=name,
+                execution_order=order,
+            ),
+        )
+    ordered = sorted(table, key=lambda n: table[n][1].execution_order)
+    monkeypatch.setattr(registry.list_ariel_enhancement_modules, "return_value", ordered)
+    monkeypatch.setattr(registry.get_ariel_enhancement_module, "side_effect", table.get)
+
+
+class TestPollSkipsImageModules:
+    """A poll builds inline modules only, through the real factory."""
+
+    @pytest.fixture
+    def repository(self) -> MagicMock:
+        repo = MagicMock()
+        repo.pool = MagicMock()
+        repo.pool.connection = MagicMock(return_value=AsyncMock())
+        repo.start_ingestion_run = AsyncMock(return_value=1)
+        repo.complete_ingestion_run = AsyncMock()
+        repo.fail_ingestion_run = AsyncMock()
+        # A previous run exists, so the poll ingests instead of asking for an initial ingest.
+        repo.get_last_successful_run = AsyncMock(return_value=datetime(2024, 1, 1, tzinfo=UTC))
+        repo.upsert_entry = AsyncMock()
+        repo.mark_enhancement_complete = AsyncMock()
+        repo.mark_enhancement_failed = AsyncMock()
+        repo.schema_facts = AsyncMock(return_value=_PLAIN_STORE)
+        repo.get_copy_retry_candidates = AsyncMock(return_value=[])
+        return repo
+
+    @pytest.fixture(autouse=True)
+    def _clear_events(self):
+        _ImageModuleCalls.events = []
+        yield
+        _ImageModuleCalls.events = []
+
+    @pytest.mark.asyncio
+    async def test_image_module_misconfigured_poll_stores_and_runs_text_embedding(
+        self, monkeypatch, repository
+    ) -> None:
+        _register_image_modules(monkeypatch)
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "ingestion": {"adapter": "generic_json", "source_url": "https://x/logbook"},
+                "enhancement_modules": {
+                    "text_embedding": {"enabled": True},
+                    "image_caption": {"enabled": True, "provider": "nowhere"},
+                },
+            }
+        )
+        adapter = _mock_adapter([_make_entry("e1"), _make_entry("e2")])
+
+        with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
+            scheduler = IngestionScheduler(config=config, repository=repository)
+            result = await scheduler.poll_once()
+
+        assert result.entries_added == 2
+        assert result.entries_failed == 0
+        assert repository.upsert_entry.await_count == 2
+        assert _ImageModuleCalls.events == ["text_embedding:e1", "text_embedding:e2"]
+        marked = [c.args[1] for c in repository.mark_enhancement_complete.await_args_list]
+        assert marked == ["text_embedding", "text_embedding"]
+        repository.mark_enhancement_failed.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_image_module_in_the_enhancer_list_gets_zero_calls(self, repository) -> None:
+        text_cls, image_cls = _image_module_classes()
+        image = image_cls.__new__(image_cls)  # no __init__: count only poll-time calls
+        adapter = _mock_adapter([_make_entry("e1")])
+
+        with (
+            _poll_patches(adapter, [text_cls(), image])[0],
+            _poll_patches(adapter, [text_cls(), image])[1],
+        ):
+            scheduler = IngestionScheduler(config=_make_config(), repository=repository)
+            result = await scheduler.poll_once()
+
+        assert result.entries_added == 1
+        assert _ImageModuleCalls.events == ["text_embedding:e1"]
+        names = [c.args[1] for c in repository.mark_enhancement_complete.await_args_list]
+        assert "image_caption" not in names
+        repository.mark_enhancement_failed.assert_not_awaited()
