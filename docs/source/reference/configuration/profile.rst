@@ -1388,7 +1388,7 @@ bluesky
 
 The ``bluesky:`` section configures the Bluesky stack a deployment brings up —
 the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
-store. It accepts exactly eight keys; a misspelled or unknown key **fails the
+store. It accepts exactly twelve keys; a misspelled or unknown key **fails the
 build** and prints the valid set:
 
 .. list-table::
@@ -1436,6 +1436,16 @@ build** and prints the valid set:
      - How many rows of one run the bridge stores (default 10000). Rows past
        the cap are still counted, so a long run reports its true length over a
        truncated buffer.
+   * - ``external``
+     - An externally-run RE Manager this deployment's bridge fronts, as a
+       block of ``zmq_control_addr`` (required, the manager's 0MQ control
+       socket as the bridge container dials it), ``zmq_public_key_env`` (the
+       ``.env`` variable holding the manager's CURVE public key, treated as a
+       secret), ``insecure_plaintext``, ``tiled_uri`` and
+       ``tiled_api_key_env`` (the facility's Tiled, read by the bridge), and
+       ``parameter_schemas``. No queueserver, Redis or Tiled container is
+       rendered for the lane; exclusive with ``second_lane`` and
+       ``tiled_enabled``.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for
