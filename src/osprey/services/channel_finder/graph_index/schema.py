@@ -10,7 +10,8 @@ APOC): ``(:Resource)-[:HASBINDING]->(:ChannelBinding)``, a device typed by
 ``(:Resource)-[:TYPE]->(:Class)`` with ``:Class`` nodes chained by
 ``[:SUBCLASSOF]``, and a binding reaching its meaning through
 ``(:ChannelBinding)-[:READSSIGNAL|WRITESSIGNAL]->(:SemanticSignal)``. Devices
-carry ``uri``, ``sourceName``, ``sectionCode`` and ``system``; bindings carry
+carry ``uri``, ``sourceName``, ``sectionCode``, ``system``, ``placePath``,
+``sPositionM`` and ``ordinalInPlace``; bindings carry
 ``fullPv`` and ``description``; signals carry ``uri`` and ``label``; classes
 carry ``uri`` and a list-valued ``altLabel``. Every node also wears n10s's
 ``Resource`` label, which is why the Cypher these tables replace matches on no
@@ -20,7 +21,10 @@ The mapping onto the tables:
 
 * ``bindings`` — one row per ``(device, binding)`` pair, denormalised with the
   device's columns, the URIs and names of the signals the binding reaches, and
-  the URIs of every class the device rolls up to under ``SUBCLASSOF``.
+  the URIs of every class the device rolls up to under ``SUBCLASSOF``. The
+  device's place path, s position in metres and ordinal within its place are
+  NULL where the corpus states none, so a place binding a channel itself
+  carries a path and no position.
   ``haystack`` is the lowercase text the token filter matches, so a search
   never joins.
 * ``classes`` — one row per class of the pruned device taxonomy, with the
@@ -59,6 +63,9 @@ CREATE TABLE bindings (
     device_name  VARCHAR,
     section      VARCHAR,
     system       VARCHAR,
+    place_path   VARCHAR,
+    s_position_m DOUBLE,
+    ordinal_in_place BIGINT,
     edges        VARCHAR[],
     signal_uris  VARCHAR[],
     signal_names VARCHAR[],

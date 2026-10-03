@@ -94,6 +94,9 @@ class TestSubclassChain:
             "device_name",
             "section",
             "system",
+            "place_path",
+            "s_position_m",
+            "ordinal_in_place",
             "edges",
             "signal_uris",
             "signal_names",
@@ -207,6 +210,31 @@ class TestSubclassChain:
     def test_census_extras(self, parsed):
         assert parsed.section_codes == frozenset({"SR"})
         assert parsed.signal_count == 2
+
+
+class TestPlacedDevices:
+    @pytest.fixture(scope="class")
+    def parsed(self) -> ParsedCorpus:
+        return parse_corpus(corpora.PLACED_DEVICES)
+
+    def test_a_device_row_carries_its_place_position_and_ordinal(self, parsed):
+        row = _rows_by_pv(parsed)["SR:QF8:RB"]
+        assert row.place_path == "SR/SECT1"
+        assert row.s_position_m == 12.5
+        assert isinstance(row.s_position_m, float)
+        assert row.ordinal_in_place == 2
+        assert isinstance(row.ordinal_in_place, int)
+
+    def test_a_place_binding_carries_the_path_and_no_position(self, parsed):
+        row = _rows_by_pv(parsed)["SR:SECT1:TEMP"]
+        assert row.device_uri == "https://narad.example.org/place/demo_SR_SECT1"
+        assert row.place_path == "SR/SECT1"
+        assert row.s_position_m is None
+        assert row.ordinal_in_place is None
+
+    def test_a_device_the_corpus_does_not_place_has_null_columns(self):
+        row = _rows_by_pv(parse_corpus(corpora.SUBCLASS_CHAIN))["SR:MAG:QF1:CURRENT:SP"]
+        assert (row.place_path, row.s_position_m, row.ordinal_in_place) == (None, None, None)
 
 
 class TestBothEdges:

@@ -83,6 +83,9 @@ class BindingRow:
     device_name: str | None
     section: str | None
     system: str | None
+    place_path: str | None
+    s_position_m: float | None
+    ordinal_in_place: int | None
     edges: list[str]
     signal_uris: list[str]
     signal_names: list[str]
@@ -157,6 +160,9 @@ def parse_corpus(text: str) -> ParsedCorpus:
     p_source_name = URIRef(NARAD_P + "sourceName")
     p_section = URIRef(NARAD_P + "sectionCode")
     p_system = URIRef(NARAD_P + "system")
+    p_place_path = URIRef(NARAD_P + "placePath")
+    p_s_position = URIRef(NARAD_P + "sPositionM")
+    p_ordinal_in_place = URIRef(NARAD_P + "ordinalInPlace")
 
     def is_node(term: Any) -> bool:
         return isinstance(term, URIRef | BNode)
@@ -170,6 +176,21 @@ def parse_corpus(text: str) -> ParsedCorpus:
         """
         values = sorted(str(o) for o in graph.objects(subject, predicate) if isinstance(o, Literal))
         return values[0] if values else None
+
+    def number(subject: Any, predicate: Any, kind: type[float] | type[int]) -> Any:
+        """The one numeric scalar for ``subject.predicate``, or ``None``.
+
+        Taken as :func:`literal` takes it, then read as ``kind``; a lexical
+        form that is not a number of that kind is no value rather than an
+        error, as a store would hold it as a string no numeric column reads.
+        """
+        value = literal(subject, predicate)
+        if value is None:
+            return None
+        try:
+            return kind(value)
+        except ValueError:
+            return None
 
     # -- the labels n10s derives from rdf:type ------------------------------
     labelled: dict[str, set[Any]] = {
@@ -278,6 +299,9 @@ def parse_corpus(text: str) -> ParsedCorpus:
         device_name = literal(device, p_source_name)
         section = literal(device, p_section)
         system = literal(device, p_system)
+        place_path = literal(device, p_place_path)
+        s_position_m = number(device, p_s_position, float)
+        ordinal_in_place = number(device, p_ordinal_in_place, int)
         ancestors = device_ancestors[device]
         class_uris = sorted(str(a) for a in ancestors)
         names_of_classes = class_names(ancestors)
@@ -320,6 +344,9 @@ def parse_corpus(text: str) -> ParsedCorpus:
                     device_name=device_name,
                     section=section,
                     system=system,
+                    place_path=place_path,
+                    s_position_m=s_position_m,
+                    ordinal_in_place=ordinal_in_place,
                     edges=sorted(edges),
                     signal_uris=[uri for _, uri in ordered_signals],
                     signal_names=signal_names,
@@ -388,6 +415,9 @@ BINDING_COLUMNS = (
     "device_name",
     "section",
     "system",
+    "place_path",
+    "s_position_m",
+    "ordinal_in_place",
     "edges",
     "signal_uris",
     "signal_names",
