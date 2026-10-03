@@ -10,7 +10,7 @@ Ingestion Architecture
 .. raw:: html
    :file: ../../_diagrams/ariel-ingestion.html
 
-The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adapters_>`_ connects to the source system --- whether that is a live HTTP API, a JSONL dump, or any other data source --- and yields entries one at a time as ``EnhancedLogbookEntry`` TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The ``ARIELRepository`` upserts these entries into the ``enhanced_entries`` table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional `enhancement modules <Enhancement Pipeline_>`_ can be run as a separate step to compute additional derived fields --- embeddings, keywords, summaries, or any other enrichment --- and write them back to the :doc:`database </reference/contracts/ariel>`.
+The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adapters_>`_ connects to the source system --- whether that is a live HTTP API, a JSONL dump, or any other data source --- and yields entries one at a time as ``EnhancedLogbookEntry`` TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The ``ARIELRepository`` upserts these entries into the ``enhanced_entries`` table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. In the same step it copies each entry's pictures into the ``attachment_files`` table (``ariel.attachments.copy_on_ingest``, ``images`` by default), so the agent and the picture modules read them from the database rather than from the logbook. Once the base entries are stored, optional `enhancement modules <Enhancement Pipeline_>`_ can be run as a separate step to compute additional derived fields --- picture captions, keywords, summaries, text and picture embeddings, the search sidecar's mirror, or any other enrichment --- and write them back to the :doc:`database </reference/contracts/ariel>`.
 
 .. admonition:: Batch and Live Ingestion
    :class: note
@@ -235,6 +235,46 @@ The built-in enhancement modules:
                  Return ONLY valid JSON matching this schema:
                  {{"keywords": ["keyword1", ...], "summary": "..."}}
 
+   .. tab-item:: Image Caption
+
+      **Module:** ``enhancement/image_caption/`` (entry point: ``module.py``)
+
+      Asks a vision-capable chat model to describe each copied picture and to read out its visible text. The caption goes into the entry's searchable attachment text, so keyword and semantic search find an entry by what its pictures show. It runs first, so the modules after it see the captions.
+
+      **Configuration:** the provider and model are the module's own, never the deployment's main model. The shipped presets set Ollama with ``qwen3-vl:4b``; any vision-capable chat provider and model work.
+
+      .. code-block:: yaml
+
+         ariel:
+           enhancement_modules:
+             image_caption:
+               enabled: true
+               provider: ollama
+               model:
+                 model_id: qwen3-vl:4b
+
+      **Requirements:** the configured provider serving that model. Without it the module is skipped and ``osprey ariel status`` says why. See :doc:`picture-search`.
+
+   .. tab-item:: Image Embedding
+
+      **Module:** ``enhancement/image_embedding/`` (entry point: ``module.py``)
+
+      Embeds each copied picture into a per-model image vector table, so ``hybrid_search`` can rank pictures against the query and find an entry known only by its pictures.
+
+      **Configuration:**
+
+      .. code-block:: yaml
+
+         ariel:
+           enhancement_modules:
+             image_embedding:
+               enabled: true
+               provider: llama-cpp
+               model: qwen3-vl-embedding-2b
+               dimensions: 1024
+
+      **Requirements:** a site-run ``llama-server`` with a multimodal embedding model, and pgvector. Without them the module is skipped and search answers on text. See :doc:`picture-search`.
+
    .. tab-item:: qmd Export
 
       **Module:** ``enhancement/qmd_export/`` (entry point: ``exporter.py``)
@@ -258,11 +298,9 @@ The built-in enhancement modules:
 
 **Using a custom enhancement module:**
 
-A module of your own runs alongside the built-in ones once it is registered --- see :doc:`/contributing/extending-osprey`. Its registration carries an ``execution_order`` that decides where in the run it lands; the built-ins use 10 (semantic processor), 20 (text embedding) and 30 (qmd export), so a value above 30 runs last.
+A module of your own runs alongside the built-in ones once it is registered --- see :doc:`/contributing/extending-osprey`. Its registration carries an ``execution_order`` that decides where in the run it lands; the built-ins use 5 (image caption), 10 (semantic processor), 20 (text embedding), 25 (image embedding) and 30 (qmd export), so a value above 30 runs last.
 
 A module's ``health_check`` returns ``HealthResult(reachable, message, reason)``: ``reachable`` is ``True``, ``False`` or ``None`` (not checked), and ``reason`` names why it is not reachable (``unreachable``, ``model``, ``auth`` or ``config``). A plain ``(bool, str)`` pair is still accepted and read as ``HealthResult(bool, str, None)``. ``osprey ariel status`` shows each enabled module's verdict and names a skipped module with its reason. On a route without ``models_probe`` (a provider with no model listing to ask), ``osprey ariel status`` makes one billed health completion: the semantic processor's check sends a one-line completion there, which the provider bills like any other call. The caption module's check never calls the model; on such a route it reports the module as not checked.
-
-The picture modules ``image_caption`` and ``image_embedding`` are described in :doc:`picture-search`.
 
 .. admonition:: Collaboration Welcome
    :class: outreach
