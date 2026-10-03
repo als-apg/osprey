@@ -1256,7 +1256,8 @@ def test_env_production_never_carries_the_telemetry_ingest_token(tmp_path):
 
     ZO_INGEST_SA_TOKEN is narrower than the root password -- it cannot create
     users -- but OpenObserve has no ingest-only role in any edition, so the
-    account also reads back every log and metric in the store. One .env.users
+    account also reads back every log and metric in the store and can change a
+    stream's retention or delete a stream. One .env.users
     is handed to every persona alike, so it stays out for the same reason.
     """
     _write_dotenv(
@@ -1890,8 +1891,8 @@ def test_the_external_store_refusal_sentence_is_pinned(tmp_path, monkeypatch):
         "ZO_INGEST_SA_TOKEN is an observability-store credential that reads every "
         "transcript the store holds — the root password is the store's single admin "
         "credential, and the ingest service account `osprey up` provisions reads back "
-        "every log and metric too (OpenObserve has no ingest-only role in any "
-        "edition). One .env.users is handed to every persona alike, read-only ones "
+        "every log and metric too, and can change a stream's retention or delete a "
+        "stream (OpenObserve has no ingest-only role in any edition). One .env.users is handed to every persona alike, read-only ones "
         "included, so this file never carries either of them. The env chain is still "
         "where it belongs — that is what the store and the agent read — but a web "
         "terminal will not receive it from here. A telemetry block that names its own "
