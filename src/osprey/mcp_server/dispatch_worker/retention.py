@@ -193,7 +193,8 @@ def sweep_artifacts(
 
     An artifact produced by an in-flight run (its ``run_id`` tag is in
     ``in_flight_run_ids``) survives regardless of age. Both the index row and the
-    on-disk file are removed via ``ArtifactStore.delete_entry``. A no-op when
+    on-disk file are removed via ``ArtifactStore.delete_entry``. Audit spills
+    are swept like any other artifact. A no-op when
     ``retention_days <= 0``.
     """
     if retention_days <= 0:
@@ -210,7 +211,7 @@ def sweep_artifacts(
     # These deletes are maintenance, not agent actions — tag them so store
     # listeners don't report them as agent activity.
     with artifact_mutation_actor("system"):
-        for entry in list(store.list_entries()):
+        for entry in list(store.list_entries(include_audit=True)):
             if entry.run_id and entry.run_id in in_flight:
                 continue
             ts = _parse_iso_timestamp(entry.timestamp)

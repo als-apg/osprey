@@ -720,7 +720,11 @@ def _file_tool_call(
             tool_use_id=tool_use_id,
             max_inline=max_inline,
         )
-        serialized = None if error is not None else tool_call.serialize_result(result)
+        serialized = (
+            None
+            if error is not None
+            else tool_call.serialize_result(result, subject=subject, tool_use_id=tool_use_id)
+        )
         result_value, result_ref = tool_call.capped(
             serialized,
             label="result",

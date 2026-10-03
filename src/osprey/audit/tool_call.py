@@ -12,15 +12,20 @@ one log line (:mod:`osprey.audit.otlp`).
 
 It holds values by design and does not use the envelope. A payload over
 ``audit.tool_call.max_inline_bytes`` is not dropped: its bytes are saved as an
-artifact and the record keeps its size, sha256 and artifact id. The default
+artifact and the record keeps its size, sha256 and artifact id; an image
+block over 4 KB is saved the same way, once per distinct picture, with the
+rest of the result kept inline. The default
 surfaces are unchanged whether this one is on or off.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import uuid
 from typing import Any
@@ -31,6 +36,7 @@ __all__ = [
     "ARTIFACT_ORIGIN",
     "DEFAULT_MAX_INLINE_BYTES",
     "ENABLED_KEY",
+    "IMAGE_SPILL_BYTES",
     "MAX_INLINE_KEY",
     "SURFACE_TOOL_CALL",
     "build_record",
@@ -140,21 +146,91 @@ def capped(
     return None, reference
 
 
-def serialize_result(result: Any) -> Any:
+#: An image block whose decoded bytes exceed this is spilled to the store.
+IMAGE_SPILL_BYTES = 4096
+
+
+def _image_bytes(data: str) -> bytes:
+    try:
+        return base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        return data.encode("utf-8", "replace")
+
+
+def _spill_image(
+    block: dict[str, Any], *, index: int, subject: str, tool_use_id: str | None
+) -> dict[str, Any]:
+    """*block* (an image block's wire form) with its data swapped for a reference.
+
+    Kept as it is when its decoded data is at most :data:`IMAGE_SPILL_BYTES`.
+    Otherwise the bytes are saved once per sha256 as an image artifact and the
+    block becomes ``{type, mimeType, size, sha256, artifact_id}``; a failed
+    save sets ``artifact_id`` to ``None`` and names the error type in
+    ``artifact_error``. Never raises, and never inlines spilled data.
+    """
+    data = block.get("data")
+    if not isinstance(data, str):
+        return block
+    raw = _image_bytes(data)
+    if len(raw) <= IMAGE_SPILL_BYTES:
+        return block
+    digest = hashlib.sha256(raw).hexdigest()
+    mime = block.get("mimeType") or "application/octet-stream"
+    reference: dict[str, Any] = {
+        "type": "image",
+        "mimeType": mime,
+        "size": len(raw),
+        "sha256": digest,
+        "artifact_id": None,
+    }
+    try:
+        from osprey.stores.artifact_store import get_artifact_store
+
+        extension = mimetypes.guess_extension(mime) or ".bin"
+        entry = get_artifact_store().save_or_touch_by_sha256(
+            digest,
+            origin=ARTIFACT_ORIGIN,
+            save_kwargs={
+                "file_content": raw,
+                "filename": f"{tool_use_id or uuid.uuid4().hex}-image-{index}{extension}",
+                "artifact_type": "image",
+                "title": f"{subject} image",
+                "mime_type": mime,
+                "tool_source": "audit.tool_call",
+                "metadata": {"tool_use_id": tool_use_id, "sha256": digest},
+            },
+        )
+        reference["artifact_id"] = entry.id
+    except Exception as exc:
+        logger.debug("Could not save an image block as an artifact", exc_info=True)
+        reference["artifact_error"] = type(exc).__name__
+    return reference
+
+
+def serialize_result(result: Any, *, subject: str = "", tool_use_id: str | None = None) -> Any:
     """A tool result as JSON-ready data.
 
     A FastMCP ``ToolResult`` becomes ``{"content": [...], "structured_content":
     ...}`` with every content block dumped as its wire form; anything else is
-    round-tripped through JSON, with ``str`` for what JSON cannot hold.
+    round-tripped through JSON, with ``str`` for what JSON cannot hold. An
+    image block over :data:`IMAGE_SPILL_BYTES` is saved as an artifact
+    (deduplicated on the sha256 of its bytes, named from *subject* and
+    *tool_use_id*) and recorded by reference; text blocks stay inline. The
+    result itself is never modified.
     """
     content = getattr(result, "content", None)
     if isinstance(content, list) and hasattr(result, "structured_content"):
         blocks = []
-        for block in content:
+        for index, block in enumerate(content):
             dump = getattr(block, "model_dump", None)
-            blocks.append(
+            dumped = (
                 dump(mode="json", by_alias=True, exclude_none=True) if callable(dump) else block
             )
+            if isinstance(dumped, dict) and dumped.get("type") == "image":
+                dumped = _spill_image(
+                    dict(dumped), index=index, subject=subject, tool_use_id=tool_use_id
+                )
+            blocks.append(dumped)
         return json.loads(
             json.dumps(
                 {"content": blocks, "structured_content": result.structured_content},
