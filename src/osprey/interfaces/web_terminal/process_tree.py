@@ -4,7 +4,10 @@ A PTY child's *process tree* is every process descending from the child,
 grouped by process group. The agent CLI runs each shell command in a process
 group and session of its own, so ending the child's own group does not reach
 them; :func:`tree_groups` finds every group a descendant belongs to and
-:func:`end_groups` ends them.
+:func:`end_groups` ends them. A chat child runs in the server's own process
+group, where no group signal may be sent, so its descendants in that group are
+listed by :func:`server_group_members` and ended one by one with
+:func:`end_processes`.
 
 The tree is read from ``ps``: macOS has no ``/proc`` and psutil is not a
 dependency, while ``ps`` is present on every host the server runs on. Without
@@ -189,6 +192,48 @@ def tree_groups(root: int) -> list[ProcessGroup]:
     return sorted(groups, key=lambda g: min(started for _, started in g.members))
 
 
+def started_groups(root: int) -> list[ProcessGroup]:
+    """Return the process groups *root*'s descendants split off for their commands.
+
+    That is :func:`tree_groups` without *root*'s own group: the groups an
+    agent runs its shell commands in. Blocking (it runs ``ps``), and like
+    :func:`tree_groups` it must run while *root* is alive.
+    """
+    try:
+        own = os.getpgid(root)
+    except OSError:
+        return []
+    return [group for group in tree_groups(root) if group.pgid != own]
+
+
+def server_group_members(root: int) -> list[ProcessRow]:
+    """Return *root*'s descendants that are in the server's own process group.
+
+    A process in the server's own group cannot be ended through its group,
+    which :func:`tree_groups` never returns and :func:`end_groups` never
+    signals, so these are ended one by one with :func:`end_processes`.
+    *root* itself and the server are never listed. Ordered by start time.
+    Must run while *root* is alive, for the same reason as :func:`tree_groups`.
+    """
+    rows = snapshot()
+    if rows is None or root not in rows:
+        return []
+    children: dict[int, list[int]] = {}
+    for row in rows.values():
+        if row.pid != row.ppid:
+            children.setdefault(row.ppid, []).append(row.pid)
+    seen = {root}
+    queue = deque([root])
+    while queue:
+        for child in children.get(queue.popleft(), ()):
+            if child not in seen:
+                seen.add(child)
+                queue.append(child)
+    own_group, own_pid = os.getpgrp(), os.getpid()
+    members = [rows[pid] for pid in seen - {root} if rows[pid].pgid == own_group and pid != own_pid]
+    return sorted(members, key=lambda row: (row.started, row.pid))
+
+
 def still_running(
     groups: Sequence[ProcessGroup], rows: dict[int, ProcessRow] | None = None
 ) -> list[ProcessGroup]:
@@ -261,6 +306,82 @@ def end_groups(
     except Exception:  # teardown finishes whatever the process table reports
         logger.warning("Ending the PTY child's process groups failed", exc_info=True)
         return [], list(groups)
+
+
+def _live_rows(rows: Sequence[ProcessRow]) -> list[ProcessRow]:
+    """The *rows* whose process is still the one snapshotted: same start time and group.
+
+    Every row is returned when the table cannot be read: an unknown process is
+    never claimed gone.
+    """
+    current = snapshot()
+    if current is None:
+        return list(rows)
+    live = []
+    for row in rows:
+        now = current.get(row.pid)
+        if (
+            now is not None
+            and not now.exited
+            and now.started == row.started
+            and now.pgid == row.pgid
+        ):
+            live.append(row)
+    return live
+
+
+def _signal_processes(rows: Sequence[ProcessRow], signum: int) -> None:
+    own = os.getpid()
+    for row in rows:
+        if row.pid <= 1 or row.pid == own:
+            continue
+        try:
+            os.kill(row.pid, signum)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def _wait_processes_gone(rows: list[ProcessRow], within: float) -> list[ProcessRow]:
+    deadline = time.monotonic() + within
+    while rows and time.monotonic() < deadline:
+        time.sleep(_POLL_S)
+        rows = _live_rows(rows)
+    return rows
+
+
+def end_processes(
+    rows: Sequence[ProcessRow],
+) -> tuple[list[ProcessRow], list[ProcessRow]]:
+    """End the processes *rows* name, one by one: SIGTERM, then SIGKILL. Never raises.
+
+    The per-process twin of :func:`end_groups`, with the same waits. Only a
+    process still the one snapshotted (same pid, start time and group) is
+    signalled, never the server and never pid 0 or 1.
+
+    Returns:
+        ``(ended, survivors)``: the processes that were signalled, and those
+        the last look still found after SIGKILL.
+    """
+    try:
+        live = [row for row in _live_rows(rows) if row.pid > 1 and row.pid != os.getpid()]
+        _signal_processes(live, signal.SIGTERM)
+        remaining = _wait_processes_gone(list(live), END_TERM_WAIT_S)
+        if remaining:
+            _signal_processes(remaining, signal.SIGKILL)
+            remaining = _wait_processes_gone(remaining, END_KILL_WAIT_S)
+        return live, remaining
+    except Exception:  # teardown finishes whatever the process table reports
+        logger.warning("Ending the agent's processes failed", exc_info=True)
+        return [], list(rows)
+
+
+def describe_processes(rows: Sequence[ProcessRow]) -> str:
+    """Return one line naming the processes *rows* name.
+
+    Command lines come from processes the agent started and may carry any
+    text, so their labels are logged through ``repr``.
+    """
+    return "; ".join(f"pid {row.pid} {label_for(row.command)!r}" for row in rows)
 
 
 def describe(groups: Sequence[ProcessGroup]) -> str:
