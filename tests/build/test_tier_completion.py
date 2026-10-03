@@ -4,9 +4,10 @@ Channel-finder indexes are views the build writes; nothing selects a tier any
 more. ``PATTERN`` matches what is left of the tier model: the staged
 ``tiers/`` tree and its readers, the tier selector in the manifest paths, and
 the template channel database those readers load. Every tracked file under
-``SCAN_PATHS`` that matches is in ``ALLOWLIST``, tagged with the stage that
-removes its last match. An entry whose stage is at or before ``CURRENT_BATCH``
-must no longer match, and an entry that no longer matches must be dropped.
+``SCAN_PATHS`` other than the two guards that matches is in ``ALLOWLIST``,
+tagged with the stage that removes its last match. An entry whose stage is at
+or before ``CURRENT_BATCH`` must no longer match, and an entry that no longer
+matches must be dropped.
 """
 
 from __future__ import annotations
@@ -26,8 +27,11 @@ PATTERN = (
 
 SCAN_PATHS: tuple[str, ...] = ("src", "scripts", "packages", "tests")
 
-#: This guard spells the pattern as data.
-SELF = "tests/build/test_tier_completion.py"
+#: The guards that spell the pattern's tokens as data; the scan never reads them.
+SELF_EXEMPT: tuple[str, ...] = (
+    "tests/build/test_tier_completion.py",
+    "tests/facility/test_no_retired_shapes.py",
+)
 
 #: Matching file -> the stage that removes its last match.
 ALLOWLIST: dict[str, str] = {
@@ -81,7 +85,17 @@ ALLOWLIST: dict[str, str] = {
 def scan(root: Path) -> set[str]:
     """Return the tracked files under ``SCAN_PATHS`` that match ``PATTERN``."""
     result = subprocess.run(
-        ["git", "grep", "-l", "-E", "-e", PATTERN, "--", *SCAN_PATHS, f":(exclude){SELF}"],
+        [
+            "git",
+            "grep",
+            "-l",
+            "-E",
+            "-e",
+            PATTERN,
+            "--",
+            *SCAN_PATHS,
+            *(f":(exclude){path}" for path in SELF_EXEMPT),
+        ],
         cwd=root,
         capture_output=True,
         text=True,
