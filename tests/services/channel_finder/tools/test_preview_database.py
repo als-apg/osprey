@@ -258,6 +258,29 @@ class TestBuildMiddleLayerTree:
         assert "BPM" in tree["SR"]["_families"]
         assert tree["SR"]["_families"]["BPM"]["_channels"] == 3
 
+    def test_a_channel_under_several_fields_of_a_family_counts_once_per_family_and_field(
+        self, tmp_path: Path
+    ):
+        body = {
+            "SR": {
+                "BPM": {
+                    "X": {
+                        "Raw": {"ChannelNames": ["SR01:BPM:A"]},
+                        "Cal": {"ChannelNames": ["SR01:BPM:A"]},
+                    },
+                    "Y": {"ChannelNames": ["SR01:BPM:A"]},
+                }
+            }
+        }
+        path = tmp_path / "ml.json"
+        path.write_text(json.dumps(body))
+
+        tree = _build_middle_layer_tree(MiddleLayerDatabase(str(path)))
+
+        assert tree["SR"]["_channels"] == 1
+        assert tree["SR"]["_families"]["BPM"]["_channels"] == 1
+        assert tree["SR"]["_families"]["BPM"]["_fields"] == {"X": 1, "Y": 1}
+
 
 class TestNavigateMiddleLayerFocus:
     def test_navigate_system(self, ml_db: MiddleLayerDatabase):

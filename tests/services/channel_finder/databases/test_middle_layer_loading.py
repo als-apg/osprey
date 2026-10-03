@@ -89,18 +89,50 @@ def test_a_channel_listed_under_two_families_keeps_both_memberships(tmp_path: Pa
     assert db.get_statistics()["total_channels"] == 1
 
 
-def test_a_family_listing_a_channel_under_two_fields_keeps_one_membership(
+#: One channel listed under Fields X and Y of Family BPM, under X twice with
+#: different Subfields, and twice at the exact path X:Raw.
+_PER_FIELD = {
+    "SR": {
+        "BPM": {
+            "X": {
+                "Raw": {"ChannelNames": ["SR01:BPM:A", "SR01:BPM:A"]},
+                "Cal": {"ChannelNames": ["SR01:BPM:A"]},
+            },
+            "Y": {"ChannelNames": ["SR01:BPM:A"]},
+        }
+    }
+}
+
+
+def test_a_channel_listed_under_several_fields_of_one_family_keeps_every_listing(
     tmp_path: Path,
 ) -> None:
+    db = MiddleLayerDatabase(_write(tmp_path, _PER_FIELD))
+
+    entry = db.get_channel("SR01:BPM:A")
+    assert entry is not None
+    assert [(m["family"], m["field"], m["subfield"]) for m in entry["memberships"]] == [
+        ("BPM", "X", ["Raw"]),
+        ("BPM", "X", ["Cal"]),
+        ("BPM", "Y", None),
+    ]
+    assert [family["name"] for family in db.list_families("SR")] == ["BPM"]
+    assert db.validate_channel("SR01:BPM:A")
+    assert db.get_statistics()["total_channels"] == 1
+
+
+def test_a_subfield_path_and_its_colon_joined_spelling_are_one_listing(tmp_path: Path) -> None:
     body = {
         "SR": {
             "RF": {
-                "Monitor": {"ChannelNames": ["SR:RF:F"]},
-                "Setpoint": {"ChannelNames": ["SR:RF:F"]},
+                "Setpoint": {
+                    "A:B": {"ChannelNames": ["SR:RF:F"]},
+                    "A": {"B": {"ChannelNames": ["SR:RF:F"]}},
+                }
             }
         }
     }
     db = MiddleLayerDatabase(_write(tmp_path, body))
 
     (membership,) = db.channel_map["SR:RF:F"]["memberships"]
-    assert (membership["family"], membership["field"]) == ("RF", "Setpoint")
+    assert (membership["field"], membership["subfield"]) == ("Setpoint", ["A", "B"])

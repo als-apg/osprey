@@ -136,9 +136,10 @@ top place, a Family is a group (every group of the facility is one), and a
 Field is the longest ``signals`` key a channel's address ends with, else the
 channel's ``signal``, else its address, one channel per member; a channel whose
 Field some member lacks or has twice is keyed by its address instead. A
-channel belongs to every Family whose group holds its device. A facility
-description with no group stops the build with ``view-unsupported``. A facility
-that runs a Middle Layer
+channel belongs to every Family whose group holds its device. A channel
+listed under several Fields of one Family is found under each of them. A
+facility description with no group stops the build with ``view-unsupported``.
+A facility that runs a Middle Layer
 already has that structure: ``osprey facility import mml``
 (:doc:`/how-to/import-mml-export`) brings it into the facility description,
 and the ``osprey mml`` verbs write the rest of the deployment's files

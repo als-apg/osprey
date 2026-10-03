@@ -274,9 +274,12 @@ def _build_middle_layer_tree(database) -> dict:
             family_desc = family_data.get("_description", "")
             descriptions[system_name]["families"][family_name] = family_desc
 
-    # A channel counts once per family it belongs to, and once per system.
+    # A channel counts once per system, once per family and once per field it
+    # is listed under, however many subfields of that field list it.
     for channel in database.get_all_channels():
         counted_systems: set[str] = set()
+        counted_families: set[tuple[str, str]] = set()
+        counted_fields: set[tuple[str, str, str]] = set()
         for membership in channel["memberships"]:
             system = membership["system"]
             family = membership["family"]
@@ -302,12 +305,16 @@ def _build_middle_layer_tree(database) -> dict:
                     .get(family, ""),
                 }
 
-            tree[system]["_families"][family]["_channels"] += 1
+            if (system, family) not in counted_families:
+                counted_families.add((system, family))
+                tree[system]["_families"][family]["_channels"] += 1
 
             if field not in tree[system]["_families"][family]["_fields"]:
                 tree[system]["_families"][family]["_fields"][field] = 0
 
-            tree[system]["_families"][family]["_fields"][field] += 1
+            if (system, family, field) not in counted_fields:
+                counted_fields.add((system, family, field))
+                tree[system]["_families"][family]["_fields"][field] += 1
 
     return tree
 

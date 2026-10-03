@@ -3,7 +3,7 @@
 The import reuses ``MiddleLayerDatabase`` flattening, then writes systems,
 families, channels and a device map into DuckDB. These tests pin the data
 transforms (list subfield / MemberOf joining, device-map extraction), one
-``channels`` row per channel and family it belongs to, and the idempotency
+``channels`` row per place a channel is listed, and the idempotency
 contract: re-running replaces ``source='mml'`` rows while preserving
 ``source='runtime'`` rows.
 
@@ -154,6 +154,57 @@ class TestEveryFamilyAChannelBelongsTo:
         assert umbrella.execute(
             "SELECT COUNT(*), COUNT(DISTINCT channel_name) FROM channels"
         ).fetchone() == (10, 5)
+
+
+#: One channel listed under Fields X and Y of Family BPM, under X twice with
+#: different Subfields, and twice at the exact path X:Raw.
+_PER_FIELD = {
+    "SR": {
+        "BPM": {
+            "X": {
+                "Raw": {"ChannelNames": ["SR01:BPM:A", "SR01:BPM:A"]},
+                "Cal": {"ChannelNames": ["SR01:BPM:A"]},
+            },
+            "Y": {"ChannelNames": ["SR01:BPM:A"]},
+        }
+    }
+}
+
+
+class TestEveryFieldAChannelIsListedUnder:
+    """A channel is one row per (System, Family, Field, Subfield) path that lists it."""
+
+    @pytest.fixture()
+    def per_field(self, tmp_path: Path):
+        src = tmp_path / "ml.json"
+        src.write_text(json.dumps(_PER_FIELD))
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(str(src), out)
+        con = duckdb.connect(out)
+        try:
+            yield con
+        finally:
+            con.close()
+
+    def test_each_listing_is_one_row_and_the_channel_counts_once(self, per_field):
+        rows = per_field.execute(
+            "SELECT family, field, subfield FROM channels ORDER BY row_id"
+        ).fetchall()
+        assert rows == [("BPM", "X", "Raw"), ("BPM", "X", "Cal"), ("BPM", "Y", "")]
+        assert per_field.execute(
+            "SELECT COUNT(DISTINCT channel_name), COUNT(DISTINCT (channel_name, family)) "
+            "FROM channels"
+        ).fetchone() == (1, 1)
+        assert per_field.execute(
+            "SELECT DISTINCT family FROM channels WHERE family = 'BPM'"
+        ).fetchall() == [("BPM",)]
+
+    def test_the_key_refuses_a_second_row_at_the_same_path(self, per_field):
+        with pytest.raises(duckdb.ConstraintException):
+            per_field.execute(
+                "INSERT INTO channels (channel_name, system, family, field, subfield) "
+                "VALUES ('SR01:BPM:A', 'SR', 'BPM', 'Y', '')"
+            )
 
 
 class TestEngineeringUnit:

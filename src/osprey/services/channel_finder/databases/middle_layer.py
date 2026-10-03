@@ -86,17 +86,36 @@ def get_setup(family_data: dict) -> dict:
     return family_data.get("setup") or family_data.get("_setup") or {}
 
 
+def _subfield_key(subfield: list[str] | str | None) -> str:
+    """Return a membership's subfield path as one string: a list ":"-joined, None as ""."""
+    if isinstance(subfield, list):
+        return ":".join(subfield)
+    return subfield or ""
+
+
+def _listing_path(membership: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Return the (System, Family, Field, Subfield) path a membership lists its channel at."""
+    return (
+        membership["system"],
+        membership["family"],
+        membership["field"],
+        _subfield_key(membership["subfield"]),
+    )
+
+
 def _add_membership(channels: dict[str, dict], name: str, membership: dict[str, Any]) -> None:
     """File one listing of ``name`` among its channel entry's memberships.
 
-    A channel entry holds one membership per (System, Family) that lists the
-    channel, in document order. A family that lists the channel under several
-    fields keeps the last of them in that family's place.
+    A channel entry holds one membership per (System, Family, Field, Subfield)
+    path that lists the channel, in document order: a family that lists the
+    channel under several fields or subfields keeps each of them. A repeat of
+    the exact same path keeps the last listing in that path's place.
     """
     entry = channels.setdefault(name, {"channel": name, "address": name, "memberships": []})
     memberships: list[dict[str, Any]] = entry["memberships"]
+    path = _listing_path(membership)
     for index, held in enumerate(memberships):
-        if (held["system"], held["family"]) == (membership["system"], membership["family"]):
+        if _listing_path(held) == path:
             memberships[index] = membership
             return
     memberships.append(membership)
@@ -161,8 +180,8 @@ class MiddleLayerDatabase(BaseDatabase):
         A channel is keyed once, however many families list it: its entry is
         ``{"channel", "address", "memberships"}``, one membership
         (``system``, ``family``, ``field``, ``subfield``, ``description``,
-        ``protocol`` and the field's metadata) per (System, Family) that lists
-        it, in document order.
+        ``protocol`` and the field's metadata) per (System, Family, Field,
+        Subfield) path that lists it, in document order.
 
         Returns:
             Dict mapping channel names to their entries
@@ -296,7 +315,8 @@ class MiddleLayerDatabase(BaseDatabase):
 
         Returns:
             The channel's entry, whose ``memberships`` list every
-            (System, Family) that lists it, or None if not found
+            (System, Family, Field, Subfield) path that lists it, or None if
+            not found
         """
         return self.channel_map.get(channel_name.strip())
 
