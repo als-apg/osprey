@@ -330,6 +330,7 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
         "data/simulator/**",
         "data/facility_facts.json",
         "data/facility_facts.md",
+        "data/channel_finder/**",
     )
 
 
@@ -368,6 +369,13 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
             "mirror writes data/facility_facts.md, which the build writes from data/facility/; "
             "fix: remove project/data/facility_facts.md and author the facility in "
             "data/facility/",
+        ),
+        (
+            "data/channel_finder/in_context.json",
+            "facility: profile-invalid: path project/data/channel_finder/in_context.json — the "
+            "project/ mirror writes data/channel_finder/in_context.json, which the build writes "
+            "from data/facility/; fix: remove project/data/channel_finder/in_context.json and "
+            "author the facility in data/facility/",
         ),
     ],
 )
@@ -414,6 +422,7 @@ def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path)
     _write(mirror / "data" / "simulator" / "x.json")
     _write(mirror / "data" / "facility_facts.json")
     _write(mirror / "data" / "facility_facts.md")
+    _write(mirror / "data" / "channel_finder" / "middle_layer.duckdb")
     _write(mirror / ".mcp.json")
 
     violations = conventions._mirror_violations(mirror)
@@ -1026,6 +1035,10 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         ("data/simulator/decks/SR.json", "`data/facility/`"),
         ("data/facility_facts.json", "`data/facility/`"),
         ("data/facility_facts.md", "`data/facility/`"),
+        ("data/channel_finder/in_context.json", "`data/facility/`"),
+        ("data/channel_finder/hierarchical.json", "`data/facility/`"),
+        ("data/channel_finder/middle_layer.json", "`data/facility/`"),
+        ("data/channel_finder/middle_layer.duckdb", "`data/facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
@@ -1046,6 +1059,7 @@ def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str
         "data/facility.json",
         "data/simulation/channel_manifest.json.bak",
         "data/simulator_notes.md",
+        "data/channel_finder.json",
         "notebooks/analysis.ipynb",
     ],
 )

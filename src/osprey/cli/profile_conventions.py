@@ -515,6 +515,12 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
         "from the facility file, and a hand copy would be read in its place",
         mirror=True,
     ),
+    ReservedPattern(
+        "data/channel_finder/**",
+        "the build, from the profile's `data/facility/` tree — the channel-finder indexes "
+        "are derived from the facility file, and a hand copy would be searched in their place",
+        mirror=True,
+    ),
 )
 
 
@@ -524,9 +530,10 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
 #: stops the build with a ``profile-invalid`` line
 #: (:func:`facility_mirror_violation`) ahead of profile validation, so
 #: :func:`_mirror_violations` leaves them out and the gathered profile errors
-#: never repeat that stop. The simulator view under ``data/simulator/`` and the
-#: facts view at ``data/facility_facts.json`` and ``data/facility_facts.md`` are
-#: written by the build from the same tree.
+#: never repeat that stop. The simulator view under ``data/simulator/``, the
+#: facts view at ``data/facility_facts.json`` and ``data/facility_facts.md``, and
+#: the channel-finder index views under ``data/channel_finder/`` are written by
+#: the build from the same tree.
 RESERVED_MIRROR_PATTERNS: tuple[str, ...] = tuple(
     reserved.pattern for reserved in RESERVED_PATH_PATTERNS if reserved.mirror
 )
