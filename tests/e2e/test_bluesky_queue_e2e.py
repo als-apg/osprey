@@ -517,19 +517,16 @@ def _env_value(repo: Path, key: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
-    """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
-
-    The sweep band is the middle half of the corrector's OWN limits record, so
-    this never hardcodes a facility channel and never asks the reference
-    monitor for a value outside its band.
+def _grid_axis(stack: QueueStack) -> tuple[str, dict[str, Any]]:
+    """The corrector every grid plan here sweeps, with its limits record.
 
     The corrector NAMES come from the device file the build staged; the band
     VALUES come from the limits table, which holds the records the facility
     tree authors and names no other channel. The two are not the same set, so
     the axis is the first staged corrector a record BOUNDS — indexing the
     table by the first staged name raises inside a fixture the stages cannot
-    report from.
+    report from. Every plan's args and every check of what a plan swept take
+    the axis from here, so the two cannot disagree.
     """
     axis = next(
         (
@@ -545,7 +542,17 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
         "no staged corrector carries a limits record, so this plan has no "
         f"axis to sweep (staged correctors: {sorted(stack.correctors)})"
     )
-    axis_name, entry = axis
+    return axis
+
+
+def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
+    """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
+
+    The axis is ``_grid_axis``'s corrector. The sweep band is the middle half
+    of that corrector's OWN limits record, so this never hardcodes a facility
+    channel and never asks the reference monitor for a value outside its band.
+    """
+    axis_name, entry = _grid_axis(stack)
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     start = lo + 0.375 * (hi - lo)
     stop = lo + 0.625 * (hi - lo)
