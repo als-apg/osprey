@@ -1774,11 +1774,14 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
         # The analysis block rides along on every data read, in one six-key
         # shape. Its x axis is the channel the PLAN declared movable -- not a
         # column guessed out of the table -- which is the whole reason the role
-        # declaration exists.
+        # declaration exists. That channel is the corrector the grid plan
+        # sweeps: the first staged corrector a limits record bounds.
         analysis = _analysis_of(data)
         if analysis["available"]:
-            assert analysis["x_channel"] == next(iter(stack.correctors)), (
-                f"the analysis chose an x axis the plan never declared movable: {analysis}"
+            expected_axis = _grid_axis(stack)[0]
+            assert analysis["x_channel"] == expected_axis, (
+                "the analysis chose an x axis the plan never declared movable "
+                f"(expected the swept corrector {expected_axis!r}): {analysis}"
             )
             assert analysis["x_column"] in data["columns"], (
                 f"the analysis names an x column that is not in the table: {analysis}"
