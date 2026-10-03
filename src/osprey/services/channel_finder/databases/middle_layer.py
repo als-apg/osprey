@@ -47,7 +47,7 @@ from ..core.base_database import BaseDatabase
 CHANNEL_KEYS: tuple[str, ...] = ("ChannelNames", "TangoNames")
 
 #: Top-level keys of an index that name the document, not a system.
-_DOCUMENT_KEYS = frozenset({"schema"})
+DOCUMENT_KEYS = frozenset({"schema"})
 
 # Metadata keys to skip during tree traversal (not navigable families/fields)
 _ML_META_KEYS = frozenset(
@@ -173,7 +173,7 @@ class MiddleLayerDatabase(BaseDatabase):
         channels: dict[str, dict[str, Any]] = {}
 
         for system, families in self.data.items():
-            if system.startswith("_") or system in _DOCUMENT_KEYS:
+            if system.startswith("_") or system in DOCUMENT_KEYS:
                 continue
             if not isinstance(families, dict):
                 raise ValueError(
