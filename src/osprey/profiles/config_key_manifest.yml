@@ -394,15 +394,20 @@ keys:
     default: derived
     default_note: the layout's graphdb_http slot at this deployment's port base
   services.graphdb.ttl_path:
+    rendered: false
     evidence: '_optional_text\(block\.get\("ttl_path"\)'
     note: >-
-      Optional RDF/Turtle corpus the store is seeded from; unset brings the
-      store up bootstrapped but empty. Kept verbatim by
-      GraphdbServiceConfig.ttl_path and resolved against the config file's
-      directory by its consumers, per the `facility_knowledge.bundle_path` rule
-      — resolving it against the process cwd would give a deploy and a CLI verb
-      two different files from one config value.
-    default: null
+      RDF/Turtle corpus the store is seeded from and the search index is
+      derived from. Kept verbatim by GraphdbServiceConfig.ttl_path and resolved
+      against the config file's directory by its consumers, per the
+      `facility_knowledge.bundle_path` rule — resolving it against the process
+      cwd would give a deploy and a CLI verb two different files from one
+      config value. A rendered block without it is a render defect the deploy
+      refuses.
+    default: derived
+    default_note: >-
+      ./data/graph/facility.ttl, the graph view the build writes; rendered into
+      every services.graphdb block that names no corpus
   services.graphdb.index_path:
     rendered: false
     evidence: 'block\.get\("index_path"\)'
@@ -3354,7 +3359,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 342
+  expected_union_size: 341
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

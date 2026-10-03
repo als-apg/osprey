@@ -876,7 +876,6 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
    config:
      services.graphdb.path: ./services/graphdb
      services.graphdb.image: neo4j:5.26-community
-     services.graphdb.ttl_path: ./data/demo_machine.ttl
      # ... the JVM and query-bound keys the preset also ships
      deployed_services: [postgresql, openobserve, qmd, graphdb]
 

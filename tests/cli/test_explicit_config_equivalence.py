@@ -724,8 +724,8 @@ def _persona_corpus_deltas() -> tuple[Delta, ...]:
     attached strip keeps it — the Reach Contract declares it render-local
     (:attr:`osprey.deployment.reach.ReachContract.render_local`). The fixtures
     were frozen while the strip took every ``services.graphdb.*`` key of a
-    claimed store, so each persona reads as gaining the leaf. The preset
-    spells the key in every channel-finder mode, so every control-assistant
+    claimed store, so each persona reads as gaining the leaf. The build fills
+    the key into every ``services.graphdb`` block, so every control-assistant
     cell carries the delta.
 
     Returns:
@@ -736,9 +736,29 @@ def _persona_corpus_deltas() -> tuple[Delta, ...]:
             document=persona,
             path="services.graphdb.ttl_path",
             fixture=ABSENT,
-            live="./data/demo_machine.ttl",
+            live="./data/graph/facility.ttl",
         )
         for persona in _CONTROL_ASSISTANT_PERSONAS
+    )
+
+
+def _root_corpus_deltas() -> tuple[Delta, ...]:
+    """The corpus key a root render with a graph store moved to the graph view.
+
+    The fixtures were frozen while the preset spelled the hand-written demo
+    corpus. The build now fills ``services.graphdb.ttl_path`` with the graph
+    view it writes from the facility file, so the root document's leaf moves.
+
+    Returns:
+        One delta for the root document.
+    """
+    return (
+        Delta(
+            document="root",
+            path="services.graphdb.ttl_path",
+            fixture="./data/demo_machine.ttl",
+            live="./data/graph/facility.ttl",
+        ),
     )
 
 
@@ -1187,7 +1207,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas("root")
     + _embedding_input_limit_deltas("root")
     + _simulation_models_deltas("root")
-    + _standalone_picker_deltas(),
+    + _standalone_picker_deltas()
+    + _root_corpus_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _facility_name_deltas()
     + _facility_ontology_deltas("root")
@@ -1220,6 +1241,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
+    + _root_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
@@ -1246,6 +1268,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
+    + _root_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
@@ -1272,6 +1295,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
+    + _root_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
@@ -1298,6 +1322,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
+    + _root_corpus_deltas()
     + _tier_write_posture_deltas()
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()

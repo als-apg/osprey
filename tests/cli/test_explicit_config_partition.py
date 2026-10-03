@@ -21,6 +21,10 @@ preset admits), the keys of the frozen root render are partitioned into:
     is the service's slot above ``deployment.port_base`` and
     :func:`~osprey.cli.build_profile_ports.layout_port_fill` supplies it at
     build time.
+``Corpus``
+    ``services.graphdb.ttl_path`` for a preset that spells a graph store block
+    and names no corpus: :func:`~osprey.cli.build_injectors.graphdb_corpus_fill`
+    supplies the graph view the build writes.
 ``B``
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
@@ -28,7 +32,7 @@ preset admits), the keys of the frozen root render are partitioned into:
     services and panel, an ``mcp_servers:`` entry, the ``web_panels:``
     selection, and the conventions the build registers as user-owned.
 
-The five sets are pairwise disjoint and their union is the render. A key in
+The sets are pairwise disjoint and their union is the render. A key in
 none of them is a key nothing documents; a key in two is one fact with two
 homes, which is exactly what the refusals in :mod:`osprey.cli.derived_keys`
 and the ``va_archiver`` duplicate check exist to prevent.
@@ -50,6 +54,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.cli.build_injectors import graphdb_corpus_fill
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_merge import _resolve_extends
 from osprey.cli.build_profile_ports import layout_port_fill
@@ -268,7 +273,7 @@ def _panel_switches(document: Mapping[str, Any]) -> set[str]:
 
 
 def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[str, set[str]]:
-    """Split the render's keys into the six named sets, in claim order.
+    """Split the render's keys into the seven named sets, in claim order.
 
     Claim order matters only where a key could be read two ways: a port leaf
     of a block-derived service (``services.bluesky.port``) is that block's,
@@ -279,12 +284,14 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
     spelled_services = {key.split(".")[1] for key in config if key.startswith("services.")}
     block_prefixes = _block_derived_prefixes(document)
     panel_switches = _panel_switches(document)
+    corpus = set(graphdb_corpus_fill(dict(document.get("config") or {})))
     sets: dict[str, set[str]] = {
         "D": set(),
         "P": set(),
         "Panels": set(),
         "B": set(),
         "Ports": set(),
+        "Corpus": set(),
         "C": set(),
     }
     for key in render:
@@ -298,6 +305,8 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
             sets["B"].add(key)
         elif _PORT_LEAF.match(key) and key.split(".")[1] in spelled_services:
             sets["Ports"].add(key)
+        elif key in corpus:
+            sets["Corpus"].add(key)
         elif key in config:
             sets["C"].add(key)
     return sets
@@ -384,7 +393,7 @@ def test_root_render_is_partitioned_between_its_sources(
     )
 
     # A preset must spell nothing the build renders on its own.
-    for name in ("D", "P", "Panels", "B", "Ports"):
+    for name in ("D", "P", "Panels", "B", "Ports", "Corpus"):
         assert not {key for key in config if key in sets[name]}, name
     assert not {key for key in config if is_derived_key(key)}
     assert not {key for key in config if _PORT_LEAF.match(key)}

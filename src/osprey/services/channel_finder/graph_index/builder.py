@@ -607,10 +607,13 @@ def build_from_rows(
             )
             class_count = _insert(con, "classes", CLASS_COLUMNS, (astuple(row) for row in classes))
             if binding_count == 0:
+                # Named by file, not by path: a build keeps absolute paths out
+                # of its INFO view, and the callers name where they wrote.
                 logger.warning(
-                    "The corpus bound no channels: writing an empty search index at %s. "
+                    "The corpus %s bound no channels: writing an empty search index %s. "
                     "Search will answer nothing until the corpus names a channel binding.",
-                    index_path,
+                    meta["corpus_filename"],
+                    index_path.name,
                 )
             _check_counts(meta, binding_count=binding_count, class_count=class_count)
             con.execute(

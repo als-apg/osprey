@@ -86,6 +86,7 @@ from .build_injectors import (
     _inject_va,
     _inject_va_archiver,
     _locate_pkg_services,
+    graphdb_corpus_fill,
 )
 from .build_lifecycle import (
     _SHELL_METACHARACTERS,
@@ -2164,14 +2165,17 @@ def _render_project(
         # contribute to the rendered config, applied with the profile's own
         # `config:` entries in one pass.
         #
-        # Two entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
+        # Three entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
         # `layout`'s host ports: a host port is the facility's to move —
         # `services.<name>.port` is the documented override — so the fill only
         # supplies the layout's number for a service block the profile deploys
         # and left without one, and a spelled port is skipped rather than
-        # refused. The other is the deploy block's `registry.url`, filled only
+        # refused. Another is the deploy block's `registry.url`, filled only
         # when `config:` names none, because a facility may point the web tier
-        # at a registry other than the one CI pushes to. Every other derived key
+        # at a registry other than the one CI pushes to. The third is
+        # `graphdb`'s corpus: a `services.graphdb` block seeds its store from
+        # the graph view this build writes unless the profile names a corpus
+        # of its own. Every other derived key
         # the profile also spells is rejected at validation, so winning here can
         # never silently overwrite a facility's own value. `layout` is listed
         # first so that a block below, which does own its keys, still wins if
@@ -2183,6 +2187,7 @@ def _render_project(
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
             "modules.web_terminals": health_config_overrides(build_profile.config),
+            "graphdb": graphdb_corpus_fill(build_profile.config),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
