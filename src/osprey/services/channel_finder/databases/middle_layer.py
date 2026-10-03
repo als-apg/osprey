@@ -86,6 +86,22 @@ def get_setup(family_data: dict) -> dict:
     return family_data.get("setup") or family_data.get("_setup") or {}
 
 
+def _add_membership(channels: dict[str, dict], name: str, membership: dict[str, Any]) -> None:
+    """File one listing of ``name`` among its channel entry's memberships.
+
+    A channel entry holds one membership per (System, Family) that lists the
+    channel, in document order. A family that lists the channel under several
+    fields keeps the last of them in that family's place.
+    """
+    entry = channels.setdefault(name, {"channel": name, "address": name, "memberships": []})
+    memberships: list[dict[str, Any]] = entry["memberships"]
+    for index, held in enumerate(memberships):
+        if (held["system"], held["family"]) == (membership["system"], membership["family"]):
+            memberships[index] = membership
+            return
+    memberships.append(membership)
+
+
 class MiddleLayerDatabase(BaseDatabase):
     """
     Database for middle-layer (MML) style channel organization.
@@ -142,8 +158,14 @@ class MiddleLayerDatabase(BaseDatabase):
         silently contributed nothing would read as a facility with fewer
         channels, not as a broken file.
 
+        A channel is keyed once, however many families list it: its entry is
+        ``{"channel", "address", "memberships"}``, one membership
+        (``system``, ``family``, ``field``, ``subfield``, ``description``,
+        ``protocol`` and the field's metadata) per (System, Family) that lists
+        it, in document order.
+
         Returns:
-            Dict mapping channel names to metadata
+            Dict mapping channel names to their entries
 
         Raises:
             ValueError: A system or family whose value is not a mapping.
@@ -239,26 +261,28 @@ class MiddleLayerDatabase(BaseDatabase):
                     if meta_key in value:
                         metadata[meta_key] = value[meta_key]
 
-                # Store each channel with its metadata. A name listed under
-                # several keys of this field keeps the protocol of the first
-                # key in CHANNEL_KEYS order.
+                # Record each channel's membership of this family with the
+                # field's metadata. A name listed under several keys of this
+                # field keeps the protocol of the first key in CHANNEL_KEYS order.
                 field_names: set[str] = set()
                 for channel_name, protocol in channel_names:
                     # Strip whitespace from channel names (MML exports have padding)
                     clean_name = channel_name.strip()
                     if clean_name and clean_name not in field_names:
                         field_names.add(clean_name)
-                        channels[clean_name] = {
-                            "channel": clean_name,
-                            "address": clean_name,
-                            "system": system,
-                            "family": family,
-                            "field": field_path[0] if field_path else "",
-                            "subfield": field_path[1:] if len(field_path) > 1 else None,
-                            "description": f"{system}:{family}:{':'.join(field_path)}",
-                            "protocol": protocol,
-                            **metadata,  # Include MML metadata if present
-                        }
+                        _add_membership(
+                            channels,
+                            clean_name,
+                            {
+                                "system": system,
+                                "family": family,
+                                "field": field_path[0] if field_path else "",
+                                "subfield": field_path[1:] if len(field_path) > 1 else None,
+                                "description": f"{system}:{family}:{':'.join(field_path)}",
+                                "protocol": protocol,
+                                **metadata,  # Include MML metadata if present
+                            },
+                        )
             else:
                 # Recurse into nested structure (handles subfields)
                 self._extract_channels_from_field(channels, system, family, value, path + [key])
@@ -271,7 +295,8 @@ class MiddleLayerDatabase(BaseDatabase):
             channel_name: Channel name to lookup
 
         Returns:
-            Channel dict or None if not found
+            The channel's entry, whose ``memberships`` list every
+            (System, Family) that lists it, or None if not found
         """
         return self.channel_map.get(channel_name.strip())
 

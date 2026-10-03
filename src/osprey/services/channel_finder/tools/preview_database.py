@@ -173,12 +173,10 @@ def preview_middle_layer(
         fields = set()
 
         for channel in all_channels:
-            if "system" in channel:
-                systems.add(channel["system"])
-            if "family" in channel:
-                families.add(channel["family"])
-            if "field" in channel:
-                fields.add(channel["field"])
+            for membership in channel["memberships"]:
+                systems.add(membership["system"])
+                families.add(membership["family"])
+                fields.add(membership["field"])
 
         stats_table = Table(show_header=True, box=box.ROUNDED, padding=(0, 2))
         stats_table.add_column("Metric", style="label", no_wrap=True)
@@ -276,33 +274,40 @@ def _build_middle_layer_tree(database) -> dict:
             family_desc = family_data.get("_description", "")
             descriptions[system_name]["families"][family_name] = family_desc
 
+    # A channel counts once per family it belongs to, and once per system.
     for channel in database.get_all_channels():
-        system = channel.get("system", "Unknown")
-        family = channel.get("family", "Unknown")
-        field = channel.get("field", "Unknown")
+        counted_systems: set[str] = set()
+        for membership in channel["memberships"]:
+            system = membership["system"]
+            family = membership["family"]
+            field = membership["field"]
 
-        if system not in tree:
-            tree[system] = {
-                "_channels": 0,
-                "_families": {},
-                "_description": descriptions.get(system, {}).get("_description", ""),
-            }
+            if system not in tree:
+                tree[system] = {
+                    "_channels": 0,
+                    "_families": {},
+                    "_description": descriptions.get(system, {}).get("_description", ""),
+                }
 
-        tree[system]["_channels"] += 1
+            if system not in counted_systems:
+                counted_systems.add(system)
+                tree[system]["_channels"] += 1
 
-        if family not in tree[system]["_families"]:
-            tree[system]["_families"][family] = {
-                "_channels": 0,
-                "_fields": {},
-                "_description": descriptions.get(system, {}).get("families", {}).get(family, ""),
-            }
+            if family not in tree[system]["_families"]:
+                tree[system]["_families"][family] = {
+                    "_channels": 0,
+                    "_fields": {},
+                    "_description": descriptions.get(system, {})
+                    .get("families", {})
+                    .get(family, ""),
+                }
 
-        tree[system]["_families"][family]["_channels"] += 1
+            tree[system]["_families"][family]["_channels"] += 1
 
-        if field not in tree[system]["_families"][family]["_fields"]:
-            tree[system]["_families"][family]["_fields"][field] = 0
+            if field not in tree[system]["_families"][family]["_fields"]:
+                tree[system]["_families"][family]["_fields"][field] = 0
 
-        tree[system]["_families"][family]["_fields"][field] += 1
+            tree[system]["_families"][family]["_fields"][field] += 1
 
     return tree
 

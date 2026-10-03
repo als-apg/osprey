@@ -108,12 +108,14 @@ def _listed_addresses(db: MiddleLayerDatabase, channel: dict) -> list[str]:
 def load_middle_layer_channels(paths: ManifestPaths = PACKAGE_PATHS) -> list[dict]:
     """Expand ``paths``' middle_layer (MML) DB into its channel records.
 
-    Each record carries the signal group the address was read from -- its
-    system, family and field path -- plus whatever field metadata the export
-    wrote (``MemberOf``, ``HWUnits`` and the rest). The manifest generator
-    needs those: on a tree with no hierarchical database they are the only
-    statement of which addresses are the read and write halves of one device
-    field (see ``build._middle_layer_pairs``).
+    Each record is one membership of an address: an address listed by
+    several families is one record per family. Each record carries the
+    signal group the address was read from -- its system, family and field
+    path -- plus whatever field metadata the export wrote (``MemberOf``,
+    ``HWUnits`` and the rest). The manifest generator needs those: on a tree
+    with no hierarchical database they are the only statement of which
+    addresses are the read and write halves of one device field (see
+    ``build._middle_layer_pairs``).
 
     Each record also carries ``slot``: the position its field lists it at,
     which is the device the family puts at that position. Two fields of one
@@ -127,20 +129,22 @@ def load_middle_layer_channels(paths: ManifestPaths = PACKAGE_PATHS) -> list[dic
     db.load_database()
     listings: dict[tuple, list[str]] = {}
     records: list[dict] = []
-    for channel in db.get_all_channels():
-        key = (
-            channel["system"],
-            channel["family"],
-            channel["field"],
-            tuple(channel["subfield"] or ()),
-            channel.get("protocol"),
-        )
-        if key not in listings:
-            listings[key] = [name.strip() for name in _listed_addresses(db, channel)]
-        listed = listings[key]
-        address = channel["address"]
-        slot = listed.index(address) if address in listed else None
-        records.append(dict(channel, slot=slot))
+    for entry in db.get_all_channels():
+        for membership in entry["memberships"]:
+            channel = {"channel": entry["channel"], "address": entry["address"], **membership}
+            key = (
+                channel["system"],
+                channel["family"],
+                channel["field"],
+                tuple(channel["subfield"] or ()),
+                channel.get("protocol"),
+            )
+            if key not in listings:
+                listings[key] = [name.strip() for name in _listed_addresses(db, channel)]
+            listed = listings[key]
+            address = channel["address"]
+            slot = listed.index(address) if address in listed else None
+            records.append(dict(channel, slot=slot))
     return records
 
 

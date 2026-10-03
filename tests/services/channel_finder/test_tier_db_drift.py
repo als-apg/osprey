@@ -156,7 +156,8 @@ def _committed_sr_spec_leaves() -> dict[str, tuple[str, str]]:
         address = channel["address"]
         parts = address.split(":")
         if parts[0] == RING and parts[2] in SPEC_FAMILIES:
-            leaves[address] = (channel["DataType"], channel["HWUnits"])
+            (membership,) = channel["memberships"]
+            leaves[address] = (membership["DataType"], membership["HWUnits"])
     return leaves
 
 

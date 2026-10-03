@@ -562,7 +562,9 @@ def _count_row(duckdb_path: Path) -> CheckResult:
     try:
         con = duckdb.connect(str(duckdb_path), read_only=True)
         try:
-            row = con.execute(f"SELECT COUNT(*) FROM {_CHANNELS_TABLE}").fetchone()
+            row = con.execute(
+                f"SELECT COUNT(DISTINCT channel_name) FROM {_CHANNELS_TABLE}"
+            ).fetchone()
         finally:
             con.close()
     except Exception as exc:  # any duckdb error degrades to a warning

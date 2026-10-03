@@ -375,12 +375,37 @@ def test_the_writer_writes_the_index_and_its_duckdb_database(tmp_path: Path) -> 
     assert json.loads(raw)["schema"] == CHANNEL_FINDER_SCHEMA
     con = duckdb.connect(str(written[1]), read_only=True)
     try:
-        assert con.execute("SELECT count(*) FROM channels").fetchone() == (6,)
+        assert con.execute(
+            "SELECT count(*), count(DISTINCT channel_name) FROM channels"
+        ).fetchone() == (10, 6)
         assert con.execute(
             "SELECT common_name FROM device_map WHERE system = 'M' ORDER BY device_index"
         ).fetchall() == [("Quad 1",), ("Quad 2",)]
     finally:
         con.close()
+
+
+def test_full_text_search_ranks_a_channel_under_each_of_its_families(tmp_path: Path) -> None:
+    import duckdb
+
+    (_index, database) = _write(tmp_path, SYNTHETIC)
+
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        rows = con.execute(
+            "SELECT channel_name, family, "
+            "fts_main_channels.match_bm25(row_id, 'TEMP') AS score "
+            "FROM channels WHERE score IS NOT NULL ORDER BY score DESC"
+        ).fetchall()
+    finally:
+        con.close()
+
+    assert sorted((name, family) for name, family, _score in rows) == [
+        ("M:Q1:TEMP", "ALL"),
+        ("M:Q1:TEMP", "QUAD"),
+        ("M:Q2:TEMP", "ALL"),
+        ("M:Q2:TEMP", "QUAD"),
+    ]
 
 
 def test_a_rewrite_replaces_the_duckdb_database(tmp_path: Path) -> None:
@@ -392,7 +417,9 @@ def test_a_rewrite_replaces_the_duckdb_database(tmp_path: Path) -> None:
 
     con = duckdb.connect(str(database), read_only=True)
     try:
-        assert con.execute("SELECT count(*) FROM channels").fetchone() == (3,)
+        assert con.execute(
+            "SELECT count(*), count(DISTINCT channel_name) FROM channels"
+        ).fetchone() == (5, 3)
     finally:
         con.close()
 
@@ -598,6 +625,38 @@ def test_a_demo_field_takes_its_own_machine_s_family_sentence(
         _fields(document["BR"]["DIPOLE"])["CURRENT/SP"]["_description"]
         != _group(facility, "SR/DIPOLE")["signals"]["CURRENT/SP"]
     )
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_the_demo_database_holds_a_row_per_channel_and_family(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    import duckdb
+
+    (_index, database) = _write(tmp_path, built_control_assistant.facility)
+
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        counts = con.execute(
+            "SELECT count(*), count(DISTINCT channel_name) FROM channels"
+        ).fetchone()
+
+        def family(system: str, name: str) -> set[str]:
+            rows = con.execute(
+                "SELECT channel_name FROM channels WHERE system = ? AND family = ?",
+                [system, name],
+            ).fetchall()
+            return {channel for (channel,) in rows}
+
+        bpm, diag = family("SR", "BPM"), family("SR", "DIAG")
+        quads, magnets = family("SR", "QF"), family("SR", "MAG")
+    finally:
+        con.close()
+
+    assert counts == (5816, 2908)
+    assert bpm and bpm < diag
+    assert quads and quads < magnets
 
 
 @pytest.mark.slow

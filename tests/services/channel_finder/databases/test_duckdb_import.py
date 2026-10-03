@@ -2,9 +2,10 @@
 
 The import reuses ``MiddleLayerDatabase`` flattening, then writes systems,
 families, channels and a device map into DuckDB. These tests pin the data
-transforms (list subfield / MemberOf joining, device-map extraction) and the
-idempotency contract: re-running replaces ``source='mml'`` rows while
-preserving ``source='runtime'`` rows.
+transforms (list subfield / MemberOf joining, device-map extraction), one
+``channels`` row per channel and family it belongs to, and the idempotency
+contract: re-running replaces ``source='mml'`` rows while preserving
+``source='runtime'`` rows.
 
 The FTS extension helpers are stubbed out so the import never touches the
 network or a bundled extension file.
@@ -101,6 +102,58 @@ class TestImportedContent:
             con.close()
         assert member_of == "BPM, Diagnostics"
         assert units == "mm"
+
+
+#: Member families and the umbrella families that repeat their channels.
+_UMBRELLA = {
+    "SR": {
+        "QF": {"Monitor": {"ChannelNames": ["SR:QF1:I", "SR:QF2:I"]}},
+        "HCM": {"Monitor": {"ChannelNames": ["SR:HCM1:I"]}},
+        "BPM": {"X": {"ChannelNames": ["SR:BPM1:X", "SR:BPM2:X"]}},
+        "MAG": {
+            "SR:QF1:I": {"ChannelNames": ["SR:QF1:I"]},
+            "SR:QF2:I": {"ChannelNames": ["SR:QF2:I"]},
+            "SR:HCM1:I": {"ChannelNames": ["SR:HCM1:I"]},
+        },
+        "DIAG": {"X": {"ChannelNames": ["SR:BPM1:X", "SR:BPM2:X"]}},
+    }
+}
+
+
+class TestEveryFamilyAChannelBelongsTo:
+    """A channel is one row per family it belongs to."""
+
+    @pytest.fixture()
+    def umbrella(self, tmp_path: Path):
+        src = tmp_path / "ml.json"
+        src.write_text(json.dumps(_UMBRELLA))
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(str(src), out)
+        con = duckdb.connect(out, read_only=True)
+        try:
+            yield con
+        finally:
+            con.close()
+
+    @staticmethod
+    def _family(con, family: str) -> list[str]:
+        rows = con.execute(
+            "SELECT channel_name FROM channels WHERE family = ? ORDER BY channel_name", [family]
+        ).fetchall()
+        return [name for (name,) in rows]
+
+    def test_a_member_family_and_its_umbrella_both_return_the_bpms(self, umbrella):
+        assert self._family(umbrella, "BPM") == ["SR:BPM1:X", "SR:BPM2:X"]
+        assert self._family(umbrella, "DIAG") == ["SR:BPM1:X", "SR:BPM2:X"]
+
+    def test_a_member_family_returns_its_magnets_and_the_umbrella_every_magnet(self, umbrella):
+        assert self._family(umbrella, "QF") == ["SR:QF1:I", "SR:QF2:I"]
+        assert self._family(umbrella, "MAG") == ["SR:HCM1:I", "SR:QF1:I", "SR:QF2:I"]
+
+    def test_rows_count_memberships_and_distinct_names_count_channels(self, umbrella):
+        assert umbrella.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT channel_name) FROM channels"
+        ).fetchone() == (10, 5)
 
 
 class TestEngineeringUnit:

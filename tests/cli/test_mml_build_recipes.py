@@ -815,7 +815,9 @@ class TestHelloWorldMiddleLayer:
         try:
             context = initialize_cf_ml_context()
             answer = json.loads(
-                getattr(run_sql, "fn", run_sql)(sql="SELECT count(*) AS n FROM channels")
+                getattr(run_sql, "fn", run_sql)(
+                    sql="SELECT count(DISTINCT channel_name) AS n FROM channels"
+                )
             )
             channels = len(context.database.channel_map)
         finally:
