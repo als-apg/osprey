@@ -47,6 +47,15 @@
  * host element panel-manager passes in (#panel-content) and show/hide is a plain
  * display toggle, with no overlay and no placeholders.
  *
+ * NOT-ANSWERING NOTICE: each managed panel has a `.tile-notice` sibling element
+ * in the overlay, drawn over its tile body with the iframe's geometry. It
+ * carries the time the caller hands in, stays laid out but empty while the
+ * panel answers (a polite live region present before its text), is hidden
+ * wherever the iframe is hidden, and takes no pointer events. Reachability is
+ * held per panel id, so it survives a tile closing and is shown again when the
+ * tile returns. In fallback mode the host carries one notice for whichever
+ * panel it is showing.
+ *
  * ADAPTER API (consumed by panel-manager.js and dock-sync.js)
  * -----------------------------------------------------------
  * All functions are keyed by panel-manager's panel id. See the JSDoc on each
@@ -76,6 +85,7 @@ import { flashElement } from '/design-system/js/highlight.js';
  * @property {number} [lastW]
  * @property {number} [lastH]
  * @property {HTMLElement} [glowEl]
+ * @property {HTMLElement} [noticeEl]
  */
 
 const OVERLAY_CLASS = 'dock-iframe-overlay';
@@ -104,6 +114,14 @@ let fallbackHostEl = null;
 const disposers = [];
 /** @type {Map<string, ManagedPanel>} */
 const managed = new Map();
+/**
+ * Panel id → the display time its backend stopped answering, for panels not
+ * answering now. Held apart from `managed` so a panel can be marked before its
+ * tile exists. An id has an entry only between the caller's "not answering"
+ * and its "answering again".
+ * @type {Map<string, string>}
+ */
+const notAnsweringSince = new Map();
 let dockWired = false;
 
 /** @param {string} id */
@@ -313,6 +331,17 @@ function ensurePlaceholder(api, entry, intent = 'replace') {
 }
 
 /**
+ * Take a managed panel off screen: mark it not-visible and hide its iframe and
+ * its notice. No geometry pass is needed for the notice to vanish with its tile.
+ * @param {ManagedPanel} entry
+ */
+function concealEntry(entry) {
+  entry.visible = false;
+  entry.iframe.style.display = 'none';
+  if (entry.noticeEl) entry.noticeEl.style.display = 'none';
+}
+
+/**
  * Remove every OTHER service placeholder from the group that just received a
  * 'replace' placement — the tile's previous occupant(s). Native panels (the
  * terminal) are never evicted. The evicted iframe is concealed but kept cached
@@ -337,10 +366,7 @@ function evictReplacedOccupants(api, keptPlaceholderId) {
       continue;
     }
     const evicted = managed.get(serviceId);
-    if (evicted) {
-      evicted.visible = false;
-      evicted.iframe.style.display = 'none';
-    }
+    if (evicted) concealEntry(evicted);
   }
 }
 
@@ -490,23 +516,33 @@ function applyGeometry() {
   const api = getDockApi();
   if (!api || !overlayEl) return;
   const base = overlayEl.getBoundingClientRect();
-  for (const entry of managed.values()) {
+  /** @param {HTMLElement} el @param {DOMRect} r @param {DOMRect} origin */
+  const place = (el, r, origin) => {
+    el.style.left = Math.round(r.left - origin.left) + 'px';
+    el.style.top = Math.round(r.top - origin.top) + 'px';
+    el.style.width = Math.round(r.width) + 'px';
+    el.style.height = Math.round(r.height) + 'px';
+  };
+  for (const [panelId, entry] of managed) {
     const { iframe } = entry;
     const panel = entry.visible ? api.getPanel(entry.placeholderId) : null;
     const group = panel?.group;
     const content = group?.element?.querySelector('.dv-content-container');
     if (!panel || !content || group.activePanel !== panel) {
       iframe.style.display = 'none';
+      if (entry.noticeEl) entry.noticeEl.style.display = 'none';
       continue;
     }
     const r = content.getBoundingClientRect();
     const w = Math.round(r.width);
     const h = Math.round(r.height);
-    iframe.style.left = Math.round(r.left - base.left) + 'px';
-    iframe.style.top = Math.round(r.top - base.top) + 'px';
-    iframe.style.width = w + 'px';
-    iframe.style.height = h + 'px';
+    place(iframe, r, base);
     iframe.style.display = '';
+    // The notice spans the whole content rectangle: that is what the wash covers.
+    const notice = ensureNoticeEl(panelId, entry, overlayEl);
+    place(notice, r, base);
+    notice.style.display = '';
+    paintNotice(notice, panelId);
     if (entry.lastW !== w || entry.lastH !== h) {
       entry.lastW = w;
       entry.lastH = h;
@@ -581,6 +617,8 @@ export function focusPanel(panelId) {
     syncGeometry();
   } else {
     for (const [id, e] of managed) e.iframe.style.display = id === panelId ? '' : 'none';
+    fallbackShownId = panelId;
+    paintFallbackNotice();
   }
 }
 
@@ -596,11 +634,9 @@ export function focusPanel(panelId) {
  */
 export function hidePanel(panelId) {
   const entry = managed.get(panelId);
-  if (entry) {
-    entry.visible = false;
-    entry.iframe.style.display = 'none';
-  }
+  if (entry) concealEntry(entry);
   const api = ensureDock();
+  if (!api || !overlayEl) clearFallbackShown(panelId);
   if (api && overlayEl) {
     const placeholderId = entry?.placeholderId ?? placeholderIdFor(panelId);
     const panel = api.getPanel(placeholderId);
@@ -628,8 +664,29 @@ export function hidePanel(panelId) {
 export function concealPanel(panelId) {
   const entry = managed.get(panelId);
   if (!entry) return;
-  entry.visible = false;
-  entry.iframe.style.display = 'none';
+  concealEntry(entry);
+  if (!ensureDock()) clearFallbackShown(panelId);
+}
+
+/**
+ * Show or clear the not-answering notice over a panel's tile.
+ *
+ * The caller decides reachability; the adapter only shows it. The state is
+ * held per panel id, so a call made before the tile exists, or while it is
+ * closed, takes effect when the tile is next on screen. A repeated identical
+ * call changes nothing.
+ * @param {string} panelId
+ * @param {boolean} reachable
+ * @param {string} [since] - the time the backend stopped answering, already formatted
+ *   for display; required when `reachable` is false
+ */
+export function setPanelReachable(panelId, reachable, since) {
+  const before = notAnsweringSince.get(panelId);
+  if (reachable) notAnsweringSince.delete(panelId);
+  else notAnsweringSince.set(panelId, since ?? '');
+  if (notAnsweringSince.get(panelId) === before) return;
+  if (ensureDock() && overlayEl) applyGeometry();
+  else paintFallbackNotice();
 }
 
 // ---- Agent attribution glow ------------------------------------------------
@@ -707,4 +764,106 @@ function flashTileGlow(panelId) {
   el.style.width = Math.round(r.width) + 'px';
   el.style.height = Math.round(r.height) + 'px';
   flashElement(el);
+}
+
+// ---- Not-answering notice ----------------------------------------------------
+
+/** Class of the per-panel notice element; styled in css/terminal.css. */
+const NOTICE_CLASS = 'tile-notice';
+
+/** @type {string | null} the panel the fallback host is showing */
+let fallbackShownId = null;
+/** @type {HTMLElement | null} the fallback host's one notice */
+let fallbackNoticeEl = null;
+
+/**
+ * A bare notice element: a polite live region whose text child carries the
+ * message. Inline pointer-events:none, as the overlay layer itself states it,
+ * so the page underneath stays scrollable and clickable.
+ * @returns {HTMLElement}
+ */
+function buildNoticeEl() {
+  const el = document.createElement('div');
+  el.className = NOTICE_CLASS;
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  el.style.pointerEvents = 'none';
+  el.style.position = 'absolute';
+  const text = document.createElement('span');
+  text.className = 'tile-notice-text';
+  el.appendChild(text);
+  return el;
+}
+
+/**
+ * The notice element for a managed panel, created on first use under `parent`
+ * and reused after. It is a sibling of the overlay iframe rather than anything
+ * inside it: the iframe is another document this stylesheet cannot reach.
+ * @param {string} panelId
+ * @param {ManagedPanel} entry
+ * @param {HTMLElement} parent
+ * @returns {HTMLElement}
+ */
+function ensureNoticeEl(panelId, entry, parent) {
+  if (entry.noticeEl?.isConnected && entry.noticeEl.parentElement === parent) {
+    return entry.noticeEl;
+  }
+  const el = buildNoticeEl();
+  el.dataset.panel = panelId;
+  parent.appendChild(el);
+  entry.noticeEl = el;
+  return el;
+}
+
+/**
+ * Write a panel's reachability onto a notice element: the time and message
+ * while it is not answering, empty (but still laid out) while it answers.
+ * @param {HTMLElement} el
+ * @param {string | null} panelId
+ */
+function paintNotice(el, panelId) {
+  const since = panelId === null ? undefined : notAnsweringSince.get(panelId);
+  const text = /** @type {HTMLElement} */ (el.querySelector('.tile-notice-text'));
+  if (since !== undefined) {
+    el.dataset.unreachable = '';
+    text.textContent = `Backend not answering since ${since} — this view may be out of date.`;
+  } else {
+    delete el.dataset.unreachable;
+    text.textContent = '';
+  }
+}
+
+/**
+ * The fallback host's one notice, rebuilt and prepended whenever it is no
+ * longer in the host (the empty state wipes the host's children).
+ * @returns {HTMLElement}
+ */
+function ensureFallbackNotice() {
+  const host = /** @type {HTMLElement} */ (fallbackHostEl);
+  if (fallbackNoticeEl?.isConnected && fallbackNoticeEl.parentElement === host) {
+    return fallbackNoticeEl;
+  }
+  const el = buildNoticeEl();
+  host.prepend(el);
+  fallbackNoticeEl = el;
+  return el;
+}
+
+/** Paint the fallback host's notice for the panel the host is showing. */
+function paintFallbackNotice() {
+  if (!fallbackHostEl) return;
+  const el = ensureFallbackNotice();
+  el.dataset.panel = fallbackShownId ?? '';
+  paintNotice(el, fallbackShownId);
+}
+
+/**
+ * Fallback mode: the host stops showing `panelId`, so its notice no longer
+ * speaks for it.
+ * @param {string} panelId
+ */
+function clearFallbackShown(panelId) {
+  if (fallbackShownId !== panelId) return;
+  fallbackShownId = null;
+  paintFallbackNotice();
 }
