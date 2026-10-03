@@ -375,10 +375,12 @@ export function setEntryEnabled(railEl, panelId, enabled) {
 /**
  * A server or poll instant as the rail's tooltips show it: hour and minute on
  * the facility clock, naming its zone when the viewer's clock reads differently.
+ * It is the one formatter for every "since" time a panel surface shows, so the
+ * rail and the tile never disagree.
  * @param {number} ms - epoch milliseconds
  * @returns {string}
  */
-function clockTime(ms) {
+export function clockTime(ms) {
   return formatFacilityTime(ms, {
     hour: 'numeric',
     minute: '2-digit',
