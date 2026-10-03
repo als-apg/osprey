@@ -1,5 +1,5 @@
 /**
- * OSPREY Web Terminal — rail utility cluster (Documentation + Feedback).
+ * OSPREY Web Terminal — rail utility cluster (Documentation, Feedback, Tour, Activity).
  *
  * Four things are pinned here, because each of them is a defect the rail has
  * already shipped once before:
@@ -158,7 +158,17 @@ describe('utility cluster markup', () => {
     expect(qs(button, '.panel-utility-icon').getAttribute('aria-hidden')).toBe('true');
   });
 
-  test('names both controls in the cell, not just in the tooltip', () => {
+  test('exposes an Activity button with an accessible name', () => {
+    const cluster = qs(parseRailRegion(), '#panel-utility');
+    const button = qs(cluster, '#panel-activity-btn', HTMLButtonElement);
+
+    expect(button.getAttribute('type')).toBe('button');
+    expect(button.getAttribute('aria-label')).toBe('Activity');
+    expect(button.getAttribute('title')).toBe('Open the activity log in a new tab');
+    expect(qs(button, '.panel-utility-icon').getAttribute('aria-hidden')).toBe('true');
+  });
+
+  test('names every control in the cell, not just in the tooltip', () => {
     // The marks alone made the operator hover to find out what they open —
     // every other cell in the column carries its name.
     const cluster = qs(parseRailRegion(), '#panel-utility');
@@ -166,6 +176,7 @@ describe('utility cluster markup', () => {
     for (const [id, label] of [
       ['#panel-docs-link', 'Docs'],
       ['#panel-feedback-btn', 'Feedback'],
+      ['#panel-activity-btn', 'Activity'],
     ]) {
       expect(qs(cluster, `${id} .panel-utility-label`).textContent).toBe(label);
     }
@@ -177,7 +188,7 @@ describe('utility cluster markup', () => {
     // reading DOCS) makes the control unaddressable by voice.
     const cluster = qs(parseRailRegion(), '#panel-utility');
 
-    for (const id of ['#panel-docs-link', '#panel-feedback-btn']) {
+    for (const id of ['#panel-docs-link', '#panel-feedback-btn', '#panel-activity-btn']) {
       const control = qs(cluster, id);
       const visible = qs(control, '.panel-utility-label').textContent ?? '';
       const name = control.getAttribute('aria-label') ?? '';
@@ -216,10 +227,10 @@ describe('utility cluster styling', () => {
     expect(ruleBody('.panel-utility-btn[hidden]')).toMatch(/display:\s*none;/);
   });
 
-  test('gives both controls a drawn SVG mark, not a font glyph', () => {
+  test('gives every control a drawn SVG mark, not a font glyph', () => {
     const cluster = qs(parseRailRegion(), '#panel-utility');
 
-    for (const id of ['#panel-docs-link', '#panel-feedback-btn']) {
+    for (const id of ['#panel-docs-link', '#panel-feedback-btn', '#panel-activity-btn']) {
       const svg = qs(cluster, `${id} .panel-utility-icon svg[viewBox="0 0 16 16"]`);
       expect(svg.getAttribute('stroke')).toBe('currentColor');
     }

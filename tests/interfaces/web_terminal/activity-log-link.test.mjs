@@ -7,6 +7,7 @@
  *   - sessionIdFromQuery: the page reads ?session_id= only when it is a key
  *   - activityLogUrl: the prefixed page path, with ?session_id= only for a key
  *   - openActivityLog: one new tab, the id read at click time
+ *   - initActivityLogButton: the rail button opens it; no button, no-op
  *
  *   npx vitest run tests/interfaces/web_terminal/activity-log-link.test.mjs
  */
@@ -18,6 +19,7 @@ import {
   sessionIdFromQuery,
   activityLogUrl,
   openActivityLog,
+  initActivityLogButton,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-log-link.js';
 
 const KEY = '11111111-2222-3333-4444-555555555555';
@@ -104,5 +106,25 @@ describe('openActivityLog', () => {
     openActivityLog(getSessionId);
 
     expect(open).toHaveBeenNthCalledWith(2, activityLogUrl(OTHER_KEY), '_blank', 'noopener');
+  });
+});
+
+describe('initActivityLogButton', () => {
+  test('a click on the rail button opens the activity log on the session', () => {
+    document.body.innerHTML = '<button id="panel-activity-btn" type="button"></button>';
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+    initActivityLogButton(() => KEY);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+
+    document.getElementById('panel-activity-btn')?.dispatchEvent(click);
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith(activityLogUrl(KEY), '_blank', 'noopener');
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  test('is a no-op on a page without the button', () => {
+    expect(() => initActivityLogButton(() => KEY)).not.toThrow();
   });
 });

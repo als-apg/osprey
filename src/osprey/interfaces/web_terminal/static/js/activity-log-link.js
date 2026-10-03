@@ -59,3 +59,18 @@ export function activityLogUrl(sessionId) {
 export function openActivityLog(getSessionId) {
   window.open(activityLogUrl(getSessionId()), '_blank', 'noopener');
 }
+
+/**
+ * Bind the rail's Activity button to {@link openActivityLog}. The session
+ * getter is injected, so this module reaches nothing in terminal.js. A page
+ * without the button is left as it is.
+ * @param {() => string|null|undefined} getSessionId
+ */
+export function initActivityLogButton(getSessionId) {
+  const button = document.getElementById('panel-activity-btn');
+  if (!button) return;
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    openActivityLog(getSessionId);
+  });
+}
