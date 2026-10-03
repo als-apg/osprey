@@ -20,7 +20,10 @@ a share of the whole export's scale::
 family. The mapping's wiring block states the engine words of each family, and
 the plane follows from them: a monitor reads its ``axis``, a kick drives the
 plane of its ``index``. A block whose two planes are the same is judged; any
-other block is compared and judged by nothing.
+other block is compared and judged by nothing. An unjudged block's sign
+agreement is not counted: its model entries there are the deck's coupling, at
+the noise level, so whether their sign matches the export's says nothing about
+the model.
 
 **Rows are matched by device.** A response export states a ``DeviceList`` per
 side; each row is matched to the device carrying that ``DeviceList`` and to
@@ -175,7 +178,8 @@ class Figures:
         compared: How many entries were held against the export.
         passed: How many of them are inside their band.
         checked: How many sit above the floor.
-        agreed: How many of those agree in sign.
+        agreed: How many of those agree in sign; ``None`` for an unjudged
+            block, whose sign is not asserted.
         median_ratio: The median model-over-file size above the floor;
             ``nan`` when no entry is above it.
     """
@@ -183,7 +187,7 @@ class Figures:
     compared: int
     passed: int
     checked: int
-    agreed: int
+    agreed: int | None
     median_ratio: float
 
     @property
@@ -193,15 +197,22 @@ class Figures:
 
     @property
     def sign_ratio(self) -> float:
-        """The share above the floor agreeing in sign; ``nan`` when none is above it."""
-        return self.agreed / self.checked if self.checked else math.nan
+        """The share above the floor agreeing in sign.
+
+        ``nan`` when none is above it or when the sign is not counted.
+        """
+        if self.agreed is None or not self.checked:
+            return math.nan
+        return self.agreed / self.checked
 
 
-def figures(entries: Iterable[Entry]) -> Figures:
+def figures(entries: Iterable[Entry], *, judged: bool = True) -> Figures:
     """Weigh a set of banded entries.
 
     Args:
         entries: The entries, each carrying its band and floor.
+        judged: Whether the entries belong to a judged block; an unjudged
+            block counts no sign agreement.
 
     Returns:
         The counts and the median size ratio, which is taken above the floor
@@ -213,7 +224,7 @@ def figures(entries: Iterable[Entry]) -> Figures:
         compared=len(weighed),
         passed=sum(1 for entry in weighed if entry.passed),
         checked=len(checked),
-        agreed=sum(1 for entry in checked if entry.sign_agrees),
+        agreed=sum(1 for entry in checked if entry.sign_agrees) if judged else None,
         median_ratio=_median(
             sorted(abs(entry.ratio) for entry in checked if math.isfinite(entry.ratio))
         ),
@@ -257,7 +268,12 @@ class Block:
     @property
     def counts(self) -> Figures:
         """The figures the block is judged on, reversed columns left out."""
-        return figures(self.counted)
+        return figures(self.counted, judged=self.judged)
+
+    @property
+    def full(self) -> Figures:
+        """The figures of every entry of the block."""
+        return figures(self.entries, judged=self.judged)
 
 
 def banded(block: Block, floor: float) -> Block:
