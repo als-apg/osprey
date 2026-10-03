@@ -29,7 +29,7 @@ CF_INDEX_DIR = GOLDEN_DIR / "cf_index_pre_line"
 PRE_LINE_QUERIES = (
     REPO_ROOT
     / "src/osprey/templates/apps/control_assistant/data/benchmarks"
-    / "cross_paradigm/queries/tier3_queries.json"
+    / "cross_paradigm/queries/tree_queries.json"
 )
 
 #: The channel-finder pipelines with an index file, keyed by their index name.

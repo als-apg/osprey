@@ -247,7 +247,7 @@ class TestBuildPipelineOrderingHolds:
             / "benchmarks"
             / "cross_paradigm"
             / "queries"
-            / "tier1_queries.json"
+            / "in_context_queries.json"
         )
         queries_src.write_text('[{"user_query": "profile", "targeted_pv": []}]\n')
 

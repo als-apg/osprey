@@ -3257,7 +3257,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/channel_databases/TEMPLATE_EXAMPLE.json": CHANNEL_DB_TEMPLATE_EXAMPLE_JSON,
     "data/channel_databases/tiers/tier1/in_context.json": CHANNEL_DB_IN_CONTEXT_JSON,
     "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
-    "data/benchmarks/cross_paradigm/queries/tier3_queries.json": BENCHMARK_QUERIES_JSON,
+    "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
     "data/channel_limits.json": CHANNEL_LIMITS_JSON,
     "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
     "data/raw/address_list.csv": RAW_ADDRESS_LIST_CSV,
