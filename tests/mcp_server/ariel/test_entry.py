@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, patch
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
-from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from osprey.services.ariel_search.database.repository import SchemaFacts
+from tests.mcp_server.ariel.conftest import (
+    attach_fake_attachment_reader,
+    get_tool_fn,
+    make_mock_entry,
+)
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
@@ -43,6 +48,7 @@ async def test_entry_get_existing(tmp_path, monkeypatch):
     entry = make_mock_entry(entry_id="e1", raw_text="Test content", author="Alice")
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entry.return_value = entry
 
     with patch(
@@ -175,6 +181,7 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
     img.write_bytes(b"\x89PNG" + b"\x00" * 100)
 
     mock_service = AsyncMock()
+    mock_service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(False, False))
     mock_service.repository.upsert_entry.return_value = None
     mock_service.repository.store_attachment.return_value = None
 
@@ -751,6 +758,7 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
     ]
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entries_by_ids.return_value = entries
 
     with patch(
@@ -791,6 +799,7 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entries_by_ids.side_effect = RuntimeError("DB down")
 
     with patch(
@@ -809,6 +818,7 @@ async def test_entries_by_ids_carries_the_read_budget(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch, entry_text={"listing_chars": 10, "read_chars": 20})
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entries_by_ids.return_value = [
         make_mock_entry(entry_id="e1", raw_text="x" * 50)
     ]
@@ -831,6 +841,7 @@ async def test_entry_get_returns_the_whole_text(tmp_path, monkeypatch):
     text = "x" * 5000
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entry.return_value = make_mock_entry(entry_id="e1", raw_text=text)
 
     with patch(
@@ -842,3 +853,367 @@ async def test_entry_get_returns_the_whole_text(tmp_path, monkeypatch):
     data = extract_response_dict(result)
     assert data["raw_text"] == text
     assert "raw_text_truncated" not in data
+
+
+def _real_png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 12), (10, 120, 200)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+async def test_entry_create_native_picture_is_viewable_at_once(tmp_path, monkeypatch):
+    """Direct ``entry_create`` stores the picture copied with its rendition, no sync needed."""
+    from osprey.services.ariel_search.attachments.formats import is_viewable
+
+    _setup_registry(tmp_path, monkeypatch)
+    img = tmp_path / "beam.png"
+    png = _real_png()
+    img.write_bytes(png)
+
+    mock_service = AsyncMock()
+    mock_service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(True, True))
+    mock_service.repository.upsert_entry.return_value = None
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        result = await _get_entry_create()(
+            subject="Beam picture",
+            details="Attached",
+            file_paths=[str(img)],
+            draft=False,
+        )
+
+    data = extract_response_dict(result)
+    assert data["attachment_count"] == 1
+    mock_service.repository.store_attachment.assert_not_called()
+    call = mock_service.repository.insert_native_attachment.call_args
+    entry_id, attachment_id = call.args
+    assert entry_id == data["entry_id"]
+    row = {
+        "copy_status": "copied",
+        "skip_reason": call.kwargs["skip_reason"],
+        "mime_type": call.kwargs["mime_type"],
+        "rendition_sha256": call.kwargs["rendition"].sha256 if call.kwargs["rendition"] else None,
+    }
+    assert call.kwargs["data"] == png
+    assert is_viewable(row), row
+    linked = mock_service.repository.upsert_entry.call_args_list[-1].args[0]
+    assert linked["attachments"][0]["url"] == f"/api/attachments/{attachment_id}"
+
+
+async def test_entry_create_native_render_unavailable_leaves_no_rendition(tmp_path, monkeypatch):
+    """With the worker unavailable the row is still written, without a rendition."""
+    from osprey.services.ariel_search.attachments import prepare as prepare_module
+
+    async def unavailable(*_args, **_kwargs):
+        raise prepare_module.RenderUnavailable("no worker")
+
+    monkeypatch.setattr(prepare_module, "prepare_picture", unavailable)
+    _setup_registry(tmp_path, monkeypatch)
+    img = tmp_path / "beam.png"
+    img.write_bytes(_real_png())
+
+    mock_service = AsyncMock()
+    mock_service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(True, True))
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        result = await _get_entry_create()(
+            subject="Beam picture", details="Attached", file_paths=[str(img)], draft=False
+        )
+
+    assert extract_response_dict(result)["attachment_count"] == 1
+    kwargs = mock_service.repository.insert_native_attachment.call_args.kwargs
+    assert kwargs["rendition"] is None
+    assert kwargs["skip_reason"] is None
+    assert kwargs["mime_type"] == "image/png"
+
+
+# ---------------------------------------------------------------------------
+# entries_by_ids attachment summaries
+# ---------------------------------------------------------------------------
+
+_SUMMARY_PNG = {
+    "url": "https://elog.example/f/plot.png",
+    "type": "image/png",
+    "filename": "plot.png",
+}
+
+
+async def _run_entries_by_ids(mock_service, entry_ids):
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        return extract_response_dict(await _get_entries_by_ids()(entry_ids=entry_ids))
+
+
+def _entries_by_ids_service(entries, **reader):
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service, **reader)
+    mock_service.repository.get_entries_by_ids.return_value = entries
+    return mock_service
+
+
+async def test_entries_by_ids_reads_the_attachment_rows_once(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    entries = [make_mock_entry(entry_id=f"e{i}", attachments=[_SUMMARY_PNG]) for i in range(3)]
+    mock_service = _entries_by_ids_service(entries)
+
+    data = await _run_entries_by_ids(mock_service, ["e0", "e1", "e2"])
+
+    assert data["found"] == 3
+    mock_service.repository.get_attachment_rows.assert_awaited_once_with(["e0", "e1", "e2"])
+
+
+async def test_entries_by_ids_on_an_unmigrated_store_gives_the_fallback(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    mock_service = _entries_by_ids_service(
+        [make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])], unmigrated=True
+    )
+
+    [entry] = (await _run_entries_by_ids(mock_service, ["e1"]))["entries"]
+
+    assert entry["attachment_count"] == 1
+    [summary] = entry["attachments"]
+    assert summary["copy_status"] == "pending"
+    assert "attachment_id" not in summary
+
+
+async def test_entries_by_ids_with_a_failing_reader_keeps_its_entries(tmp_path, monkeypatch):
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    _setup_registry(tmp_path, monkeypatch)
+    entries = [make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])]
+
+    expected = await _run_entries_by_ids(_entries_by_ids_service(entries, unmigrated=True), ["e1"])
+    data = await _run_entries_by_ids(
+        _entries_by_ids_service(entries, error=DatabaseQueryError("boom")), ["e1"]
+    )
+
+    assert data == expected
+    assert data["found"] == 1
+
+
+async def test_entries_by_ids_bounds_summaries_by_listing_attachments(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch, entry_text={"listing_attachments": 1})
+    items = [
+        {**_SUMMARY_PNG, "url": f"https://elog.example/f/{i}.png", "filename": f"{i}.png"}
+        for i in range(3)
+    ]
+    mock_service = _entries_by_ids_service([make_mock_entry(entry_id="e1", attachments=items)])
+
+    [entry] = (await _run_entries_by_ids(mock_service, ["e1"]))["entries"]
+
+    assert entry["attachment_count"] == 3
+    assert len(entry["attachments"]) == 1
+
+
+def test_entries_by_ids_docstring_points_to_entry_get():
+    from osprey.mcp_server.ariel.tools.entry import entries_by_ids
+
+    doc = get_tool_fn(entries_by_ids).__doc__
+    assert "attachment_count" in doc
+    assert "call `entry_get` for the full attachment list" in doc
+
+
+# ---------------------------------------------------------------------------
+# entry_get attachment summaries
+# ---------------------------------------------------------------------------
+
+_ENTRY_GET_KEYS = {
+    "entry_id",
+    "source_system",
+    "timestamp",
+    "author",
+    "raw_text",
+    "attachments",
+    "metadata",
+    "summary",
+    "keywords",
+    "created_at",
+    "updated_at",
+}
+
+
+def _entry_get_service(entry, **reader):
+    mock_service = AsyncMock()
+    reader_mock = attach_fake_attachment_reader(mock_service, **reader)
+    mock_service.repository.get_entry.return_value = entry
+    return mock_service, reader_mock
+
+
+async def _run_entry_get(mock_service, entry_id="e1"):
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        return extract_response_dict(await _get_entry_get()(entry_id=entry_id))
+
+
+def _copied_row(entry_id, item, **extra):
+    from osprey.services.ariel_search.attachments import attachment_id_for
+
+    return {
+        "entry_id": entry_id,
+        "attachment_id": attachment_id_for(entry_id, item),
+        "filename": item["filename"],
+        "mime_type": "image/png",
+        "size_bytes": 2048,
+        "source_url": item["url"],
+        "copy_status": "copied",
+        "skip_reason": None,
+        "copy_attempts": 1,
+        "rendition_mime": "image/png",
+        "rendition_w": 640,
+        "rendition_h": 480,
+        "rendition_sha256": "0" * 64,
+        **extra,
+    }
+
+
+async def test_entry_get_reads_the_rows_of_its_one_entry(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    entry = make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])
+    mock_service, reader = _entry_get_service(entry)
+
+    await _run_entry_get(mock_service)
+
+    reader.assert_awaited_once_with(["e1"])
+
+
+async def test_entry_get_emits_summaries_for_every_attachment(tmp_path, monkeypatch):
+    """No listing bound: every picture, whole captions, with the stored row's identity."""
+    from osprey.services.ariel_search.attachments.summaries import SUMMARY_KEYS
+
+    _setup_registry(tmp_path, monkeypatch, entry_text={"listing_attachments": 1})
+    caption = "c" * 900
+    items = [
+        {**_SUMMARY_PNG, "url": f"https://elog.example/f/{i}.png", "filename": f"{i}.png"}
+        for i in range(4)
+    ]
+    items[0]["caption"] = caption
+    rows = {"e1": [_copied_row("e1", item) for item in items]}
+    mock_service, _ = _entry_get_service(
+        make_mock_entry(entry_id="e1", attachments=items), rows=rows
+    )
+
+    data = await _run_entry_get(mock_service)
+
+    assert data["attachment_count"] == 4
+    assert len(data["attachments"]) == 4
+    assert {row["attachment_id"] for row in rows["e1"]} == {
+        s["attachment_id"] for s in data["attachments"]
+    }
+    for summary in data["attachments"]:
+        assert set(summary) <= set(SUMMARY_KEYS)
+        assert summary["copy_status"] == "copied"
+        assert summary["viewable"] is True
+    [captioned] = [s for s in data["attachments"] if "caption" in s]
+    assert captioned["caption"] == caption
+    assert captioned["caption_source"] == "upstream"
+
+
+async def test_entry_get_keeps_its_own_fields(tmp_path, monkeypatch):
+    """Only attachments (and attachment_count) change; the rest of the dict stays whole."""
+    _setup_registry(tmp_path, monkeypatch)
+    text = "y" * 5000
+    entry = make_mock_entry(entry_id="e1", raw_text=text, attachments=[_SUMMARY_PNG])
+    mock_service, _ = _entry_get_service(entry)
+
+    data = await _run_entry_get(mock_service)
+
+    assert set(data) - {"entry_url"} == _ENTRY_GET_KEYS | {"attachment_count"}
+    assert data["raw_text"] == text
+    assert data["metadata"] == entry["metadata"]
+    assert data["keywords"] == entry.get("keywords", [])
+    assert "raw_text_truncated" not in data
+
+
+async def test_entry_get_without_attachments_omits_the_count(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    mock_service, _ = _entry_get_service(make_mock_entry(entry_id="e1", attachments=[]))
+
+    data = await _run_entry_get(mock_service)
+
+    assert data["attachments"] == []
+    assert "attachment_count" not in data
+
+
+async def test_entry_get_on_an_unmigrated_store_gives_the_fallback(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    mock_service, _ = _entry_get_service(
+        make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG]), unmigrated=True
+    )
+
+    data = await _run_entry_get(mock_service)
+
+    assert data["attachment_count"] == 1
+    [summary] = data["attachments"]
+    assert summary["copy_status"] == "pending"
+    assert summary["viewable"] is False
+    assert summary["url"] == _SUMMARY_PNG["url"]
+    assert "attachment_id" not in summary
+
+
+async def test_entry_get_on_an_unmigrated_store_warns_once_per_process(
+    tmp_path, monkeypatch, caplog
+):
+    """The real reader logs the schema WARNING; a second call stays quiet."""
+    import logging
+
+    from osprey.services.ariel_search.database import repository as repository_module
+    from osprey.services.ariel_search.database.repository import (
+        ATTACHMENT_SCHEMA_GAP_WARNING,
+        ARIELRepository,
+    )
+
+    _setup_registry(tmp_path, monkeypatch)
+    monkeypatch.setattr(repository_module, "_attachment_schema_gap_warned", False)
+    caplog.set_level(logging.WARNING, logger="ariel")
+
+    mock_service, _ = _entry_get_service(
+        make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG]), unmigrated=True
+    )
+    store = AsyncMock()
+    store.schema_facts = AsyncMock(return_value=SchemaFacts(has_v2_fts=False, has_copy_state=False))
+
+    async def real_reader(entry_ids):
+        return await ARIELRepository.get_attachment_rows(store, entry_ids)
+
+    mock_service.repository.get_attachment_rows = AsyncMock(side_effect=real_reader)
+
+    first = await _run_entry_get(mock_service)
+    second = await _run_entry_get(mock_service)
+
+    assert first == second
+    assert first["attachments"][0]["copy_status"] == "pending"
+    warnings = [r for r in caplog.records if r.getMessage() == ATTACHMENT_SCHEMA_GAP_WARNING]
+    assert len(warnings) == 1
+
+
+async def test_entry_get_with_a_failing_reader_gives_the_fallback(tmp_path, monkeypatch):
+    """A DatabaseQueryError reads as no copy state: fallback summaries, one shared WARNING."""
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    _setup_registry(tmp_path, monkeypatch)
+    entry = make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])
+
+    expected = await _run_entry_get(_entry_get_service(entry, unmigrated=True)[0])
+    with patch(
+        "osprey.services.ariel_search.database.repository.warn_attachment_schema_gap_once"
+    ) as warn:
+        data = await _run_entry_get(_entry_get_service(entry, error=DatabaseQueryError("boom"))[0])
+
+    warn.assert_called_once_with()
+    assert data == expected
+    assert "error" not in data
+    assert data["entry_id"] == "e1"

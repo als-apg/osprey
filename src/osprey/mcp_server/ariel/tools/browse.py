@@ -10,8 +10,9 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import make_error, mcp, parse_date_filters, serialize_entry
+from osprey.mcp_server.ariel.server import make_error, mcp, parse_date_filters
 from osprey.mcp_server.ariel.server_context import get_ariel_context
+from osprey.mcp_server.ariel.tools.search_envelope import serialize_page
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.browse")
 
@@ -68,10 +69,10 @@ async def browse(
             source_system=source_system,
         )
 
-        # TypedDict entries -- use dict access, not attribute access
-        entries_out = [
-            serialize_entry(e, text_limit=registry.config.entry_text.listing_chars) for e in entries
-        ]
+        config = registry.config
+        entries_out = await serialize_page(
+            entries, config, service.repository, text_limit=config.entry_text.listing_chars
+        )
 
         return json.dumps(
             {

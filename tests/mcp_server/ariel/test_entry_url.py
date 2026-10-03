@@ -14,7 +14,11 @@ import pytest
 from osprey.mcp_server.ariel import server
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import DEFAULT_LISTING_TEXT_CHARS
-from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.ariel.conftest import (
+    attach_fake_attachment_reader,
+    get_tool_fn,
+    make_mock_entry,
+)
 
 # A generic template; each deployment supplies its own in configuration.
 GENERIC_TEMPLATE = "https://logbook.example/olog.php?id={entry_id}"
@@ -132,7 +136,12 @@ def test_serialize_entry_includes_entry_url_when_configured():
     """FR2: serialize_entry carries entry_url for a facility entry."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         result = server.serialize_entry(
-            _entry(entry_id="175353"), text_limit=DEFAULT_LISTING_TEXT_CHARS
+            _entry(entry_id="175353"),
+            text_limit=DEFAULT_LISTING_TEXT_CHARS,
+            attachment_limit=0,
+            attachment_rows=None,
+            model_id=None,
+            file_source=False,
         )
     assert result["entry_url"] == "https://logbook.example/olog.php?id=175353"
 
@@ -140,7 +149,14 @@ def test_serialize_entry_includes_entry_url_when_configured():
 def test_serialize_entry_omits_entry_url_when_unset():
     """FR3: no template -> no entry_url key at all."""
     with patch("osprey.utils.config.get_config_value", _fake_config(None)):
-        result = server.serialize_entry(_entry(), text_limit=DEFAULT_LISTING_TEXT_CHARS)
+        result = server.serialize_entry(
+            _entry(),
+            text_limit=DEFAULT_LISTING_TEXT_CHARS,
+            attachment_limit=0,
+            attachment_rows=None,
+            model_id=None,
+            file_source=False,
+        )
     assert "entry_url" not in result
 
 
@@ -148,7 +164,12 @@ def test_serialize_entry_omits_entry_url_for_native():
     """FR7: an ARIEL-native entry carries no entry_url even when configured."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         result = server.serialize_entry(
-            _entry(source_system="ARIEL MCP"), text_limit=DEFAULT_LISTING_TEXT_CHARS
+            _entry(source_system="ARIEL MCP"),
+            text_limit=DEFAULT_LISTING_TEXT_CHARS,
+            attachment_limit=0,
+            attachment_rows=None,
+            model_id=None,
+            file_source=False,
         )
     assert "entry_url" not in result
 
@@ -194,6 +215,7 @@ async def test_entry_get_includes_entry_url(tmp_path, monkeypatch):
 
     mock_service = AsyncMock()
     mock_service.repository.get_entry.return_value = entry
+    attach_fake_attachment_reader(mock_service)
 
     with (
         _patch_service(mock_service),
@@ -213,6 +235,7 @@ async def test_entry_get_omits_entry_url_for_native(tmp_path, monkeypatch):
 
     mock_service = AsyncMock()
     mock_service.repository.get_entry.return_value = entry
+    attach_fake_attachment_reader(mock_service)
 
     with (
         _patch_service(mock_service),

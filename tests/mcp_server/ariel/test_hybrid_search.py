@@ -6,7 +6,11 @@ import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
-from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.ariel.conftest import (
+    attach_fake_attachment_reader,
+    get_tool_fn,
+    make_mock_entry,
+)
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
@@ -60,6 +64,7 @@ async def test_hybrid_search_basic(tmp_path, monkeypatch):
     mock_result = _make_search_result(entries, reasoning="Hybrid search: 1 results")
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -82,6 +87,7 @@ async def test_hybrid_search_dispatches_to_the_hybrid_mode(tmp_path, monkeypatch
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
 
     with patch(
@@ -99,6 +105,7 @@ async def test_hybrid_search_forwards_author_and_source_filters(tmp_path, monkey
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
 
     with patch(
@@ -118,6 +125,7 @@ async def test_hybrid_search_forwards_date_range(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
 
     with patch(
@@ -141,6 +149,7 @@ async def test_hybrid_search_exclude_entry_ids(tmp_path, monkeypatch):
         make_mock_entry(entry_id="e2", raw_text="Second entry"),
     ]
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(entries)
 
     with patch(
@@ -162,6 +171,7 @@ async def test_hybrid_search_caps_at_max_results(tmp_path, monkeypatch):
 
     entries = [make_mock_entry(entry_id=f"e{i}") for i in range(5)]
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(entries)
 
     with patch(
@@ -190,6 +200,7 @@ async def test_hybrid_search_no_results_is_not_an_error(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([], reasoning="Hybrid search: 0 results")
 
     with patch(
@@ -219,6 +230,7 @@ async def test_sidecar_down_is_an_error_not_an_empty_result(tmp_path, monkeypatc
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(
         [],
         reasoning="Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering",
@@ -251,6 +263,7 @@ async def test_sidecar_down_names_the_health_endpoint(tmp_path, monkeypatch):
     )
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(
         [], diagnostics=[_qmd_error("Hybrid search failed: sidecar unreachable")]
     )
@@ -273,6 +286,7 @@ async def test_unconfigured_sidecar_points_at_the_config_block(tmp_path, monkeyp
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(
         [], diagnostics=[_qmd_error("Hybrid search failed: no qmd sidecar is configured")]
     )
@@ -309,6 +323,7 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypa
     entries = [make_mock_entry(entry_id="e1")]
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(
         entries, diagnostics=[unrelated, other_mode]
     )
@@ -346,6 +361,7 @@ async def test_envelope_carries_the_rerank_fallback_warning(tmp_path, monkeypatc
     entries = [make_mock_entry(entry_id="e1")]
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(entries, diagnostics=[fallback])
 
     with patch(
@@ -390,6 +406,7 @@ async def test_config_typo_advises_the_config_key_not_the_health_endpoint(tmp_pa
     )
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
 
     with patch(
@@ -422,6 +439,7 @@ async def test_config_fault_without_a_key_still_points_at_the_settings_block(tmp
     )
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
 
     with patch(
@@ -445,6 +463,7 @@ async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = ConfigurationError(
         "Search mode 'hybrid' is not enabled. Available modes: keyword, semantic",
         config_key="search_modules.hybrid.enabled",
@@ -475,6 +494,7 @@ async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkey
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = ConfigurationError(
         "Unknown search mode 'hybrid'. Available modes: keyword, semantic",
         config_key="modes",
@@ -499,6 +519,7 @@ async def test_hybrid_search_service_error(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = RuntimeError("Pool exhausted")
 
     with patch(
@@ -578,6 +599,7 @@ async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatc
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
 
     with patch(
@@ -595,6 +617,7 @@ async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
 
     with patch(
@@ -612,6 +635,7 @@ async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(
         [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
         expanded_terms=[TS_GROUP],
@@ -638,6 +662,7 @@ async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monke
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result(
         [],
         diagnostics=[
@@ -673,6 +698,7 @@ async def test_rerank_is_forwarded_in_advanced_params(tmp_path, monkeypatch, val
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
 
     with patch(
@@ -690,6 +716,7 @@ async def test_rerank_omitted_when_unset(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = _make_search_result([])
 
     with patch(
@@ -713,3 +740,107 @@ def test_docstring_gives_the_rerank_speed_tradeoff():
 
     assert "rerank" in flat
     assert "judge relevance yourself when speed matters" in flat
+
+
+# --- include_images ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [True, False])
+async def test_include_images_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
+    """An explicit include_images reaches the service as its one channel."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result([])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        await fn(query="orbit kick", include_images=value)
+
+    assert mock_service.search.call_args.kwargs["advanced_params"]["include_images"] is value
+
+
+async def test_include_images_omitted_when_unset(tmp_path, monkeypatch):
+    """Silence leaves the service to decide from image_embedding.enabled."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result([])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_hybrid_search()
+        await fn(query="orbit kick")
+
+    assert "include_images" not in mock_service.search.call_args.kwargs["advanced_params"]
+
+
+def test_advanced_params_builder_carries_include_images_only_when_given():
+    """The shared builder treats include_images like every other preference."""
+    from osprey.mcp_server.ariel.tools.search_envelope import advanced_params
+
+    assert advanced_params() == {}
+    assert advanced_params(include_images=False) == {"include_images": False}
+    assert advanced_params(include_images=True) == {"include_images": True}
+
+
+def test_docstring_names_the_include_images_default():
+    """The agent learns when silence means pictures are searched."""
+    from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search
+
+    flat = " ".join((get_tool_fn(hybrid_search).__doc__ or "").split())
+
+    assert "include_images" in flat
+    assert "None = on when capabilities().attachments.picture_search" in flat
+
+
+async def test_an_unmigrated_store_returns_results_and_the_schema_warning(tmp_path, monkeypatch):
+    """A store behind the code still answers, and says how to catch it up."""
+    from osprey.services.ariel_search.database.repository import (
+        SCHEMA_BEHIND_SEARCH_MESSAGE,
+    )
+
+    _setup_registry(tmp_path, monkeypatch)
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service, unmigrated=True)
+    mock_service.search.return_value = _make_search_result(
+        [make_mock_entry(entry_id="e1", raw_text="orbit kick near BPM 7", score=0.7)]
+    )
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        data = extract_response_dict(await _get_hybrid_search()(query="orbit kick near BPM 7"))
+
+    assert not data.get("error", False)
+    assert data["results_found"] == 1
+    assert data["entries"][0]["entry_id"] == "e1"
+    warnings = [d for d in data["diagnostics"] if d["level"] == "warning"]
+    assert [d["message"] for d in warnings] == [SCHEMA_BEHIND_SEARCH_MESSAGE]
+    assert "schema behind code: run osprey ariel migrate" in SCHEMA_BEHIND_SEARCH_MESSAGE
+
+
+async def test_caption_matched_ids_reach_the_listing(tmp_path, monkeypatch):
+    """The ids hybrid attaches to a hit surface as ``matched_attachment_ids``."""
+    _setup_registry(tmp_path, monkeypatch)
+    entry = make_mock_entry(entry_id="e1", raw_text="orbit kick near BPM 7", score=0.7)
+    entry["_matched_attachment_ids"] = ["att-000000000000"]
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result([entry])
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        data = extract_response_dict(await _get_hybrid_search()(query="orbit kick near BPM 7"))
+
+    assert data["entries"][0]["matched_attachment_ids"] == ["att-000000000000"]

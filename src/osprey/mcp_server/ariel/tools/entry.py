@@ -12,7 +12,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastmcp.exceptions import ToolError
 
@@ -21,10 +21,15 @@ from osprey.mcp_server.ariel.server import (
     build_entry_url,
     make_error,
     mcp,
-    serialize_entry,
 )
 from osprey.mcp_server.ariel.server_context import get_ariel_context
+from osprey.mcp_server.ariel.tools.search_envelope import serialize_page
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.services.ariel_search.attachments.compose import caption_model_id
+from osprey.services.ariel_search.attachments.summaries import (
+    build_attachment_summaries,
+    file_source_for,
+)
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
@@ -101,24 +106,46 @@ async def entry_get(
                 ],
             )
 
+        from osprey.services.ariel_search.database.repository import read_attachment_rows
+
+        config = registry.config
+        view_enabled = config.attachments.view_enabled
+        summaries: list[dict[str, Any]] = []
+        if view_enabled:
+            # A failing reader reads as a store without copy state: the fallback
+            # summaries, never an error envelope.
+            rows_map = await read_attachment_rows(service.repository, [entry["entry_id"]])
+            summaries = build_attachment_summaries(
+                entry,
+                None if rows_map is None else rows_map.get(entry["entry_id"], []),
+                None,
+                (),
+                file_source=file_source_for(config),
+                full_captions=True,
+                model_id=caption_model_id(config),
+            )
+
         # TypedDict -- dict access, not attribute access. Localize the three
         # timestamp fields through the shared egress helper so single-entry get
         # matches search/browse (serialize_entry) instead of emitting raw UTC.
         from osprey.utils.config import to_facility_iso
 
-        result = {
+        result: dict[str, Any] = {
             "entry_id": entry["entry_id"],
             "source_system": entry["source_system"],
             "timestamp": to_facility_iso(entry["timestamp"]),
             "author": entry.get("author", ""),
             "raw_text": entry["raw_text"],
-            "attachments": entry.get("attachments", []),
+            # With the view off the stored items go out as stored.
+            "attachments": summaries if view_enabled else entry.get("attachments", []),
             "metadata": entry.get("metadata", {}),
             "summary": entry.get("summary"),
             "keywords": entry.get("keywords", []),
             "created_at": to_facility_iso(entry["created_at"]),
             "updated_at": to_facility_iso(entry["updated_at"]),
         }
+        if summaries:
+            result["attachment_count"] = len(summaries)
         entry_url = build_entry_url(entry["entry_id"], entry["source_system"])
         if entry_url is not None:
             result["entry_url"] = entry_url
@@ -143,7 +170,9 @@ async def entries_by_ids(
 
     Efficient batch retrieval for reading entries found via search. Each entry
     carries more of its text than a search result does; an entry cut short is
-    marked `raw_text_truncated`, and `entry_get` returns it whole.
+    marked `raw_text_truncated`, and `entry_get` returns it whole. Each entry
+    lists only its first few attachment summaries, with `attachment_count`
+    giving the total; call `entry_get` for the full attachment list.
 
     Args:
         entry_ids: List of entry IDs to retrieve (max 50 per call).
@@ -173,9 +202,10 @@ async def entries_by_ids(
         entries = await service.repository.get_entries_by_ids(entry_ids)
 
         # A batch read carries more of each entry than a search result; a cut entry says so.
-        entries_out = [
-            serialize_entry(e, text_limit=registry.config.entry_text.read_chars) for e in entries
-        ]
+        config = registry.config
+        entries_out = await serialize_page(
+            entries, config, service.repository, text_limit=config.entry_text.read_chars
+        )
 
         return json.dumps(
             {

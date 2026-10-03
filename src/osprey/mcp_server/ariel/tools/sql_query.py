@@ -36,7 +36,13 @@ async def sql_query(
     Columns: entry_id (text PK), timestamp (timestamptz), author (text),
       source_system (text), raw_text (text), metadata (jsonb),
       summary (text), keywords (text[]), attachments (jsonb),
+      attachment_text (text), attachment_captions (jsonb),
       enhancement_status (jsonb), created_at (timestamptz), updated_at (timestamptz)
+
+    attachment_text is the text read from an entry's attachments, and
+    attachment_captions the captions of its pictures; both are NULL until the
+    attachments are processed. Binary tables are not queryable: attachment_files
+    holds the stored file bytes and is refused.
 
     metadata JSONB keys: logbook, tag, shift, activity_type, logbook_name,
       entry_type, references, event_time, facility_section
@@ -109,6 +115,8 @@ async def sql_query(
             [
                 "Only SELECT/WITH queries on enhanced_entries and "
                 "text_embeddings_* tables are allowed.",
+                "Binary tables are not queryable; attachment text is in the "
+                "enhanced_entries columns attachment_text and attachment_captions.",
             ],
         )
     except ToolError:
