@@ -38,8 +38,12 @@ from fastapi.testclient import TestClient
 
 import osprey.interfaces.web_terminal.routes.chat as chat_module
 import osprey.interfaces.web_terminal.session_handoff as handoff_module
+from osprey.audit.envelope import POSTURE_SOURCE_LIVE, POSTURE_SOURCE_PROCESS
+from osprey.audit.posture import posture_source
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
+    POSTURE_SESSION_ENV,
+    POSTURE_SOURCE_ENV,
     OperatorRegistry,
     OperatorSession,
 )
@@ -963,6 +967,70 @@ class TestChatSessionResetContract:
 
             assert all(f.get("type") != "session_reset" for f in fA2)
             assert len(make.created) == 3  # still a new process, just not a new conversation
+
+
+#: A key the posture route can address: a canonical, lowercase, bare UUID.
+_ADDRESSABLE_CHAT_ID = "cccccccc-1111-2222-3333-444444444444"
+
+
+async def _spawned_child_env(chat_id: str) -> dict[str, str]:
+    """The environment the chat route hands the child it spawns for *chat_id*."""
+
+    def make_client(options=None):  # noqa: ARG001
+        return _ScriptedSdkClient(_clean_responder())
+
+    with patch.object(chat_module, "HAS_SDK", True), sdk_seam(make_client) as captured:
+        registry = OperatorRegistry()
+        try:
+            resp = await chat_module.chat(
+                _req(registry), chat_module.ChatRequest(prompt="p", chat_id=chat_id)
+            )
+            await _collect_sse(resp)
+        finally:
+            await registry.cleanup_all()
+
+    assert len(captured) == 1, "one turn on an empty key spawns exactly one child"
+    return dict(captured[0].env)
+
+
+class TestChatPostureSource:
+    """The chat route stamps the child's posture source from the key grammar.
+
+    The route stamps ``live`` only for a key the posture route can address and
+    ``process`` for any other, and an auditor reads that marker off every
+    envelope the child files. These tests read it from the options the spawned
+    child was built with, so they see what the conditional computes rather than
+    how it is spelled.
+    """
+
+    async def test_an_addressable_key_is_stamped_live(self, monkeypatch):
+        """A canonical bare UUID is a key the posture route answers for, so the
+        child says ``live`` and names that key."""
+        env = await _spawned_child_env(_ADDRESSABLE_CHAT_ID)
+
+        assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
+        assert env[POSTURE_SESSION_ENV] == _ADDRESSABLE_CHAT_ID
+        monkeypatch.setenv(POSTURE_SOURCE_ENV, env[POSTURE_SOURCE_ENV])
+        assert posture_source() == POSTURE_SOURCE_LIVE
+
+    @pytest.mark.parametrize(
+        "chat_id",
+        [
+            pytest.param("user-42-chat-3", id="embedder-chosen"),
+            pytest.param("CCCCCCCC-1111-2222-3333-444444444444", id="uppercase-uuid"),
+            pytest.param("operator-deadbeef", id="operator-shaped"),
+        ],
+    )
+    async def test_an_unaddressable_key_is_stamped_process(self, monkeypatch, chat_id):
+        """The posture route refuses each of these keys, so no toggle can govern
+        the child and it says ``process``; it still names the key, because the
+        session marker is the ledger's join and is stamped whatever the source."""
+        env = await _spawned_child_env(chat_id)
+
+        assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_PROCESS
+        assert env[POSTURE_SESSION_ENV] == chat_id
+        monkeypatch.setenv(POSTURE_SOURCE_ENV, env[POSTURE_SOURCE_ENV])
+        assert posture_source() == POSTURE_SOURCE_PROCESS
 
 
 class TestChatDeleteEndpointIntegration:
