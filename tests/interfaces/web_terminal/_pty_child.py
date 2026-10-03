@@ -4,14 +4,18 @@ Each wait ends on an observation of the child: its answer arrived, or it is
 dead without having answered. A dead child fails the wait at once with its exit
 code and whatever it printed, so a broken child is never mistaken for a slow
 one. ``CHILD_HANG_CEILING`` only ends a wait on a child that is alive and
-silent; it never decides a pass.
+silent; it never decides a pass. Some children start grandchildren of their
+own, and every test that starts one kills them in ``finally``.
 """
 
 from __future__ import annotations
 
 import os
 import select
+import signal
+import subprocess
 import time
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -123,3 +127,126 @@ def wait_for_exit(session: PtySession) -> int | None:
             )
         time.sleep(_POLL_S)
     return session.exit_code
+
+
+def sleeper_script(directory: Path, name: str, *, ignore: tuple[int, ...] = ()) -> Path:
+    """Write to ``directory / name`` a program that ignores *ignore*, then sleeps.
+
+    The program prints one line once its signal dispositions are set, so a
+    parent that reads that line knows a signal sent afterwards meets them.
+    Returns the path, so the process's command line ends in *name*.
+    """
+    path = directory / name
+    path.write_text(
+        "import signal, sys, time\n"
+        f"for signum in {[int(s) for s in ignore]!r}:\n"
+        "    signal.signal(signum, signal.SIG_IGN)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(120)\n"
+    )
+    return path
+
+
+def detaching_child_script(
+    pid_file: Path,
+    *,
+    scripts: Sequence[Path],
+    helper_ignores_hup: bool = False,
+    input_file: Path | None = None,
+) -> str:
+    """Return the source of a PTY child that starts processes the way the agent CLI does.
+
+    Each path in *scripts* runs as a grandchild in a session (and process
+    group) of its own, as the agent's shell commands do. One helper runs in
+    the child's own group, as the agent's MCP servers do; it ignores SIGHUP
+    when *helper_ignores_hup*. Once every one of them has set its signal
+    dispositions, the grandchildren's pids and then the helper's are written
+    to *pid_file*, one per line, under a temporary name renamed into place.
+    The child then reads stdin a byte at a time, appending to *input_file*
+    when given. It keeps SIGHUP's default disposition, so the hang-up kills it.
+    """
+    helper = sleeper_script(
+        pid_file.parent,
+        "mcp_helper.py",
+        ignore=(signal.SIGHUP,) if helper_ignores_hup else (),
+    )
+    return f"""
+import os, subprocess, sys, tty
+tty.setraw(0)
+def spawn(path, new_session):
+    proc = subprocess.Popen(
+        [sys.executable, path],
+        start_new_session=new_session,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+    )
+    proc.stdout.readline()
+    return proc
+procs = [spawn(path, True) for path in {[str(p) for p in scripts]!r}]
+procs.append(spawn({str(helper)!r}, False))
+tmp = {str(pid_file) + ".tmp"!r}
+with open(tmp, "w") as fh:
+    fh.write("".join(f"{{p.pid}}\\n" for p in procs))
+os.replace(tmp, {str(pid_file)!r})
+input_file = {str(input_file) if input_file is not None else None!r}
+while True:
+    try:
+        byte = os.read(0, 1)
+    except OSError:
+        break
+    if not byte:
+        break
+    if input_file is not None:
+        with open(input_file, "ab") as fh:
+            fh.write(byte)
+"""
+
+
+def wait_for_pids(session: PtySession, path: Path, count: int) -> list[int]:
+    """Wait until *path* holds *count* pids, one per line, and return them."""
+    ceiling = time.monotonic() + CHILD_HANG_CEILING
+    while True:
+        if path.exists():
+            lines = path.read_text().split()
+            if len(lines) >= count:
+                return [int(line) for line in lines[:count]]
+        if not session.is_alive:
+            raise AssertionError(
+                f"the PTY child exited with code {session.exit_code} before writing "
+                f"{count} pid(s) to {path.name}"
+            )
+        if time.monotonic() > ceiling:
+            raise AssertionError(
+                f"the PTY child is alive but has not written {count} pid(s) to "
+                f"{path.name} within the {CHILD_HANG_CEILING:g} s hang ceiling"
+            )
+        time.sleep(0.05)
+
+
+def pid_gone(pid: int, within: float = 5.0) -> bool:
+    """Return whether *pid* is gone, or a zombie nobody has reaped yet, within *within* s."""
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass
+        state = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
+        ).stdout.strip()
+        if not state or state.startswith("Z"):
+            return True
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+
+
+def kill_quietly(pids: Iterable[int]) -> None:
+    """SIGKILL every pid in *pids*, ignoring those already gone."""
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
