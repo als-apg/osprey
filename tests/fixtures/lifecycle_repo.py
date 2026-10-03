@@ -977,13 +977,6 @@ config:
   # the RDF, has no manifest entry for anything newer. Repoint it at a mirror
   # or a pre-baked image on an air-gapped host.
   services.graphdb.image: neo4j:5.26-community
-  # Corpus to seed the store from, relative to the build directory. This is
-  # the demo machine: the same devices and channels the channel database in
-  # data/ describes, rebuilt as a graph, so graph answers and channel search
-  # agree. Regenerate it after editing the channel database with
-  # `osprey knowledge build-ttl data/demo_machine.ttl`. Point it at your own
-  # TTL, or remove the key to bring the store up bootstrapped but empty.
-  services.graphdb.ttl_path: ./data/demo_machine.ttl
   # Search index derived from the corpus above at build time, and the default —
   # uncomment only to move it. The channel explorer's search, the channel roster
   # and the agent's keyword tool read this file rather than querying the store,

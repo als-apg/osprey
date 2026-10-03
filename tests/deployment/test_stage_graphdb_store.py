@@ -331,11 +331,12 @@ def test_a_store_that_refused_or_failed_the_seed_is_not_snapshotted(
     assert "bake" not in graphdb_stubs["events"]
 
 
-def test_without_a_ttl_path_the_store_is_bootstrapped_and_noted_not_warned(
+def test_a_graphdb_block_without_a_ttl_path_is_refused_as_a_render_defect(
     graphdb_stubs, tmp_path, caplog
 ):
-    """A project that means to load its own corpus later is correctly configured,
-    not broken: it gets a bootstrapped store and a note, never a warning."""
+    """Every render with a graph store names its corpus, so a block without one
+    is a render defect: the store is not bootstrapped, and the warning names the
+    key and the command that renders it."""
     # Arrange
     config = {
         **GRAPHDB_CONFIG,
@@ -347,9 +348,10 @@ def test_without_a_ttl_path_the_store_is_bootstrapped_and_noted_not_warned(
         _stage(config, tmp_path)
 
     # Assert
-    assert graphdb_stubs["events"] == ["up", "wait", "bootstrap", "count"]
-    assert any("ttl_path" in note for note in graphdb_stubs["notes"])
-    assert caplog.text == ""
+    assert graphdb_stubs["events"] == ["up", "wait"]
+    assert graphdb_stubs["notes"] == []
+    assert "services.graphdb.ttl_path" in caplog.text
+    assert "osprey build" in caplog.text
 
 
 def test_a_drifted_graph_config_warns_and_refuses_to_seed(graphdb_stubs, tmp_path, caplog):
