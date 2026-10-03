@@ -98,6 +98,12 @@ Available Providers
      - OpenAI (proxied)
      - No
      - No
+   * - ``llama-cpp``
+     - llama.cpp server (text and image embeddings, no chat, site-run)
+     - *(none)*
+     - OpenAI (proxied)
+     - No
+     - No
 
 **Protocol** indicates how the provider communicates with the OSPREY agent:
 

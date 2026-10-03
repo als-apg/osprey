@@ -23,6 +23,9 @@ class _StubRegistry:
     def get_provider(self, name: str) -> type | None:
         return self._mapping.get(name)
 
+    def is_chat(self, _name: str) -> bool:
+        return True
+
 
 def _provider(result: tuple[bool, str], sleep: float = 0.0) -> type:
     class _Fake:

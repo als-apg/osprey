@@ -9,6 +9,7 @@ from osprey.models.provider_registry import (
     _BUILTIN_PROVIDERS,
     PROVIDER_API_KEYS,
     ProviderRegistry,
+    _ProviderEntry,
     get_provider_registry,
     reset_provider_registry,
 )
@@ -47,6 +48,36 @@ class _SiteCborgAdapter(BaseProvider):
     api_protocol = "anthropic"
 
 
+class _SiteEmbeddingOnlyAdapter(BaseProvider):
+    name = "site-embedder"
+    description = "A site's embedding endpoint with no chat route"
+    requires_api_key = True
+    api_key_env_var = "SITE_EMBEDDER_TOKEN"
+
+    def execute_embedding(self, texts, *_args, **_kwargs):
+        return [[0.0] for _ in texts]
+
+
+#: A registered class need not subclass ``BaseProvider``; this one declares
+#: nothing beyond a name and a protocol.
+_DuckSiteGatewayAdapter = type(
+    "SiteGatewayAdapter", (), {"name": "duck-gateway", "api_protocol": "openai"}
+)
+
+
+def _registry_with_a_non_chat_builtin() -> ProviderRegistry:
+    """A registry whose table carries one synthetic built-in row that is not chat."""
+    reg = ProviderRegistry()
+    reg._entries["embed-only"] = _ProviderEntry(
+        "osprey.models.providers.does_not_exist_xyz",
+        "NoSuchAdapter",
+        key_env_var="EMBED_ONLY_KEY",
+        api_protocol="openai",
+        chat=False,
+    )
+    return reg
+
+
 @pytest.fixture(autouse=True)
 def _clean_singleton():
     """Reset the singleton before and after every test."""
@@ -83,7 +114,7 @@ class TestProviderRegistry:
         assert cls.name == "anthropic"
 
     def test_list_providers_contains_all_builtins(self):
-        """list_providers returns all 12 built-in names."""
+        """list_providers returns all 13 built-in names."""
         reg = ProviderRegistry()
         names = reg.list_providers()
         expected = {
@@ -99,9 +130,10 @@ class TestProviderRegistry:
             "asksage",
             "vllm",
             "ds4",
+            "llama-cpp",
         }
         assert expected == set(names)
-        assert len(names) == 12
+        assert len(names) == 13
 
     def test_singleton_identity(self):
         """get_provider_registry() returns the same instance."""
@@ -216,8 +248,9 @@ class TestProviderRegistry:
 
     def test_the_key_view_is_read_from_the_builtin_entries(self):
         assert dict(PROVIDER_API_KEYS) == {
-            name: entry.key_env_var for name, entry in _BUILTIN_PROVIDERS.items()
+            name: entry.key_env_var for name, entry in _BUILTIN_PROVIDERS.items() if entry.chat
         }
+        assert "llama-cpp" not in PROVIDER_API_KEYS
         with pytest.raises(TypeError):
             PROVIDER_API_KEYS["openai"] = "X"  # type: ignore[index]
 
@@ -262,3 +295,87 @@ class TestProviderRegistry:
         )
         assert reg.api_key_env_var("broken") is None
         assert "broken" not in reg.api_key_env_vars()
+
+
+class TestTheChatFact:
+    """The table says which providers serve chat; registrations answer from their class."""
+
+    def test_an_entry_defaults_to_chat(self):
+        assert _ProviderEntry("m", "C").chat is True
+
+    def test_the_chat_rows_are_the_chat_builtins_and_llama_cpp_is_not_one(self):
+        assert [name for name, entry in _BUILTIN_PROVIDERS.items() if entry.chat] == BUILTIN_ORDER
+        assert _BUILTIN_PROVIDERS["llama-cpp"].chat is False
+        assert _BUILTIN_PROVIDERS["llama-cpp"].key_env_var is None
+        assert _BUILTIN_PROVIDERS["llama-cpp"].api_protocol == "openai"
+
+    def test_the_key_view_lists_chat_rows_only(self):
+        assert dict(PROVIDER_API_KEYS) == {
+            name: entry.key_env_var for name, entry in _BUILTIN_PROVIDERS.items() if entry.chat
+        }
+
+    def test_a_non_chat_row_is_filtered_without_importing_any_adapter(self, monkeypatch):
+        reg = _registry_with_a_non_chat_builtin()
+
+        def _refuse(_self, name, _entry):
+            raise AssertionError(f"adapter import attempted for {name}")
+
+        monkeypatch.setattr(ProviderRegistry, "_load", _refuse)
+
+        assert "embed-only" in reg.list_providers()
+        assert reg.list_providers(chat_only=True) == sorted(BUILTIN_ORDER)
+        assert reg.is_chat("embed-only") is False
+        assert reg.is_chat("anthropic") is True
+
+    def test_a_non_chat_row_has_no_key_variable_entry(self):
+        reg = _registry_with_a_non_chat_builtin()
+        assert list(reg.api_key_env_vars()) == BUILTIN_ORDER
+
+    def test_is_chat_for_a_builtin_answers_from_the_table(self, monkeypatch):
+        reg = ProviderRegistry()
+        monkeypatch.setattr(
+            ProviderRegistry,
+            "_load",
+            lambda self, name, entry: (_ for _ in ()).throw(AssertionError(name)),
+        )
+        assert reg.is_chat("openai") is True
+
+    def test_a_registered_embedding_only_class_is_not_chat(self):
+        reg = ProviderRegistry()
+        reg.register_provider("site-embedder", __name__, "_SiteEmbeddingOnlyAdapter")
+
+        assert reg.is_chat("site-embedder") is False
+        assert "site-embedder" in reg.list_providers()
+        assert "site-embedder" not in reg.list_providers(chat_only=True)
+        assert "site-embedder" not in reg.api_key_env_vars()
+
+    def test_a_registered_stub_that_overrides_nothing_stays_a_chat_row(self):
+        reg = ProviderRegistry()
+        reg.register_provider("site-gateway", __name__, "_SiteGatewayAdapter")
+        reg.register_provider("cborg", __name__, "_SiteCborgAdapter")
+
+        assert reg.is_chat("site-gateway") is True
+        assert reg.is_chat("cborg") is True
+        assert {"site-gateway", "cborg"} <= set(reg.list_providers(chat_only=True))
+        assert reg.api_key_env_vars()["site-gateway"] == "SITE_GATEWAY_TOKEN"
+        assert reg.api_key_env_vars()["cborg"] == "SITE_CBORG_TOKEN"
+
+    def test_a_duck_typed_registration_reads_as_chat(self):
+        reg = ProviderRegistry()
+        reg.register_provider("duck-gateway", __name__, "_DuckSiteGatewayAdapter")
+
+        assert reg.is_chat("duck-gateway") is True
+        assert "duck-gateway" in reg.list_providers(chat_only=True)
+        keys = reg.api_key_env_vars()
+        assert keys["duck-gateway"] is None
+        assert list(keys)[:-1] == BUILTIN_ORDER
+        assert reg.api_protocol("duck-gateway") == "openai"
+
+    def test_an_unknown_or_unloadable_name_reads_as_chat(self):
+        """So a chat call still reports its own ``Unknown provider`` error."""
+        reg = ProviderRegistry()
+        assert reg.is_chat("nope") is True
+        reg.register_provider(
+            "broken", "osprey.models.providers.does_not_exist_xyz", "NoSuchAdapter"
+        )
+        assert reg.is_chat("broken") is True

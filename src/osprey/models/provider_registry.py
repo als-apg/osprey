@@ -8,8 +8,9 @@ call ``get_provider_registry().get_provider("cborg")`` to obtain the provider
 class, then use it via ``get_chat_completion()`` or ``aget_chat_completion()``.
 
 Adding a new built-in provider = one entry in ``_BUILTIN_PROVIDERS`` below.
-The entry names the provider's key variable and launch protocol, which the
-adapter class declares too; a parity test keeps the two equal.
+The entry names the provider's key variable, launch protocol and whether it
+serves chat, which the adapter class declares too; a parity test keeps the two
+equal.
 """
 
 from __future__ import annotations
@@ -31,19 +32,20 @@ logger = logging.getLogger("osprey.models.provider_registry")
 class _ProviderEntry:
     """Lazy-load descriptor for a provider class.
 
-    A built-in entry restates two class attributes of its adapter,
-    ``api_key_env_var`` and ``api_protocol``, so the facts every build and
-    launch reads come from this table without importing the adapter; a parity
-    test holds each to its class. ``key_env_var = None`` on a built-in means the
-    provider is keyless. An entry made by ``ProviderRegistry.register_provider``
-    carries neither fact (``api_protocol is None``), and its class is the only
-    declaration.
+    A built-in entry restates three facts of its adapter, ``api_key_env_var``,
+    ``api_protocol`` and ``supports_chat()`` (as ``chat``), so the facts every
+    build and launch reads come from this table without importing the adapter;
+    a parity test holds each to its class. ``key_env_var = None`` on a built-in
+    means the provider is keyless. An entry made by
+    ``ProviderRegistry.register_provider`` carries none of these facts
+    (``api_protocol is None``), and its class is the only declaration.
     """
 
     module_path: str
     class_name: str
     key_env_var: str | None = None
     api_protocol: Literal["anthropic", "openai"] | None = None
+    chat: bool = True
 
 
 # ── Built-in provider table (single source of truth) ──────────────────
@@ -120,17 +122,25 @@ _BUILTIN_PROVIDERS: dict[str, _ProviderEntry] = {
         key_env_var=None,  # local DwarfStar server, no key
         api_protocol="openai",
     ),
+    "llama-cpp": _ProviderEntry(
+        "osprey.models.providers.llama_cpp",
+        "LlamaCppProviderAdapter",
+        key_env_var=None,  # site-run llama-server, no key
+        api_protocol="openai",
+        chat=False,  # text and image embeddings only
+    ),
 }
 
 
 # ── Provider → API key env var (read from the table above) ────────────
-# Maps each built-in provider to the environment variable its API key arrives
-# in; ``None`` means the provider is keyless. To add a provider, add an entry
+# Maps each built-in chat provider to the environment variable its API key
+# arrives in; ``None`` means the provider is keyless. A provider with no chat
+# route is left out. To add a provider, add an entry
 # to ``_BUILTIN_PROVIDERS``. A name registered at run time is answered by
 # ``ProviderRegistry.api_key_env_var``, not by this view. Read-only, so no
 # caller can add a provider here instead of to the table.
 PROVIDER_API_KEYS: Mapping[str, str | None] = MappingProxyType(
-    {name: entry.key_env_var for name, entry in _BUILTIN_PROVIDERS.items()}
+    {name: entry.key_env_var for name, entry in _BUILTIN_PROVIDERS.items() if entry.chat}
 )
 
 
@@ -187,12 +197,38 @@ class ProviderRegistry:
         self._providers.pop(name, None)
         logger.debug("Excluded provider: %s", name)
 
-    def list_providers(self) -> list[str]:
+    def list_providers(self, chat_only: bool = False) -> list[str]:
         """Return a sorted list of every provider name the registry resolves.
 
-        Built-in and registered, less excluded.
+        Built-in and registered, less excluded. With *chat_only*, only the names
+        :meth:`is_chat` answers True for; a built-in answers from its entry, so
+        the filter imports no built-in adapter.
         """
-        return sorted(self._entries)
+        names = sorted(self._entries)
+        if chat_only:
+            return [name for name in names if self.is_chat(name)]
+        return names
+
+    def is_chat(self, name: str) -> bool:
+        """Whether *name* serves chat completions.
+
+        A built-in provider that has not been replaced answers from its entry,
+        without importing its adapter. A registered provider answers from its
+        class: chat unless it serves text or image embeddings and not chat. A
+        class need not subclass ``BaseProvider``, so a predicate it lacks reads
+        as no ``supports_chat`` override (chat) and no embedding support. An
+        unknown name, or one registered with a class that does not load, reads
+        as chat, so a chat call reports its own unknown-provider error.
+        """
+        entry = self._entries.get(name)
+        if entry is None:
+            return True
+        if entry.api_protocol is not None:
+            return entry.chat
+        cls = self.get_provider(name)
+        if cls is None:
+            return True
+        return _class_is_chat(cls)
 
     def api_key_env_var(self, name: str) -> str | None:
         """Return the variable *name*'s API key arrives in.
@@ -210,7 +246,7 @@ class ProviderRegistry:
         cls = self.get_provider(name)
         if cls is None:
             return None
-        return cls.api_key_env_var
+        return getattr(cls, "api_key_env_var", None)
 
     def api_protocol(self, name: str) -> Literal["anthropic", "openai"] | None:
         """Return the protocol a launch speaks to *name*, as its provider declares it.
@@ -229,18 +265,21 @@ class ProviderRegistry:
         cls = self.get_provider(name)
         if cls is None:
             return None
-        return cls.api_protocol
+        return getattr(cls, "api_protocol", None)
 
     def api_key_env_vars(self) -> dict[str, str | None]:
-        """Map every provider the registry holds to its API-key variable.
+        """Map every chat provider the registry holds to its API-key variable.
 
         Built-ins come first in table order, then registrations in registration
-        order; a keyless provider maps to ``None``. A registered name whose
-        class does not load is left out, since it declares nothing.
+        order; a keyless provider maps to ``None``. A provider :meth:`is_chat`
+        answers False for is left out, as is a registered name whose class does
+        not load, since it declares nothing.
         """
         result: dict[str, str | None] = {}
         for name, entry in list(self._entries.items()):
             if entry.api_protocol is None and self.get_provider(name) is None:
+                continue
+            if not self.is_chat(name):
                 continue
             result[name] = self.api_key_env_var(name)
         return result
@@ -283,6 +322,21 @@ class ProviderRegistry:
         except (ImportError, AttributeError) as exc:
             logger.warning("Failed to load provider %s: %s", name, exc)
             return None
+
+
+def _class_is_chat(cls: type) -> bool:
+    """The chat fact of a registered class, read from its predicates."""
+
+    def _answers(predicate_name: str, missing: bool) -> bool:
+        predicate = getattr(cls, predicate_name, None)
+        return bool(predicate()) if callable(predicate) else missing
+
+    if _answers("supports_chat", missing=True):
+        return True
+    serves_embeddings = _answers("supports_embeddings", missing=False) or _answers(
+        "supports_image_embeddings", missing=False
+    )
+    return not serves_embeddings
 
 
 # ── Singleton ──────────────────────────────────────────────────────────
