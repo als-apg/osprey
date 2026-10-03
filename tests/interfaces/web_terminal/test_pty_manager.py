@@ -248,6 +248,45 @@ class TestPtySession:
         session.terminate()
         assert calls == []
 
+    @needs_ps
+    def test_started_commands_lists_only_groups_of_their_own(self, tmp_path):
+        pid_file = tmp_path / "pids"
+        script = sleeper_script(tmp_path, "magnet_scan.py")
+        session = PtySession(
+            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 2)
+            grandchild, helper = pids
+
+            commands = session.started_commands()
+
+            assert [c.label for c in commands] == ["magnet_scan.py"]
+            assert commands[0].pgid == grandchild
+            assert helper not in {pid for c in commands for pid, _ in c.members}
+        finally:
+            session.terminate()
+            kill_quietly(pids)
+
+    def test_started_commands_of_a_dead_child_is_empty(self, monkeypatch):
+        session = PtySession(["/bin/sh", "-c", "exit 0"])
+        session.start()
+        wait_for_exit(session)
+        calls: list[None] = []
+
+        def spy() -> None:
+            calls.append(None)
+            return None
+
+        monkeypatch.setattr(process_tree, "snapshot", spy)
+        try:
+            assert session.started_commands() == []
+            assert calls == []
+        finally:
+            session.terminate()
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 class TestPtyChildWaits:

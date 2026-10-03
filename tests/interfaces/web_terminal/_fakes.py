@@ -48,6 +48,8 @@ class FakePtySession:
         self._last_rows = 24
         self._last_cols = 80
         self._command_list = ["fake"]
+        # What ``started_commands`` answers.
+        self.started: list = []
 
     @property
     def is_alive(self):
@@ -73,6 +75,9 @@ class FakePtySession:
 
     def terminate(self):
         self._alive = False
+
+    def started_commands(self) -> list:
+        return list(self.started)
 
     def emit(self, data: bytes) -> None:
         self._chunks.append(data)

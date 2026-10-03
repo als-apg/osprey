@@ -363,6 +363,17 @@ class PtySession:
                     process_tree.describe(survivors),
                 )
 
+    def started_commands(self) -> list[process_tree.ProcessGroup]:
+        """The commands the agent started in process groups of their own, still running.
+
+        What ending this session would also end, beyond the agent and the
+        helpers in its own group. Empty once the child has exited. Blocking
+        (it runs ``ps``): call it off the loop.
+        """
+        if self._process is None or self._process.poll() is not None:
+            return []
+        return process_tree.started_groups(self._process.pid)
+
     @property
     def pid(self) -> int | None:
         """The PTY child's process id, or ``None`` before it is started.
