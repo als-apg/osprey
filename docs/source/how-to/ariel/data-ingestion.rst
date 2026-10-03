@@ -260,6 +260,10 @@ The built-in enhancement modules:
 
 A module of your own runs alongside the built-in ones once it is registered --- see :doc:`/contributing/extending-osprey`. Its registration carries an ``execution_order`` that decides where in the run it lands; the built-ins use 10 (semantic processor), 20 (text embedding) and 30 (qmd export), so a value above 30 runs last.
 
+A module's ``health_check`` returns ``HealthResult(reachable, message, reason)``: ``reachable`` is ``True``, ``False`` or ``None`` (not checked), and ``reason`` names why it is not reachable (``unreachable``, ``model``, ``auth`` or ``config``). A plain ``(bool, str)`` pair is still accepted and read as ``HealthResult(bool, str, None)``. ``osprey ariel status`` shows each enabled module's verdict and names a skipped module with its reason. On a route without ``models_probe`` (a provider with no model listing to ask), ``osprey ariel status`` makes one billed health completion: the semantic processor's check sends a one-line completion there, which the provider bills like any other call. The caption module's check never calls the model; on such a route it reports the module as not checked.
+
+The picture modules ``image_caption`` and ``image_embedding`` are described in :doc:`picture-search`.
+
 .. admonition:: Collaboration Welcome
    :class: outreach
 

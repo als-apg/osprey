@@ -66,6 +66,21 @@ reasoning over results delegated to the OSPREY agent layer.
      if Ollama or pgvector is unavailable. You can install them later and
      re-run ``osprey ariel quickstart`` to enable semantic search.
 
+   - **(Optional) Picture captions** --- a local vision model, also served by
+     Ollama:
+
+     .. code-block:: bash
+
+        ollama pull qwen3-vl:4b
+
+   - **(Optional) Picture search** --- a site-run ``llama-server`` with a
+     multimodal embedding model; see :doc:`picture-search`.
+
+     Both are optional. Like semantic search without Ollama, ARIEL degrades
+     gracefully: without the caption model or without ``llama-server`` the
+     module is skipped, ``osprey ariel status`` says why, and search keeps
+     working on text.
+
 .. dropdown:: Quick Start
 
    .. tab-set::
@@ -188,6 +203,15 @@ Learn More
       The container behind the ``hybrid`` search mode: configuration, corpus
       mounts, disk footprint, and where it listens.
 
+   .. grid-item-card:: Picture Captions and Picture Search
+      :link: picture-search
+      :link-type: doc
+      :class-header: bg-info text-white
+      :shadow: md
+
+      Captions and picture search over attachments: the site's llama-server,
+      measured values, and upgrade notes.
+
    .. grid-item-card:: Standalone Deployment
       :link: standalone-deployment
       :link-type: doc
@@ -242,4 +266,5 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    search-modes
    web-interface
    search-sidecar
+   picture-search
    standalone-deployment

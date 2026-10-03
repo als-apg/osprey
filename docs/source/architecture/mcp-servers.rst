@@ -270,9 +270,11 @@ and entry creation with attachments.
 - ``filter_options`` -- Get distinct values for a filterable field (authors, systems, etc.).
 - ``keyword_search`` -- Search the logbook using PostgreSQL full-text keyword search.
 - ``semantic_search`` -- Search the logbook using embedding-based semantic similarity.
+- ``hybrid_search`` -- Search the logbook with keyword and semantic ranking combined.
 - ``sql_query`` -- Execute a read-only SQL query against the logbook database.
 - ``entry_get`` -- Get a single logbook entry by its ID.
 - ``entries_by_ids`` -- Get multiple logbook entries by their IDs in a single call.
+- ``attachment_view`` -- Look at one viewable picture attached to an entry (hidden when ``ariel.attachments.view.enabled`` is off).
 - ``entry_create`` -- Create a new logbook entry, optionally with file attachments.
 - ``entry_publish`` -- Publish an existing ARIEL entry to the facility logbook.
 - ``capabilities`` -- Report available ARIEL search capabilities.
