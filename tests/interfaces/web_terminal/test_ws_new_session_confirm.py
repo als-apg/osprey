@@ -19,7 +19,6 @@ Harness mirrors ``test_ws_resume_confirm.py``: a real ``PtyRegistry`` with
 
 from __future__ import annotations
 
-import json
 import sys
 from contextlib import ExitStack
 from unittest.mock import patch
@@ -30,26 +29,9 @@ from starlette.testclient import TestClient
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from tests.interfaces.web_terminal._fakes import FakePtySession
+from tests.interfaces.web_terminal._ws import recv_json
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-
-
-def _recv_json(ws, msg_type: str, max_frames: int = 30):
-    """Receive frames until a JSON message with the given ``type`` arrives."""
-    collected = []
-    for _ in range(max_frames):
-        raw = ws.receive()
-        if "text" in raw:
-            data = json.loads(raw["text"])
-            collected.append(data)
-            if data.get("type") == msg_type:
-                return data
-        # binary frames are silently skipped
-    types = [d.get("type") for d in collected]
-    raise AssertionError(
-        f"Expected JSON type '{msg_type}' not received within {max_frames} frames. "
-        f"Got types: {types}"
-    )
 
 
 def _send_resize(ws, cols: int = 80, rows: int = 24):
@@ -125,7 +107,7 @@ def test_new_session_confirms_the_forced_id(app, tmp_path):
             _, commands = _patch_spawn(app)
             with client.websocket_connect("/ws/terminal") as ws:
                 _send_resize(ws)
-                msg = _recv_json(ws, "session_info")
+                msg = recv_json(ws, "session_info")
 
     assert len(commands) == 1
     assert msg["session_id"] == _forced_session_id(commands[0])
@@ -148,7 +130,7 @@ def test_new_session_is_pooled_under_its_real_id(app):
         reg, commands = _patch_spawn(app)
         with client.websocket_connect("/ws/terminal") as ws:
             _send_resize(ws)
-            msg = _recv_json(ws, "session_info")
+            msg = recv_json(ws, "session_info")
 
         session_id = msg["session_id"]
         assert reg.get_session(session_id) is not None
@@ -178,7 +160,7 @@ def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
             # Tab one: a new session, confirmed with the forced id.
             first = stack.enter_context(client.websocket_connect("/ws/terminal"))
             _send_resize(first)
-            session_id = _recv_json(first, "session_info")["session_id"]
+            session_id = recv_json(first, "session_info")["session_id"]
 
             # Its CLI exits after a prompt was sent. The socket stays open, as
             # it does in the browser — the tab just shows "[Process exited]".
@@ -191,7 +173,7 @@ def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
                 f"/ws/terminal?session_id={session_id}&mode=resume"
             ) as second:
                 _send_resize(second)
-                assert _recv_json(second, "session_info")["session_id"] == session_id
+                assert recv_json(second, "session_info")["session_id"] == session_id
                 assert len(spawned) == 2
                 assert reg.get_session(session_id) is spawned[1]
 
