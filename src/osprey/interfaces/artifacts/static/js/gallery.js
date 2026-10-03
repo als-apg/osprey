@@ -9,6 +9,7 @@ import { getTheme, initTheme, subscribe } from "/design-system/js/theme-manager.
 import { applyEmbedded, isEmbedded, onModeChange } from "/design-system/js/frame-params.js";
 import { contributeHeader, isSimpleMode, onHeaderAction } from "/design-system/js/header-contrib.js";
 import "/design-system/js/components/osprey-display-menu.js";
+import { debounce } from "/design-system/js/dom.js";
 import {
   getArtifacts,
   setArtifacts,
@@ -40,6 +41,7 @@ import { createSidebarRenderer, isNearListEnd } from "./render.js";
 import { initBrowseLayout } from "./browse-layout.js";
 import { initSidebarMenu } from "./sidebar-menu.js";
 import { createPreviewRenderer } from "./preview.js";
+import { mountPickBar } from "./pick-bar.js";
 import { artifactViewportHtml, mountArtifactViewport } from "./artifact-viewport.js";
 import { renderTimeseriesView, restyleMountedCharts } from "./timeseries.js";
 
@@ -112,6 +114,14 @@ sidebarRenderer = createSidebarRenderer({
   onSelect: (a) => previewRenderer.setAsFocus(a),
   onPreviewNeeded: () => previewRenderer.renderPreview(),
   onEnterFullscreen: (a) => previewRenderer.enterFullscreen(a),
+  onPicksChanged: () => pickBar.render(),
+});
+
+// The bar above the list that deletes the picked rows together. Rendering the
+// sidebar re-renders it, so it always follows the picks.
+const pickBar = mountPickBar({
+  onDeleted: () => { sidebarRenderer.renderSidebar(); previewRenderer.renderPreview(); renderSimple(); },
+  onCleared: () => sidebarRenderer.renderSidebar(),
 });
 
 // ---- Health / Scope UI ----
@@ -415,6 +425,9 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
+  // 2b. Escape with rows picked (no input focused) → clear the picks
+  if (e.key === "Escape" && !isInput && pickBar.clear()) return;
+
   // 3. "/" (no input focused) → exit fullscreen first, then focus search
   if (e.key === "/" && !isInput) {
     e.preventDefault();
@@ -434,26 +447,6 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 });
-
-/**
- * @template {(...args: any[]) => any} F
- * @param {F} fn
- * @param {number} ms
- * @returns {(...args: Parameters<F>) => void}
- */
-function debounce(fn, ms) {
-  /** @type {ReturnType<typeof setTimeout>|undefined} */
-  let timer;
-  /**
-   * @this {any}
-   * @param {Parameters<F>} args
-   * @returns {void}
-   */
-  return function (...args) {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), ms);
-  };
-}
 
 // ---- SSE (Server-Sent Events) ----
 
