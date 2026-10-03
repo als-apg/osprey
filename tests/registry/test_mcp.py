@@ -1098,6 +1098,70 @@ class TestPhoebusAgentAccess:
         assert "Phoebus display bridge: open, perceive, drive |" in phoebus_row("read_write")
 
 
+# The ariel allow list before logbook pictures: the shape a deployment with
+# ``ariel.attachments.view.enabled: false`` renders.
+_ARIEL_ALLOW_WITHOUT_VIEW = [
+    "keyword_search",
+    "semantic_search",
+    "hybrid_search",
+    "sql_query",
+    "entries_by_ids",
+    "browse",
+    "entry_get",
+    "capabilities",
+    "status",
+    "filter_options",
+]
+
+
+class TestArielAttachmentView:
+    """``ariel_attachment_view`` decides whether the agent is offered attachment_view."""
+
+    _CFG = {"servers": {"ariel": {"enabled": True}, "ariel2": {"extends": "ariel"}}}
+
+    @staticmethod
+    def _by_name(cfg, view):
+        ctx = _base_ctx(ariel_attachment_view=view)
+        return {s["name"]: s for s in resolve_servers(cfg, ctx)}
+
+    def test_off_withholds_view_from_the_server_and_every_clone(self):
+        servers = self._by_name(self._CFG, False)
+        for name in ("ariel", "ariel2"):
+            assert servers[name]["permissions_allow"] == _ARIEL_ALLOW_WITHOUT_VIEW
+            assert "attachment_view" not in servers[name]["permissions_ask"]
+
+    def test_on_offers_view(self):
+        servers = self._by_name(self._CFG, True)
+        for name in ("ariel", "ariel2"):
+            assert "attachment_view" in servers[name]["permissions_allow"]
+
+    def test_context_without_the_key_offers_view(self):
+        servers = {s["name"]: s for s in resolve_servers(self._CFG, _base_ctx())}
+        assert "attachment_view" in servers["ariel"]["permissions_allow"]
+
+    def test_withholding_leaves_the_framework_template_untouched(self):
+        self._by_name(self._CFG, False)
+        assert "attachment_view" in FRAMEWORK_SERVERS["ariel"].permissions_allow
+
+    def _settings_allow(self, view):
+        from osprey.cli.templates.manager import TemplateManager
+
+        rendering = TestTemplateRendering()
+        ctx = rendering._full_ctx(ariel_attachment_view=view, _claude_code_config=self._CFG)
+        rendered = rendering._render(TemplateManager(), "claude_code/claude/settings.json.j2", ctx)
+        return json.loads(rendered)["permissions"]["allow"]
+
+    def test_render_settings_json_off_equals_the_allow_list_without_view(self):
+        allow = self._settings_allow(False)
+        ariel = [p.removeprefix("mcp__ariel__") for p in allow if p.startswith("mcp__ariel__")]
+        assert ariel == _ARIEL_ALLOW_WITHOUT_VIEW
+        assert not [p for p in allow if p.endswith("__attachment_view")]
+
+    def test_render_settings_json_on_offers_view(self):
+        allow = self._settings_allow(True)
+        assert {"mcp__ariel__attachment_view", "mcp__ariel2__attachment_view"} <= set(allow)
+
+
 # ---------------------------------------------------------------------------
 # Agent resolution tests
 # ---------------------------------------------------------------------------
