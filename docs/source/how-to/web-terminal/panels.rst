@@ -74,6 +74,25 @@ menu (or the command palette) at any time. The choice is remembered per
 browser, and each user's own pick wins over the configured default. (Pair it
 with the retro theme for a navy-and-teal terminal — see :doc:`theming`.)
 
+When a panel stops answering
+----------------------------
+
+Panels with a health check are polled every 10 seconds. One that has answered
+and then misses two polls in a row dims its rail entry, which stays clickable
+and reads "not answering since <time>" in its tooltip. Its open tile shows a
+warning strip with the same time across the top and greys the page below it,
+so the out-of-date view is not mistaken for a live one. The page underneath is
+left exactly as it was, stays readable, and can still be scrolled and clicked,
+because a slow backend often still serves what is loaded. Both clear on the
+next answer. A panel that has not answered since the page loaded keeps its
+greyed-out entry and does not open.
+
+This applies to panels that have a health check: Jupyter, SYSTEM, and any
+URL-backed panel whose entry names a ``health_endpoint``.
+
+Clicking a dimmed entry closes its tile as usual, but the panel cannot be
+opened again until its backend answers.
+
 Panels backed by a URL
 ----------------------
 

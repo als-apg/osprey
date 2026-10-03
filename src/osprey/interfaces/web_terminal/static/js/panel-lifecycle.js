@@ -21,13 +21,13 @@
  */
 
 import { apiRequest, fetchJSON } from './api.js';
-import { setKnownServicePanels } from './dock-iframe.js';
+import { setKnownServicePanels, setPanelReachable } from './dock-iframe.js';
 import { PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
 import { buildEmbedSrc } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
 import {
-  createRail, addEntry, setActive, setEntryEnabled, setEntryReachable, setEntryStatus,
+  clockTime, createRail, addEntry, setActive, setEntryEnabled, setEntryReachable, setEntryStatus,
 } from './panel-rail.js';
 
 /** @typedef {import('./panel-catalog.js').Panel} Panel */
@@ -242,15 +242,17 @@ const MISSES_BEFORE_UNREACHABLE = 2;
  *   - the FIRST healthy settle enables the entry and lets the shared policy
  *     decide whether the newly-healthy panel should take an empty slot;
  *   - a panel that answered before and then misses MISSES_BEFORE_UNREACHABLE
- *     polls in a row is marked unreachable (dimmed, still clickable, tooltip
- *     "not answering since HH:MM");
- *   - the next healthy settle clears that again;
+ *     polls in a row is marked unreachable on both of its surfaces: the rail
+ *     entry (dimmed, still clickable, tooltip "not answering since HH:MM") and
+ *     its tile (a notice over the body, the same time);
+ *   - the next healthy settle clears both;
  *   - a sidecar that answered before and then misses a poll is checked once
  *     against its config endpoint, and one that reports `failed` shows its
  *     failed entry instead.
  *
  * A panel that never answered keeps its `.disabled` boot state and is never
- * counted. Liveness detail lives in the SYSTEM panel's `web_panels` category.
+ * counted, and its tile, which never opens, carries no notice. Liveness
+ * detail lives in the SYSTEM panel's `web_panels` category.
  * @param {Panel} panel
  * @param {boolean} wasHealthy
  */
@@ -259,6 +261,9 @@ function onHealthSettled(panel, wasHealthy) {
   const state = c.panelState[panel.id];
   if (state.healthy) {
     if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
+    // Unconditional: showFailed resets misses while the tile keeps its notice,
+    // so a retried sidecar's first answer must still clear the tile.
+    setPanelReachable(panel.id, true);
     state.misses = 0;
     state.missSince = null;
     if (!wasHealthy) {
@@ -287,6 +292,7 @@ function onHealthSettled(panel, wasHealthy) {
   if (state.missSince === null) state.missSince = Date.now();
   if (state.misses === MISSES_BEFORE_UNREACHABLE) {
     setEntryReachable(c.getRailEl(), panel.id, false, state.missSince);
+    setPanelReachable(panel.id, false, clockTime(state.missSince));
   }
 }
 
