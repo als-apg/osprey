@@ -195,6 +195,21 @@ def _pipeline_mode(inputs: ViewInputs) -> str | None:
     return mode if isinstance(mode, str) else None
 
 
+def _mode_unsupported(detail: str, remedy: str) -> Exception:
+    """The ``view-unsupported`` stop on the rendered ``channel_finder.pipeline_mode``."""
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.served import CONFIG_SOURCE
+
+    return FacilityBuildError(
+        "view-unsupported",
+        PIPELINE_MODE_KEY,
+        [CONFIG_SOURCE],
+        remedy,
+        record_kind="path",
+        detail=detail,
+    )
+
+
 def write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
     """Write the in_context index into ``root``.
 
@@ -209,19 +224,13 @@ def write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
         FacilityBuildError: ``view-unsupported`` when no channel is tagged
             ``in_context``.
     """
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.served import CONFIG_SOURCE
     from osprey.facility.views import view_bytes
 
     document = in_context_document(inputs.doc)
     if not document["channels"]:
-        raise FacilityBuildError(
-            "view-unsupported",
-            PIPELINE_MODE_KEY,
-            [CONFIG_SOURCE],
+        raise _mode_unsupported(
+            f"selects {IN_CONTEXT_TAG} and no channel is tagged `{IN_CONTEXT_TAG}`",
             f"tag at least one channel `{IN_CONTEXT_TAG}`, or select another channel_finder_mode",
-            record_kind="path",
-            detail=f"selects {IN_CONTEXT_TAG} and no channel is tagged `{IN_CONTEXT_TAG}`",
         )
     root.mkdir(parents=True, exist_ok=True)
     target = root / IN_CONTEXT_FILE
@@ -249,15 +258,18 @@ def _record_sources(record: Mapping[str, Any]) -> list[str]:
     return sorted({str(source["file"]) for source in provenance.get("sources", [])})
 
 
-def _unsupported(place: Mapping[str, Any], detail: str, remedy: str) -> Exception:
+def _unsupported(
+    record: Mapping[str, Any], record_kind: str, detail: str, remedy: str
+) -> Exception:
+    """The ``view-unsupported`` stop naming one facility record."""
     from osprey.facility.errors import FacilityBuildError
 
     return FacilityBuildError(
         "view-unsupported",
-        str(place["id"]),
-        _record_sources(place),
+        str(record["id"]),
+        _record_sources(record),
         remedy,
-        record_kind="place",
+        record_kind=record_kind,
         detail=detail,
     )
 
@@ -280,19 +292,15 @@ def _checked_key(
     Raises:
         FacilityBuildError: ``view-unsupported`` naming ``record`` and the key.
     """
-    from osprey.facility.errors import FacilityBuildError
-
     if not key.startswith(_META_PREFIX):
         return key
-    raise FacilityBuildError(
-        "view-unsupported",
-        str(record["id"]),
-        _record_sources(record),
+    raise _unsupported(
+        record,
+        record_kind,
+        f"its tree key `{key}` begins with `_`, "
+        f"and a key beginning with `_` is a meta key of the {index} index",
         f"give the {record_kind} a key that does not begin with `_`, "
         "or select another channel_finder_mode",
-        record_kind=record_kind,
-        detail=f"its tree key `{key}` begins with `_`, "
-        f"and a key beginning with `_` is a meta key of the {index} index",
     )
 
 
@@ -310,6 +318,7 @@ def _place_levels(places: Iterable[Mapping[str, Any]]) -> list[str]:
         if not _LEVEL_WORD.fullmatch(word) or word in TAIL_LEVELS:
             raise _unsupported(
                 place,
+                "place",
                 f"level `{word}` cannot name a hierarchical level",
                 "use a level word of letters, digits and `_` other than "
                 f"{', '.join(TAIL_LEVELS)}, or select another channel_finder_mode",
@@ -322,6 +331,7 @@ def _place_levels(places: Iterable[Mapping[str, Any]]) -> list[str]:
             first, second = sorted(words)[:2]
             raise _unsupported(
                 shallowest[second][1],
+                "place",
                 f"levels `{first}` and `{second}` both first appear at depth {depth}",
                 "give the places at one depth one level word, "
                 "or select another channel_finder_mode",
@@ -357,6 +367,7 @@ def _place_keys(
         if position <= last:
             raise _unsupported(
                 ancestor,
+                "place",
                 f"level `{ancestor['level']}` sits below level `{levels[last]}` "
                 "against the order of their shallowest depths",
                 "order the level words the same way on every branch, "
@@ -394,6 +405,16 @@ def _alnum_runs(text: str) -> list[str]:
     return _ALNUM_RUN.findall(text)
 
 
+def _key_runs(key: Any) -> list[str]:
+    """A ``signals`` key's runs: each ``/``-separated part read as alphanumeric runs."""
+    return [run for part in str(key).split("/") for run in _alnum_runs(part)]
+
+
+def _ends_with(runs: Sequence[str], key_runs: Sequence[str]) -> bool:
+    """Whether a non-empty ``key_runs`` ends ``runs``."""
+    return bool(key_runs) and list(runs[-len(key_runs) :]) == list(key_runs)
+
+
 def _signal_sentence(address: str, family_signals: Sequence[Mapping[str, Any]]) -> str | None:
     """The family sentence for one address: the longest ``signals`` key its runs end with.
 
@@ -405,8 +426,8 @@ def _signal_sentence(address: str, family_signals: Sequence[Mapping[str, Any]]) 
     best: tuple[int, int, str, str] | None = None
     for position, signals in enumerate(family_signals):
         for key, sentence in signals.items():
-            key_runs = [run for part in str(key).split("/") for run in _alnum_runs(part)]
-            if not key_runs or runs[-len(key_runs) :] != key_runs:
+            key_runs = _key_runs(key)
+            if not _ends_with(runs, key_runs):
                 continue
             rank = (-len(key_runs), position, str(key), str(sentence))
             if best is None or rank < best:
@@ -606,8 +627,8 @@ def _signal_key(address: str, signals: Mapping[str, Any]) -> str | None:
     runs = _alnum_runs(address)
     best: tuple[int, str] | None = None
     for key in signals:
-        key_runs = [run for part in str(key).split("/") for run in _alnum_runs(part)]
-        if not key_runs or runs[-len(key_runs) :] != key_runs:
+        key_runs = _key_runs(key)
+        if not _ends_with(runs, key_runs):
             continue
         rank = (-len(key_runs), str(key))
         if best is None or rank < best:
@@ -619,10 +640,8 @@ def _cell_sentence(addresses: Sequence[str], signals: Mapping[str, Any]) -> str 
     """The sentence under the longest ``signals`` key every address ends with."""
     best: tuple[int, str, str] | None = None
     for key, sentence in signals.items():
-        key_runs = [run for part in str(key).split("/") for run in _alnum_runs(part)]
-        if not key_runs:
-            continue
-        if all(_alnum_runs(address)[-len(key_runs) :] == key_runs for address in addresses):
+        key_runs = _key_runs(key)
+        if key_runs and all(_ends_with(_alnum_runs(address), key_runs) for address in addresses):
             rank = (-len(key_runs), str(key), str(sentence))
             if best is None or rank < best:
                 best = rank
@@ -756,9 +775,6 @@ def _family_fields(
 #: The middle-layer index as a stop names it.
 _MIDDLE_LAYER_INDEX = "middle-layer"
 
-#: The document keys of the middle-layer index besides its Systems.
-_MIDDLE_LAYER_DOCUMENT_KEYS = frozenset({"schema"})
-
 
 def _checked_system(system: str, place: Mapping[str, Any]) -> None:
     """Stop on a System key the middle-layer loader would not read as a System.
@@ -767,16 +783,14 @@ def _checked_system(system: str, place: Mapping[str, Any]) -> None:
         FacilityBuildError: ``view-unsupported`` naming the place, when the key
             is a document key of the index or begins with ``_``.
     """
-    from osprey.facility.errors import FacilityBuildError
+    from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
 
-    if system in _MIDDLE_LAYER_DOCUMENT_KEYS:
-        raise FacilityBuildError(
-            "view-unsupported",
-            str(place["id"]),
-            _record_sources(place),
+    if system in DOCUMENT_KEYS:
+        raise _unsupported(
+            place,
+            "place",
+            f"its System key `{system}` is the document key of the middle-layer index",
             f"give the place an id other than `{system}`, or select another channel_finder_mode",
-            record_kind="place",
-            detail=f"its System key `{system}` is the document key of the middle-layer index",
         )
     _checked_key(system, place, "place", _MIDDLE_LAYER_INDEX)
 
@@ -853,19 +867,13 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
             group, or when DuckDB cannot write the database (its
             full-text-search extension is neither installed nor reachable).
     """
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.served import CONFIG_SOURCE
     from osprey.facility.views import report_note, view_bytes
 
     document, left_out, by_address = middle_layer_document(inputs.doc)
     if len(document) == 1:
-        raise FacilityBuildError(
-            "view-unsupported",
-            PIPELINE_MODE_KEY,
-            [CONFIG_SOURCE],
+        raise _mode_unsupported(
+            f"selects {MIDDLE_LAYER_MODE} and the facility has no group",
             "add at least one group, or select another channel_finder_mode",
-            record_kind="path",
-            detail=f"selects {MIDDLE_LAYER_MODE} and the facility has no group",
         )
     root.mkdir(parents=True, exist_ok=True)
     target = root / MIDDLE_LAYER_FILE
@@ -881,13 +889,9 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
         import_to_duckdb(str(target), str(database))
     except duckdb.Error as exc:
         database.unlink(missing_ok=True)
-        raise FacilityBuildError(
-            "view-unsupported",
-            PIPELINE_MODE_KEY,
-            [CONFIG_SOURCE],
+        raise _mode_unsupported(
+            f"selects {MIDDLE_LAYER_MODE} and its DuckDB database cannot be written ({exc})",
             "install DuckDB's `fts` extension on this host, or select another channel_finder_mode",
-            record_kind="path",
-            detail=f"selects {MIDDLE_LAYER_MODE} and its DuckDB database cannot be written ({exc})",
         ) from exc
     if left_out or by_address:
         report_note(
