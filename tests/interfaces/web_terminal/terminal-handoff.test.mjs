@@ -28,6 +28,7 @@ const STORAGE_KEY = 'osprey-pty-session';
 /** Close codes the server refuses a hand-off with (api.js). */
 const WS_CLOSE_SESSION_ATTACHED = 4409;
 const WS_CLOSE_OUTGOING_RUNNING = 4503;
+const WS_CLOSE_STARTED_COMMANDS = 4428;
 
 /** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */
 class FakeTerminal {
@@ -709,5 +710,164 @@ describe('a refused connection', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('started commands in the other view', () => {
+  const MAGNET = { label: 'magnet_scan.py', command: 'python magnet_scan.py' };
+
+  afterEach(async () => {
+    // A question left up would answer the next test's Escape: take it down
+    // through the module instance this test's terminal.js raised it with.
+    const confirm = await import(
+      '../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js'
+    );
+    confirm.dismissConfirm();
+  });
+
+  /**
+   * The server's answer to a hand-off whose chat agent started commands that
+   * are still running: the list, then the refusal close.
+   * @param {string} [sessionId]
+   */
+  function refuseForStartedCommands(sessionId = 'shared-key') {
+    receive({
+      type: 'handoff_refused',
+      error: 'handoff_started_commands',
+      session_id: sessionId,
+      commands: [MAGNET],
+    });
+    refuse(WS_CLOSE_STARTED_COMMANDS, 'handoff_started_commands');
+  }
+
+  /** Flip to Expert on the shared key and have the server ask. */
+  function asked() {
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'handoff_pending', busy: false });
+    refuseForStartedCommands();
+  }
+
+  /** @param {string} selector */
+  function dialogButton(selector) {
+    return /** @type {HTMLButtonElement} */ (document.querySelector(selector));
+  }
+
+  test('a refusal for started commands asks, naming them', () => {
+    asked();
+
+    expect(document.querySelector('.posture-modal-title')?.textContent).toBe(
+      'This also ends magnet_scan.py.',
+    );
+    expect(document.querySelector('.terminal-handoff')).toBeNull();
+    expect(document.activeElement).toBe(dialogButton('.posture-modal-cancel'));
+  });
+
+  test('"Stop both" reconnects with end_started, keeping the interrupt', () => {
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'handoff_pending', busy: true });
+    /** @type {HTMLButtonElement} */ (overlayAction()).click();
+    openSocket();
+    refuseForStartedCommands();
+
+    dialogButton('.posture-modal-confirm').click();
+
+    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
+    expect(url).toContain('session_id=shared-key');
+    expect(url).toContain('interrupt=1');
+    expect(url).toContain('end_started=1');
+  });
+
+  test('"Cancel" sends nothing more and hands the session back to the Simple view', () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+    asked();
+    const socketsBefore = FakeWebSocket.created;
+
+    dialogButton('.posture-modal-cancel').click();
+
+    expect(post).toHaveBeenCalledWith(
+      { type: 'osprey-mode-change', mode: 'simple' },
+      expect.anything(),
+    );
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+  });
+
+  test('Escape behaves as Cancel', () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+    asked();
+    const socketsBefore = FakeWebSocket.created;
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(post).toHaveBeenCalledWith(
+      { type: 'osprey-mode-change', mode: 'simple' },
+      expect.anything(),
+    );
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(FakeWebSocket.created).toBe(socketsBefore);
+  });
+
+  test('with nothing running the hand-off goes straight through and nothing is asked', () => {
+    let mounted = false;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('.posture-modal-overlay')) mounted = true;
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      localStorage.setItem(STORAGE_KEY, 'shared-key');
+      terminal.initTerminal('terminal-container');
+      openSocket();
+      receive({ type: 'handoff_pending', busy: false });
+      receive({ type: 'session_info', session_id: 'shared-key' });
+    } finally {
+      observer.disconnect();
+    }
+
+    expect(mounted).toBe(false);
+    expect(document.querySelector('.posture-modal-overlay')).toBeNull();
+  });
+
+  test('a refused switch: Cancel re-attaches the session the card was on', () => {
+    const post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'session_info', session_id: 'shared-key' });
+    terminal.switchSession('other-key');
+    receive({ type: 'handoff_pending', busy: false });
+    refuseForStartedCommands('other-key');
+    const socketsBefore = FakeWebSocket.created;
+
+    dialogButton('.posture-modal-cancel').click();
+
+    expect(FakeWebSocket.created).toBe(socketsBefore + 1);
+    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
+    expect(url).toContain('session_id=shared-key');
+    expect(url).not.toContain('end_started');
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  test('the consent is not replayed on a reconnect', () => {
+    asked();
+    dialogButton('.posture-modal-confirm').click();
+    openSocket();
+    receive({ type: 'session_info', session_id: 'shared-key' });
+
+    vi.useFakeTimers();
+    try {
+      const dropped = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+      dropped.readyState = FakeWebSocket.CLOSED;
+      dropped.onclose?.({ code: 1006, reason: '' });
+      vi.advanceTimersByTime(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
+    expect(url).toContain('session_id=shared-key');
+    expect(url).not.toContain('end_started');
   });
 });

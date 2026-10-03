@@ -17,8 +17,9 @@
  *     definite 401 stops the reconnect loop and reloads -- as a navigation,
  *     which is the request shape both the nginx perimeter (login redirect) and
  *     the app's own gate (an HTML "not signed in" page) answer usefully
- *   - refusal close codes: 4409 (session held elsewhere) and 4503 (outgoing
- *     agent still running) end the reconnect loop and reach the caller as
+ *   - refusal close codes: 4409 (session held elsewhere), 4503 (outgoing
+ *     agent still running) and 4428 (the other view's agent started commands
+ *     still running) end the reconnect loop and reach the caller as
  *     onRefused; every other close code reconnects exactly as before
  *
  * Module isolation: api.js keeps `sessionExpired`/`sharedStreams` as
@@ -504,11 +505,13 @@ describe('createWebSocket: refusal close codes are terminal', () => {
     vi.useRealTimers();
   });
 
-  test('exports the two refusal codes and a predicate that accepts only those', () => {
+  test('exports the three refusal codes and a predicate that accepts only those', () => {
     expect(api.WS_CLOSE_SESSION_ATTACHED).toBe(4409);
     expect(api.WS_CLOSE_OUTGOING_RUNNING).toBe(4503);
+    expect(api.WS_CLOSE_STARTED_COMMANDS).toBe(4428);
     expect(api.isRefusalCloseCode(4409)).toBe(true);
     expect(api.isRefusalCloseCode(4503)).toBe(true);
+    expect(api.isRefusalCloseCode(4428)).toBe(true);
     // Ordinary closes stay ordinary: an abnormal drop, a clean close, and the
     // HTTP statuses these codes are named after are all reconnectable.
     for (const code of [1000, 1001, 1006, 1011, 409, 503, 4000, 4500]) {
@@ -519,6 +522,7 @@ describe('createWebSocket: refusal close codes are terminal', () => {
   test.each([
     [4409, 'session_attached_elsewhere'],
     [4503, 'outgoing_still_running'],
+    [4428, 'handoff_started_commands'],
   ])('a %i close reports the refusal and schedules no reconnect', (code, reason) => {
     const sockets = stubWebSocket();
     const onRefused = vi.fn();
