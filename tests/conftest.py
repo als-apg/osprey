@@ -6,6 +6,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 
 import logging
 import os
+import sys
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -634,6 +635,22 @@ def no_authored_plans_in_the_package():
             f"{_first_seen_clause(_PLAN_DIR_FIRST_SEEN)}"
             f"{_GUARD_KNOWN_LIMIT}"
         )
+
+
+@pytest.fixture(autouse=True)
+def render_worker_ends_with_its_test():
+    """Kill the picture render worker a test left cached, when that test ends.
+
+    ``osprey.imaging.render`` keeps one worker subprocess per process, so a test
+    that renders a picture without closing the worker hands it to whichever test
+    runs next on the same xdist worker. A test that asserts no worker was
+    spawned then sees a pid it never started. A test that never imported the
+    module pays nothing.
+    """
+    yield
+    render = sys.modules.get("osprey.imaging.render")
+    if render is not None and render.worker_pid() is not None:
+        render._forget_worker()
 
 
 @pytest.fixture(autouse=True)

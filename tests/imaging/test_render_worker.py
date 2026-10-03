@@ -666,7 +666,13 @@ render_worker.harden()
 from PIL import Image
 data = sys.stdin.buffer.read()
 header = render_worker.handle(data).split(b"\n", 1)[0]
-usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+if sys.platform.startswith("linux"):
+    # ru_maxrss survives exec on Linux and so starts at the parent's peak;
+    # VmHWM belongs to this image's own address space.
+    hwm = next(l for l in open("/proc/self/status") if l.startswith("VmHWM:"))
+    peak_rss_mb = int(hwm.split()[1]) / 1024
+else:
+    peak_rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
 print(json.dumps({
     "header": json.loads(header),
     "loaded": sorted(set(sys.modules) - before),
@@ -679,7 +685,7 @@ print(json.dumps({
         f[0] == "error" and f[2] is Image.DecompressionBombWarning for f in warnings.filters
     ),
     "max_pixels": Image.MAX_IMAGE_PIXELS,
-    "peak_rss_mb": usage / (1024 * 1024 if sys.platform == "darwin" else 1024),
+    "peak_rss_mb": peak_rss_mb,
     "proc_environ": (
         open("/proc/self/environ", "rb").read().decode() if sys.platform.startswith("linux") else ""
     ),
