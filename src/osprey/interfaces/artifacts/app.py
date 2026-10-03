@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
@@ -429,6 +429,12 @@ class FocusRequest(BaseModel):
 
 class PinRequest(BaseModel):
     pinned: bool = True
+
+
+class BulkDeleteRequest(BaseModel):
+    # One pick is a screenful of rows; an unbounded list would hold the
+    # index lock for as long as the client asks.
+    ids: list[str] = Field(min_length=1, max_length=1000)
 
 
 class _SSEBroadcaster:
@@ -1094,6 +1100,16 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return {"status": "ok", "artifact_id": artifact_id}
+
+    @app.post("/api/artifacts/delete")
+    async def delete_artifacts(body: BulkDeleteRequest):
+        # This delete is a person clicking in the gallery, not the agent —
+        # tag it so store listeners don't report it as agent activity.
+        with artifact_mutation_actor("human"):
+            removed = store.delete_entries(body.ids)
+        removed_ids = {e.id for e in removed}
+        missing = [i for i in dict.fromkeys(body.ids) if i not in removed_ids]
+        return {"deleted": [e.id for e in removed], "missing": missing}
 
     @app.get("/api/notebooks/{artifact_id}/rendered")
     async def render_notebook(artifact_id: str):

@@ -22,7 +22,7 @@ import logging
 import mimetypes
 import os
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -1160,6 +1160,20 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             The removed entries (empty when nothing matched).
         """
         return self._delete_where(lambda e: e.category == category)
+
+    def delete_entries(self, artifact_ids: Iterable[str]) -> list[ArtifactEntry]:
+        """Delete the artifacts with these ids in one atomic operation.
+
+        Ids the store does not hold are ignored. Deletion is not recoverable —
+        files are unlinked outright.
+
+        Returns:
+            The removed entries, in index order.
+        """
+        wanted = set(artifact_ids)
+        if not wanted:
+            return []
+        return self._delete_where(lambda e: e.id in wanted)
 
     def delete_everything(self) -> list[ArtifactEntry]:
         """Delete EVERY artifact in the store, across all categories.
