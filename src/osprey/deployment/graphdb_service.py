@@ -20,7 +20,7 @@ Config shape, as it appears in a project's ``config.yml``::
         image: neo4j:5.26-community
         port_host: 10802                           # bolt, the graphdb_bolt slot
         http_port_host: 10803                      # HTTP, the graphdb_http slot
-        ttl_path: ./data/demo_machine.ttl          # optional; corpus to seed
+        ttl_path: ./data/graph/facility.ttl        # corpus to seed; derived
         index_path: ./data/channel_databases/graph.duckdb  # search index
         heap_initial_size: 512m
         heap_max_size: 1G
@@ -91,6 +91,7 @@ __all__ = [
     "DEFAULT_PASSWORD",
     "DEFAULT_PORT",
     "DEFAULT_DATABASE",
+    "DEFAULT_TTL_PATH",
     "DEFAULT_USERNAME",
     "GRAPHDB_BUILD_INDEX_COMMAND",
     "GRAPHDB_HTTP_PORT_CONFIG_KEY",
@@ -99,6 +100,7 @@ __all__ = [
     "GRAPHDB_PORT_CONFIG_KEY",
     "GRAPHDB_SEED_COMMAND",
     "GRAPHDB_SERVICE_NAME",
+    "GRAPHDB_TTL_PATH_CONFIG_KEY",
     "GraphdbConnection",
     "GraphdbServiceConfig",
     "preflight_graphdb_config",
@@ -206,6 +208,12 @@ DEFAULT_PASSWORD = "ospreygraph"
 #: being unset.
 DEFAULT_INDEX_PATH = "./data/channel_databases/graph.duckdb"
 
+#: The corpus a render's store is seeded from: the graph view ``osprey build``
+#: writes from the facility file, relative to the render like every path in
+#: this block. ``osprey build`` writes this value into every rendered
+#: ``services.graphdb`` block that does not name a corpus of its own.
+DEFAULT_TTL_PATH = "./data/graph/facility.ttl"
+
 #: Config key an operator edits to move the published bolt port. Spelled once so
 #: the deploy-time port-conflict remedy and the schema cannot drift apart.
 GRAPHDB_PORT_CONFIG_KEY = "services.graphdb.port_host"
@@ -269,8 +277,9 @@ class GraphdbServiceConfig:
         heap_initial_size: JVM heap the server starts with.
         heap_max_size: Ceiling the JVM heap may grow to.
         pagecache_size: Off-heap cache for graph data and indexes.
-        ttl_path: Corpus to seed the graph from, or ``None`` (the default) to
-            bring the store up bootstrapped but empty. Kept verbatim: it is
+        ttl_path: Corpus to seed the graph from. ``osprey build`` renders
+            :data:`DEFAULT_TTL_PATH` into every block that names none, so
+            ``None`` here is a render no build wrote. Kept verbatim: it is
             resolved against the config file's directory by its consumers, per
             the ``facility_knowledge.bundle_path`` rule, and resolving it here
             against the process's cwd instead would give a deploy and a CLI verb
@@ -470,8 +479,9 @@ def graph_corpus_configured(config: Mapping[str, Any] | None) -> bool:
 
     THE one answer to that question for the surfaces that refuse without an
     index. Which remedy they name turns on it: a project with a corpus is one
-    build away from an answer, while a project without one has nothing to build
-    an index *from*, and the build refuses in exactly that state. The finder's
+    build away from an answer, while a project with no ``services.graphdb``
+    block -- the one way this answers ``False`` for a render ``osprey build``
+    wrote -- has no store to derive an index for. The finder's
     503 and the agent's keyword tool both ask, and asking here is what keeps
     them from sending an operator to different steps for one deployment.
 

@@ -5903,11 +5903,10 @@ def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     written, a relative one resolved against the ``config.yml`` directory
     (:func:`osprey.utils.config_paths.resolve_render_relative_path`) — the
     one config-relative key that is, because the corpus it names is an
-    artifact of the render: the documented default,
-    ``./data/demo_machine.ttl``, is read from the ``data/`` tree the build
-    assembled for this project, so a corpus regenerated into the profile's
-    data tree reaches the store on the next build like every other rendered
-    artifact. ``osprey knowledge seed-graph`` reads the same key by the same
+    artifact of the render: the derived value, ``./data/graph/facility.ttl``,
+    is the graph view the build wrote from the facility file, so a facility
+    file changed in the profile's data tree reaches the store on the next build
+    like every other rendered artifact. ``osprey knowledge seed-graph`` reads the same key by the same
     rule; two resolutions of one key would mean the deploy and the verb could
     seed a store from different files while both reporting success.
 
@@ -5978,18 +5977,28 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
       so a failed import leaves triples behind; a store left without a marker
       reads as a mismatch, so the next deploy replaces it again.
 
-    Without a configured corpus there is nothing to compare: the store is left as
-    it is, and a populated one still gets its prompt snapshot.
+    ``osprey build`` names a corpus in every rendered ``services.graphdb``
+    block, so a block without one is a render defect, refused before the store
+    is touched.
 
     :param config: Raw deploy config.
     :param project_dir: Root of the built project.
     :param connection: The resolved graph-store connection.
+    :raises ValueError: If the rendered block names no corpus.
     """
-    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+    from osprey.deployment.graphdb_service import (
+        GRAPHDB_TTL_PATH_CONFIG_KEY,
+        resolve_graphdb_service_config,
+    )
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
     settings = resolve_graphdb_service_config(config)
     ttl_path = settings.ttl_path if settings is not None else None
+    if ttl_path is None:
+        raise ValueError(
+            f"the rendered config names no {GRAPHDB_TTL_PATH_CONFIG_KEY}. "
+            "Run `osprey build` to render it."
+        )
 
     with graph_seeder.open_session(
         connection.uri,
@@ -6007,17 +6016,6 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
             )
             return
         _report_step("graph store bootstrapped")
-
-        if ttl_path is None:
-            if graph_seeder.resource_count(session) > 0:
-                _bake_graph_prompt_snapshot(session, project_dir)
-                return
-            _report_fact(
-                "graph store bootstrapped but not seeded: no services.graphdb.ttl_path "
-                f"is configured. Set one and run `{_GRAPHDB_RECOVERY_HINT}` to import a "
-                "corpus."
-            )
-            return
 
         resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
         digest = graph_seeder.ttl_sha256(text)

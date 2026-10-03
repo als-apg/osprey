@@ -119,9 +119,12 @@ Graph
 
 The graph pipeline has no channel database of its own: the facility graph
 describes the machine. Its contract is the graph schema documented in
-:doc:`/how-to/facility-knowledge/use-facility-graph`, authored as the Turtle
-corpus ``services.graphdb.ttl_path`` names. Load that corpus into the
-``services.graphdb`` store with ``osprey knowledge seed-graph``.
+:doc:`/how-to/facility-knowledge/use-facility-graph`, carried by the Turtle
+corpus ``osprey build`` writes from the facility file into
+``data/graph/facility.ttl``. The build writes that path into every rendered
+``services.graphdb`` block as ``ttl_path`` unless the profile names a corpus of
+its own. Load that corpus into the ``services.graphdb`` store with ``osprey
+knowledge seed-graph``.
 
 The corpus is the source of truth, and two things are built from it. The store
 answers questions about structure — which device an address belongs to, what a

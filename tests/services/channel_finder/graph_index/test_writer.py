@@ -273,7 +273,10 @@ class TestEmptyCorpus:
             _build(parsed, path)
         warnings = _builder_warnings(caplog)
         assert len(warnings) == 1
-        assert str(path) in warnings[0].getMessage()
+        message = warnings[0].getMessage()
+        assert "corpus.ttl" in message
+        assert path.name in message
+        assert str(path.parent) not in message
 
     def test_a_corpus_with_bindings_does_not_warn(
         self, chain: ParsedCorpus, tmp_path: Path, caplog

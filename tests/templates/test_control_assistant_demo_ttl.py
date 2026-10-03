@@ -1,23 +1,14 @@
-"""The control-assistant preset seeds its graph store from the demo machine.
+"""The demo machine corpus the control-assistant data tree ships.
 
-Two files have to agree for a fresh `osprey up` to bring up a graph the agent
-can actually search: the `services.graphdb.ttl_path` in the preset's `config:`
-block, and the corpus that path names. Nothing else checks that pair — the
-deploy reads the corpus at seed time and only warns when it is missing, so a
-preset pointing at a file the render does not ship would deploy an empty store
-and say nothing about it. That is the first test here: read the key off the
-preset's resolved config the way the deploy resolves it, copy the bundle's data
-tree the way the renderer does, and require the file to be on disk.
-
-The rest pins what is *in* that corpus. It is generated — `osprey knowledge
-build-ttl` derives it from the channel database in the same `data/` tree — and
-a generated file that nobody counts can drift silently: a change to the channel
-database, the direction pass, or the emitter would quietly ship a different
-graph. The census below (512 devices, 2908 bindings, 396 written and 2512 read
-signals) is the demo machine as of the corpus committed beside this test, and
-the 396 writes are exactly its `:SP` addresses. The prose census sits beside it:
-three description predicates on every binding, three more plus the SYSTEM token
-on every device, and none of the six on a semantic signal.
+The corpus is generated — `osprey knowledge build-ttl` derives it from the
+channel database in the same `data/` tree — and a generated file that nobody
+counts can drift silently: a change to the channel database, the direction
+pass, or the emitter would quietly ship a different graph. The census below
+(512 devices, 2908 bindings, 396 written and 2512 read signals) is the demo
+machine as of the corpus committed beside this test, and the 396 writes are
+exactly its `:SP` addresses. The prose census sits beside it: three
+description predicates on every binding, three more plus the SYSTEM token on
+every device, and none of the six on a semantic signal.
 
 The uppercase check guards the other half of the pipeline. neosemantics imports
 a predicate IRI under the local name it finds, so `narad_p:hasBinding` becomes
@@ -26,8 +17,8 @@ handling that would uppercase it to `HASBINDING`, and the example queries the
 agent is given all spell the camelCase form. A corpus carrying uppercase names
 would import into a graph where every shipped query returns nothing.
 
-Finally, ariel_standalone is asserted to seed the same corpus from its own
-`data/` tree, byte for byte: the two presets ship two copies of one generated
+Finally, ariel_standalone's copy of the corpus is asserted byte-identical to
+the control-assistant copy: the two bundles ship two copies of one generated
 file, and a regeneration that reaches only one of them would leave the two
 demos describing different machines.
 """
@@ -37,59 +28,6 @@ import json
 from pathlib import Path
 
 import pytest
-
-from osprey.cli.build_profile_archiver import _expand_dotted
-from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey.cli.templates.manager import TemplateManager
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
-
-#: Where the demo corpus lands in a rendered project, relative to the rendered
-#: ``config.yml``. Spelled here rather than read from the config so the test
-#: states the expected value instead of agreeing with whatever is configured.
-EXPECTED_TTL_PATH = "./data/demo_machine.ttl"
 
 #: The control-assistant preset's data tree — the corpus and every input it is
 #: generated from ship side by side in here.
@@ -145,43 +83,6 @@ DEVICE_TOKEN_PREDICATES = ("system",)
 UPPERCASE_N10S_NAMES = ("HASBINDING", "READSSIGNAL", "WRITESSIGNAL")
 
 
-def _render_project(name: str, bundle: str, tmp_path: Path) -> Path:
-    """Render a project from a data bundle, the way ``osprey build`` does.
-
-    ``TemplateManager.create_project`` is the renderer the CLI calls; going
-    through it rather than through ``osprey build`` skips the venv and the
-    lifecycle without skipping the data copy, which is what this file is about.
-    The ``services.graphdb`` block itself is not in this render: it comes from
-    the preset's ``config:``, read by :func:`_graphdb_block`.
-    """
-    return _create_project(
-        TemplateManager(),
-        project_name=name,
-        output_dir=tmp_path,
-        data_bundle=bundle,
-        context={"channel_finder_mode": "hierarchical"},
-    )
-
-
-def _graphdb_block(preset: str) -> dict:
-    """The preset's ``services.graphdb`` block, through the deploy's resolver."""
-    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
-
-    profile, _profile_dir = resolve_build_profile(None, preset)
-    config = _expand_dotted(profile.config)
-    # Raises on a malformed block, so this also asserts the preset spells the
-    # block in a shape the deploy preflight accepts.
-    resolve_graphdb_service_config(config)
-    return config["services"]["graphdb"]
-
-
-@pytest.fixture(scope="module")
-def control_assistant_project(tmp_path_factory) -> Path:
-    return _render_project(
-        "demo-ttl-ca", "control_assistant", tmp_path_factory.mktemp("demo_ttl_ca")
-    )
-
-
 @pytest.fixture(scope="module")
 def graph() -> object:
     """The committed corpus, parsed once."""
@@ -190,46 +91,6 @@ def graph() -> object:
     parsed = Graph()
     parsed.parse(TEMPLATE_TTL, format="turtle")
     return parsed
-
-
-# ---------------------------------------------------------------------------
-# The preset points at a corpus the render actually ships
-# ---------------------------------------------------------------------------
-
-
-def test_rendered_ttl_path_is_the_demo_corpus() -> None:
-    assert _graphdb_block("control-assistant")["ttl_path"] == EXPECTED_TTL_PATH
-
-
-def test_configured_corpus_is_on_disk_in_a_rendered_project(
-    control_assistant_project: Path,
-) -> None:
-    """Resolve ``ttl_path`` exactly as the deploy's seeding step does.
-
-    ``_graphdb_config_dir`` is the deploy's rule for *what* a relative value is
-    relative to (the render one zone down when there is one, the project root
-    otherwise); ``resolve_bundle_path`` is the shared rule for resolving it.
-    """
-    from osprey.deployment.container_lifecycle import _graphdb_config_dir
-    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-
-    ttl_path = _graphdb_block("control-assistant")["ttl_path"]
-    resolved = resolve_bundle_path(ttl_path, _graphdb_config_dir(control_assistant_project))
-
-    assert resolved.is_file(), (
-        f"services.graphdb.ttl_path names {resolved}, which the rendered project "
-        "does not ship — the graph store would deploy empty."
-    )
-    assert resolved.read_bytes() == TEMPLATE_TTL.read_bytes()
-
-
-def test_ariel_standalone_seeds_the_same_demo_corpus(tmp_path: Path) -> None:
-    project = _render_project("demo-ttl-ariel", "ariel_standalone", tmp_path)
-    assert _graphdb_block("ariel-standalone")["ttl_path"] == EXPECTED_TTL_PATH
-    assert (project / "data" / "demo_machine.ttl").read_bytes() == TEMPLATE_TTL.read_bytes(), (
-        "ariel_standalone ships its own copy of the demo corpus; it has drifted "
-        "from the control-assistant copy, so the two demos describe different machines"
-    )
 
 
 # ---------------------------------------------------------------------------
