@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import fcntl
 import os
+import shutil
+import signal
 import struct
 import sys
 import termios
@@ -15,9 +17,21 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
 from tests.interfaces.web_terminal._pty_child import (
     CHILD_HANG_CEILING,
     SENTINEL,
+    detaching_child_script,
+    kill_quietly,
+    pid_gone,
     read_answer,
+    sleeper_script,
     wait_for_exit,
+    wait_for_pids,
     wait_for_report,
+)
+
+needs_ps = pytest.mark.skipif(
+    shutil.which("ps") is None, reason="needs ps to read the process tree"
+)
+misses_started = pytest.mark.xfail(
+    strict=True, reason="terminate reaches only the child's process group"
 )
 
 
@@ -146,6 +160,63 @@ class TestPtySession:
         finally:
             session.terminate()
 
+    @needs_ps
+    @misses_started
+    def test_terminate_ends_the_process_groups_the_child_started(self, tmp_path):
+        pid_file = tmp_path / "pids"
+        scripts = [
+            sleeper_script(tmp_path, "magnet_scan.py"),
+            sleeper_script(tmp_path, "orbit_poll.py"),
+        ]
+        session = PtySession(
+            [sys.executable, "-c", detaching_child_script(pid_file, scripts=scripts)]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 3)
+            session.terminate()
+            assert not session.is_alive
+            for pid in pids:
+                assert pid_gone(pid), f"process {pid} the child started is still running"
+        finally:
+            session.terminate()
+            kill_quietly(pids)
+
+    @needs_ps
+    @misses_started
+    def test_terminate_ends_a_helper_that_outlives_the_hang_up(self, tmp_path):
+        pid_file = tmp_path / "pids"
+        source = detaching_child_script(pid_file, scripts=[], helper_ignores_hup=True)
+        session = PtySession([sys.executable, "-c", source])
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 1)
+            session.terminate()
+            assert pid_gone(pids[0]), "the helper that ignores SIGHUP is still running"
+        finally:
+            session.terminate()
+            kill_quietly(pids)
+
+    @needs_ps
+    @misses_started
+    def test_terminate_ends_a_started_process_that_ignores_sigterm(self, tmp_path):
+        pid_file = tmp_path / "pids"
+        script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGTERM, signal.SIGHUP))
+        session = PtySession(
+            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 2)
+            session.terminate()
+            assert pid_gone(pids[0], within=10.0), "the SIGTERM-ignoring process is still running"
+        finally:
+            session.terminate()
+            kill_quietly(pids)
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 class TestPtyChildWaits:
@@ -256,3 +327,45 @@ class TestPtyRegistry:
             assert expected in output
         finally:
             registry.cleanup_all()
+
+    @needs_ps
+    @misses_started
+    def test_eviction_ends_the_evicted_terminals_started_processes(self, tmp_path):
+        pid_file = tmp_path / "pids"
+        script = detaching_child_script(
+            pid_file, scripts=[sleeper_script(tmp_path, "magnet_scan.py")]
+        )
+        registry = PtyRegistry(max_background=1)
+        pids: list[int] = []
+        try:
+            session, _ = registry.get_or_create_session("a", [sys.executable, "-c", script])
+            pids = wait_for_pids(session, pid_file, 2)
+            registry.get_or_create_session("b", "/bin/sh")
+            assert registry.get_session("a") is None
+            assert pid_gone(pids[0]), "the evicted terminal's started process is still running"
+        finally:
+            registry.cleanup_all()
+            kill_quietly(pids)
+
+    @needs_ps
+    @misses_started
+    def test_cleanup_all_ends_every_terminals_started_processes(self, tmp_path):
+        registry = PtyRegistry()
+        pids: list[int] = []
+        try:
+            for key in ("a", "b"):
+                directory = tmp_path / key
+                directory.mkdir()
+                pid_file = directory / "pids"
+                script = detaching_child_script(
+                    pid_file, scripts=[sleeper_script(directory, "magnet_scan.py")]
+                )
+                session, _ = registry.get_or_create_session(key, [sys.executable, "-c", script])
+                pids += wait_for_pids(session, pid_file, 2)
+            registry.cleanup_all()
+            grandchildren = pids[0::2]
+            for pid in grandchildren:
+                assert pid_gone(pid), f"started process {pid} is still running"
+        finally:
+            registry.cleanup_all()
+            kill_quietly(pids)
