@@ -79,6 +79,124 @@ def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
     assert [g.label for g in groups] == ["agent", "magnet_scan.py", "orbit_poll.py"]
 
 
+# ``ps`` reports whole seconds, so every row of one look carries a fixed, round start.
+_SECOND = 1_700_000_000.0
+_AGENT = "/home/op/.local/bin/claude --setting-sources project --mcp-config=.mcp.json"
+# The agent CLI's shell wrapper as ``ps`` lists it, around the command it evaluates.
+_WRAPPER_HEAD = (
+    "/bin/zsh -c source /home/op/.claude/shell-snapshots/snapshot-zsh-1791044269505-8e7vp7.sh "
+    "2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && eval "
+)
+_WRAPPER_TAIL = " < /dev/null && pwd -P >| /tmp/claude-4202-cwd"
+_BEAT = "bash -c 'while true; do date >> /tmp/beat; sleep 1; done'"
+_BEAT_FG = "bash -c 'for i in $(seq 300); do date >> /tmp/beat-fg; sleep 1; done'"
+
+
+def _wrapper(command: str) -> str:
+    """The wrapper's command line for *command*, quoted the way the agent CLI quotes it."""
+    return _WRAPPER_HEAD + "'" + command.replace("'", "'\"'\"'") + "'" + _WRAPPER_TAIL
+
+
+def _table(*rows: tuple[int, int, int, float, str]) -> dict[int, process_tree.ProcessRow]:
+    """A process table of ``(pid, ppid, pgid, started, command)`` rows, all running."""
+    return {
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        for pid, ppid, pgid, started, command in rows
+    }
+
+
+# The agent, the wrapper it started for a loop, and the shell the loop runs in.
+_LOOP = (
+    (4202, 1, 4202, _SECOND - 5.0, _AGENT),
+    (4210, 4202, 4210, _SECOND, _wrapper(_BEAT)),
+    (4211, 4210, 4210, _SECOND, "bash -c while true; do date >> /tmp/beat; sleep 1; done"),
+)
+
+
+def test_a_started_loop_is_named_the_same_on_every_look(monkeypatch):
+    """The group is named by its leader, not by whichever child of the loop is alive."""
+    monkeypatch.setattr(process_tree.os, "getpgrp", lambda: 100)
+    seen = []
+    for leaf in [
+        (4230, 4211, 4210, _SECOND + 7.0, "sleep 1"),
+        (4231, 4211, 4210, _SECOND + 8.0, "date"),
+    ]:
+        rows = _table(*_LOOP, leaf)
+        monkeypatch.setattr(process_tree, "snapshot", lambda rows=rows: rows)
+        (group,) = [g for g in process_tree.tree_groups(4202) if g.pgid == 4210]
+        seen.append(group.to_json())
+
+    assert seen[0] == seen[1]
+    assert seen[0] == {"label": "bash -c 'while true; do date >> /tmp/be…", "command": _BEAT}
+
+
+def test_two_different_loops_are_named_differently(monkeypatch):
+    rows = _table(
+        *_LOOP,
+        (4230, 4211, 4210, _SECOND + 7.0, "sleep 1"),
+        (4212, 4202, 4212, _SECOND, _wrapper(_BEAT_FG)),
+        (
+            4213,
+            4212,
+            4212,
+            _SECOND,
+            "bash -c for i in $(seq 300); do date >> /tmp/beat-fg; sleep 1; done",
+        ),
+        (4232, 4213, 4212, _SECOND + 7.0, "sleep 1"),
+    )
+    monkeypatch.setattr(process_tree, "snapshot", lambda: rows)
+    monkeypatch.setattr(process_tree.os, "getpgrp", lambda: 100)
+
+    groups = {g.pgid: g for g in process_tree.tree_groups(4202)}
+
+    assert groups[4210].to_json() == {
+        "label": "bash -c 'while true; do date >> /tmp/be…",
+        "command": _BEAT,
+    }
+    assert groups[4212].to_json() == {
+        "label": "bash -c 'for i in $(seq 300); do date >…",
+        "command": _BEAT_FG,
+    }
+
+
+def test_a_leader_that_is_no_wrapper_names_the_group_as_it_is(monkeypatch):
+    rows = _table(
+        (4202, 1, 4202, _SECOND - 5.0, _AGENT),
+        (4210, 4202, 4210, _SECOND, "/x/bin/python /x/magnet_scan.py --sector 3"),
+        (4230, 4210, 4210, _SECOND + 7.0, "sleep 5"),
+    )
+    monkeypatch.setattr(process_tree, "snapshot", lambda: rows)
+    monkeypatch.setattr(process_tree.os, "getpgrp", lambda: 100)
+
+    groups = {g.pgid: g for g in process_tree.tree_groups(4202)}
+
+    assert groups[4210].to_json() == {
+        "label": "magnet_scan.py",
+        "command": "/x/bin/python /x/magnet_scan.py --sector 3",
+    }
+    assert groups[4202].label == "claude"
+
+
+@pytest.mark.parametrize(
+    ("command", "launched"),
+    [
+        (_wrapper(_BEAT), _BEAT),
+        (_wrapper("python scan.py --sector 3"), "python scan.py --sector 3"),
+        (_WRAPPER_HEAD + "ls" + _WRAPPER_TAIL, "ls"),
+        # A command that reads its input is evaluated without the wrapper's own redirection.
+        (_WRAPPER_HEAD + "'sort < in.txt' && pwd -P >| /tmp/claude-1-cwd", "sort < in.txt"),
+        (_WRAPPER_HEAD + "'x && eval y' && pwd -P >| /tmp/claude-1-cwd", "x && eval y"),
+        ("bash -c while true; do date >> /tmp/beat; sleep 1; done", None),
+        ("/x/bin/python /x/magnet_scan.py", None),
+        ("/bin/zsh -c echo hi && pwd -P >| /tmp/x", None),
+        ("-zsh", None),
+        ("", None),
+    ],
+)
+def test_agent_command(command, launched):
+    assert process_tree.agent_command(command) == launched
+
+
 @pytest.mark.parametrize(
     ("command", "label"),
     [
@@ -87,10 +205,34 @@ def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
         ("sleep 60", "sleep"),
         ("-zsh", "zsh"),
         ("", ""),
+        ("FOO=1 python scan.py", "scan.py"),
+        ("claude --mcp-config=.mcp.json", "claude"),
+        ("cd /x && make", "cd /x && make"),
+        ("FOO=1 make", "FOO=1 make"),
+        ("bash -c 'while true; do sleep 1; done'", "bash -c 'while true; do sleep 1; done'"),
+        (
+            "while true; do date >> /tmp/beat; sleep 1; done",
+            "while true; do date >> /tmp/beat; sleep…",
+        ),
     ],
 )
 def test_label_for(command, label):
     assert process_tree.label_for(command) == label
+
+
+@pytest.mark.parametrize(
+    ("command", "name"),
+    [
+        ("python /x/magnet_scan.py --sector 3", "magnet_scan.py"),
+        ("sleep 60", "sleep"),
+        ("while true; do date >> /tmp/beat; sleep 1; done", "while"),
+        ("bash -c 'while true; do sleep 1; done'", "bash"),
+        ("curl -H 'Authorization: Bearer token' https://x", "curl"),
+        ("", ""),
+    ],
+)
+def test_name_for(command, name):
+    assert process_tree.name_for(command) == name
 
 
 def test_still_running_drops_a_group_whose_members_ended():
@@ -180,10 +322,22 @@ def test_no_ps_finds_nothing_and_drops_nothing(monkeypatch):
     assert process_tree.still_running(groups) == groups
 
 
-def test_describe_escapes_labels():
-    text = process_tree.describe([ProcessGroup(4242, ((4242, 0.0),), "a\nb", "a\nb")])
-    assert "\n" not in text
-    assert "\\n" in text
+def test_describe_names_a_group_by_its_name_not_its_command_line():
+    group = ProcessGroup(
+        4242,
+        ((4242, 0.0),),
+        "curl -H 'Authorization: Bearer token' h…",
+        "curl -H 'Authorization: Bearer token' https://x",
+    )
+
+    assert process_tree.describe([group]) == "pgid 4242 'curl' (pids 4242)"
+
+
+def test_describe_escapes_names():
+    text = process_tree.describe([ProcessGroup(4242, ((4242, 0.0),), "scan\x1b[2J", "scan\x1b[2J")])
+    assert text.startswith("pgid 4242 ")
+    assert "\x1b" not in text
+    assert "\\x1b" in text
 
 
 # ---------------------------------------------------------------------------
