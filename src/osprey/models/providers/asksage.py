@@ -52,6 +52,7 @@ class AskSageProviderAdapter(BaseProvider):
     # The OpenAI route documents no image input, so none is assumed.
     supports_images = False
     supports_thinking = False
+    self_hosted = False
     # The completion path drops chat_request and ignores the caller's timeout.
     accepts_chat_request = False
 

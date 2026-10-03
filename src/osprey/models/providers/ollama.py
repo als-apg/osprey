@@ -54,6 +54,7 @@ class OllamaProviderAdapter(BaseProvider):
     # Image input depends on the model each site serves, so none is assumed.
     supports_images = False
     supports_thinking = False
+    self_hosted = True
 
     # Embedding defaults
     default_embedding_model_id = "nomic-embed-text"

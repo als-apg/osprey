@@ -71,12 +71,26 @@ def _yes_no(value: bool) -> str:
 
 def test_the_table_has_the_declared_columns():
     header, _ = _table_rows()
-    assert header == ["Name", "Description", "API Key Env Var", "Protocol", "Images", "Thinking"]
+    assert header == [
+        "Name",
+        "Description",
+        "Hosting",
+        "API Key Env Var",
+        "Protocol",
+        "Images",
+        "Thinking",
+    ]
 
 
 def test_the_table_lists_every_registered_provider():
     _, rows = _table_rows()
     assert set(rows) == set(_names())
+
+
+@pytest.mark.parametrize("name", _names())
+def test_the_hosting_column_is_each_adapters_self_hosted_declaration(name):
+    expected = "Self-hosted" if _adapters()[name].self_hosted else "Cloud"
+    assert _cell(name, "Hosting") == expected
 
 
 @pytest.mark.parametrize("name", _names())

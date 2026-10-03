@@ -52,6 +52,7 @@ class DS4ProviderAdapter(BaseProvider):
     # Image input depends on the model each site serves, so none is assumed.
     supports_images = False
     supports_thinking = False
+    self_hosted = True
 
     # LiteLLM integration - ds4 is an OpenAI-compatible server.
     is_openai_compatible = True

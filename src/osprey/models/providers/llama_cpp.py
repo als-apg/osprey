@@ -113,6 +113,7 @@ class LlamaCppProviderAdapter(BaseProvider):
     supports_interactive_login = False
     supports_images = False
     supports_thinking = False
+    self_hosted = True
 
     # Declared behaviour (see BaseProvider)
     host_override_env_var = "LLAMA_CPP_HOST"

@@ -49,6 +49,7 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
     supports_interactive_login = False
     supports_images = True
     supports_thinking = False
+    self_hosted = False
 
     # LiteLLM integration - OpenAI models don't need a prefix in LiteLLM
     litellm_prefix = ""

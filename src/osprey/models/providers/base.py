@@ -185,6 +185,9 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
     supports_interactive_login: bool = False
     supports_images: bool = False
     supports_thinking: bool = False
+    # True when the site runs the model server itself; False when a vendor or
+    # an institution runs the service the provider calls.
+    self_hosted: bool = False
 
     # Whether a chat call carries the caller's full request (chat_request, timeout).
     accepts_chat_request: bool = True

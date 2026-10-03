@@ -42,6 +42,7 @@ class AnthropicProviderAdapter(LiteLLMDelegatingProvider):
     supports_interactive_login = True
     supports_images = True
     supports_thinking = False
+    self_hosted = False
 
     # LiteLLM integration
     litellm_prefix = "anthropic"

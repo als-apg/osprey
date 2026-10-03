@@ -41,6 +41,7 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
     # The gateway's OpenAI route translates image parts for the models it fronts.
     supports_images = True
     supports_thinking = False
+    self_hosted = False
 
     # LiteLLM integration - CBORG is an OpenAI-compatible proxy
     is_openai_compatible = True

@@ -18,92 +18,111 @@ Available Providers
 
 .. list-table::
    :header-rows: 1
-   :widths: 12 30 16 18 10 10
+   :widths: 12 28 12 16 16 8 8
 
    * - Name
      - Description
+     - Hosting
      - API Key Env Var
      - Protocol
      - Images
      - Thinking
    * - ``anthropic``
      - Anthropic direct API
+     - Cloud
      - ``ANTHROPIC_API_KEY``
      - Anthropic (native)
      - Yes
      - Yes
    * - ``cborg``
      - LBNL CBorg proxy
+     - Cloud
      - ``CBORG_API_KEY``
      - Anthropic (native)
      - Yes
      - Yes
    * - ``als-apg``
      - ALS Accelerator Physics Group gateway
+     - Cloud
      - ``ALS_APG_API_KEY``
      - Anthropic (native)
      - Yes
      - Yes
    * - ``stanford``
      - Stanford AI Playground
+     - Cloud
      - ``STANFORD_API_KEY``
      - OpenAI (proxied)
      - No
      - No
    * - ``amsc-i2``
      - American Science Cloud proxy
+     - Cloud
      - ``AMSC_I2_API_KEY``
      - OpenAI (proxied)
      - No
      - No
    * - ``argo``
      - ANL Argo proxy
+     - Cloud
      - ``ARGO_API_KEY``
      - OpenAI (proxied)
      - No
      - No
    * - ``asksage``
      - AskSage proxy
+     - Cloud
      - ``ASKSAGE_API_KEY``
      - OpenAI (proxied)
      - No
      - No
    * - ``openai``
      - OpenAI (GPT models)
+     - Cloud
      - ``OPENAI_API_KEY``
      - OpenAI (proxied)
      - Yes
      - No
    * - ``google``
      - Google (Gemini models)
+     - Cloud
      - ``GOOGLE_API_KEY``
      - OpenAI (proxied)
      - Yes
      - No
    * - ``ollama``
      - Ollama (local models)
+     - Self-hosted
      - *(none)*
      - OpenAI (proxied)
      - No
      - No
    * - ``vllm``
      - vLLM inference server
+     - Self-hosted
      - *(none)*
      - OpenAI (proxied)
      - No
      - No
    * - ``ds4``
      - DwarfStar local server
+     - Self-hosted
      - *(none)*
      - OpenAI (proxied)
      - No
      - No
    * - ``llama-cpp``
      - llama.cpp server (text and image embeddings, no chat, site-run)
+     - Self-hosted
      - *(none)*
      - OpenAI (proxied)
      - No
      - No
+
+**Hosting** says who runs the model server. *Cloud* means a vendor or an
+institution runs the service and you reach it with a key. *Self-hosted* means
+your site runs the server itself and points the provider at it.
+The column is what each provider's adapter class declares as ``self_hosted``.
 
 **Protocol** indicates how the provider communicates with the OSPREY agent:
 
