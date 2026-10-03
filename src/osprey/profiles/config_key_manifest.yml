@@ -2963,6 +2963,9 @@ deleted:
   # baseline, so no regex for them can match there.
 - facility.ontology
 - facility.timezone
+  # The worker's device file is the build's Bluesky view; the lane key and its
+  # reader both postdate the baseline, so there is no orphan site.
+- services.bluesky.devices_file
   # ── Leaves removed by derive / consolidate / replace items ──────────
   # These have NO deleted ancestor: the parent block legitimately survives (or
   # survives as a commented override stanza), so only the LEAF is banned. Each
@@ -3012,7 +3015,6 @@ deleted:
 - control_system.connector.doocs.limits_checking.allow_unlisted_channels
 - control_system.connector.tango.limits_checking.allow_unlisted_channels
 - control_system.connector.live_standin.limits_checking.allow_unlisted_channels
-- services.bluesky.devices_file
   # The CSV database builder and its LLM channel namer are gone; nothing names a
   # model for channel names.
 - channel_finder.channel_name_generation.llm_model.provider

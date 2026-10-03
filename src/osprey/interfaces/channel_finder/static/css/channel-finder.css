@@ -428,6 +428,13 @@ body.embedded .app-logo { display: none; }
   max-height: 520px;
 }
 
+/* The corrections line above every file-backed Explore view. */
+.cf-corrections-info {
+  color: var(--text-muted);
+  font-size: var(--cf-text-sm);
+  margin-bottom: var(--cf-space-2);
+}
+
 /* ================================================================
    Miller Columns (Hierarchical Explore)
    ================================================================ */

@@ -44,7 +44,7 @@ export function setShowDescriptions(val) {
  */
 export async function mountMiddleLayer(container) {
   container.innerHTML = `
-    <div class="cf-corrections-info" style="color: var(--text-muted); font-size: var(--cf-text-sm); margin-bottom: var(--cf-space-2);">
+    <div class="cf-corrections-info">
       Corrections go in <code>data/facility/fixes.yaml</code> and take effect with <code>osprey build</code>.
     </div>
     <div class="three-column-layout">

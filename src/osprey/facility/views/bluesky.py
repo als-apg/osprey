@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.facility import FACILITY_FILE
 from osprey.facility.views import ViewInputs
 
 __all__ = [
@@ -62,7 +63,6 @@ def bluesky_document(doc: Mapping[str, Any]) -> dict[str, list[dict[str, str]]]:
     Returns:
         ``{settables, readables}`` as the worker's device file holds them.
     """
-    from osprey.facility.render import FACILITY_FILE
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
     return devices_document(_records(doc, Path(FACILITY_FILE)))
@@ -96,7 +96,6 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The file written.
     """
-    from osprey.facility.render import FACILITY_FILE
     from osprey.services.bluesky_bridge.substrate_devices import write_devices_file
 
     root.mkdir(parents=True, exist_ok=True)
