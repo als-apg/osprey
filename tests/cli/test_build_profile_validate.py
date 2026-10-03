@@ -167,7 +167,7 @@ def test_non_boolean_deploy_services_is_rejected(tmp_path: Path) -> None:
 
 
 def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> None:
-    """``tier`` is no profile key; the stop names what selects the subset now."""
+    """``tier`` is no profile key; the stop names what selects the subset."""
     from osprey.facility.errors import FacilityBuildError
 
     (tmp_path / "data").mkdir(exist_ok=True)
