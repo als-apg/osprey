@@ -111,6 +111,9 @@ class TestRoundTrip:
                 row.device_name,
                 row.section,
                 row.system,
+                row.place_path,
+                row.s_position_m,
+                row.ordinal_in_place,
                 row.edges,
                 row.signal_uris,
                 row.signal_names,
@@ -432,6 +435,23 @@ class TestMissingDirectory:
         with pytest.raises(GraphIndexBuildError) as excinfo:
             _build(chain, path)
         assert str(path.parent) in str(excinfo.value)
+
+
+class TestPlacedDevices:
+    def test_place_position_and_ordinal_are_written_with_their_types(self, tmp_path: Path):
+        parsed = parse_corpus(corpora.PLACED_DEVICES)
+        path = tmp_path / "graph.duckdb"
+        _build(parsed, path)
+        rows = _read(
+            path,
+            "SELECT full_pv, place_path, s_position_m, ordinal_in_place FROM bindings "
+            "WHERE place_path = 'SR/SECT1' ORDER BY s_position_m NULLS LAST",
+        )
+        assert rows == [
+            ("SR:QF9:RB", "SR/SECT1", 3.0, 1),
+            ("SR:QF8:RB", "SR/SECT1", 12.5, 2),
+            ("SR:SECT1:TEMP", "SR/SECT1", None, None),
+        ]
 
 
 class TestSharedFullPvAndTwoDevices:
