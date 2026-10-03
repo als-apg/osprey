@@ -560,7 +560,7 @@
     "targeted_pv": [
       "SR:MAG:QD:08:CURRENT:RB"
     ],
-    "category": "tier-boundary"
+    "category": "single-target"
   },
   {
     "user_query": "Show me the second klystron voltage setpoint and readback",
@@ -568,21 +568,21 @@
       "SR:RF:KLYSTRON:02:VOLTAGE:SP",
       "SR:RF:KLYSTRON:02:VOLTAGE:RB"
     ],
-    "category": "tier-boundary"
+    "category": "multi-target"
   },
   {
     "user_query": "What is the golden setpoint for the first dipole?",
     "targeted_pv": [
       "SR:MAG:DIPOLE:01:CURRENT:GOLDEN"
     ],
-    "category": "tier-boundary"
+    "category": "single-target"
   },
   {
     "user_query": "What is the instantaneous neutron dose rate from the second neutron detector?",
     "targeted_pv": [
       "SR:DIAG:NEUTRON:02:DOSE_RATE:INST"
     ],
-    "category": "tier-boundary"
+    "category": "single-target"
   },
   {
     "user_query": "What's the current setpoint for the fourth achromat-arc focusing quadrupole?",
