@@ -144,6 +144,13 @@ PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT = [
     ("vllm", "http://localhost:8000/v1"),
 ]
 
+# Providers with no chat route that require a base_url and declare a default.
+# Only the resolver applies to them: get_chat_completion refuses them from the
+# registry table before any adapter runs, so no completion call reaches the default.
+EMBEDDING_ONLY_PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT = [
+    ("llama-cpp", "http://localhost:8080"),
+]
+
 # Providers that require a base_url and declare no default: nothing but config
 # (or an env override) can supply their endpoint, so the gate must keep
 # rejecting them.
@@ -182,7 +189,11 @@ class TestBaseUrlRequirementHonorsProviderDefaults:
     def _no_ambient_override(self, monkeypatch):
         _clear_base_url_overrides(monkeypatch)
 
-    @pytest.mark.parametrize(("provider", "expected"), PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT)
+    @pytest.mark.parametrize(
+        ("provider", "expected"),
+        PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT
+        + EMBEDDING_ONLY_PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT,
+    )
     def test_a_declared_default_satisfies_the_requirement(self, provider, expected):
         from osprey.models.provider_registry import get_provider_registry
 
@@ -413,3 +424,151 @@ class TestCompletionNamesItsProviderAndModel:
             ValueError, match="Provider must be specified either directly or via model_config"
         ):
             completion_module.get_chat_completion(message="ping", model_config={"model_id": "m"})
+
+
+def _text_response(content: str = "ok"):
+    """A LiteLLM-shaped completion response carrying plain text."""
+    from unittest.mock import MagicMock
+
+    message = MagicMock()
+    message.tool_calls = None
+    message.content = content
+    response = MagicMock()
+    response.choices = [MagicMock(message=message)]
+    return response
+
+
+class TestChatCompletionTimeoutAndRetries:
+    """A caller bounds a chat call by its own timeout and retry count."""
+
+    @pytest.fixture
+    def openai_config(self, monkeypatch):
+        from osprey.models import completion as completion_module
+
+        monkeypatch.setattr(
+            completion_module,
+            "get_provider_config",
+            lambda provider: {"api_key": "k", "default_model_id": "gpt-4o"},
+        )
+
+    def test_timeout_and_zero_retries_reach_litellm(self, openai_config):  # noqa: ARG002 - fixture patches the config
+        """A given timeout and num_retries=0 are what litellm.completion receives."""
+        from unittest.mock import patch
+
+        from osprey.models import completion as completion_module
+
+        with patch("litellm.completion", return_value=_text_response()) as mock_completion:
+            result = completion_module.get_chat_completion(
+                message="ping", provider="openai", max_tokens=4, timeout=7.5, num_retries=0
+            )
+
+        assert result == "ok"
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["timeout"] == 7.5
+        assert kwargs["num_retries"] == 0
+
+    def test_defaults_send_two_retries_and_no_timeout(self, openai_config):  # noqa: ARG002 - fixture patches the config
+        """With timeout=None nothing is sent for it, and retries default to two."""
+        from unittest.mock import patch
+
+        from osprey.models import completion as completion_module
+
+        with patch("litellm.completion", return_value=_text_response()) as mock_completion:
+            completion_module.get_chat_completion(
+                message="ping", provider="openai", max_tokens=4, timeout=None
+            )
+
+        kwargs = mock_completion.call_args.kwargs
+        assert "timeout" not in kwargs
+        assert kwargs["num_retries"] == 2
+
+    def test_timeout_reaches_the_provider_adapter(self, monkeypatch):
+        """The timeout travels through completion_kwargs to the adapter."""
+        from osprey.models import completion as completion_module
+        from osprey.models.provider_registry import get_provider_registry
+
+        seen: dict = {}
+
+        def fake_execute(self, **kwargs):  # noqa: ARG001 - stands in for the provider adapter's execute
+            seen.update(kwargs)
+            return "ok"
+
+        monkeypatch.setattr(
+            completion_module,
+            "get_provider_config",
+            lambda provider: {"base_url": "http://localhost:11434"},
+        )
+        cls = get_provider_registry().get_provider("ollama")
+        monkeypatch.setattr(cls, "execute_completion", fake_execute)
+
+        completion_module.get_chat_completion(
+            message="ping", provider="ollama", model_id="m", timeout=3.0
+        )
+
+        assert seen["timeout"] == 3.0
+        assert "num_retries" not in seen
+
+
+class TestEmbeddingOnlyProviderIsRefused:
+    """A provider that serves embeddings only is refused before anything else runs."""
+
+    @pytest.fixture
+    def embeddings_only(self, monkeypatch):
+        from osprey.models import completion as completion_module
+        from osprey.models.provider_registry import get_provider_registry
+
+        registry = get_provider_registry()
+        real_is_chat = registry.is_chat
+        monkeypatch.setattr(
+            registry, "is_chat", lambda name: False if name == "openai" else real_is_chat(name)
+        )
+
+        def no_config(provider):
+            raise AssertionError(f"config read for {provider}")
+
+        monkeypatch.setattr(completion_module, "get_provider_config", no_config)
+
+        constructed: list = []
+        cls = registry.get_provider("openai")
+        real_init = cls.__init__
+
+        def tracking_init(self, *args, **kwargs):
+            constructed.append(self)
+            real_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(cls, "__init__", tracking_init)
+        return constructed
+
+    def test_direct_provider_is_refused(self, embeddings_only):
+        """Naming the provider directly raises before config or adapter."""
+        from osprey.models import completion as completion_module
+
+        with pytest.raises(ValueError, match="openai serves embeddings only"):
+            completion_module.get_chat_completion(message="ping", provider="openai")
+        assert embeddings_only == []
+
+    def test_model_config_provider_is_refused(self, embeddings_only):
+        """Naming the provider through model_config raises the same way."""
+        from osprey.models import completion as completion_module
+
+        with pytest.raises(ValueError, match="openai serves embeddings only"):
+            completion_module.get_chat_completion(
+                message="ping", model_config={"provider": "openai", "model_id": "m"}
+            )
+        assert embeddings_only == []
+
+    def test_llama_cpp_is_refused_from_its_table_row(self):
+        """llama-cpp serves embeddings only, and its table row says so with no patching."""
+        from osprey.models import completion as completion_module
+
+        with pytest.raises(ValueError, match="llama-cpp serves embeddings only"):
+            completion_module.get_chat_completion(message="ping", provider="llama-cpp")
+
+    def test_unknown_provider_is_named_unknown(self, monkeypatch):
+        """An unknown name reports itself as unknown, never as embeddings-only."""
+        from osprey.models import completion as completion_module
+
+        monkeypatch.setattr(completion_module, "get_provider_config", lambda provider: {})
+
+        with pytest.raises(ValueError, match="Unknown provider: nope"):
+            completion_module.get_chat_completion(message="ping", provider="nope", model_id="m")

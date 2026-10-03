@@ -1167,3 +1167,155 @@ class TestSpendAttribution:
         kwargs = mock_litellm.completion.call_args.kwargs
         assert "user" not in kwargs
         assert "extra_headers" not in kwargs
+
+
+class TestCompletionTimeoutAndRetries:
+    """execute_litellm_completion sends timeout and num_retries only when given."""
+
+    @staticmethod
+    def _response():
+        message = MagicMock()
+        message.tool_calls = None
+        message.content = "ok"
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        return response
+
+    @patch("litellm.completion")
+    def test_given_values_reach_litellm(self, mock_completion):
+        """A timeout and num_retries=0 are sent as given."""
+        mock_completion.return_value = self._response()
+
+        execute_litellm_completion(
+            provider="openai",
+            message="hi",
+            model_id="gpt-4o",
+            api_key="k",
+            base_url=None,
+            timeout=4.0,
+            num_retries=0,
+        )
+
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["timeout"] == 4.0
+        assert kwargs["num_retries"] == 0
+
+    @patch("litellm.completion")
+    def test_none_values_are_not_sent(self, mock_completion):
+        """None for either leaves timeout unsent and retries at two."""
+        mock_completion.return_value = self._response()
+
+        execute_litellm_completion(
+            provider="openai",
+            message="hi",
+            model_id="gpt-4o",
+            api_key="k",
+            base_url=None,
+            timeout=None,
+            num_retries=None,
+        )
+
+        kwargs = mock_completion.call_args.kwargs
+        assert "timeout" not in kwargs
+        assert kwargs["num_retries"] == 2
+
+    @patch("litellm.completion")
+    def test_structured_output_carries_the_timeout(self, mock_completion):
+        """The structured path sends the same timeout."""
+        message = MagicMock()
+        message.content = '{"name": "a"}'
+        mock_completion.return_value = MagicMock(choices=[MagicMock(message=message)])
+
+        class Out(BaseModel):
+            name: str
+
+        execute_litellm_completion(
+            provider="openai",
+            message="hi",
+            model_id="gpt-4o",
+            api_key="k",
+            base_url=None,
+            output_format=Out,
+            timeout=6.0,
+            num_retries=1,
+        )
+
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["timeout"] == 6.0
+        assert kwargs["num_retries"] == 1
+
+    @staticmethod
+    def _ollama_reply(content: str):
+        response = MagicMock()
+        response.json.return_value = {"message": {"content": content}}
+        response.raise_for_status = MagicMock()
+        return response
+
+    @patch("httpx.post")
+    def test_ollama_text_path_uses_the_timeout(self, mock_post):
+        """The direct Ollama text call is bounded by the given timeout."""
+        mock_post.return_value = self._ollama_reply("ok")
+
+        execute_litellm_completion(
+            provider="ollama",
+            message="hi",
+            model_id="m",
+            api_key="ollama",
+            base_url="http://localhost:11434",
+            timeout=0.5,
+        )
+
+        assert mock_post.call_args.kwargs["timeout"] == 0.5
+
+    @patch("httpx.post")
+    def test_ollama_text_path_falls_back_to_120(self, mock_post):
+        """Without a timeout the direct Ollama text call keeps 120 seconds."""
+        mock_post.return_value = self._ollama_reply("ok")
+
+        execute_litellm_completion(
+            provider="ollama",
+            message="hi",
+            model_id="m",
+            api_key="ollama",
+            base_url="http://localhost:11434",
+        )
+
+        assert mock_post.call_args.kwargs["timeout"] == 120.0
+
+    @patch("httpx.post")
+    def test_ollama_structured_path_uses_the_timeout(self, mock_post):
+        """The direct Ollama structured call is bounded by the given timeout."""
+        mock_post.return_value = self._ollama_reply('{"name": "a"}')
+
+        class Out(BaseModel):
+            name: str
+
+        execute_litellm_completion(
+            provider="ollama",
+            message="hi",
+            model_id="m",
+            api_key="ollama",
+            base_url="http://localhost:11434",
+            output_format=Out,
+            timeout=2.5,
+        )
+
+        assert mock_post.call_args.kwargs["timeout"] == 2.5
+
+    @patch("httpx.post")
+    def test_ollama_structured_helper_falls_back_to_120(self, mock_post):
+        """The structured helper keeps 120 seconds when no timeout is given."""
+        mock_post.return_value = self._ollama_reply('{"name": "a"}')
+
+        class Out(BaseModel):
+            name: str
+
+        _execute_ollama_structured_output(
+            model_id="m",
+            message="hi",
+            output_format=Out,
+            base_url="http://localhost:11434",
+            max_tokens=10,
+        )
+
+        assert mock_post.call_args.kwargs["timeout"] == 120.0

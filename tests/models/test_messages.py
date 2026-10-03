@@ -1,6 +1,13 @@
 """Tests for ChatMessage and ChatCompletionRequest."""
 
-from osprey.models.messages import ChatCompletionRequest, ChatMessage
+import base64
+import copy
+from unittest.mock import MagicMock, patch
+
+import pytest
+from pydantic import BaseModel
+
+from osprey.models.messages import ChatCompletionRequest, ChatMessage, parse_data_url
 
 
 class TestChatMessage:
@@ -321,3 +328,245 @@ class TestChatCompletionRequestEdgeCases:
         assert len(result) == 2
         assert result[0]["content"] == "first"
         assert result[1]["content"] == "second"
+
+
+# --- Content parts (text + image) ---
+
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 4  # 1032 bytes
+_PNG_B64 = base64.b64encode(_PNG_BYTES).decode("ascii")
+_PNG_URL = f"data:image/png;base64,{_PNG_B64}"
+
+
+def _image_part(url: str = _PNG_URL) -> dict:
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def _mixed_message(role: str = "user", text: str = "What is in this plot?") -> ChatMessage:
+    return ChatMessage(role, [{"type": "text", "text": text}, _image_part()])
+
+
+class TestParseDataUrl:
+    """parse_data_url splits a base64 data URL into (mime, n_bytes, b64)."""
+
+    def test_png(self):
+        mime, n_bytes, b64 = parse_data_url(_PNG_URL)
+        assert mime == "image/png"
+        assert n_bytes == len(_PNG_BYTES)
+        assert b64 == _PNG_B64
+
+    @pytest.mark.parametrize("payload", [b"a", b"ab", b"abc", b"abcd", b""])
+    def test_byte_count_matches_decoded_length_for_every_padding(self, payload):
+        b64 = base64.b64encode(payload).decode("ascii")
+        _, n_bytes, _ = parse_data_url(f"data:image/jpeg;base64,{b64}")
+        assert n_bytes == len(payload)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://example.org/a.png",
+            "data:image/png,rawnotbase64",
+            "data:;base64,AAAA",
+            "not a url",
+        ],
+    )
+    def test_rejects_non_base64_data_urls(self, url):
+        with pytest.raises(ValueError):
+            parse_data_url(url)
+
+
+class TestContentParts:
+    """ChatMessage.content may be a list of LiteLLM content parts."""
+
+    def test_to_dict_passes_parts_through(self):
+        msg = _mixed_message()
+        d = msg.to_dict()
+        assert d["content"] == msg.content
+
+    def test_to_dict_copies_list_and_parts(self):
+        msg = _mixed_message()
+        d = msg.to_dict()
+        assert d["content"] is not msg.content
+        assert all(a is not b for a, b in zip(d["content"], msg.content, strict=True))
+        d["content"][0]["text"] += " mutated"
+        d["content"].append({"type": "text", "text": "extra"})
+        assert msg.content == _mixed_message().content
+
+    def test_mixed_message_round_trips_to_litellm_image_url_parts(self):
+        req = ChatCompletionRequest(messages=[_mixed_message()])
+        result = req.to_litellm_messages(provider="openai")
+        assert result == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What is in this plot?"},
+                    {"type": "image_url", "image_url": {"url": _PNG_URL}},
+                ],
+            }
+        ]
+
+    def test_anthropic_single_user_list_message_has_no_marker(self):
+        req = ChatCompletionRequest(messages=[_mixed_message()])
+        result = req.to_litellm_messages(provider="anthropic")
+        assert all("cache_control" not in p for p in result[0]["content"])
+
+    def test_anthropic_marker_on_last_text_part_of_second_to_last_user(self):
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage(
+                    "user",
+                    [
+                        {"type": "text", "text": "first"},
+                        _image_part(),
+                        {"type": "text", "text": "caption"},
+                        _image_part(),
+                    ],
+                ),
+                ChatMessage("assistant", "ok"),
+                ChatMessage("user", "follow-up"),
+            ]
+        )
+        result = req.to_litellm_messages(provider="anthropic")
+        parts = result[0]["content"]
+        assert parts[2] == {
+            "type": "text",
+            "text": "caption",
+            "cache_control": {"type": "ephemeral"},
+        }
+        assert "cache_control" not in parts[0]
+        assert "cache_control" not in parts[1]
+        assert "cache_control" not in parts[3]
+        assert result[2]["content"] == "follow-up"
+
+    def test_anthropic_marker_on_last_text_part_of_list_system_message(self):
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage("system", [{"type": "text", "text": "sys"}, _image_part()]),
+                ChatMessage("user", "hi"),
+            ]
+        )
+        result = req.to_litellm_messages(provider="anthropic")
+        assert result[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in result[0]["content"][1]
+
+    def test_anthropic_image_only_message_gets_no_marker(self):
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage("user", [_image_part()]),
+                ChatMessage("user", "describe it"),
+            ]
+        )
+        result = req.to_litellm_messages(provider="anthropic")
+        assert result[0]["content"] == [_image_part()]
+
+    def test_anthropic_calling_twice_leaves_original_unchanged(self):
+        msgs = [
+            ChatMessage("system", [{"type": "text", "text": "sys"}]),
+            _mixed_message(),
+            ChatMessage("assistant", "ok"),
+            ChatMessage("user", "follow-up"),
+        ]
+        snapshot = copy.deepcopy(msgs)
+        req = ChatCompletionRequest(messages=msgs)
+        first = req.to_litellm_messages(provider="anthropic")
+        second = req.to_litellm_messages(provider="anthropic")
+        assert first == second
+        assert msgs == snapshot
+        assert all("cache_control" not in p for p in msgs[0].content)
+        assert all("cache_control" not in p for p in msgs[1].content)
+
+
+class _Answer(BaseModel):
+    answer: str
+
+
+class TestStructuredOutputFallbackDoesNotMutateCaller:
+    """The prompt-based structured-output fallback appends to the last user
+    message in place; the caller's ChatMessage must never see that append."""
+
+    def _run(self, req: ChatCompletionRequest):
+        from osprey.models.providers import litellm_adapter
+
+        reply = MagicMock()
+        reply.choices[0].message.content = '{"answer": "a plot"}'
+        with (
+            patch.object(litellm_adapter, "_supports_native_structured_output", return_value=False),
+            patch.object(litellm_adapter.litellm, "completion", return_value=reply) as completion,
+        ):
+            kwargs = {"model": "openai/gpt-x", "messages": req.to_litellm_messages("openai")}
+            out = litellm_adapter._handle_structured_output(
+                provider="openai",
+                model_id="gpt-x",
+                litellm_model="openai/gpt-x",
+                message="",
+                completion_kwargs=kwargs,
+                output_format=_Answer,
+                is_typed_dict_output=False,
+                chat_request=req,
+            )
+        return out, completion.call_args.kwargs["messages"]
+
+    def test_openai_fallback_twice_leaves_original_unchanged(self):
+        msg = ChatMessage(
+            "user", [_image_part(), {"type": "text", "text": "What is in this plot?"}]
+        )
+        snapshot = copy.deepcopy(msg)
+        req = ChatCompletionRequest(messages=[msg])
+
+        out1, sent1 = self._run(req)
+        out2, sent2 = self._run(req)
+
+        assert out1.answer == out2.answer == "a plot"
+        assert "valid JSON" in sent1[0]["content"][-1]["text"]
+        # Each call appends the schema exactly once — no accumulation.
+        assert sent2[0]["content"][-1]["text"].count("valid JSON") == 1
+        assert msg == snapshot
+
+
+class TestToSingleStringContentParts:
+    """to_single_string renders image parts as a size note, never base64."""
+
+    def test_image_part_rendered_as_mime_and_size(self):
+        req = ChatCompletionRequest(messages=[_mixed_message()])
+        s = req.to_single_string()
+        assert "What is in this plot?" in s
+        assert f"[image image/png, {len(_PNG_BYTES)} bytes]" in s
+
+    def test_log_string_never_contains_base64(self):
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage("system", "sys"),
+                _mixed_message(),
+                ChatMessage("assistant", "ok"),
+                ChatMessage("user", [_image_part(), _image_part()]),
+            ]
+        )
+        s = req.to_single_string()
+        assert _PNG_B64 not in s
+        assert _PNG_B64[:32] not in s
+        assert "base64" not in s
+        assert s.count("[image image/png,") == 3
+
+    def test_text_parts_joined(self):
+        req = ChatCompletionRequest(
+            messages=[
+                ChatMessage(
+                    "user",
+                    [{"type": "text", "text": "alpha"}, {"type": "text", "text": "beta"}],
+                )
+            ]
+        )
+        s = req.to_single_string()
+        assert "alpha" in s and "beta" in s
+        assert s.index("alpha") < s.index("beta")
+
+    def test_string_and_list_messages_mix(self):
+        req = ChatCompletionRequest(
+            messages=[ChatMessage("system", "sys"), ChatMessage("user", [_image_part()])]
+        )
+        assert req.to_single_string() == (f"sys\n\n[image image/png, {len(_PNG_BYTES)} bytes]")
+
+    def test_non_data_url_image_never_echoes_url_payload(self):
+        req = ChatCompletionRequest(
+            messages=[ChatMessage("user", [_image_part("https://example.org/a.png")])]
+        )
+        assert req.to_single_string().startswith("[image")
