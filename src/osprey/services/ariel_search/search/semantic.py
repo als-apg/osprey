@@ -20,7 +20,7 @@ from osprey.services.ariel_search.search.base import (
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.models.embeddings.base import BaseEmbeddingProvider
+    from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
@@ -32,6 +32,56 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.5
 
 #: Config block the semantic knobs are read from.
 _SETTINGS_PREFIX = "search_modules.semantic.settings"
+
+#: Config keys a query's embedding provider can come from, highest precedence first.
+SEMANTIC_PROVIDER_KEY = "ariel.search_modules.semantic.provider"
+TEXT_EMBEDDING_PROVIDER_KEY = "ariel.enhancement_modules.text_embedding.provider"
+EMBEDDING_PROVIDER_KEY = "ariel.embedding.provider"
+
+
+def semantic_provider(config: ARIELConfig) -> tuple[str, str]:
+    """Name the provider that embeds a semantic-search query, and where it came from.
+
+    A query must be embedded by the provider that built the table it searches,
+    so the text-embedding module's provider outranks the deployment-wide
+    default: ``search_modules.semantic.provider`` >
+    ``enhancement_modules.text_embedding.provider`` > ``embedding.provider``
+    (which defaults to ``ollama``).
+
+    Args:
+        config: The loaded ARIEL configuration.
+
+    Returns:
+        ``(provider name, config key it came from)``. The key is what an operator
+        edits to change the provider, so errors about the provider name it.
+    """
+    semantic = config.search_modules.get("semantic")
+    if semantic is not None and semantic.provider:
+        return semantic.provider, SEMANTIC_PROVIDER_KEY
+    text_embedding = config.enhancement_modules.get("text_embedding")
+    if text_embedding is not None and text_embedding.provider:
+        return text_embedding.provider, TEXT_EMBEDDING_PROVIDER_KEY
+    return config.embedding.provider, EMBEDDING_PROVIDER_KEY
+
+
+def _query_dimension(config: ARIELConfig, model_name: str) -> int | None:
+    """The vector length stored in the table *model_name* searches.
+
+    Read from the ``text_embedding`` model entry of that name, else from
+    ``search_modules.semantic.settings.embedding_dimension``.
+    """
+    text_embedding = config.enhancement_modules.get("text_embedding")
+    if text_embedding is not None:
+        for model in text_embedding.models or []:
+            if model.name == model_name:
+                return model.dimension
+    semantic = config.search_modules.get("semantic")
+    settings = semantic.settings if semantic is not None else None
+    if isinstance(settings, dict):
+        dimension = settings.get("embedding_dimension")
+        if isinstance(dimension, int) and not isinstance(dimension, bool):
+            return dimension
+    return None
 
 
 @dataclass(frozen=True)
@@ -91,8 +141,9 @@ async def semantic_search(
     query: str,
     repository: ARIELRepository,
     config: ARIELConfig,
-    embedder: BaseEmbeddingProvider,
+    embedder: BaseProvider,
     *,
+    provider_config: dict[str, Any] | None = None,
     max_results: int = 10,
     similarity_threshold: float | None = None,
     start_date: datetime | None = None,
@@ -111,7 +162,11 @@ async def semantic_search(
         query: Natural language query
         repository: ARIEL database repository
         config: ARIEL configuration
-        embedder: Embedding provider (Ollama or other)
+        embedder: The embedding provider adapter instance. Its class supplies
+            the base-URL rule and whether vectors are cut to the table's length.
+        provider_config: The provider's ``api.providers`` entry (``api_key``,
+            ``base_url``). ``None`` resolves it from the provider
+            :func:`semantic_provider` names.
         max_results: Maximum entries to return (default: 10)
         similarity_threshold: Minimum similarity score (default: 0.5).
             Can be overridden per-query, then falls back to config,
@@ -154,25 +209,27 @@ async def semantic_search(
         logger.warning("No semantic search model configured")
         return module_result([], query_expansion)
 
-    # Priority: search module provider > embedding provider > default
-    provider_name = (
-        (semantic_config.provider if semantic_config else None)
-        or config.embedding.provider
-        or "ollama"
-    )
+    if provider_config is None:
+        provider_name, _ = semantic_provider(config)
+        try:
+            from osprey.models.config import get_provider_config
 
-    try:
-        from osprey.models.config import get_provider_config
+            provider_config = get_provider_config(provider_name)
+        except FileNotFoundError:
+            logger.debug(f"No config.yml found, using empty provider config for '{provider_name}'")
+            provider_config = {}
 
-        provider_config = get_provider_config(provider_name)
-    except FileNotFoundError:
-        logger.debug(f"No config.yml found, using empty provider config for '{provider_name}'")
-        provider_config = {}
-
-    base_url = provider_config.get("base_url") or embedder.default_base_url
+    provider_cls = type(embedder)
+    base_url = provider_cls.effective_base_url(provider_config.get("base_url"))
     api_key = provider_config.get("api_key")
 
     embed_text = query_expansion.flattened_text if query_expansion else query
+
+    embed_kwargs: dict[str, Any] = {}
+    if provider_cls.truncates_to_dimensions:
+        dimension = _query_dimension(config, model_name)
+        if dimension is not None:
+            embed_kwargs["dimensions"] = dimension
 
     try:
         embeddings = embedder.execute_embedding(
@@ -180,6 +237,7 @@ async def semantic_search(
             model_id=model_name,
             base_url=base_url,
             api_key=api_key,
+            **embed_kwargs,
         )
         if not embeddings or not embeddings[0]:
             logger.error("Failed to generate query embedding")
