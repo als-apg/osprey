@@ -176,7 +176,6 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
         GRAPHDB_BUILD_INDEX_COMMAND,
         resolve_graph_index_path,
     )
-    from osprey.interfaces.channel_finder.database_api import unresolved_index_path
     from osprey.services.channel_finder.graph_index.reader import (
         GraphIndexAbsence,
         open_graph_index,
@@ -184,14 +183,7 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
 
     # No ``config_dir``: the render is found through ``OSPREY_CONFIG``, which is
     # what a deployed process gets and how the corpus beside it is resolved too.
-    try:
-        path = resolve_graph_index_path(config)
-    except ValueError as exc:
-        # The 503 the routes build from it recognises this absence by its type
-        # and adds no build step, since a build would read the same bad key.
-        absent = unresolved_index_path(exc)
-        logger.warning("%s", absent.detail)
-        return absent
+    path = resolve_graph_index_path(config)
 
     opened = open_graph_index(path)
     if isinstance(opened, GraphIndexAbsence):

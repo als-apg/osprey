@@ -86,9 +86,7 @@ from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_BUILD_INDEX_COMMAND,
     GRAPHDB_SEED_COMMAND,
-    UNRESOLVED_INDEX_PATH_REMEDY,
     resolve_graph_index_path,
-    unresolved_index_path_detail,
 )
 from osprey.health.core.graphdb import _CONNECTION_ROW as _GRAPHDB_CONNECTION_ROW
 from osprey.health.core.graphdb import _DIGEST_PREFIX_LEN as _GRAPHDB_DIGEST_PREFIX_LEN
@@ -274,8 +272,8 @@ async def _graph_store_rows(cfg: Mapping[str, Any], base_dir: Path | None) -> li
             where a graph-mode project describes the store it answers from and
             the index derived from the same corpus.
         base_dir: Directory holding ``config.yml``, which is what this category
-            is handed as ``cwd`` and what a relative ``index_path`` resolves
-            against.
+            is handed as ``cwd`` and what the index's render-relative path
+            resolves against.
 
     Returns:
         The store's reachability row, the resource-count and seed rows when the
@@ -315,30 +313,18 @@ async def _graph_store_rows(cfg: Mapping[str, Any], base_dir: Path | None) -> li
 async def _search_index_row(
     cfg: Mapping[str, Any], base_dir: Path | None, seed: str
 ) -> CheckResult:
-    """Resolve the index's path and read it, or say why neither could happen.
+    """Resolve the index's path and read it.
 
     Args:
-        cfg: The parsed config mapping, read for ``services.graphdb.index_path``.
+        cfg: The parsed config mapping.
         base_dir: Directory holding ``config.yml``.
         seed: The store's corpus digest, or ``""`` when the store could not be
             read or carries no marker.
 
     Returns:
-        The ``channel_finder_search_index`` row. A malformed ``index_path`` is
-        reported as that row rather than raised, for the reason the graphdb
-        category gives for a malformed block: the same typo already refuses
-        loudly at deploy time, and a suite that crashes names no key.
+        The ``channel_finder_search_index`` row.
     """
-    try:
-        index_path = resolve_graph_index_path(cfg, base_dir)
-    except ValueError as exc:
-        return CheckResult(
-            _SEARCH_INDEX_ROW,
-            CATEGORY,
-            Status.WARNING,
-            unresolved_index_path_detail(exc),
-            details=UNRESOLVED_INDEX_PATH_REMEDY,
-        )
+    index_path = resolve_graph_index_path(cfg, base_dir)
     return await asyncio.to_thread(_index_row, index_path, seed)
 
 
