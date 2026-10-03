@@ -246,7 +246,6 @@ async def test_a_replaced_operator_session_ends_what_it_started(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="the hand-off does not look for started commands")
 async def test_the_expert_view_asks_before_ending_the_chats_started_processes(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     session = await start_chat(factory, session_key=KEY)
@@ -265,6 +264,56 @@ async def test_the_expert_view_asks_before_ending_the_chats_started_processes(tm
         assert not pid_gone(pids[0], within=0.0)
         assert registry(app).get_session(KEY) is None
         assert_released(app)
+    finally:
+        await session.stop()
+        kill_quietly(pids)
+
+
+async def test_stop_both_ends_the_chat_and_what_it_started(tmp_path):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory, session_key=KEY)
+    app = make_app()
+    chats(app).sessions[KEY] = session
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+
+        await acquire(app, KEY, "expert", object(), spawn=pty_spawner(app), end_started=True)
+
+        assert session.process_exited is True
+        assert all(pid_gone(pid) for pid in pids)
+    finally:
+        await session.stop()
+        kill_quietly(pids)
+
+
+async def test_started_commands_lists_only_groups_of_their_own(tmp_path):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        grandchild, helper = pids
+
+        commands = await asyncio.to_thread(session.started_commands)
+
+        assert [c.label for c in commands] == ["magnet_scan.py"]
+        assert commands[0].pgid == grandchild
+        assert helper not in {pid for c in commands for pid, _ in c.members}
+    finally:
+        await session.stop()
+        kill_quietly(pids)
+
+
+async def test_started_commands_of_a_stopped_chat_is_empty(tmp_path):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        await session.stop()
+
+        assert session.started_commands() == []
     finally:
         await session.stop()
         kill_quietly(pids)

@@ -120,10 +120,17 @@ class FakeChatSession:
         self.is_busy = busy
         self.process_exited: bool | None = None
         self.teardowns = 0
+        # What ``started_commands`` answers, and how often it was asked.
+        self.running_commands: list = []
+        self.started_calls = 0
 
     @property
     def is_active(self) -> bool:
         return self._active
+
+    def started_commands(self) -> list:
+        self.started_calls += 1
+        return list(self.running_commands)
 
     async def teardown(self) -> None:
         self.teardowns += 1
@@ -163,7 +170,7 @@ class PoolChatSession:
     """An ``OperatorSession`` double the real ``ChatSessionPool`` can drive.
 
     The surface the pool asks for (``start``/``is_active``/``is_busy``/
-    ``last_activity``/``teardown``), ``acquire_turn`` for the turn-guard
+    ``last_activity``/``started_commands``/``teardown``), ``acquire_turn`` for the turn-guard
     callers, the ``process_exited`` the hand-off's death check reads, and the
     launch facts worth asserting: the ``session_key`` it was built under and
     the ``resume_id`` it was started on. ``start_delay`` holds ``start`` open
@@ -184,10 +191,17 @@ class PoolChatSession:
         self.turns = 0
         self.start_delay = 0.0
         self.started = asyncio.Event()
+        # What ``started_commands`` answers, and how often it was asked.
+        self.running_commands: list = []
+        self.started_calls = 0
 
     @property
     def is_busy(self) -> bool:
         return self.in_flight
+
+    def started_commands(self) -> list:
+        self.started_calls += 1
+        return list(self.running_commands)
 
     async def start(self, *, resume_id: str | None = None) -> None:
         self.resume_id = resume_id

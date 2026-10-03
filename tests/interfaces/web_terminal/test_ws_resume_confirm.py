@@ -136,6 +136,9 @@ class _IdleChat:
     def is_active(self) -> bool:
         return self._active
 
+    def started_commands(self) -> list:
+        return []
+
     async def teardown(self) -> None:
         self.teardowns += 1
         self._active = False
