@@ -36,6 +36,9 @@ EXPECTED_COLUMNS = {
         ("device_name", "VARCHAR"),
         ("section", "VARCHAR"),
         ("system", "VARCHAR"),
+        ("place_path", "VARCHAR"),
+        ("s_position_m", "DOUBLE"),
+        ("ordinal_in_place", "BIGINT"),
         ("edges", "VARCHAR[]"),
         ("signal_uris", "VARCHAR[]"),
         ("signal_names", "VARCHAR[]"),
@@ -146,6 +149,9 @@ class TestBindingsRow:
             "BPM1",
             "SR01",
             "Diagnostics",
+            "SR/SR01",
+            12.25,
+            3,
             ["readsSignal"],
             ["http://example.org/signal/position"],
             ["position"],
@@ -158,16 +164,20 @@ class TestBindingsRow:
 
     def test_nullable_device_columns_accept_a_device_without_section_or_system(self, con):
         con.execute(
-            "INSERT INTO bindings VALUES (?, ?, NULL, ?, ?, NULL, NULL, [], [], [], [], ?)",
+            "INSERT INTO bindings VALUES "
+            "(?, ?, NULL, ?, ?, NULL, NULL, NULL, NULL, NULL, [], [], [], [], ?)",
             ["u", "PV", "d", "DEV", "pv dev"],
         )
         assert con.execute("SELECT section, system FROM bindings").fetchall() == [(None, None)]
+        assert con.execute(
+            "SELECT place_path, s_position_m, ordinal_in_place FROM bindings"
+        ).fetchall() == [(None, None, None)]
 
     def test_haystack_is_not_nullable(self, con):
         with pytest.raises(duckdb.ConstraintException):
             con.execute(
                 "INSERT INTO bindings VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, "
-                "[], [], [], [], NULL)",
+                "NULL, NULL, NULL, [], [], [], [], NULL)",
                 ["u", "PV"],
             )
 
