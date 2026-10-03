@@ -11,9 +11,30 @@
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
 
 /**
- * One command the agent started, as the server lists it.
+ * One command the agent started, as the server lists it: `command` is the
+ * command line the agent launched, `label` what the operator is shown it as —
+ * a file or program name, or the command line itself when no one program names
+ * it. Both are cut to a fixed length by the server, and end in `…` when cut.
  * @typedef {{label: string, command: string}} StartedCommandJson
  */
+
+/** @param {string} label */
+function isCut(label) {
+  return label.endsWith('…');
+}
+
+/**
+ * Whether the title can name the commands: one or two, each with a name of
+ * its own that was not cut short. Otherwise it counts them, and the body
+ * tells them apart.
+ * @param {StartedCommandJson[]} commands
+ */
+function nameable(commands) {
+  const labels = commands.map((c) => c.label);
+  return (
+    labels.length <= 2 && new Set(labels).size === labels.length && !labels.some(isCut)
+  );
+}
 
 /**
  * The title, body and confirm label of the question.
@@ -32,12 +53,15 @@ export function startedCommandsQuestion(commands) {
     };
   }
   let title;
-  if (commands.length === 1) {
+  if (!nameable(commands)) {
+    title =
+      commands.length === 1
+        ? 'This also ends the command the agent started.'
+        : `This also ends ${commands.length} commands the agent started.`;
+  } else if (commands.length === 1) {
     title = `This also ends ${commands[0].label}.`;
-  } else if (commands.length === 2) {
-    title = `This also ends ${commands[0].label} and ${commands[1].label}.`;
   } else {
-    title = `This also ends ${commands.length} commands the agent started.`;
+    title = `This also ends ${commands[0].label} and ${commands[1].label}.`;
   }
   const lead =
     commands.length === 1
@@ -46,7 +70,14 @@ export function startedCommandsQuestion(commands) {
   /** @type {(import('./control-target-facts.js').ConfirmRun)[][]} */
   const body = [[lead]];
   for (const { label, command } of commands) {
-    body.push(command && command !== label ? [{ em: label }, ` — ${command}`] : [{ em: label }]);
+    // A command line that begins with its label — the label is the program, or
+    // the command line cut short — is listed once, whole.
+    const head = isCut(label) ? label.slice(0, -1) : label;
+    body.push(
+      command && !command.startsWith(head)
+        ? [{ em: label }, ` — ${command}`]
+        : [{ em: command || label }]
+    );
   }
   return { title, body, confirmLabel: commands.length === 1 ? 'Stop both' : 'Stop all' };
 }
