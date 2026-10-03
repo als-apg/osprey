@@ -5,7 +5,10 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import logging
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -839,6 +842,20 @@ class FakeChatSession:
         self.stop_calls = 0
         self.start_delay = 0.0
         self.start_error: Exception | None = None
+        # What ``started_commands`` answers, the threads it was asked on, and
+        # what it does when asked.
+        self.running_commands: list = []
+        self.look_threads: list[int] = []
+        self.look_error: Exception | None = None
+        self.on_look: Callable[[], None] | None = None
+
+    def started_commands(self) -> list:
+        self.look_threads.append(threading.get_ident())
+        if self.on_look is not None:
+            self.on_look()
+        if self.look_error is not None:
+            raise self.look_error
+        return list(self.running_commands)
 
     async def start(self, *, resume_id=None):
         self.resume_id = resume_id
@@ -1286,6 +1303,96 @@ class TestOperatorRegistryChatPool:
         assert a.stop_calls == 1
         assert registry.get_chat_session("b") is b
         assert registry.get_chat_session("c") is c
+
+    @pytest.mark.asyncio
+    async def test_reap_idle_keeps_a_stale_chat_with_a_started_command_running(self):
+        registry = OperatorRegistry(chat_idle_seconds=10.0)
+        factory = _session_factory()
+        with _patch_session(factory):
+            a, _ = await registry.get_or_create_chat_session("a", cwd="/tmp")
+            b, _ = await registry.get_or_create_chat_session("b", cwd="/tmp")
+
+        stale = time.monotonic() - 100
+        a.last_activity = stale
+        a.running_commands = [object()]
+        b.last_activity = stale
+
+        reaped = await registry.reap_idle_chat_sessions()
+        assert reaped == 1
+        assert registry.get_chat_session("a") is a
+        assert a.stop_calls == 0
+        assert a.last_activity > stale
+        assert registry.get_chat_session("b") is None
+
+    @pytest.mark.asyncio
+    async def test_reap_idle_never_looks_at_a_busy_chat(self):
+        registry = OperatorRegistry(chat_idle_seconds=10.0)
+        factory = _session_factory()
+        with _patch_session(factory):
+            c, _ = await registry.get_or_create_chat_session("c", cwd="/tmp")
+        c.last_activity = time.monotonic() - 100
+        c.in_flight = True
+        c._response_task = FakeTask(done=False)
+
+        assert await registry.reap_idle_chat_sessions() == 0
+        assert c.look_threads == []
+
+    @pytest.mark.asyncio
+    async def test_reap_idle_looks_off_the_loop_without_the_pool_lock(self):
+        registry = OperatorRegistry(chat_idle_seconds=10.0)
+        factory = _session_factory()
+        with _patch_session(factory):
+            a, _ = await registry.get_or_create_chat_session("a", cwd="/tmp")
+        a.last_activity = time.monotonic() - 100
+        held: list[bool] = []
+        a.on_look = lambda: held.append(registry.chats._lock.locked())
+
+        await registry.reap_idle_chat_sessions()
+
+        loop_thread = threading.get_ident()
+        assert a.look_threads
+        assert all(thread != loop_thread for thread in a.look_threads)
+        assert held == [False] * len(a.look_threads)
+
+    @pytest.mark.asyncio
+    async def test_reap_idle_counts_a_failed_look_as_nothing_running(self, caplog):
+        registry = OperatorRegistry(chat_idle_seconds=10.0)
+        factory = _session_factory()
+        with _patch_session(factory):
+            a, _ = await registry.get_or_create_chat_session("stale-chat", cwd="/tmp")
+        a.last_activity = time.monotonic() - 100
+        a.look_error = OSError("ps")
+
+        with caplog.at_level(logging.WARNING):
+            reaped = await registry.reap_idle_chat_sessions()
+
+        assert reaped == 1
+        assert registry.get_chat_session("stale-chat") is None
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "stale-chat" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+
+    @pytest.mark.asyncio
+    async def test_reap_idle_leaves_a_chat_replaced_during_the_look(self):
+        registry = OperatorRegistry(chat_idle_seconds=10.0)
+        factory = _session_factory()
+        with _patch_session(factory):
+            a, _ = await registry.get_or_create_chat_session("a", cwd="/tmp")
+        a.last_activity = time.monotonic() - 100
+        fresh = FakeChatSession()
+
+        def replace() -> None:
+            # A creation racing the sweep fills the key with a new session.
+            registry.chats._sessions["a"] = fresh
+
+        a.on_look = replace
+
+        assert await registry.reap_idle_chat_sessions() == 0
+        assert registry.get_chat_session("a") is fresh
+        assert fresh.stop_calls == 0
 
     @pytest.mark.asyncio
     async def test_cleanup_all_tears_down_both_pools(self):
