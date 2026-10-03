@@ -1749,7 +1749,7 @@ def _graph_index_target(
     rendered_config: Mapping[str, Any],
     reported: set[str] | None = None,
 ) -> GraphIndexTarget | None:
-    """The corpus and index path for a graph-mode render, or ``None`` with a reason.
+    """The corpus and index path for a render with a graph store, or ``None`` with a reason.
 
     Only the rendered config can answer this: the corpus key and the fixed
     index path are render-relative
@@ -2376,16 +2376,14 @@ def _render_project(
             data_root / "facility", shared.facility, shared.knowledge_links_reported, repo_root
         )
 
-        # The graph paradigm's roster, explorer and keyword tool all read the
-        # search index rather than the corpus, so a graph-mode render that ships
-        # a corpus ships the index too. Gated on the paradigm the profile
-        # resolved, which is what the render just wrote as
-        # `channel_finder.pipeline_mode`. Before the manifest write below, so the
-        # index is inside the render when the checksums are taken.
-        if build_profile.channel_finder_mode == "graph":
-            graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
-            if graph_target is not None:
-                _build_graph_index(shared, graph_target, progress)
+        # The explorer and the keyword tool read the search index rather than the
+        # corpus, so every render that seeds a graph store ships the index
+        # derived from the same corpus, whatever its channel-finder paradigm.
+        # Before the manifest write below, so the index is inside the render
+        # when the checksums are taken.
+        graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
+        if graph_target is not None:
+            _build_graph_index(shared, graph_target, progress)
 
         if not va_from_databases:
             # This render now holds its facility file, so the roster the manifest

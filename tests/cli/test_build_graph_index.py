@@ -53,7 +53,13 @@ def _plain_reporter():
     install_reporter(previous)
 
 
-def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = ()) -> Path:
+def _graph_repo(
+    root: Path,
+    *,
+    corpus: str | None,
+    personas: tuple[str, ...] = (),
+    mode: str = "graph",
+) -> Path:
     """A graph-mode deployment repo with its OWN corpus and no ``tiers/``.
 
     The data tree carries the per-tree sources a build reads and no paradigm
@@ -73,7 +79,7 @@ def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = (
     (root / "profile.yml").write_text(
         "name: Graph Index\n"
         "provider: anthropic\n"
-        "channel_finder_mode: graph\n"
+        f"channel_finder_mode: {mode}\n"
         "data: data\n"
         "config:\n"
         # The posture floor a hand-written profile states for itself: with no
@@ -163,6 +169,38 @@ def test_a_profile_build_derives_the_index_from_its_own_corpus(tmp_path: Path) -
     # carrying its own digest would turn every rebuild into apparent drift.
     manifest = json.loads((render / ".osprey-manifest.json").read_text(encoding="utf-8"))
     assert not [name for name in manifest["file_checksums"] if name.endswith(".duckdb")]
+
+
+@pytest.mark.real_graph_index
+def test_a_render_with_a_graph_store_ships_the_index_in_any_mode(tmp_path: Path) -> None:
+    """The index follows the store, not the channel-finder paradigm.
+
+    A render that seeds a graph store carries the index derived from the same
+    corpus whichever pipeline its channel finder runs, so the explorer and the
+    keyword tool read the facility the store holds.
+    """
+    from osprey.services.channel_finder.graph_index import open_graph_index
+    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+
+    repo = _graph_repo(
+        tmp_path / "hierarchical-with-store", corpus=corpora.SUBCLASS_CHAIN, mode="hierarchical"
+    )
+
+    result = _build(repo)
+
+    assert result.exit_code == 0, result.output
+    render = repo / "build"
+    index_path = render / _INDEX_RELATIVE
+    assert index_path.is_file(), (
+        f"the build wrote no channel search index; it holds {_indexes(render)}"
+    )
+    index = open_graph_index(index_path)
+    try:
+        assert getattr(index, "meta", None) is not None, f"index absent: {index}"
+        staged = render / "data" / "facility.ttl"
+        assert index.meta.corpus_sha256 == ttl_sha256(staged.read_text(encoding="utf-8"))
+    finally:
+        index.close()
 
 
 @pytest.mark.real_graph_index
