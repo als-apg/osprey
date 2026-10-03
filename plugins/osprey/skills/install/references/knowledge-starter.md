@@ -365,7 +365,6 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `data/simulation/` | demo scenarios |
 | `data/benchmarks/` | demo query sets |
 | `data/demo_machine.ttl`, `data/facility_ontology.json`, `data/machine_state_channels.json` | demo machine model |
-| `data/raw/` | the demo address list and CSV example |
 | `data/lattice/` | demo lattice file |
 | `data/ariel/vocabulary.yml` | demo facility terms |
 | `data/landing/working-safely.md` | the demo product's safety notice |

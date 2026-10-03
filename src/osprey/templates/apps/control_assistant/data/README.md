@@ -11,15 +11,12 @@ and all three file-backed paradigms:
 
 ```
 data/
-├── raw/                                   # CSV address data (in_context build path)
-│   ├── CSV_EXAMPLE.csv                   # Example CSV format
-│   └── address_list.csv                  # Sample address list
 ├── channel_databases/
 │   ├── tiers/tier{1,3}/<paradigm>.json   # Staged databases, one per paradigm
 │   ├── examples/                         # Hierarchy-shape examples
 │   └── TEMPLATE_EXAMPLE.json             # Database format example
 ├── benchmarks/
-│   └── cross_paradigm/queries/           # Staged query sets, one per tier
+│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
 ├── channel_limits.json                    # Per-channel write limits
 ├── machine_state_channels.json            # Address list reconciled against the VA manifest
 ├── demo_machine.ttl                       # Knowledge-graph corpus (graph paradigm)
@@ -32,13 +29,11 @@ data/
 └── simulation/                            # Mock-connector scenarios
 ```
 
-`osprey build` collapses the staged sets down to the ones your build profile
-selected. It copies the active paradigm's database to a flat
-`channel_databases/<paradigm>.json`, copies the tier-matching query file to a
-flat `benchmarks/queries.json`, and removes the `tiers/` and
-`benchmarks/cross_paradigm/` subtrees. `raw/` survives only for `in_context`
-builds — the CSV format cannot express a nested database, so it is dead weight
-for the other paradigms.
+`osprey build` copies the benchmark query file matching `channel_finder_mode`
+to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
+`tree_queries.json` for every other mode. Each channel-finder index is the view
+the build writes at its own path; nothing is flattened. The render drops the
+`benchmarks/cross_paradigm/`, `channel_databases/tiers/` and `raw/` subtrees.
 
 ## Database Paradigms
 
