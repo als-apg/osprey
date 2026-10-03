@@ -6,7 +6,9 @@ readback by default. A project whose ``data/facility/`` is empty builds one
 with no records at all: only the built-in ``texture`` model, no classes, and an
 identity folded from the project name. Under a profile with a mock control
 system and a ``bluesky:`` block the render carries the Bluesky devices view and
-stages no copy of it.
+stages no copy of it. The empty tree under a profile that selects the
+channel-finder agent with ``channel_finder_mode: in_context`` has no tagged
+channel for the in_context index, so the build stops.
 """
 
 from __future__ import annotations
@@ -114,3 +116,20 @@ def test_zero_sources_write_a_bluesky_view_with_no_device(build_project: Build) 
     document = _bluesky_view(project)
     assert (document["settables"], document["readables"]) == ([], [])
     assert not _staged(project), "a mock control system stages no device file"
+
+
+def test_zero_sources_under_in_context_stop_with_view_unsupported(build_project: Build) -> None:
+    in_context = {
+        **CRITERION_7_PROFILE,
+        "agents": ["channel-finder"],
+        "channel_finder_mode": "in_context",
+    }
+
+    _project, result = build_project({}, profile=in_context)
+
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        "facility: view-unsupported: path channel_finder.pipeline_mode — selects in_context "
+        "and no channel is tagged `in_context`; fix: tag at least one channel `in_context`, "
+        "or select another channel_finder_mode\n"
+    )
