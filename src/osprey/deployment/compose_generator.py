@@ -21,7 +21,6 @@ import shutil
 import stat
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
@@ -31,7 +30,6 @@ from jinja2 import Environment, FileSystemLoader
 
 from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
-from osprey.channel_roster import RosterAbsenceReason, RosterResult, registered_channels
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
@@ -2400,7 +2398,7 @@ def ensure_shared_corpus_dir(path, relative_to=None):
     :param relative_to: Root to spell the directory against in the INFO line
         below. The default view carries exactly one absolute path — the tree the
         build wrote — and a second one wraps a normal terminal and buries it, so
-        this line names ``data/facility_knowledge`` rather than 90 characters of
+        this line names ``data/facility/knowledge`` rather than 90 characters of
         ``/private/var/folders/...``. Affects the message only; the directory
         acted on is always *path*.
     :type relative_to: str | pathlib.Path | None
@@ -3565,22 +3563,9 @@ def _bluesky_panel_roster_owners(config, source_dir, persona_root=None):
 #: staging below has to be idempotent for that reason rather than by luck.
 _BLUESKY_DEVICES_SERVICE = "bluesky"
 
-#: The plan-lane service keys, in the order the authored device file is looked
-#: up under ``services:``. A fixed order rather than "whichever lane is being
-#: rendered": the device file is a property of the FACILITY and every lane
-#: carries the same value (``_facility_plan_keys``), so reading it in one order
-#: makes the double render land on one answer even for a hand-edited config
-#: whose lanes disagree.
-#:
-#: Imported from :mod:`osprey.bluesky_bridge_connection`, the one registry of
-#: lane service keys, so a lane added there is looked up here without a second
-#: edit — a lane this table did not know would stage no device file at all.
-_BLUESKY_LANE_KEYS = LANE_KEYS
-
 #: Name the device file carries INSIDE the build context. The compose template
 #: mounts this literal source (``./build/services/bluesky/bluesky_devices.yml``),
-#: so the staged name is part of the contract and is never derived from whatever
-#: the authored file happened to be called.
+#: so the staged name is part of the contract.
 BLUESKY_DEVICES_FILENAME = "bluesky_devices.yml"
 
 #: Mode the staged device file carries, matching
@@ -3588,11 +3573,6 @@ BLUESKY_DEVICES_FILENAME = "bluesky_devices.yml"
 #: bind-mounted read-only, as a container user that is not the host user who
 #: rendered it, so the 0600 a temp file is created with would be unreadable.
 _STAGED_DEVICES_MODE = 0o644
-
-#: Profile key the device file is authored under. Every refusal below names
-#: THIS — not "the build" — because it is the one thing an operator edits to
-#: make the refusal go away.
-BLUESKY_DEVICES_CONFIG_KEY = "bluesky.devices_file"
 
 
 def _render_anchor_dir(config):
@@ -3617,38 +3597,12 @@ def _render_anchor_dir(config):
     return Path(os.getcwd())
 
 
-def _configured_devices_file(config):
-    """The device file the profile authored, as written, or ``None``.
-
-    Read out of the plan lanes' own service blocks rather than from a
-    ``bluesky:`` block, because ``services.<lane>.devices_file`` is where the
-    build injector puts it — on EVERY lane of every deploy, authored or
-    defaulted, so a lane block is always the authority for what to stage.
-
-    :param config: The render config
-    :type config: dict
-    :return: The configured path, stripped, or ``None`` when no lane names one
-    :rtype: str or None
-    """
-    services = config.get("services") or {}
-    if not isinstance(services, dict):
-        return None
-    for lane in _BLUESKY_LANE_KEYS:
-        block = services.get(lane)
-        if not isinstance(block, dict):
-            continue
-        raw = block.get("devices_file")
-        if isinstance(raw, str) and raw.strip():
-            return raw.strip()
-    return None
-
-
 def _discard_staged_devices(staged_path):
     """Remove a device file an earlier build left in this context.
 
     The incremental path reuses the directory, so a deployment that stops having
-    a device set — the VA dropped, the control system switched to mock, the
-    authored file deleted — would otherwise keep mounting the previous render's
+    a device set — the Bluesky lane dropped, the control system switched to
+    mock — would otherwise keep mounting the previous render's
     devices into a worker that is now supposed to be browse-only.
 
     :param staged_path: Where the device file would have been staged
@@ -3697,7 +3651,7 @@ def _write_staged_devices(source, staged_path):
     half-written device set. The mode is set explicitly because the worker reads
     the file as a container user that is not the host user who rendered it.
 
-    :param source: The authored device file
+    :param source: The render's Bluesky devices view
     :type source: Path
     :param staged_path: Destination inside the build context
     :type staged_path: str
@@ -3714,277 +3668,27 @@ def _write_staged_devices(source, staged_path):
         raise
 
 
-@dataclass(frozen=True, slots=True)
-class _DerivedDevices:
-    """Whether this render stages a roster-derived plan-device file, and from what.
-
-    The derivation decision, made ONCE per render for
-    :func:`_stage_bluesky_devices`, which acts on it, and for anything else
-    that has to know whether a derived file lands. Computed in one place rather
-    than re-derived from the config at each site, so no two readers can
-    disagree about what this render stages.
-
-    ``roster`` is carried because the decision and its FACT come from the same
-    read: the line an operator is handed names the source
-    (:meth:`~osprey.channel_roster.records.RosterSource.describe`) or the
-    reason there is none
-    (:meth:`~osprey.channel_roster.records.RosterAbsence.message`), and neither
-    is re-derived from config keys here.
-
-    :ivar derives: True iff a roster-derived device file will be staged when
-        the bluesky service directory is rendered. It says what the DECISION
-        is, not that a render has happened: this is a pure function of the
-        config plus the filesystem, so a reader that asks before the service
-        loop starts gets the same answer the staging step will act on.
-    :ivar is_mock: True when the control system is the mock, which has no
-        channels to drive whatever else is configured
-    :ivar configured: ``bluesky.devices_file`` as the profile spelled it, or
-        ``None`` when no lane names one
-    :ivar authored: That spelling resolved to a path — absolute as written,
-        relative against the loaded config's directory — or ``None`` when no
-        lane names a file at all
-    :ivar authored_present: Whether that file is actually there; the
-        filesystem probe is part of the decision, not a later step
-    :ivar roster: The roster the decision consulted, or ``None`` when it never
-        got that far — a mock control system, an authored file that is there,
-        an absolute configured path, or no ``devices_file`` key at all
-    :ivar usable: The roster records that named a direction. A record whose
-        direction the source could not state becomes no device, so it is the
-        length of THIS list that decides whether there is a device set worth
-        staging — see :func:`_plan_derived_devices`.
-    """
-
-    derives: bool
-    is_mock: bool
-    configured: str | None = None
-    authored: Path | None = None
-    authored_present: bool = False
-    roster: RosterResult | None = None
-    usable: tuple = ()
-
-
-def _plan_derived_devices(config):
-    """Decide whether this render derives the queueserver worker's device file.
-
-    The full predicate, in the order the reasons rule each other out:
-
-    1. A **mock** control system drives no channels, so nothing is derived for
-       it whatever else the config says.
-    2. An **authored** file wins over a derived one — the operator named the
-       device set, and this build does not second-guess it.
-    3. The configured path must be **relative and absent**. An absolute path
-       names a file outside the repo, which is the deployment saying an
-       operator supplies it: its absence means it is not staged yet, not that
-       OSPREY should choose the device set on their behalf and mount it in its
-       place. A config naming no file at all derives nothing either — the
-       build injector writes ``devices_file`` on every lane, so an absent key
-       is a hand-edited config rather than a request.
-    4. The facility's **roster** must actually enumerate channels that point
-       somewhere: :func:`~osprey.channel_roster.registered_channels` returning
-       records against a resolved source, at least one of them carrying a
-       direction. A record whose direction the source could not state becomes
-       no device, so a roster of nothing but those would stage an EMPTY device
-       file over the top of a facility that has channels — a browse-only worker
-       reported as a device set. A roster that is absent, corrupt, or whose
-       directions it could not derive at all stages nothing either; see
-       :func:`_stage_bluesky_devices` for what each of those is reported as.
-
-    The roster read is memoized per source file, so calling this once per lane
-    costs one parse of the corpus or database.
-
-    :param config: The render config
-    :type config: dict
-    :return: The decision, with the inputs it was made from
-    :rtype: _DerivedDevices
-    """
-    from osprey.connectors.types import MOCK, resolve_control_system_type
-
-    raw = _configured_devices_file(config)
-    configured = Path(raw).expanduser() if raw is not None else None
-    if configured is None:
-        authored = None
-    elif configured.is_absolute():
-        authored = configured
-    else:
-        authored = _render_anchor_dir(config) / configured
-
-    is_mock = resolve_control_system_type(config.get("control_system")) == MOCK
-    authored_present = authored is not None and authored.is_file()
-    decided = _DerivedDevices(
-        derives=False,
-        is_mock=is_mock,
-        configured=raw,
-        authored=authored,
-        authored_present=authored_present,
-    )
-
-    if is_mock or authored_present or configured is None or configured.is_absolute():
-        return decided
-
-    roster = registered_channels(config)
-    usable = tuple(record for record in roster.records if record.direction is not None)
-    return replace(
-        decided,
-        derives=roster.absence is None and bool(usable),
-        roster=roster,
-        usable=usable,
-    )
-
-
-def _omitted_phrase(plan):
-    """Name the channels the derivation had to leave out, or say nothing.
-
-    A record whose direction the source could not state becomes no device
-    (:func:`~osprey.services.bluesky_bridge.substrate_devices.devices_document`
-    emits neither a settable nor a readable for it), so a roster that is partly
-    directionless stages a device set SMALLER than the facility. Counting the
-    difference into the fact is what keeps that from being a silent drop: the
-    counts alone would read as a smaller machine.
-
-    :param plan: The derivation decision
-    :type plan: _DerivedDevices
-    :return: A clause to append to the derived fact, or the empty string
-    :rtype: str
-    """
-    omitted = len(plan.roster.records) - len(plan.usable)
-    if not omitted:
-        return ""
-    channels = "channel" if omitted == 1 else "channels"
-    was = "was" if omitted == 1 else "were"
-    return f"; {omitted} {channels} whose direction the source could not state {was} omitted"
-
-
-def _derive_staged_devices(plan, staged_path):
-    """Write the device set this facility's channel roster enumerates.
-
-    The turn-key half of the feature: a deployment that has authored no device
-    file still gets a worker holding real channel names, because the facility
-    already describes which channels it has — in its knowledge graph, or in the
-    channel-finder database the same ``detect_pipeline_config`` selects for
-    every other consumer. Never a hardcoded preset, and never the write-limits
-    projection ``channel_limits.json``, which gates a subset of the channels a
-    facility has and was never an enumeration of them.
-
-    One producer writes the document
-    (:func:`~osprey.services.bluesky_bridge.substrate_devices.write_devices_file`),
-    shared with the e2e harness, so the build path and the harness cannot drift
-    on what the worker is handed.
-
-    Only the records that named a direction are handed over: they are the ones
-    that become devices, and passing the whole roster would let the staged
-    file's contents differ from what the decision above counted.
-
-    :param plan: The derivation decision, carrying the roster's usable records
-        and the source the staged file's header credits
-    :type plan: _DerivedDevices
-    :param staged_path: Destination inside the build context
-    :type staged_path: str
-    :return: The written document
-    :rtype: dict
-    """
-    from osprey.services.bluesky_bridge.substrate_devices import write_devices_file
-
-    return write_devices_file(Path(staged_path), plan.usable, source=plan.roster.source)
-
-
-def _refuse_corrupt_roster(absence):
-    """Refuse the render for a roster source that is there and unreadable.
-
-    The build's three-way rule, as
-    :func:`osprey.services.virtual_accelerator.manifest.build.prepare_project_manifest`
-    applies it to a data tree: an ABSENT source is a facility this project did
-    not describe, and leaves the worker honestly browse-only; a source that is
-    there and cannot be read is one it meant to describe and got wrong, and
-    deriving past it would stage a device set nobody authored — a worker
-    holding a partial namespace looks exactly like a healthy one.
-
-    Which of the two a roster hit is the roster's own answer
-    (:attr:`~osprey.channel_roster.records.RosterAbsenceReason.MISSING_SOURCE`
-    against
-    :attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`),
-    never a second filesystem probe here: the file behind an absence has
-    already been opened once, and re-``stat``ing it to classify it would be
-    answering about a disk that has moved on since.
-
-    :param absence: The corrupt-source absence the roster came back with
-    :type absence: osprey.channel_roster.RosterAbsence
-    :raises DeploymentPreconditionError: always
-    """
-    raise DeploymentPreconditionError(
-        reason=(
-            f"{absence.message()} The queueserver worker's plan devices are derived from "
-            f"that source, so this build cannot say which channels this facility has, nor "
-            f"which of them are settable."
-        ),
-        remedy=(
-            f"Repair the source named above, or point the build at a different one, and "
-            f"rebuild. To bring the worker up without it, author a device file and set "
-            f"{BLUESKY_DEVICES_CONFIG_KEY} to it. A source that is simply absent leaves "
-            f"the worker browse-only; one that is present and unreadable is refused, "
-            f"because deriving past it would stage a device set this facility did not "
-            f"describe."
-        ),
-    )
-
-
 def _stage_bluesky_devices(config, source_dir, out_dir):
-    """Put the queueserver worker's plan-device file into the bluesky build
-    context; report whether one landed.
+    """Copy the render's Bluesky devices view into the bluesky build context;
+    report whether one landed.
 
-    The boolean return is the value the render context's ``bluesky_devices`` key
-    carries, gated fail-closed exactly like ``channel_snapshot`` and dev_mode's
-    wheel: the compose template may only mount a file that was actually
-    written. When the decision is not to stage, a file left in ``out_dir`` by an
-    earlier build is removed, so neither an incremental rebuild nor a re-render
-    can go on mounting a device set the deployment no longer has.
+    ``osprey build`` writes the view to ``data/bluesky_devices.yml`` under the
+    render root (:func:`_render_anchor_dir`), and this copies it unchanged to
+    the name the compose template mounts. The boolean return is the value the
+    render context's ``bluesky_devices`` key carries, gated fail-closed exactly
+    like ``channel_snapshot`` and dev_mode's wheel: the compose template may
+    only mount a file that was actually written.
 
-    :func:`_plan_derived_devices` makes the decision; this function performs it
-    and reports it. The ORDER carries more of the meaning than any single
-    branch:
-
-    1. A **mock** control system has no channels to drive, so its lanes are
-       browse-only whatever file is lying around. Decided first, so an authored
-       file cannot make a mock deployment look like it can steer anything.
-    2. An **authored** file wins over everything else, and is validated with
-       ``validate_device_document``. A document with problems REFUSES the
-       render, because the worker's own loader is fail-soft by design: it skips
-       a malformed entry with a warning, so a deployment built from a bad file
-       comes up healthy and silently missing exactly those devices.
-    3. Otherwise the set is **derived** from this facility's own channel roster
-       — the knowledge graph or channel-finder database
-       :func:`~osprey.channel_roster.registered_channels` enumerates.
-    4. Otherwise there is no device file, and the fact says why in the roster's
-       own words: nothing configured, graph mode naming no corpus, a source
-       that is not there, one that enumerates nothing, or a source whose
-       directions cannot be derived. The worker comes up able to browse plans
-       and run none. A roster source that is present and UNREADABLE is the one
-       case that refuses instead (:func:`_refuse_corrupt_roster`) — the roster
-       tells the two apart itself, so nothing here re-``stat``s the file.
-
-    Deriving a device set for a live lane is deliberate
-    ---------------------------------------------------
-
-    This function is lane-blind: it stages ONE file, which both plan lanes of a
-    two-lane deploy mount, and it never asks which target a lane points at. That
-    is a considered position rather than an oversight. A device in the worker's
-    namespace is a name a plan MAY reference, never a write that has happened;
-    the gates that decide whether a write lands sit on the write path — the
-    connector's per-put reference monitor and the bridge's arming + limits
-    facade. A derived device moves through the same connector as any other
-    channel write and meets the same checks there, including the optional,
-    per-target limits check. Withholding the machine's own
-    channels from the namespace would add no gate: it would only make the
-    channels an agent is allowed to READ invisible to it, and push operators
-    back to hand-authored device files that nothing keeps in step with the
-    facility.
+    A **mock** control system drives no channels, so its lanes are browse-only:
+    the view is written but never staged. Whenever nothing is staged, a file an
+    earlier build left in ``out_dir`` is removed, so neither an incremental
+    rebuild nor a re-render goes on mounting a device set the deployment no
+    longer has.
 
     Called once per plan lane, and a two-lane deploy renders this one directory
-    twice (both lanes declare the same service ``path``). That second call is
-    what the idempotence is for: it re-derives the same decision from the same
-    config — the lookup order in ``_configured_devices_file`` is fixed for this
-    reason, and the roster read behind it is memoized — and rewrites identical
-    bytes atomically, so a running deployment holding this file as a bind mount
-    never sees it half-written or briefly absent.
+    twice (both lanes declare the same service ``path``); the second call copies
+    the same bytes atomically, so a running deployment holding this file as a
+    bind mount never sees it half-written or briefly absent.
 
     :param config: Full project configuration dictionary
     :type config: dict
@@ -3994,110 +3698,34 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     :type out_dir: str
     :return: True iff a device file is staged in ``out_dir``
     :rtype: bool
-    :raises DeploymentPreconditionError: An authored device file exists and is
-        not one the worker can load in full, or the roster source this build
-        would derive from is present and unreadable
     """
     if os.path.basename(source_dir) != _BLUESKY_DEVICES_SERVICE:
         return False
 
-    from osprey.services.bluesky_bridge.devices._specs_from_file import validate_device_document
+    from osprey.connectors.types import MOCK, resolve_control_system_type
+    from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
-    plan = _plan_derived_devices(config)
-    raw = plan.configured
+    view_path = f"data/{BLUESKY_DEVICES_FILE}"
 
-    if plan.is_mock:
+    if resolve_control_system_type(config.get("control_system")) == MOCK:
         _discard_staged_devices(staged_path)
         _report_fact("bluesky plans browse-only: a mock control system drives no channels")
         return False
 
-    if plan.authored_present:
-        authored = plan.authored
-        try:
-            document = yaml.safe_load(authored.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
-            document = None
-            problems = [f"the file could not be read as YAML/JSON ({e})"]
-        else:
-            problems = validate_device_document(document)
-        if problems:
-            # Before the refusal, not after: a build that stops here must not
-            # leave an earlier render's device file mounted into a worker on the
-            # strength of a file this render refused to accept.
-            _discard_staged_devices(staged_path)
-            listed = "\n".join(f"  - {problem}" for problem in problems)
-            raise DeploymentPreconditionError(
-                reason=(
-                    f"{BLUESKY_DEVICES_CONFIG_KEY} is {raw!r}, and the device file "
-                    f"at {authored} is not one the queueserver worker can load in "
-                    f"full:\n{listed}\n"
-                    f"The worker skips a malformed entry with a warning rather than "
-                    f"failing, so a deployment built from this file would come up "
-                    f"healthy while missing exactly the devices listed above."
-                ),
-                remedy=(
-                    f"Fix the entries named above in {authored}, or point "
-                    f"{BLUESKY_DEVICES_CONFIG_KEY} at a different file, and rebuild. "
-                    f"Every entry is a mapping: a settable carries 'name' and "
-                    f"'setpoint' (and optionally 'readback'), a readable carries "
-                    f"'name' and 'pv', and a device name may appear only once across "
-                    f"both sections."
-                ),
-            )
-        _write_staged_devices(authored, staged_path)
-        settables, readables = _document_counts(document)
-        # The fact names the CONFIGURED spelling, never the resolved path: a
-        # relative one resolves against the build's staging tree, so spelling it
-        # out puts a `build/.tmp/...` path nobody can retype in the default view
-        # (the same reason `_stage_channel_snapshot` keeps its path at DEBUG).
-        _report_fact(
-            f"bluesky plan devices: {settables} settable / {readables} readable from {raw}"
-        )
-        logger.debug(f"Staged the bluesky plan device file from {authored} to {staged_path}")
-        return True
-
-    roster = plan.roster
-    if plan.derives:
-        document = _derive_staged_devices(plan, staged_path)
-        settables, readables = _document_counts(document)
-        _report_fact(
-            f"bluesky plan devices: {settables} settable / {readables} readable "
-            f"derived from {roster.source.describe()}{_omitted_phrase(plan)}"
-        )
-        logger.debug(f"Derived the bluesky plan device set from {roster.source.path}")
-        return True
-
-    _discard_staged_devices(staged_path)
-
-    if roster is not None and roster.absence is not None:
-        if roster.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE:
-            _refuse_corrupt_roster(roster.absence)
-        # Every other absence -- a source that is not there included -- is
-        # fail-soft, and is reported in the roster's own words rather than
-        # re-phrased here: the fact an operator reads is the same sentence
-        # every other consumer of this absence renders.
-        _report_fact(f"bluesky plans browse-only: {roster.absence.message()}")
+    view = _render_anchor_dir(config) / view_path
+    if not view.is_file():
+        _discard_staged_devices(staged_path)
+        _report_fact(f"bluesky plans browse-only: this render has no {view_path}")
         return False
 
-    if roster is not None:
-        # Records, a source, no absence -- and not one of them says which way it
-        # points. Nothing is staged: a device file built from these would name
-        # no settable and no readable, which reads downstream as a facility that
-        # has no channels rather than as a source that did not say.
-        _report_fact(
-            f"bluesky plans browse-only: {roster.source.describe()} enumerates "
-            f"{len(roster.records)} channels and states a direction for none of them"
-        )
-    elif plan.authored is None:
-        _report_fact(f"bluesky plans browse-only: no {BLUESKY_DEVICES_CONFIG_KEY} is configured")
-    else:
-        _report_fact(
-            f"bluesky plans browse-only: {BLUESKY_DEVICES_CONFIG_KEY} is {raw!r} and no "
-            "file is there"
-        )
-        logger.debug(f"No bluesky plan device file at {plan.authored}")
-    return False
+    _write_staged_devices(view, staged_path)
+    settables, readables = _document_counts(yaml.safe_load(view.read_text(encoding="utf-8")))
+    _report_fact(
+        f"bluesky plan devices: {settables} settable / {readables} readable from {view_path}"
+    )
+    logger.debug(f"Staged the bluesky devices view {view} to {staged_path}")
+    return True
 
 
 #: The build contexts whose compose fragments mount the control-identity module

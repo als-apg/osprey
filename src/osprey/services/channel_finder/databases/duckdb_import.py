@@ -23,7 +23,10 @@ from datetime import UTC, datetime
 import duckdb
 
 from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
-from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
+from osprey.services.channel_finder.databases.middle_layer import (
+    MiddleLayerDatabase,
+    get_setup,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +47,11 @@ CREATE TABLE IF NOT EXISTS families (
     PRIMARY KEY (system, name)
 );
 
+CREATE SEQUENCE IF NOT EXISTS channels_row_id;
+
 CREATE TABLE IF NOT EXISTS channels (
-    channel_name TEXT PRIMARY KEY,
+    row_id       BIGINT PRIMARY KEY DEFAULT nextval('channels_row_id'),
+    channel_name TEXT NOT NULL,
     system       TEXT NOT NULL,
     family       TEXT NOT NULL,
     field        TEXT DEFAULT '',
@@ -56,7 +62,8 @@ CREATE TABLE IF NOT EXISTS channels (
     mode         TEXT DEFAULT '',
     member_of    TEXT DEFAULT '',
     source       TEXT DEFAULT 'mml',
-    updated_at   TIMESTAMP DEFAULT current_timestamp
+    updated_at   TIMESTAMP DEFAULT current_timestamp,
+    UNIQUE (channel_name, system, family)
 );
 
 CREATE TABLE IF NOT EXISTS device_map (
@@ -140,40 +147,46 @@ def _engineering_unit(meta: dict) -> str:
 
 
 def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
-    """Import channels from the flattened channel_map. Returns row count."""
+    """Import one row per channel and family it belongs to. Returns row count.
+
+    A channel listed under several (System, Family) pairs is one row per pair,
+    so ``COUNT(*)`` counts memberships and ``COUNT(DISTINCT channel_name)``
+    counts channels.
+    """
     now = datetime.now(UTC)
 
     # Only delete MML-sourced rows, preserving runtime additions
     con.execute("DELETE FROM channels WHERE source = 'mml'")
 
     rows = []
-    for ch_name, meta in db.channel_map.items():
-        subfield = meta.get("subfield")
-        if isinstance(subfield, list):
-            subfield = ":".join(subfield) if subfield else ""
-        elif subfield is None:
-            subfield = ""
+    for ch_name, entry in db.channel_map.items():
+        for meta in entry["memberships"]:
+            subfield = meta.get("subfield")
+            if isinstance(subfield, list):
+                subfield = ":".join(subfield) if subfield else ""
+            elif subfield is None:
+                subfield = ""
 
-        member_of = meta.get("MemberOf", "")
-        if isinstance(member_of, list):
-            member_of = ", ".join(str(m) for m in member_of)
+            member_of = meta.get("MemberOf", "")
+            if isinstance(member_of, list):
+                member_of = ", ".join(str(m) for m in member_of)
 
-        rows.append(
-            (
-                ch_name,
-                meta.get("system", ""),
-                meta.get("family", ""),
-                meta.get("field", ""),
-                subfield,
-                meta.get("Description", meta.get("description", "")),
-                _engineering_unit(meta),
-                meta.get("DataType", ""),
-                meta.get("Mode", ""),
-                member_of,
-                "mml",
-                now,
+            rows.append(
+                (
+                    ch_name,
+                    meta["system"],
+                    meta["family"],
+                    meta.get("field", ""),
+                    subfield,
+                    meta.get("Description", meta.get("description", "")),
+                    _engineering_unit(meta),
+                    meta.get("DataType", ""),
+                    meta.get("Mode", ""),
+                    member_of,
+                    "mml",
+                    now,
+                )
             )
-        )
 
     if rows:
         con.executemany(
@@ -187,7 +200,7 @@ def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
 
 
 def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
-    """Import device maps (setup/DeviceList + CommonNames). Returns row count."""
+    """Import device maps (``setup`` or ``_setup``: DeviceList + CommonNames). Returns row count."""
     con.execute("DELETE FROM device_map")
     rows = []
 
@@ -196,7 +209,7 @@ def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) 
         for fam_info in db.list_families(system):
             family = fam_info["name"]
             family_data = db.data.get(system, {}).get(family, {})
-            setup = family_data.get("setup", {})
+            setup = get_setup(family_data)
             if not isinstance(setup, dict):
                 continue
             device_list = setup.get("DeviceList")
@@ -222,10 +235,14 @@ def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) 
 
 
 def _create_fts_index(con: duckdb.DuckDBPyConnection) -> None:
-    """Create full-text search index on channels table."""
+    """Create the full-text search index on the channels table, keyed by ``row_id``.
+
+    A channel holds one row per family it belongs to, so the index's document
+    id is the row's unique ``row_id``, never ``channel_name``.
+    """
     # Drop existing FTS index if present (overwrite=1)
     con.execute(
-        "PRAGMA create_fts_index('channels', 'channel_name', "
+        "PRAGMA create_fts_index('channels', 'row_id', "
         "'channel_name', 'description', 'system', 'family', 'field', "
         "overwrite=1)"
     )

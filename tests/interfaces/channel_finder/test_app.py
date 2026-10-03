@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.utils.facility import facility_identity
 from tests.interfaces.channel_finder.graph_fixture import FakeGraphContext
 
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _IC_INIT = "osprey.mcp_server.channel_finder_in_context.server_context.initialize_cf_ic_context"
+
+
+@pytest.fixture(autouse=True)
+def _no_config_env(monkeypatch):
+    """The app resolves its render root from the test's own setup, never the shell's."""
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
 
 def _start_app(config):
@@ -121,6 +129,41 @@ class TestPipelineResolution:
         assert app.state.pipeline_type == "in_context"
         assert app.state.databases["in_context"] is registry.database
         assert app.state.facility_names["in_context"] == "TEST"
+
+
+class TestFacilityName:
+    """The app names the facility from the render its config sits in."""
+
+    def test_repo_root_reports_the_facility_file_name(self, tmp_path, monkeypatch):
+        render = tmp_path / "build"
+        render.mkdir()
+        (render / "config.yml").write_text("project_name: demo-project\n")
+        (render / "facility.json").write_text(
+            json.dumps({"identity": {"code": "demo", "name": "Demo Lab"}})
+        )
+        monkeypatch.chdir(tmp_path)
+
+        from osprey.interfaces.channel_finder.app import create_app
+
+        application = create_app(project_cwd=str(tmp_path))
+        with TestClient(application):
+            identity = facility_identity(render)
+            assert identity is not None
+            assert application.state.facility_name == identity["name"] == "Demo Lab"
+
+    def test_render_without_a_facility_file_reports_the_project_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        app = _start_app({"project_name": "1st-lab"})
+
+        assert app.state.facility_name == "1st-lab"
+
+    def test_no_facility_file_and_no_project_name_reports_no_name(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        app = _start_app({})
+
+        assert app.state.facility_name == ""
 
 
 class TestGraphParadigmState:
@@ -285,16 +328,16 @@ class TestGraphParadigmState:
                 assert stats.json()["error_type"]
                 assert stats.json()["suggestions"]
 
-                # This config names a store and stages no corpus, so the two
-                # routes that enumerate channels have no roster to answer from
-                # and say which key would give them one.
+                # No build has written a facility file into this render, so
+                # the two routes that enumerate channels have no roster to
+                # answer from and name the build that would give them one.
                 for enumeration in (
                     c.post("/api/validate", json={"channels": []}),
                     c.get("/api/channels"),
                 ):
                     assert enumeration.status_code == 503
                     body = enumeration.json()
-                    assert "services.graphdb.ttl_path" in " ".join(body["suggestions"])
+                    assert "osprey build" in " ".join(body["suggestions"])
 
                 switched = c.put("/api/pipeline", json={"pipeline_type": "in_context"})
                 assert switched.status_code == 400

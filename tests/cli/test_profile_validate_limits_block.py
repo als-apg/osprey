@@ -22,17 +22,15 @@ from osprey.cli.build_profile_deploy import limits_block_errors
 CUSTOM_TYPE = "mypkg.MoatConnector"
 
 
-def _complete(*, enabled: bool = True, allow_unlisted: bool = False) -> dict[str, Any]:
+def _complete(*, enabled: bool = True, mode: str = "exclusive") -> dict[str, Any]:
     """The two leaves of one per-type block, as a mapping."""
-    return {"enabled": enabled, "allow_unlisted_channels": allow_unlisted}
+    return {"enabled": enabled, "mode": mode}
 
 
 def test_a_complete_flat_built_in_block_passes() -> None:
     config = {
         "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
-        "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels": (
-            True
-        ),
+        "control_system.connector.virtual_accelerator.limits_checking.mode": "optional",
     }
     assert limits_block_errors(config) == []
 
@@ -41,13 +39,13 @@ def test_a_flat_built_in_block_missing_a_leaf_names_the_leaf() -> None:
     config = {"control_system.connector.virtual_accelerator.limits_checking.enabled": True}
     errors = limits_block_errors(config)
     assert len(errors) == 1
-    assert "allow_unlisted_channels" in errors[0]
+    assert "mode" in errors[0]
     assert "virtual_accelerator" in errors[0]
 
 
 def test_a_flat_built_in_block_missing_enabled_names_enabled() -> None:
     config = {
-        "control_system.connector.epics.limits_checking.allow_unlisted_channels": False,
+        "control_system.connector.epics.limits_checking.mode": "exclusive",
     }
     errors = limits_block_errors(config)
     assert len(errors) == 1
@@ -59,15 +57,13 @@ def test_a_flat_dotted_custom_type_is_refused_even_when_both_leaves_are_stated()
     """The dots in the type are indistinguishable from path separators once flattened."""
     config = {
         f"control_system.connector.{CUSTOM_TYPE}.limits_checking.enabled": True,
-        f"control_system.connector.{CUSTOM_TYPE}.limits_checking.allow_unlisted_channels": True,
+        f"control_system.connector.{CUSTOM_TYPE}.limits_checking.mode": "optional",
     }
     errors = limits_block_errors(config)
     assert len(errors) == 2
     joined = "\n".join(errors)
     assert f"control_system.connector.{CUSTOM_TYPE}.limits_checking.enabled" in joined
-    assert (
-        f"control_system.connector.{CUSTOM_TYPE}.limits_checking.allow_unlisted_channels" in joined
-    )
+    assert f"control_system.connector.{CUSTOM_TYPE}.limits_checking.mode" in joined
 
 
 def test_a_dotted_leaf_map_key_is_refused() -> None:
@@ -92,7 +88,7 @@ def test_a_dotted_prefix_custom_type_missing_a_leaf_names_the_leaf() -> None:
     }
     errors = limits_block_errors(config)
     assert len(errors) == 1
-    assert "allow_unlisted_channels" in errors[0]
+    assert "mode" in errors[0]
     assert CUSTOM_TYPE in errors[0]
 
 
@@ -129,7 +125,7 @@ def test_a_deeper_pair_below_control_system_passes() -> None:
     config = {
         "control_system.connector": {"virtual_accelerator": {"limits_checking": _complete()}},
         "control_system.connector.epics.limits_checking.enabled": True,
-        "control_system.connector.epics.limits_checking.allow_unlisted_channels": False,
+        "control_system.connector.epics.limits_checking.mode": "exclusive",
     }
     assert limits_block_errors(config) == []
 
@@ -148,7 +144,7 @@ def test_gateway_keys_are_untouched() -> None:
         "control_system.connector.epics.gateways.read.address": "gw-read.example.org",
         "control_system.connector.epics.gateways.write.address": "gw-write.example.org",
         "control_system.connector.epics.limits_checking.enabled": True,
-        "control_system.connector.epics.limits_checking.allow_unlisted_channels": False,
+        "control_system.connector.epics.limits_checking.mode": "exclusive",
     }
     assert limits_block_errors(config) == []
 
@@ -176,4 +172,4 @@ def test_a_stray_block_for_a_type_the_deployment_does_not_run_is_still_checked()
     errors = limits_block_errors(config)
     assert len(errors) == 1
     assert "live_standin" in errors[0]
-    assert "allow_unlisted_channels" in errors[0]
+    assert "mode" in errors[0]

@@ -15,7 +15,7 @@ import re
 import pytest
 import yaml
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_profile import list_presets
 from osprey.cli.build_profile_emit import (
     _CHANNEL_FINDER_MODE_LIST,

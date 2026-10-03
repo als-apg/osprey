@@ -283,10 +283,10 @@ def test_a_literal_key_inherited_from_a_parent_is_shadowed_too() -> None:
 def test_an_unrelated_set_pair_leaves_the_preset_alone() -> None:
     """Pruning is scoped to what the command line named."""
     profile, _dir = resolve_build_profile(
-        None, "hello-world", set_pairs=("config.facility.name=Ring",)
+        None, "hello-world", set_pairs=("config.system.timezone=UTC",)
     )
 
-    assert profile.config["facility.name"] == "Ring"
+    assert profile.config["system.timezone"] == "UTC"
     assert profile.config["approval.tools.channel_read"] == "skip"
 
 

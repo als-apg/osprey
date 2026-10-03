@@ -574,11 +574,6 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
     # staging step read one another's markers rather than re-seeding on sight.
     digest = graph_seeder.ttl_sha256(text)
 
-    # Read off the same text, so the marker's provenance and its digest can only
-    # ever describe the one corpus. A file built before the header existed
-    # declares nothing, and the snapshot then states nothing.
-    direction_source = graph_seeder.parse_direction_source(text)
-
     try:
         connection = resolve_graphdb_connection(_graphdb_block(), base=_graphdb_port_base())
     except ValueError as exc:
@@ -625,7 +620,7 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
             # Only now: a marker written before this point would label a
             # half-imported graph as a good seed, and every later run would
             # report it as unchanged.
-            graph_seeder.write_marker(session, digest, direction_source)
+            graph_seeder.write_marker(session, digest)
 
             state = "Overwritten" if force else "Seeded"
             report(f"{state}. The graph store at {connection.uri} now holds {ttl}.")
@@ -699,7 +694,9 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
     config follows the same rule every other configured path in this module
     follows: ``~`` expanded, relative values taken against the directory
     holding ``config.yml``.  In a rendered project that lands on
-    ``data/channel_databases/hierarchical.json``.
+    ``data/channel_finder/hierarchical.json``, the index the build writes,
+    whose levels are the facility's own and not this verb's grammar, so such
+    a project names its database with ``--channel-db``.
 
     Args:
         channel_db: The ``--channel-db`` value, or ``None``.
@@ -973,10 +970,6 @@ def _resolve_facility(explicit: str | None) -> tuple[str, str]:
     saying two different things. An explicit flag still wins, and the built-in
     ``demo`` is only reached when neither names anything.
 
-    ``facility.name`` is deliberately not consulted: it is a display string,
-    and a facility whose name has a space in it would mint identifiers no
-    Turtle prefixed name can hold.
-
     Run outside any project the key cannot be read at all; that is the same
     answer as a config that leaves it unset, so it falls through to the
     default rather than failing.
@@ -1165,8 +1158,8 @@ def build_ttl(
     \b
       --channel-db  channel_finder.pipelines.hierarchical.database.path from
                     the OSPREY config, resolved against the config file's own
-                    directory. In a rendered project that is
-                    data/channel_databases/hierarchical.json.
+                    directory. A rendered project's index uses the
+                    facility's own levels; name the database there.
       --descriptions
                     The in_context.json sitting beside the file --channel-db
                     named. That neighbour is how the OSPREY source tree keeps

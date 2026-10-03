@@ -28,7 +28,10 @@ from typing import Any, Literal, cast
 import yaml
 
 from osprey.config_guards import is_positive_int
-from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
+from osprey.deployment.compose_generator import (
+    DISPATCH_WORKER_SERVICE_PREFIX,
+    resolve_project_name,
+)
 from osprey.deployment.web_terminals.persona_images import (
     PREDATES_DELTA_REMEDY,
     persona_build_profile_shape_problem,
@@ -239,7 +242,6 @@ def lint_web_terminals(
             profile_root=profile_root,
         )
     )
-    findings.extend(_check_empty_facility_prefix(root, users))
     findings.extend(_check_unknown_image_source(web_terminals))
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
@@ -1671,10 +1673,11 @@ def _check_privileged_persona_exposure(
     # Resolved only once there is something to say about an entry: this walks
     # the whole roster, and a clean config must not pay for a report nobody is
     # going to make.
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     resolved = (
-        list(resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False))
+        list(
+            resolve_personas(web_terminals, registry_cfg, resolve_project_name(root), strict=False)
+        )
         if users
         else []
     )
@@ -1966,10 +1969,11 @@ def _check_live_writer_without_control_identity(
     if not live_writers:
         return []
 
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
     findings: list[Finding] = []
-    for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False):
+    for entry in resolve_personas(
+        web_terminals, registry_cfg, resolve_project_name(root), strict=False
+    ):
         persona = entry.get("persona")
         if not isinstance(persona, str) or persona not in live_writers:
             continue
@@ -2014,9 +2018,10 @@ def _check_unknown_persona_reference(
     if not users:
         return []
     personas_catalog = _persona_catalog(web_terminals)
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     registry_cfg = as_dict(root.get("registry"))
-    resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    resolved = resolve_personas(
+        web_terminals, registry_cfg, resolve_project_name(root), strict=False
+    )
 
     findings: list[Finding] = []
     for entry in resolved:
@@ -2034,37 +2039,6 @@ def _check_unknown_persona_reference(
                 )
             )
     return findings
-
-
-def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """Every web container name is derived from ``facility.prefix``:
-    ``<prefix>-nginx`` and ``<prefix>-web-<user>`` (see the compose template /
-    :mod:`osprey.deployment.web_terminals.seeding`). An empty prefix renders
-    leading-dash names like ``-nginx``, which Docker rejects — and only at
-    ``osprey up``, which never runs this lint pass. This check pulls that
-    failure forward to lint/build time.
-
-    The effective prefix is derived exactly as ``render.py`` derives it
-    (``facility.get("prefix") or ""``). Scoped to a configured roster — an
-    empty ``users[]`` renders no per-user services and is handled by
-    :func:`_check_empty_users` instead.
-    """
-    if not users:
-        return []
-    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
-    if facility_prefix:
-        return []
-    return [
-        Finding(
-            severity="error",
-            code="web_terminals.empty_facility_prefix",
-            message=(
-                "modules.web_terminals has users configured but the effective "
-                "facility.prefix is empty; web container names render as "
-                "'-nginx'/'-web-<user>', which Docker rejects at `osprey up`"
-            ),
-        )
-    ]
 
 
 # --- mode-coherence checks --------------------------------------------------
@@ -2440,8 +2414,6 @@ def _check_persona_project_collisions(
 
     deployment_project = root.get("project_name")
     if isinstance(deployment_project, str) and deployment_project:
-        from osprey.deployment.compose_generator import resolve_project_name
-
         deployment_project = resolve_project_name(root)
 
     findings: list[Finding] = []
@@ -2966,7 +2938,7 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
     """
     from osprey.agent_runner.tool_names import OPEN_MODE_EGRESS_TOOLS
     from osprey.deployment.web_terminals.artifacts import (
-        ZERO_MIGRATION_OFFENDER,
+        NO_PERSONA_OFFENDER,
         open_mode_missing_by_persona,
     )
 
@@ -2983,11 +2955,11 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
         )
         for persona, tools in sorted(missing.items())
     )
-    zero_migration_note = (
-        f". {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run no persona "
+    no_persona_note = (
+        f". {NO_PERSONA_OFFENDER!r} stands for the roster entries that run no persona "
         "at all: they run the deploy project itself, so the settings.json read for them "
         "is the deploy project's own .claude/settings.json"
-        if ZERO_MIGRATION_OFFENDER in missing
+        if NO_PERSONA_OFFENDER in missing
         else ""
     )
     return [
@@ -3004,7 +2976,7 @@ def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) 
                 f"or unparseable settings.json counts the same). Set auth.method to "
                 f"'token' to keep the magic-link wall, or restore those deny entries, "
                 f"render with `osprey build` and rebuild the images this deployment "
-                f"runs{zero_migration_note}"
+                f"runs{no_persona_note}"
             ),
         )
     ]

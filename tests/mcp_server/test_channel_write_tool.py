@@ -255,7 +255,7 @@ async def test_channel_write_leaves_max_step_to_the_connector(tmp_path, monkeypa
                 writable=True,
             )
         },
-        {"allow_unlisted_channels": False},
+        {"mode": "exclusive"},
     )
 
     data, connector = await _run_single(
@@ -287,7 +287,7 @@ async def test_channel_write_still_denies_a_bound_violation_on_a_max_step_channe
                 writable=True,
             )
         },
-        {"allow_unlisted_channels": False},
+        {"mode": "exclusive"},
     )
 
     connector = AsyncMock()
@@ -1161,13 +1161,13 @@ control_system:
   type: {cs_type}
   limits_checking:
     enabled: true
-    allow_unlisted_channels: false
+    mode: exclusive
     database_path: {db_path}
   connector:
     virtual_accelerator:
       limits_checking:
         enabled: true
-        allow_unlisted_channels: true
+        mode: optional
 """
 
 #: Display metadata as the server's single writer records it — irrelevant to
@@ -1270,9 +1270,9 @@ async def test_unlisted_write_is_refused_on_a_target_the_deployment_block_govern
 
     data = _exc_ctx["envelope"]
     assert data["details"][0]["violation_type"] == "UNLISTED_CHANNEL"
-    assert (
-        "control_system.limits_checking.allow_unlisted_channels" in data["details"][0]["reason"]
-    ), data["details"][0]["reason"]
+    assert "control_system.limits_checking.mode" in data["details"][0]["reason"], data["details"][
+        0
+    ]["reason"]
     assert connector.write_channel.await_count == 0
 
 

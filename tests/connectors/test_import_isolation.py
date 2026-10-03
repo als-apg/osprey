@@ -65,7 +65,7 @@ def test_limits_validator_reaches_for_no_control_system_client():
         "    ChannelLimitsConfig, LimitsValidator);"
         "v = LimitsValidator("
         "    {'FOO': ChannelLimitsConfig(channel_address='FOO', max_step=5.0)},"
-        "    {'allow_unlisted_channels': False}, {});"
+        "    {'mode': 'exclusive'}, {});"
         "v.validate('FOO', 1.0, read_current=lambda _a: 0.0);"
         "bad = sorted({'epics', 'p4p', 'tango', 'caproto', 'doocs4py'} & set(sys.modules));"
         "assert not bad, f'the limits validator imported a control-system client: {bad}';"

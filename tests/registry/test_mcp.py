@@ -1374,7 +1374,7 @@ class TestTemplateRendering:
         # (here, simply omitted) renders clean, and the topology gate does not
         # implicate this claude_code.servers stanza in any way.
         facility_config = {
-            "facility": {"name": "Demo Light Source", "prefix": "dls"},
+            "facility": {"prefix": "dls"},
             "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
             "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
             "modules": {

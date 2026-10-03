@@ -146,7 +146,7 @@ budget than either sibling) rather than the numbers. The stack is
 built ONCE for the module and every assertion below runs against it.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<prefix>-nginx`` / ``<prefix>-auth`` / ``<prefix>-web-
+this test created — the ``<project>-nginx`` / ``<project>-auth`` / ``<project>-web-
 <user>`` containers, this project's volumes, and the ``:local`` image tags — or
 is the project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing
 here ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
@@ -172,6 +172,7 @@ import pytest
 import yaml
 
 from osprey.audit.protected import SURFACE_HTTP_CONFIG
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.provision import force_recreate_auth_sidecar
 from osprey.port_layout import DEFAULT_PORT_BASE, PORT_BASE_CONFIG_KEY, default_port
 from osprey.services.auth_sidecar.identity_headers import (
@@ -216,6 +217,10 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
 # The repo DIRECTORY name, which is the deployment name: the compose project and
 # the com.osprey.project label on every image this deploy builds.
 PROJECT_NAME = "osprey-e2e-full-chain-auth"
+#: The compose project name the web tier's containers and the sidecar image
+#: are named by.
+PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
+#: The facility token, and the stem of the two catalog personas' projects.
 PREFIX = "fullchain"
 #: The preset the host repo and both persona projects are rendered from — the
 #: smallest one that stands up a serving ``osprey web``.
@@ -275,14 +280,14 @@ PORT_BASE = 23000
 #: the render places them off the same base.
 HOST_PORTS = {slot: default_port(slot, base=PORT_BASE) for slot in ("nginx", "auth")}
 
-AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
+AUTH_IMAGE_TAG = f"{PROJECT}-assistant-auth:local"
 # `<catalog project>:local`, exactly as resolve_personas derives a local-mode
 # persona tag for a catalog entry that names its own project.
 TERMINAL_IMAGE_TAG = f"{TERMINAL_PROJECT}:local"
 PROBE_IMAGE_TAG = f"{PROBE_PROJECT}:local"
 
-NGINX_C = f"{PREFIX}-nginx"
-AUTH_C = f"{PREFIX}-auth"
+NGINX_C = f"{PROJECT}-nginx"
+AUTH_C = f"{PROJECT}-auth"
 
 # Two real framework installs; give them room. The step budget in CI is 55
 # minutes (see the module docstring); this is the in-test ceiling below it.
@@ -378,7 +383,7 @@ CONTAINER_AUDIT_DIR = f"/app/{TERMINAL_PROJECT}/var/audit"
 
 
 def _web_container(user: str) -> str:
-    return f"{PREFIX}-web-{user}"
+    return f"{PROJECT}-web-{user}"
 
 
 def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -446,7 +451,7 @@ def _logs(name: str) -> str:
 def _exec(container: str, *argv: str, timeout: int = 30) -> subprocess.CompletedProcess:
     """Run one read-only command INSIDE an exact container this test created.
 
-    Names a ``<prefix>-web-<user>`` container built by this deployment, never a
+    Names a ``<project>-web-<user>`` container built by this deployment, never a
     pattern — see CONTAINER-OPS SAFETY in the module docstring.
     """
     return _runtime_cli("exec", container, *argv, timeout=timeout)
@@ -747,7 +752,6 @@ def _profile_edits() -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.name": "E2E Full-Chain Auth Fixture",
             "facility.prefix": PREFIX,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",

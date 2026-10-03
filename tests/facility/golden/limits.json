@@ -1,0 +1,30 @@
+{
+  "_reproduce": "uv run python scripts/facility_demo/_limits.py --write tests/facility/golden/limits.json",
+  "_sources": [
+    "scripts/facility_demo/_limits.py"
+  ],
+  "count": 3,
+  "channels": {
+    "SR:MAG:HCM:01:CURRENT:SP": {
+      "min_value": -12.0,
+      "max_value": 12.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "SR:RF:CAVITY:01:FREQUENCY:SP": {
+      "min_value": 500.0,
+      "max_value": 500.8,
+      "max_step": 0.01,
+      "writable": true,
+      "confirm": true
+    },
+    "SR:VAC:ION-PUMP:01:VOLTAGE:SP": {
+      "min_value": null,
+      "max_value": null,
+      "max_step": null,
+      "writable": false,
+      "confirm": true
+    }
+  }
+}

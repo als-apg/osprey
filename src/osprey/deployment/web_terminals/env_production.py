@@ -710,7 +710,7 @@ def _claude_code_auth_secret_vars(
     - **required** — vars some deployed web container actually authenticates
       with: each referenced persona project's provider (persona catalogs), or
       the deploy config's own provider when no persona catalog is configured
-      (the zero-migration path, where the web image is the facility project
+      (the no-persona path, where the web image is the facility project
       itself).
     - **extra** — vars worth *copying* when present but not worth failing
       over: the deploy config's own provider when a persona catalog is in
@@ -1077,7 +1077,7 @@ def _build_env_production_subset(
     personas that configure no graph store at all.
 
     One nuance applies to all four credentials alike. A roster entry that names
-    no persona — the zero-migration path, where the web image IS the deploy
+    no persona — the no-persona path, where the web image IS the deploy
     project — consults no persona set at all; the render answers it straight
     from the deploy config, via ``config_needs_launch_token``,
     ``config_needs_dispatcher_token``, ``config_needs_ariel_password`` or

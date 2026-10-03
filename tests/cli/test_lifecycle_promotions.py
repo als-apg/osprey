@@ -1004,7 +1004,7 @@ class TestTheBuildsIdentityLine:
     """Row 24 and the two rows it absorbs, read off one real build."""
 
     def test_the_three_identity_fields_arrive_as_one_line(self, built_exemplar):
-        assert re.search(r"profile .+? \(bundle \S+, tier \d\)", built_exemplar.flowed), (
+        assert re.search(r"profile .+? \(bundle \S+\)", built_exemplar.flowed), (
             built_exemplar.flowed
         )
 

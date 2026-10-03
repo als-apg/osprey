@@ -507,14 +507,14 @@ class TestEveryChannelNothingDrivesIsReadOnly:
         read_addresses = _read_addresses(tree)
         assert read_addresses, f"{tree.name} reads no address it does not also write"
         limits_db, raw_db = LimitsValidator._load_limits_database(str(tree.paths.channel_limits))
-        validator = LimitsValidator(limits_db, {"allow_unlisted_channels": True}, raw_db)
+        validator = LimitsValidator(limits_db, {"mode": "optional"}, raw_db)
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate(read_addresses[0], 1.0)
         assert exc.value.violation_type == "READ_ONLY_CHANNEL"
 
     def test_an_in_bounds_write_to_a_driven_channel_is_allowed(self, tree):
         limits_db, raw_db = LimitsValidator._load_limits_database(str(tree.paths.channel_limits))
-        validator = LimitsValidator(limits_db, {"allow_unlisted_channels": True}, raw_db)
+        validator = LimitsValidator(limits_db, {"mode": "optional"}, raw_db)
         banded = [
             binding
             for binding in _driven(tree)

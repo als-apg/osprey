@@ -137,16 +137,13 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # The SECOND guard: every write is checked against the channel-limits file
-  # below (per-channel min/max and writable flags).
+  # The SECOND guard: every write is checked against the records in
+  # data/facility/limits.yaml (per-channel min/max and writable flags).
   control_system.limits_checking.enabled: true
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
-  # Whether a channel the limits file does not list stays writable. The mock's
-  # invented channels need true; a production deployment sets false so an
-  # unknown channel fails closed.
-  control_system.limits_checking.allow_unlisted_channels: true
+  # `optional` = channels in the limits file are held to their limits, every
+  # other channel is written with no limits. `exclusive` = only channels in
+  # the file can be written.
+  control_system.limits_checking.mode: optional
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read.
@@ -282,9 +279,6 @@ config:
   # category nobody declared is still stored — it just keeps the default badge,
   # and the save logs a warning naming this key.
   # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
   # Starting theme for every web terminal. Each browser can override it from
   # the display menu.
   # web.theme: light
@@ -326,3 +320,6 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+  # Models the simulator serves, named from data/facility/models.yaml. null
+  # serves every model; [texture] serves no physics.
+  simulation.models: null

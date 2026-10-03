@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.health.core.channel_finder import channel_finder
 from osprey.health.models import CheckResult, Status
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
@@ -61,7 +61,7 @@ def _make_duckdb(path: Path, channels: list[str]) -> None:
 
     con = duckdb.connect(str(path))
     try:
-        con.execute("CREATE TABLE channels (channel_name TEXT PRIMARY KEY, system TEXT)")
+        con.execute("CREATE TABLE channels (channel_name TEXT NOT NULL, system TEXT)")
         if channels:
             con.executemany("INSERT INTO channels VALUES (?, ?)", [(c, "SR") for c in channels])
     finally:
@@ -249,6 +249,14 @@ class TestDuckDBCount:
         assert channels.status is Status.OK
         assert channels.value == "3 channels"
 
+    async def test_a_channel_in_two_families_counts_once(self, tmp_path) -> None:
+        js = tmp_path / "middle_layer.json"
+        _write_json_db(js)
+        duck = tmp_path / "middle_layer.duckdb"
+        _make_duckdb(duck, ["SR:BPM1:X", "SR:BPM1:X", "SR:HCM1:Setpoint"])
+        by_name = await _run(_cf(mode="middle_layer", path=str(js), duckdb_path=str(duck)))
+        assert by_name["channel_finder_channels"].value == "2 channels"
+
     async def test_zero_channels_warns(self, tmp_path) -> None:
         js = tmp_path / "middle_layer.json"
         _write_json_db(js)
@@ -317,12 +325,10 @@ class _FakeDriver:
         *,
         count: int = 7,
         sha256: str | None = DIGEST,
-        direction_source: str | None = "grammar",
         connect_error: Exception | None = None,
     ) -> None:
         self.count = count
         self.sha256 = sha256
-        self.direction_source = direction_source
         self.connect_error = connect_error
         self.queries: list[str] = []
 
@@ -335,9 +341,7 @@ class _FakeDriver:
         if "_OspreySeed" in query:
             if self.sha256 is None:
                 return _FakeEagerResult([])
-            return _FakeEagerResult(
-                [_FakeRecord(sha256=self.sha256, direction_source=self.direction_source)]
-            )
+            return _FakeEagerResult([_FakeRecord(sha256=self.sha256)])
         return _FakeEagerResult([_FakeRecord(count=self.count)])
 
     def close(self) -> None:

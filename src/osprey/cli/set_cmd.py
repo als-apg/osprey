@@ -232,7 +232,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     from it and is never hand-edited or CLI-edited. Run `osprey build` to carry
     a setting through to build/, then `osprey up` to deploy it.
 
-    KEY is a top-level profile key (provider, model, tier, channel_finder_mode,
+    KEY is a top-level profile key (provider, model, channel_finder_mode,
     connector) or a dotted path. `model` is a model id the provider serves, and so is
     each `config.claude_code.agent_models.<agent>` pin. Keys under `config.` address the rendered
     config: `config.control_system.type=epics` writes that literal dotted entry
@@ -253,8 +253,8 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set model=claude-sonnet-5
       $ osprey set config.claude_code.agent_models.logbook-deep-research=claude-opus-5-5
       $ osprey set connector=epics
-      $ osprey set tier=1 channel_finder_mode=in_context
-      $ osprey set config.facility.name='Storage Ring'
+      $ osprey set channel_finder_mode=in_context
+      $ osprey set config.system.timezone=America/Los_Angeles
       $ osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
       $ osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
     """

@@ -1,7 +1,8 @@
 """Tests for the facility_description MCP tool.
 
-Verifies that the tool reads .claude/rules/facility.md from the project root
-and returns its content, or a proper error envelope if the file is missing.
+Verifies that the tool returns the hand-written .claude/rules/facility.md and
+the build's data/facility_facts.md from the project root, each null where its
+file is absent, and the not-found envelope only when both are absent.
 """
 
 import json
@@ -31,6 +32,17 @@ def facility_config(tmp_path):
     return tmp_path
 
 
+FACTS_PAGE_TEXT = (
+    "schema: osprey.facility.facility_facts/1\n\n# Example Facility\n\n- Code: `example`\n"
+)
+
+
+def _write_facts_page(project_root):
+    data_dir = project_root / "data"
+    data_dir.mkdir()
+    (data_dir / "facility_facts.md").write_text(FACTS_PAGE_TEXT, encoding="utf-8")
+
+
 @pytest.fixture
 def missing_facility_config(tmp_path):
     """Create config.yml but no facility.md."""
@@ -57,11 +69,54 @@ class TestFacilityDescription:
         assert "error" not in result
         assert "facility_description" in result
         assert "Advanced Light Source" in result["facility_description"]
-        assert "source" in result
+        assert result["generated"] is None
+        assert result["source"] == {
+            "facility_description": str(
+                facility_config.resolve() / ".claude" / "rules" / "facility.md"
+            ),
+            "generated": "data/facility_facts.md",
+        }
+
+    @pytest.mark.asyncio
+    async def test_both_pages(self, facility_config, monkeypatch):
+        """Both files exist -> returns the hand-written text and the facts page."""
+        _write_facts_page(facility_config)
+        monkeypatch.chdir(facility_config)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+        from osprey.mcp_server.workspace.tools.facility_description import facility_description
+        from tests.mcp_server.conftest import get_tool_fn
+
+        fn = get_tool_fn(facility_description)
+        result = extract_response_dict(await fn())
+
+        assert "Advanced Light Source" in result["facility_description"]
+        assert result["generated"] == FACTS_PAGE_TEXT
+        assert result["source"]["generated"] == "data/facility_facts.md"
+
+    @pytest.mark.asyncio
+    async def test_generated_without_hand_written_page(self, missing_facility_config, monkeypatch):
+        """Only the facts page exists -> null description beside the facts text."""
+        _write_facts_page(missing_facility_config)
+        monkeypatch.chdir(missing_facility_config)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+        from osprey.mcp_server.workspace.tools.facility_description import facility_description
+        from tests.mcp_server.conftest import get_tool_fn
+
+        fn = get_tool_fn(facility_description)
+        result = extract_response_dict(await fn())
+
+        assert "error" not in result
+        assert result == {
+            "facility_description": None,
+            "generated": FACTS_PAGE_TEXT,
+            "source": {"facility_description": None, "generated": "data/facility_facts.md"},
+        }
 
     @pytest.mark.asyncio
     async def test_not_found(self, missing_facility_config, monkeypatch):
-        """File missing -> error envelope."""
+        """Both files missing -> error envelope."""
         monkeypatch.chdir(missing_facility_config)
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
@@ -73,6 +128,7 @@ class TestFacilityDescription:
             await fn()
         result = _exc_ctx["envelope"]
         assert "facility.md" in result["error_message"]
+        assert "data/facility_facts.md" in result["error_message"]
         assert len(result["suggestions"]) > 0
 
     @pytest.mark.asyncio

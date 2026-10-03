@@ -21,8 +21,8 @@ The rules that turn a corpus into those channels still live in this module --
 :func:`_direction`. The builder applies them when it writes the index
 (:func:`osprey.services.channel_finder.graph_index.builder.channels_from_corpus`),
 so the rules are stated once rather than twice where the two copies could
-drift, and the rows this reader returns are the records it used to build
-itself. They import ``rdflib`` inside the function that needs it, exactly as
+drift, and the rows this reader returns are the records those rules
+produce. They import ``rdflib`` inside the function that needs it, exactly as
 :mod:`osprey.deployment.channel_snapshot` does and for the same two reasons:
 importing anything from ``osprey.services.facility_knowledge`` executes that
 package's ``__init__`` and pulls ``osprey.services.qmd`` into the build's
@@ -98,8 +98,7 @@ _BINDING_ID_IRI = _NARAD_P + "bindingId"
 #: ``GapMonitor`` for an insertion device's gap). The same two field names the
 #: facility-knowledge seeder reads off a binding
 #: (``seeder/ttl_seeder._binding_channel_name``). This is the corpus stating
-#: a pair; the ``:SP``/``:RB`` address grammar in :mod:`.pairing` is the
-#: fallback for the records a corpus groups nothing with.
+#: a pair.
 SETPOINT_FIELD_SUFFIX = "Setpoint"
 MONITOR_FIELD_SUFFIX = "Monitor"
 
@@ -131,10 +130,7 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
         facility would be a lie with a source attached. A settable record
         carries the readback the corpus itself stated for it -- the
         ``<stem>Monitor`` binding beside its ``<stem>Setpoint`` binding on the
-        same device (:func:`_corpus_readbacks`); the records the corpus pairs
-        nothing with are left to the address-grammar pass in
-        :mod:`osprey.channel_roster.pairing`, which never overrides a readback
-        the source stated.
+        same device (:func:`_corpus_readbacks`).
     """
     from osprey.services.channel_finder.graph_index.reader import (
         GraphIndexAbsence,

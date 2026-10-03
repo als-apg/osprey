@@ -290,7 +290,6 @@ def _seed(session: Any, ttl: str, label: str) -> None:
     graph_seeder.write_marker(
         session,
         graph_seeder.ttl_sha256(ttl),
-        graph_seeder.parse_direction_source(ttl),
     )
 
 

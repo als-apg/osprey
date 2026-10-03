@@ -8,7 +8,8 @@ cannot assume.
 
 Staging the graph store is therefore the knowledge-graph counterpart of
 ``_stage_ariel_store``: start the store alone, wait for it, bootstrap it, and —
-on a first bring-up only — import the configured TTL. Every failure here warns
+whenever the store's seed marker differs from the configured TTL's digest —
+replace its contents with that TTL. Every failure here warns
 and names ``osprey knowledge seed-graph``; none of them aborts the deploy, because
 a control room whose channels, plans and archive are up should not be denied them
 over a search index.
@@ -63,7 +64,7 @@ def graphdb_stubs(monkeypatch, tmp_path):
         "sessions": [],
         "imported": [],
         "markers": [],
-        "direction_sources": [],
+        "stored_marker": None,
         "notes": [],
         "resources": 0,
         "bootstrap": graph_seeder.BootstrapResult(status=graph_seeder.BootstrapStatus.INITIALIZED),
@@ -121,10 +122,16 @@ def graphdb_stubs(monkeypatch, tmp_path):
         state["imported"].append(text)
         return state["import_result"]
 
-    def _write_marker(_session, sha256, direction_source=None):
+    def _read_marker(_session):
+        state["events"].append("read-marker")
+        return state["stored_marker"]
+
+    def _wipe(_session):
+        state["events"].append("wipe")
+
+    def _write_marker(_session, sha256):
         state["events"].append("marker")
         state["markers"].append(sha256)
-        state["direction_sources"].append(direction_source)
 
     def _bake_snapshot(_session, render_dir):
         state["events"].append("bake")
@@ -139,6 +146,8 @@ def graphdb_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(graph_seeder, "open_session", _open_session)
     monkeypatch.setattr(graph_seeder, "bootstrap", _bootstrap)
     monkeypatch.setattr(graph_seeder, "resource_count", _resource_count)
+    monkeypatch.setattr(graph_seeder, "read_marker", _read_marker)
+    monkeypatch.setattr(graph_seeder, "wipe", _wipe)
     monkeypatch.setattr(graph_seeder, "import_ttl", _import_ttl)
     monkeypatch.setattr(graph_seeder, "write_marker", _write_marker)
     monkeypatch.setattr(prompt_snapshot, "bake_snapshot", _bake_snapshot)
@@ -160,8 +169,9 @@ def test_the_store_is_started_on_its_own(graphdb_stubs, tmp_path):
 
 
 def test_the_staging_runs_its_steps_in_order(graphdb_stubs, tmp_path):
-    """Each step depends on the one before: nothing may be imported into a store
-    that is not up, not bootstrapped, or not known to be empty -- and the marker
+    """Each step depends on the one before: the stored marker is compared only on
+    a bootstrapped store; a mismatch wipes the store, which removes the n10s
+    config with the data, so bootstrap runs again before the import; the marker
     is written last among the store steps, because it is what claims the import
     succeeded; the prompt snapshot follows it, because it must describe a store
     whose marker vouches for the corpus."""
@@ -173,7 +183,9 @@ def test_the_staging_runs_its_steps_in_order(graphdb_stubs, tmp_path):
         "up",
         "wait",
         "bootstrap",
-        "count",
+        "read-marker",
+        "wipe",
+        "bootstrap",
         "import",
         "marker",
         "bake",
@@ -190,14 +202,16 @@ def test_an_empty_graph_with_a_ttl_path_is_seeded(graphdb_stubs, tmp_path):
     assert graphdb_stubs["markers"] == [hashlib.sha256(TTL_TEXT.encode("utf-8")).hexdigest()]
 
 
-def test_a_populated_graph_is_left_alone_and_says_nothing(graphdb_stubs, tmp_path, caplog):
-    """The second `osprey up` on the same project. A graph that already carries
-    resources is not re-imported, and not complained about either -- this is the
-    normal path, not a problem. The prompt snapshot IS re-baked: this deploy's
-    build reset the rendered agent prompt to its placeholder, and the redeploy
-    is what fills it back in."""
+def test_a_store_holding_this_corpus_is_left_alone_and_says_nothing(
+    graphdb_stubs, tmp_path, caplog
+):
+    """The second `osprey up` on an unchanged project. A store whose marker
+    equals the corpus digest is not re-imported, and not complained about either
+    -- this is the normal path, not a problem. The prompt snapshot IS re-baked:
+    this deploy's build reset the rendered agent prompt to its placeholder, and
+    the redeploy is what fills it back in."""
     # Arrange
-    graphdb_stubs["resources"] = 8114
+    graphdb_stubs["stored_marker"] = hashlib.sha256(TTL_TEXT.encode("utf-8")).hexdigest()
 
     # Act
     with caplog.at_level("WARNING"):
@@ -206,8 +220,52 @@ def test_a_populated_graph_is_left_alone_and_says_nothing(graphdb_stubs, tmp_pat
     # Assert
     assert graphdb_stubs["imported"] == []
     assert graphdb_stubs["markers"] == []
-    assert graphdb_stubs["events"] == ["up", "wait", "bootstrap", "count", "bake"]
+    assert graphdb_stubs["events"] == ["up", "wait", "bootstrap", "read-marker", "bake"]
     assert caplog.text == ""
+
+
+def test_a_store_holding_another_corpus_is_replaced(graphdb_stubs, tmp_path, caplog):
+    """A changed corpus changes its digest, so the stored marker no longer
+    matches: the deploy wipes the store and imports the corpus it was built
+    with, with no manual seeding step."""
+    # Arrange
+    graphdb_stubs["stored_marker"] = "0" * 64
+    graphdb_stubs["resources"] = 8114
+
+    # Act
+    with caplog.at_level("WARNING"):
+        _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert graphdb_stubs["imported"] == [TTL_TEXT]
+    assert graphdb_stubs["markers"] == [hashlib.sha256(TTL_TEXT.encode("utf-8")).hexdigest()]
+    assert graphdb_stubs["events"].index("wipe") < graphdb_stubs["events"].index("import")
+    assert caplog.text == ""
+
+
+def test_a_session_failing_after_the_wipe_writes_no_marker(
+    graphdb_stubs, tmp_path, monkeypatch, caplog
+):
+    """A replacement that dies between the wipe and the import leaves a store
+    with no marker, so the next deploy sees a mismatch and replaces it again,
+    rather than a marker vouching for a corpus the store does not hold."""
+
+    # Arrange
+    def _import_dies(_session, _text):
+        graphdb_stubs["events"].append("import")
+        raise RuntimeError("session expired")
+
+    monkeypatch.setattr(graph_seeder, "import_ttl", _import_dies)
+
+    # Act
+    with caplog.at_level("WARNING"):
+        _stage(GRAPHDB_CONFIG, tmp_path)
+
+    # Assert
+    assert "wipe" in graphdb_stubs["events"]
+    assert graphdb_stubs["markers"] == []
+    assert "bake" not in graphdb_stubs["events"]
+    assert "session expired" in caplog.text
 
 
 def test_the_snapshot_is_baked_into_the_render_not_the_repo_root(graphdb_stubs, tmp_path):

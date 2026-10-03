@@ -148,16 +148,13 @@ control_system:
         write_access:
           address: localhost
           use_name_server: true
-      limits_checking:
-        allow_unlisted_channels: true
-        enabled: true
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       simulation_file: data/simulation/machine.json
       timeout_s: 5.0
   limits_checking:
-    allow_unlisted_channels: false
     database_path: data/channel_limits.json
     enabled: true
+    mode: optional
   read_inline_max_elements: 2000
   target_switch:
     drain_timeout_s: 5

@@ -90,16 +90,9 @@ default_panel: ariel
 # `default_panel:`), and every host port.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Display name woven into the agent prompts and the web landing page. Keep it
-  # in sync with .claude/rules/facility.md.
-  facility.name: Example Research Facility
   # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
   # Only the multi-user web-terminal stack reads it.
   # facility.prefix: ex
-  # This facility's compiled ontology table feeds the channel-finder subagent's
-  # vocabulary. No channel finder here: the graph agent reads the vocabulary
-  # out of the seeded store instead, so the key stays an example.
-  # facility.ontology: data/facility_ontology.json
 
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
@@ -532,3 +525,6 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+  # Models the simulator serves, named from data/facility/models.yaml. null
+  # serves every model; [texture] serves no physics.
+  simulation.models: null

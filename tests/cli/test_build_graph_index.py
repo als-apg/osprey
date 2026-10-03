@@ -74,16 +74,13 @@ def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = (
     its channels are in the corpus. ``corpus=None`` writes no corpus file,
     leaving ``ttl_path`` naming a file that is not staged.
     """
-    from tests.fixtures.lifecycle_repo import FACILITY_ONTOLOGY_JSON
-
     root.mkdir(parents=True, exist_ok=True)
     data = root / "data"
     (data / "simulation").mkdir(parents=True)
     (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
     (data / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
     (data / LIMITS_FILENAME).write_text("{}\n")
-    (data / "facility_knowledge").mkdir()
-    (data / "facility_ontology.json").write_text(FACILITY_ONTOLOGY_JSON)
+    (data / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     if corpus is not None:
         (data / "facility.ttl").write_text(corpus, encoding="utf-8")
     (root / "profile.yml").write_text(

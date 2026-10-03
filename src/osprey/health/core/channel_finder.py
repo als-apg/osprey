@@ -14,7 +14,7 @@ selects what is consulted: the file-backed paradigms name a database file under
 ``channel_finder.pipelines.<mode>.database``, while ``graph`` answers from the
 deployment's graph store and so reads ``services.graphdb`` instead. The mode
 must name a real paradigm
-(:data:`~osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`); a mode nothing
+(:data:`~osprey.build.modes.VALID_CHANNEL_FINDER_MODES`); a mode nothing
 answers to raises :class:`~osprey.services.channel_finder.core.exceptions.PipelineModeError`
 rather than degrading to a row, because that is a defect in the configuration
 and not a store that happens to be down. The health runner isolates the failure
@@ -82,7 +82,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_BUILD_INDEX_COMMAND,
     GRAPHDB_SEED_COMMAND,
@@ -562,7 +562,9 @@ def _count_row(duckdb_path: Path) -> CheckResult:
     try:
         con = duckdb.connect(str(duckdb_path), read_only=True)
         try:
-            row = con.execute(f"SELECT COUNT(*) FROM {_CHANNELS_TABLE}").fetchone()
+            row = con.execute(
+                f"SELECT COUNT(DISTINCT channel_name) FROM {_CHANNELS_TABLE}"
+            ).fetchone()
         finally:
             con.close()
     except Exception as exc:  # any duckdb error degrades to a warning

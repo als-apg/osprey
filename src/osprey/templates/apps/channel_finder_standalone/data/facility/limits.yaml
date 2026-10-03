@@ -1,0 +1,13 @@
+records:
+# Symmetric range: the corrector current stays within [-12, 12].
+- address: SR:MAG:HCM:01:CURRENT:SP
+  min_value: -12.0
+  max_value: 12.0
+# Range plus largest single step: the cavity frequency in MHz.
+- address: SR:RF:CAVITY:01:FREQUENCY:SP
+  min_value: 500.0
+  max_value: 500.8
+  max_step: 0.01
+# Blocked outright: no write reaches this setpoint.
+- address: SR:VAC:ION-PUMP:01:VOLTAGE:SP
+  writable: false

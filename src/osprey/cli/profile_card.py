@@ -469,8 +469,7 @@ def _machine_group(profile: BuildProfile) -> CardGroup | None:
 
     if profile.channel_finder_mode:
         finder = f"{profile.channel_finder_mode.replace('_', ' ')} finder"
-        tier = f"tier {profile.resolved_tier()}"
-        rows.append([[("channels", Styles.DIM)], _dotted_list([finder, tier])])
+        rows.append([[("channels", Styles.DIM)], _dotted_list([finder])])
 
     return CardGroup("machine", rows=rows) if rows else None
 

@@ -318,7 +318,6 @@ def init_project(
     provider: str,
     model: str | None = None,
     channel_finder_mode: str | None = None,
-    tier: int | None = None,
     connector: str = "mock",
     archiver: str = "mock_archiver",
 ) -> Path:
@@ -384,21 +383,6 @@ def init_project(
     answers from a file. A test whose subject IS the graph paradigm names
     ``graph`` explicitly and stands the store up itself.
 
-    Tier selection follows a per-mode default: tier 1 is in_context-only, while
-    every other paradigm requires tier 3. When ``tier`` is left ``None`` and a
-    ``channel_finder_mode`` is given, the tier is derived from it (in_context
-    → 1, else → 3); when neither is given, ``tier`` is left out of the profile
-    and the build derives it from the preset's own paradigm. An explicit
-    ``tier`` kwarg is always honored. Consequence: hierarchical/middle_layer
-    callers score the full tier-3 (2908-channel) surface, not a tier-1 subset.
-    The tier is a profile field, so it is set the same way as every other one:
-    ``--set tier=N`` on ``init``.
-
-    A paradigm whose store is a service rather than tiered database files
-    (``graph``) has no tier to select, so the derived tier is dropped for it
-    and the profile is written without a ``tier`` field. The rule is read from
-    ``tier_mode_conflict`` rather than restated here.
-
     ``provider`` is required (keyword-only) — every test callsite must name
     it explicitly. Each provider gates on different credentials (CBORG needs
     LBLnet/VPN; als-apg needs ``ALS_APG_API_KEY``; anthropic-direct needs
@@ -424,21 +408,16 @@ def init_project(
     :func:`tests.e2e.provider.build_model`), because the suite's budgets are
     sized for that model and the provider's catalog default is not.
     """
-    from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
+    from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 
     provider = build_provider(provider)
     if channel_finder_mode is None and _preset_channel_finder_mode(template) == "graph":
         channel_finder_mode = "hierarchical"
-    effective_tier = tier
-    if effective_tier is None and channel_finder_mode is not None:
-        derived = default_tier_for_mode(channel_finder_mode)
-        # Pin the derived tier only where the paradigm accepts one. A paradigm
-        # backed by a service rather than tiered database files has no tier to
-        # select, and ``tier_mode_conflict`` is the registry's own statement of
-        # which pairings hold — asking it keeps the rule in one place instead of
-        # re-listing paradigms here.
-        if tier_mode_conflict(derived, channel_finder_mode) is None:
-            effective_tier = derived
+    if channel_finder_mode is not None and channel_finder_mode not in VALID_CHANNEL_FINDER_MODES:
+        raise ValueError(
+            f"channel_finder_mode {channel_finder_mode!r} is not one of "
+            f"{list(VALID_CHANNEL_FINDER_MODES)}"
+        )
     repo = tmp_path / name
     init_args = [
         str(repo),
@@ -460,8 +439,6 @@ def init_project(
         pins["virtual_accelerator"] = {"live_standin": None}
     init_args.extend(set_pairs(pins))
     init_args.extend(["--set", f"port_base={e2e_port_base()}"])
-    if effective_tier is not None:
-        init_args.extend(["--set", f"tier={effective_tier}"])
     if channel_finder_mode is not None:
         init_args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
     _run_osprey("init", init_args, timeout=180)

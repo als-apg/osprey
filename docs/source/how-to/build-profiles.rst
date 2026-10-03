@@ -615,22 +615,9 @@ The named plan is then invisible to the agent and non-runnable. The same
 block's ``plan_dir`` key does the opposite — it installs a directory of your
 facility's own plans; see :doc:`bluesky/write-plans`.
 
-``bluesky.devices_file`` names the third piece: the file listing the devices
-those plans may drive or record.
-
-.. code-block:: yaml
-
-   bluesky:
-     devices_file: data/bluesky_devices.yml
-
-That default puts the file inside the project, so it is built and shipped with
-the deployment. An absolute path is yours instead — the build reads it where it
-is and never rewrites or relocates it. A malformed entry fails the build, and a
-deployment on a real control system with no file yet at a project path gets one
-written for it, derived from the same description of the facility the channel
-finder reads: its knowledge graph corpus in graph mode, its channel-finder
-database otherwise. The file's format and the three cases are in
-:doc:`bluesky/write-plans`.
+The third piece, the file listing the devices those plans may drive or
+record, is not a profile key: the build writes it from your facility file. Its
+format is in :doc:`bluesky/write-plans`.
 
 
 .. _profile-host-variants:
@@ -759,24 +746,6 @@ servers, tool permissions, ``services``, ``va_archiver``, lifecycle commands,
 :doc:`/reference/configuration/profile`.
 
 
-Regenerating a channel database
-===============================
-
-``osprey channel-finder build-database`` writes the generated database **into the
-profile**, not into the project — beside the CSV inputs it came from, where it
-survives a rebuild. The sequence is meant to run to completion:
-
-.. code-block:: bash
-
-   osprey channel-finder build-database
-   # the deployment now reports its build as out of date
-   osprey build
-   # the report clears
-
-The drift report in between is the reminder that the new database has not been
-deployed yet — not a problem to fix. Use ``--output`` to write somewhere else.
-
-
 Building
 ========
 
@@ -878,7 +847,7 @@ What the build does
 ===================
 
 1. Settle the profile (materialize from a preset on first use, or read the one
-   you named), writing any ``--set`` / ``--tier`` into it.
+   you named), writing any ``--set`` into it.
 2. Resolve and validate the profile, including any persona delta merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
 4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing

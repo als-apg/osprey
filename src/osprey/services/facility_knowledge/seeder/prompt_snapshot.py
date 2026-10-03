@@ -50,7 +50,6 @@ from typing import Any
 
 from osprey.services.facility_knowledge.seeder.graph_seeder import NARAD_PREFIXES
 from osprey.services.facility_knowledge.seeder.ttl_seeder import local_name
-from osprey.services.facility_knowledge.ttl_generator.direction import WRITE_SUBFIELD
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = logging.getLogger(__name__)
@@ -73,7 +72,7 @@ BOOKKEEPING_LABELS = frozenset({"_GraphConfig", "_NsPrefDef", "_OspreySeed"})
 #: Property names that belong to the bookkeeping nodes above. Filtered on top
 #: of the label exclusion as belt-and-braces: were one of these ever to land on
 #: a knowledge node, listing it would invite the agent to query the seed marker.
-BOOKKEEPING_PROPERTIES = frozenset({"sha256", "seededAt", "kind", "directionSource"})
+BOOKKEEPING_PROPERTIES = frozenset({"sha256", "seededAt", "kind"})
 
 LABELS_CYPHER = "CALL db.labels() YIELD label RETURN label ORDER BY label"
 
@@ -379,43 +378,6 @@ VOCABULARY_MATCH_RULE = (
 CAPTURED_PARAMETERS_NOTE = "values captured from this corpus"
 DEFAULT_PARAMETERS_NOTE = "framework defaults; substitute values from this corpus"
 
-#: How each ``READSSIGNAL``/``WRITESSIGNAL`` edge in *this* corpus came to point
-#: the way it does. ``build-ttl`` knows; the seeder carries it in the marker;
-#: the agent needs it because the derivations differ in what they can get
-#: wrong — a grammar-derived corpus mislabels any writable channel whose address
-#: does not end in the setpoint subfield. The token is quoted from the generator
-#: that applies it rather than spelled here, so the note cannot describe a rule
-#: the corpus was not built with. Deliberately worded without the build host's
-#: path: the whole rendered prompt is guarded against leaking one.
-DIRECTION_PROVENANCE_LINES = {
-    "limits": (
-        "Direction provenance: read/write edges derived from this facility's channel limits."
-    ),
-    "grammar": (
-        "Direction provenance: read/write edges derived from the address grammar "
-        f"(`:{WRITE_SUBFIELD}` writes), because no channel limits were available."
-    ),
-    "mapping": (
-        "Direction provenance: read/write edges derived from the MML export's "
-        "MemberOf tags and the facility's mapping file."
-    ),
-}
-
-
-def _render_direction(direction_source: str | None) -> list[str]:
-    """The provenance line's lines, or none at all.
-
-    A corpus built by an older ``osprey`` recorded no source, and there is no
-    honest default to fall back on — the derivations are not
-    interchangeable — so an absent source renders nothing rather than a guess.
-    An unrecognised value is printed verbatim: a newer builder's spelling is
-    still more informative than silence.
-    """
-    if not direction_source:
-        return []
-    known = DIRECTION_PROVENANCE_LINES.get(direction_source)
-    return ["", known or f"Direction provenance: `{direction_source}`."]
-
 
 def _render_vocabulary(vocabulary: Sequence[Mapping[str, Any]]) -> list[str]:
     """The Vocabulary section's lines, table or note."""
@@ -455,7 +417,6 @@ def render_block(
     resource_count: int,
     vocabulary: Sequence[Mapping[str, Any]] = (),
     values: Mapping[str, Any] | None = None,
-    direction_source: str | None = None,
 ) -> str:
     """Render the snapshot block, markers included.
 
@@ -470,8 +431,6 @@ def render_block(
         values: A :func:`resolve_example_values` result. Each example's
             parameters are substituted by name from it; whatever it does not
             carry stays the shipped literal and the line says so.
-        direction_source: How the corpus's read/write edges were derived, as the
-            seed marker recorded it. ``None`` renders no provenance line.
     """
     values = values or {}
     lines: list[str] = [SNAPSHOT_BEGIN, ""]
@@ -487,7 +446,6 @@ def render_block(
         "listed here returns zero rows, or you need vocabulary beyond it, call "
         "`get_schema()` / `example_queries()` — the live store always wins over "
         "this text.",
-        *_render_direction(direction_source),
         "",
         "### Schema",
         "",
@@ -633,7 +591,6 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
     values = resolve_example_values(run)
     digest = graph_seeder.read_marker(session)
     resource_count = graph_seeder.resource_count(session)
-    direction_source = graph_seeder.read_direction_source(session)
     blocks = {
         filename: render_block(
             schema,
@@ -642,7 +599,6 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
             resource_count=resource_count,
             vocabulary=vocabulary,
             values=values,
-            direction_source=direction_source,
         )
         for filename, examples in catalogues.items()
     }

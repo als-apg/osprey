@@ -1,0 +1,42 @@
+{
+  "_reproduce": "written by hand, in the change that adds the address",
+  "_description": "Addresses the demo serves beyond demo_fingerprint.json: one row per added address in the fingerprint's row shape (address, role, value_type, names, description), sorted by address.",
+  "rows": [
+    {
+      "address": "SR:DIAG:CHROM:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Chromaticity_X"
+      ],
+      "description": "Storage ring chromaticity horizontal"
+    },
+    {
+      "address": "SR:DIAG:CHROM:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Chromaticity_Y"
+      ],
+      "description": "Storage ring chromaticity vertical"
+    },
+    {
+      "address": "SR:DIAG:TUNE:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Tune_X"
+      ],
+      "description": "Storage ring betatron tune horizontal"
+    },
+    {
+      "address": "SR:DIAG:TUNE:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Tune_Y"
+      ],
+      "description": "Storage ring betatron tune vertical"
+    }
+  ]
+}

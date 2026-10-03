@@ -20,20 +20,18 @@ Database Contracts, per Paradigm
 In-context
 ----------
 
-A flat JSON structure loaded by ``TemplateChannelDatabase``, with standalone
-entries and template entries for device families:
+A flat JSON structure, the index ``osprey build`` writes from the channels
+tagged ``in_context``: one row per channel, sorted by address, loaded by the
+flat ``ChannelDatabase``:
 
 .. code-block:: json
 
    {
+     "schema": "osprey.facility.channel_finder/1",
      "channels": [
-       {"template": false, "channel": "TerminalVoltageReadBack",
+       {"channel": "TerminalVoltageReadBack",
         "address": "TerminalVoltageReadBack",
-        "description": "Actual value of the terminal potential"},
-       {"template": true, "base_name": "BPM", "instances": [1, 10],
-        "sub_channels": ["XPosition", "YPosition"],
-        "address_pattern": "BPM{instance:02d}{suffix}",
-        "description": "Beam Position Monitors"}
+        "description": "Actual value of the terminal potential"}
      ]
    }
 
@@ -158,11 +156,13 @@ Key ``config.yml`` settings:
      pipeline_mode: in_context  # "in_context", "hierarchical", "middle_layer", or "graph"
      pipelines:
        in_context:
-         database: {type: template, path: data/channel_databases/in_context.json}
+         database: {path: data/channel_finder/in_context.json}
        hierarchical:
-         database: {type: hierarchical, path: data/channel_databases/hierarchical.json}
+         database: {path: data/channel_finder/hierarchical.json}
        middle_layer:
-         database: {type: middle_layer, path: data/channel_databases/middle_layer.json}
+         database:
+           path: data/channel_finder/middle_layer.json
+           duckdb_path: data/channel_finder/middle_layer.duckdb
        # graph has no entry: it is configured by the `services.graphdb` block.
      benchmark:
        dataset_path: data/benchmarks/queries.json
@@ -193,7 +193,7 @@ language via the agent, or invoke the CLI directly:
 
 .. code-block:: bash
 
-   osprey channel-finder generate --source my_channels.json   # build database from template
+   osprey channel-finder validate     # check the configured database
    osprey channel-finder benchmark    # evaluate on a query dataset
 
 .. tip::

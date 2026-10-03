@@ -12,6 +12,7 @@ from typing import Any
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
+    LIMITS_MODE_OPTIONAL,
     LimitsPosture,
     most_restrictive_limits_posture,
     target_limits_posture,
@@ -535,8 +536,8 @@ class LimitsValidator:
         select.
 
         The fold is :func:`osprey_connectors.types.most_restrictive_limits_posture`'s:
-        limits checking is on when any reachable target has it on, and unlisted
-        channels are allowed only where every reachable target allows them. The
+        limits checking is on when any reachable target has it on, and the mode
+        is ``optional`` only where every reachable target is ``optional``. The
         result names the deployment-wide keys, because no per-type line decides
         a union and naming one would send an operator to edit a single machine
         rather than the answer.
@@ -564,8 +565,8 @@ class LimitsValidator:
         connector for its own type, a tool or hook for the recorded control target —
         and this turns that answer into an enforcing validator. The posture's
         answering key travels into ``policy`` so that a later refusal names the
-        config line an operator can edit: on a deployment that relaxed unlisted
-        channels for its simulator alone, quoting the deployment-wide key would
+        config line an operator can edit: on a deployment that runs its simulator
+        alone ``optional``, quoting the deployment-wide key would
         send them to flip a line the per-type block overrides.
 
         An incomplete block is checked before ``enabled``, and on purpose. Such
@@ -576,8 +577,8 @@ class LimitsValidator:
 
         A block is incomplete two ways, and the second is why this branch comes
         first. A per-type block may omit a leaf. Either block may write one as
-        something no reader can turn into a boolean — a quoted ``'true'``, a
-        ``1``, an unexpanded ``'${LIMITS_ON}'``, which is the shape environment
+        something no reader can use — a quoted ``'true'``, a ``1``, an
+        unexpanded ``'${LIMITS_ON}'``, which is the shape environment
         expansion leaves behind when nothing set the variable. That second one
         is a deployment trying to switch limits checking *on*; reading it as an
         unset ``enabled`` would take the disabled branch and check nothing.
@@ -595,7 +596,7 @@ class LimitsValidator:
             if posture.incomplete:
                 reason = (
                     f"{posture.block_key} does not state "
-                    f"{', '.join(posture.incomplete)} as true/false"
+                    f"{', '.join(posture.incomplete)} as a readable value"
                 )
                 logger.warning(f"Incomplete limits block - blocking all writes: {reason}")
                 return cls({}, {}, {}, failsafe_reason=reason)
@@ -620,8 +621,8 @@ class LimitsValidator:
             # this dict verbatim into the sandbox (wrapper.py), so the
             # tri-state rides as null rather than as anything richer.
             policy = {
-                "allow_unlisted_channels": posture.allow_unlisted,
-                "allow_unlisted_key": posture.key("allow_unlisted_channels"),
+                "mode": posture.mode,
+                "mode_key": posture.key("mode"),
             }
 
             return cls(limits_db, policy, raw_db)
@@ -805,8 +806,8 @@ class LimitsValidator:
 
                 except (TypeError, ValueError, KeyError) as e:
                     # One malformed entry fails the whole load. Skipping it used
-                    # to drop the channel from the database, which - with
-                    # allow_unlisted_channels - silently removed its limits.
+                    # to drop the channel from the database, which - under
+                    # the optional mode - silently removed its limits.
                     raise ValueError(f"Invalid config for channel '{channel_name}': {e}") from e
 
             logger.info(f"Successfully loaded {len(limits_db)} channel configurations")
@@ -859,7 +860,7 @@ class LimitsValidator:
 
         channel_config, numeric_value = self._validate_without_step(channel_address, value)
         if channel_config is None or numeric_value is None:
-            # An allowed unlisted channel, or a channel with no numeric limit:
+            # A channel with no record under the optional mode, or a channel with no numeric limit:
             # neither one has a step size to measure.
             return
 
@@ -997,10 +998,10 @@ class LimitsValidator:
 
         Returns the channel's config and the value as a number, so the caller
         can go on to the step check without repeating the lookup. A ``None``
-        config means an allowed unlisted channel and a ``None`` number means a
-        channel with no numeric limit -- in either case there is nothing further
-        to check. A channel that has a numeric limit never answers ``None``: a
-        value it cannot hold to that limit is refused here.
+        config means a channel with no record under the optional mode and a ``None`` number means a
+        channel with no numeric limit -- in either case there is nothing further to check. A channel
+        that has a numeric limit never answers ``None``: a value it cannot hold to that limit is
+        refused here.
         """
         from osprey_connectors.errors import ChannelLimitsViolationError
 
@@ -1026,22 +1027,21 @@ class LimitsValidator:
                         f"about channel '{channel_address}'."
                     ),
                 )
-            # Unlisted channel - check policy. Only an explicit `True` is
-            # permission: the policy carries the posture's tri-state verbatim
-            # so that `channel_limits` can report an unstated answer as `null`,
-            # and unstated is nobody's permission to write an unlisted channel.
-            if self.policy.get("allow_unlisted_channels") is True:
-                return None, None  # Allow unlisted channel
+            # No record - the mode decides. Only an explicit `optional` is
+            # permission: the policy carries the posture's mode verbatim so
+            # that `channel_limits` can report an unstated answer as `null`,
+            # and unstated is nobody's permission to write a channel with no
+            # record.
+            if self.policy.get("mode") == LIMITS_MODE_OPTIONAL:
+                return None, None  # Written with no limits
             else:
-                # FAILSAFE: Block unlisted channels. Name the key that actually
-                # answered — a deployment may set this per connector type, and
-                # quoting the deployment-wide key there would send an operator
-                # to flip a line the per-type block overrides. A validator built
-                # from a bare policy dict carries no key; the deployment-wide
-                # one is the honest answer for it.
-                answering_key = self.policy.get(
-                    "allow_unlisted_key", "control_system.limits_checking.allow_unlisted_channels"
-                )
+                # FAILSAFE: refuse a channel with no record. Name the key that
+                # actually answered — a deployment may set this per connector
+                # type, and quoting the deployment-wide key there would send an
+                # operator to flip a line the per-type block overrides. A
+                # validator built from a bare policy dict carries no key; the
+                # deployment-wide one is the honest answer for it.
+                answering_key = self.policy.get("mode_key", "control_system.limits_checking.mode")
                 logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
                 raise ChannelLimitsViolationError(
                     channel_address=channel_address,
@@ -1049,7 +1049,7 @@ class LimitsValidator:
                     violation_type="UNLISTED_CHANNEL",
                     violation_reason=(
                         f"Channel '{channel_address}' not in limits database "
-                        f"('{answering_key}' does not allow unlisted channels)"
+                        f"('{answering_key}' is not '{LIMITS_MODE_OPTIONAL}')"
                     ),
                 )
 

@@ -8,8 +8,10 @@ arrives as a file, mounted into the container and named by
 ``SettableSpec``/``ReadableSpec`` shapes that ``devices/connector.py`` builds
 from.
 
-The document has exactly two top-level keys, both optional::
+The document has two device keys, both optional, and an optional ``schema``
+line naming the document and its version::
 
+    schema: osprey.facility.bluesky_devices/1
     settables:
       - name: SR:C01:QF:1          # device name; also the event-data column key
         setpoint: SR:C01:QF:1:SP
@@ -55,7 +57,13 @@ SETTABLES_KEY = "settables"
 READABLES_KEY = "readables"
 """Top-level key holding the read-only device entries."""
 
+SCHEMA_KEY = "schema"
+"""Top-level key naming the document and its version; the parser does not read it."""
+
 TOP_LEVEL_KEYS = (SETTABLES_KEY, READABLES_KEY)
+"""The device keys the document may carry."""
+
+ACCEPTED_KEYS = (SCHEMA_KEY, *TOP_LEVEL_KEYS)
 """The only keys the document may carry; anything else rejects the document."""
 
 _SETTABLE_REQUIRED = ("name", "setpoint")
@@ -230,13 +238,13 @@ def specs_from_file(path: str | Path) -> tuple[list[SettableSpec], list[Readable
         )
         return [], []
 
-    unknown = [key for key in doc if key not in TOP_LEVEL_KEYS]
+    unknown = [key for key in doc if key not in ACCEPTED_KEYS]
     if unknown:
         logger.warning(
             "device file %s has unknown top-level key(s) %r (expected only %r); no devices built",
             path,
             unknown,
-            list(TOP_LEVEL_KEYS),
+            list(ACCEPTED_KEYS),
         )
         return [], []
 
@@ -324,10 +332,10 @@ def validate_device_document(doc: Any) -> list[str]:
         ]
 
     problems: list[str] = []
-    unknown = [key for key in doc if key not in TOP_LEVEL_KEYS]
+    unknown = [key for key in doc if key not in ACCEPTED_KEYS]
     if unknown:
         problems.append(
-            f"unknown top-level key(s) {unknown!r}; expected only {list(TOP_LEVEL_KEYS)!r}"
+            f"unknown top-level key(s) {unknown!r}; expected only {list(ACCEPTED_KEYS)!r}"
         )
     problems += _validate_section(
         doc.get(SETTABLES_KEY), SETTABLES_KEY, _SETTABLE_REQUIRED, _SETTABLE_OPTIONAL

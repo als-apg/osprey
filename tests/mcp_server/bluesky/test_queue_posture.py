@@ -392,7 +392,7 @@ def _patch_bridge_config(monkeypatch, *, section, lane_targets, limits_enabled, 
         "limits_checking": {
             **section.get("limits_checking", {}),
             "enabled": limits_enabled,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
         },
     }
 

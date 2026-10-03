@@ -188,9 +188,6 @@ config:
   # (default_enabled=False); opt in so operators can run read-only stack checks.
   claude_code.servers.health.enabled: true
   system.timezone: America/Los_Angeles
-  # Facility display name, woven into the agent prompts (CLAUDE.md, the
-  # channel-finder agent) and the web-terminal landing page.
-  facility.name: Demo Facility
   # Exactly the three services this facility runs. Set explicitly because the
   # packaged control_assistant skeleton also declares `postgresql` — declared
   # is not deployed, and this list is what `osprey up` reads.
@@ -278,15 +275,6 @@ config:
 # schema both read.
 
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
   # Your facility's own registry module — the file that registers its
   # connectors, providers and ARIEL adapters with the framework (see
   # "Extending Osprey" in the docs). Relative to the project root; unset means
@@ -310,28 +298,14 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # Every write checked against data/channel_limits.json, and a channel that
-  # file does not list refused rather than waved through. Both hardware-shaped
-  # targets — `standin` and `live` — require this pair before a session may
-  # switch onto them, so a rehearsal runs the posture the real machine gets.
+  # Limits are optional. `enabled: false` = no limits at all. `mode:
+  # exclusive` = only channels in the limits file can be written. `mode:
+  # optional` = channels in the file are held to their limits, every other
+  # channel is written with no limits. A
+  # `control_system.connector.<type>.limits_checking` block stating both
+  # leaves overrides this pair for that connector type.
   control_system.limits_checking.enabled: true
-  control_system.limits_checking.allow_unlisted_channels: false
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
-  # The sandbox simulator is the exception, and it states the exception as a
-  # whole block: a per-type posture REPLACES the pair above for that connector
-  # type rather than merging with it, so both leaves are written out here.
-  # Writes to the simulator are still checked against the same file; what
-  # changes is that a channel the file does not list is allowed through
-  # instead of refused, because on a scratch machine an unlisted channel is a
-  # gap in the file rather than a hazard. `live_standin` deliberately gets NO
-  # block of its own: it is hardware-shaped, so it keeps the strict pair the
-  # real machine gets, and a permissive block here would make
-  # `control_target_set standin` refuse the very switch this preset exists to
-  # rehearse.
-  control_system.connector.virtual_accelerator.limits_checking.enabled: true
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+  control_system.limits_checking.mode: optional
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read;
@@ -392,9 +366,6 @@ config:
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false
-  # Limits posture for the live machine alone, both leaves required.
-  # control_system.connector.epics.limits_checking.enabled: true
-  # control_system.connector.epics.limits_checking.allow_unlisted_channels: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -469,15 +440,6 @@ config:
   # channel_finder.web.host: 127.0.0.1
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
-  # Descriptive names for channels that belong to no device family, generated
-  # offline by `osprey channel-finder build-database --use-llm`. That flag
-  # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # model id the provider serves; omitted, the deployment's main model.
-  # Build-time only.
-  # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
-  # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
-  # channel_finder.channel_name_generation.llm_batch_size: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
@@ -633,7 +595,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility_knowledge
+  facility_knowledge.bundle_path: data/facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -925,14 +887,6 @@ requires_osprey_version: '>=2026.8.0'
 deploy_services: true
 # Named web-terminal layouts, as label -> list of panel ids.
 panel_presets: {}
-
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 ships the in_context paradigm only.
-#
-# tier: 3
 
 # --- Default web-terminal panel ----------------------------------------------
 # Panel id opened when the web terminal loads. Must be a built-in, an entry in

@@ -105,7 +105,6 @@ def _dispatch(**overrides: object) -> DispatchConfig:
     """Return the DispatchConfig the pinned renders above describe, with *overrides* applied."""
     base: dict = {
         "triggers": "tutorial_triggers.yml",
-        "facility_name": "ERF",
         "channel_strip_prefix": "ERF:",
     }
     base.update(overrides)
@@ -133,7 +132,9 @@ class TestBridgeDefault:
         """A profile with no ``dispatch.network`` renders the pinned bytes."""
         project_path, profile_dir = _project(tmp_path)
 
-        _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
+        _inject_dispatch(
+            _dispatch(), profile_dir=profile_dir, project_path=project_path, facility_name="ERF"
+        )
 
         rendered = (project_path / "config.yml").read_text(encoding="utf-8")
         assert rendered == BRIDGE_RENDER_CONFIG_YML
@@ -149,7 +150,10 @@ class TestBridgeDefault:
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
-            _dispatch(network="bridge"), profile_dir=profile_dir, project_path=project_path
+            _dispatch(network="bridge"),
+            profile_dir=profile_dir,
+            project_path=project_path,
+            facility_name="ERF",
         )
 
         rendered = (project_path / "config.yml").read_text(encoding="utf-8")
@@ -159,7 +163,9 @@ class TestBridgeDefault:
         """The default is left to the schema and the template, not written out."""
         project_path, profile_dir = _project(tmp_path)
 
-        _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
+        _inject_dispatch(
+            _dispatch(), profile_dir=profile_dir, project_path=project_path, facility_name="ERF"
+        )
 
         services = _services(project_path)
         assert "network" not in services["event_dispatcher"]
@@ -170,7 +176,9 @@ class TestBridgeDefault:
         """On the compose bridge the worker is reachable by its service DNS name."""
         project_path, profile_dir = _project(tmp_path)
 
-        _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
+        _inject_dispatch(
+            _dispatch(), profile_dir=profile_dir, project_path=project_path, facility_name="ERF"
+        )
 
         assert _dispatcher_block(project_path)["dispatch_target"] == (
             "http://dispatch-worker-1:10011"
@@ -185,7 +193,9 @@ class TestBridgeDefault:
         """
         project_path, profile_dir = _project(tmp_path)
 
-        _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
+        _inject_dispatch(
+            _dispatch(), profile_dir=profile_dir, project_path=project_path, facility_name="ERF"
+        )
 
         copied = (project_path / "triggers.yml").read_text(encoding="utf-8")
         assert BRIDGE_TRIGGERS_DISPATCHER in copied
@@ -199,7 +209,10 @@ class TestHostMode:
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
-            _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
+            _dispatch(network="host"),
+            profile_dir=profile_dir,
+            project_path=project_path,
+            facility_name="ERF",
         )
 
         services = _services(project_path)
@@ -211,7 +224,10 @@ class TestHostMode:
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
-            _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
+            _dispatch(network="host"),
+            profile_dir=profile_dir,
+            project_path=project_path,
+            facility_name="ERF",
         )
 
         services = _services(project_path)
@@ -238,7 +254,10 @@ class TestHostMode:
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
-            _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
+            _dispatch(network="host"),
+            profile_dir=profile_dir,
+            project_path=project_path,
+            facility_name="ERF",
         )
 
         assert _dispatcher_block(project_path)["dispatch_target"] == "http://localhost:10011"
@@ -248,7 +267,10 @@ class TestHostMode:
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
-            _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
+            _dispatch(network="host"),
+            profile_dir=profile_dir,
+            project_path=project_path,
+            facility_name="ERF",
         )
 
         expected = BRIDGE_TRIGGERS_DISPATCHER.replace(
@@ -265,6 +287,7 @@ class TestHostMode:
             _dispatch(network="host", worker_port_base=9500),
             profile_dir=profile_dir,
             project_path=project_path,
+            facility_name="ERF",
         )
 
         assert _dispatcher_block(project_path)["dispatch_target"] == "http://localhost:9500"
@@ -277,6 +300,7 @@ class TestHostMode:
             _dispatch(network="host", max_concurrent_runs=7, max_queue_depth=33),
             profile_dir=profile_dir,
             project_path=project_path,
+            facility_name="ERF",
         )
 
         dispatcher = _dispatcher_block(project_path)
@@ -289,7 +313,10 @@ class TestHostMode:
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
-            _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
+            _dispatch(network="host"),
+            profile_dir=profile_dir,
+            project_path=project_path,
+            facility_name="ERF",
         )
 
         yaml = YAML()
@@ -302,7 +329,10 @@ class TestHostMode:
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
-            _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
+            _dispatch(network="host"),
+            profile_dir=profile_dir,
+            project_path=project_path,
+            facility_name="ERF",
         )
 
         yaml = YAML()
@@ -328,6 +358,7 @@ class TestPerWorkerPortDerivation:
             _dispatch(network="host", worker_count=3),
             profile_dir=profile_dir,
             project_path=project_path,
+            facility_name="ERF",
         )
 
         worker = _services(project_path)["dispatch_worker"]
@@ -343,6 +374,7 @@ class TestPerWorkerPortDerivation:
             _dispatch(network="host", worker_count=3, worker_port_base=9500),
             profile_dir=profile_dir,
             project_path=project_path,
+            facility_name="ERF",
         )
 
         worker = _services(project_path)["dispatch_worker"]

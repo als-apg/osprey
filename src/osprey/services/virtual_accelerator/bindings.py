@@ -48,7 +48,8 @@ dataclasses instead of respelling the document.
 
 Nothing in this module names a family, an address token or a facility
 constant: a binding carries all of those as data, which is what lets one
-served path cover every facility. Pure stdlib; grids are plain tuples, so a
+served path cover every facility. The calibration types come from
+:mod:`osprey.simulation.engines.calibration`; grids are plain tuples, so a
 document is hashable and compares by value.
 """
 
@@ -60,6 +61,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from osprey.simulation.engines.calibration import Calibration, Linear, Table
 
 __all__ = [
     "ATTRIBUTES_BY_KIND",
@@ -172,30 +175,6 @@ class BindingsError(ValueError):
         """Return the refusal with its key, and its file when there is one."""
         located = f"{self.key}: {self.message}" if self.key else self.message
         return f"{self.source}: {located}" if self.source else located
-
-
-@dataclass(frozen=True)
-class Linear:
-    """A straight-line conversion ``y = gain * x + offset``."""
-
-    gain: float
-    offset: float
-
-
-@dataclass(frozen=True)
-class Table:
-    """A sampled conversion: piecewise linear through ``(grid, values)``.
-
-    ``grid`` is strictly monotonic, so the curve is well defined everywhere;
-    beyond either end the consumer extrapolates along the last segment.
-    """
-
-    grid: tuple[float, ...]
-    values: tuple[float, ...]
-
-
-#: Either shape a conversion may take.
-Calibration = Linear | Table
 
 
 @dataclass(frozen=True)

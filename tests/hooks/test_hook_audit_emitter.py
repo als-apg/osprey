@@ -849,7 +849,7 @@ class TestOtherHookDenies:
                         "limits_checking": {
                             "enabled": True,
                             "database_path": str(database),
-                            "allow_unlisted_channels": False,
+                            "mode": "exclusive",
                         },
                     }
                 }
@@ -887,7 +887,7 @@ class TestOtherHookDenies:
                         "limits_checking": {
                             "enabled": True,
                             "database_path": str(database),
-                            "allow_unlisted_channels": False,
+                            "mode": "exclusive",
                         },
                     }
                 }

@@ -110,7 +110,7 @@ def smoke_env(tmp_path, monkeypatch):
             "limits_checking": {
                 "enabled": True,
                 "database_path": str(limits_path),
-                "allow_unlisted_channels": True,
+                "mode": "optional",
                 "on_violation": "error",
             },
         },

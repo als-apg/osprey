@@ -380,19 +380,19 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 #. **The start builds each persona's image.** In the preset's local mode
    (``image_source: local``), ``osprey up`` builds each persona's image
    (tagged ``<project>:local`` after the persona's rendered project, e.g.
-   ``my-control-assistant-readwrite:local``) from that rendered project —
+   ``control-assistant-readwrite:local``) from that rendered project —
    no registry, no CI. Registry mode pulls them instead; see
    :ref:`multi-user-registry-images`.
 
-#. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
-   serves the landing page on ``http://127.0.0.1:10000``, and one Web Terminal
-   container comes up per user — ``ca-web-alice`` on host port ``10100``,
-   ``ca-web-bob`` on ``10101``, ``ca-web-logbook`` on ``10102``,
-   ``ca-web-carol`` on ``10103`` and ``ca-web-knowledge`` on ``10104`` — each
-   reached
-   through the landing page. (The
-   ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
-   site.)
+#. **Brings up the web tier.** An nginx reverse proxy (container
+   ``control-assistant-nginx``) serves the landing page on
+   ``http://127.0.0.1:10000``, and one Web Terminal container comes up per
+   user — ``control-assistant-web-alice`` on host port ``10100``,
+   ``control-assistant-web-bob`` on ``10101``,
+   ``control-assistant-web-logbook`` on ``10102``,
+   ``control-assistant-web-carol`` on ``10103`` and
+   ``control-assistant-web-knowledge`` on ``10104`` — each reached through the
+   landing page. The names follow the project name, here the directory's.
 
 Stop the stack again with ``osprey down``; check on it with
 ``osprey status``.

@@ -1481,6 +1481,30 @@ def test_a_persona_image_belonging_to_another_deployment_survives(repo):
 
 
 @pytest.mark.usefixtures("no_down")
+def test_a_persona_without_its_own_project_is_named_by_the_project_name(repo):
+    """The persona tag follows the project name; ``facility.prefix`` never names it."""
+    import yaml
+
+    _with_web_terminals(repo)
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config["modules"]["web_terminals"]["personas"] = {"control-room": {"project_path": "/x"}}
+    (repo / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    ours_tag = f"{PROJECT}-assistant-control-room:local"
+    prefix_tag = "als-assistant-control-room:local"
+    fake = FakeRuntime(
+        images={
+            ours_tag: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
+            prefix_tag: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
+        }
+    )
+    run_reset(repo, fake)
+
+    assert ours_tag in fake.removed_names()
+    assert prefix_tag not in fake.removed_names()
+    assert prefix_tag in fake.images
+
+
+@pytest.mark.usefixtures("no_down")
 def test_an_unreadable_roster_leaves_the_project_image_removable(repo):
     """A broken persona catalog degrades reset's image half; it never blocks the reset."""
     import yaml

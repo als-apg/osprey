@@ -11,14 +11,14 @@ rather than losing one.
 Three claims make the feature worth having, and this module is the acceptance
 gate for all three (SC-10):
 
-* the ``standin`` slot is described as a *real machine* — strict limits,
+* the ``standin`` slot is described as a *real machine* —
   ``real_machine: true`` — with nothing but the parenthesis on its label saying
   it is a rehearsal, and standing it up never invents a ``live`` row on a
   deployment that never named its facility's machine;
 * the machine behind that label is genuinely a different one from the sandbox,
   which is only decidable by reading the same channel at both ends and getting
   different numbers back;
-* and a write on it is judged on hardware's terms: the strict-limits posture
+* and a write on it is judged on hardware's terms: the exclusive limits mode
   refuses a channel the shipped limits database does not list, on a target whose
   writes are armed, before anything reaches Channel Access.
 
@@ -65,9 +65,8 @@ and no ``live`` row at all, while the display metadata still carries a truthful
 ``live machine (not configured)`` slot for the readers that render one.
 
 That also makes the switch under test a switch *away* from the baseline toward
-``standin``, which is the direction the FR-8 gates guard: the strict limits
-posture applies (asserted both ways), and the operator acknowledgment does not
-— the stand-in's equivalent was said at build time by the profile line that
+``standin``, which is the direction the FR-8 gates guard: the operator
+acknowledgment does not apply — the stand-in's equivalent was said at build time by the profile line that
 stood it up, so this deployment sets no
 ``control_system.target_switch.live_gateway_acknowledged`` at all and is still
 eligible.
@@ -80,7 +79,7 @@ refusal attributable: with writes unarmed the connector's ``writes_enabled``
 guard would refuse first, and the test would be measuring the wrong gate. With
 them armed, the deployment selects the ``write_access`` gateway for ``standin``
 (asserted), the write reaches the limits validator, and
-``allow_unlisted_channels: false`` refuses it with ``UNLISTED_CHANNEL`` —
+``mode: exclusive`` refuses it with ``UNLISTED_CHANNEL`` —
 a verdict about the *database*, not about the network. A database that had
 failed to load refuses everything with ``LIMITS_DATABASE_UNAVAILABLE`` instead,
 so asserting the exact violation type is what separates "the posture read the
@@ -153,7 +152,6 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.target_eligibility import (
     ACK_LEAF,
     DIRECTION_AWAY,
-    REASON_LIMITS_POSTURE,
     REASON_STANDIN_NOT_DEPLOYED,
     evaluate_eligibility,
 )
@@ -231,7 +229,7 @@ CONTROL_BPM = _bpm(CONTROL_DEVICE, "X")
 #: and absent from the shipped limits database — device 99 of a 72-corrector
 #: ring. Every channel the packaged manifest serves *is* listed, so an unlisted
 #: address is necessarily one nothing answers on; that costs the assertion
-#: nothing, because ``allow_unlisted_channels: false`` refuses it in the
+#: nothing, because ``mode: exclusive`` refuses it in the
 #: validator before any ``caput`` is issued. The guard in
 #: ``TestTheShippedDefaultsAreWhatThisModuleMeasured`` is what keeps it unlisted.
 UNLISTED_CHANNEL = "SR:MAG:HCM:99:CURRENT:SP"
@@ -244,7 +242,7 @@ UNLISTED_WRITE_VALUE = 1.0
 #: proves this module pointed the posture at a database that really loaded.
 LISTED_CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
 
-#: The violation the strict posture reports for a channel it has no entry for.
+#: The violation the exclusive mode reports for a channel it has no entry for.
 #: Distinct from ``LIMITS_DATABASE_UNAVAILABLE``, which is what a database that
 #: failed to load reports for *every* channel — the whole reason the assertion
 #: below names an exact type rather than merely expecting a refusal.
@@ -462,9 +460,8 @@ def raw_config(
     answer to "where is the real machine". The roster assertions below are about
     a deployment with a ``standin`` slot and no ``live`` one.
 
-    The FR-8 posture that applies to the stand-in is set: strict limits against
-    the *shipped* limits database, because the whole point of a stand-in is that
-    it is judged on the terms the real machine would be judged on. The operator
+    The limits mode is ``exclusive`` against the *shipped* limits database,
+    which is what the write leg measures. The operator
     acknowledgment is deliberately **absent** — it is the live machine's alone,
     and its absence here is what the eligibility assertion below reads.
 
@@ -481,10 +478,9 @@ def raw_config(
             actually reads is the only thing that moved. That is the negative
             control for both the label and the switch gate, since that block is
             the whole evidence the deployment stood a stand-in up.
-        strict_limits: When false, the limits posture is loosened
-            (``allow_unlisted_channels`` true) and nothing else moves — the
-            negative control for the FR-8 gate the stand-in shares with the live
-            machine.
+        strict_limits: When false, the limits mode is ``optional`` and nothing
+            else moves — the control for the switch not depending on the
+            limits mode.
         project_root: Written through when given, for children that resolve
             deployment-relative paths.
     """
@@ -524,7 +520,7 @@ def raw_config(
             "writes_enabled": False,
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": not strict_limits,
+                "mode": "exclusive" if strict_limits else "optional",
                 "database_path": str(e2e_conftest.LIMITS_DB_PATH),
             },
             "connector": {
@@ -630,7 +626,7 @@ async def refused_write(manager: ConnectorHostManager, address: str, value: floa
             message=str(exc),
         )
     raise AssertionError(
-        f"the strict limits posture accepted a write of {value} to {address!r} on the "
+        f"the exclusive limits mode accepted a write of {value} to {address!r} on the "
         f"stand-in, which the shipped limits database does not list "
         f"(result: {result!r})"
     )
@@ -799,12 +795,7 @@ class TestTheRosterNamesTheStandIn:
         assert rows[TARGET_STANDIN]["is_baseline"] is False
 
     def test_eligibility_refuses_nothing_about_the_stand_in(self, deployment) -> None:
-        """The FR-8 gates that apply are met rather than bypassed.
-
-        Switching *toward* the stand-in requires the strict limits posture, and
-        the stand-in is not exempt from it — this deployment satisfies it, which
-        is why the row above says available. A refusal here would name it.
-        """
+        """Nothing refuses a switch toward the stand-in this deployment stood up."""
         verdict = evaluate_eligibility(deployment, TARGET_STANDIN, direction=DIRECTION_AWAY)
 
         assert verdict.eligible is True
@@ -824,13 +815,10 @@ class TestTheRosterNamesTheStandIn:
 
         assert evaluate_eligibility(deployment, TARGET_STANDIN, direction=DIRECTION_AWAY).eligible
 
-    def test_the_stand_in_does_ask_for_the_strict_limits_posture(self, endpoints) -> None:
-        """The negative control for the gate the stand-in *does* share.
+    def test_the_stand_in_is_eligible_under_the_optional_limits_mode(self, endpoints) -> None:
+        """The switch does not depend on the limits mode.
 
-        A rehearsal on a permissive posture rehearses the wrong facility, so the
-        stand-in is judged on the same limits posture the live machine is. One
-        variable moves — ``allow_unlisted_channels`` — and the switch is refused
-        by name.
+        One variable moves — ``mode`` — and the stand-in is still eligible.
         """
         loose = raw_config(
             sandbox_port=endpoints.sandbox,
@@ -840,8 +828,8 @@ class TestTheRosterNamesTheStandIn:
 
         verdict = evaluate_eligibility(loose, TARGET_STANDIN, direction=DIRECTION_AWAY)
 
-        assert verdict.eligible is False
-        assert verdict.reason == REASON_LIMITS_POSTURE
+        assert verdict.eligible is True
+        assert verdict.reason is None
 
     def test_without_the_services_block_the_same_endpoint_is_just_a_live_machine(
         self, endpoints

@@ -987,7 +987,7 @@ class TestBuildProfileChannelFinderModeValidation:
         Read from :data:`VALID_CHANNEL_FINDER_MODES` rather than a literal list so
         registering a paradigm cannot leave this test asserting a stale set.
         """
-        from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+        from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
         from osprey.cli.build_profile import BuildProfile
 
         (tmp_path / "data").mkdir(exist_ok=True)
@@ -1095,7 +1095,7 @@ class TestDeployServicesKnob:
         # profile and the deploy binds into every entitled container. A bare
         # profile without it is refused by the Reach Contract (the bind source
         # would be an empty directory), and this class is about the knob.
-        (profile.parent / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+        (profile.parent / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
         result = _render_from(runner, str(profile))
         assert result.exit_code == 0, result.output
         return _project(tmp_path, "smoke")
@@ -1358,7 +1358,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     _facility_data(root, "control_assistant")
-    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "data: data\n"
@@ -1415,7 +1415,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     _facility_data(root, "control_assistant")
-    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "data: data\n"

@@ -84,14 +84,8 @@ _RESOURCE_COUNT_QUERY = "MATCH (n:Resource) RETURN count(n) AS count"
 
 #: The seeder's singleton provenance marker, matched on the same ``kind`` the
 #: seeder MERGEs it under. It carries the sha256 of the Turtle text that was
-#: imported and, when that corpus declared one, the source its read/write
-#: directions came from. The property names are the seeder's own spelling
-#: (``sha256``, ``directionSource``) and are aliased here to the row builder's.
-_SEED_MARKER_QUERY = (
-    "MATCH (m:_OspreySeed {kind: 'ttl'}) "
-    "RETURN m.sha256 AS sha256, m.directionSource AS direction_source "
-    "LIMIT 1"
-)
+#: imported.
+_SEED_MARKER_QUERY = "MATCH (m:_OspreySeed {kind: 'ttl'}) RETURN m.sha256 AS sha256 LIMIT 1"
 
 #: How much of the digest the row shows. Long enough to tell two corpora apart
 #: at a glance in a tile, short enough to leave the line readable — the full
@@ -324,7 +318,6 @@ def _seed_row(driver: Any, count: int | None) -> CheckResult:
         records = list(result.records)
         record = records[0] if records else None
         sha256 = record["sha256"] if record is not None else None
-        direction_source = record["direction_source"] if record is not None else None
     except Exception as exc:  # an unreadable marker is a warning
         return CheckResult(
             _SEED_ROW,
@@ -341,8 +334,6 @@ def _seed_row(driver: Any, count: int | None) -> CheckResult:
 
     digest = str(sha256)
     value = digest[:_DIGEST_PREFIX_LEN]
-    if direction_source:
-        value = f"{value} (directions from {direction_source})"
     return CheckResult(
         _SEED_ROW,
         CATEGORY,

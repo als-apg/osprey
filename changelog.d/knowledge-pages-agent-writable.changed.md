@@ -1,0 +1,1 @@
+An agent-side writer may write under `data/facility/knowledge/`; every other path under `data/facility/` stays refused, and a `project/` mirror file anywhere under `data/facility/` still stops the build.

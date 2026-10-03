@@ -31,10 +31,6 @@
       "reason": "Own init_project hardcoded to als-apg; doesn't honor the model override."
     },
     {
-      "path": "tests/e2e/test_llm_channel_namer.py",
-      "reason": "Config/pattern + naming; doesn't honor the model override."
-    },
-    {
       "path": "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
       "reason": "BenchmarkRunner hardcodes a fixed als-apg/haiku model (bypasses OSPREY_E2E_FORCE_MODEL), so it measures nothing about the model-under-test; also 401s when forced through CBORG routing. Excluded for matrix parity."
     },
@@ -205,6 +201,10 @@
     {
       "path": "tests/e2e/test_target_switch_agentic.py",
       "reason": "Docker-bound two-container fixture, bespoke pinned init."
+    },
+    {
+      "path": "tests/e2e/test_graph_reseed_stamp.py",
+      "reason": "Real `osprey build` renders plus a throwaway Neo4j store driven by the deploy's own graph staging step, asserting the seed marker and store contents; no LLM anywhere, nothing about the model-under-test. Runs in its own CI job (graph-reseed-e2e)."
     }
   ],
   "baseline_expected_run_min": 15

@@ -43,11 +43,11 @@ logger = logging.getLogger(__name__)
 # Map paradigm names to their config key path for the database.
 #
 # Deliberately NOT derived from
-# :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`: every entry here
+# :data:`osprey.build.modes.VALID_CHANNEL_FINDER_MODES`: every entry here
 # is a ``database.path`` config key, so only paradigms backed by a database
 # file the harness can open belong in this map. A paradigm whose store is a
 # service rather than a file has no path to name and stays out.
-# ``tests/build/test_mode_registry_single_source.py`` pins which paradigms are
+# ``tests/build/test_modes.py`` pins which paradigms are
 # excluded, so the gap stays a decision rather than an oversight.
 PARADIGM_CONFIG_KEYS: dict[str, list[str]] = {
     "in_context": [

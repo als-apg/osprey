@@ -807,7 +807,7 @@ def emit_cmd(duckdb_path: str | None, repo: Path | None) -> None:
     out_dir = data / "mml"
     db_dir = data / "channel_databases"
     tiers = db_dir / "tiers"
-    bundle = data / "facility_knowledge"
+    bundle = data / "facility" / "knowledge"
 
     offenders = _demo_offenders(root, tiers, bundle)
     if offenders:
@@ -1751,7 +1751,7 @@ def _demo_offenders(root: Path, tiers: Path, bundle: Path) -> str | None:
     dirs: list[Path] = []
     singles: list[Path] = []
 
-    packaged = _PACKAGED_DATA / "facility_knowledge"
+    packaged = _PACKAGED_DATA / "facility" / "knowledge"
     if bundle.is_dir() and packaged.is_dir():
         files = sorted(path for path in bundle.rglob("*") if path.is_file())
 

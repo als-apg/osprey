@@ -295,7 +295,7 @@ def test_env_production_local_mode_defaults_when_image_source_absent_is_registry
 # ensure_env_production -- claude_code provider auth-secret coverage. The
 # generator must ship the auth secret of every claude_code.provider a web
 # container will actually authenticate with (deploy config's own on the
-# zero-migration path, each referenced persona project's under a catalog),
+# no-persona path, each referenced persona project's under a catalog),
 # and must fail loudly -- not generate a dead file -- when one is missing.
 # ---------------------------------------------------------------------------
 
@@ -337,7 +337,7 @@ def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
     }
 
 
-def test_env_production_zero_migration_copies_own_claude_code_secret(tmp_path):
+def test_env_production_no_persona_copies_own_claude_code_secret(tmp_path):
     """No persona catalog: the deploy config's own claude_code.provider is what
     the web container runs, so its auth secret is copied -- and required."""
     _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "cc-secret"})
@@ -672,7 +672,7 @@ def test_env_production_a_defaulted_endpoint_reference_is_not_required(tmp_path)
 def test_env_production_endpoint_of_the_deploys_own_provider_is_required(
     tmp_path, a_gateway_that_ships_no_endpoint
 ):
-    """The zero-migration path: no persona catalog, so the web image runs the
+    """The no-persona path: no persona catalog, so the web image runs the
     deploy config itself and its provider's endpoint is the container's."""
     gateway = a_gateway_that_ships_no_endpoint
     _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "cc-secret"})
@@ -1546,7 +1546,7 @@ def test_env_production_bare_telemetry_password_absent_from_the_chain_refuses(tm
 
 def test_env_production_bare_telemetry_password_in_the_deploy_config_refuses_too(tmp_path):
     """The deploy config is read the same way a persona project is: on the
-    zero-migration path it IS the project the web image runs.
+    no-persona path it IS the project the web image runs.
 
     Spelled with its master switch on, like every rendered block ships -- the
     switch is what decides the credential is presented at all, and leaving it

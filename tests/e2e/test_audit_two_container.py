@@ -205,7 +205,7 @@ PROBE_SURFACE = "e2e_audit_mechanism"
 #: from the render because the entrypoint reads no config either: this module
 #: plays the render's role and hands the container the same two variables
 #: compose does.
-BUNDLE_RELPATH = "data/facility_knowledge"
+BUNDLE_RELPATH = "data/facility/knowledge"
 
 #: The gid floor the entrypoint enforces. Below this it refuses to join —
 #: deliberately, because a bind that looks system-owned inside the container is

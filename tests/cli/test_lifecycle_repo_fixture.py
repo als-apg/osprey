@@ -81,7 +81,7 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         "data/machine_state_channels.json",
         "data/channel_databases/tiers/tier3/hierarchical.json",
         "data/demo_machine.ttl",
-        "data/facility_knowledge/index.md",
+        "data/facility/knowledge/index.md",
         "data/simulation/scenarios/nominal/scenario.json",
         "web-terminal-context/alice/.gitkeep",
         "web-terminal-context/bob/.gitkeep",
@@ -304,7 +304,7 @@ def test_provenance_records_the_live_preset(lifecycle_repo: Path) -> None:
 
 def test_repo_is_discoverable_from_any_subdirectory(lifecycle_repo: Path) -> None:
     """The single discovery rule finds this repo from inside it (FR-9)."""
-    nested = lifecycle_repo / "data" / "facility_knowledge" / "subsystems"
+    nested = lifecycle_repo / "data" / "facility" / "knowledge" / "subsystems"
 
     assert find_repo_root(nested) == lifecycle_repo.resolve()
     assert find_repo_root(lifecycle_repo) == lifecycle_repo.resolve()

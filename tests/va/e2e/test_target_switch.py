@@ -358,9 +358,8 @@ def raw_config(
     which wins over ``services.virtual_accelerator.port`` — the containers bind
     ephemeral ports and nothing may guess them.
 
-    The FR-8 posture is set (strict limits against the *shipped* limits
-    database, plus the operator acknowledgment naming this harness's own live
-    endpoint) so that a switch toward ``live`` is judged on the same terms a
+    The FR-8 posture is set (the operator acknowledgment naming this harness's
+    own live endpoint) so that a switch toward ``live`` is judged on the same terms a
     real deployment would be judged on, rather than on a gate this file quietly
     left open.
     """
@@ -387,7 +386,7 @@ def raw_config(
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": False,
+                "mode": "exclusive",
                 "database_path": str(e2e_conftest.LIMITS_DB_PATH),
             },
             "target_switch": target_switch,

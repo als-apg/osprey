@@ -1,0 +1,43 @@
+schema: {{ facility_facts.schema }}
+
+# {{ facility_facts.identity.name }}
+
+{% if facility_facts.identity.description -%}
+{{ facility_facts.identity.description }}
+
+{% endif -%}
+These facts are read from this facility's build.
+
+- Code: `{{ facility_facts.identity.code }}`
+- Channels: {{ facility_facts.channel_count }}
+- Place levels: {{ facility_facts.place_levels | join(', ') if facility_facts.place_levels else 'none' }}
+
+## Models
+
+| Model | Engine | Served | Solve |
+|---|---|---|---|
+{% for model in facility_facts.models -%}
+| `{{ model.name }}` | {{ model.engine }} | {{ 'yes' if model.served else 'no' }} | {{ model.solve if model.solve else '-' }} |
+{% endfor %}
+## Device classes
+
+{% if facility_facts.device_classes -%}
+| Class | Devices | Aliases | Families |
+|---|---|---|---|
+{% for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) -%}
+| {{ name }} | {{ entry.count }} | {{ entry.aliases | join(', ') if entry.aliases else '-' }} | {{ '`' ~ (entry.families | join('`, `')) ~ '`' if entry.families else '-' }} |
+{% endfor -%}
+{% else -%}
+This facility's build holds no device class.
+{% endif %}
+## Measurement models
+
+{% if facility_facts.measurement_models -%}
+| Model | View |
+|---|---|
+{% for name, entry in facility_facts.measurement_models | dictsort(case_sensitive=true) -%}
+| `{{ name }}` | `{{ entry.path }}` |
+{% endfor -%}
+{% else -%}
+This render carries no measurement view.
+{% endif -%}

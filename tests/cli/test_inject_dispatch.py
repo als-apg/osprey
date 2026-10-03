@@ -9,6 +9,7 @@ writing the ``services.*`` config + registering both in ``deployed_services``
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -50,7 +51,6 @@ def _dispatch(**overrides: object) -> DispatchConfig:
         "dispatcher_port": 8020,
         "worker_port_base": 9190,
         "timeout_sec": 300,
-        "facility_name": "ERF",
         "channel_strip_prefix": "ERF:",
     }
     base.update(overrides)
@@ -82,7 +82,6 @@ def test_inject_dispatch_bundled_triggers(tmp_path: Path) -> None:
     config = _read_config(project_path)
     ed = config["services"]["event_dispatcher"]
     assert ed["port"] == 8020
-    assert ed["facility_name"] == "ERF"
     assert ed["channel_strip_prefix"] == "ERF:"
     assert ed["path"] == "./services/event_dispatcher"
     # No pinned image: the service builds the project's local image (the compose
@@ -303,41 +302,60 @@ def test_inject_dispatch_omits_the_env_axis_when_nothing_is_declared(tmp_path: P
     assert "env" not in services["dispatch_worker"]
 
 
-def _inject_facility_name(tmp_path: Path, *, facility: dict | None, facility_name: str) -> str:
-    """Inject a bundled dispatch block and return the dispatcher's facility name."""
+def _inject_facility_name(
+    tmp_path: Path,
+    *,
+    facility: dict | None = None,
+    identity: dict | None = None,
+    handed: str = "",
+) -> str:
+    """Inject a bundled dispatch block and return the dispatcher's facility name.
+
+    ``identity`` is written as the project's facility file; ``handed`` is the
+    name the build passes in memory.
+    """
     project_path = tmp_path / "project"
     project_path.mkdir()
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
     _write_config(project_path, facility=facility)
+    if identity is not None:
+        document = {"schema": "osprey.facility.facility/1", "identity": identity}
+        (project_path / "facility.json").write_text(json.dumps(document), encoding="utf-8")
 
     _inject_dispatch(
-        _dispatch(facility_name=facility_name),
+        _dispatch(),
         profile_dir=profile_dir,
         project_path=project_path,
+        facility_name=handed,
     )
 
     return _read_config(project_path)["services"]["event_dispatcher"]["facility_name"]
 
 
-def test_inject_dispatch_shows_facility_name_by_default(tmp_path: Path) -> None:
-    """Without an override the dispatcher shows the deployment's facility.name."""
+def test_inject_dispatch_shows_the_handed_facility_name_by_default(tmp_path: Path) -> None:
+    """The dispatcher shows the name the build hands it."""
+    name = _inject_facility_name(tmp_path, handed="Example Research Facility")
+
+    assert name == "Example Research Facility"
+
+
+def test_inject_dispatch_reads_the_facility_file_when_handed_no_name(tmp_path: Path) -> None:
+    """With no handed name the dispatcher shows the project's facility identity."""
     name = _inject_facility_name(
-        tmp_path, facility={"name": "Example Research Facility"}, facility_name=""
+        tmp_path, identity={"code": "erf", "name": "Example Research Facility"}
     )
 
     assert name == "Example Research Facility"
 
 
-def test_inject_dispatch_facility_name_overrides_facility_name(tmp_path: Path) -> None:
-    """dispatch.facility_name wins over facility.name."""
-    name = _inject_facility_name(
-        tmp_path, facility={"name": "Example Research Facility"}, facility_name="ERF"
-    )
+def test_inject_dispatch_ignores_the_configs_facility_block(tmp_path: Path) -> None:
+    """The config's ``facility.name`` names nothing."""
+    name = _inject_facility_name(tmp_path, facility={"name": "Configured Facility"})
 
-    assert name == "ERF"
+    assert name == ""
 
 
 def test_inject_dispatch_renders_an_empty_name_when_neither_is_set(tmp_path: Path) -> None:
     """Neither set renders an empty name."""
-    assert _inject_facility_name(tmp_path, facility=None, facility_name="") == ""
+    assert _inject_facility_name(tmp_path) == ""

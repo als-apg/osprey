@@ -106,7 +106,7 @@ PACKAGED_DATA = (
     / "control_assistant"
     / "data"
 )
-PACKAGED_KNOWLEDGE = PACKAGED_DATA / "facility_knowledge"
+PACKAGED_KNOWLEDGE = PACKAGED_DATA / "facility" / "knowledge"
 PACKAGED_TIERS = PACKAGED_DATA / "channel_databases" / "tiers"
 
 DEMO_TIER_SIBLINGS = (
@@ -210,7 +210,7 @@ def _assert_wrote_nothing(repo: Path) -> None:
     """Assert emit left the deployment without a single artifact."""
     data = repo / "data"
     assert not (data / "channel_databases").exists()
-    assert not (data / "facility_knowledge").exists()
+    assert not (data / "facility" / "knowledge").exists()
     assert not (data / "facility_ontology.json").exists()
     assert not list(data.glob("*.ttl"))
 
@@ -279,13 +279,13 @@ class TestFullChain:
             db_path,
             data / "ontology" / f"{token}.yaml",
             data / "facility_ontology.json",
-            data / "facility_knowledge" / "facility.md",
-            data / "facility_knowledge" / "index.md",
+            data / "facility" / "knowledge" / "facility.md",
+            data / "facility" / "knowledge" / "index.md",
             data / f"{token}.ttl",
         )
         for path in expected:
             assert path.is_file(), f"{path} was not written"
-        assert list((data / "facility_knowledge" / "families").glob("*.md"))
+        assert list((data / "facility" / "knowledge" / "families").glob("*.md"))
         assert not (data / "channel_databases" / "middle_layer.duckdb").exists()
         assert not (data / "channel_databases" / "tiers").exists()
 
@@ -296,7 +296,7 @@ class TestFullChain:
         # One line per artifact; the knowledge bundle is one artifact.
         for path in (*expected[:3], expected[-1]):
             assert str(path) in result.output
-        assert str(data / "facility_knowledge") in result.output
+        assert str(data / "facility" / "knowledge") in result.output
         assert "osprey build" in result.output.strip().splitlines()[-1]
 
     def test_ttl_first_line_names_mapping_provenance(self, repo: Path) -> None:
@@ -372,7 +372,7 @@ class TestTiers:
 
 class TestDemoKnowledge:
     def _stage_devices(self, repo: Path) -> Path:
-        bundle = repo / "data" / "facility_knowledge"
+        bundle = repo / "data" / "facility" / "knowledge"
         bundle.mkdir(parents=True, exist_ok=True)
         shutil.copy(PACKAGED_KNOWLEDGE / "index.md", bundle / "index.md")
         shutil.copytree(PACKAGED_KNOWLEDGE / "devices", bundle / "devices")
@@ -387,13 +387,13 @@ class TestDemoKnowledge:
         assert result.exit_code != 0
         lines = _rm_lines(result.output)
         assert len(lines) == 1, result.output
-        assert lines[0].startswith("rm -r data/facility_knowledge/devices")
+        assert lines[0].startswith("rm -r data/facility/knowledge/devices")
         assert "devices/bpm.md" not in lines[0]
         assert not (repo / "data" / "channel_databases" / "middle_layer.json").exists()
-        assert not (repo / "data" / "facility_knowledge" / "facility.md").exists()
+        assert not (repo / "data" / "facility" / "knowledge" / "facility.md").exists()
 
     def test_root_index_alone_passes(self, repo: Path) -> None:
-        bundle = repo / "data" / "facility_knowledge"
+        bundle = repo / "data" / "facility" / "knowledge"
         bundle.mkdir(parents=True)
         shutil.copy(PACKAGED_KNOWLEDGE / "index.md", bundle / "index.md")
 
@@ -411,8 +411,8 @@ class TestDemoKnowledge:
         assert result.exit_code != 0
         lines = _rm_lines(result.output)
         assert len(lines) == 1, result.output
-        assert "data/facility_knowledge/devices/bpm.md" in lines[0]
-        assert "data/facility_knowledge/devices/index.md" in lines[0]
+        assert "data/facility/knowledge/devices/bpm.md" in lines[0]
+        assert "data/facility/knowledge/devices/index.md" in lines[0]
         assert "ion-pump.md" not in lines[0]
         assert "rm -r" not in lines[0]
 
@@ -451,7 +451,7 @@ class TestDemoKnowledge:
         assert result.exit_code != 0
         lines = _rm_lines(result.output)
         assert len(lines) == 1, result.output
-        assert lines[0].startswith("rm -r data/facility_knowledge/devices")
+        assert lines[0].startswith("rm -r data/facility/knowledge/devices")
         for sibling in DEMO_TIER_SIBLINGS:
             assert sibling in lines[0]
 

@@ -29,6 +29,7 @@ from osprey.deployment.compose_generator import (
     configured_ariel_mirror_path,
     repo_identity,
     repo_relative_mount_source,
+    resolve_project_name,
     resolve_repo_root,
 )
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
@@ -77,7 +78,6 @@ from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suff
 # A stdlib-only leaf of the sidecar: the throttle's defaults and its one
 # validity predicate, shared with the sidecar that builds the throttle.
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
-from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
 
@@ -582,7 +582,7 @@ def _container_bundle_dir(config: Any, container_project_dir: str) -> str | None
     Per-service rather than one shared path, because personas differ: two
     personas built from different projects have different
     ``container_project_dir`` values, so the same configured
-    ``data/facility_knowledge`` resolves to two different in-container paths and
+    ``data/facility/knowledge`` resolves to two different in-container paths and
     a single hardcoded target would mount the bundle where only one of them
     looks. An ABSOLUTE ``bundle_path`` names the same absolute path on both
     sides and is NOT re-anchored — the same distinction
@@ -745,7 +745,7 @@ def _launch_token_env_vars(
     entitled persona every rendered lane's token would let a launch approved
     against one machine be replayed against the other.
 
-    A persona-less roster entry — the zero-migration path, where the web image IS
+    A persona-less roster entry — the no-persona path, where the web image IS
     the deploy project — is answered from this same config, with no disk read, so
     the determinism contract holds either way.
 
@@ -787,6 +787,7 @@ def render_web_terminals(
     phoebus_handle_personas: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
     proxy_env_names: tuple[str, ...] = (),
+    facility_name: str = "",
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -978,6 +979,12 @@ def render_web_terminals(
             name and its lowercase twin, both ``${NAME:-}``; a name left out
             renders neither. ``()`` (the default, and the scaffold preview)
             renders none.
+        facility_name: The facility's display name: the landing page's title
+            and the sign-in page's ``OSPREY_WEB_APP_NAME``. The deploy resolves
+            it from the build's facility identity through
+            :func:`osprey.deployment.web_terminals.artifacts.resolve_render_inputs`,
+            because this function reads no file. ``""`` (the default) emits no
+            sign-in name and leaves the landing page its own title.
 
     Returns:
         Mapping of output-relative-path to rendered content: the three artifacts
@@ -1024,10 +1031,9 @@ def render_web_terminals(
     if auth_env_digest and not re.fullmatch(r"[0-9a-f]{64}", auth_env_digest):
         raise ValueError("auth_env_digest must be a sha256 hex digest")
     root = as_dict(config)
-    facility = as_dict(root.get("facility"))
     registry = as_dict(root.get("registry"))
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
-    facility_prefix = facility.get("prefix") or ""
+    project_name = resolve_project_name(root)
 
     _check_mcp_topology(web_terminals)
     if effective_image_source(web_terminals) == "registry" and not configured_registry_url(
@@ -1035,7 +1041,7 @@ def render_web_terminals(
     ):
         raise ValueError(REGISTRY_MODE_MISSING_URL)
 
-    resolved_users = resolve_personas(web_terminals, registry, facility_prefix, strict=True)
+    resolved_users = resolve_personas(web_terminals, registry, project_name, strict=True)
     # The other half of what a roster `role:` says. `resolve_personas` above
     # consumed it into each entry's persona (which image, which project); this
     # is the role NAME, which the auth sidecar carries on that user's password
@@ -1243,7 +1249,7 @@ def render_web_terminals(
                 ],
                 # Whether this user's container gets the event dispatcher's
                 # bearer (see the `dispatcher_personas` arg). A persona-less
-                # roster entry — the zero-migration path, where the web image
+                # roster entry — the no-persona path, where the web image
                 # IS the deploy project — is answered from this same config,
                 # with no disk read, so the determinism contract holds either
                 # way.
@@ -1496,7 +1502,7 @@ def render_web_terminals(
     )
 
     compose_ctx = {
-        "facility_prefix": facility_prefix,
+        "project_name": project_name,
         "registry_url": registry.get("url") or "",
         "image_source": image_source,
         "services": services,
@@ -1577,7 +1583,7 @@ def render_web_terminals(
         # unconditionally and gated in the template, so an unset value emits no
         # env line and the page keeps its built-in fallbacks.
         "web_theme": str(as_dict(root.get("web")).get("theme") or ""),
-        "web_app_name": resolve_facility_name(root, ""),
+        "web_app_name": facility_name,
         # The proxy names that hold a value, in the order PROXY_ENV_NAMES
         # spells them, so the render does not depend on the caller's order.
         "proxy_env_names": tuple(name for name in PROXY_ENV_NAMES if name in proxy_env_names),
@@ -1642,7 +1648,7 @@ def render_web_terminals(
 
     token_login_names = frozenset(token_login_users(root))
     landing_ctx = {
-        "facility_name": resolve_facility_name(root, ""),
+        "facility_name": facility_name,
         "groups": _build_groups(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),

@@ -39,8 +39,8 @@ to agree about which types are armed. Two readings of one posture is one of them
 being wrong about a machine somebody can move.
 
 :class:`LimitsPosture` is the same story for limits checking, which is likewise
-per connector type: a deployment may relax unlisted channels on its simulator
-while its live machine refuses them. It carries the resolved posture together
+per connector type: a deployment may run its simulator ``optional`` while its
+live machine runs ``exclusive``. It carries the resolved posture together
 with the config key that answered it, so a refusal names the line an operator
 would have to edit rather than one some per-type block overrides.
 
@@ -779,7 +779,21 @@ LIMITS_CHECKING_LEAF = "limits_checking"
 #: The leaves a limits block has to state to answer at all. ``database_path`` is
 #: deliberately not among them: the deployment mounts one limits database, so a
 #: per-type block that omits the path is complete rather than incomplete.
-LIMITS_LEAVES = ("enabled", "allow_unlisted_channels")
+LIMITS_LEAVES = ("enabled", "mode")
+
+#: The two limits modes. ``exclusive``: the limits database is the complete
+#: list of writable channels, and a channel with no record is refused.
+#: ``optional``: a channel with a record is checked against it, and a channel
+#: with no record is written with no limits.
+LIMITS_MODE_EXCLUSIVE = "exclusive"
+LIMITS_MODE_OPTIONAL = "optional"
+LIMITS_MODES = (LIMITS_MODE_EXCLUSIVE, LIMITS_MODE_OPTIONAL)
+
+#: Every leaf a ``limits_checking`` block defines: the posture pair plus the
+#: deployment-wide database path. A block carrying any other leaf is refused by
+#: :func:`incomplete_limits_blocks`, so a misspelt or retired leaf cannot sit in
+#: a config looking like a posture nobody reads.
+LIMITS_BLOCK_LEAVES = (*LIMITS_LEAVES, "database_path")
 
 
 @dataclass(frozen=True)
@@ -787,8 +801,8 @@ class LimitsPosture:
     """A resolved limits posture, together with the config key that answered it.
 
     The value and its key travel as one because a refusal has to send an
-    operator to the line they can actually edit. A deployment that relaxed
-    ``allow_unlisted_channels`` for its simulator alone has two keys in play,
+    operator to the line they can actually edit. A deployment that set
+    ``mode: optional`` for its simulator alone has two keys in play,
     and a refusal naming the deployment-wide one would have the operator flip a
     line the per-type block overrides — a change that does nothing, on a
     posture they did not mean to touch. Resolving the value without carrying
@@ -796,23 +810,22 @@ class LimitsPosture:
     offer the value on its own.
 
     Both leaves are tri-state. ``None`` is "no block said", which is not the
-    same as a block saying ``false``: silence is what a deployment that never
+    same as a block stating a value: silence is what a deployment that never
     configured limits checking has, and every write path treats it as no
     permission rather than as a decision. Only :data:`LIMITS_LEAVES` are
     carried; the limits database path stays deployment-wide.
 
     Attributes:
         enabled: Whether limits checking is on, or ``None`` when unstated.
-        allow_unlisted: Whether channels absent from the limits database may be
-            written, or ``None`` when unstated. Write paths allow only on
-            ``True``.
+        mode: One of :data:`LIMITS_MODES`, or ``None`` when unstated. Write
+            paths write a channel with no record only on ``optional``.
         connector_type: The connector type whose block answered, or ``None``
             when the deployment-wide block did. It selects the key spelling and
             nothing else.
         incomplete: The :data:`LIMITS_LEAVES` the answering block failed to
             state, in :data:`LIMITS_LEAVES` order — a leaf a per-type block
-            omitted, or a leaf either block wrote as something other than a
-            literal boolean. Empty for a well-formed block. A non-empty value
+            omitted, or a leaf either block wrote as something no reader can
+            use. Empty for a well-formed block. A non-empty value
             means the posture answered nothing — both leaves are ``None`` —
             and a reader that must act builds a failsafe rather than guessing
             which half of the block was meant. The one posture not read from a
@@ -822,7 +835,7 @@ class LimitsPosture:
     """
 
     enabled: bool | None
-    allow_unlisted: bool | None
+    mode: str | None
     connector_type: str | None
     incomplete: tuple[str, ...] = ()
 
@@ -867,16 +880,16 @@ class LimitsPosture:
     def strict(self) -> bool:
         """Whether this posture refuses everything the limits database does not list.
 
-        Limits checking on *and* unlisted channels explicitly refused — the only
-        definition of "strict" in the codebase, so the switch gate, the target
-        roster and the docs cannot drift into three readings of one word.
+        Limits checking on *and* the mode explicitly ``exclusive`` — the only
+        definition of "strict" in the codebase, so the target roster and the
+        docs cannot drift into two readings of one word.
 
         Explicit on both leaves: ``None`` is a deployment that never stated a
         posture, and a deployment that stated nothing has refused nothing.
         Counting silence as strict would advertise a guarantee no config line
         backs, on exactly the deployments least likely to have checked.
         """
-        return self.enabled is True and self.allow_unlisted is False
+        return self.enabled is True and self.mode == LIMITS_MODE_EXCLUSIVE
 
 
 def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPosture:
@@ -1029,19 +1042,18 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     - ``enabled`` is ``True`` when *any* reachable posture has it ``True``.
       Limits checking being on somewhere is a constraint that may apply to the
       write in hand.
-    - ``allow_unlisted`` is ``True`` only when *every* reachable posture has it
-      ``True``. Permission to write a channel the limits database does not list
-      holds only where every machine grants it, so one strict target — or one
-      that states nothing, ``None`` and an incomplete block alike counting as
-      not-``True`` — makes the answer strict.
+    - ``mode`` is ``optional`` only when *every* reachable posture is
+      ``optional``. Permission to write a channel the limits database does not
+      list holds only where every machine grants it, so one ``exclusive``
+      target — or one that states nothing, ``None`` and an incomplete block
+      alike counting as not-``optional`` — makes the answer ``exclusive``.
 
     Incompleteness travels with them, as the union of every reachable
     posture's :attr:`LimitsPosture.incomplete` in :data:`LIMITS_LEAVES` order.
     One reachable machine whose block cannot be read makes the fold incomplete,
     and a reader that must act therefore builds the blocking failsafe. Dropping
-    it would be the worst failure available here: both leaf folds send an
-    incomplete posture's ``None`` to ``False``, which reads as "checking off,
-    nothing permitted" — and a validator built from *that* is no validator at
+    it would be the worst failure available here: the ``enabled`` fold sends an
+    incomplete posture's ``None`` to ``False``, which reads as "checking off" — and a validator built from *that* is no validator at
     all, so the caller with the least information about which machine it is
     touching would be the one waved through. This is the fail-closed direction
     :func:`LimitsValidator.from_config_most_restrictive`'s callers are promised.
@@ -1072,7 +1084,11 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
         postures = [type_limits_posture(section, resolve_control_system_type(section))]
     return LimitsPosture(
         enabled=any(posture.enabled is True for posture in postures),
-        allow_unlisted=all(posture.allow_unlisted is True for posture in postures),
+        mode=(
+            LIMITS_MODE_OPTIONAL
+            if all(posture.mode == LIMITS_MODE_OPTIONAL for posture in postures)
+            else LIMITS_MODE_EXCLUSIVE
+        ),
         connector_type=None,
         incomplete=tuple(
             leaf
@@ -1107,7 +1123,7 @@ def any_armed_target_checks_limits(section: Any) -> bool:
     decides whether a validator exists at all —
     :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator._from_posture`
     builds none for anything else, and a target with no validator consults no
-    database. ``allow_unlisted_channels`` governs what a built validator does
+    database. ``mode`` governs what a built validator does
     with a channel the database omits, which is a different question.
 
     Args:
@@ -1152,9 +1168,10 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
       reported for an omission: it inherits nothing, so a leaf it never carried
       is the tri-state's ``None`` and the shape every deployment predating
       per-type blocks has.
-    - **Either** block writing a leaf as something no reader can turn into a
-      boolean — a quoted ``'true'``, a ``1``, a bare ``enabled:``, an
-      unexpanded ``'${LIMITS_ON}'``. Environment expansion yields strings, so
+    - **Either** block writing a leaf as something no reader can use — for
+      ``enabled`` a quoted ``'true'``, a ``1``, a bare ``enabled:``, an
+      unexpanded ``'${LIMITS_ON}'``; for ``mode`` anything but one of
+      :data:`LIMITS_MODES`. Environment expansion yields strings, so
       this is what a deployment gets when it wires a limits leaf to a variable
       nothing set. It blocks every write at runtime, which is the safe
       direction but a poor way to find out; refusing the build is where that
@@ -1162,6 +1179,9 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
     - **Either** ``limits_checking`` being present but not a mapping at all,
       which gets one line naming the block and quoting what was found there
       instead of a line per leaf: there are no leaves to name.
+    - **Either** block carrying a leaf outside :data:`LIMITS_BLOCK_LEAVES`. No
+      reader consults such a leaf, so the posture its author meant by it is
+      not the one the deployment runs.
 
     Args:
         section: The ``control_system:`` config section, in the same shape
@@ -1169,10 +1189,10 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
             the build produced it, since that is the config a deployment runs.
 
     Returns:
-        One line per unstated leaf: the deployment-wide block first, then the
-        connector blocks in the order the section carries them, leaves in
-        :data:`LIMITS_LEAVES` order, so one refusal lists everything an operator
-        has to fix. Empty for a section whose blocks are complete, absent, or
+        One line per unstated leaf and per undefined one: the deployment-wide
+        block first, then the connector blocks in the order the section carries
+        them, leaves in :data:`LIMITS_LEAVES` order and undefined leaves sorted
+        after them, so one refusal lists everything an operator has to fix. Empty for a section whose blocks are complete, absent, or
         not blocks at all. Never raises: a lint that crashed on a malformed
         config would fail a build without saying what is wrong with it.
     """
@@ -1203,7 +1223,7 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
         for leaf, written in _unstated_limits_leaves(block, whole=whole):
             if written:
                 errors.append(
-                    f"{posture.key(leaf)} is {block[leaf]!r}, not a literal true or false; "
+                    f"{posture.key(leaf)} is {block[leaf]!r}, not {_LEAF_VALUES[leaf]}; "
                     "a limits leaf that cannot be read states no posture and blocks "
                     "every write as a failsafe"
                 )
@@ -1212,6 +1232,12 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
                     f"{posture.key(leaf)} is missing; a per-type limits block must state "
                     f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
                 )
+        for leaf in sorted(str(key) for key in block if key not in LIMITS_BLOCK_LEAVES):
+            errors.append(
+                f"{posture.key(leaf)} is not a limits leaf; a limits block states "
+                f"{LIMITS_LEAVES[0]} and {LIMITS_CHECKING_LEAF}.{LIMITS_LEAVES[1]}: "
+                f"{' | '.join(LIMITS_MODES)}"
+            )
     return errors
 
 
@@ -1248,7 +1274,7 @@ def _global_limits_posture(section: Any) -> LimitsPosture:
     block: silence here is the shape every deployment predating per-type blocks
     has, and only a per-type block, which overrides whole, has to state both
     leaves to answer at all. A leaf it *does* carry but spells as something
-    other than a literal boolean is unreadable in either block alike — see
+    no reader can use is unreadable in either block alike — see
     :func:`_unstated_limits_leaves` — and so is the whole block when
     ``limits_checking`` is present but is not a mapping, which is incomplete on
     both leaves rather than the silence of a deployment that wrote none.
@@ -1276,9 +1302,10 @@ def _unstated_limits_leaves(block: dict[str, Any], *, whole: bool) -> list[tuple
       block overrides the deployment-wide pair entire, so it has to state both
       leaves to answer at all. The deployment-wide block is read with
       ``whole=False``, where an absent leaf is simply the tri-state's ``None``.
-    - **Written but unreadable** (``True``) — a quoted ``'true'``, a ``1``, a
-      bare ``enabled:``, an unexpanded ``'${LIMITS_ON}'`` that no environment
-      resolved — which is a failure in *either* scope. This is the leaf that
+    - **Written but unreadable** (``True``) — for ``enabled`` a quoted
+      ``'true'``, a ``1``, a bare ``enabled:``, an unexpanded
+      ``'${LIMITS_ON}'`` that no environment resolved; for ``mode`` anything
+      but one of :data:`LIMITS_MODES` — which is a failure in *either* scope. This is the leaf that
       cannot be allowed to read as a plain unset: unset ``enabled`` means "no
       limits checking configured", so a deployment that wrote
       ``enabled: 'true'`` meaning to switch checking *on* would have every
@@ -1301,7 +1328,7 @@ def _unstated_limits_leaves(block: dict[str, Any], *, whole: bool) -> list[tuple
         if leaf not in block:
             if whole:
                 unstated.append((leaf, False))
-        elif _limits_leaf(block[leaf]) is None:
+        elif _LEAF_READERS[leaf](block[leaf]) is None:
             unstated.append((leaf, True))
     return unstated
 
@@ -1321,10 +1348,10 @@ def _block_limits_posture(
     unstated = _unstated_limits_leaves(block, whole=whole)
     if unstated:
         return LimitsPosture(None, None, connector_type, tuple(leaf for leaf, _ in unstated))
-    enabled_leaf, allow_unlisted_leaf = LIMITS_LEAVES
+    enabled_leaf, mode_leaf = LIMITS_LEAVES
     return LimitsPosture(
         enabled=_limits_leaf(block.get(enabled_leaf)),
-        allow_unlisted=_limits_leaf(block.get(allow_unlisted_leaf)),
+        mode=_limits_mode(block.get(mode_leaf)),
         connector_type=connector_type,
     )
 
@@ -1349,6 +1376,28 @@ def _limits_leaf(value: Any) -> bool | None:
     if value is False:
         return False
     return None
+
+
+def _limits_mode(value: Any) -> str | None:
+    """The ``mode`` leaf as one of :data:`LIMITS_MODES`, or ``None`` for anything else.
+
+    The two spellings and nothing else are readable: a boolean, a different
+    case, a bare ``mode:`` each state no mode, and a block that states no mode
+    is one :func:`_unstated_limits_leaves` reports rather than one a reader
+    guesses at.
+    """
+    if isinstance(value, str) and value in LIMITS_MODES:
+        return value
+    return None
+
+
+#: How each of :data:`LIMITS_LEAVES` is read, and what a refusal says a
+#: readable value looks like.
+_LEAF_READERS: dict[str, Any] = {LIMITS_LEAVES[0]: _limits_leaf, LIMITS_LEAVES[1]: _limits_mode}
+_LEAF_VALUES = {
+    LIMITS_LEAVES[0]: "a literal true or false",
+    LIMITS_LEAVES[1]: " or ".join(LIMITS_MODES),
+}
 
 
 def _real_blocks(section: Any, never_live: tuple[str, ...]) -> list[str]:

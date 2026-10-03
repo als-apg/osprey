@@ -40,7 +40,7 @@ from .test_golden_render import EXAMPLE_CONFIG
 
 #: Where the reference config puts its bundle, and the source every entitled
 #: user's mount must therefore name.
-BUNDLE_PATH = "data/facility_knowledge"
+BUNDLE_PATH = "data/facility/knowledge"
 BUNDLE_SOURCE = f"./{BUNDLE_PATH}"
 
 
@@ -94,7 +94,7 @@ def test_no_bundle_configured_mounts_nothing():
 
 
 def test_every_persona_less_user_gets_the_bundle():
-    """The zero-migration roster: no persona catalog, so entitlement is answered
+    """The no-persona roster: no persona catalog, so entitlement is answered
     from this same config, and both users read the one deployment bundle."""
     mounts = _bundle_mounts(_config())
 
@@ -109,7 +109,7 @@ def test_target_is_computed_per_persona_from_its_own_project_dir():
 
     ``operator`` and ``physicist`` are built from different projects, so their
     ``container_project_dir`` values differ and the same configured
-    ``data/facility_knowledge`` resolves to two different in-container paths.
+    ``data/facility/knowledge`` resolves to two different in-container paths.
     """
     mounts = _bundle_mounts(
         _config(personas=True), facility_bundle_personas={"operator", "physicist"}
@@ -325,7 +325,7 @@ def test_personas_needing_facility_bundle_reads_each_personas_config(tmp_path):
 
     (tmp_path / "dls-operator").mkdir()
     (tmp_path / "dls-operator" / "config.yml").write_text(
-        yaml.safe_dump({"facility_knowledge": {"bundle_path": "data/facility_knowledge"}})
+        yaml.safe_dump({"facility_knowledge": {"bundle_path": "data/facility/knowledge"}})
     )
     (tmp_path / "dls-physicist").mkdir()
     (tmp_path / "dls-physicist" / "config.yml").write_text(yaml.safe_dump({"facility": {}}))
@@ -443,7 +443,7 @@ def test_new_bundle_dir_gets_exactly_the_bits_sharing_needs(tmp_path):
     nobody."""
     from osprey.deployment.compose_generator import ensure_shared_corpus_dir
 
-    target = tmp_path / "data" / "facility_knowledge"
+    target = tmp_path / "data" / "facility" / "knowledge"
 
     gid = ensure_shared_corpus_dir(target)
 

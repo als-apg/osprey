@@ -8,9 +8,10 @@
 # scripts depend on: a "dispatch" user (chown target) and the two mount-point
 # directories the per-user compose service declares volumes onto.
 #
-# The paths below are hardcoded to the fixture's facility_prefix ("e2e" ->
-# /app/e2e-assistant/...) — see multi_user_config.yml. If that prefix ever
-# changes, these paths must change with it.
+# The paths below are the no-persona project directory of the fixture's
+# project name ("osprey-e2e-mus-p3" -> /app/osprey-e2e-mus-p3-assistant/...) —
+# see multi_user_config.yml. If that project name ever changes, these paths
+# must change with it.
 #
 # `var/agent_data` must name the same directory as config.yml's
 # `agent_data.base_dir` (the fixture config declares none, so it is the default
@@ -22,9 +23,9 @@ FROM alpine:3.20
 
 RUN adduser -D dispatch \
     && mkdir -p /data/claude-config \
-    && mkdir -p /app/e2e-assistant/var/agent_data \
-    && mkdir -p /app/e2e-assistant/.claude/skills \
-    && chown -R dispatch:dispatch /data/claude-config /app/e2e-assistant
+    && mkdir -p /app/osprey-e2e-mus-p3-assistant/var/agent_data \
+    && mkdir -p /app/osprey-e2e-mus-p3-assistant/.claude/skills \
+    && chown -R dispatch:dispatch /data/claude-config /app/osprey-e2e-mus-p3-assistant
 
 # alpine's busybox `sleep` doesn't accept the GNU "infinity" literal; `tail -f
 # /dev/null` is the portable idle-forever idiom. seeding.py execs into this

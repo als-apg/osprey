@@ -33,10 +33,11 @@ from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
+    config_update_fields,
     load_config_document,
     save_config_document,
 )
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_name as identity_name
 from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
@@ -563,7 +564,9 @@ def _declare_bundled_host_bindings(
         save_config_document(config_path, config)
 
 
-def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: Path) -> None:
+def _inject_dispatch(
+    dispatch: DispatchConfig, profile_dir: Path, project_path: Path, *, facility_name: str = ""
+) -> None:
     """Wire the event-dispatch feature into a built project.
 
     1. Resolve and copy the triggers file to ``<project>/triggers.yml``.
@@ -591,6 +594,9 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         dispatch: Validated dispatch configuration from the build profile.
         profile_dir: Directory containing the build profile (triggers source).
         project_path: Root of the built project.
+        facility_name: The facility's display name, handed in memory by a
+            build whose facility file is not yet in the project. ``""`` reads
+            the project's facility identity instead.
 
     Raises:
         BuildProfileError: If the configured triggers file cannot be resolved.
@@ -697,8 +703,9 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     dispatcher_config: dict[str, Any] = {
         "path": "./services/event_dispatcher",
         "port": dispatch.dispatcher_port,
-        # The override wins; otherwise the dispatcher shows the name every other surface shows.
-        "facility_name": dispatch.facility_name or resolve_facility_name(config, ""),
+        # The dispatcher shows the facility identity's name, the one every other
+        # surface shows.
+        "facility_name": facility_name or identity_name(project_path, config.get("project_name")),
         "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
@@ -1075,12 +1082,6 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
 
     The contract here is MIXED, and the split is deliberate.
 
-    ``devices_file`` is written ALWAYS, on every lane of every deploy, authored
-    or defaulted. A deployment always addresses devices, so its absence would
-    not mean "no device file" — it would mean the staging step has to re-derive
-    this default for itself, which is how the build and the bridge end up
-    disagreeing about which file is authoritative.
-
     ``plan_dir`` and ``excluded_plans`` stay omit-when-unset, because for them
     the ABSENCE is the signal the compose template's ``{% if %}`` guards read:
     an unset ``plan_dir`` means no mount and no ``BLUESKY_PLAN_DIRS`` env var at
@@ -1088,9 +1089,9 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     ``os.pathsep`` join is done Python-side because the Jinja render context has
     no ``os`` module.
 
-    ``device_page_size`` is a THIRD contract: omit-when-EQUALS-DEFAULT. It is
-    neither always-written like ``devices_file`` nor omit-when-unset like its
-    two neighbours, because the key is never unset — it is an ``int`` with a
+    ``device_page_size`` is a SECOND contract: omit-when-EQUALS-DEFAULT. It is
+    not omit-when-unset like ``plan_dir`` and ``excluded_plans``, because the
+    key is never unset — it is an ``int`` with a
     dataclass default, so "unset" and "authored at the default" arrive here as
     the same value and cannot be told apart. Writing it unconditionally would
     put a line into every existing project's config.yml and an env var into
@@ -1112,7 +1113,7 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     # than a literal repeated on this side of the build.
     from osprey.cli.build_profile_schema import BlueskyConfig
 
-    keys: dict[str, Any] = {"devices_file": bluesky.devices_file}
+    keys: dict[str, Any] = {}
     if bluesky.plan_dir:
         keys["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
@@ -1284,10 +1285,8 @@ def _inject_bluesky(
         # than inferring a control target it is never told about. `target` and
         # the addressing keys are the LANE-SCOPED ones: a single-lane block on
         # any other baseline still carries neither (the stand-in case below is
-        # the one exception, and the comment there says why). That is a
-        # narrower claim than it used to be — the facility plan keys are NOT
-        # lane-scoped, and `_facility_plan_keys` now writes `devices_file` on
-        # every lane of every deploy, single-lane deploys included.
+        # the one exception, and the comment there says why). The facility
+        # plan keys are NOT lane-scoped.
         baseline = _baseline_lane_target(config, virtual_accelerator)
         second = _SECOND_LANE_TARGET[baseline]
         second_config: dict[str, Any] = {
@@ -1581,7 +1580,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
             "    Targets:    rehearse on it with `control_target_set standin`; "
             "`control_target_set live` reaches the `epics` gateways your facility "
             "authored, and still asks for this profile's own operator "
-            "acknowledgment and strict limits. A deployment may start on the "
+            "acknowledgment. A deployment may start on the "
             "stand-in with `osprey set connector=live_standin`."
         )
     if wrote_gateways:
@@ -2167,4 +2166,41 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
         "    Recording:  the recorder writes only while control_system.type is "
         "'virtual_accelerator'. On any other control system it idles. It "
         "re-reads that setting on an interval, so the flip needs no restart."
+    )
+
+
+#: The limits view's file, relative to the render root.
+LIMITS_DATABASE_PATH = "data/channel_limits.json"
+
+
+def _inject_limits_database(project_path: Path) -> None:
+    """Name the limits view as the render's limits database.
+
+    A render that states a limits block, deployment-wide or for one connector
+    type, reads its limits from the file the limits view writes. The path is
+    written deployment-wide: a deployment mounts one limits database. A path
+    the config already states is kept, and a config stating no limits block
+    gains nothing.
+
+    Args:
+        project_path: Root of the render.
+    """
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        return
+    section = load_config_document(config_path).get("control_system")
+    if not isinstance(section, Mapping):
+        return
+    leaf = connector_types.LIMITS_CHECKING_LEAF
+    block = section.get(leaf)
+    connector = section.get("connector")
+    per_type = isinstance(connector, Mapping) and any(
+        isinstance(entry, Mapping) and leaf in entry for entry in connector.values()
+    )
+    if block is None and not per_type:
+        return
+    if block is not None and (not isinstance(block, Mapping) or "database_path" in block):
+        return
+    config_update_fields(
+        config_path, {f"control_system.{leaf}.database_path": LIMITS_DATABASE_PATH}
     )

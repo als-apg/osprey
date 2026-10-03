@@ -51,6 +51,7 @@ import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
+from osprey.facility.errors import FacilityBuildError
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
@@ -78,6 +79,7 @@ from .build_injectors import (
     _inject_bluesky_web,
     _inject_dispatch,
     _inject_gchat_bridge,
+    _inject_limits_database,
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_teams_bridge,
@@ -93,6 +95,7 @@ from .build_lifecycle import (
 from .build_limits_check import limits_database_errors
 from .build_persistence import (
     FACILITY_RULE_NAME,
+    FACILITY_RULE_RELPATH,
     _apply_config_overrides,
     _apply_conventions,
     _persist_artifact_server,
@@ -106,6 +109,8 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
+    from osprey.facility.build import FacilityDocument
+
     from .build_profile_model import BuildProfile
 
 logger = get_logger("build")
@@ -136,6 +141,7 @@ __all__ = [
     "_inject_bluesky_web",
     "_inject_dispatch",
     "_inject_gchat_bridge",
+    "_inject_limits_database",
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_teams_bridge",
@@ -1193,12 +1199,10 @@ class _SharedRenderInputs(NamedTuple):
     re-derive a manifest byte-for-byte identical to the first. Keyed on the two
     inputs that decide it, so a delta that *does* move either still gets its own.
 
-    A graph-deferred entry is stored under the same key but is per build
-    profile in truth: the deferred prepare reads the profile's mode and its
-    rendered ``services.graphdb.ttl_path``, so a persona that overrode the
-    corpus while keeping the tree would be served its host's answer. Every
-    render of one build shares one profile chain today, which is why the key
-    has not grown a third input.
+    A tree that stages no channel database gets its entry from the facility
+    file of the first render that asks. Every render of one build is written
+    the same facility file, built once from the data tree the key names, so
+    the answer is the same whichever render asks first.
     """
 
     va_reported: set[tuple[str, int]]
@@ -1248,6 +1252,17 @@ class _SharedRenderInputs(NamedTuple):
     something different, so it still gets its own line.
     """
 
+    facility: FacilityDocument
+    """The facility file, built once from ``data/facility/`` before any render.
+
+    Every render of one build copies the same profile ``data/`` tree, so the
+    file is a fact about the build: built once, identified by the sha256 of the
+    tree, and written byte-equal at the root of every render.
+    """
+
+    facility_sha256: str
+    """The sha256 of the ``data/facility/`` tree :attr:`facility` was built from."""
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -1258,6 +1273,23 @@ class _SharedRenderInputs(NamedTuple):
     one. A variant that reached only the deployment would leave every persona
     project — and every persona image — rendered for a different host than the
     stack they ship in.
+    """
+
+    knowledge_links_reported: set[str] | None = None
+    """Knowledge pages this build has already named as linked to a missing device.
+
+    Every render pass of a build reads the same ``data/facility/knowledge``
+    pages against the same facility file, so a dangling link is one fact about
+    the build rather than one per render. ``None`` for a single render, which
+    names each page it finds.
+    """
+
+    views_omitted_reported: set[str] | None = None
+    """Facility views this build has already named as not written.
+
+    Every render pass of a build asks the same views of the same profile, so an
+    omitted view is one fact about the build rather than one per render. ``None``
+    for a single render, which names each view it omits.
     """
 
     runtime_interpreter: str | None = None
@@ -1409,12 +1441,14 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
 
     Both scopes are read: the deployment-wide block and every per-type block.
     A per-type block overrides the deployment-wide pair whole, so a block that
-    states one leaf answers no posture at all; a leaf that is present but not
-    a literal ``true``/``false`` (``"true"``, ``1``, an unexpanded ``${VAR}``)
-    answers nothing either, in either scope; and a ``limits_checking`` value
-    that is not a mapping at all answers neither leaf. Each of those makes
-    every write path fall back to refusing unlisted channels — a deployment
-    whose limits posture quietly stopped doing what its author wrote.
+    states one leaf answers no posture at all; a leaf that is present but
+    unreadable (``enabled`` as ``"true"``, ``1`` or an unexpanded ``${VAR}``;
+    ``mode`` as anything but ``exclusive`` or ``optional``) answers nothing
+    either, in either scope; and a ``limits_checking`` value that is not a
+    mapping at all answers neither leaf. Each of those makes every write path
+    fall back to blocking every write — a deployment whose limits posture
+    quietly stopped doing what its author wrote. A leaf the block does not
+    define is refused too: no reader consults it.
     ``osprey validate`` catches the ones a ``config:`` block spelled; this
     reads the config a deployment actually runs, so a block an injector
     assembled or a preset's ``config:`` wrote is caught too.
@@ -1423,8 +1457,8 @@ def _incomplete_limits_errors(render_dir: Path) -> list[str]:
         render_dir: The rendered project directory, read after the injectors.
 
     Returns:
-        One line per missing or unreadable leaf, naming the key an operator
-        has to add or rewrite as a literal boolean; one line naming the block
+        One line per missing, unreadable or undefined leaf, naming the key an
+        operator has to add, rewrite or remove; one line naming the block
         and its value when ``limits_checking`` is not a mapping; nothing for a
         render whose blocks are complete or absent.
     """
@@ -1556,8 +1590,8 @@ def _report_va_manifest_outcome(
         tier: The build-resolved tier whose channel databases were expanded.
         prepared: The prepared manifest, or ``None`` when the tree backs none.
         config: The rendered project configuration, when this render prepared
-            its manifest through the graph source -- what the refusal resolves
-            the corpus from, so a graph-mode gap is reported as the corpus's
+            its manifest through the roster -- what the refusal resolves the
+            facility file from, so its gap is reported as the facility file's
             rather than as absent database files.
 
     Raises:
@@ -1574,9 +1608,9 @@ def _report_va_manifest_outcome(
 
     if prepared is None:
         if config is not None:
-            # The graph was consulted, so the tier-database framing is the
-            # wrong sentence: the reason names the corpus (or the per-tree
-            # file) that left this accelerator nothing to serve.
+            # The roster was consulted, so the tier-database framing is the
+            # wrong sentence: the reason names the facility file (or the
+            # per-tree file) that left this accelerator nothing to serve.
             raise BuildProfileError(
                 f"this deployment runs a virtual accelerator, but no channel manifest "
                 f"could be built from its data tree {data_root}: "
@@ -1595,21 +1629,20 @@ def _report_va_manifest_outcome(
 
     shared.va_reported.add(key)
     metadata = prepared.manifest["_metadata"]
-    # The graph source as an operator names it: the search index the
-    # roster read, not the Turtle corpus behind it.
-    graph_source = metadata.get("source_corpus")
+    # The roster's source as an operator names it: the facility file, by its
+    # file name.
+    facility_source = metadata.get("source_corpus")
     absent = metadata["absent_paradigms"]
     novel = metadata["machine_json_novel_addresses"]
     from_databases = metadata["total_channels"] - len(novel)
     # The tree is named by what it is rather than by its absolute path: the
     # operator is being told what the accelerator will serve, not sent to a
     # path they would have to retype.
-    if graph_source is not None:
-        # The one source that is not a channel database. The index path is the
-        # configured spelling, which IS what an operator would retype.
+    if facility_source is not None:
+        # The one source that is not a channel database.
         line = (
-            f"Virtual-accelerator channel set built from this project's channel search "
-            f"index ({graph_source}): {from_databases} channel(s)"
+            f"Virtual-accelerator channel set built from this project's facility file "
+            f"({facility_source}): {from_databases} channel(s)"
         )
     else:
         fed = _named_in_prose(metadata["source_paradigms"])
@@ -1624,12 +1657,12 @@ def _report_va_manifest_outcome(
         # that exist nowhere else.
         line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
     line += "."
-    if graph_source is not None and metadata["setpoint_count"]:
-        # What the corpus's device grouping bought: the pairs it states are
-        # the only channels a graph-sourced accelerator can echo a write on,
-        # and the operator driving one should know which count that is.
+    if facility_source is not None and metadata["setpoint_count"]:
+        # The pairs the facility file states are the only channels an
+        # accelerator built from it can echo a write on, and the operator
+        # driving one should know which count that is.
         line += (
-            f" The corpus pairs {metadata['setpoint_count']} setpoint(s) with a readback; "
+            f" The facility file pairs {metadata['setpoint_count']} setpoint(s) with a readback; "
             "those are served as setpoint-echo channels, every other channel as static-noisy."
         )
     if absent:
@@ -1664,8 +1697,8 @@ def _report_va_manifest_outcome(
     }
     if degraded:
         unclassified_reason = metadata.get("unclassified_reason")
-        if graph_source is not None:
-            lead_in = " The knowledge graph carries no hierarchy identity keys, so"
+        if facility_source is not None:
+            lead_in = " The facility file carries no hierarchy identity keys, so"
         elif "hierarchical" not in metadata["source_paradigms"]:
             lead_in = " Without a hierarchical database the channels carry no identity keys, so"
         elif unclassified_reason:
@@ -1866,6 +1899,23 @@ def _build_graph_index(
     return target.index_path
 
 
+def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> str:
+    """The display name a build's facility document gives its facility.
+
+    :func:`osprey.utils.facility.identity_record` holds the one precedence.
+
+    Args:
+        facility: The build's in-memory facility document.
+        project_name: The name of the project being rendered.
+
+    Returns:
+        The display name.
+    """
+    from osprey.utils.facility import identity_record
+
+    return identity_record(facility["identity"], project_name)["name"]
+
+
 def _render_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -1877,6 +1927,7 @@ def _render_project(
     progress: Any,
     extra_known: Sequence[str] = (),
     injected_out: list[str] | None = None,
+    repair: bool = True,
 ) -> Path:
     """Render one resolved profile into ``<output_dir>/<project_name>``.
 
@@ -1927,17 +1978,22 @@ def _render_project(
             caller names the ONE pass whose set it reports (``deployment`` does
             not identify it — the deployment's container copy renders with it
             set too).
+        repair: Whether the render may write into the profile: rescue the
+            facility description into ``rules/`` and seed a
+            ``web-terminal-context/<user>/`` directory for each roster user
+            without one. ``False`` renders from the profile as it stands and
+            writes nothing outside ``output_dir``.
 
     Returns:
         The rendered project directory.
     """
     from osprey.agent_runner.provider_env import load_provider_spec
-    from osprey.build.build_tiers import tier_mode_conflict
     from osprey.deployment.reach import reach_errors
     from osprey.services.virtual_accelerator.manifest.build import (
         prepare_project_manifest,
         write_project_manifest,
     )
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths, _manifest_tier
 
     from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
@@ -2008,6 +2064,10 @@ def _render_project(
     # project's provenance; without it the first render says "hand-written" for
     # every project until the regen overwrites the file.
     context["preset"] = recorded_preset
+    # The facility's display name for the prompts this render writes. The
+    # facility file reaches the render only after them, so the name travels
+    # from the build's in-memory facility document.
+    context["facility_name"] = _facility_display_name(shared.facility, project_name)
 
     # The facility description is the profile's, not the render's. Ensured
     # before the render so the framework's create-only copy is not what a
@@ -2017,65 +2077,50 @@ def _render_project(
     # facility rule has no description to keep.
     selected = effective_artifacts or {}
     if FACILITY_RULE_NAME in selected.get("rules", []):
-        moved = ensure_profile_facility_rule(
-            repo_root,
-            build_dir=shared.build_dir,
-            enabled_agents=selected.get("agents", []),
-        )
-        if moved:
-            _report_fact(moved)
-        # Rendering it into build/ as well would give the operator two files
-        # and no way to tell which one the deployment reads; the convention
-        # copy below carries the profile's in.
-        context["profile_owns_facility_rule"] = True
+        if repair:
+            moved = ensure_profile_facility_rule(
+                repo_root,
+                build_dir=shared.build_dir,
+                enabled_agents=selected.get("agents", []),
+            )
+            if moved:
+                _report_fact(moved)
+            # Rendering it into build/ as well would give the operator two files
+            # and no way to tell which one the deployment reads; the convention
+            # copy below carries the profile's in.
+            context["profile_owns_facility_rule"] = True
+        else:
+            context["profile_owns_facility_rule"] = (repo_root / FACILITY_RULE_RELPATH).is_file()
 
-    # Prepared before the render (which prunes the tiers/ subtree the paradigm
-    # databases live in) and written after it, so the decision is settled before
-    # anything is written.
+    # Prepared from the facility tree before the render (which carries no
+    # tiers/ subtree the paradigm databases live in) and written after it, so
+    # the decision is settled before anything is written.
     #
     # The profile's own tree is the only one there is: `data:` is required of
     # every profile file, so nothing falls back to a packaged bundle here and
     # the manifest describes the facility's databases or the build refuses.
-    va_data_root = build_profile.resolved_data_root(repo_root)
-    assert va_data_root is not None  # `data:` required; narrows for type-checkers
-    va_key = (str(va_data_root), build_profile.resolved_tier())
-    if va_key not in shared.va_manifests:
-        shared.va_manifests[va_key] = prepare_project_manifest(va_data_root, va_key[1])
-    prepared_va_manifest = shared.va_manifests[va_key]
-    # A graph-mode tree that stages no paradigm database is not yet a verdict:
-    # its channels live in the knowledge-graph corpus, and the corpus is a
-    # render-relative config value (`services.graphdb.ttl_path`) that only the
-    # rendered config can resolve. The manifest question is re-asked after the
-    # render, with that config in hand -- see below, before the manifest write.
-    va_graph_deferred = (
-        prepared_va_manifest is None and build_profile.channel_finder_mode == "graph"
-    )
-    # Prepared unconditionally above (the memoization is the build's, not the
-    # virtual accelerator's); only what is SAID about it is gated on the
-    # virtual accelerator actually being deployed.
-    if not va_graph_deferred:
+    data_root = build_profile.resolved_data_root(repo_root)
+    assert data_root is not None  # `data:` required; narrows for type-checkers
+    va_key = (str(data_root), _manifest_tier(build_profile.channel_finder_mode))
+    # A tree that stages no paradigm database has nothing to prepare yet: its
+    # channels are the records of the facility file this render is about to be
+    # given, and the outgoing build/ holds the previous build's or none. Its
+    # manifest is prepared once that file is written -- see below, before the
+    # manifest write.
+    va_from_databases = bool(ManifestPaths(data_root=data_root, tier=va_key[1]).staged_paradigms)
+    if va_from_databases:
+        if va_key not in shared.va_manifests:
+            shared.va_manifests[va_key] = prepare_project_manifest(data_root, va_key[1])
+        # Prepared unconditionally (the memoization is the build's, not the
+        # virtual accelerator's); only what is SAID about it is gated on the
+        # virtual accelerator actually being deployed.
         _report_va_manifest_outcome(
             shared,
             build_profile,
-            data_root=va_data_root,
+            data_root=data_root,
             tier=va_key[1],
-            prepared=prepared_va_manifest,
+            prepared=shared.va_manifests[va_key],
         )
-
-    # ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
-    # not "the tier to use": given ``None`` it applies the same paradigm-aware
-    # derivation ``resolved_tier()`` does, and given a value it enforces
-    # ``tier_mode_conflict`` against it. So a paradigm that refuses an explicit
-    # tier — one whose store is a service rather than tiered database files —
-    # must be handed ``None`` here, or its own derived default comes back as a
-    # pin and the build refuses to render at all. Ask the rule rather than
-    # naming the paradigm, so this stays true as paradigms are added.
-    derived_tier = build_profile.resolved_tier()
-    pinned_tier = (
-        None
-        if tier_mode_conflict(derived_tier, build_profile.channel_finder_mode)
-        else derived_tier
-    )
 
     # Every edit of the render's config.yml — the template's own ownership
     # registration, the overrides, the projections, the service injectors, the
@@ -2100,8 +2145,7 @@ def _render_project(
             context=context,
             force=True,
             artifacts=effective_artifacts,
-            tier=pinned_tier,
-            data_root=va_data_root,
+            data_root=data_root,
         )
         progress("  ✓ Base template rendered")
 
@@ -2227,7 +2271,9 @@ def _render_project(
             if tabless:
                 raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
 
-        injected = _inject_services(build_profile, repo_root, render_dir)
+        injected = _inject_services(
+            build_profile, repo_root, render_dir, facility_name=context["facility_name"]
+        )
         if injected_out is not None:
             injected_out.extend(injected)
 
@@ -2282,7 +2328,7 @@ def _render_project(
         applied = _apply_conventions(
             repo_root,
             render_dir,
-            _resolve_context_roster(render_dir),
+            _resolve_context_roster(render_dir) if repair else None,
             extra_known=[
                 *_profile_known_root_entries(build_profile, profile_path),
                 *extra_known,
@@ -2299,12 +2345,32 @@ def _render_project(
             if reg_count:
                 progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
 
+        # The limits database is the limits view, written below with the other
+        # facility outputs; the render names it before anything reads the config.
+        _inject_limits_database(render_dir)
+
         # The render is on disk, so its config can resolve the two paths that are
         # relative to it: the corpus this render staged and the index derived
-        # from it. Loaded once here and handed to the deferred manifest step
-        # below, which asks the same config the same question.
+        # from it. Loaded once here and handed to the manifest step below, whose
+        # roster resolves this render's facility file from it.
         rendered = _rendered_config(render_dir)
         rendered["config_dir"] = str(render_dir)
+
+        # The build's facility outputs, written before the search index and the
+        # manifest so both are taken over a render that already carries them.
+        from osprey.facility.render import render_facility_outputs
+
+        render_facility_outputs(
+            render_dir,
+            shared.facility,
+            rendered,
+            data_root / "facility",
+            omitted_reported=shared.views_omitted_reported,
+        )
+        progress("  ✓ Wrote the facility file and its views")
+        _warn_knowledge_links(
+            data_root / "facility", shared.facility, shared.knowledge_links_reported, repo_root
+        )
 
         # The graph paradigm's roster, explorer and keyword tool all read the
         # search index rather than the corpus, so a graph-mode render that ships
@@ -2317,25 +2383,25 @@ def _render_project(
             if graph_target is not None:
                 _build_graph_index(shared, graph_target, progress)
 
-        if va_graph_deferred:
-            # The deferred half of the manifest step above: the render is on disk,
-            # so the rendered config can resolve the corpus the roster reads --
-            # the same resolution every other roster consumer applies. The refusal
-            # (a virtual accelerator with an unreadable or empty corpus) fires
+        if not va_from_databases:
+            # This render now holds its facility file, so the roster the manifest
+            # step asks answers for the render being built. The refusal (a
+            # virtual accelerator whose facility file names no channel) fires
             # here, still before anything is published outside the render zone.
-            prepared_va_manifest = prepare_project_manifest(
-                va_data_root, va_key[1], config=rendered
-            )
-            shared.va_manifests[va_key] = prepared_va_manifest
+            if va_key not in shared.va_manifests:
+                shared.va_manifests[va_key] = prepare_project_manifest(
+                    data_root, va_key[1], config=rendered
+                )
             _report_va_manifest_outcome(
                 shared,
                 build_profile,
-                data_root=va_data_root,
+                data_root=data_root,
                 tier=va_key[1],
-                prepared=prepared_va_manifest,
+                prepared=shared.va_manifests[va_key],
                 config=rendered,
             )
 
+        prepared_va_manifest = shared.va_manifests[va_key]
         if prepared_va_manifest is not None:
             write_project_manifest(prepared_va_manifest, render_dir / "data")
             progress(
@@ -2493,6 +2559,46 @@ def _warn_model_facts(spec: Any, reported: set[str]) -> None:
             continue
         reported.add(summary)
         output.warn_fact(logger, summary, detail, remedy)
+
+
+def _warn_knowledge_links(
+    facility_dir: Path,
+    facility: Mapping[str, Any],
+    reported: set[str] | None,
+    repo_root: Path,
+) -> None:
+    """Warn, once per page, where a knowledge page links a device the facility file lacks.
+
+    Args:
+        facility_dir: The build's facility directory, under the profile's data root.
+        facility: The build's facility file.
+        reported: The pages this build has already named
+            (:attr:`_SharedRenderInputs.knowledge_links_reported`), or ``None``
+            to name every page found.
+        repo_root: The repo the warning spells each page relative to; a page
+            outside it is spelled in full.
+    """
+    from osprey.facility.knowledge_links import LINK_KEY, dangling_links
+
+    from . import output
+
+    for link in dangling_links(facility_dir, facility):
+        if reported is not None:
+            if link.page in reported:
+                continue
+            reported.add(link.page)
+        path = facility_dir / link.page
+        page = (
+            path.relative_to(repo_root).as_posix()
+            if path.is_relative_to(repo_root)
+            else path.as_posix()
+        )
+        output.warn_fact(
+            logger,
+            f"{page} links device {link.device_id}, which the facility file does not hold.",
+            None,
+            f"set {LINK_KEY} in {page} to a device id from facility.json, or remove the key",
+        )
 
 
 def _persona_deltas(repo_root: Path) -> list[Path]:
@@ -3111,7 +3217,7 @@ def _served_lattice(data_root: Path, manifest_path: Path) -> str:
     manifest has to record that a bindings document claimed its pyat-coupled
     partition (``_metadata.partition_source``), because a channel set nothing
     coupled reaches no model however many files sit beside it -- that is the
-    case a knowledge-graph roster produces, which states readback pairs and no
+    case the facility file produces, which states readback pairs and no
     bindings at all. And both model files have to be in the published tree --
     the bindings document and the lattice it names -- because
     what has to be true at boot is that the model files are in the directory
@@ -3378,6 +3484,7 @@ def _build_repo(
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
+    from .profile_conventions import PROJECT_MIRROR_DIR, facility_mirror_violation
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
     # Whatever the verb at the top of this run installed — this build's own
@@ -3408,6 +3515,13 @@ def _build_repo(
     config: dict[str, Any] | None = None
 
     try:
+        # A mirror file at a path the facility build writes is its own one-line
+        # stop, raised ahead of profile validation, which gathers every other
+        # profile error and leaves this one out.
+        mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
+        if mirror_stop is not None:
+            raise mirror_stop
+
         # Which profile this HOST builds, decided before anything is resolved.
         # The overlay is an inheritance layer: it merges over `profile.yml` by
         # the same deep merge a persona delta uses, ahead of `extends:`
@@ -3495,10 +3609,7 @@ def _build_repo(
         # follow, not something the operator ran the verb to find out.
         from . import output
 
-        output.note(
-            f"profile {build_profile.name} (bundle {_profile_data_bundle(build_profile)}, "
-            f"tier {build_profile.resolved_tier()})"
-        )
+        output.note(f"profile {build_profile.name} (bundle {_profile_data_bundle(build_profile)})")
         # Said out loud whenever a variant is in force: the same repo builds
         # differently on this host than on the next one, and an operator
         # reading a render has to be told which of the two they are looking at.
@@ -3562,6 +3673,18 @@ def _build_repo(
                 stream=stream,
             )
 
+        # The facility file, before the venv and every render: a facility stop
+        # is the author's to fix, and nothing is installed or rendered first.
+        from osprey.facility.build import build_facility
+        from osprey.facility.render import facility_digest
+
+        data_root = build_profile.resolved_data_root(repo_root)
+        assert data_root is not None  # `data:` required; narrows for type-checkers
+        facility_dir = data_root / "facility"
+        facility_sha256 = facility_digest(facility_dir)
+        facility = build_facility(facility_dir, project_name=name)
+        logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
+
         # The project venv, at its final path. It is the one artifact that
         # cannot be rendered somewhere and moved (see `_swap_in_render`), so it
         # is written where it will be read from and joins the staged tree at
@@ -3593,6 +3716,10 @@ def _build_repo(
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
+            knowledge_links_reported=set(),
+            views_omitted_reported=set(),
+            facility=facility,
+            facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,
         )
 
@@ -3757,6 +3884,8 @@ def _build_repo(
         if remedy is not None:
             logger.error("→ %s", remedy)
         raise click.Abort() from e
+    except FacilityBuildError:
+        raise
     except Exception as e:
         logger.error("✗ Unexpected error: %s", e)
         import traceback
@@ -3887,6 +4016,50 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
 
     overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
     return is_setup_patch_capable(persona_capability_document(overrides))
+
+
+def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
+    """The knowledge bundle *build_profile* names, relative to its render.
+
+    Read from the ``config:`` overrides the rendered config is about to be
+    written from, in every spelling ``facility_knowledge.bundle_path`` can take.
+    The image owns only what the render carries, so an absolute path, or one
+    that climbs out of the render, names nothing here.
+
+    Args:
+        build_profile: The resolved profile for the render being built.
+
+    Returns:
+        The normalized project-relative posix path, or ``""`` when the profile
+        names no bundle inside the render.
+    """
+    import posixpath
+    import re
+
+    from .build_profile_reach import spelled_values
+
+    overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
+    for _spelling, value in spelled_values(overrides, "facility_knowledge.bundle_path"):
+        if not isinstance(value, str) or not value.strip():
+            continue
+        relative = posixpath.normpath(value.strip())
+        if relative.startswith("/") or relative in (".", "..") or relative.startswith("../"):
+            return ""
+        # The path is written into a shell line; anything outside this set is
+        # left to the operator's own image step.
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", relative):
+            from . import output
+
+            output.warn_fact(
+                logger,
+                f"The image leaves the ownership of the knowledge bundle {relative} "
+                "to the operator.",
+                "Its path holds a character outside letters, digits, '.', '_', '-' and '/'.",
+                "rename the bundle directory to those characters",
+            )
+            return ""
+        return relative
+    return ""
 
 
 def _profile_preset(build_profile: BuildProfile) -> str | None:
@@ -4093,10 +4266,6 @@ def _repo_render_context(
     ``ariel_server_on`` is the flag the framework template gates its two
     ARIEL-dependent blocks on; see :func:`_ariel_server_enabled`.
 
-    ``middle_layer_duckdb`` says whether the profile's data tree holds
-    ``channel_databases/middle_layer.duckdb``; the framework template renders
-    the middle-layer ``duckdb_path`` only when it does.
-
     Raises:
         ValueError: If the profile's ``deployment.port_base`` is out of range;
             see :func:`_profile_port_base`.
@@ -4115,6 +4284,9 @@ def _repo_render_context(
         # lifts the base floor — because the rendered config those keys land in
         # does not exist yet when this context is built.
         "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
+        # The directory Dockerfile.j2 hands to the agent's user beside `var/`:
+        # the knowledge bundle the profile names, relative to the render.
+        "knowledge_bundle_dir": _profile_knowledge_bundle_dir(build_profile),
         # The base this deployment's whole port block hangs off, resolved from
         # the profile ONCE and handed down: every framework port the render
         # writes is derived from this value by the template manager, so no
@@ -4134,15 +4306,6 @@ def _repo_render_context(
     if build_profile.claude_md_template:
         context["claude_md_template"] = build_profile.claude_md_template
     context["ariel_server_on"] = _ariel_server_enabled(build_profile)
-    # Binds the middle-layer pipeline's `duckdb_path` when the profile ships the
-    # database. Decided here, against the tree the build copies, because the
-    # template manager builds its context before it copies any data and so
-    # cannot see the file.
-    context["middle_layer_duckdb"] = (
-        (build_profile.resolved_data_root(repo_root) or repo_root / "data")
-        / "channel_databases"
-        / "middle_layer.duckdb"
-    ).is_file()
 
     python_env = build_profile.python_env or "project"
     if runtime_interpreter:
@@ -4248,7 +4411,9 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
     return kept
 
 
-def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) -> list[str]:
+def _inject_services(
+    build_profile: Any, profile_dir: Path, project_path: Path, *, facility_name: str = ""
+) -> list[str]:
     """Scaffold the service tree and inject every service the profile declares.
 
     Skipped wholesale for an attached project (``deploy_services: false``): its
@@ -4268,6 +4433,11 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     follows it for the same reason. OSPREY's own host-binding declarations are
     written last, once every injector (the dispatch pair's ``network`` among
     them) has settled which blocks are on the host network.
+
+    ``facility_name`` is the facility's display name the dispatcher shows. The
+    build hands it from its in-memory facility document, because the facility
+    file reaches the project only after the injectors run; ``""`` has the
+    dispatch injector read the project's facility identity instead.
 
     Returns:
         The name of each component injected, in injection order — what the
@@ -4299,7 +4469,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
             # services than were injected.
             injected.append(f"{psvc_count} profile service(s)")
     if build_profile.dispatch is not None:
-        _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+        _inject_dispatch(
+            build_profile.dispatch, profile_dir, project_path, facility_name=facility_name
+        )
         injected.append("event dispatch")
     if build_profile.nextcloud_bridge is not None:
         _inject_nextcloud_bridge(build_profile.nextcloud_bridge, project_path)

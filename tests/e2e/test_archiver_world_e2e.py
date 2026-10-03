@@ -1039,10 +1039,8 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     """
     from tests.e2e import _orm_stack
 
-    limits = json.loads(
-        (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
-    )
-    assert FRESHNESS_CANARY in limits, (
+    served = {str(channel["address"]) for channel in _manifest_channels(archiver_world)}
+    assert FRESHNESS_CANARY in served, (
         f"{FRESHNESS_CANARY} is not a channel this machine model serves, so the derived "
         f"freshness check would report 'no samples' for a reason that has nothing to do "
         f"with the recorder. Pick a canary from the model and update FRESHNESS_CANARY."

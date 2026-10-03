@@ -113,7 +113,7 @@ def _config(tls: dict | None = None, auth: dict | None = None, users: list | Non
     if auth is not None:
         web_terminals["auth"] = auth
     return {
-        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "facility": {"prefix": "dls"},
         "system": {"timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},

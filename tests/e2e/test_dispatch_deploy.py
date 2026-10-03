@@ -63,8 +63,8 @@ enqueue, the bridge lifts the name onto the item, and the item outlives the run
                          wire that stamps every enqueue with one name.
 
 COEXISTENCE: every host-published web port, the virtual accelerator's Channel
-Access port (the one ``port_base`` does not move), the web-container name
-prefix (``facility.prefix``) and the compose PROJECT NAME are e2e-unique,
+Access port (the one ``port_base`` does not move) and the compose PROJECT NAME
+are e2e-unique,
 so this deploy can run beside a real control-assistant stack on the same host
 without colliding on ports or container names. The project name is part of that
 promise and not a cosmetic choice: every container is named ``<project>-<service>``
@@ -168,7 +168,7 @@ WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
 WORKER_AGENT_DATA = f"/app/{PROJECT_NAME}/var/agent_data"
 
 # ---------------------------------------------------------------------------
-# Multi-user web tier (T1-T4). Prefix and ports are remapped off the preset
+# Multi-user web tier (T1-T4). Ports are remapped off the preset
 # defaults to e2e-unique values (see COEXISTENCE in the module docstring); the
 # roster itself (alice→readwrite, bob→readonly) is the preset's own and is
 # asserted, not configured, here. The persona project names are the repo's, not
@@ -176,7 +176,9 @@ WORKER_AGENT_DATA = f"/app/{PROJECT_NAME}/var/agent_data"
 # ``<repo>-<persona>`` at ``build/<repo>-<persona>``, and `project` must equal
 # `project_path`'s basename for the render to land where the deploy mounts it.
 # ---------------------------------------------------------------------------
-WEB_PREFIX = "dde"  # facility.prefix override: container names dde-nginx, dde-web-<user>
+#: The compose project name every web-tier container is named by:
+#: ``<project>-nginx`` and ``<project>-web-<user>``.
+WEB_PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
 # Which roster user holds which tier is the preset's decision, not this
 # module's: ``modules.web_terminals.users`` binds each name to a persona, and
 # the persona is what decides the tier. Pinned against the render by
@@ -239,10 +241,10 @@ VA_CA_PORT = 15068
 
 
 def _web_container(user: str) -> str:
-    return f"{WEB_PREFIX}-web-{user}"
+    return f"{WEB_PROJECT}-web-{user}"
 
 
-NGINX_CONTAINER = f"{WEB_PREFIX}-nginx"
+NGINX_CONTAINER = f"{WEB_PROJECT}-nginx"
 
 # hello-dispatch / triage-event / save-report should complete; denied-tool-demo
 # must be rejected by the server-side denylist.
@@ -546,16 +548,15 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     # The preset's multi-user web tier deploys as shipped; only its
     # host-global identifiers are remapped to e2e-unique values (see
-    # COEXISTENCE in the module docstring): the container-name prefix, and the
-    # one port base every published port of the stack derives from. Dotted LEAF
-    # keys on purpose -- each edit states only its own leaf and leaves its
+    # COEXISTENCE in the module docstring): the one port base every published
+    # port of the stack derives from. A dotted LEAF key on purpose -- an edit
+    # states only its own leaf and leaves its
     # subtree's siblings intact (same convention as tests/e2e/_orm_stack.py).
     # The persona catalog's own `project` / `project_path` are deliberately
     # NOT stated: `osprey init` writes them from the repo's name, and the
     # build renders each persona exactly there.
     edits = {
         "config": {
-            "facility.prefix": WEB_PREFIX,
             PORT_BASE_CONFIG_KEY: PORT_BASE,
         }
     }
@@ -1152,13 +1153,13 @@ def _pre_tool_hooks(render: Path, matcher: str) -> list[str]:
 
 
 def test_web_tier_topology(deployed_stack: Path) -> None:
-    """T1: nginx + both per-user containers come up healthy off the overridden
-    prefix, both persona images were built locally, and the landing page lists
+    """T1: nginx + both per-user containers come up healthy under the project
+    name, both persona images were built locally, and the landing page lists
     both roster users."""
     config = yaml.safe_load((deployed_stack / "build" / "config.yml").read_text(encoding="utf-8"))
-    prefix = ((config.get("facility") or {}).get("prefix") or "").strip()
-    assert prefix == WEB_PREFIX, (
-        f"facility.prefix override did not land in the rendered config: {prefix!r}"
+    project = resolve_project_name(config)
+    assert project == WEB_PROJECT, (
+        f"the rendered config names project {project!r}, not {WEB_PROJECT!r}"
     )
 
     expected = [NGINX_CONTAINER, _web_container(READONLY_USER), _web_container(READWRITE_USER)]
@@ -1910,20 +1911,20 @@ def _a_short_plan(repo: Path) -> dict[str, Any]:
     """``grid_scan`` arguments naming this deployment's OWN devices.
 
     Read back from the device file the build staged and from the deployment's
-    own ``channel_limits.json`` rather than authored here: the enqueue is
+    own limits table rather than authored here: the enqueue is
     validated against the names the worker registered, so a plan composed from
     a hardcoded facility channel would be refused ``unknown_device`` and these
     rows would fail on an address rather than on the owner. The sweep is the
     middle half of the axis's own band, and two points, because nothing here
     ever runs the plan.
 
-    The device NAMES come from the roster the build derived
+    The device NAMES come from the view the build staged
     (``_orm_stack.staged_devices``); the band VALUES come from the limits
-    projection, which gates a subset of those channels and enumerates none of
-    them (see ``_orm_stack.channel_limits``). The two are not the same set, so
-    the axis is the first staged corrector the limits file actually BOUNDS —
-    indexing the projection by the first staged name would raise deep inside a
-    deploy, naming nothing about the owner.
+    table, which holds the records the facility tree authors and names no
+    other channel (see ``_orm_stack.channel_limits``). The two are not the same
+    set, so the axis is the first staged corrector a record BOUNDS — indexing
+    the table by the first staged name would raise deep inside a deploy, naming
+    nothing about the owner.
     """
     correctors, bpms = _orm_stack.staged_devices(repo)
     assert correctors and bpms, (
@@ -1942,7 +1943,7 @@ def _a_short_plan(repo: Path) -> dict[str, Any]:
         None,
     )
     assert axis is not None, (
-        "no staged corrector carries a channel_limits band, so this plan has no "
+        "no staged corrector carries a limits record, so this plan has no "
         f"axis to sweep (staged correctors: {sorted(correctors)})"
     )
     axis_name, entry = axis

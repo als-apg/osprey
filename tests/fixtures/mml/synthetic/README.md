@@ -1,7 +1,7 @@
-# synthetic/ — a 2.0 export of an invented ring
+# synthetic/ — a 2.1 export of an invented ring
 
-The five files `mml_export.m` 2.0 writes for one sub-machine, for a machine small
-enough to read by eye, plus a sixth that pairs with none of them:
+The six files `mml_export.m` 2.1 writes for one sub-machine, for a machine small
+enough to read by eye, plus a seventh that pairs with none of them:
 
 | File | What it is |
 |------|------------|
@@ -10,15 +10,16 @@ enough to read by eye, plus a sixth that pairs with none of them:
 | `quokka.sr.ad.json` | the Accelerator Data |
 | `quokka.sr.va.json` | per-family calibration, nominals and energy facts |
 | `quokka.sr.response.json` | the orbit response matrix |
+| `quokka.sr.model.json` | what the ring's model answers — tune, chromaticity, dispersion, orbit response — asked of pyAT directly |
 | `mismatched.lattice.mat` | the same ring with one quadrupole renamed — the fingerprint counter-example |
 
 Every name in them is invented. The contract they are written against is the
-frozen 2.0 key set in the header of
+frozen key set in the header of
 `src/osprey/templates/apps/control_assistant/data/mml/mml_export.m`.
 
 ## Provenance
 
-`build.py` writes all six, and the committed files are its output. It runs no
+`build.py` writes all seven, and the committed files are its output. It runs no
 MATLAB: the export pipeline of `mml_export.m` is ported into it function for
 function — the hardware grid and its anchor word, the line-or-table test, the
 rigidity probe, the energy table, the model read and the joining of refusals —
@@ -106,6 +107,32 @@ row of the matrix is `"NaN"` throughout and so is its operating point. The
 vertical corrector side kept no settings, so each device's operating point is
 the `"NaN"` the exporter writes for an absent number. `actuator_delta` is one
 width per corrector device.
+
+## `model.json`
+
+What `mml_export.m` 2.1 asks the Middle Layer's model, answered here by pyAT
+directly and never by replaying the Middle Layer's recipes, so a test that
+replays a recipe holds it to an independent answer. Each section records the
+pyAT call it was taken by:
+
+- `state` — the deck's cavity (`Off`: the ring is saved 4D), energy,
+  circumference, momentum compaction, harmonic number and the closed orbit at
+  the monitors, solved by `find_orbit6` with the cavity on.
+- `tune` — `get_tune` on the cavity-on ring (`cavity_on`) and on a 4D copy
+  (`fixed_momentum`); `method` is `get_tune`.
+- `chromaticity` — `get_chrom` on the 4D copy, in physics units only; the
+  hardware entry is refused in the words a cavity-less ring refuses it with.
+- `dispersion` — `avlinopt` at the monitors on the 4D copy, in metres and in
+  millimetres per MHz of RF.
+- `orbit_response` — the same columns `response.json` is built from, in physics
+  and in hardware units, laid out block for block like it at six significant
+  digits, `Linear` at `FixedPathLength`, with no `origin`.
+- `tune_response`, `chromaticity_response` — refused in the Middle Layer's own
+  words, because no family is tagged as a tune or chromaticity corrector.
+
+The RF step both RF sections record is a builder constant, one per mille of
+momentum: `delta_rf_hz = f · mcf · 1e-3`. Every other tracking-derived number is
+written at twelve significant digits, and one below 1e-15 is written as zero.
 
 ## `mismatched.lattice.mat`
 

@@ -187,7 +187,7 @@ Accelerator this facility drives.
 Step 3 — Name the facility and pin its services
 ===============================================
 
-Still in ``profile.yml``, under ``config:``, set these six values. Some
+Still in ``profile.yml``, under ``config:``, set these five values. Some
 are already present with a different value; some ship commented out.
 
 .. code-block:: yaml
@@ -196,7 +196,6 @@ are already present with a different value; some ship commented out.
      control_system.type: virtual_accelerator
      claude_code.servers.health.enabled: true
      system.timezone: America/Los_Angeles
-     facility.name: Demo Facility
      facility.prefix: demo
      deployed_services:
        - openobserve
@@ -206,6 +205,18 @@ simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset already ships this value; it
 is written out here because it is the line that changes when the deployment
 goes live (`Changing something later`_).
+
+The facility's display name is not a config key. Open
+``data/facility/identity.yaml`` (``osprey init`` wrote it with the facility
+code) and add the name:
+
+.. code-block:: yaml
+
+   code: ca
+   name: Demo Facility
+
+This name is what the agent prompts, the web landing page and the dispatcher
+dashboard show. A file without ``name`` shows the project name.
 
 A deployment describes **one real machine**. ``control_system.type`` names it,
 or — on a simulated baseline like this one — the single non-simulated block
@@ -224,9 +235,8 @@ service to this list at build time. Naming ``openobserve`` explicitly is what
 keeps the packaged skeleton's ``postgresql`` *out* — declared is not deployed,
 and this list is what ``osprey up`` reads.
 
-``facility.prefix`` becomes the container-name prefix for the web tier
-(``demo-nginx``, ``demo-web-alice``), so keep it short and distinct from the
-project name.
+The web tier's container names follow the project name, here the
+directory's: ``demo-facility-nginx``, ``demo-facility-web-alice``.
 
 ``system.timezone`` is the zone operator times are read in and every timestamp
 is shown in. Spell it exactly as the IANA time zone database does, case

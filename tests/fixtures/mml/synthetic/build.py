@@ -1,15 +1,17 @@
-"""Build the synthetic 2.0 MML export fixture with pyAT and plain Python.
+"""Build the synthetic 2.1 MML export fixture with pyAT and plain Python.
 
 The committed files beside this script are its output. They are what
-``mml_export.m`` 2.0 writes for one sub-machine -- a saved ``THERING``, the
-Accelerator Objects and Data, the per-family calibration document and the orbit
-response matrix -- for an invented machine small enough to read by eye:
+``mml_export.m`` 2.1 writes for one sub-machine -- a saved ``THERING``, the
+Accelerator Objects and Data, the per-family calibration document, the orbit
+response matrix and the model's own answers -- for an invented machine small
+enough to read by eye:
 
     quokka.sr.lattice.mat    the ring, saved the way ``at.save_mat`` saves it
     quokka.sr.ao.json        the Accelerator Objects
     quokka.sr.ad.json        the Accelerator Data
     quokka.sr.va.json        per-family calibration and nominals
     quokka.sr.response.json  the orbit response matrix
+    quokka.sr.model.json     what the ring's model answers, asked of pyAT directly
     mismatched.lattice.mat   the same ring with one magnet renamed
 
 Nothing here runs MATLAB. The export pipeline of ``mml_export.m`` is ported
@@ -28,11 +30,15 @@ committed files are still exactly what this script writes::
     uv run python tests/fixtures/mml/synthetic/build.py --check
 
 ``--check`` is the fixture's determinism gate: it rebuilds into a temporary
-directory and compares every byte. Everything a clock or a machine would
-otherwise decide is pinned -- the ``_export`` timestamp, the MAT-file's header
-text, and the arithmetic: the one curved conversion is summed from products and
-sums, and every other transcendental goes through the C library -- so a rebuild
-on another day on another machine writes the same bytes.
+directory and compares every committed byte, save the tracking-derived numbers
+of the model file, which it compares to a relative tolerance. Everything a
+clock or a machine would otherwise decide is pinned -- the ``_export``
+timestamp, the MAT-file's header text, and the arithmetic: the one curved
+conversion is summed from products and sums, and every other transcendental
+goes through the C library -- so a rebuild on another day on another machine
+writes the same bytes. Tracking alone runs through the platform's own libm and
+BLAS, so its answers agree across machines to the tolerance and not to the
+digit.
 """
 
 from __future__ import annotations
@@ -55,7 +61,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 #: The exporter version this fixture is written against.
-EXPORTER = "mml_export 2.0.0"
+EXPORTER = "mml_export 2.1.0"
 
 #: The MATLAB a real export would name. Pinned, like the timestamp: this
 #: fixture is written by Python, and a version read off this machine would make
@@ -404,6 +410,10 @@ def _gev2bend(energy: float) -> float:
     return _round_significant(-RAMP_TAU * math.log(1.0 - field / RAMP_GAIN), 12)
 
 
+#: The current every defocusing quadrupole is set to.
+QD_NOMINAL_AMPS = 100.0
+
+
 def _quad_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
     """The quadrupole readback's own way back to amps.
 
@@ -416,9 +426,13 @@ def _quad_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
 
 
 def _qd_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
-    """A readback conversion with a curve in it, so the inverse is written as a table."""
-    strength = np.asarray(physics, dtype=float)
-    return -82.0 * strength + 3.0e3 * (strength * strength * strength)
+    """A readback conversion with a curve in it, so the inverse is written as a table.
+
+    The curve passes through the family's nominal: the deck's strength comes
+    back as the current the family is set to.
+    """
+    ratio = np.asarray(physics, dtype=float) / -QUAD_K
+    return QD_NOMINAL_AMPS * ratio * (0.8 + 0.2 * (ratio * ratio))
 
 
 def _identity_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
@@ -444,7 +458,7 @@ def _brho_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
 #: lattice and the document agree by construction.
 NOMINAL_AMPS: dict[str, list[float]] = {
     "QF": [120.0, 120.0, 120.0, 120.0],
-    "QD": [100.0, 100.0, 100.0, 100.0],
+    "QD": [QD_NOMINAL_AMPS] * 4,
     "SF": [50.0, 50.0, 50.0, 50.0],
     "SQ": [5.0, 5.0, 5.0, 5.0],
     "HC": [1.5, -0.8, 0.4, 0.0],
@@ -898,8 +912,8 @@ def build_ao(ring: at.Lattice) -> dict[str, Any]:
         "GAP",
         "Meter",
         2,
-        setpoint_range=[4.0, 60.0],
-        monitor_range=[4.0, 60.0],
+        setpoint_range=[0.0, 60.0],
+        monitor_range=[0.0, 60.0],
         hw_units="mm",
     )
     ao["IDGAP"]["AT"]["SpecialFunctionSet"] = Fn("qk_setidgap")
@@ -1676,6 +1690,234 @@ def build_response(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# The model file.
+# ---------------------------------------------------------------------------
+#
+# ``mml_export.m`` 2.1 asks the Middle Layer's model a fixed list of questions
+# and writes the answers as ``<stem>.model.json``. Nothing here replays the
+# Middle Layer's own recipes for those answers: each is asked of pyAT directly,
+# so a test that replays a recipe against this file holds the recipe to an
+# independent answer rather than to itself. The method each answer was taken by
+# is recorded under the name of the pyAT call.
+
+#: The digits a tracking-derived number of the model file is written at, and
+#: the magnitude below which it is the solver's noise and written as zero.
+MODEL_DIGITS = 12
+MODEL_ZERO = 1.0e-15
+
+#: The Middle Layer's own refusal when the Accelerator Objects tag no family
+#: for a corrector response; the invented machine tags neither.
+MEMBER_REFUSAL = "MemberOf '{}' was not found"
+
+#: The refusal a ring answers a hardware chromaticity with when the model
+#: answers in physics units only.
+PHYSICS_ONLY = "no cavity: modelchro answers physics only"
+
+
+def _tracked(value: Any) -> Any:
+    """One tracking-derived value at the model file's digits, with its noise snapped to zero."""
+    array = np.asarray(value, dtype=float)
+    flat = [
+        0.0 if abs(item) < MODEL_ZERO else _round_significant(float(item), MODEL_DIGITS)
+        for item in array.flatten()
+    ]
+    if array.ndim == 0:
+        return flat[0]
+    return np.array(flat).reshape(array.shape)
+
+
+def _measured(value: Any) -> np.ndarray:
+    """One response value at the six digits a measurement carries, its noise snapped to zero."""
+    array = np.asarray(value, dtype=float)
+    return _rounded(np.where(np.abs(array) < MODEL_ZERO, 0.0, array))
+
+
+def _cavity_frequency(ring: at.Lattice) -> float:
+    """The cavity's frequency on the deck, in Hz."""
+    return float(ring[_named(ring, "RFC")[0]].Frequency)
+
+
+def _rf_step_hz(ring: at.Lattice) -> float:
+    """The RF step the answers are recorded against: one per mille of momentum, in Hz.
+
+    A builder constant rather than an Accelerator Data field: nothing in this
+    file is stepped by it, and it is written so a recipe that steps the RF has
+    a step to replay.
+    """
+    mcf = float(at.get_mcf(ring.disable_6d(copy=True)))
+    return _tracked(_cavity_frequency(ring) * mcf * 1.0e-3)
+
+
+def _model_state(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
+    """The ring state: the deck's cavity, energy, circumference and the orbit at the monitors."""
+    four = ring.disable_6d(copy=True)
+    orbit = _orbit(ring)
+    blocks = {}
+    for family, row in (("BPMx", 0), ("BPMy", 2)):
+        physics = _tracked(orbit[:, row])
+        hardware = _tracked(CONVERSIONS[family]["physics2hw"](orbit[:, row], DECK_ENERGY_GEV))
+        blocks[family] = {
+            "device_list": ao[family]["DeviceList"],
+            "hardware": hardware,
+            "physics": physics,
+        }
+    return {
+        # The deck is saved 4D: the cavity is an element, switched off.
+        "cavity": "Off",
+        "energy_gev": ring.energy / 1.0e9,
+        "circumference_m": _tracked(ring.circumference),
+        "is_transport": False,
+        "mcf": _tracked(at.get_mcf(four)),
+        "harmonic_number": float(HARMONIC),
+        "orbit": blocks,
+    }
+
+
+def _model_tune(ring: at.Lattice) -> dict[str, Any]:
+    """The tunes with the cavity on, and at fixed momentum on the 4D ring."""
+    cavity_on = ring.enable_6d(at.RFCavity, copy=True).get_tune()[:2]
+    fixed = ring.disable_6d(copy=True).get_tune()[:2]
+    return {
+        "method": "get_tune",
+        "cavity_on": _tracked(cavity_on),
+        "fixed_momentum": _tracked(fixed),
+    }
+
+
+def _model_chromaticity(ring: at.Lattice) -> dict[str, Any]:
+    """The chromaticities of the 4D ring, in physics units only."""
+    step = _rf_step_hz(ring)
+    chrom = ring.disable_6d(copy=True).get_chrom()[:2]
+    return {
+        "delta_rf_hw": _tracked(CONVERSIONS["RF"]["physics2hw"](np.array(step), DECK_ENERGY_GEV)),
+        "delta_rf_hz": step,
+        "physics": _tracked(chrom),
+        "method": "get_chrom",
+        "hardware": {"refused": PHYSICS_ONLY},
+    }
+
+
+def _model_dispersion(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
+    """The dispersion at the monitors, averaged over each by ``avlinopt`` on the 4D ring.
+
+    Physics units are metres per unit of momentum deviation; hardware units are
+    the millimetres of orbit per MHz of RF the Middle Layer states a dispersion in,
+    through the momentum a step of RF buys: dp/p = -df / (f * mcf).
+    """
+    four = ring.disable_6d(copy=True)
+    step = _rf_step_hz(ring)
+    frequency = _cavity_frequency(ring)
+    mcf = float(at.get_mcf(four))
+    avedisp = at.avlinopt(four, 0.0, refpts=_named(ring, "BPM"))[3]
+    per_mhz = -1.0e6 / (frequency * mcf)
+    physics = {"x": avedisp[:, 0], "y": avedisp[:, 2]}
+    hardware = {
+        plane: CONVERSIONS[family]["physics2hw"](physics[plane], DECK_ENERGY_GEV) * per_mhz
+        for plane, family in (("x", "BPMx"), ("y", "BPMy"))
+    }
+    return {
+        "method": "avlinopt",
+        "monitors": {
+            "x": {"family": "BPMx", "device_list": ao["BPMx"]["DeviceList"]},
+            "y": {"family": "BPMy", "device_list": ao["BPMy"]["DeviceList"]},
+        },
+        "delta_rf_hw": _tracked(CONVERSIONS["RF"]["physics2hw"](np.array(step), DECK_ENERGY_GEV)),
+        "delta_rf_hz": step,
+        "f_cavity": _tracked(frequency),
+        "rf_change_hz": _tracked(frequency - HARMONIC * C_LIGHT / ring.circumference),
+        "mcf": _tracked(mcf),
+        "physics": {plane: _tracked(values) for plane, values in physics.items()},
+        "hardware": {plane: _tracked(values) for plane, values in hardware.items()},
+    }
+
+
+def _model_response_blocks(
+    ring: at.Lattice, ao: dict[str, Any], units: str
+) -> list[dict[str, Any]]:
+    """The model orbit response in one unit system, laid out block by block as response.json.
+
+    Physics blocks are metres per radian about the cavity-on closed orbit;
+    hardware blocks are the same columns taken through the Accelerator Objects'
+    own conversions: millimetres of orbit per ampere of corrector.
+    """
+    orbit = _orbit(ring)
+    columns = {
+        family: [_response_column(ring, plane, device) for device in range(CELLS)]
+        for plane, family in ((0, "HC"), (1, "VC"))
+    }
+    hardware = units == "Hardware"
+    blocks = []
+    for monitor_family, row in (("BPMx", 0), ("BPMy", 2)):
+        to_monitor = CONVERSIONS[monitor_family]["physics2hw"] if hardware else None
+        point = np.array([position[row] for position in orbit])
+        for actuator_family in ("HC", "VC"):
+            data = np.column_stack([column[:, row] for column in columns[actuator_family]])
+            setting = np.array(NOMINAL_AMPS[actuator_family])
+            per_amp = float(CONVERSIONS[actuator_family]["hw2physics"](1.0, DECK_ENERGY_GEV))
+            delta = np.array(ACTUATOR_DELTA[actuator_family])
+            if to_monitor is None:
+                setting = setting * per_amp
+                monitor_point = point
+                units_string = "meter/radian"
+            else:
+                data = to_monitor(data, DECK_ENERGY_GEV) * per_amp
+                monitor_point = to_monitor(point, DECK_ENERGY_GEV)
+                delta = np.array(ACTUATOR_DELTA[actuator_family]) / per_amp
+                units_string = "mm/A"
+            blocks.append(
+                {
+                    "monitor": {
+                        "family": monitor_family,
+                        "device_list": ao[monitor_family]["DeviceList"],
+                        "mode": "Simulator",
+                        "status": np.ones(CELLS),
+                        "data": _measured(monitor_point),
+                    },
+                    "actuator": {
+                        "family": actuator_family,
+                        "device_list": ao[actuator_family]["DeviceList"],
+                        "mode": "Simulator",
+                        "status": np.ones(CELLS),
+                        "data": _measured(setting),
+                    },
+                    "timestamp": TIMESTAMP,
+                    "gev": DECK_ENERGY_GEV,
+                    "units": units,
+                    "units_string": units_string,
+                    "modulation_method": "bipolar",
+                    "actuator_delta": _measured(delta),
+                    "data": _measured(data),
+                }
+            )
+    return blocks
+
+
+def build_model(ring: at.Lattice, ao: dict[str, Any], ad: dict[str, Any]) -> dict[str, Any]:
+    """What the invented ring's model answers, one section per question of the 2.1 probe.
+
+    Every answer is an independent pyAT call on the deck. The two corrector
+    responses refuse in the Middle Layer's own words: the Accelerator Objects
+    tag no family as a tune or a chromaticity corrector, and the Middle Layer
+    has no default pair to fall back on.
+    """
+    del ad  # Handed over as the probe is handed it; no answer here is read from it.
+    return {
+        "state": _model_state(ring, ao),
+        "tune": _model_tune(ring),
+        "chromaticity": _model_chromaticity(ring),
+        "dispersion": _model_dispersion(ring, ao),
+        "orbit_response": {
+            "calculator": "Linear",
+            "closed_orbit_type": "FixedPathLength",
+            "physics": _model_response_blocks(ring, ao, "Physics"),
+            "hardware": _model_response_blocks(ring, ao, "Hardware"),
+        },
+        "tune_response": {"refused": MEMBER_REFUSAL.format("Tune Corrector")},
+        "chromaticity_response": {"refused": MEMBER_REFUSAL.format("Chromaticity Corrector")},
+    }
+
+
+# ---------------------------------------------------------------------------
 # Writing, and checking what was written.
 # ---------------------------------------------------------------------------
 
@@ -1690,6 +1932,7 @@ FILES = (
     f"{STEM}.ad.json",
     f"{STEM}.va.json",
     f"{STEM}.response.json",
+    f"{STEM}.model.json",
 )
 
 
@@ -1710,14 +1953,65 @@ def build(outdir: Path) -> list[Path]:
     # A committed text file ends in a newline, the exporter's own text does not;
     # the newline is the file's, so the documents stay the exporter's spelling.
     ao = build_ao(ring)
-    bodies = (ao, build_ad(ring), build_va(ring, ao), build_response(ring, ao))
+    ad = build_ad(ring)
+    bodies = (ao, ad, build_va(ring, ao), build_response(ring, ao), build_model(ring, ao, ad))
     for name, body in zip(FILES[2:], bodies, strict=True):
         (outdir / name).write_text(document(body) + "\n", encoding="utf-8")
     return [outdir / name for name in FILES]
 
 
+#: The relative tolerance a rebuilt model file's tracking-derived numbers are
+#: held to: tracking runs through the platform's libm and BLAS, which disagree
+#: in the last digits the model file writes. Tunes and dispersion spread by
+#: about 2e-12 between macOS and Linux; the chromaticities, a finite difference
+#: of two tracked tunes, spread by up to 1.5e-6, and the tolerance holds that
+#: spread with a margin of six.
+TRACKED_RTOL = 1.0e-5
+
+#: The sections of the model file whose numbers come out of tracking.
+TRACKED_SECTIONS = ("tune", "chromaticity", "dispersion")
+
+
+def _close(committed: Any, rebuilt: Any) -> bool:
+    """Whether two parsed values share a shape and agree within ``TRACKED_RTOL``."""
+    numbers = (int, float)
+    if isinstance(committed, bool) or isinstance(rebuilt, bool):
+        return committed == rebuilt
+    if isinstance(committed, numbers) and isinstance(rebuilt, numbers):
+        return math.isclose(committed, rebuilt, rel_tol=TRACKED_RTOL, abs_tol=0.0)
+    if isinstance(committed, dict) and isinstance(rebuilt, dict):
+        return list(committed) == list(rebuilt) and all(
+            _close(committed[key], rebuilt[key]) for key in committed
+        )
+    if isinstance(committed, list) and isinstance(rebuilt, list):
+        return len(committed) == len(rebuilt) and all(
+            _close(mine, theirs) for mine, theirs in zip(committed, rebuilt, strict=True)
+        )
+    return committed == rebuilt
+
+
+def same_file(committed: Path, rebuilt: Path) -> bool:
+    """Whether a committed fixture file is what the generator rebuilt.
+
+    Every file must match byte for byte, except that the tracking-derived
+    sections of the model file are held to ``TRACKED_RTOL``: the committed
+    model file must be exactly what the writer makes of the rebuilt document
+    with the committed tracking numbers put back in, and those numbers must
+    agree with the rebuilt ones within the tolerance.
+    """
+    if rebuilt.name != f"{STEM}.model.json":
+        return committed.read_bytes() == rebuilt.read_bytes()
+    mine = json.loads(committed.read_text(encoding="utf-8"))
+    theirs = json.loads(rebuilt.read_text(encoding="utf-8"))
+    if not all(_close(mine.get(key), theirs.get(key)) for key in TRACKED_SECTIONS):
+        return False
+    body = {key: value for key, value in theirs.items() if key != "_export"}
+    body.update({key: mine[key] for key in TRACKED_SECTIONS})
+    return committed.read_bytes() == (document(body) + "\n").encode("utf-8")
+
+
 def check() -> int:
-    """Rebuild into a temporary directory and compare every committed byte."""
+    """Rebuild into a temporary directory and compare it with the committed files."""
     with tempfile.TemporaryDirectory() as workdir:
         rebuilt = build(Path(workdir))
         failures = []
@@ -1725,13 +2019,13 @@ def check() -> int:
             committed = HERE / path.name
             if not committed.exists():
                 failures.append(f"{path.name}: not committed")
-            elif committed.read_bytes() != path.read_bytes():
+            elif not same_file(committed, path):
                 failures.append(f"{path.name}: differs from the committed file")
         for line in failures:
             print(line, file=sys.stderr)
         if failures:
             return 1
-        print(f"{len(rebuilt)} files regenerate byte-identically")
+        print(f"{len(rebuilt)} files regenerate as committed")
         return 0
 
 
@@ -1740,7 +2034,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="rebuild into a temporary directory and compare the bytes",
+        help="rebuild into a temporary directory and compare it with the committed files",
     )
     parser.add_argument(
         "outdir",

@@ -1,10 +1,9 @@
 """The ``BuildProfile`` dataclass — the parsed shape of a profile and its validator.
 
-Holds the 37 profile fields, the paradigm-aware tier default, and the
-consistency checks a profile must pass before a build touches disk. Kept
-separate from the YAML loader so the shape and its rules can be imported (and
-constructed in tests) without pulling in preset resolution or ``extends``
-merging.
+Holds the 36 profile fields and the consistency checks a profile must pass
+before a build touches disk. Kept separate from the YAML loader so the shape
+and its rules can be imported (and constructed in tests) without pulling in
+preset resolution or ``extends`` merging.
 """
 
 from __future__ import annotations
@@ -18,11 +17,7 @@ from typing import Any
 
 import yaml
 
-from osprey.build.build_tiers import (
-    VALID_CHANNEL_FINDER_MODES,
-    default_tier_for_mode,
-    tier_mode_conflict,
-)
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
     resolve_graphdb_service_config,
@@ -87,7 +82,7 @@ _GRAPH_MODE = "graph"
 """The one channel-finder paradigm that answers from a graph store rather than a
 channel-database file, and so the one with a service prerequisite. A member name
 of :data:`VALID_CHANNEL_FINDER_MODES`, not a second enumeration — the rule below
-is about this paradigm alone, exactly as ``tier_mode_conflict`` is."""
+is about this paradigm alone."""
 
 _GRAPHDB_CONFIG_PREFIX = f"services.{GRAPHDB_SERVICE_NAME}"
 """Dotted-key spelling of the graph-store block on a profile's ``config:`` surface."""
@@ -243,9 +238,9 @@ def provider_catalog_key_errors(config: Any) -> list[str]:
     ]
 
 
-# VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
-# imported from the build-time kernel (osprey.build.build_tiers) so the
-# validators below can use them while the definitions live below the cli layer.
+# VALID_CHANNEL_FINDER_MODES is imported from the build-time kernel
+# (osprey.build.modes) so the validators below can use it while the definition
+# lives below the cli layer.
 
 
 @dataclass
@@ -291,16 +286,6 @@ class BuildProfile:
     provider: str | None = None
     model: str | None = None
     channel_finder_mode: str | None = None
-    tier: int | None = None
-    """Channel-database tier (1|3) selecting which preset `tiers/tier{N}` DB
-    is materialized at build time to the flat `data/channel_databases/<name>.json`
-    location. Tier 1 is in_context-only; tier 3 carries all three paradigms.
-    When ``None``, the build resolves a paradigm-aware default via
-    :meth:`resolved_tier` (in_context → 1, hierarchical/middle_layer → 3).
-    This is build-time only and is NOT rendered into `config.yml`; the runtime
-    config carries no tier knob. Facility profiles can ignore it because the
-    DB they overlay overwrites whatever the preset put there.
-    """
     config: dict[str, Any] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
     services: dict[str, ServiceDef] = field(default_factory=dict)
@@ -404,18 +389,6 @@ class BuildProfile:
         of raising.
         """
         self.inherited_preset: str | None = None
-
-    def resolved_tier(self) -> int:
-        """Resolve the build-time tier, applying a paradigm-aware default.
-
-        Returns ``self.tier`` if set; otherwise picks tier 1 for ``in_context``
-        and tier 3 for ``hierarchical``/``middle_layer``.  Callers that need a
-        concrete integer (the build pipeline, the materializer) MUST go through
-        this method rather than reading ``self.tier`` directly.
-        """
-        if self.tier is not None:
-            return self.tier
-        return default_tier_for_mode(self.channel_finder_mode)
 
     def resolved_data_root(self, profile_dir: Path) -> Path | None:
         """Resolve the profile's ``data:`` tree against its profile directory.
@@ -1343,17 +1316,6 @@ class BuildProfile:
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
-
-        if self.tier is not None and self.tier not in (1, 3):
-            errors.append(f"tier must be 1 or 3 (got {self.tier!r})")
-
-        # Tier 1 ships only the in_context paradigm DB; reject a tier/paradigm
-        # mismatch here with a rule-naming message (see tier_mode_conflict) so
-        # the failure is legible on every configuration path rather than an
-        # opaque FileNotFoundError deep in materialize_tier_artifacts.
-        conflict = tier_mode_conflict(self.tier, self.channel_finder_mode)
-        if conflict:
-            errors.append(conflict)
 
         if (
             self.channel_finder_mode is not None

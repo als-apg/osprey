@@ -1,10 +1,10 @@
 """Unit tests for the canonical EPICS-substrate plan-device derivation.
 
-Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the single
-host-side producer shared by the build's device-file staging
-(``compose_generator._stage_bluesky_devices``) and ``tests/e2e/_orm_stack.py``:
-the device document derived from the channel roster's records, and the atomic
-write of that document to a file the queueserver worker mounts.
+Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the host-side
+producer behind the build's Bluesky devices view
+(``osprey.facility.views.bluesky``): the device document derived from the
+channel roster's records, and the atomic write of that document to the file
+the build stages for the queueserver worker.
 
 Two properties are load-bearing here and nowhere else.
 
@@ -25,7 +25,6 @@ pairing the roster did not make.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 
@@ -44,14 +43,15 @@ from osprey.services.bluesky_bridge.substrate_devices import (
     devices_document,
     write_devices_file,
 )
+from tests._facility_file import write_demo_facility_file
 
-#: What the shipped demo corpus holds, pinned alongside
-#: ``tests/channel_roster/test_facade.py`` and
-#: ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.
+#: What the shipped demo tree holds, pinned alongside
+#: ``tests/channel_roster/test_facade.py``.
 DEMO_WRITES = 396
-DEMO_READS = 2512
+DEMO_READS = 2516
 
 _SOURCE = RosterSource(kind=RosterSourceKind.GRAPH, path=Path("/data/demo_machine.ttl"))
+_SCHEMA = "osprey.facility.bluesky_devices/1"
 
 
 def _write(address: str, readback: str | None = None) -> ChannelRecord:
@@ -209,30 +209,13 @@ class TestTheShippedDemoRoster:
         channel_roster._roster_cache.clear()
 
     @pytest.fixture
-    def demo_config(self, tmp_path: Path) -> Iterator[dict[str, Any]]:
-        from tests._graph_index import build_demo_index
-
-        resource = (
-            files("osprey.templates")
-            .joinpath("apps")
-            .joinpath("control_assistant")
-            .joinpath("data")
-            .joinpath("demo_machine.ttl")
-        )
-        # The roster reads the search index, not the corpus. The packaged
-        # template directory is not a render, so the index goes to tmp_path
-        # and the config names it rather than deriving one beside the source.
-        index = build_demo_index(tmp_path / "graph.duckdb")
-        with as_file(resource) as path:
-            yield {
-                "config_dir": str(path.parent),
-                "channel_finder": {"pipeline_mode": "graph"},
-                "services": {"graphdb": {"ttl_path": path.name, "index_path": str(index)}},
-            }
+    def demo_config(self, tmp_path: Path) -> dict[str, Any]:
+        """A graph-mode render holding the shipped demo tree's facility file."""
+        write_demo_facility_file(tmp_path)
+        return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """396 settables / 2512 readables -- the numbers the feature exists for.
-        The build that read the write-limits projection reported 144/144."""
+        """396 settables / 2516 readables: every channel the demo tree holds."""
         result = registered_channels(demo_config)
 
         document = devices_document(result.records)
@@ -253,12 +236,25 @@ class TestTheShippedDemoRoster:
 
 
 class TestWriteDevicesFile:
+    def test_the_schema_line_is_the_first_line(self, tmp_path) -> None:
+        path = tmp_path / "bluesky_devices.yml"
+
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+
+        assert path.read_text(encoding="utf-8").split("\n", 1)[0] == f"schema: {_SCHEMA}"
+
+    def test_a_write_without_a_schema_is_refused(self, tmp_path) -> None:
+        with pytest.raises(TypeError, match="schema"):
+            write_devices_file(  # type: ignore[call-arg]
+                tmp_path / "bluesky_devices.yml", _RECORDS, source=_SOURCE
+            )
+
     def test_written_yaml_parses_back_to_the_returned_document(self, tmp_path) -> None:
         path = tmp_path / "bluesky_devices.yml"
 
-        document = write_devices_file(path, _RECORDS, source=_SOURCE)
+        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
-        assert yaml.safe_load(path.read_text(encoding="utf-8")) == document
+        assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"schema": _SCHEMA, **document}
         assert document == devices_document(_RECORDS)
 
     def test_header_marks_the_file_generated_and_names_the_roster_source(self, tmp_path) -> None:
@@ -267,22 +263,22 @@ class TestWriteDevicesFile:
         projection of."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         text = "\n".join(
             line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("#")
         )
         assert "Generated by OSPREY" in text
         assert _SOURCE.describe() in text
-        assert "bluesky.devices_file" in text
+        assert "data/facility/" in text
 
-    def test_header_names_a_database_source_as_the_database(self, tmp_path) -> None:
+    def test_header_names_a_facility_source_as_the_facility_file(self, tmp_path) -> None:
         """Provenance is the source's own phrasing, so the staged file and the
         build's fact line call the same file the same thing."""
         path = tmp_path / "bluesky_devices.yml"
-        source = RosterSource(kind=RosterSourceKind.DATABASE, path=tmp_path / "channels.json")
+        source = RosterSource(kind=RosterSourceKind.FACILITY, path=tmp_path / "facility.json")
 
-        write_devices_file(path, _RECORDS, source=source)
+        write_devices_file(path, _RECORDS, source=source, schema=_SCHEMA)
 
         assert source.describe() in path.read_text(encoding="utf-8")
 
@@ -290,7 +286,7 @@ class TestWriteDevicesFile:
         """Which is why the source is passed rather than read off a record."""
         path = tmp_path / "bluesky_devices.yml"
 
-        document = write_devices_file(path, (), source=_SOURCE)
+        document = write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
 
         assert document == {"settables": [], "readables": []}
         assert _SOURCE.describe() in path.read_text(encoding="utf-8")
@@ -298,7 +294,7 @@ class TestWriteDevicesFile:
     def test_leaves_no_temp_file_behind(self, tmp_path) -> None:
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         assert [entry.name for entry in tmp_path.iterdir()] == ["bluesky_devices.yml"]
 
@@ -307,10 +303,10 @@ class TestWriteDevicesFile:
         two concatenated documents behind."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
-        document = write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
-        assert yaml.safe_load(path.read_text(encoding="utf-8")) == document
+        assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"schema": _SCHEMA, **document}
 
     def test_failed_write_leaves_the_previous_document_intact(self, tmp_path, monkeypatch) -> None:
         """Atomicity is the point of the temp file: a deploy may be mounting
@@ -318,7 +314,7 @@ class TestWriteDevicesFile:
         import os
 
         path = tmp_path / "bluesky_devices.yml"
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
         before = path.read_text(encoding="utf-8")
 
         def _boom(*args, **kwargs):
@@ -326,7 +322,7 @@ class TestWriteDevicesFile:
 
         monkeypatch.setattr(os, "replace", _boom)
         with pytest.raises(OSError):
-            write_devices_file(path, (), source=_SOURCE)
+            write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
 
         assert path.read_text(encoding="utf-8") == before
         assert [entry.name for entry in tmp_path.iterdir()] == ["bluesky_devices.yml"]
@@ -336,7 +332,7 @@ class TestWriteDevicesFile:
         would make it unreadable to any uid but the one that rendered it."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         assert path.stat().st_mode & 0o044 == 0o044
 
@@ -361,7 +357,7 @@ class TestDeviceFileRoundTrip:
         from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 
         path = tmp_path / "bluesky_devices.yml"
-        write_devices_file(path, self._AWKWARD, source=_SOURCE)
+        write_devices_file(path, self._AWKWARD, source=_SOURCE, schema=_SCHEMA)
 
         settables, readables = specs_from_file(path)
 
@@ -383,7 +379,7 @@ class TestDeviceFileRoundTrip:
         from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 
         path = tmp_path / "bluesky_devices.yml"
-        document = write_devices_file(path, _RECORDS, source=_SOURCE)
+        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         settables, readables = specs_from_file(path)
 

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.services.virtual_accelerator.manifest import classify, loaders
 from osprey.services.virtual_accelerator.manifest.build import (
     LIMITS_FILENAME,
@@ -40,7 +40,7 @@ from osprey.services.virtual_accelerator.manifest.paths import (
     PACKAGE_PATHS,
     ManifestPaths,
 )
-from tests._graph_index import build_index_from_ttl, default_index_path
+from tests._facility_file import channel_tree, write_facility_file
 
 # The tiered paradigm databases the manifest expands, derived by subtracting
 # ``graph`` from the paradigm registry: a graph store is seeded from the corpus
@@ -1418,50 +1418,29 @@ class TestReExportedFacilityTrees:
         assert manifest["_metadata"]["partition_source"] == "simulation/va_bindings.json"
 
 
-# --- the knowledge-graph source ---------------------------------------------
+# --- the facility-file source -----------------------------------------------
 
-_TTL_PREAMBLE = """\
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
-"""
-
-
-def _binding(name: str, address: str, predicate: str | None) -> str:
-    """Render one corpus channel binding with the given direction predicate."""
-    direction = f" ;\n    narad_p:{predicate} narad_sem:{name}_signal" if predicate else ""
-    return f'<https://narad.example.org/binding/{name}> narad_p:fullPv "{address}"{direction} .\n'
-
-
-#: How a graph-mode project spells the search index the roster reads: the
-#: ``services.graphdb.index_path`` default, which is what every absence about
-#: it puts in front of an operator.
-_INDEX_SPELLING = "./data/channel_databases/graph.duckdb"
+#: How the roster names the facility file, which is what every fact and every
+#: absence about it puts in front of an operator.
+_FACILITY_SPELLING = "facility.json"
 
 #: Two settable channels, three readable ones -- both directions have to reach
 #: the manifest, because membership is the roster's whole answer.
-_SMALL_CORPUS = _TTL_PREAMBLE + "".join(
-    (
-        _binding("hcm_sp", "SR:MAG:HCM:01:CURRENT:SP", "writesSignal"),
-        _binding("hcm_rb", "SR:MAG:HCM:01:CURRENT:RB", "readsSignal"),
-        _binding("rf_sp", "SR:RF:CAV:01:VOLTAGE:SP", "writesSignal"),
-        _binding("bpm_x", "SR:DIAG:BPM:01:POSITION:X", "readsSignal"),
-        _binding("temp", "SR:VAC:PUMP:01:TEMPERATURE:RB", "readsSignal"),
-    )
+_SMALL_TREE = channel_tree(
+    {"SR:MAG:HCM:01:CURRENT:SP": "SR:MAG:HCM:01:CURRENT:RB", "SR:RF:CAV:01:VOLTAGE:SP": None},
+    readbacks=["SR:DIAG:BPM:01:POSITION:X", "SR:VAC:PUMP:01:TEMPERATURE:RB"],
 )
 
 
-def _graph_tree(
-    root: Path, corpus: str | None = _SMALL_CORPUS, *, index: bool = True
-) -> tuple[Path, dict]:
-    """A graph-mode facility tree: per-tree sources plus a corpus, no databases.
+def _graph_tree(root: Path, tree: dict | None = _SMALL_TREE) -> tuple[Path, dict]:
+    """A graph-mode data tree: per-tree sources plus a facility file, no databases.
 
-    The manifest is built from the channel roster, and on this paradigm the
-    roster reads the search index a build derives from the corpus -- so the
-    tree stages both, exactly as a rendered project holds both. ``index=False``
-    stages the corpus alone, for the cases about a tree nothing derived.
+    The manifest is built from the channel roster, and the roster reads the
+    facility file at the root of the render -- so the tree holds one, built
+    from ``tree``. ``tree=None`` writes no facility file, for the cases about
+    a render no build wrote one into.
 
-    Returns the data root and the config a graph-mode render resolves the
-    corpus from -- ``ttl_path`` spelled relative, as a project writes it.
+    Returns the data root and the config whose render that root is.
     """
     (root / "simulation").mkdir(parents=True)
     (root / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
@@ -1472,16 +1451,32 @@ def _graph_tree(
         "services": {"graphdb": {"ttl_path": "./facility.ttl"}},
         "config_dir": str(root),
     }
-    if corpus is not None:
-        (root / "facility.ttl").write_text(corpus)
-        if index:
-            build_index_from_ttl(root / "facility.ttl", config)
+    if tree is not None:
+        write_facility_file(root, tree)
     return root, config
+
+
+def _stated_records(root: Path, *records: dict) -> None:
+    """Write a facility file holding exactly ``records`` as its channels.
+
+    For the shapes a build never writes -- one address stated twice, a pair
+    stated ambiguously -- which the manifest still has to answer for a file
+    it is handed.
+    """
+    (root / _FACILITY_SPELLING).write_text(json.dumps({"channels": list(records)}))
+
+
+def _setpoint(address: str, pair: str) -> dict:
+    return {"id": address, "role": "setpoint", "pair": pair}
+
+
+def _readback(address: str) -> dict:
+    return {"id": address, "role": "readback"}
 
 
 @pytest.fixture(autouse=True)
 def _cold_roster_cache():
-    """Every test reads its own corpus cold; none inherits another's parse."""
+    """Every test reads its own facility file cold; none inherits another's read."""
     import osprey.channel_roster as channel_roster
 
     channel_roster._roster_cache.clear()
@@ -1489,11 +1484,11 @@ def _cold_roster_cache():
     channel_roster._roster_cache.clear()
 
 
-class TestGraphSourcedManifest:
-    """A graph-mode tree gets its channel set from the knowledge-graph corpus."""
+class TestRosterSourcedManifest:
+    """A graph-mode tree gets its channel set from the facility file."""
 
-    def test_every_corpus_binding_becomes_a_channel_both_directions(self, tmp_path):
-        """Membership is the corpus's fullPv set: writes and reads alike."""
+    def test_every_channel_record_becomes_a_channel_both_directions(self, tmp_path):
+        """Membership is the facility file's channel records: writes and reads alike."""
         root, config = _graph_tree(tmp_path / "data")
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
@@ -1510,26 +1505,26 @@ class TestGraphSourcedManifest:
             ]
         )
 
-    def test_metadata_names_the_corpus_as_the_source(self, tmp_path):
+    def test_metadata_names_the_facility_file_as_the_source(self, tmp_path):
         root, config = _graph_tree(tmp_path / "data")
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
         metadata = prepared.manifest["_metadata"]
-        assert metadata["source_paradigms"] == ["graph"]
-        # The configured spelling, which an operator can retype and edit. The
-        # roster reads the search index, so that is the file named here.
-        assert metadata["source_corpus"] == _INDEX_SPELLING
+        assert metadata["source_paradigms"] == []
+        # The file's name: the resolved path of a render being built is a
+        # staging path nobody can retype.
+        assert metadata["source_corpus"] == _FACILITY_SPELLING
         # Graph mode stages no tier database by design: nothing is "absent",
         # nothing is corrupt, and no reader is owed either clause.
         assert metadata["absent_paradigms"] == []
         assert metadata["corrupt_paradigms"] == []
 
-    def test_census_is_honest_about_what_the_graph_cannot_say(self, tmp_path):
+    def test_census_is_honest_about_what_the_roster_does_not_say(self, tmp_path):
         """No hierarchy identity keys are invented, so nothing is pyat-coupled.
 
-        The corpus states membership, direction and -- for the one pair the
-        roster vouches for, ``HCM:01:CURRENT:SP``/``:RB`` -- a readback, but
+        The roster states membership, direction and -- for the one pair the
+        facility file states, ``HCM:01:CURRENT:SP``/``:RB`` -- a readback, but
         not the hierarchy path the identity keys are read from. The pair is
         served as setpoint-echo, keyed on nothing but itself; every other
         entry lands pathless in the static-noisy partition -- exactly what a
@@ -1556,22 +1551,21 @@ class TestGraphSourcedManifest:
                 assert channel["device"] == "SR:MAG:HCM:01:CURRENT:SP"
                 assert channel["subfield"] == ("SP" if channel["address"].endswith(":SP") else "RB")
 
-    def test_duplicate_addresses_in_the_corpus_collapse_to_one_channel(self, tmp_path):
-        """The manifest is a namespace: two bindings sharing one fullPv are one channel."""
-        corpus = _TTL_PREAMBLE + "".join(
-            (
-                _binding("first", "SR:MAG:HCM:01:CURRENT:SP", "writesSignal"),
-                _binding("second", "SR:MAG:HCM:01:CURRENT:SP", "readsSignal"),
-            )
+    def test_duplicate_addresses_in_the_facility_file_collapse_to_one_channel(self, tmp_path):
+        """The manifest is a namespace: two records sharing one address are one channel."""
+        root, config = _graph_tree(tmp_path / "data", tree=None)
+        _stated_records(
+            root,
+            {"id": "SR:MAG:HCM:01:CURRENT:SP", "role": "setpoint"},
+            _readback("SR:MAG:HCM:01:CURRENT:SP"),
         )
-        root, config = _graph_tree(tmp_path / "data", corpus=corpus)
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
         assert prepared.manifest["_metadata"]["total_channels"] == 1
         assert [c["address"] for c in prepared.manifest["channels"]] == ["SR:MAG:HCM:01:CURRENT:SP"]
 
-    def test_scenario_seed_union_applies_to_the_graph_source_too(self, tmp_path):
+    def test_scenario_seed_union_applies_to_the_facility_file_source_too(self, tmp_path):
         """machine.json's novel addresses ride along, flagged as such."""
         root, config = _graph_tree(tmp_path / "data")
         (root / "simulation" / "machine.json").write_text(
@@ -1602,51 +1596,21 @@ class TestGraphSourcedManifest:
 
         assert prepare_project_manifest(root, DEFAULT_TIER) is None
 
-    def test_a_non_graph_config_keeps_the_paradigm_rules(self, tmp_path):
-        """A database-mode project never has its manifest read off a corpus."""
-        root, config = _graph_tree(tmp_path / "data")
-        config["channel_finder"]["pipeline_mode"] = "hierarchical"
-
-        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
-        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert "no channel database is staged" in reason
-
-
-def _device(name: str, *bindings: str) -> str:
-    """Render one corpus device grouping the named bindings."""
-    objects = ", ".join(f"<https://narad.example.org/binding/{b}>" for b in bindings)
-    return f"<https://narad.example.org/device/{name}> narad_p:hasBinding {objects} .\n"
-
-
-def _bound(name: str, address: str, predicate: str, field: str, device: str = "BEND:0") -> str:
-    """A binding carrying the ``bindingId`` whose field token the device grouping pairs on."""
-    return (
-        f'<https://narad.example.org/binding/{name}> narad_p:fullPv "{address}" ;\n'
-        f"    narad_p:{predicate} narad_sem:{name}_signal ;\n"
-        f'    narad_p:bindingId "narad:binding:als:SR:{device}:{field}:val" .\n'
-    )
-
 
 #: A facility whose addresses carry no ``:SP``/``:RB`` grammar at all: the one
-#: pair here is stated by the corpus's device grouping, and the two leftover
-#: channels (a golden setpoint nobody reports, a beam-current monitor) are not.
-_STATED_PAIR_CORPUS = _TTL_PREAMBLE + "".join(
-    (
-        _bound("bend_sp", "SR01C___B______AC00", "writesSignal", "Setpoint"),
-        _bound("bend_mon", "SR01C___B______AM00", "readsSignal", "Monitor"),
-        _bound("bend_golden", "SR01C:BEND:Setpoint:Golden", "writesSignal", "SetpointGolden"),
-        _device("bend", "bend_sp", "bend_mon", "bend_golden"),
-        _bound("dcct", "SR01C___T______AM00", "readsSignal", "Monitor", device="DCCT:0"),
-        _device("dcct", "dcct"),
-    )
+#: pair here is stated by the facility file, and the two leftover channels (a
+#: golden setpoint nobody reports, a beam-current monitor) are not paired.
+_STATED_PAIR_TREE = channel_tree(
+    {"SR01C___B______AC00": "SR01C___B______AM00", "SR01C:BEND:Setpoint:Golden": None},
+    readbacks=["SR01C___T______AM00"],
 )
 
 
 class TestGraphStatedPairs:
-    """A pair the corpus states is served as a setpoint-echo pair, nothing more invented."""
+    """A pair the facility file states is served as a setpoint-echo pair, nothing more invented."""
 
     def test_a_stated_pair_becomes_an_sp_echo_pair_keyed_on_the_setpoint(self, tmp_path):
-        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+        root, config = _graph_tree(tmp_path / "data", tree=_STATED_PAIR_TREE)
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
@@ -1658,7 +1622,7 @@ class TestGraphStatedPairs:
         assert readback["subfield"] == "RB"
         # The pair shares exactly one identity key -- the setpoint's own
         # address -- and the other four stay as empty as on a pathless entry:
-        # the graph states no hierarchy path, and none is invented.
+        # the roster states no hierarchy path, and none is invented.
         for channel in (setpoint, readback):
             assert channel["device"] == "SR01C___B______AC00"
             assert [channel[key] for key in ("ring", "system", "family", "field")] == [
@@ -1670,8 +1634,10 @@ class TestGraphStatedPairs:
         assert setpoint["record_type"] == readback["record_type"] == classify.RECORD_TYPE_ANALOG
         assert setpoint["noise"] is False and readback["noise"] is False
 
-    def test_everything_the_corpus_leaves_unpaired_stays_pathless_static_noisy(self, tmp_path):
-        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+    def test_everything_the_facility_file_leaves_unpaired_stays_pathless_static_noisy(
+        self, tmp_path
+    ):
+        root, config = _graph_tree(tmp_path / "data", tree=_STATED_PAIR_TREE)
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
@@ -1699,7 +1665,7 @@ class TestGraphStatedPairs:
         """
         from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
 
-        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+        root, config = _graph_tree(tmp_path / "data", tree=_STATED_PAIR_TREE)
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
         project_data = tmp_path / "project" / "data"
         project_data.mkdir(parents=True)
@@ -1716,17 +1682,13 @@ class TestGraphStatedPairs:
         """An ambiguous pair is served static-noisy on both sides, never half an echo."""
         from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
 
-        corpus = _TTL_PREAMBLE + "".join(
-            (
-                _bound("sp_a", "SR01C___B______AC00", "writesSignal", "Setpoint"),
-                _bound("sp_b", "SR01C___B______AC01", "writesSignal", "Setpoint", device="BEND:1"),
-                _bound("mon", "SR01C___B______AM00", "readsSignal", "Monitor"),
-                _device("bend0", "sp_a", "mon"),
-                _bound("mon_dup", "SR01C___B______AM00", "readsSignal", "Monitor", device="BEND:1"),
-                _device("bend1", "sp_b", "mon_dup"),
-            )
+        root, config = _graph_tree(tmp_path / "data", tree=None)
+        _stated_records(
+            root,
+            _setpoint("SR01C___B______AC00", "SR01C___B______AM00"),
+            _setpoint("SR01C___B______AC01", "SR01C___B______AM00"),
+            _readback("SR01C___B______AM00"),
         )
-        root, config = _graph_tree(tmp_path / "data", corpus=corpus)
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
@@ -1738,17 +1700,13 @@ class TestGraphStatedPairs:
 
     def test_a_readback_that_is_itself_a_setpoint_pairs_with_nothing(self, tmp_path):
         """A chain ``A -> B -> C`` states no clean pair; both links are dropped."""
-        corpus = _TTL_PREAMBLE + "".join(
-            (
-                _bound("a", "SR:A", "writesSignal", "Setpoint"),
-                _bound("b_mon", "SR:B", "readsSignal", "Monitor"),
-                _device("dev_ab", "a", "b_mon"),
-                _bound("b_sp", "SR:B", "writesSignal", "Setpoint", device="BEND:1"),
-                _bound("c", "SR:C", "readsSignal", "Monitor", device="BEND:1"),
-                _device("dev_bc", "b_sp", "c"),
-            )
+        root, config = _graph_tree(tmp_path / "data", tree=None)
+        _stated_records(
+            root,
+            _setpoint("SR:A", "SR:B"),
+            _setpoint("SR:B", "SR:C"),
+            _readback("SR:C"),
         )
-        root, config = _graph_tree(tmp_path / "data", corpus=corpus)
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
@@ -1758,7 +1716,7 @@ class TestGraphStatedPairs:
 
     def test_a_readback_is_emitted_once_beside_its_setpoint(self, tmp_path):
         """The manifest is a namespace: the readback half is one channel, not two."""
-        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+        root, config = _graph_tree(tmp_path / "data", tree=_STATED_PAIR_TREE)
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
@@ -1769,7 +1727,7 @@ class TestGraphStatedPairs:
 
 class TestStagedDatabasesWinOverTheGraph:
     def test_a_staged_paradigm_database_keeps_priority(self, tmp_path, facility_tree):
-        """The graph is consulted only when the tree stages no database at all."""
+        """The roster is consulted only when the tree stages no database at all."""
         root, config = _graph_tree(tmp_path / "data")
         db = root / f"channel_databases/tiers/tier{DEFAULT_TIER}/hierarchical.json"
         db.parent.mkdir(parents=True)
@@ -1790,44 +1748,42 @@ class TestStagedDatabasesWinOverTheGraph:
 
 
 class TestGraphYieldsNothing:
-    """The refusal names the corpus, never the absent database files."""
+    """The refusal names the facility file, never the absent database files."""
 
-    def test_an_unbuilt_index_backs_no_manifest_and_is_named(self, tmp_path):
-        root, config = _graph_tree(tmp_path / "data", corpus=None)
+    def test_an_unbuilt_facility_file_backs_no_manifest_and_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", tree=None)
 
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert _INDEX_SPELLING in reason
-        assert "is not there" in reason
+        assert _FACILITY_SPELLING in reason
+        assert "is not built" in reason
         # The remedy is the one that puts the file there, not a hunt for it.
-        assert "osprey knowledge build-index" in reason
+        assert "osprey build" in reason
         assert "are all absent" not in reason
 
-    def test_an_unreadable_index_backs_no_manifest_and_is_named(self, tmp_path):
-        root, config = _graph_tree(tmp_path / "data", index=False)
-        index_path = default_index_path(root)
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        index_path.write_bytes(b"not a database at all {{{")
+    def test_an_unreadable_facility_file_backs_no_manifest_and_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", tree=None)
+        (root / _FACILITY_SPELLING).write_bytes(b"not a facility file at all {{{")
 
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert _INDEX_SPELLING in reason
+        assert _FACILITY_SPELLING in reason
         assert "could not be read" in reason
         # Never conflated with the paradigm wordings: the operator repairs the
-        # corpus, not database files that were never part of graph mode.
+        # facility file, not database files the roster never reads.
         assert "are all absent" not in reason
         assert "channel database" not in reason
 
-    def test_an_empty_corpus_backs_no_manifest_and_is_named(self, tmp_path):
-        root, config = _graph_tree(tmp_path / "data", corpus=_TTL_PREAMBLE)
+    def test_an_empty_facility_file_backs_no_manifest_and_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", tree={})
 
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert _INDEX_SPELLING in reason
+        assert _FACILITY_SPELLING in reason
         assert "declares no channels" in reason
 
     def test_a_graph_tree_missing_its_scenario_seed_is_named(self, tmp_path):
-        """The corpus enumerates channels, but the per-tree sources still ship."""
+        """The facility file enumerates channels, but the per-tree sources still ship."""
         root, config = _graph_tree(tmp_path / "data")
         (root / "simulation" / "machine.json").unlink()
 
@@ -1852,15 +1808,15 @@ class TestGraphYieldsNothing:
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
         assert "missing machine_state_channels.json" in reason
 
-    def test_graph_mode_naming_no_corpus_key_is_named_by_its_keys(self, tmp_path):
-        """Graph mode with no ttl_path at all: the remedy is the config keys."""
-        root, _ = _graph_tree(tmp_path / "data")
+    def test_graph_mode_naming_no_corpus_key_is_named_the_facility_file(self, tmp_path):
+        """Graph mode with no ttl_path at all: the remedy is still the build."""
+        root, _ = _graph_tree(tmp_path / "data", tree=None)
         config = {"channel_finder": {"pipeline_mode": "graph"}, "config_dir": str(root)}
 
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert "services.graphdb.ttl_path" in reason
-        assert "services.graphdb.uri" in reason
+        assert _FACILITY_SPELLING in reason
+        assert "osprey build" in reason
         assert "are all absent" not in reason
 
     def test_an_unreadable_scenario_seed_raises_naming_the_file(self, tmp_path):

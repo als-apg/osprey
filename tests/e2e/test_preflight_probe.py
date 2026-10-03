@@ -37,23 +37,19 @@ answer is scripted per call — in
 ``test_dead_address_is_reported_after_the_retry`` for its converse). This
 module deliberately does not restate it.
 
-Device-file route: the plan devices come from an AUTHORED
-``<repo>/data/bluesky_devices.yml``, written between ``osprey init`` and
-``osprey build`` (``_orm_stack.write_devices_file``, the same producer the
-build's own turn-key derivation uses) and then given one hand-added entry for
-the dead address. That is two proofs in one file: it is how the unserved
-address gets into the worker's namespace at all, and it is the
-authored-file-wins contract — R1 asserts the entry this suite added by hand
-survives into the staged ``build/services/bluesky/bluesky_devices.yml`` the
-worker mounts, which it only can if the authored file beat the roster-derived
-derivation.
+Device-file route: the worker's device file is the build's Bluesky view of
+the facility file, staged into ``build/services/bluesky/bluesky_devices.yml``.
+After the build and before the stack starts, this suite appends one readable
+for the dead address to that staged copy in its own throwaway repo -- the only
+way an address no IOC serves gets into the worker's namespace -- and R1
+asserts the entry is in the file the worker mounts.
 
 No preset channel name is hardcoded. The corrector and BPM are selected from
-the deployment's own channel roster (``_orm_stack.roster_records`` ->
-``select_correctors``/``select_bpms``), and the dead address is derived from
-the selected BPM by moving its device index out of the range the facility has
-— a plausible name in a real family that the manifest cannot serve — and
-checked against the roster to be sure it is genuinely absent.
+the staged view (``_orm_stack.select_correctors``/``select_bpms``), and the
+dead address is derived from the selected BPM by moving its device index out
+of the range the facility has -- a plausible name in a real family that the
+manifest cannot serve -- and checked against the view to be sure it is
+genuinely absent.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
@@ -172,8 +168,8 @@ CONNECTOR_CONFIG: dict[str, Any] = {
 #: Device index for the unserved address. The demo facility's BPM devices run
 #: 01-72, so 99 is a well-formed name in a real family that the VA manifest
 #: cannot serve -- the shape of a typo or a decommissioned device, which is the
-#: realistic way an operator meets this gate. Asserted absent from the roster
-#: at authoring time rather than assumed.
+#: realistic way an operator meets this gate. Asserted absent from the staged
+#: view rather than assumed.
 DEAD_DEVICE_INDEX = "99"
 
 #: Two grid points is the smallest real sweep: enough for the healthy plan to
@@ -204,15 +200,15 @@ def _get(path: str) -> tuple[int, Any]:
 def _unserved_address(bpm_address: str, roster_addresses: frozenset[str]) -> str:
     """A plausible address in a real family that the deployment cannot serve.
 
-    Built from a BPM readback the roster DID enumerate by moving its device
+    Built from a BPM readback the staged view DID name by moving its device
     index out of the facility's range, so every other segment -- ring, system,
     family, field, subfield -- is one the manifest genuinely uses. A name
     invented from nothing would prove less: it could be refused for being
     unparseable rather than for being unreachable.
 
     Args:
-        bpm_address: A 6-part colon address the roster enumerated.
-        roster_addresses: Every address the roster enumerated, to check the
+        bpm_address: A 6-part colon address the staged view names.
+        roster_addresses: Every address the staged view names, to check the
             result against.
 
     Returns:
@@ -237,34 +233,25 @@ def _unserved_address(bpm_address: str, roster_addresses: frozenset[str]) -> str
 
 
 def _add_unserved_readable(repo: Path, address: str) -> None:
-    """Hand-add one readable naming ``address`` to the authored device file.
+    """Append one readable naming ``address`` to the build's staged device file.
 
-    The rest of the file is the product's own output
-    (``_orm_stack.write_devices_file`` -> ``substrate_devices``), and this adds
-    the one entry no producer would ever emit: a device whose channel does not
+    The rest of the file is the build's own view of the facility file, and this
+    adds the one entry no view would ever emit: a device whose channel does not
     exist. Loading and re-dumping rather than appending text, because the entry
-    has to land under ``readables`` wherever that key sits; the generated
-    header is carried across verbatim so the staged file still names the roster
-    it is a projection of.
+    has to land under ``readables`` and the ``schema`` line has to stay the
+    file's first line.
     """
-    from osprey.cli.build_profile_schema import BlueskyConfig
     from osprey.services.bluesky_bridge.devices._specs_from_file import READABLES_KEY
 
-    devices_path = repo / BlueskyConfig.devices_file
-    raw = devices_path.read_text(encoding="utf-8")
-    header = ""
-    for line in raw.splitlines(keepends=True):
-        if line.startswith("#") or not line.strip():
-            header += line
-        else:
-            break
-
-    document = yaml.safe_load(raw)
+    devices_path = _orm_stack.staged_devices_file(repo)
+    document = yaml.safe_load(devices_path.read_text(encoding="utf-8"))
     document.setdefault(READABLES_KEY, []).append({"name": address, "pv": address})
+    body = yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+    schema_line, rest = body.split("\n", 1)
     devices_path.write_text(
-        header + f"# EDITED BY tests/e2e/test_preflight_probe.py: one readable naming {address},\n"
-        f"# a channel this facility does not serve, was added by hand below.\n"
-        + yaml.safe_dump(document, sort_keys=False, default_flow_style=False),
+        f"{schema_line}\n"
+        f"# EDITED BY tests/e2e/test_preflight_probe.py: one readable naming {address},\n"
+        f"# a channel this facility does not serve, was added by hand below.\n{rest}",
         encoding="utf-8",
     )
 
@@ -328,9 +315,9 @@ class DeployedPreflightStack:
     def axis(self) -> tuple[float, float]:
         """The sweep's start/stop, inside the corrector's own limits band.
 
-        Read from the deployment's ``channel_limits.json`` rather than
-        hardcoded: the band is a property of THIS facility's corrector family,
-        and a value outside it would be refused by the software limits layer
+        Read from the deployment's limits table rather than hardcoded: the
+        band is a property of THIS facility's corrector family, and a value
+        outside it would be refused by the software limits layer
         for a reason that has nothing to do with reachability.
         """
         entry = _orm_stack.channel_limits(self.repo)[self.corrector_setpoint]
@@ -345,28 +332,6 @@ def preflight_stack(
 ) -> Iterator[DeployedPreflightStack]:
     base = tmp_path_factory.mktemp("preflight_probe_build")
 
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container.
-    correctors: dict[str, tuple[str, str]] = {}
-    bpms: dict[str, str] = {}
-    dead_address = ""
-
-    def author_devices(repo: Path) -> None:
-        nonlocal correctors, bpms, dead_address
-        records = _orm_stack.roster_records(repo)
-        # One of each is all a 1-axis grid_scan needs, and every device in this
-        # file is a Channel Access connection the RE worker opens at startup --
-        # a slice keeps the deploy fast without weakening either proof.
-        correctors = _orm_stack.select_correctors(records, count=1)
-        bpms = _orm_stack.select_bpms(records, count=1)
-        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
-        dead_address = _unserved_address(
-            next(iter(bpms)), frozenset(record.address for record in records)
-        )
-        _add_unserved_readable(repo, dead_address)
-
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
@@ -375,10 +340,17 @@ def preflight_stack(
         bridge_port=BRIDGE_PORT,
         port_base=PORT_BASE,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=author_devices,
     )
-    _orm_stack.assert_devices_authored(correctors, bpms)
-    assert dead_address, "the pre_build hook never derived an unserved address"
+    # One of each is all a 1-axis grid_scan needs.
+    correctors = _orm_stack.select_correctors(repo, count=1)
+    bpms = _orm_stack.select_bpms(repo, count=1)
+    staged_settables, staged_readables = _orm_stack.staged_devices(repo)
+    view_addresses = frozenset(
+        [address for pair in staged_settables.values() for address in pair]
+        + list(staged_readables.values())
+    )
+    dead_address = _unserved_address(next(iter(bpms)), view_addresses)
+    _add_unserved_readable(repo, dead_address)
 
     # The repo root's `.env` -- the deployment's whole secret store, and the
     # file `osprey up` refuses to start without.

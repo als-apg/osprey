@@ -110,6 +110,18 @@ class TestLazyGroup:
         assert isinstance(command, click.Group)
         assert "import" in command.list_commands(ctx)
 
+    def test_the_facility_group_is_listed_and_resolves(self):
+        """``facility`` is registered in both literals and carries ``validate``."""
+        import click
+
+        from osprey.cli.main import cli
+
+        ctx = click.Context(cli)
+        assert "facility" in cli.list_commands(ctx)
+        command = cli.get_command(ctx, "facility")
+        assert isinstance(command, click.Group)
+        assert "validate" in command.list_commands(ctx)
+
     def test_every_listed_command_actually_resolves(self):
         """The list and the import map have to agree.
 

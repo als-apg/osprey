@@ -240,14 +240,15 @@ class Figures:
         compared: How many entries were held against the file.
         passed: How many of them are inside their band.
         checked: How many sit above the floor, where a sign means something.
-        agreed: How many of those push the beam the way the file says.
+        agreed: How many of those push the beam the way the file says;
+            ``None`` for an unjudged block, whose sign is not asserted.
         median_ratio: The median model-over-file magnitude, above the floor.
     """
 
     compared: int
     passed: int
     checked: int
-    agreed: int
+    agreed: int | None
     median_ratio: float
 
     @property
@@ -256,17 +257,19 @@ class Figures:
         return self.passed / self.compared if self.compared else math.nan
 
     @property
-    def signed(self) -> tuple[int, int]:
+    def signed(self) -> tuple[int, int | None]:
         """How many entries sit above the floor, and how many of those agree."""
         return (self.checked, self.agreed)
 
 
-def figures(entries: Iterable[Entry]) -> Figures:
+def figures(entries: Iterable[Entry], *, judged: bool = True) -> Figures:
     """Weigh a set of entries.
 
     The median magnitude ratio is taken above the floor alone: below it the
     file states a number the measurement had no resolution for, and dividing
-    two of those describes the noise rather than the model.
+    two of those describes the noise rather than the model. An unjudged
+    block counts no sign agreement: its model entries are the deck's
+    coupling, at the noise level, so their sign says nothing about the model.
     """
     weighed = tuple(entries)
     checked = [entry for entry in weighed if entry.above_floor]
@@ -274,7 +277,7 @@ def figures(entries: Iterable[Entry]) -> Figures:
         compared=len(weighed),
         passed=sum(1 for entry in weighed if entry.passed),
         checked=len(checked),
-        agreed=sum(1 for entry in checked if entry.sign_agrees),
+        agreed=sum(1 for entry in checked if entry.sign_agrees) if judged else None,
         median_ratio=_median(
             sorted(abs(entry.ratio) for entry in checked if math.isfinite(entry.ratio))
         ),
@@ -396,12 +399,12 @@ class BlockReport:
     @property
     def counts(self) -> Figures:
         """What this block contributes to the verdict, polarity columns out."""
-        return figures(self.counted)
+        return figures(self.counted, judged=self.judged)
 
     @property
     def full(self) -> Figures:
         """What the block holds, every compared entry of it."""
-        return figures(self.entries)
+        return figures(self.entries, judged=self.judged)
 
     @property
     def delta_range(self) -> tuple[float, float] | None:
@@ -430,8 +433,11 @@ class BlockReport:
         return self.full.pass_ratio
 
     @property
-    def signed(self) -> tuple[int, int]:
-        """How many entries sit above the floor, and how many of those agree in sign."""
+    def signed(self) -> tuple[int, int | None]:
+        """How many entries sit above the floor, and how many of those agree in sign.
+
+        ``None`` in place of the agreeing count where the block is not judged.
+        """
         return self.full.signed
 
     @property
@@ -547,7 +553,9 @@ class VerifyReport:
     @property
     def signed(self) -> tuple[int, int]:
         """Counted entries above the floor, and those of them that agree in sign."""
-        return self.counts.signed
+        checked, agreed = self.counts.signed
+        assert agreed is not None, "the counted entries are the judged blocks' alone"
+        return (checked, agreed)
 
     @property
     def widened(self) -> tuple[ChannelBand, ...]:
@@ -1890,9 +1898,10 @@ def _response_section(report: VerifyReport) -> list[str]:
     ]
     for block in report.blocks:
         checked, agreed = block.signed
+        sign = "not counted" if agreed is None else f"{agreed}/{checked}"
         lines.append(
             f"| {block.monitor_family} | {block.actuator_family} | {block.compared} | "
-            f"{block.passed} ({_percent(block.pass_ratio)}) | {agreed}/{checked} | "
+            f"{block.passed} ({_percent(block.pass_ratio)}) | {sign} | "
             f"{_figure(block.median_ratio)} | {_swept(block)} | {_judged(block)} |"
         )
     lines.append("")
@@ -1903,7 +1912,8 @@ def _response_section(report: VerifyReport) -> list[str]:
             "emitted bindings state. A cross-plane block holds the deck's own "
             "coupling against whatever the file has there -- exactly zero in a "
             "model-derived export, its own noise in a measured one -- so it is "
-            "reported and pooled into nothing.",
+            "reported and pooled into nothing. Its entries sit at the noise level, "
+            "so their sign is not counted.",
             "",
         ]
     lines += _below_floor_lines(report)

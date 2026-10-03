@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
@@ -107,123 +107,28 @@ class TestTemplateManager:
         assert (project_dir / "CLAUDE.md").exists()
         assert (project_dir / ".mcp.json").exists()
 
-    def test_create_project_in_context_derives_tier1(self, tmp_path):
-        """Omitting ``tier`` with an in_context paradigm derives tier 1 and
-        materializes the tier-1 DB (the paradigm-aware default, not a hardcoded
-        1 — and provably tier 1, not tier 3)."""
+    @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
+    def test_create_project_takes_the_modes_benchmark_queries(self, tmp_path, mode):
+        """The render carries the mode's query set and none of its sources.
+
+        ``in_context`` takes the tier-1 query file, every other mode the tier-3
+        one; the two sets differ, so the byte comparison tells them apart. The
+        staging trees the query file and the channel-finder indexes come from
+        stay in the facility tree and never reach the render, and no paradigm
+        database is flattened beside them: each index is the view the build
+        writes at its own path.
+        """
         from pathlib import Path
 
         manager = TemplateManager()
-
         project_dir = _create_project(
             manager,
             project_name="test-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            context={"channel_finder_mode": "in_context"},
+            context={"channel_finder_mode": mode},
         )
 
-        assert project_dir.exists()
-        assert (project_dir / "config.yml").exists()
-
-        # The materialized flat DB must be byte-equal to the preset's TIER-1
-        # in_context source. Tier 1 is a filtered subset of tier 3, so this
-        # assertion fails if the derivation had (wrongly) resolved tier 3.
-        preset_tier1 = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "osprey"
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "data"
-            / "channel_databases"
-            / "tiers"
-            / "tier1"
-            / "in_context.json"
-        )
-        flat = project_dir / "data" / "channel_databases" / "in_context.json"
-        assert flat.is_file()
-        assert flat.read_bytes() == preset_tier1.read_bytes()
-
-    def test_create_project_explicit_tier1_hierarchical_rejected(self, tmp_path):
-        """An explicit ``tier=1`` paired with a non-in_context paradigm is
-        rejected with the rule-naming error at the creation boundary, not left
-        to surface as an opaque FileNotFoundError inside the materializer."""
-        from osprey.errors import BuildProfileError
-
-        manager = TemplateManager()
-
-        with pytest.raises(
-            BuildProfileError, match="tier 1 requires channel_finder_mode: in_context"
-        ):
-            _create_project(
-                manager,
-                project_name="test-project",
-                output_dir=tmp_path,
-                data_bundle="control_assistant",
-                context={"channel_finder_mode": "hierarchical"},
-                tier=1,
-            )
-
-    def test_create_project_explicit_tier2_rejected(self, tmp_path):
-        """An out-of-range explicit ``tier`` is rejected with the {1,3} rule
-        error at the creation boundary, mirroring BuildProfile.validate()."""
-        from osprey.errors import BuildProfileError
-
-        manager = TemplateManager()
-
-        with pytest.raises(BuildProfileError, match="tier must be 1 or 3"):
-            _create_project(
-                manager,
-                project_name="test-project",
-                output_dir=tmp_path,
-                data_bundle="control_assistant",
-                context={"channel_finder_mode": "in_context"},
-                tier=2,
-            )
-
-    def test_create_project_graph_derives_tier3(self, tmp_path, monkeypatch):
-        """Omitting ``tier`` with the graph paradigm derives tier 3.
-
-        Graph's store is a seeded graph service rather than a database file, so
-        the derived tier reaches the materializer only to select the benchmark
-        query set — no ``channel_databases/<paradigm>.json`` is flattened. The
-        test stops the render at that boundary, which is the whole of the tier
-        derivation; the rest of the render is exercised by the per-paradigm
-        render tests.
-        """
-        from pathlib import Path
-
-        from osprey.cli.templates import scaffolding
-
-        class _StopAfterMaterialize(Exception):
-            pass
-
-        real_materialize = scaffolding.materialize_tier_artifacts
-        seen: dict = {}
-
-        def _record(project_dir, tier, channel_finder_mode):
-            seen["tier"] = tier
-            seen["project_dir"] = project_dir
-            real_materialize(project_dir, tier, channel_finder_mode)
-            raise _StopAfterMaterialize
-
-        monkeypatch.setattr(scaffolding, "materialize_tier_artifacts", _record)
-
-        manager = TemplateManager()
-        with pytest.raises(_StopAfterMaterialize):
-            _create_project(
-                manager,
-                project_name="test-project",
-                output_dir=tmp_path,
-                data_bundle="control_assistant",
-                context={"channel_finder_mode": "graph"},
-            )
-
-        assert seen["tier"] == 3
-
-        project_dir = seen["project_dir"]
         preset_data = (
             Path(__file__).resolve().parents[2]
             / "src"
@@ -233,34 +138,17 @@ class TestTemplateManager:
             / "control_assistant"
             / "data"
         )
-        # The tier-3 query set landed. Tier 1 ships a different, smaller set,
-        # so this byte-comparison fails if the derivation had resolved tier 1.
+        source = "in_context_queries.json" if mode == "in_context" else "tree_queries.json"
+        expected = preset_data / "benchmarks" / "cross_paradigm" / "queries" / source
         queries = project_dir / "data" / "benchmarks" / "queries.json"
-        expected = preset_data / "benchmarks" / "cross_paradigm" / "queries" / "tier3_queries.json"
         assert queries.read_bytes() == expected.read_bytes()
 
-        # No paradigm database was materialized for graph.
-        cdb = project_dir / "data" / "channel_databases"
+        data = project_dir / "data"
+        assert not (data / "channel_databases" / "tiers").exists()
+        assert not (data / "benchmarks" / "cross_paradigm").exists()
+        assert not (data / "raw").exists()
         for paradigm in VALID_CHANNEL_FINDER_MODES:
-            assert not (cdb / f"{paradigm}.json").exists()
-        assert not (cdb / "tiers").exists()
-
-    def test_create_project_explicit_tier_with_graph_rejected(self, tmp_path):
-        """An explicit ``tier`` paired with graph is rejected at the creation
-        boundary with the graph rule, not the in_context tier-1 rule."""
-        from osprey.errors import BuildProfileError
-
-        manager = TemplateManager()
-
-        with pytest.raises(BuildProfileError, match="graph has no tiered artifacts; omit tier"):
-            _create_project(
-                manager,
-                project_name="test-project",
-                output_dir=tmp_path,
-                data_bundle="control_assistant",
-                context={"channel_finder_mode": "graph"},
-                tier=3,
-            )
+            assert not (data / "channel_databases" / f"{paradigm}.json").exists()
 
     def test_duplicate_project_raises_error(self, tmp_path):
         """Test that creating duplicate project raises error."""
@@ -393,8 +281,12 @@ class TestBuildClaudeCodeContextHierarchy:
         )
         assert ctx["channel_finder_hierarchy"] is None
 
-    def test_create_project_embeds_hierarchy_info(self, tmp_path, monkeypatch):
-        """create_project renders hierarchy info into the agent prompt."""
+    def test_create_project_leaves_the_hierarchy_to_the_build(self, tmp_path, monkeypatch):
+        """create_project renders before the build writes the hierarchical index.
+
+        The agent prompt falls back to discovering the levels; the build's
+        re-render embeds them once the index exists.
+        """
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         manager = TemplateManager()
 
@@ -407,9 +299,8 @@ class TestBuildClaudeCodeContextHierarchy:
         )
 
         agent_prompt = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        # Must contain embedded hierarchy info, NOT the fallback text
-        assert "hierarchy_levels" in agent_prompt
-        assert "Call `get_options()` at the first level to discover" not in agent_prompt
+        assert "hierarchy_levels" not in agent_prompt
+        assert "Call `get_options()` at the first level to discover" in agent_prompt
 
 
 class TestBuildClaudeCodeContextPipelineMode:

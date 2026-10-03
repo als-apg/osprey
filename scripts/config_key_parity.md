@@ -119,7 +119,7 @@ agreement among the presets that state the key.
 | `claude_code.telemetry.{protocol,backend,openobserve.*}` | wiring to the bundled store: correct when it matches the provisioner, which agreement among presets cannot show |
 | `web.feedback.max_store_bytes` | capacity |
 | `ariel.*` tuning | per-deployment, and `ariel.vocabulary.enabled` already diverges |
-| `control_system.*` | `type`, `writes_enabled` and `limits_checking.allow_unlisted_channels` already diverge |
+| `control_system.*` | `type` and `writes_enabled` already diverge |
 | `facility.*`, `channel_finder.query_max_rows`, `claude_code.servers.<name>.enabled` | capability-scoped |
 
 ## Per-preset (deliberate divergence)
@@ -152,7 +152,6 @@ Present only where the deployment has the capability.
 |---|---|---|
 | `control_system.writes_enabled` | `true` in `control-assistant`; `false` in `hello-world` | control-assistant is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
 | `web.theme` | live `light` in `control-assistant`; commented in `hello-world`; absent from the two standalones | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
-| `facility.name` | live `Example Research Facility` in the two standalones; commented in `hello-world`; absent from `control-assistant` | the standalones are demo deployments with a name to show; the other two fall back to the project name |
 | `facility.prefix` | commented in the two standalones, live `ca` in `control-assistant` | only the multi-user web-terminal stack reads it, so only the preset that ships one sets it |
 | `channel_finder.benchmark.dataset_path` | `control-assistant` only | see below |
 | `deployment.bind_address` (commented) | `hello-world`, `ariel-standalone`, `control-assistant` | absent ⇒ `127.0.0.1`, the safe state |
@@ -169,34 +168,28 @@ per-facility decision, so no preset may ship it live.
 `control_system.connector.<type>.limits_checking` is the same story for the
 limits posture, and is likewise **not** parity-required. It overrides the
 deployment-wide `control_system.limits_checking` block whole -- a per-type
-block states both `enabled` and `allow_unlisted_channels` and then answers
-alone. Only `virtual_accelerator`, `epics` and `live_standin` carry entries;
-`mock` and `doocs` write no block. `database_path` has no per-type spelling: a
+block states both `enabled` and `mode` and then answers
+alone. `database_path` has no per-type spelling: a
 deployment mounts one limits database, so that leaf stays deployment-wide, and a
-per-type block omitting it is complete rather than half-written.
+per-type block omitting it is complete rather than half-written. No preset
+states `database_path` either: the build derives it, writing
+`data/channel_limits.json` from `data/facility/limits.yaml` and naming that file
+in every render that states a limits block.
 
-The `epics` and `live_standin` blocks are written commented, so they are not in
-the union. The `virtual_accelerator` block is different, and the difference is
-the whole reason the per-type shape exists: `control-assistant` ships both of
-its leaves **live** and permissive, because the relaxation is about the
-simulator and must not reach the machine beside it. Parity is still not required
--- the other three presets carry no virtual-accelerator block at all -- but
-"no preset ships either leaf live" is false, and the manifest entries carry no
-`rendered: false` flag on that account.
+No preset writes a per-type limits block, so none is in the union and every
+per-type entry carries `rendered: false`.
 
 ### Keys nothing ships (`rendered: false`)
 
-Seventy-five manifest keys have real readers, real spellings and no writer among
-the framework template or the four presets. They are marked `rendered: false` so
+The manifest keys marked `rendered: false` have real readers, real spellings and
+no writer among the framework template or the four presets. They are marked `rendered: false` so
 the phantom-key check does not read them as manifest rot.
 
 The flag is checked in **both** directions. A key carrying it that IS in the
 union fails as a phantom-key contradiction naming the source that renders it,
 because otherwise the flag is a one-way escape: a key that starts being shipped
 keeps a marking saying nothing ships it, and the prose beside it goes on
-describing a commented example. Four entries had rotted exactly that way under
-the preset conversion -- `facility.prefix` and the three virtual-accelerator
-`limits_checking` paths, all live in `control-assistant`.
+describing a commented example.
 
 The preset conversion added twenty of the seventy-five, in three groups:
 
@@ -229,20 +222,20 @@ map), never membership.
 
 ### `facility` identity
 
-`facility.name` is canonical; top-level `facility_name` is the retired spelling,
-still honored as a fallback (`utils/facility.py`). No preset ships
-`facility_name` any more.
+The facility's display name is the build's facility identity. `facility.name`
+and the top-level `facility_name` are both retired spellings, and no preset
+ships either.
 
-**Guard note:** top-level `facility_name` is a resurrection candidate — it must
-not reappear in any preset, though the *reader* fallback stays.
+**Guard note:** both are resurrection candidates — neither may reappear in any
+preset.
 
 ### `channel_finder.benchmark` — resolved
 
 `channel-finder-standalone` ships no `benchmark:` block, and adding one would
 name a phantom path: only the control-assistant bundle ships the query corpus,
-and `materialize_tier_artifacts` returns silently for bundles with no
-`data/channel_databases/tiers/` subtree (`cli/templates/scaffolding.py`), which
-the channel-finder bundle does not have.
+and the build copies the mode's benchmark query file to
+`data/benchmarks/queries.json` (`cli/templates/scaffolding.py`); a bundle that
+ships none, as the channel-finder bundle does, has no `queries.json`.
 
 So benchmark **is** deliberately control-assistant-only. The command still works
 in the channel-finder deployment via `--queries-path`, which bypasses the config
@@ -270,8 +263,7 @@ omission.
    The 2-6-character lowercase-alnum-plus-hyphens rule this entry was opened
    against came from a schema document that no longer exists (it went with the
    `facility-config.yml` surface). The convention survives in prose only, and
-   the only validation anywhere is a non-emptiness lint
-   (`deployment/web_terminals/lint.py`, `_check_empty_facility_prefix`).
+   nothing in the tree validates `facility.prefix`.
 
    The absence is real, not an artifact of an incomplete search. The same lint
    module defines `_USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")`

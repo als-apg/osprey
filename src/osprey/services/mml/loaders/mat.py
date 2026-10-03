@@ -96,7 +96,9 @@ def load_lattice(path: Path | str) -> at.Lattice:
 
     Every element of the saved ring is kept, so a ``RingParam`` stays in place
     as a tagged marker and the MATLAB index of each element is its position in
-    the returned ring.
+    the returned ring. A Middle Layer deck describes one full ring or one line,
+    never a superperiod, so the ring always loads at periodicity 1 rather than
+    one guessed from its bend angles.
 
     Args:
         path: The ``.mat`` file whose ``THERING`` holds the ring.
@@ -112,7 +114,7 @@ def load_lattice(path: Path | str) -> at.Lattice:
 
     path = Path(path)
     try:
-        return at.load_mat(str(path), use=LATTICE_VARIABLE, keep_all=True)
+        return at.load_mat(str(path), use=LATTICE_VARIABLE, keep_all=True, periodicity=1)
     except Exception as exc:  # pyAT raises several unrelated types on a bad ring
         raise click.ClickException(f"Cannot read the lattice in {path}: {exc}") from exc
 

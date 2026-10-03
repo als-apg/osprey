@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_identity
 from osprey.utils.workspace import agent_data_base_dir
 
 if TYPE_CHECKING:
@@ -221,14 +221,13 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
 def _read_channel_roster(config) -> RosterResult | None:
     """Enumerate the facility's channels once, for the routes that answer them.
 
-    The graph paradigm's roster is the Turtle corpus the build stages for the
-    store, not the store itself, and reading it costs a multi-megabyte parse —
-    so it happens here, at startup, rather than once per request. The store is
-    never dialed for it: a corpus that is staged answers even while the store is
+    The roster is the facility file the build writes at the root of the render,
+    read once here at startup rather than once per request. The store is never
+    dialed for it: a render that holds the file answers even while the store is
     down, and a store that is up answers nothing this app can enumerate.
 
-    Fail-soft. A deployment pointed at a graph store somebody else runs stages
-    no corpus at all, and that is a serving app whose two enumeration routes say
+    Fail-soft. A deployment pointed at a graph store somebody else runs may hold
+    no facility file, and that is a serving app whose two enumeration routes say
     why they cannot answer — not a reason to refuse to start.
 
     Args:
@@ -311,7 +310,8 @@ def _create_lifespan(project_cwd: str | None = None):
         import httpx
 
         from osprey.services.channel_finder.utils.detection import detect_pipeline_config
-        from osprey.utils.workspace import load_osprey_config
+        from osprey.utils.config import default_config_path
+        from osprey.utils.workspace import load_osprey_config, resolve_config_path
 
         config = load_osprey_config()
         cf_config = config.get("channel_finder", {})
@@ -328,7 +328,16 @@ def _create_lifespan(project_cwd: str | None = None):
         pipeline_type, _db_config = detect_pipeline_config(config)
         app.state.pipeline_type = pipeline_type
         app.state.project_cwd = project_cwd or str(Path.cwd())
-        app.state.facility_name = resolve_facility_name(config, "")
+        # The render is where the loaded config sits; a process that loaded
+        # none still names the file it would have read.
+        loaded_config = default_config_path()
+        render_root = (
+            Path(loaded_config).parent
+            if loaded_config is not None
+            else resolve_config_path().parent
+        )
+        identity = facility_identity(render_root, config.get("project_name"))
+        app.state.facility_name = identity["name"] if identity is not None else ""
 
         # Initialize all available pipeline registries so the UI can switch
         available: list[str] = []

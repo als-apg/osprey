@@ -196,11 +196,11 @@ def render(
             "type": "live_standin",
             "writes_enabled": global_writes,
             # The keys a switch is judged on besides the gateways: a channel to
-            # probe, strict limits (required toward the live family) and the
+            # probe and the
             # operator's acknowledgement of the live gateway. Without them every
             # row would answer with an eligibility refusal and the roster could
             # not be exercised.
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            "limits_checking": {"enabled": True, "mode": "exclusive"},
             "target_switch": {"live_gateway_acknowledged": "operator@example"},
             "connector": {
                 "epics": {

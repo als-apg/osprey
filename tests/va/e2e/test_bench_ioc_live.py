@@ -371,9 +371,9 @@ def raw_config(
     the child selects, so a refused write is refused by the IOC rather than by a
     client that never asked.
 
-    The FR-8 posture is set for real -- strict limits against a database derived
-    from the shipped one, plus the operator acknowledgment -- so that
-    ``acknowledged=False`` isolates exactly one missing thing.
+    The FR-8 posture is set for real -- the operator acknowledgment -- so that
+    ``acknowledged=False`` isolates exactly one missing thing. Limits run
+    ``exclusive`` against a database derived from the shipped one.
     """
 
     def block(port: int) -> dict[str, Any]:
@@ -394,7 +394,7 @@ def raw_config(
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": False,
+                "mode": "exclusive",
                 "database_path": str(limits_db),
             },
             "target_switch": target_switch,

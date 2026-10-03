@@ -1172,7 +1172,7 @@ def test_every_ignored_file_has_a_host__mutation_a_host_that_only_ignores_the_fi
 
 def test_every_ignored_file_has_a_host__mutation_an_unhosted_ignore_is_reported() -> None:
     """A new ignore with no host anywhere must come back named, not swallowed
-    by the two entries that do have one."""
+    by the entries that do have one."""
     mutated = copy.deepcopy(_load_workflow())
     orphan = "tests/integration/test_nothing_else_runs_this.py"
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
@@ -1182,6 +1182,19 @@ def test_every_ignored_file_has_a_host__mutation_an_unhosted_ignore_is_reported(
     assert orphan in ignored, "the appended ignore did not reach the scan"
     unhosted = [path for path in ignored if not _unconditional_hosts(mutated, path)]
     assert unhosted == [orphan]
+
+
+#: The module that builds every shipped preset.
+PRESET_BUILD_TEST_FILE = "tests/integration/test_preset_build.py"
+
+
+def test_the_preset_build_runs_in_the_static_job_and_not_in_the_unit_lane(
+    workflow: dict[str, Any],
+) -> None:
+    """Every preset is built once per event, by the Tier 0 static job, rather
+    than once per cell of the unit lane's matrix."""
+    assert PRESET_BUILD_TEST_FILE in _unit_lane_ignored_files(workflow)
+    assert _unconditional_hosts(workflow, PRESET_BUILD_TEST_FILE) == [PARSE_ONLY_JOB]
 
 
 # ---------------------------------------------------------------------------
@@ -8112,3 +8125,219 @@ def test_cli_tool_inventory_check_runs_on_every_push__mutation_writes_instead() 
     step["run"] = step["run"].replace("--check", "--write")
     with pytest.raises(AssertionError):
         test_cli_tool_inventory_check_runs_on_every_push(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Web-terminal cleanup steps address containers by the compose project name
+# ---------------------------------------------------------------------------
+
+#: Every belt-and-suspenders cleanup step that removes web-terminal containers,
+#: with the compose project names its lane deploys. A web-terminal container is
+#: ``<project>-web-<user>`` / ``<project>-nginx`` / ``<project>-auth``, so an
+#: exact-named removal spelled any other way removes nothing the lane created.
+WEB_TERMINAL_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
+    (
+        "multi-user-deploy-lifecycle-e2e",
+        "Clean up any stranded lifecycle-e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "multi-user-deploy-lifecycle-e2e-podman",
+        "Clean up any stranded lifecycle-e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "qmd-sidecar-e2e",
+        "Clean up any stranded shared-bundle e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "auth-perimeter-e2e",
+        "Clean up any stranded auth-perimeter resources",
+    ): ("osprey-e2e-auth-perimeter",),
+    (
+        "terminal-auth-multiuser-e2e",
+        "Clean up any stranded terminal-auth-multiuser resources",
+    ): ("osprey-e2e-token-multiuser", "osprey-e2e-open-multiuser"),
+    (
+        "full-chain-auth-e2e",
+        "Clean up any stranded full-chain-auth resources",
+    ): ("osprey-e2e-full-chain-auth",),
+    (
+        "jupyter-panel-e2e",
+        "Clean up any stranded notebook-panel resources",
+    ): ("osprey-e2e-jnb",),
+}
+
+#: The lanes whose deploy builds the auth sidecar, which is ``<project>-auth``
+#: running ``<project>-assistant-auth:local``.
+AUTH_SIDECAR_CLEANUP_STEPS = (
+    ("auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"),
+    ("full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"),
+)
+
+_CONTAINER_REMOVAL = re.compile(r'\b(?:docker|podman) rm -f "?([^"\s]+)"?')
+
+
+def _cleanup_step_run(wf: dict[str, Any], job: str, step_name: str) -> str:
+    return _find_named_step(wf, job, step_name).get("run", "")
+
+
+def test_web_terminal_cleanup_removes_project_named_containers(
+    workflow: dict[str, Any],
+) -> None:
+    """Each cleanup step removes its lane's per-user and nginx containers by the
+    compose project name the same step tears down."""
+    for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
+        run = _cleanup_step_run(workflow, job, step_name)
+        removed = _CONTAINER_REMOVAL.findall(run)
+        for project in projects:
+            assert f"compose -p {project} down" in run, (
+                f"'{job}' / '{step_name}' does not tear down compose project {project}"
+            )
+            assert any(name.startswith(f"{project}-web-") for name in removed), (
+                f"'{job}' / '{step_name}' removes no {project}-web-<user> container"
+            )
+            assert f"{project}-nginx" in removed, (
+                f"'{job}' / '{step_name}' does not remove {project}-nginx"
+            )
+
+
+def test_web_terminal_cleanup_removes_only_project_named_containers(
+    workflow: dict[str, Any],
+) -> None:
+    """No exact-named removal in these steps is spelled off anything but one of
+    the step's own compose project names."""
+    for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
+        run = _cleanup_step_run(workflow, job, step_name)
+        removed = _CONTAINER_REMOVAL.findall(run)
+        assert removed, f"'{job}' / '{step_name}' removes no container"
+        strays = [
+            name
+            for name in removed
+            if not any(name.startswith(f"{project}-") for project in projects)
+        ]
+        assert not strays, (
+            f"'{job}' / '{step_name}' removes containers not named by its project: {strays}"
+        )
+
+
+def test_auth_sidecar_cleanup_removes_project_named_sidecar(workflow: dict[str, Any]) -> None:
+    """The auth lanes remove ``<project>-auth`` and its ``<project>-assistant-auth:local``
+    image."""
+    for job, step_name in AUTH_SIDECAR_CLEANUP_STEPS:
+        (project,) = WEB_TERMINAL_CLEANUP_STEPS[(job, step_name)]
+        run = _cleanup_step_run(workflow, job, step_name)
+        assert f"{project}-auth" in _CONTAINER_REMOVAL.findall(run), (
+            f"'{job}' does not remove the {project}-auth container"
+        )
+        assert f"rmi -f {project}-assistant-auth:local" in run, (
+            f"'{job}' does not remove the {project}-assistant-auth:local image"
+        )
+
+
+def test_web_terminal_cleanup_removes_project_named_containers__mutation_prefix_spelling() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"
+    )
+    original = step["run"]
+    step["run"] = original.replace("osprey-e2e-auth-perimeter-nginx", "authe2e-nginx")
+    assert step["run"] != original, "no project-named nginx removal — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_web_terminal_cleanup_removes_project_named_containers(mutated)
+
+
+def test_web_terminal_cleanup_removes_only_project_named_containers__mutation_stray() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated,
+        "multi-user-deploy-lifecycle-e2e",
+        "Clean up any stranded lifecycle-e2e resources",
+    )
+    step["run"] += "\ndocker rm -f e2e-nginx || true\n"
+    with pytest.raises(AssertionError):
+        test_web_terminal_cleanup_removes_only_project_named_containers(mutated)
+
+
+def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_image() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"
+    )
+    original = step["run"]
+    step["run"] = original.replace(
+        "osprey-e2e-full-chain-auth-assistant-auth:local", "fullchain-assistant-auth:local"
+    )
+    assert step["run"] != original, "no project-named sidecar image — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_auth_sidecar_cleanup_removes_project_named_sidecar(mutated)
+
+
+# ---------------------------------------------------------------------------
+# the graph-reseed lane: its own job, secret-free, out of the shared lane, gated
+# ---------------------------------------------------------------------------
+
+GRAPH_RESEED_JOB = "graph-reseed-e2e"
+GRAPH_RESEED_TEST_FILE = "tests/e2e/test_graph_reseed_stamp.py"
+GRAPH_RESEED_STEP = "Run graph reseed stamp E2E"
+
+
+def test_graph_reseed_job_runs_its_file_in_a_named_step(workflow: dict[str, Any]) -> None:
+    step = _find_named_step(workflow, GRAPH_RESEED_JOB, GRAPH_RESEED_STEP)
+    assert f"pytest {GRAPH_RESEED_TEST_FILE}" in step["run"]
+
+
+def test_graph_reseed_job_runs_its_file_in_a_named_step__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][GRAPH_RESEED_JOB]
+    with pytest.raises((AssertionError, KeyError)):
+        test_graph_reseed_job_runs_its_file_in_a_named_step(mutated)
+
+
+def test_graph_reseed_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """Every assertion in that file reads the store or the render; no model is
+    reached, so a secret here would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, GRAPH_RESEED_JOB, SECRET_TOKEN)
+
+
+def test_graph_reseed_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][GRAPH_RESEED_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        test_graph_reseed_job_has_no_llm_secret(mutated)
+
+
+def test_e2e_tests_ignores_the_graph_reseed_file(workflow: dict[str, Any]) -> None:
+    step = _find_named_step(workflow, E2E_TESTS_JOB, "Run E2E tests")
+    assert f"--ignore={GRAPH_RESEED_TEST_FILE}" in step["run"]
+
+
+def test_e2e_tests_ignores_the_graph_reseed_file__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], GRAPH_RESEED_TEST_FILE)
+    with pytest.raises(AssertionError):
+        test_e2e_tests_ignores_the_graph_reseed_file(mutated)
+
+
+def test_all_checks_passed_needs_graph_reseed(workflow: dict[str, Any]) -> None:
+    """``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
+    assert GRAPH_RESEED_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{GRAPH_RESEED_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_graph_reseed__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(GRAPH_RESEED_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_graph_reseed(mutated)
+
+
+def test_all_checks_passed_needs_graph_reseed__mutation_drops_check_pr_lane_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if GRAPH_RESEED_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_graph_reseed(mutated)

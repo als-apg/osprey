@@ -3,20 +3,16 @@
  * OSPREY Channel Finder — Middle Layer Explore (Three-Column Drill-Down)
  *
  * System -> Family -> Fields/Channels in a fixed three-column layout.
- * Inline CRUD: add/delete families, delete channels.
+ * Read-only: corrections go into data/facility/fixes.yaml and take effect with
+ * `osprey build`.
  */
 
-import { fetchJSON, postJSON, deleteJSON } from './api.js';
-import { showToast } from './app.js';
+import { fetchJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
-import { formModal, confirmModal } from './modal.js';
-import { refreshStatsBadges } from './stats-badges.js';
 import { groupFieldChannels } from './explore-grouping.js';
 
 /** @type {string|null} */
 let selectedSystem = null;
-/** @type {string|null} */
-let selectedFamily = null;
 let showDescriptions = false;
 /** @type {any} */
 let currentDeviceInfo = null;  // device arrangement info for current family
@@ -48,6 +44,9 @@ export function setShowDescriptions(val) {
  */
 export async function mountMiddleLayer(container) {
   container.innerHTML = `
+    <div class="cf-corrections-info" style="color: var(--text-muted); font-size: var(--cf-text-sm); margin-bottom: var(--cf-space-2);">
+      Corrections go in <code>data/facility/fixes.yaml</code> and take effect with <code>osprey build</code>.
+    </div>
     <div class="three-column-layout">
       <div class="column-panel" id="ml-systems">
         <div class="column-panel-header">Systems</div>
@@ -60,7 +59,6 @@ export async function mountMiddleLayer(container) {
         <div class="column-panel-body" id="ml-families-body">
           <div class="empty-state">Select a system</div>
         </div>
-        <div class="column-add-btn" id="ml-add-family" style="display: none;">+ Add Family</div>
       </div>
       <div class="column-panel" id="ml-channels">
         <div class="column-panel-header">Channels</div>
@@ -72,16 +70,12 @@ export async function mountMiddleLayer(container) {
   `;
 
   selectedSystem = null;
-  selectedFamily = null;
-
-  document.getElementById('ml-add-family')?.addEventListener('click', handleAddFamily);
 
   await loadSystems();
 }
 
 export function unmountMiddleLayer() {
   selectedSystem = null;
-  selectedFamily = null;
   currentDeviceInfo = null;
   activeSectors = new Set();
   activeDevices = new Set();
@@ -123,16 +117,11 @@ async function loadSystems() {
  */
 async function selectSystem(system) {
   selectedSystem = system;
-  selectedFamily = null;
 
   // Highlight
   document.querySelectorAll('#ml-systems-body .column-item').forEach(el => {
     el.classList.toggle('selected', /** @type {HTMLElement} */ (el).dataset.system === system);
   });
-
-  // Show add family button
-  const addBtn = document.getElementById('ml-add-family');
-  if (addBtn) addBtn.style.display = '';
 
   // Reset channels column
   const chBody = document.getElementById('ml-channels-body');
@@ -159,24 +148,13 @@ async function loadFamilies() {
         <div class="column-item" data-family="${esc(name)}">
           <div class="column-item-name">${esc(name)}</div>
           ${desc ? `<div class="column-item-desc${fullCls}">${esc(desc)}</div>` : ''}
-          <span class="item-actions">
-            <button class="item-action-btn action-delete" data-family="${esc(name)}" title="Delete">&times;</button>
-          </span>
         </div>
       `;
     }).join('') || '<div class="empty-state">No families</div>';
 
     body.querySelectorAll('.column-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        if (/** @type {HTMLElement} */ (e.target).closest('.item-action-btn')) return;
+      item.addEventListener('click', () => {
         selectFamily(/** @type {HTMLElement} */ (item).dataset.family ?? null);
-      });
-    });
-
-    body.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        handleDeleteFamily(/** @type {HTMLElement} */ (btn).dataset.family ?? null);
       });
     });
   } catch (e) {
@@ -193,7 +171,6 @@ let cachedFieldChannels = {};
  */
 async function selectFamily(family) {
   if (!selectedSystem || !family) return;
-  selectedFamily = family;
 
   // Highlight
   document.querySelectorAll('#ml-families-body .column-item').forEach(el => {
@@ -318,9 +295,6 @@ function renderChannelsPanel(body, fieldNames) {
             <span class="pv-name" style="font-size: var(--cf-text-sm);">${esc(item.name)}</span>${
               item.commonName ? `<span class="common-name">${esc(item.commonName)}</span>` : ''
             }
-            <span class="item-actions">
-              <button class="item-action-btn action-delete" data-field="${esc(field)}" data-channel="${esc(item.name)}" title="Delete channel">&times;</button>
-            </span>
           </div>`
         ).join('');
 
@@ -346,9 +320,6 @@ function renderChannelsPanel(body, fieldNames) {
         const name = typeof ch === 'string' ? ch : (ch.name || ch.channel || '');
         return `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
           <span class="pv-name" style="font-size: var(--cf-text-sm);">${esc(name)}</span>
-          <span class="item-actions">
-            <button class="item-action-btn action-delete" data-field="${esc(field)}" data-channel="${esc(name)}" title="Delete channel">&times;</button>
-          </span>
         </div>`;
       }).join('');
 
@@ -392,15 +363,6 @@ function renderChannelsPanel(body, fieldNames) {
     });
   });
 
-  // Wire up channel delete buttons
-  body.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const el = /** @type {HTMLElement} */ (btn);
-      handleDeleteChannel(el.dataset.field ?? null, el.dataset.channel ?? null);
-    });
-  });
-
   // Wire up filter chip toggles
   body.querySelectorAll('.filter-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -426,110 +388,4 @@ function renderChannelsPanel(body, fieldNames) {
       renderChannelsPanel(body, cachedFieldNames);
     });
   });
-}
-
-// ---- CRUD Handlers ----
-
-async function handleAddFamily() {
-  if (!selectedSystem) return;
-
-  const result = await formModal({
-    title: `Add Family to ${selectedSystem}`,
-    fields: [
-      { name: 'family', label: 'Family Name', required: true, placeholder: 'e.g., BPM' },
-      { name: 'description', label: 'Description', placeholder: 'Optional description' },
-    ],
-  });
-
-  if (!result) return;
-
-  try {
-    await postJSON('/api/structure/family', {
-      system: selectedSystem,
-      family: result.family,
-      description: result.description,
-    });
-    showToast(`Added family "${result.family}"`, 'success');
-    await loadFamilies();
-    refreshStatsBadges();
-  } catch (e) {
-    showToast(`Failed to add family: ${messageOf(e)}`, 'error');
-  }
-}
-
-/**
- * @param {string|null} family
- */
-async function handleDeleteFamily(family) {
-  if (!selectedSystem || !family) return;
-
-  // Get impact
-  let impactText = '';
-  try {
-    const impact = await postJSON('/api/structure/impact', {
-      system: selectedSystem,
-      family,
-    });
-    if (impact.affected_channels > 0) {
-      impactText = `This will remove ${impact.affected_channels} channel${impact.affected_channels !== 1 ? 's' : ''}.`;
-    }
-  } catch { /* ignore */ }
-
-  const confirmed = await confirmModal({
-    title: `Delete "${family}"?`,
-    message: `Remove family "${family}" and all its channels from ${selectedSystem}.`,
-    impact: impactText,
-    confirmLabel: 'Delete',
-    danger: true,
-  });
-
-  if (!confirmed) return;
-
-  try {
-    await deleteJSON('/api/structure/family', {
-      system: selectedSystem,
-      family,
-    });
-    showToast(`Deleted family "${family}"`, 'success');
-    if (selectedFamily === family) {
-      selectedFamily = null;
-      const chBody = document.getElementById('ml-channels-body');
-      if (chBody) chBody.innerHTML = '<div class="empty-state">Select a family</div>';
-    }
-    await loadFamilies();
-    refreshStatsBadges();
-  } catch (e) {
-    showToast(`Failed to delete family: ${messageOf(e)}`, 'error');
-  }
-}
-
-/**
- * @param {string|null} field
- * @param {string|null} channelName
- */
-async function handleDeleteChannel(field, channelName) {
-  if (!selectedSystem || !selectedFamily || !field || !channelName) return;
-
-  const confirmed = await confirmModal({
-    title: `Delete channel?`,
-    message: `Remove "${channelName}" from ${selectedSystem}:${selectedFamily}:${field}?`,
-    confirmLabel: 'Delete',
-    danger: true,
-  });
-
-  if (!confirmed) return;
-
-  try {
-    await deleteJSON('/api/structure/channel', {
-      system: selectedSystem,
-      family: selectedFamily,
-      field,
-      channel_name: channelName,
-    });
-    showToast(`Deleted "${channelName}"`, 'success');
-    await selectFamily(selectedFamily);
-    refreshStatsBadges();
-  } catch (e) {
-    showToast(`Failed to delete channel: ${messageOf(e)}`, 'error');
-  }
 }

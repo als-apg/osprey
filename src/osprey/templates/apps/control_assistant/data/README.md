@@ -11,33 +11,29 @@ and all three file-backed paradigms:
 
 ```
 data/
-├── raw/                                   # CSV address data (in_context build path)
-│   ├── CSV_EXAMPLE.csv                   # Example CSV format
-│   └── address_list.csv                  # Sample address list
 ├── channel_databases/
 │   ├── tiers/tier{1,3}/<paradigm>.json   # Staged databases, one per paradigm
 │   ├── examples/                         # Hierarchy-shape examples
 │   └── TEMPLATE_EXAMPLE.json             # Database format example
 ├── benchmarks/
-│   └── cross_paradigm/queries/           # Staged query sets, one per tier
+│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
 ├── channel_limits.json                    # Per-channel write limits
 ├── machine_state_channels.json            # Address list reconciled against the VA manifest
 ├── demo_machine.ttl                       # Knowledge-graph corpus (graph paradigm)
 ├── ariel/
 │   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
 │   └── README.md                         # Vocabulary format walkthrough
-├── facility_knowledge/                    # Markdown knowledge bundle
+├── facility/                              # The facility's authored sources
+│   └── knowledge/                         # Markdown knowledge bundle
 ├── lattice/                               # Accelerator lattice files
 └── simulation/                            # Mock-connector scenarios
 ```
 
-`osprey build` collapses the staged sets down to the ones your build profile
-selected. It copies the active paradigm's database to a flat
-`channel_databases/<paradigm>.json`, copies the tier-matching query file to a
-flat `benchmarks/queries.json`, and removes the `tiers/` and
-`benchmarks/cross_paradigm/` subtrees. `raw/` survives only for `in_context`
-builds — the CSV format cannot express a nested database, so it is dead weight
-for the other paradigms.
+`osprey build` copies the benchmark query file matching `channel_finder_mode`
+to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
+`tree_queries.json` for every other mode. Each channel-finder index is the view
+the build writes at its own path; nothing is flattened. The render drops the
+`benchmarks/cross_paradigm/`, `channel_databases/tiers/` and `raw/` subtrees.
 
 ## Database Paradigms
 
@@ -51,8 +47,8 @@ directory, seeded into the `services.graphdb` store.
 ### `in_context` — flat structure
 
 Best for fewer than about 1,000 channels. The whole database fits in the
-agent's context, so lookup is direct semantic search over a flat list of channel
-and template entries. This is the only paradigm with a CSV build path.
+agent's context, so lookup is direct semantic search over a flat list of
+channels.
 
 ### `hierarchical` — nested structure
 
@@ -71,42 +67,18 @@ the control system names them.
 Database tools are `osprey channel-finder` CLI subcommands. Each reads the
 active database from `config.yml` unless you pass `--database`.
 
-Build a database from CSV (`in_context` only):
-
-```bash
-osprey channel-finder build-database --csv data/raw/address_list.csv
-osprey channel-finder build-database --csv data/raw/address_list.csv --use-llm
-```
-
 Validate database format and structure:
 
 ```bash
 osprey channel-finder validate
-osprey channel-finder validate --database data/channel_databases/hierarchical.json
+osprey channel-finder validate --database data/channel_finder/hierarchical.json
 ```
 
 Preview database contents:
 
 ```bash
 osprey channel-finder preview
-osprey channel-finder preview --database data/channel_databases/hierarchical.json
-```
-
-## CSV Format
-
-The CSV consumed by `build-database` has these columns:
-
-```csv
-channel,address,description
-ChannelName1,PV:ADDRESS:1,Description of the channel
-ChannelName2,PV:ADDRESS:2,Description of the channel
-```
-
-For template-based channels (with multiple instances):
-
-```csv
-template_base_name,base_address,description,instances_start,instances_end,sub_channels
-QuadrupoleMagnet,Q{instance:02d},Quadrupole magnets,1,17,SetPoint|ReadBack
+osprey channel-finder preview --database data/channel_finder/hierarchical.json
 ```
 
 ## Benchmarks

@@ -318,7 +318,8 @@ def test_the_machine_group_reads_connector_archiver_and_channels(
     archiver = line_with(exemplar_lines, "archiver")
     assert "mongodb · 30 d retention" in archiver
     channels = line_with(exemplar_lines, "channels")
-    assert "graph finder · tier 3" in channels
+    assert "graph finder" in channels
+    assert "tier" not in channels
 
 
 def test_the_services_group_names_the_injected_stack(exemplar_lines: list[str]) -> None:

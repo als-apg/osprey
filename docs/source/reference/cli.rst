@@ -41,6 +41,7 @@ names another one explicitly.
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey mml                # Install a facility from its MATLAB Middle Layer
+   osprey facility           # Check the facility description under data/facility/
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy the agent record into var/archive
@@ -144,7 +145,7 @@ that edits configuration for you — the rendered ``build/config.yml`` is
 generated from it and is never hand-edited. Run ``osprey build`` to carry a
 setting through to ``build/``, then ``osprey up`` to deploy it.
 
-``KEY`` is a top-level profile key (``provider``, ``model``, ``tier``,
+``KEY`` is a top-level profile key (``provider``, ``model``,
 ``channel_finder_mode``, ``connector``) or a dotted path. Keys under ``config.``
 address the rendered config: ``config.control_system.type=epics`` writes that
 literal dotted entry into the profile's ``config:`` block. ``VALUE`` is read as
@@ -167,8 +168,8 @@ facilities' gateway addresses.
 
    osprey set model=claude-sonnet-5
    osprey set connector=epics
-   osprey set tier=1 channel_finder_mode=in_context
-   osprey set config.facility.name='Storage Ring'
+   osprey set channel_finder_mode=in_context
+   osprey set config.system.timezone=America/Los_Angeles
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
    osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
    osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
@@ -846,25 +847,10 @@ Copy framework services to your project for customization.
 osprey channel-finder
 =====================
 
-Tools for building, validating, previewing, and serving control system
+Tools for validating, previewing, serving and benchmarking control system
 channel databases.
 
 Options: ``--project PATH``, ``-v, --verbose``
-
-``osprey channel-finder build-database``
-   Build a channel database from a CSV file.
-
-   The CSV's ``address`` column *is* each family's address pattern: write the
-   address the way your machine spells it, with ``{instance:02d}`` where the
-   device number goes and ``{sub_channel}`` where the row's sub-channel goes,
-   and it is used as written --- separators, prefixes and level order are
-   yours. All rows of one family must give the same address, and it may name
-   only ``{instance}``, ``{sub_channel}``, ``{base}`` and ``{axis}``; a family
-   that breaks either rule stops the build by name. A family whose rows carry a
-   literal address instead gets ``<family>{instance:02d}{suffix}`` synthesised
-   from its name, as before. The ``instances`` column is a count
-   (``10`` means 1--10) or an explicit range (``4-11``) for a machine whose
-   device numbering does not start at one.
 
 ``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
    Validate a channel database JSON file. ``--pipeline`` names the paradigm: the
@@ -875,14 +861,6 @@ Options: ``--project PATH``, ``-v, --verbose``
 
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
-
-``osprey channel-finder generate (--source PATH | --demo) [--output-dir DIR] [--force] [--format in_context|hierarchical|middle_layer|all] [--tier 1|3|none] [--validate]``
-   Generate channel databases from a hierarchical template. Produces one
-   or more pipeline formats (default: all three) with optional tier filtering.
-   Name the source: ``--source`` for your own hierarchical database, ``--demo``
-   for the packaged demo one. Files already in the output directory are left
-   alone unless you pass ``--force`` --- the default output directory,
-   ``data/channel_databases/``, is the one the pipelines read.
 
 ``osprey channel-finder benchmark --model PROVIDER/WIRE_ID [--queries SPEC] [--runs-per-query N] [--concurrency N] [--output-dir DIR] [--queries-path PATH] [-v]``
    Run the benchmark harness against a channel-finder pipeline using a
@@ -900,10 +878,8 @@ and ``--pipeline`` does not offer ``graph`` for the same reason.
 
 .. code-block:: bash
 
-   osprey channel-finder build-database
    osprey channel-finder validate
    osprey channel-finder preview
-   osprey channel-finder generate --source my_channels.json --format hierarchical
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
 
@@ -980,7 +956,8 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    Four more inputs decide details:
 
    ``--limits``
-      ``control_system.limits_checking.database_path``. This file is what tells
+      ``control_system.limits_checking.database_path``, which ``osprey build``
+      sets to the render's ``data/channel_limits.json``. This file is what tells
       a readback from a setpoint, so the corpus and the write-safety layer agree
       on which channels are written. With no limits file configured the address
       grammar decides instead — a ``:SP`` subfield writes, everything else
@@ -1007,22 +984,21 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    ``--facility``
       The facility token. Every IRI and identifier the corpus mints embeds it,
       and each device carries it as ``narad_p:facility``. Unnamed, it is the
-      project's own ``facility.prefix`` --- the key the rest of the deployment
-      already reads --- and ``demo`` only when no config names one, which is
-      what the shipped demo corpus carries. The token has to be usable inside
+      project's own ``facility.prefix``, and ``demo`` only when no config
+      names one, which is what the shipped demo corpus carries. The token has to be usable inside
       an identifier: a letter or underscore, then letters, digits and
       underscores. Every run reports the token it minted with and the ontology
       table it emitted against, and a run that falls back to ``demo`` against a
       database that is not the packaged demo one says so.
 
    The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
-   source tree. A rendered project keeps only the paradigm it runs, as a flat
-   ``data/channel_databases/<paradigm>.json``, and prunes the tier tree — so
+   source tree. A rendered project carries only the index of the paradigm it
+   runs, at ``data/channel_finder/<paradigm>.json``, and no tier tree — so
    there is no neighbour to find and ``--descriptions`` has to be named there,
-   and ``--channel-db`` too unless the project runs the hierarchical paradigm
-   and its config already names the database. A graph-mode project ships no
-   channel database at all, so the command refuses there and says to name the
-   sources with ``--channel-db`` and ``--descriptions``.
+   and ``--channel-db`` too: a hierarchical project's index uses the
+   facility's own levels, not this verb's grammar. A graph-mode project ships
+   no channel database at all, so the command refuses there and says to name
+   the sources with ``--channel-db`` and ``--descriptions``.
 
    ``OUTPUT`` deliberately does **not** default to
    ``services.graphdb.ttl_path``: that key usually names a hand-curated corpus,
@@ -1161,7 +1137,7 @@ to end.
 ``osprey mml emit [--duckdb [PATH]]``
    Write the deployment's files under ``data/`` from the export and the checked
    mapping: the middle-layer channel database, the facility ontology as schema
-   and compiled table, the knowledge pages under ``data/facility_knowledge/``,
+   and compiled table, the knowledge pages under ``data/facility/knowledge/``,
    and the Turtle corpus named for the facility token. ``--duckdb`` also
    imports the database into DuckDB, at ``PATH`` or
    ``data/channel_databases/middle_layer.duckdb``; that copy holds one row per
@@ -1272,6 +1248,46 @@ to end.
    osprey mml map --check --no-derived
    osprey mml emit --duckdb
    osprey mml verify
+
+.. _cli-osprey-facility:
+
+osprey facility
+===============
+
+Check the facility description under ``data/facility/`` and import an export
+into it. See :doc:`/how-to/import-mml-export` for the import end to end.
+
+``osprey facility validate [--repo DIRECTORY]``
+   Run every check ``osprey build`` makes of ``data/facility/`` and render the
+   facility views against the repo's main profile in a temporary directory.
+   Nothing is written into the repo. A clean tree exits 0, and each model with
+   a kept ``imported/mml/<model>.response.json`` prints one
+   ``response check <model>: …`` line on stderr, pass or fail; a failing check
+   exits 1 before the render. Otherwise every error of the first failing stage
+   prints on stderr, one line each and sorted, and the command exits 1. A stale
+   fix's line carries the block to paste in its place. ``--repo`` names the
+   deployment repo; without it, the nearest ``profile.yml`` at or above the
+   current directory is used.
+
+``osprey facility import mml EXPORT... [--repo DIRECTORY]``
+   Write MML exports as the mml layer's sources under
+   ``data/facility/imported/mml/`` and seed each authored file that does not
+   exist yet. ``EXPORT`` is an export's ``<stem>.ao.json``; give every export
+   the mapping names. The mapping is checked against the exports first: a
+   problem prints one ``<key>: <message>`` line per problem, then
+   ``<n> problems in data/facility/imported/mml/mapping.yaml; fix each and
+   check again.`` (``1 problem`` for one), writes nothing and exits 1. A system
+   the mapping names and no given export carries is one such line,
+   ``models.<system>: <system> is no exported system``. A mapping with the
+   wrong structure, or a profile that does not resolve, prints a one-line
+   failure with its cause and exits 1. An authored record source that would
+   merge against the layer prints ``import mml: authored-present: <n> files``
+   (``1 file`` for one) and one ``rm <path>`` line per file and exits 1;
+   ``fixes.yaml``, ``classes.yaml`` and ``knowledge/`` are never named.
+
+``osprey facility import mml --print-exporter``
+   Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
+   export.
 
 osprey ariel
 ============

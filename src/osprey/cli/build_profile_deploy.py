@@ -29,8 +29,10 @@ from typing import Any
 from osprey.errors import BuildProfileError
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.types import (
+    LIMITS_BLOCK_LEAVES,
     LIMITS_CHECKING_LEAF,
     LIMITS_LEAVES,
+    LIMITS_MODES,
     SET_CONTROL_SYSTEM_TYPES,
 )
 
@@ -394,11 +396,10 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
     """Refuse a profile whose per-type ``limits_checking`` block will not render.
 
     ``control_system.connector.<type>.limits_checking`` overrides the
-    deployment-wide ``enabled`` / ``allow_unlisted_channels`` pair as a WHOLE
+    deployment-wide ``enabled`` / ``mode`` pair as a WHOLE
     block — there is no leaf inheritance — so a block stating one leaf has no
     posture to answer with, and every reader falls back to the failsafe
-    validator. That is a deployment quietly stricter (or, for the operator who
-    meant to relax a simulator, quietly unchanged) than the profile says.
+    validator. That is a deployment quietly stricter than the profile says.
 
     The other half of the check is about the render rather than the block. A
     ``config:`` entry reaches ``config.yml`` through
@@ -446,7 +447,10 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
           message names the shallower key and every deeper key inside it;
         * a per-type block stating one of its two leaves — the message names
           the connector type, the leaf the profile did state, and the missing
-          leaf.
+          leaf;
+        * a limits block, deployment-wide or per type, writing a leaf the
+          block does not define, or a ``mode`` that is not one of the two
+          modes — the message names the entry and the two allowed values.
     """
     if not isinstance(config, dict):
         return []
@@ -458,8 +462,22 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
 
     errors: list[str] = []
     named_types: set[str] = set()
+    modes = " | ".join(LIMITS_MODES)
+    mode_leaf = LIMITS_LEAVES[1]
 
-    for written, rendered, _value in _rendered_leaf_paths(config):
+    for written, rendered, value in _rendered_leaf_paths(config):
+        leaf = _limits_block_leaf(rendered)
+        if leaf is not None and leaf not in LIMITS_BLOCK_LEAVES:
+            errors.append(
+                f"The profile's config: block writes `{written}`, which is not a limits "
+                f"leaf. A limits block states `{LIMITS_LEAVES[0]}` and "
+                f"`{LIMITS_CHECKING_LEAF}.{mode_leaf}: {modes}`."
+            )
+        elif leaf == mode_leaf and value not in LIMITS_MODES:
+            errors.append(
+                f"The profile's config: block writes `{written}` as {value!r}. "
+                f"`{LIMITS_CHECKING_LEAF}.{mode_leaf}` is {modes}."
+            )
         if tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) != _CONNECTOR_SEGMENTS:
             continue
         below = rendered[len(_CONNECTOR_SEGMENTS) :]
@@ -481,7 +499,7 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
             f"      mypkg.MoatConnector:\n"
             f"        limits_checking:\n"
             f"          enabled: true\n"
-            f"          allow_unlisted_channels: false"
+            f"          mode: exclusive"
         )
 
     errors.extend(_mixed_depth_control_system_errors(config))
@@ -509,12 +527,29 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
             f"{', '.join(repr(leaf) for leaf in missing)}. A per-type block overrides the "
             f"deployment-wide `control_system.limits_checking` pair as a whole — no leaf is "
             f"inherited — so a block missing one has no posture to answer with, and every "
-            f"reader falls back to refusing unlisted channels. State both "
+            f"reader falls back to blocking every write. State both "
             f"{', '.join(repr(leaf) for leaf in LIMITS_LEAVES)}, or remove the block "
             f"and let the deployment-wide pair answer for this type."
         )
 
     return errors
+
+
+def _limits_block_leaf(rendered: list[str]) -> str | None:
+    """The limits leaf a rendered path names, or ``None`` when it names none.
+
+    The two places a limits block renders where a reader finds it:
+    ``control_system.limits_checking.<leaf>`` and
+    ``control_system.connector.<type>.limits_checking.<leaf>``.
+    """
+    if rendered[:1] != [_CONTROL_SYSTEM_KEY]:
+        return None
+    below = rendered[1:]
+    if len(below) >= 2 and below[0] == LIMITS_CHECKING_LEAF:
+        return below[1]
+    if len(below) >= 4 and below[0] == "connector" and below[2] == LIMITS_CHECKING_LEAF:
+        return below[3]
+    return None
 
 
 def _rendered_leaf_paths(config: Mapping[str, Any]) -> list[tuple[str, list[str], Any]]:

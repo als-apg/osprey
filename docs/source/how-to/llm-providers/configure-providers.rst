@@ -335,8 +335,6 @@ Every job that calls a model names its own id or runs on the main model:
 
 * ``claude_code.agent_models.<agent>`` — the model one agent runs; omitted, the
   main model.
-* ``channel_finder.channel_name_generation.llm_model.model_id`` — omitted, the
-  main model.
 * ``logbook.composition.model`` — the compose panel's model when the operator
   picks none; omitted, the main model. The panel offers the ids the provider
   serves.

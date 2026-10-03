@@ -65,10 +65,10 @@ from tests._control_context_fixtures import write_control_context
 UNLISTED_CHANNEL = "SANDBOX:POSTURE:PROBE"
 
 #: The deployment-wide key, which is what a strict refusal must name.
-DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.allow_unlisted_channels"
+DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.mode"
 
 #: The per-type key, which is what the relaxed VA posture answers with.
-VA_KEY = "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
+VA_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 #: Marks the one line of sandbox stdout the assertions read.
 VERDICT_PREFIX = "SINGLE_POSTURE_VERDICT "
@@ -150,14 +150,14 @@ def _write_deployment(root: Path) -> Path:
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": False,
+                "mode": "exclusive",
                 "database_path": "limits.json",
             },
             "connector": {
                 "virtual_accelerator": {
                     "limits_checking": {
                         "enabled": True,
-                        "allow_unlisted_channels": True,
+                        "mode": "optional",
                     }
                 }
             },
@@ -244,8 +244,8 @@ def test_permissive_target_allows_both_write_paths(deployment):
     # connector resolved its own posture from this type, independently.
     assert verdict["connector_type"] == "virtual_accelerator"
     assert verdict["injected_policy"] == {
-        "allow_unlisted_channels": True,
-        "allow_unlisted_key": VA_KEY,
+        "mode": "optional",
+        "mode_key": VA_KEY,
     }
 
 
@@ -264,6 +264,6 @@ def test_strict_target_refuses_both_write_paths(deployment):
 
     assert verdict["connector_type"] == "epics"
     assert verdict["injected_policy"] == {
-        "allow_unlisted_channels": False,
-        "allow_unlisted_key": DEPLOYMENT_WIDE_KEY,
+        "mode": "exclusive",
+        "mode_key": DEPLOYMENT_WIDE_KEY,
     }

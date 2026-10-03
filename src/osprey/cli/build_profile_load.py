@@ -21,6 +21,8 @@ from typing import Any
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.errors import BuildProfileError
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.served import SIMULATION_MODELS_KEY
 from osprey.port_layout import (
     DEFAULT_PORT_BASE,
     PORT_BASE_CONFIG_KEY,
@@ -28,9 +30,14 @@ from osprey.port_layout import (
     resolve_port_base,
 )
 from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
-from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
+from osprey_connectors.types import (
+    SET_CONTROL_SYSTEM_TYPES,
+    TARGET_STANDIN,
+    TARGET_VA,
+    baseline_target,
+)
 
-from .build_profile_archiver import parse_va_archiver_block
+from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
 from .build_profile_deploy import parse_deploy_block
 from .build_profile_document import (
     _normalize_empty_collections,
@@ -173,7 +180,6 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "provider",
         "model",
         "channel_finder_mode",
-        "tier",
         "config",
         "mcp_servers",
         "services",
@@ -463,6 +469,28 @@ _RETIRED_APP_TEMPLATE_REFUSAL = (
 )
 
 
+#: A profile key that selects nothing: the ``in_context`` tag on a channel
+#: record is what puts it in the in_context index, and ``channel_finder_mode``
+#: picks the benchmark query set, so a profile that spells it is stopped with
+#: what does the selecting rather than told the key is merely unknown.
+_RETIRED_TIER_KEY = "tier"
+
+
+def _retired_tier_refusal() -> FacilityBuildError:
+    """The ``profile-invalid`` stop for a profile that spells ``tier:``."""
+    return FacilityBuildError(
+        "profile-invalid",
+        _RETIRED_TIER_KEY,
+        ["profile.yml"],
+        f"remove `{_RETIRED_TIER_KEY}` from the profile",
+        record_kind="path",
+        detail=(
+            "`tier` is not a profile key; the `in_context` tag on a channel "
+            "selects the in_context subset"
+        ),
+    )
+
+
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """Reject unknown top-level profile keys, naming every one at once.
 
@@ -476,9 +504,12 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
 
     Raises:
         BuildProfileError: If any key is unrecognized.
+        FacilityBuildError: ``profile-invalid`` if the profile spells ``tier``.
     """
     if PRESET_DATA_BUNDLE_KEY in raw:
         raise BuildProfileError(_RETIRED_APP_TEMPLATE_REFUSAL)
+    if _RETIRED_TIER_KEY in raw:
+        raise _retired_tier_refusal()
     _reject_unknown_block_keys(raw.keys(), _KNOWN_PROFILE_KEYS, "profile")
 
 
@@ -784,6 +815,49 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def persona_served_models_error(
+    delta: Mapping[str, Any], resolved: Mapping[str, Any], delta_rel: str
+) -> FacilityBuildError | None:
+    """Refuse a persona's served-model list on a VA-baselined persona.
+
+    A persona's ``simulation.models`` selects what its in-process mock runs. A
+    persona whose baseline target is a VA instance (``va`` or ``standin``) is
+    served by the deployment's container, which serves one list: the
+    deployment render's. A list in the delta would silently not apply.
+
+    Args:
+        delta: The persona delta as read, before the merge.
+        resolved: The delta merged over its root profile.
+        delta_rel: The delta's path relative to the profile root.
+
+    Returns:
+        The ``profile-invalid`` stop, or ``None`` when the delta leaves the key
+        alone or the persona's baseline target is not a VA instance.
+    """
+    simulation = _expand_dotted(delta.get("config")).get("simulation")
+    if not (isinstance(simulation, dict) and "models" in simulation):
+        return None
+    control_system = _expand_dotted(resolved.get("config")).get("control_system")
+    section = dict(control_system) if isinstance(control_system, dict) else {}
+    shorthand = resolved.get(CONNECTOR_PROFILE_KEY)
+    if isinstance(shorthand, str) and shorthand.strip():
+        section["type"] = shorthand.strip()
+    target = baseline_target(section)
+    if target not in (TARGET_VA, TARGET_STANDIN):
+        return None
+    return FacilityBuildError(
+        "profile-invalid",
+        delta_rel,
+        [delta_rel],
+        f"remove `{SIMULATION_MODELS_KEY}` from {delta_rel}",
+        record_kind="path",
+        detail=(
+            f"a persona on the `{target}` target sets `{SIMULATION_MODELS_KEY}`, and that "
+            f"target serves the deployment's list"
+        ),
+    )
+
+
 def _apply_port_base_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     """Fold a top-level ``port_base:`` shorthand into the ``config:`` block.
 
@@ -995,7 +1069,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             timeout_sec=dispatch_raw.get("timeout_sec", 300),
             inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
             max_turns=max_turns,
-            facility_name=dispatch_raw.get("facility_name", ""),
             channel_strip_prefix=dispatch_raw.get("channel_strip_prefix", ""),
             network=dispatch_raw.get("network", "bridge"),
             env=dispatch_raw.get("env", []),
@@ -1017,11 +1090,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError(
                 "bluesky.excluded_plans must be a list of plan-name strings "
                 f"(got {excluded_plans!r})"
-            )
-        devices_file = bluesky_raw.get("devices_file", BlueskyConfig.devices_file)
-        if not isinstance(devices_file, str) or not devices_file:
-            raise BuildProfileError(
-                f"bluesky.devices_file must be a non-empty path string (got {devices_file!r})"
             )
         device_page_size = bluesky_raw.get("device_page_size", BlueskyConfig.device_page_size)
         if not is_positive_int(device_page_size):
@@ -1091,7 +1159,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             second_lane=bool(bluesky_raw.get("second_lane", False)),
             plan_dir=bluesky_raw.get("plan_dir"),
             excluded_plans=excluded_plans,
-            devices_file=devices_file,
             device_page_size=device_page_size,
             settle_timeout_s=float(settle_timeout_s),
             settle_tolerance=float(settle_tolerance),
@@ -1218,7 +1285,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),
-        tier=(int(raw["tier"]) if raw.get("tier") is not None else None),
         config=config,
         mcp_servers=mcp_servers,
         services=services,

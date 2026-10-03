@@ -281,8 +281,7 @@ def decommission_user(
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config, ignore_orphans=True)
-    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
-    remove_container(runtime, web_container_name(facility_prefix, user), env=env)
+    remove_container(runtime, web_container_name(resolve_project_name(config), user), env=env)
 
     # Authentication (no-op when off): purge the departed user's credentials,
     # reload the freshly rendered nginx routes, and recreate the sidecar so its
@@ -390,12 +389,9 @@ def prune_users(
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config, ignore_orphans=True)
-    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     project = resolve_project_name(config)
 
-    orphan_containers = _discover_orphan_containers(
-        runtime, project, facility_prefix, roster_names, env=env
-    )
+    orphan_containers = _discover_orphan_containers(runtime, project, roster_names, env=env)
     orphan_volumes = _discover_orphan_volumes(runtime, project, roster_names, env=env)
     orphan_users = sorted(set(orphan_containers) | set(orphan_volumes))
 
@@ -497,10 +493,9 @@ def remove_orphan_terminals(config: dict[str, Any]) -> dict[str, str]:
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config, ignore_orphans=True)
-    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     project = resolve_project_name(config)
 
-    orphans = _discover_orphan_containers(runtime, project, facility_prefix, roster_names, env=env)
+    orphans = _discover_orphan_containers(runtime, project, roster_names, env=env)
 
     removed: dict[str, str] = {}
     for user in sorted(orphans):
@@ -618,7 +613,6 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     env = runtime_env(config, ignore_orphans=True)
     project = resolve_project_name(config)
     repo_root = resolve_repo_root(config, config_path)
-    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
 
     volumes: list[str] = []
     for user in roster_names:
@@ -632,10 +626,10 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
         volumes.extend(user_volumes)
 
     # Roster personas' locally-built images. Lenient resolution (strict=False)
-    # means a stale/bad persona reference degrades to the zero-migration
+    # means a stale/bad persona reference degrades to the no-persona
     # (non-":local") image rather than blocking nuke — see resolve_personas.
     registry_cfg = as_dict(config.get("registry"))
-    personas_resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    personas_resolved = resolve_personas(web_terminals, registry_cfg, project, strict=False)
     candidate_images: list[str] = []
     for entry in personas_resolved:
         image = entry["image"]
@@ -1207,7 +1201,6 @@ def _compose_down_project(
 def _discover_orphan_containers(
     runtime: str,
     project: str,
-    facility_prefix: str,
     roster_names: set[str],
     *,
     env: dict[str, str] | None = None,
@@ -1222,15 +1215,14 @@ def _discover_orphan_containers(
     pins as ``COMPOSE_PROJECT_NAME``), so a sibling OSPREY deployment on the
     same host — even one whose project name shares a prefix with this one —
     can never contribute a false match. Within that project-scoped listing,
-    only containers matching ``<facility_prefix>-web-<user>`` are web-terminal
+    only containers matching ``<project>-web-<user>`` are web-terminal
     containers; anything else the project owns (nginx, base services, ...) is
     ignored here.
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
         project: This deployment's compose project name (the label value to
-            filter on).
-        facility_prefix: This facility's container-name prefix.
+            filter on, and the container-name prefix).
         roster_names: Current roster user names; matches are excluded.
         env: Environment for the subprocess call.
 
@@ -1251,7 +1243,7 @@ def _discover_orphan_containers(
         text=True,
         env=env,
     )
-    prefix = web_container_prefix(facility_prefix)
+    prefix = web_container_prefix(project)
     orphans: dict[str, str] = {}
     for line in result.stdout.splitlines():
         name = line.strip()

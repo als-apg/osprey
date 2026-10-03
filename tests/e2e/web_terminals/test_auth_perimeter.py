@@ -76,7 +76,7 @@ prime) and stages the locally-built wheel the image then overlays, so what runs
 here is this branch's code rather than a release.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
-this test created — the ``<prefix>-nginx`` / ``<prefix>-auth`` / ``<prefix>-web-
+this test created — the ``<project>-nginx`` / ``<project>-auth`` / ``<project>-web-
 <user>`` containers, this project's volumes, and the ``:local`` image tags — or
 is the project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing
 here ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
@@ -101,6 +101,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -122,6 +123,9 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
 # config.yml's project_name, the compose project, and the com.osprey.project
 # label on every image this deploy builds.
 PROJECT_NAME = "osprey-e2e-auth-perimeter"
+#: The compose project name the web tier's containers and the sidecar image
+#: are named by.
+PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
 PREFIX = "authe2e"
 PERSONA = "operator"
 PERSONA_PROJECT = f"{PREFIX}-operator"
@@ -146,14 +150,14 @@ BASE_PORTS = {
 #: back to the container that produced it.
 UPSTREAM_MARKER = "osprey-e2e-auth-perimeter upstream"
 
-AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
+AUTH_IMAGE_TAG = f"{PROJECT}-assistant-auth:local"
 # `<catalog project>:local`, exactly as resolve_personas derives a
 # local-mode persona tag. Teardown-only, but spelled the way the render spells
 # it so an `rmi` here removes the tag this deploy actually built.
 PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
 
-NGINX_C = f"{PREFIX}-nginx"
-AUTH_C = f"{PREFIX}-auth"
+NGINX_C = f"{PROJECT}-nginx"
+AUTH_C = f"{PROJECT}-auth"
 
 # The sidecar build is a real framework install; everything else here is alpine.
 DEPLOY_UP_TIMEOUT_SEC = 1800
@@ -177,7 +181,7 @@ _ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\n" + "".join(
 
 
 def _web_container(user: str) -> str:
-    return f"{PREFIX}-web-{user}"
+    return f"{PROJECT}-web-{user}"
 
 
 def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -345,7 +349,6 @@ def _profile_edits() -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.name": "E2E Auth Perimeter Fixture",
             "facility.prefix": PREFIX,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",

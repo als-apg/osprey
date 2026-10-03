@@ -1,7 +1,9 @@
 """Hierarchical Channel Finder MCP Registry — singleton config and database management.
 
 Provides centralized configuration access and HierarchicalChannelDatabase lifecycle
-management for all Hierarchical channel finder MCP tools.
+management for all Hierarchical channel finder MCP tools. The database is the
+hierarchical index the build writes from the facility file, at
+``channel_finder.pipelines.hierarchical.database.path``.
 
 Usage in tools:
     from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
@@ -16,11 +18,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from osprey.mcp_server.channel_finder_common import (
+    config_path,
     load_cf_config,
     resolve_cf_path,
     resolve_cf_state_path,
 )
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_identity
 
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.hierarchical import (
@@ -94,7 +97,9 @@ class ChannelFinderHierContext:
                     exc_info=True,
                 )
 
-        self._facility_name = resolve_facility_name(self._raw_config, "control system")
+        identity = facility_identity(config_path().parent, self._raw_config.get("project_name"))
+        if identity is not None:
+            self._facility_name = identity["name"]
 
         self._initialized = True
         logger.info("ChannelFinderHierContext: initialized")
@@ -116,7 +121,7 @@ class ChannelFinderHierContext:
 
     @property
     def facility_name(self) -> str:
-        """Facility name from config (e.g. 'Example Research Facility')."""
+        """The facility's display name: the facility file's, else the project name."""
         return self._facility_name
 
     @property

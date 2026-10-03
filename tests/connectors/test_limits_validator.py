@@ -31,7 +31,7 @@ def _make_validator(tmp_path, db: dict, policy: dict | None = None) -> LimitsVal
     limits_file = tmp_path / "limits.json"
     limits_file.write_text(json.dumps(db))
     limits_db, raw_db = LimitsValidator._load_limits_database(str(limits_file))
-    return LimitsValidator(limits_db, policy or {"allow_unlisted_channels": False}, raw_db)
+    return LimitsValidator(limits_db, policy or {"mode": "exclusive"}, raw_db)
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ def test_violation_always_raises_regardless_of_policy(tmp_path, on_violation_val
     validator = _make_validator(
         tmp_path,
         {"FOO": {"min_value": 0.0, "max_value": 10.0}},
-        policy={"allow_unlisted_channels": False, "on_violation": on_violation_value},
+        policy={"mode": "exclusive", "on_violation": on_violation_value},
     )
 
     with pytest.raises(ChannelLimitsViolationError) as exc:
@@ -296,7 +296,7 @@ class TestFromConfig:
         assert isinstance(validator, LimitsValidator)
         assert validator.limits == {}
         assert validator.failsafe_reason == (
-            "control_system.limits_checking does not state enabled as true/false"
+            "control_system.limits_checking does not state enabled as a readable value"
         )
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 1.0)
@@ -385,7 +385,7 @@ class TestFromConfig:
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": str(db_file),
                 "project_root": None,
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
 
@@ -404,7 +404,7 @@ class TestFromConfig:
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": "limits.json",
                 "project_root": str(tmp_path),
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
 
@@ -422,7 +422,7 @@ class TestFromConfig:
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": "limits.json",
                 "project_root": "/nonexistent/host/path",
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
 
@@ -456,7 +456,7 @@ class TestFromConfig:
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": "data/channel_limits.json",
                 "project_root": str(tmp_path),
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
             config_path=str(build / "config.yml"),
         )
@@ -467,10 +467,8 @@ class TestFromConfig:
         validator.validate("SR:C1:HCM:SP", 0.5)  # listed and in range: allowed
 
 
-DEPLOYMENT_WIDE_ALLOW_KEY = "control_system.limits_checking.allow_unlisted_channels"
-VA_ALLOW_KEY = (
-    "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-)
+DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
+VA_MODE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 
 def _limits_db(tmp_path) -> Path:
@@ -489,12 +487,12 @@ def _va_permissive_section() -> dict:
     """
     return {
         "type": VIRTUAL_ACCELERATOR,
-        "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+        "limits_checking": {"enabled": True, "mode": "exclusive"},
         "connector": {
             EPICS: {"gateway_address": "live.example"},
             VIRTUAL_ACCELERATOR: {
                 "gateway_address": "va.example",
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+                "limits_checking": {"enabled": True, "mode": "optional"},
             },
         },
     }
@@ -527,17 +525,15 @@ class TestFromConfigCallShapes:
         _patch_config(
             monkeypatch,
             {
-                "control_system": {
-                    "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
-                },
+                "control_system": {"limits_checking": {"enabled": True, "mode": "optional"}},
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
             },
         )
 
         validator = LimitsValidator.from_config()
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
 
     def test_no_arg_does_not_pick_up_a_per_type_block(self, monkeypatch, tmp_path):
         """The targetless question is deployment-wide and resolves no target.
@@ -557,8 +553,8 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config()
 
-        assert validator.policy["allow_unlisted_channels"] is False
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+        assert validator.policy["mode"] == "exclusive"
+        assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
 
     def test_connector_type_reads_that_type_s_block(self, monkeypatch, tmp_path):
         """A connector asks about its own type and gets its own block's answer."""
@@ -572,8 +568,8 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config(connector_type=VIRTUAL_ACCELERATOR)
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == VA_ALLOW_KEY
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == VA_MODE_KEY
 
     def test_connector_type_without_a_block_inherits_deployment_wide(self, monkeypatch, tmp_path):
         """The live machine wrote no block, so the deployment-wide one answers for it."""
@@ -587,8 +583,8 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config(connector_type=EPICS)
 
-        assert validator.policy["allow_unlisted_channels"] is False
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+        assert validator.policy["mode"] == "exclusive"
+        assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
 
     def test_target_reads_the_block_of_the_type_it_resolves_to(self, monkeypatch, tmp_path):
         """``va`` resolves to ``virtual_accelerator``, so the two shapes agree."""
@@ -602,8 +598,8 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config(target="va")
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == VA_ALLOW_KEY
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == VA_MODE_KEY
 
     def test_target_live_keeps_the_deployment_wide_refusal(self, monkeypatch, tmp_path):
         """The relaxation written for the simulator must not reach the machine."""
@@ -617,8 +613,8 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config(target="live")
 
-        assert validator.policy["allow_unlisted_channels"] is False
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+        assert validator.policy["mode"] == "exclusive"
+        assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
@@ -660,7 +656,7 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config(target="va")
 
-        assert "allow_unlisted_channels" in validator.failsafe_reason
+        assert "mode" in validator.failsafe_reason
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
@@ -688,14 +684,14 @@ class TestFromConfigMostRestrictive:
         validator = LimitsValidator.from_config_most_restrictive()
 
         assert validator.policy == {
-            "allow_unlisted_channels": False,
-            "allow_unlisted_key": DEPLOYMENT_WIDE_ALLOW_KEY,
+            "mode": "exclusive",
+            "mode_key": DEPLOYMENT_WIDE_MODE_KEY,
         }
 
     def test_all_permissive_targets_answer_permissive(self, monkeypatch, tmp_path):
         """Not a fail-closed constant: it reports what every reachable target wrote."""
         section = _va_permissive_section()
-        section["limits_checking"] = {"enabled": True, "allow_unlisted_channels": True}
+        section["limits_checking"] = {"enabled": True, "mode": "optional"}
         _patch_config(
             monkeypatch,
             {
@@ -706,8 +702,8 @@ class TestFromConfigMostRestrictive:
 
         validator = LimitsValidator.from_config_most_restrictive()
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
 
     @pytest.mark.parametrize("value", ["true", 1, "${OSPREY_LIMITS_ENABLED}"])
     def test_an_unreadable_reachable_leaf_yields_the_failsafe_and_not_none(
@@ -722,7 +718,7 @@ class TestFromConfigMostRestrictive:
         which machine it is touching the one waved through.
         """
         section = _va_permissive_section()
-        section["limits_checking"] = {"enabled": value, "allow_unlisted_channels": False}
+        section["limits_checking"] = {"enabled": value, "mode": "exclusive"}
         _patch_config(
             monkeypatch,
             {
@@ -736,7 +732,7 @@ class TestFromConfigMostRestrictive:
         assert isinstance(validator, LimitsValidator)
         assert validator.limits == {}
         assert validator.failsafe_reason == (
-            "control_system.limits_checking does not state enabled as true/false"
+            "control_system.limits_checking does not state enabled as a readable value"
         )
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("ANY:CHANNEL", 1.0)
@@ -745,10 +741,10 @@ class TestFromConfigMostRestrictive:
     def test_limits_disabled_everywhere_is_no_validator(self, monkeypatch, tmp_path):
         """No reachable target checks limits, so there is nothing to enforce."""
         section = _va_permissive_section()
-        section["limits_checking"] = {"enabled": False, "allow_unlisted_channels": False}
+        section["limits_checking"] = {"enabled": False, "mode": "exclusive"}
         section["connector"][VIRTUAL_ACCELERATOR]["limits_checking"] = {
             "enabled": False,
-            "allow_unlisted_channels": True,
+            "mode": "optional",
         }
         _patch_config(
             monkeypatch,
@@ -790,14 +786,14 @@ class TestFromPosture:
     def test_returns_none_when_posture_says_disabled(self, monkeypatch):
         """``enabled: false`` is limits checking off — no validator at all."""
         _patch_config(monkeypatch, {})
-        posture = LimitsPosture(enabled=False, allow_unlisted=True, connector_type=EPICS)
+        posture = LimitsPosture(enabled=False, mode="optional", connector_type=EPICS)
 
         assert LimitsValidator._from_posture(posture) is None
 
     def test_returns_none_when_posture_is_unstated(self, monkeypatch):
         """An unstated ``enabled`` is not a ``true`` — same answer as ``false``."""
         _patch_config(monkeypatch, {})
-        posture = LimitsPosture(enabled=None, allow_unlisted=None, connector_type=None)
+        posture = LimitsPosture(enabled=None, mode=None, connector_type=None)
 
         assert LimitsValidator._from_posture(posture) is None
 
@@ -809,13 +805,13 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=False, connector_type=None)
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
 
         validator = LimitsValidator._from_posture(posture)
 
         assert validator.policy == {
-            "allow_unlisted_channels": False,
-            "allow_unlisted_key": "control_system.limits_checking.allow_unlisted_channels",
+            "mode": "exclusive",
+            "mode_key": "control_system.limits_checking.mode",
         }
         assert "FOO" in validator.limits
 
@@ -831,15 +827,13 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=True, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode="optional", connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == (
-            "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == (
+            "control_system.connector.virtual_accelerator.limits_checking.mode"
         )
         validator.validate("NOT:LISTED", 1.0)  # permissive posture allows unlisted
 
@@ -851,7 +845,7 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=False, connector_type=EPICS)
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -859,12 +853,12 @@ class TestFromPosture:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
-    def test_unstated_allow_unlisted_refuses_unlisted_channels(self, monkeypatch, tmp_path):
-        """Tri-state: ``None`` is nobody's permission, so unlisted stays refused.
+    def test_unstated_mode_refuses_unlisted_channels(self, monkeypatch, tmp_path):
+        """``None`` is nobody's permission, so unlisted stays refused.
 
         The value is carried into the policy verbatim (``channel_limits``
-        reports it as ``null``) rather than collapsed to ``False``, but the
-        write path allows only on an explicit ``True``.
+        reports it as ``null``) rather than collapsed to ``exclusive``, but the
+        write path allows only on an explicit ``optional``.
         """
         db_file = tmp_path / "limits.json"
         db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
@@ -872,11 +866,11 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=None, connector_type=None)
+        posture = LimitsPosture(enabled=True, mode=None, connector_type=None)
 
         validator = LimitsValidator._from_posture(posture)
 
-        assert validator.policy["allow_unlisted_channels"] is None
+        assert validator.policy["mode"] is None
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
@@ -897,9 +891,9 @@ class TestFromPosture:
         )
         posture = LimitsPosture(
             enabled=None,
-            allow_unlisted=None,
+            mode=None,
             connector_type=VIRTUAL_ACCELERATOR,
-            incomplete=("allow_unlisted_channels",),
+            incomplete=("mode",),
         )
 
         validator = LimitsValidator._from_posture(posture)
@@ -908,7 +902,7 @@ class TestFromPosture:
         assert validator.limits == {}
         assert validator.failsafe_reason == (
             "control_system.connector.virtual_accelerator.limits_checking "
-            "does not state allow_unlisted_channels as true/false"
+            "does not state mode as a readable value"
         )
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 1.0)
@@ -919,16 +913,16 @@ class TestFromPosture:
         _patch_config(monkeypatch, {})
         posture = LimitsPosture(
             enabled=None,
-            allow_unlisted=None,
+            mode=None,
             connector_type="mypackage.MoatConnector",
-            incomplete=("enabled", "allow_unlisted_channels"),
+            incomplete=("enabled", "mode"),
         )
 
         validator = LimitsValidator._from_posture(posture)
 
         assert validator.failsafe_reason == (
             "control_system.connector.mypackage.MoatConnector.limits_checking "
-            "does not state enabled, allow_unlisted_channels as true/false"
+            "does not state enabled, mode as a readable value"
         )
 
     def test_missing_database_path_yields_blocking_failsafe(self, monkeypatch):
@@ -937,7 +931,7 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": None},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=True, connector_type=EPICS)
+        posture = LimitsPosture(enabled=True, mode="optional", connector_type=EPICS)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -955,9 +949,7 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=True, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode="optional", connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -980,9 +972,7 @@ class TestFromPosture:
                 "project_root": str(tmp_path),
             },
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=False, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -1001,19 +991,17 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=None, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode=None, connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
         assert json.loads(json.dumps(validator.policy)) == validator.policy
-        assert json.loads(json.dumps(validator.policy))["allow_unlisted_channels"] is None
+        assert json.loads(json.dumps(validator.policy))["mode"] is None
 
     def test_returns_none_when_config_unavailable(self, monkeypatch):
         """The config-unavailable envelope is unchanged: no config, no checking."""
         _patch_config(monkeypatch, {}, raise_exc=RuntimeError("no config"))
-        posture = LimitsPosture(enabled=True, allow_unlisted=False, connector_type=EPICS)
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
 
         assert LimitsValidator._from_posture(posture) is None
 
@@ -1215,7 +1203,7 @@ def _step_validator(max_step: float = 5.0) -> LimitsValidator:
             channel_address="FOO", min_value=0.0, max_value=100.0, max_step=max_step
         )
     }
-    return LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+    return LimitsValidator(limits, {"mode": "exclusive"}, {})
 
 
 def _reader(current):
@@ -1313,7 +1301,7 @@ class TestMaxStepCheck:
     def test_a_channel_without_max_step_needs_no_reader(self):
         """Only max_step costs a read, so every other channel validates with none."""
         limits = {"FOO": ChannelLimitsConfig(channel_address="FOO", min_value=0.0, max_value=100.0)}
-        validator = LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+        validator = LimitsValidator(limits, {"mode": "exclusive"}, {})
 
         validator.validate("FOO", 99.0)
 
@@ -1367,7 +1355,7 @@ class TestValidateWithoutStepCheck:
         limits = {
             "FOO": ChannelLimitsConfig(channel_address="FOO", writable=False, max_step=1.0),
         }
-        validator = LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+        validator = LimitsValidator(limits, {"mode": "exclusive"}, {})
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate_without_step_check("FOO", 1.0)
@@ -1390,11 +1378,11 @@ class TestValidateWithoutStepCheck:
 
 class TestValidate:
     def test_unlisted_allowed_when_policy_permits(self, tmp_path):
-        """allow_unlisted_channels=True lets an unknown channel through."""
+        """The optional mode lets an unknown channel through."""
         validator = _make_validator(
             tmp_path,
             {"FOO": {"max_value": 10.0}},
-            policy={"allow_unlisted_channels": True},
+            policy={"mode": "optional"},
         )
 
         # No raise: the channel is unlisted but policy allows it.
@@ -1626,11 +1614,9 @@ class TestNonNumericValues:
         validator.validate("STR:MSG", "beam dump in 5 min")
         validator.validate("STR:MSG", "nan")
 
-    def test_an_allowed_unlisted_channel_is_unchanged(self, tmp_path):
-        """No database entry, no limits: the unlisted policy alone answers."""
-        validator = _make_validator(
-            tmp_path, self.LIMITED, policy={"allow_unlisted_channels": True}
-        )
+    def test_a_channel_with_no_record_under_the_optional_mode_is_unchanged(self, tmp_path):
+        """No database entry, no limits: the optional mode alone answers."""
+        validator = _make_validator(tmp_path, self.LIMITED, policy={"mode": "optional"})
 
         validator.validate("NOT:IN:DB", "0x10")
 
@@ -1654,17 +1640,15 @@ class TestNonNumericValues:
 class TestUnlistedRefusalNamesKey:
     """An unlisted-channel refusal quotes the config line an operator can edit.
 
-    A deployment may answer `allow_unlisted_channels` per connector type, so
+    A deployment may state `mode` per connector type, so
     the deployment-wide key is not always the one in force: quoting it on a
     deployment whose per-type block overrides it would send an operator to
     flip a line that changes nothing. The validator carries the answering key
     in its policy (`_from_posture`) and the refusal repeats it.
     """
 
-    DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.allow_unlisted_channels"
-    PER_TYPE_KEY = (
-        "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-    )
+    DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.mode"
+    PER_TYPE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
     def test_refusal_names_the_per_type_key_the_policy_carries(self, tmp_path):
         """A per-type block answered, so its key is the one worth quoting."""
@@ -1672,8 +1656,8 @@ class TestUnlistedRefusalNamesKey:
             tmp_path,
             {"FOO": {"max_value": 10.0}},
             policy={
-                "allow_unlisted_channels": False,
-                "allow_unlisted_key": self.PER_TYPE_KEY,
+                "mode": "exclusive",
+                "mode_key": self.PER_TYPE_KEY,
             },
         )
 
@@ -1693,7 +1677,7 @@ class TestUnlistedRefusalNamesKey:
         validator = _make_validator(
             tmp_path,
             {"FOO": {"max_value": 10.0}},
-            policy={"allow_unlisted_channels": False},
+            policy={"mode": "exclusive"},
         )
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
@@ -1716,14 +1700,14 @@ class TestUnlistedRefusalNamesKey:
         """Tri-state: a stored `None` is unset, and unset refuses.
 
         The posture carries the unstated answer verbatim so `channel_limits`
-        can report it as `null`; the write path allows only an explicit `True`.
+        can report it as `null`; the write path allows only an explicit `optional`.
         """
         validator = _make_validator(
             tmp_path,
             {"FOO": {"max_value": 10.0}},
             policy={
-                "allow_unlisted_channels": None,
-                "allow_unlisted_key": self.PER_TYPE_KEY,
+                "mode": None,
+                "mode_key": self.PER_TYPE_KEY,
             },
         )
 
@@ -1733,13 +1717,13 @@ class TestUnlistedRefusalNamesKey:
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
         assert self.PER_TYPE_KEY in exc.value.violation_reason
 
-    @pytest.mark.parametrize("truthy", ["true", 1, "yes"])
-    def test_only_a_real_true_allows_unlisted_channels(self, tmp_path, truthy):
-        """A truthy non-bool is a config mistake, not permission to write."""
+    @pytest.mark.parametrize("truthy", ["true", 1, "yes", True, "Optional"])
+    def test_only_the_optional_mode_allows_unlisted_channels(self, tmp_path, truthy):
+        """Anything but ``optional`` is a config mistake, not permission to write."""
         validator = _make_validator(
             tmp_path,
             {"FOO": {"max_value": 10.0}},
-            policy={"allow_unlisted_channels": truthy},
+            policy={"mode": truthy},
         )
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
@@ -1894,7 +1878,7 @@ class TestLoadConfiguredDatabase:
             monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
                 "control_system.limits_checking.database_path": str(tmp_path / "gone.json"),
             },
         )

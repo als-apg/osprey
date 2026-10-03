@@ -1,0 +1,136 @@
+id: https://narad.example.org/schema/facility_bindings
+name: facility_bindings
+title: NARAD Facility Bindings Schema
+description: >
+  Schema for facility-specific control-system bindings: how shared semantic
+  signals map onto concrete PV names, suffixes, protocols, and access directions
+  at a particular facility.
+
+prefixes:
+  narad_bind: https://narad.example.org/schema/facility_bindings/
+  linkml: https://w3id.org/linkml/
+
+default_prefix: narad_bind
+default_range: string
+
+imports:
+  - linkml:types
+
+enums:
+  direction_enum:
+    permissible_values:
+      read:
+      write:
+      readwrite:
+
+  control_system_enum:
+    permissible_values:
+      epics:
+      tango:
+      ads:
+      unknown:
+
+  confidence_enum:
+    permissible_values:
+      high:
+        description: Mapping is well-established (explicit suffix rule, curated).
+      medium:
+        description: Mapping is likely correct but inferred (heuristic or naming convention).
+      low:
+        description: Mapping is speculative or the suffix had no matching rule.
+      unknown:
+
+classes:
+  FacilityBindingsDataset:
+    tree_root: true
+    description: Container for all channel bindings for one facility / beamline export.
+    slots:
+      - bindings_dataset_id
+      - facility
+      - canonical_source_id
+      - control_system
+      - bindings
+
+  ChannelBinding:
+    description: >
+      A single binding that links a canonical device + semantic signal to a
+      concrete control-system channel (PV name or equivalent).
+    slots:
+      - binding_id
+      - facility
+      - control_system
+      - canonical_device_id
+      - semantic_signal
+      - pv_base
+      - suffix
+      - full_pv
+      - direction
+      - protocol
+      - confidence
+      - provenance_note
+
+slots:
+  bindings_dataset_id:
+    identifier: true
+    required: true
+
+  facility:
+    required: true
+
+  canonical_source_id:
+    description: The dataset_id of the canonical ingest dataset this was derived from.
+    required: true
+
+  control_system:
+    range: control_system_enum
+    required: true
+
+  bindings:
+    range: ChannelBinding
+    multivalued: true
+    required: true
+    inlined_as_list: true
+
+  binding_id:
+    identifier: true
+    required: true
+
+  canonical_device_id:
+    description: Matches device_id in the canonical ingest dataset.
+    required: true
+
+  semantic_signal:
+    description: >
+      The semantic signal role this binding satisfies (from semantic_signal_enum).
+      Null if no semantic mapping was found for this suffix/device combination.
+    required: false
+
+  pv_base:
+    description: The base PV name (typically the EPICSName or device name).
+    required: false
+
+  suffix:
+    description: The PV suffix or record extension (e.g. .S, M, .BDL, .VAL).
+    required: false
+
+  full_pv:
+    description: >
+      The fully-qualified PV name, if known. Either full_pv or (pv_base + suffix)
+      should be resolvable.
+    required: false
+
+  direction:
+    range: direction_enum
+    required: false
+
+  protocol:
+    description: Control system protocol (e.g. ca for Channel Access, pva for PVAccess).
+    required: false
+
+  confidence:
+    range: confidence_enum
+    required: false
+
+  provenance_note:
+    description: Free-text note explaining how this binding was derived.
+    required: false

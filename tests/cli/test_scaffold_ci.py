@@ -182,7 +182,7 @@ def test_the_verb_needs_no_arguments_inside_the_repo(
     Position-independence is the resolver's contract, and it is what lets the
     emitted pipeline run the same commands a laptop does.
     """
-    monkeypatch.chdir(repo / "data" / "facility_knowledge")
+    monkeypatch.chdir(repo / "data" / "facility" / "knowledge")
 
     result = runner.invoke(scaffold, ["ci"])
 

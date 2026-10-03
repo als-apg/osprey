@@ -3,7 +3,7 @@
 A limits file is a safety artifact: a key the loader does not recognise is a
 key whose intent was not applied. Before, an unknown field only warned and a
 broken channel entry was skipped, so a typo silently downgraded a channel to
-"unlisted" — and with ``allow_unlisted_channels: true`` that means unlimited.
+"unlisted" — and with ``mode: optional`` that means unlimited.
 Now one bad entry refuses the whole load, and the operator-facing refusal names
 the offending key.
 """
@@ -16,7 +16,7 @@ from osprey.connectors.control_system.limits_validator import LimitsValidator
 from osprey.errors import ChannelLimitsViolationError
 
 
-def _patch_config(monkeypatch, db_file, allow_unlisted: bool = False):
+def _patch_config(monkeypatch, db_file, mode: str = "exclusive"):
     """Point from_config at a limits file on disk.
 
     ``from_config`` reads the nested ``control_system`` section to resolve the
@@ -27,12 +27,12 @@ def _patch_config(monkeypatch, db_file, allow_unlisted: bool = False):
         "control_system": {
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": allow_unlisted,
+                "mode": mode,
             },
         },
         "control_system.limits_checking.enabled": True,
         "control_system.limits_checking.database_path": str(db_file),
-        "control_system.limits_checking.allow_unlisted_channels": allow_unlisted,
+        "control_system.limits_checking.mode": mode,
         "project_root": None,
     }
     monkeypatch.setattr(
@@ -47,9 +47,9 @@ def _write_db(tmp_path, db: dict):
     return limits_file
 
 
-def _refusal(monkeypatch, tmp_path, db: dict, allow_unlisted: bool = False) -> str:
+def _refusal(monkeypatch, tmp_path, db: dict, mode: str = "exclusive") -> str:
     """Load through from_config and return the refusal an operator would see."""
-    _patch_config(monkeypatch, _write_db(tmp_path, db), allow_unlisted=allow_unlisted)
+    _patch_config(monkeypatch, _write_db(tmp_path, db), mode=mode)
 
     validator = LimitsValidator.from_config()
 
@@ -97,14 +97,14 @@ class TestUnknownFields:
     def test_typo_refusal_names_the_key_even_when_unlisted_channels_are_allowed(
         self, monkeypatch, tmp_path
     ):
-        # allow_unlisted_channels used to be the dangerous half of this bug: the
+        # ``mode: optional`` is the dangerous half of this bug: the
         # typo'd channel was dropped from the database, and an unlisted channel
         # was then waved through with no limits at all.
         reason = _refusal(
             monkeypatch,
             tmp_path,
             {"FOO": {"max_value": 10.0, "confrim": True}},
-            allow_unlisted=True,
+            mode="optional",
         )
 
         assert "confrim" in reason

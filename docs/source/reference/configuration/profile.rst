@@ -51,12 +51,6 @@ Profile YAML reference
        ``in_context``, ``graph``). ``graph`` searches the deployment's graph
        store instead of a channel database, so it needs a ``services.graphdb``
        block (see :ref:`profile-graph-mode`).
-   * - ``tier``
-     - int
-     - derived
-     - Channel-database tier (1 or 3). Defaults from the channel finder mode;
-       tier 1 is ``in_context``-only. ``graph`` has no tiered artifacts at all —
-       leave ``tier`` unset there.
    * - ``connector``
      - string
      - *from preset*
@@ -203,14 +197,16 @@ the framework reads and what it falls back to when no line spells it.
      # itself. Only a literal `true` arms writes, at either level.
      control_system.writes_enabled: true
      # Limits checking. This pair is the deployment's, and every type
-     # inherits it ...
+     # inherits it: `exclusive` = only channels in the limits file can be
+     # written, `optional` = channels in the file are held to their limits and
+     # every other channel is written with no limits ...
      control_system.limits_checking.enabled: true
-     control_system.limits_checking.allow_unlisted_channels: false
+     control_system.limits_checking.mode: exclusive
      # ... while a per-type block replaces it whole for one type, and does not
      # fall back to the keys above. Both settings have to be stated: one alone
      # is refused by `osprey build` and `osprey validate`.
      control_system.connector.virtual_accelerator.limits_checking.enabled: true
-     control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+     control_system.connector.virtual_accelerator.limits_checking.mode: optional
 
      # Archiver: where history is read from. Required alongside a control
      # system.
@@ -226,7 +222,7 @@ the framework reads and what it falls back to when no line spells it.
      approval.default_policy: always
 
 That is the shape ``osprey init --preset control-assistant`` writes, with the
-timezone changed. Pointing the same deployment at a real machine
+timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (``control_system.type: epics``) is a larger edit than the one line, because
 two things the preset ships are scoped to the simulated baseline: the
 ``va_archiver:`` block records a machine the deployment would no longer be
@@ -255,7 +251,7 @@ build`` refuses each in turn rather than rendering it. See
           mypkg.MoatConnector:
             limits_checking:
               enabled: true
-              allow_unlisted_channels: false
+              mode: exclusive
 
    **That entry replaces the whole rendered connector section.** ``connector``
    is the last key of the dotted prefix, and a leaf is assigned verbatim — so
@@ -838,10 +834,6 @@ the deployment into the event dispatcher and its workers.
        ``DISPATCH_MAX_TURNS``; the budget about the work rather than the clock.
        A trigger may state its own ``max_turns:`` under ``action:``; one that
        names none gets this.
-   * - ``facility_name``
-     - ``""``
-     - Display name the dispatcher dashboard shows. Unset shows the
-       deployment's ``facility.name``.
    * - ``channel_strip_prefix``
      - ``""``
      - Leading prefix trimmed off a channel address before the dashboard shows
@@ -865,9 +857,9 @@ Graph-mode channel finding
 ``channel_finder_mode: graph`` points the channel finder at the deployment's
 graph store: the agent searches the facility knowledge graph for channels
 instead of reading a channel database. The store *is* the database, so the
-profile ships no channel-database inputs and pins no ``tier`` — what it does
-need is a ``services.graphdb`` block, and the paradigm works with either shape
-that block comes in.
+profile ships no channel-database inputs. What it does need is a
+``services.graphdb`` block, and the paradigm works with either shape that block
+comes in.
 
 A deployment that runs its own store already has one.
 ``osprey init --preset control-assistant`` writes the ``services.graphdb.*``
@@ -879,7 +871,7 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
 
    name: control-room
    provider: anthropic
-   channel_finder_mode: graph     # no `tier` — graph has no tiered artifacts
+   channel_finder_mode: graph
    data: data
    config:
      services.graphdb.path: ./services/graphdb
@@ -1060,22 +1052,18 @@ has no opinion about, and is yours to write.
 **What the block does not decide.** Write posture, limits checking and the
 operator acknowledgment are the profile's, on a stand-in deployment exactly as on
 any other: they describe how the *deployment* is run, not where one of its
-targets lives. In particular, a switch to ``standin`` (like one to ``live``)
-requires the strict limits posture, so a profile that stands a stand-in up
-normally writes the pair itself:
+targets lives. The limits pair is the deployment's, and the stand-in inherits
+it:
 
 .. code-block:: yaml
 
    config:
      control_system.limits_checking.enabled: true
-     control_system.limits_checking.allow_unlisted_channels: false
+     control_system.limits_checking.mode: optional
 
-That pair is the deployment's, and the stand-in inherits it: the build writes no
-``limits_checking`` block under ``control_system.connector.live_standin``, and a
-profile should not either, since a permissive block there would make
-``control_target_set standin`` refuse the very rehearsal the stand-in exists
-for. A simulator beside it is where a per-type block belongs — see
-:ref:`limits-checking-config`.
+The build writes no ``limits_checking`` block under
+``control_system.connector.live_standin``. See :ref:`limits-checking-config`
+for the two modes and the per-type block.
 
 ``control_system.target_switch.live_gateway_acknowledged`` stays the live
 machine's alone — the stand-in's equivalent is the ``live_standin`` line itself.
@@ -1400,7 +1388,7 @@ bluesky
 
 The ``bluesky:`` section configures the Bluesky stack a deployment brings up —
 the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
-store. It accepts exactly eight keys; a misspelled or unknown key **fails the
+store. It accepts exactly twelve keys; a misspelled or unknown key **fails the
 build** and prints the valid set:
 
 .. list-table::
@@ -1425,10 +1413,6 @@ build** and prints the valid set:
        :doc:`/how-to/bluesky/write-plans`.
    * - ``excluded_plans``
      - Plans to remove from the catalog entirely, e.g. ``[orm]``.
-   * - ``devices_file``
-     - The file listing the devices plans may drive or record
-       (default ``data/bluesky_devices.yml``) — see
-       :doc:`/how-to/bluesky/write-plans`.
    * - ``device_page_size``
      - How many devices the bridge lists at once (default 500). A larger set
        is served a page at a time and can be narrowed by an exact name
@@ -1452,6 +1436,16 @@ build** and prints the valid set:
      - How many rows of one run the bridge stores (default 10000). Rows past
        the cap are still counted, so a long run reports its true length over a
        truncated buffer.
+   * - ``external``
+     - An externally-run RE Manager this deployment's bridge fronts, as a
+       block of ``zmq_control_addr`` (required, the manager's 0MQ control
+       socket as the bridge container dials it), ``zmq_public_key_env`` (the
+       ``.env`` variable holding the manager's CURVE public key, treated as a
+       secret), ``insecure_plaintext``, ``tiled_uri`` and
+       ``tiled_api_key_env`` (the facility's Tiled, read by the bridge), and
+       ``parameter_schemas``. No queueserver, Redis or Tiled container is
+       rendered for the lane; exclusive with ``second_lane`` and
+       ``tiled_enabled``.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for

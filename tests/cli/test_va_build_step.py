@@ -349,13 +349,19 @@ class TestGeneratedFromProfileData:
         ).read_bytes()
 
 
+def _drop_every_channel_source(repo_dir: Path) -> None:
+    """Leave the tree neither a channel database nor a facility record."""
+    shutil.rmtree(repo_dir / "data" / "channel_databases" / "tiers")
+    shutil.rmtree(repo_dir / "data" / "facility")
+
+
 class TestSkippedWithoutParadigmDatabases:
     """A tree that can't back a manifest wires nothing at all."""
 
     def test_neither_files_nor_env_keys_appear(self, tmp_path):
         repo_dir = tmp_path / "repo"
         _write_profile(repo_dir)
-        shutil.rmtree(repo_dir / "data" / "channel_databases" / "tiers")
+        _drop_every_channel_source(repo_dir)
 
         project_dir = _build(repo_dir)
 
@@ -367,7 +373,7 @@ class TestSkippedWithoutParadigmDatabases:
     def test_a_pointer_left_over_from_a_working_build_is_reported(self, tmp_path, caplog):
         """The one case the append-only rule cannot fix by itself.
 
-        A repo that built a manifest once and then lost the databases behind it
+        A repo that built a manifest once and then lost the channels behind it
         keeps the pointer — the build does not own the operator's copy of that
         file and will not edit a value out of it. What it must not do is stay
         quiet: the pointer now names a file the mounted directory no longer
@@ -378,7 +384,7 @@ class TestSkippedWithoutParadigmDatabases:
         repo_dir = tmp_path / "repo"
         _write_profile(repo_dir)
         (repo_dir / ".env").write_text(f"VA_CHANNELS_FILE={MANIFEST_FILENAME}\n")
-        shutil.rmtree(repo_dir / "data" / "channel_databases" / "tiers")
+        _drop_every_channel_source(repo_dir)
 
         with caplog.at_level(logging.WARNING):
             _build(repo_dir)

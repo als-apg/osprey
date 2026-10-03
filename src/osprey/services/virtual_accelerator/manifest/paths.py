@@ -24,16 +24,23 @@ _TEMPLATES_ROOT = Path(osprey.templates.__file__).parent
 
 _CONTROL_ASSISTANT_DATA = _TEMPLATES_ROOT / "apps" / "control_assistant" / "data"
 
-# Build-resolved default tier for the control-assistant preset. The preset's
-# `channel_finder_mode` defaults to "hierarchical"
-# (src/osprey/profiles/presets/control-assistant.yml), and
-# BuildProfile.resolved_tier() maps that to tier 3 (in_context -> tier 1,
-# every other mode -> tier 3; see src/osprey/cli/build_profile.py).
-# All three file-backed paradigm DBs are address-identical at tier 3 (verified
-# by build.build_manifest()'s cross-paradigm check), so tier 3 is the default
+# The tier the bundled control-assistant tree is expanded at. Every mode
+# except in_context reads the tier-3 databases (see _manifest_tier), and all
+# three file-backed paradigm DBs are address-identical at tier 3 (verified by
+# build.build_manifest()'s cross-paradigm check), so tier 3 is the default
 # tier this generator expands. The `graph` mode has no tier file at all, so it
 # adds no fourth DB here.
 DEFAULT_TIER = 3
+
+
+def _manifest_tier(channel_finder_mode: str | None) -> int:
+    """The tier whose paradigm databases the manifest reads for a mode.
+
+    ``in_context`` reads tier 1; every other mode reads tier 3. ``graph`` ships
+    no tier database of its own, so for it the tier names only which file-backed
+    databases the manifest expands.
+    """
+    return 1 if channel_finder_mode == "in_context" else 3
 
 
 @dataclass(frozen=True)

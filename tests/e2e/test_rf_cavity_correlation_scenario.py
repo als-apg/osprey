@@ -130,17 +130,12 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     # cause), which Haiku reliably bails on by dumping data and asking the
     # user to interpret it. The data-visualizer / channel-finder subagents
     # still use their per-agent tier defaults from the resolver.
-    #
-    # Tier 3 (full channel DB): match the sibling vacuum scenario so both run
-    # against the complete facility the simulation machine model defines, not a
-    # minimal tier-1 subset.
     repo = init_project(
         tmp_path,
         "rf_correlation_demo",
         template="control_assistant",
         provider="als-apg",
         model="claude-opus-5-5",
-        tier=3,
     )
     # Switch the mock connectors' data substrate to the ``rf-thermal`` scenario
     # bundle — the CAVITY01 thermal excursions anchored at T0-38h/-21h/-7h — and

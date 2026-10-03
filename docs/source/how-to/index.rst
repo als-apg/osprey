@@ -124,6 +124,7 @@ Facility services
    health-and-monitoring/index
    control-systems/index
    use-channel-finder
+   import-mml-export
    facility-knowledge/index
    ariel/index
    bluesky/index

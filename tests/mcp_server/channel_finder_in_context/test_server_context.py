@@ -10,6 +10,7 @@ from osprey.mcp_server.channel_finder_in_context.server_context import (
     reset_cf_ic_context,
 )
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter, get_rate_limiter
+from osprey.utils.facility import facility_identity
 
 _MINIMAL_MODEL_CONFIG = "claude_code:\n  model: test-model\n  provider: anthropic\n"
 
@@ -61,7 +62,6 @@ def test_context_loads_flat_database(tmp_path, monkeypatch):
         + "    in_context:\n"
         + "      database:\n"
         + f'        path: "{db_file}"\n'
-        + '        type: "flat"\n'
     )
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()
@@ -70,12 +70,15 @@ def test_context_loads_flat_database(tmp_path, monkeypatch):
     assert len(reg.database.get_all_channels()) == 2
 
 
-def test_context_loads_template_database_by_default(tmp_path, monkeypatch):
-    from osprey.services.channel_finder.databases import template
+def test_context_loads_the_build_index_flat(tmp_path, monkeypatch):
+    from osprey.services.channel_finder.databases import flat
 
     monkeypatch.chdir(tmp_path)
-    db_data = [{"channel": "CH1", "address": "PV:CH1", "description": "Channel 1"}]
-    db_file = tmp_path / "test_db.json"
+    db_data = {
+        "schema": "osprey.facility.channel_finder/1",
+        "channels": [{"channel": "CH1", "address": "PV:CH1", "description": "Channel 1"}],
+    }
+    db_file = tmp_path / "in_context.json"
     db_file.write_text(json.dumps(db_data))
     config = (
         _MINIMAL_MODEL_CONFIG
@@ -88,14 +91,33 @@ def test_context_loads_template_database_by_default(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()
     reg = get_cf_ic_context()
-    assert isinstance(reg.database, template.ChannelDatabase)
+    assert type(reg.database) is flat.ChannelDatabase
+    assert reg.database.get_channel("CH1")["address"] == "PV:CH1"
 
 
-def test_context_facility_name(tmp_path, monkeypatch):
+def test_context_facility_name_default(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + 'facility:\n  name: "ERF"\n')
+    (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG)
     initialize_cf_ic_context()
-    assert get_cf_ic_context().facility_name == "ERF"
+    assert get_cf_ic_context().facility_name == "control system"
+
+
+def test_context_facility_name_is_the_project_name_without_a_facility_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + "project_name: 1st-lab\n")
+    initialize_cf_ic_context()
+    assert get_cf_ic_context().facility_name == "1st-lab"
+    assert facility_identity(tmp_path, "1st-lab")["code"] == "x1st_lab"
+
+
+def test_context_facility_name_from_the_facility_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + "project_name: 1st-lab\n")
+    (tmp_path / "facility.json").write_text(
+        json.dumps({"identity": {"code": "demo", "name": "Demo Lab"}})
+    )
+    initialize_cf_ic_context()
+    assert get_cf_ic_context().facility_name == "Demo Lab"
 
 
 def test_context_raises_when_no_model(tmp_path, monkeypatch):
@@ -190,7 +212,7 @@ def test_context_system_prompt_contains_final_tags(tmp_path, monkeypatch):
     config = (
         _MINIMAL_MODEL_CONFIG
         + "channel_finder:\n  pipelines:\n    in_context:\n"
-        + f'      database:\n        path: "{db_file}"\n        type: "flat"\n'
+        + f'      database:\n        path: "{db_file}"\n'
     )
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ic_context()

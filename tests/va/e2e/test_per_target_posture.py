@@ -158,8 +158,8 @@ MIN_COLLECTED_TESTS = 28
 PROBE_CHANNEL = "SR:MAG:HCM:01:CURRENT:RB"
 
 #: The setpoint every write leg in this module attempts. Listed in the shipped
-#: limits database (``[-12, 12]``), which is what lets this module keep the
-#: strict limits posture the stand-in's switch gate requires and still have a
+#: limits database (``[-12, 12]``), which is what lets this module run the
+#: exclusive limits mode and still have a
 #: write that reaches the machine: an unlisted channel would be refused by the
 #: limits validator, which is a different gate from the one under test.
 CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
@@ -397,11 +397,8 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
     writes" would be untestable. The deployment-wide key stays off so that the
     per-type posture is doing the arming, exactly as a rendered profile does it.
 
-    **Strict limits, on purpose.** ``allow_unlisted_channels: false`` is the
-    FR-8 posture a switch *toward* the stand-in requires; loosening it would
-    make the stand-in ineligible and every switch leg below refuse for a reason
-    that has nothing to do with the posture store. Every write here therefore
-    names a channel the shipped database lists.
+    **Exclusive limits.** Under ``mode: exclusive`` only channels the shipped
+    database lists can be written, so every write here names one.
 
     The operator acknowledgment is deliberately absent — it is the live
     machine's alone, and the stand-in's equivalent was said at build time by the
@@ -429,7 +426,7 @@ def raw_config(*, va_port: int, standin_port: int, project_root: Path) -> dict:
             "writes_enabled": False,
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": False,
+                "mode": "exclusive",
                 "database_path": str(e2e_conftest.LIMITS_DB_PATH),
             },
             "connector": {

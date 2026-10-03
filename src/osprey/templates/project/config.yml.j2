@@ -133,12 +133,8 @@ channel_finder:
     # In-Context (semantic search) — best for a few hundred channels.
     in_context:
       database:
-        type: template                # "template" (device-family expansion) or "flat"
-        path: data/channel_databases/in_context.json
-        presentation_mode: template   # Preview rendering only — `osprey channel-finder
-                                      # preview` honours it; the MCP server and the web UI
-                                      # build their own prompt text and never consult it.
-                                      # "explicit" lists every expanded name instead.
+        # Written by the build from the channels tagged `in_context`.
+        path: data/channel_finder/in_context.json
       # Inner LLM model for the ask_channels subagent tool (set per benchmark
       # cell at run time).
       subagent_model: null
@@ -148,9 +144,9 @@ channel_finder:
     # clean naming convention.
     hierarchical:
       database:
-        type: hierarchical            # Always "hierarchical" for this pipeline mode
-        path: data/channel_databases/hierarchical.json
-                                      # Nested: system -> family -> device -> field -> subfield
+        # Written by the build from the facility file. Levels: the facility's
+        # place level words, then class, device, leaf.
+        path: data/channel_finder/hierarchical.json
       # Feedback loop: records successful navigation paths so an identical
       # future query resolves from the prior path.
       feedback:
@@ -166,16 +162,12 @@ channel_finder:
     # Layer style databases (System -> Family -> Field).
     middle_layer:
       database:
-        type: middle_layer            # Always "middle_layer" for this pipeline mode
-        path: data/channel_databases/middle_layer.json
-                                      # MML structure: System -> Family -> Field -> ChannelNames
-        # duckdb_path gates the `run_sql` SQL/FTS tool: with it unset that one
-        # tool returns `not_configured` and the other middle-layer tools carry
-        # on working. The build renders it when the profile's data tree holds
-        # the file, which `osprey mml emit --duckdb` writes.
-{%- if middle_layer_duckdb | default(false) %}
-        duckdb_path: data/channel_databases/middle_layer.duckdb
-{%- endif %}
+        # Written by the build from the facility's groups:
+        # System -> Family -> Field -> ChannelNames.
+        path: data/channel_finder/middle_layer.json
+        # The same index as a DuckDB database, written beside it by the build;
+        # the `run_sql` SQL/FTS tool queries it.
+        duckdb_path: data/channel_finder/middle_layer.duckdb
 {%- endif %}
 {%- endif %}
 {%- if ariel_server_on | default(false) %}

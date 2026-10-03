@@ -35,7 +35,7 @@ from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
 from osprey import __version__
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.errors import BuildProfileError
 from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
@@ -93,7 +93,6 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "provider",  # every bundled preset sets this one, so it emits active
         "model",  # the bundled presets carry it as a commented example
         "channel_finder_mode",
-        "tier",  # pinning it would break mode-edit parity — see PROPOSAL D-notes
         "default_panel",
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
@@ -339,20 +338,11 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # --- Channel-finder paradigm -------------------------------------------------
 # How the agent looks up the facility's channels. One of:
 # {_CHANNEL_FINDER_MODE_LIST}.
-# Most of them build a channel database into the project at the tier below;
+# Most of them build a channel-finder index into the project from the facility;
 # one reads the store named by services.graphdb instead and writes no database
 # of its own. The channel-finder guide compares what each one costs and answers.
 #
 # channel_finder_mode: <paradigm>
-""",
-    "tier": """
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 is the flat whole-database view, so it serves one paradigm only.
-#
-# tier: 3
 """,
     "default_panel": """
 # --- Default web-terminal panel ----------------------------------------------
@@ -367,14 +357,13 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # Runs the agent unattended against a trigger file (facility events in, agent
 # runs out). triggers names that file: one beside this profile, or a bundled
 # trigger set by name. worker_count sets parallelism; workspace_mode isolated
-# gives each run its own copy of the project. The dashboard shows
-# `config: facility.name`; facility_name overrides it there alone.
+# gives each run its own copy of the project. The dashboard shows the facility
+# name the build's identity records.
 #
 # dispatch:
 #   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
-#   facility_name: Example Research Facility
 """,
     "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------
@@ -527,7 +516,6 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "provider",
     "model",
     "channel_finder_mode",
-    "tier",
     "default_panel",
     "deploy",
     "mcp_servers",

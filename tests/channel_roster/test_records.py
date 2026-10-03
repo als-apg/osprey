@@ -26,7 +26,6 @@ from osprey.channel_roster import (
 from osprey.channel_roster.records import _template_fields
 
 _GRAPH = RosterSource(kind=RosterSourceKind.GRAPH, path=Path("/data/graph.duckdb"))
-_DB = RosterSource(kind=RosterSourceKind.DATABASE, path=Path("/data/hierarchical.json"))
 
 
 def _record(address: str, direction: str | None = None, **kwargs: object) -> ChannelRecord:
@@ -64,14 +63,6 @@ class TestChannelRecord:
         )
         assert len({_record("A", "read"), _record("A", "read")}) == 1
 
-    def test_with_readback_returns_a_paired_copy(self) -> None:
-        setpoint = _record("SR:MAG:HCM:01:CURRENT:SP", "write")
-        paired = setpoint.with_readback("SR:MAG:HCM:01:CURRENT:RB")
-        assert paired.readback == "SR:MAG:HCM:01:CURRENT:RB"
-        assert paired.address == setpoint.address
-        assert paired.source is setpoint.source
-        assert setpoint.readback is None
-
     def test_empty_address_is_refused(self) -> None:
         with pytest.raises(ValueError, match="needs an address"):
             _record("")
@@ -90,13 +81,12 @@ class TestChannelRecord:
 
 class TestRosterSource:
     def test_kinds_are_the_two_authoritative_sources(self) -> None:
-        assert {kind.value for kind in RosterSourceKind} == {"graph", "database"}
+        assert {kind.value for kind in RosterSourceKind} == {"facility", "graph"}
 
     def test_describe_names_the_kind_and_the_resolved_path(self) -> None:
         assert _GRAPH.describe() == (
             "the channel index built from the facility knowledge graph (/data/graph.duckdb)"
         )
-        assert _DB.describe() == "the channel finder database (/data/hierarchical.json)"
 
     def test_describe_prefers_the_spelling_an_operator_configured(self) -> None:
         """The resolved path is where the bytes are; the configured spelling is
@@ -189,29 +179,15 @@ class TestRosterAbsence:
         # thing; a reason added without phrasing must fail here, not render blank.
         assert set(ABSENCE_TEMPLATES) == set(RosterAbsenceReason)
 
-    def test_no_source_needs_no_subject(self) -> None:
-        absence = RosterAbsence(reason=RosterAbsenceReason.NO_SOURCE)
-        assert absence.message() == (
-            "No channel roster source is configured, so the set of channels this "
-            "facility has is unknown."
-        )
-
-    def test_graph_no_ttl_names_both_config_keys(self) -> None:
+    def test_missing_source_names_both_config_keys(self) -> None:
         absence = RosterAbsence(
-            reason=RosterAbsenceReason.GRAPH_NO_TTL,
+            reason=RosterAbsenceReason.MISSING_SOURCE,
+            path=Path("/data/graph.duckdb"),
             config_keys=("services.graphdb.ttl_path", "services.graphdb.uri"),
         )
         message = absence.message()
         assert "services.graphdb.ttl_path and services.graphdb.uri" in message
         assert "unknown" in message
-
-    def test_direction_underivable_names_the_database_path(self) -> None:
-        absence = RosterAbsence(
-            reason=RosterAbsenceReason.DIRECTION_UNDERIVABLE, path=Path("/data/flat.json")
-        )
-        message = absence.message()
-        assert "/data/flat.json" in message
-        assert "settable" in message
 
     def test_corrupt_source_names_the_path_and_the_failure(self) -> None:
         absence = RosterAbsence(
@@ -226,7 +202,8 @@ class TestRosterAbsence:
 
     def test_config_keys_are_normalised_to_a_tuple(self) -> None:
         absence = RosterAbsence(
-            reason=RosterAbsenceReason.GRAPH_NO_TTL,
+            reason=RosterAbsenceReason.MISSING_SOURCE,
+            path=Path("/data/graph.duckdb"),
             config_keys=["services.graphdb.ttl_path"],
         )
         assert absence.config_keys == ("services.graphdb.ttl_path",)
@@ -234,7 +211,8 @@ class TestRosterAbsence:
 
     def test_single_config_key_renders_without_a_conjunction(self) -> None:
         absence = RosterAbsence(
-            reason=RosterAbsenceReason.GRAPH_NO_TTL,
+            reason=RosterAbsenceReason.MISSING_SOURCE,
+            path=Path("/data/graph.duckdb"),
             config_keys=("services.graphdb.ttl_path",),
         )
         assert "declared by services.graphdb.ttl_path." in absence.message()
@@ -242,10 +220,8 @@ class TestRosterAbsence:
     @pytest.mark.parametrize(
         ("reason", "kwargs", "missing"),
         [
-            (RosterAbsenceReason.GRAPH_NO_TTL, {}, "config_keys"),
-            (RosterAbsenceReason.GRAPH_MALFORMED, {"detail": "boom"}, "config_keys"),
-            (RosterAbsenceReason.GRAPH_MALFORMED, {"config_keys": ("k",)}, "detail"),
-            (RosterAbsenceReason.DIRECTION_UNDERIVABLE, {}, "path"),
+            (RosterAbsenceReason.FACILITY_NOT_BUILT, {}, "path"),
+            (RosterAbsenceReason.MISSING_SOURCE, {"path": Path("/x")}, "config_keys"),
             (RosterAbsenceReason.CORRUPT_SOURCE, {"detail": "boom"}, "path"),
             (RosterAbsenceReason.CORRUPT_SOURCE, {"path": Path("/x")}, "detail"),
         ],
@@ -295,28 +271,20 @@ class TestRosterResult:
             "SR:DIAG:BPM:01:POSITION:X",
         ]
 
-    def test_direction_unknown_records_are_neither_settable_nor_readable(self) -> None:
-        result = RosterResult(
-            records=(_record("FLAT_CHANNEL_1"), _record("FLAT_CHANNEL_2")),
-            source=_DB,
-            absence=RosterAbsence(reason=RosterAbsenceReason.DIRECTION_UNDERIVABLE, path=_DB.path),
-        )
-        assert result.write_records == ()
-        assert result.read_records == ()
-        assert result.addresses == ("FLAT_CHANNEL_1", "FLAT_CHANNEL_2")
-        assert result.absence is not None
-        assert str(_DB.path) in result.absence.message()
-
     def test_records_are_normalised_to_a_tuple(self) -> None:
         result = RosterResult(records=[_record("A", "read")], source=_GRAPH)
         assert result.records == (_record("A", "read"),)
 
     def test_an_absent_roster_carries_its_reason_and_no_source(self) -> None:
-        result = RosterResult(absence=RosterAbsence(reason=RosterAbsenceReason.NO_SOURCE))
+        result = RosterResult(
+            absence=RosterAbsence(
+                reason=RosterAbsenceReason.FACILITY_NOT_BUILT, path=Path("/data/facility.json")
+            )
+        )
         assert result.records == ()
         assert result.source is None
         assert result.absence is not None
-        assert result.absence.reason is RosterAbsenceReason.NO_SOURCE
+        assert result.absence.reason is RosterAbsenceReason.FACILITY_NOT_BUILT
 
     def test_a_sourced_result_with_no_records_is_a_legal_shape(self) -> None:
         """The type permits it; no reader builds one.
@@ -337,13 +305,18 @@ class TestRosterResult:
         with pytest.raises(ValueError, match="must name the source"):
             RosterResult(
                 records=(_record("A", "read"),),
-                absence=RosterAbsence(reason=RosterAbsenceReason.NO_SOURCE),
+                absence=RosterAbsence(
+                    reason=RosterAbsenceReason.FACILITY_NOT_BUILT,
+                    path=Path("/data/facility.json"),
+                ),
             )
 
     def test_is_frozen(self) -> None:
         result = RosterResult(source=_GRAPH)
         with pytest.raises(FrozenInstanceError):
-            result.source = _DB  # type: ignore[misc]
+            result.source = RosterSource(  # type: ignore[misc]
+                kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json")
+            )
 
 
 class TestNoIO:
@@ -352,40 +325,3 @@ class TestNoIO:
         source = Path(records_module.__file__ or "").read_text(encoding="utf-8")
         for forbidden in ("open(", "read_text", "rdflib", "json.load", "requests"):
             assert forbidden not in source
-
-
-class TestAddressTokenVocabularyHasOneProducer:
-    """``SP``/``RB``/``:`` are declared once, by ``records``, and read everywhere else.
-
-    The two readers disagree on almost everything, but they agree on what an
-    address token means: the database reader derives direction from ``SP``
-    when it has no limits file, and pairing builds the ``RB`` sibling it then
-    asks the roster to vouch for. A second spelling in either module is a
-    second source of truth that is free to drift from the one the other reader
-    is enumerating against.
-    """
-
-    def test_every_consumer_reads_the_same_constants(self) -> None:
-        from osprey.channel_roster import database, pairing, records
-
-        assert records.WRITE_SUBFIELD == "SP"
-        assert records.READBACK_SUBFIELD == "RB"
-        assert records.ADDRESS_SEPARATOR == ":"
-        for module in (pairing, database):
-            assert module.WRITE_SUBFIELD is records.WRITE_SUBFIELD
-            assert module.ADDRESS_SEPARATOR is records.ADDRESS_SEPARATOR
-        assert pairing.READBACK_SUBFIELD is records.READBACK_SUBFIELD
-
-    def test_no_reader_declares_a_vocabulary_of_its_own(self) -> None:
-        import inspect
-
-        from osprey.channel_roster import database, pairing, records
-
-        for module in (pairing, database):
-            source = inspect.getsource(module)
-            for name in ("WRITE_SUBFIELD", "READBACK_SUBFIELD", "ADDRESS_SEPARATOR"):
-                assert f"{name} = " not in source, f"{module.__name__} declares {name}"
-        producer = inspect.getsource(records)
-        assert 'WRITE_SUBFIELD = "SP"' in producer
-        assert 'READBACK_SUBFIELD = "RB"' in producer
-        assert 'ADDRESS_SEPARATOR = ":"' in producer

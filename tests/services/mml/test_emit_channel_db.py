@@ -382,7 +382,7 @@ class TestFields:
             "type": "ChannelNames",
             "description": "Horizontal position readback",
         }
-        channel = loaded.get_channel("SR:BPM1:X")
+        (channel,) = loaded.get_channel("SR:BPM1:X")["memberships"]
         assert channel["HWUnits"] == "mm"
         assert channel["Description"] == "Horizontal position readback"
 
@@ -414,7 +414,7 @@ class TestFields:
 
         assert set(db["SR"]["BPMx"]["Monitor"]) == {"TangoNames"}
         assert set(db["SR"]["BPMx"]["Both"]) == {"ChannelNames", "TangoNames"}
-        assert loaded.get_channel("sr/bpm/1/x")["protocol"] == "tango"
+        assert loaded.get_channel("sr/bpm/1/x")["memberships"][0]["protocol"] == "tango"
 
     def test_non_field_subdicts_are_dropped(self, tmp_path: Path) -> None:
         body = _bpm_body()
@@ -566,7 +566,7 @@ class TestJudgedViews:
             "mA",
             "mA",
         ]
-        assert loaded.get_channel("SR:DCCT:Lifetime")["HWUnits"] == "mA"
+        assert loaded.get_channel("SR:DCCT:Lifetime")["memberships"][0]["HWUnits"] == "mA"
         assert loaded.get_statistics()["total_channels"] == 3
 
     def test_a_dropped_device_leaves_the_setup_block_and_its_family_scalar(

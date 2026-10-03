@@ -1,8 +1,9 @@
 """A harvested facility tree, served by a real container, over Channel Access.
 
 The container half of success criterion 1: a facility export goes through the
-whole install -- ``init``, ``mml import``, the reviewed mapping, ``mml emit``,
-``osprey set``, ``validate``, ``osprey build`` -- and what the build published
+whole install -- ``init``, ``facility import mml`` under the tree's reviewed
+mapping, ``mml import``, the reviewed mapping, ``mml emit``, ``osprey set``,
+``validate``, ``osprey build`` -- and what the build published
 is handed to the virtual accelerator image, which serves that facility's own
 channels with that facility's own ring behind them. Every earlier task in this
 feature proves a step of that chain against files; this module is the only one
@@ -28,6 +29,11 @@ What each lane asserts, and why it is not vacuous:
 * **The ring is really behind the channels.** A corrector write moves the
   monitors. Nothing else in this file could distinguish a served model from a
   well-formed echo.
+* **The harvest passed the stops its tree plants.** The imported limits hold
+  each band as the export states it, so the build stops ``seed-invalid`` while
+  a setpoint starts outside its band; the harvest widens exactly the records
+  ``facility validate`` names, and the lane holds that set against the tree's
+  own.
 
 The trees. Naming a facility in ``CRITERION_TREES`` is the claim that its
 export reaches a served machine, so a tree named there that commits no 2.0
@@ -156,9 +162,9 @@ pytestmark = [
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-# Seven lanes over three trees; the guard test itself is the twenty-second
-# item, so a floor of 21 reds on the loss of a single lane.
-MIN_COLLECTED_TESTS = 21
+# Eight lanes over three trees; the guard test itself is the twenty-fifth
+# item, so a floor of 24 reds on the loss of a single lane.
+MIN_COLLECTED_TESTS = 24
 
 #: The image under test -- the same one the rest of this directory serves from.
 IMAGE = e2e_conftest.IMAGE
@@ -250,6 +256,9 @@ class BuiltTree:
         document: The bindings the build published into the served directory.
         limits: The write bands of that same directory.
         declared_kinds: The coupling kinds the reviewed mapping declares.
+        stopped: What the first build printed to stderr before any remedy.
+        remedied: The setpoints whose limits records the harvest widened, in
+            the order the build's stops named them.
     """
 
     name: str
@@ -258,6 +267,8 @@ class BuiltTree:
     document: BindingsDocument
     limits: dict[str, Any]
     declared_kinds: frozenset[str]
+    stopped: str
+    remedied: tuple[str, ...]
 
     @property
     def served_dir(self) -> Path:
@@ -303,6 +314,15 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     that is the preset a facility harvest lands on, every refusal is obeyed as
     printed, and the build is the ordinary one -- no flag here tells it to
     treat a served tree differently.
+
+    The exports enter the facility description before ``mml emit`` runs: the
+    stop ``facility import mml`` makes over the preset's authored sources is
+    obeyed line by line, the tree's reviewed ``imported/mml/mapping.yaml`` is
+    installed, and every export goes in one call. The first build then stops
+    on a setpoint that starts outside its seeded band; ``facility validate``
+    names every such setpoint, the limits records those lines name are widened
+    in the deployment, never in the fixture, and the set is held against the
+    tree's own.
     """
     recipes = _recipes()
     fixture = recipes.FIXTURES / name
@@ -312,6 +332,8 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     runner = CliRunner()
     repo = destination / "deployment"
     recipes.invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
+    recipes.clear_authored(runner, repo, exports)
+    recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
     recipes.invoke(runner, "mml", "import", *exports, "--repo", str(repo))
     shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
     recipes.drive_emit(runner, repo)
@@ -323,7 +345,13 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         *recipes.served_settings(recipes.facility_prefix(fixture)),
     )
     recipes.invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    recipes.invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
+    stopped, remedied, _ = recipes.build_past_the_seed_stops(
+        runner, repo, responses=recipes.expected_response_lines(name)
+    )
+    expected = recipes.expected_seed_stops(name)
+    assert len(remedied) == len(expected) and set(remedied) == expected, (
+        f"{name}: the build stopped on {sorted(remedied)}, and the tree plants {sorted(expected)}"
+    )
 
     paths = ManifestPaths(data_root=repo / "build" / "data")
     return BuiltTree(
@@ -335,6 +363,8 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
             (paths.machine_json.parent / "channel_limits.json").read_text(encoding="utf-8")
         ),
         declared_kinds=_declared_kinds(repo / "data" / "mml" / "mapping.yaml"),
+        stopped=stopped.stderr,
+        remedied=remedied,
     )
 
 
@@ -633,6 +663,34 @@ def _expected_inverse(binding: Binding, written: float) -> float:
 
 
 class TestTheServedTree:
+    def test_the_harvest_passed_the_seed_stops_its_tree_plants(self, served: ServedTree) -> None:
+        """The first build stopped on one of the tree's own setpoints.
+
+        The build names the first stop and ``facility validate`` names them
+        all; the harvest widened the record of each, and that set is the tree's.
+
+        The synthetic tree plants one: the corrector its export starts outside
+        its own ``Range``. That stop is the only line the first build printed
+        about the facility, and the machine served here is the one built after
+        its limits record was widened to hold the nominal.
+        """
+        recipes = _recipes()
+        tree = served.tree
+        expected = recipes.expected_seed_stops(tree.name)
+        stops = recipes.seed_stops(tree.stopped)
+
+        assert expected, f"{tree.name} plants no stop to pass"
+        assert stops and set(stops) <= expected
+        assert set(tree.remedied) == expected
+        if tree.name == "synthetic":
+            (address,) = expected
+            facility_lines = [
+                line for line in tree.stopped.splitlines() if line.startswith("facility: ")
+            ]
+            assert len(facility_lines) == 1, facility_lines
+            assert facility_lines[0].startswith(f"facility: seed-invalid: channel {address} — ")
+            assert stops[address] == ("max_value", 1.5)
+
     def test_every_coupled_channel_the_bindings_claim_is_served(self, served: ServedTree) -> None:
         """Every address the model drives answers a read from the host.
 

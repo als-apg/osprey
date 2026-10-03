@@ -64,7 +64,7 @@ from osprey.utils.workspace import AUDIT_DIR_RELPATH
 from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 #: The bundle the reference config mounts when a test needs the bundle half.
-BUNDLE_PATH = "data/facility_knowledge"
+BUNDLE_PATH = "data/facility/knowledge"
 
 #: The ARIEL qmd mirror the reference config mounts when a test needs that half.
 MIRROR_PATH = "var/ariel_mirror"

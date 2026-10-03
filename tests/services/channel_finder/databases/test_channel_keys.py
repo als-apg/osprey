@@ -54,27 +54,26 @@ class TestLoaderReadsEveryChannelKey:
         )
         db = MiddleLayerDatabase(str(path))
         assert set(db.channel_map) == {"QF1:I", "QF2:I", "QF:SP"}
-        assert db.channel_map["QF1:I"]["Units"] == "A"
-        assert db.channel_map["QF:SP"]["subfield"] == ["X"]
+        assert db.channel_map["QF1:I"]["memberships"][0]["Units"] == "A"
+        assert db.channel_map["QF:SP"]["memberships"][0]["subfield"] == ["X"]
         assert db.list_channel_names("RING", "QF", "Monitor") == ["QF1:I", "QF2:I"]
         assert db.list_channel_names("RING", "QF", "Setpoint", "X") == ["QF:SP"]
-        assert db.count_family_channels("RING", "QF") == 4
 
     def test_a_tango_names_field_is_extracted(self, tmp_path):
         """A field keyed only by ``TangoNames`` contributes its channels."""
         path = _write(
             tmp_path,
-            {"RING": {"KICK": {"Voltage": {"TangoNames": ["ring/kick/1/v", "ring/kick/2/v"]}}}},
+            {"RING": {"KICK": {"Voltage": {"TangoNames": ["dom/kick/1/v", "dom/kick/2/v"]}}}},
         )
         db = MiddleLayerDatabase(str(path))
-        assert set(db.channel_map) == {"ring/kick/1/v", "ring/kick/2/v"}
-        assert db.channel_map["ring/kick/1/v"]["field"] == "Voltage"
+        assert set(db.channel_map) == {"dom/kick/1/v", "dom/kick/2/v"}
+        assert db.channel_map["dom/kick/1/v"]["memberships"][0]["field"] == "Voltage"
 
     def test_a_tango_names_field_is_listed(self, tmp_path):
         """``list_channel_names`` answers a ``TangoNames``-only field."""
-        path = _write(tmp_path, {"RING": {"KICK": {"Voltage": {"TangoNames": "ring/kick/1/v"}}}})
+        path = _write(tmp_path, {"RING": {"KICK": {"Voltage": {"TangoNames": "dom/kick/1/v"}}}})
         db = MiddleLayerDatabase(str(path))
-        assert db.list_channel_names("RING", "KICK", "Voltage") == ["ring/kick/1/v"]
+        assert db.list_channel_names("RING", "KICK", "Voltage") == ["dom/kick/1/v"]
 
     def test_listing_prefers_channel_names_when_both_are_present(self, tmp_path):
         """The first key in ``CHANNEL_KEYS`` order wins a dual-key field."""
@@ -95,8 +94,8 @@ class TestLoaderReadsEveryChannelKey:
         with pytest.raises(ValueError, match="RING:KICK:Empty"):
             db.list_channel_names("RING", "KICK", "Empty")
 
-    def test_tango_names_are_counted(self, tmp_path):
-        """The family census counts ``TangoNames`` at field and subfield depth."""
+    def test_tango_names_are_read_at_field_and_subfield_depth(self, tmp_path):
+        """``TangoNames`` contributes channels at field and subfield depth."""
         path = _write(
             tmp_path,
             {
@@ -109,7 +108,8 @@ class TestLoaderReadsEveryChannelKey:
             },
         )
         db = MiddleLayerDatabase(str(path))
-        assert db.count_family_channels("RING", "KICK") == 3
+        assert set(db.channel_map) == {"a", "b", "c"}
+        assert db.channel_map["c"]["memberships"][0]["subfield"] == ["X"]
 
 
 class TestReachesChannelNames:

@@ -79,36 +79,18 @@ matching.
 embedded in the system prompt and the model returns the most relevant channels
 in one shot (no query-splitting or iterative-correction stage).
 
-The database is a flat JSON structure loaded by ``TemplateChannelDatabase``,
-with standalone entries and template entries for device families --- see
-:doc:`/reference/contracts/channel-finder` for the schema.
+``osprey build`` writes the database from the facility description as
+``data/channel_finder/in_context.json``: one row per channel tagged
+``in_context``, with its name, address and description --- see
+:doc:`/reference/contracts/channel-finder` for the schema. A facility
+description with no tagged channel stops the build with ``view-unsupported``.
 
-Build a database from CSV, then validate and preview:
+Validate and preview:
 
 .. code-block:: bash
 
-   osprey channel-finder build-database --use-llm
    osprey channel-finder validate
    osprey channel-finder preview
-
-.. note::
-
-   ``build-database`` writes into the **profile** the project was built from
-   (``processed/channel_database.json`` inside its ``data/`` tree), not into the
-   project — a generated database belongs beside the inputs it came from, and
-   survives a rebuild there. That deliberately marks the project stale; clear
-   the advisory by rebuilding:
-
-   .. code-block:: bash
-
-      osprey channel-finder build-database
-      osprey build
-
-   The pipelines — and a bare ``validate`` / ``preview`` — read the database
-   referenced in ``config.yml`` (under ``data/channel_databases/``). If you
-   built to a different name, either point the commands at it with
-   ``--database`` or update the config path; otherwise you are silently
-   validating the old database.
 
 
 Hierarchical Pipeline
@@ -146,19 +128,35 @@ partial list. The cap is on the agent's context, not on the database, which is
 why it is set per deployment.
 
 The database follows MATLAB Middle Layer (MML) functional organization
-(system, then family, then field, then the channel names). A facility that runs
-a Middle Layer already has that structure, and ``osprey mml`` installs from it.
+(system, then family, then field, then the channel names). ``osprey build``
+writes it from the facility description as
+``data/channel_finder/middle_layer.json``, with the DuckDB copy ``run_sql``
+reads beside it as ``data/channel_finder/middle_layer.duckdb``: a System is a
+top place, a Family is a group (every group of the facility is one), and a
+Field is the longest ``signals`` key a channel's address ends with, else the
+channel's ``signal``, else its address, one channel per member; a channel whose
+Field some member lacks or has twice is keyed by its address instead. A
+channel belongs to every Family whose group holds its device. A facility
+description with no group stops the build with ``view-unsupported``. A facility
+that runs a Middle Layer
+already has that structure: ``osprey facility import mml``
+(:doc:`/how-to/import-mml-export`) brings it into the facility description,
+and the ``osprey mml`` verbs write the rest of the deployment's files
+from the same export.
 
 
 Installing from a Middle Layer
 ------------------------------
 
-Three verbs, run in the deployment repository: ``import`` reads the export,
-``map`` records what it means, ``emit`` writes the deployment's files. Each one
+Run ``osprey facility import mml`` on the export first
+(:doc:`/how-to/import-mml-export`): the middle-layer database is built from the
+facility description it writes. Then three verbs, run in the deployment
+repository: ``import`` reads the export, ``map`` records what it means,
+``emit`` writes the deployment's other files. Each one
 reads what the one before it wrote, so the order is the whole workflow. An
 export that also carries the facility's lattice adds a fourth, ``verify``, and
 a virtual accelerator to check --- see `From an Export to a Virtual
-Accelerator`_ below.
+Accelerator`_.
 
 **Import.** First export the Middle Layer as JSON on the MATLAB machine. The
 exporter ships with OSPREY --- ``osprey scaffold pull
@@ -236,31 +234,29 @@ checked mapping:
 
 .. code-block:: bash
 
-   osprey mml emit --duckdb
+   osprey mml emit
 
-That is the middle-layer database at
-``data/channel_databases/middle_layer.json``, the facility ontology, the
-knowledge pages under ``data/facility_knowledge/``, and a Turtle corpus named
-for your facility. ``--duckdb`` also writes the DuckDB copy that the
-``run_sql`` tool reads. That copy holds one row per process variable, so two
-slots naming the same PV --- a shared setpoint, or one row broadcast to every
-device in a family --- become a single row; emit names each of them as it
-writes, and the middle-layer database and the corpus keep every binding. Emit
+That is the facility ontology, the knowledge pages under
+``data/facility/knowledge/``, and a Turtle corpus named for your facility. Emit
 refuses before writing anything while a judgment is unanswered or impossible,
 naming each one and sending you back to ``map --check``. A project still
 carrying the demo facility's databases
 or knowledge pages is refused before anything is written, with one ``rm`` line
 naming exactly what to remove; run it and emit again. Finally ``osprey build``
-copies the emitted files into the deployment --- the running stack keeps its
-old copy until then.
+writes the middle-layer database and its DuckDB copy from the facility
+description and copies the emitted files into the deployment --- the running
+stack keeps its old copy until then. The DuckDB copy holds one row per process
+variable, so two slots naming the same PV --- a shared setpoint, or one row
+broadcast to every device in a family --- become a single row, while the
+middle-layer database and the corpus keep every binding.
 
-**One export, either paradigm.** Emit writes the middle-layer database *and*
-the corpus every time, because both describe the same machine. Which one the
-channel finder uses is the ``channel_finder_mode`` field: leave it at
-``middle_layer`` to query the database, or set it to ``graph`` and point
+**One export, either paradigm.** The facility description and the corpus
+describe the same machine. Which one the channel finder uses is the
+``channel_finder_mode`` field: leave it at ``middle_layer`` to query the
+database the build writes, or set it to ``graph`` and point
 ``services.graphdb.ttl_path`` at the corpus
-(:doc:`/how-to/facility-knowledge/use-facility-graph`). The unchosen file stays
-in the repository, so trying the other paradigm later is a configuration
+(:doc:`/how-to/facility-knowledge/use-facility-graph`). The unchosen source
+stays in the repository, so trying the other paradigm later is a configuration
 change, not a second install.
 
 
@@ -281,9 +277,9 @@ drives because your export said so and you agreed. Two documents are what you
 read to agree: the **VA MAP card**, which the OSPREY agent draws while you are
 deciding, and ``VA-REPORT.md``, which ``verify`` writes once the model exists.
 
-**Import brings the lattice in.** Run ``mml_export.m`` 2.0 once per sub-machine
-as before. It now writes five files rather than two, and naming the ``ao.json``
-imports all five:
+**Import brings the lattice in.** Run ``mml_export.m`` 2.1.0 once per sub-machine
+as before. It now writes six files rather than two, and naming the ``ao.json``
+imports all six:
 
 .. code-block:: bash
 
@@ -520,6 +516,9 @@ Launch the browser-based channel explorer:
 
    osprey channel-finder web
    osprey channel-finder web --port 9000
+
+The explorer is read-only. To correct a channel, edit
+``data/facility/fixes.yaml`` and run ``osprey build``.
 
 The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into

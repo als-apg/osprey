@@ -57,7 +57,7 @@ control_system:
   limits_checking:
     enabled: false
     database_path: null
-    allow_unlisted_channels: true
+    mode: optional
 
   write_verification:
     default_level: none      # RETIRED (P1) — most misleading: implies writes go unconfirmed

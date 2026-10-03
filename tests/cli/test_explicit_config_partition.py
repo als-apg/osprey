@@ -121,6 +121,9 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: is produced today. The three ``claude_code.agent_models`` leaves are the
 #: helper-agent pins control-assistant carried; it pins none now, so every agent
 #: runs the deployment's main model, and no preset renders the key.
+#: ``facility.name`` and ``facility.ontology`` have no reader: the display name
+#: is the facility identity's and the terminology tables render from the build's
+#: facts, so no preset states either leaf.
 _RETIRED_SINCE_THE_FREEZE = frozenset(
     {
         "web.docs_url",
@@ -129,6 +132,8 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
         "claude_code.agent_models.channel-finder",
         "claude_code.agent_models.facility-knowledge-graph",
         "claude_code.agent_models.logbook-deep-research",
+        "facility.name",
+        "facility.ontology",
     }
 )
 
@@ -142,9 +147,13 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
 #: that carry a text-embedding block now state each model's input window
 #: (``max_input_tokens``), so the frozen renders hold the models list as it was
 #: before that key existed; lists are leaves here, so the whole list is the
-#: frozen value.
+#: frozen value. ``control-assistant`` authors its knowledge pages inside the
+#: facility tree now (``data/facility/knowledge``), so the frozen renders hold
+#: the bundle's old top-level directory; the difference is pinned in
+#: ``test_explicit_config_equivalence.CELL_DELTAS`` by ``_knowledge_bundle_deltas``.
 _VALUE_MOVED_SINCE_THE_FREEZE = {
     "control_system.type": "live_standin",
+    "facility_knowledge.bundle_path": "data/facility_knowledge",
     "ariel.enhancement_modules.text_embedding.models": [
         {"dimension": 768, "name": "nomic-embed-text"}
     ],
@@ -233,6 +242,10 @@ def _block_derived_prefixes(document: Mapping[str, Any]) -> dict[str, str]:
             prefixes[prefix] = "dispatch:"
     for name in document.get("mcp_servers") or {}:
         prefixes[f"claude_code.servers.{name}"] = "mcp_servers:"
+    # The build names the limits database it writes in every render whose
+    # config states a limits block.
+    if any(".limits_checking." in f".{key}" for key in _config_leaves(document)):
+        prefixes["control_system.limits_checking.database_path"] = "data/facility/limits.yaml"
     # `osprey init` writes the facility rule into the repo's conventions, and
     # the build registers every convention copy as user-owned.
     prefixes["scaffold.user_owned"] = "the repo's convention files"
@@ -335,7 +348,8 @@ def test_root_render_is_partitioned_between_its_sources(
     # keyword block gains its `fuzzy_threshold`, the fuzzy-fallback floor,
     # which was a number fixed in the keyword module; and control-assistant
     # gains the readiness-probe bound, which was a constant when the freeze ran;
-    # and every preset that reaches no machine gains
+    # and every preset gains `simulation.models`, which did not exist when the
+    # freeze ran either; and every preset that reaches no machine gains
     # `web.control_target_picker`, which did not exist when the freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
@@ -361,6 +375,8 @@ def test_root_render_is_partitioned_between_its_sources(
         expected_gain = expected_gain | {"ariel.search_modules.keyword.settings.fuzzy_threshold"}
     if "control_system.target_switch.probe_timeout_s" in config:
         expected_gain = expected_gain | {"control_system.target_switch.probe_timeout_s"}
+    if "simulation.models" in config:
+        expected_gain = expected_gain | {"simulation.models"}
     if "web.control_target_picker" in config:
         expected_gain = expected_gain | {"web.control_target_picker"}
     assert missing == expected_gain, (

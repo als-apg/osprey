@@ -106,10 +106,11 @@ The block carries **no password**, deliberately — the same convention
 project ``.env`` when it is unset, and the container reads it from there; a
 password written into ``config.yml`` would be read by nobody.
 
-On a first bring-up the deploy starts the store ahead of the rest of the stack,
-bootstraps it, and imports ``ttl_path`` — a store that came up empty would answer
-every query with zero rows, which reads as wrong data rather than as no data.
-Later deploys find the corpus already there and leave it alone. If bootstrapping
+Every deploy starts the store ahead of the rest of the stack, bootstraps it, and
+compares the store's seed marker with the digest of ``ttl_path``. A store that
+already holds that corpus is left alone; any other store, an empty one included,
+is wiped and the corpus imported, so a changed corpus reaches the store on the
+next ``osprey up`` with no seeding step. If bootstrapping
 or seeding fails the deploy warns and carries on, naming ``osprey knowledge
 seed-graph`` (see :doc:`/how-to/facility-knowledge/okf-bundle`), the verb that finishes the job by hand.
 

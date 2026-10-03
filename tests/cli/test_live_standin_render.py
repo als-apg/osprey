@@ -103,10 +103,10 @@ COMMENTED_ACK_EXAMPLE = "# control_system.target_switch.live_gateway_acknowledge
 #: the one case that needs a written one is documented instead of shown.
 GATEWAY_PORT_PROSE = "reach a VA this deployment does not run"
 
-#: The profile's own comment on the strict-limits pair. It explains the KEYS
+#: The profile's own comment on the limits pair. It explains the KEYS
 #: rather than the shipped values, so it stays true for a deployment that sets
 #: either — nothing rewrites it at build time.
-LIMITS_COMMENT = "refused rather than waved through"
+LIMITS_COMMENT = "Limits are optional."
 
 #: Where a profile names the machine every session starts on, and the baseline a
 #: deployment with no stand-in falls back to.
@@ -351,24 +351,21 @@ class TestTheRenderedConfigDescribesTheStandIn:
     def test_live_standin_render_takes_its_limits_posture_from_the_profile(
         self, standin_build
     ) -> None:
-        """How strictly the deployment runs is stated by the profile, not derived.
+        """The limits mode is stated by the profile, not derived.
 
-        The exemplar preset authors the strict pair itself, and that is where
+        The exemplar preset authors the limits pair itself, and that is where
         the rendered values come from — ``test_live_standin_overrides.py`` makes
         the other half of the claim, that a profile which drops the pair gets
         the template's value back rather than a derived one.
 
-        What is pinned here is the rendered *line*: while the stand-in was
-        ``live``, the build flipped this key and then had to rewrite the comment
-        beside it to stop the line contradicting itself. Nothing rewrites it
-        now, so the shipped comment has to explain the key rather than the value
-        the template happened to ship — and it must still read true beside the
-        ``false`` the profile asked for.
+        What is pinned here is the rendered *line*: nothing rewrites the
+        comment beside the key, so the shipped comment has to explain the key
+        rather than the value the template happened to ship.
         """
         limits = _config(standin_build)["control_system"]["limits_checking"]
 
         assert limits["enabled"] is True
-        assert limits["allow_unlisted_channels"] is False
+        assert limits["mode"] == "optional"
 
         # The explanation stays where the operator edits: beside the key in
         # profile.yml, not in the render the build overwrites.
@@ -376,9 +373,9 @@ class TestTheRenderedConfigDescribesTheStandIn:
         key = next(
             i
             for i, row in enumerate(rows)
-            if row.strip().startswith("control_system.limits_checking.allow_unlisted_channels:")
+            if row.strip().startswith("control_system.limits_checking.mode:")
         )
-        assert "allow_unlisted_channels: false" in rows[key]
+        assert "mode: optional" in rows[key]
         prose = "\n".join(row for row in reversed(rows[:key]) if row.strip().startswith("#"))
         assert LIMITS_COMMENT in prose, "the comment explaining the key no longer sits above it"
 
@@ -632,16 +629,16 @@ class TestABuildWithoutTheKeyIsUntouched:
 
         assert control_system["connector"]["epics"] == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in control_system["connector"]["epics"]
-        # The profile's own strict pair, unchanged by the stand-in going away:
+        # The profile's own limits pair, unchanged by the stand-in going away:
         # the limits posture was never the stand-in's to decide either way.
-        assert control_system["limits_checking"]["allow_unlisted_channels"] is False
+        assert control_system["limits_checking"]["mode"] == "optional"
 
     def test_live_standin_render_off_keeps_the_templates_own_examples(self, plain_build) -> None:
         """The commented examples are the instructions for going to the machine.
 
         A build that derives nothing must leave them standing — the
         acknowledgment example, the prose about when a gateway port is written
-        by hand, and the comment on the strict-limits pair, which explains the
+        by hand, and the comment on the limits pair, which explains the
         keys rather than the values and so is true either way. They live in
         profile.yml, where the operator edits; the render carries the values.
         """

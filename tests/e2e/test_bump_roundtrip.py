@@ -63,13 +63,11 @@ readback resolution rather than a fault — and it means the convergence band
 here is exactly ``±TOLERANCE_M``, with no noise term taking over.
 
 No preset channel names are hardcoded: correctors and BPMs are selected from
-the deployment repo's own channel ROSTER — the channel-finder database the
-build copies verbatim into the build zone, where the deployed containers read
-it — via ``_orm_stack.roster_records`` +
+the device file the build staged for the queueserver worker — the build's
+Bluesky view of the facility file — via
 ``_orm_stack.select_correctors``/``select_bpms``, and then chosen from those
 lists BY POSITION. See ``CORRECTOR_INDICES`` for why the positions are
-what they are. They reach the queueserver worker as the device file this
-fixture authors before the build stages it.
+what they are.
 
 Ports: every published port of this deployment is pinned to a value this module
 owns — see the constants block below for the value per service and the sibling
@@ -102,9 +100,9 @@ import shutil
 import statistics
 import subprocess
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
@@ -114,9 +112,6 @@ from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._monitor_motion import still_monitor_motion
 from tests.e2e._volumes import remove_project_volumes
-
-if TYPE_CHECKING:
-    from osprey.channel_roster import ChannelRecord
 
 pytestmark = [
     pytest.mark.e2e,
@@ -211,8 +206,8 @@ HEALTH_TIMEOUT_SEC = 300.0
 # The bump's geometry
 # ---------------------------------------------------------------------------
 #
-# Positions within the roster-derived device lists, not device names -- the
-# deployed project's own channel roster owns which devices exist.
+# Positions within the staged view's device lists, not device names -- the
+# build's view of the facility file owns which devices exist.
 # Both sides read the same population -- the bindings document's kick and
 # monitor bindings -- but they key it differently: the crosscheck in
 # `tests/va/test_bump_crosscheck.py` orders by ring position, and this lane
@@ -473,9 +468,7 @@ class DeployedBumpStack:
         return [*self.constrained_bpms, *self.monitors]
 
 
-def _horizontal_devices(
-    records: Sequence[ChannelRecord],
-) -> tuple[list[str], list[str]]:
+def _horizontal_devices(repo: Path) -> tuple[list[str], list[str]]:
     """The horizontal corrector setpoints and horizontal BPM readbacks of the
     deployed project.
 
@@ -490,9 +483,9 @@ def _horizontal_devices(
     bindings: a corrector's kick binding names the ``KickAngle`` component it
     writes, and a monitor's binding names the transverse axis it reads. Both
     lists come from ``select_correctors``/``select_bpms``, so they are the
-    deployed project's own roster entries in address order.
+    staged view's devices in address order.
     """
-    document = _orm_stack.served_bindings(records)
+    document = _orm_stack.repo_bindings(repo)
     kicks = {
         binding.setpoint_address
         for binding in document.bindings
@@ -504,11 +497,9 @@ def _horizontal_devices(
         if binding.kind == "monitor" and binding.attribute == _orm_stack.MONITOR_X
     }
     correctors = [
-        address for address in _orm_stack.select_correctors(records, count=None) if address in kicks
+        address for address in _orm_stack.select_correctors(repo, count=None) if address in kicks
     ]
-    bpms = [
-        address for address in _orm_stack.select_bpms(records, count=None) if address in monitors
-    ]
+    bpms = [address for address in _orm_stack.select_bpms(repo, count=None) if address in monitors]
     return correctors, bpms
 
 
@@ -516,58 +507,11 @@ def _horizontal_devices(
 def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedBumpStack]:
     base = tmp_path_factory.mktemp("bump_roundtrip_build")
 
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container. The bump's geometry is chosen here too, from the repo's
-    # own channel roster — the same channel database the build materializes for
-    # the deployed channel finder, read here from the tier the profile pins
-    # because that is the only copy that exists this early.
-    stack: DeployedBumpStack | None = None
-
-    def author_devices(repo: Path) -> None:
-        nonlocal stack
+    def still_monitors(repo: Path) -> None:
         # TOLERANCE_M sits below the machine file's BPM noise and rests on a
         # stack whose monitors read the solved orbit exactly, so they serve it
         # without the drift and noise the machine file gives them.
         still_monitor_motion(repo / "data")
-        records = _orm_stack.roster_records(repo)
-        available_correctors, available_bpms = _horizontal_devices(records)
-
-        bpm_indices = (
-            TARGET_BPM_INDEX,
-            *CLOSURE_BPM_INDICES,
-            SPAN_MONITOR_BPM_INDEX,
-            CLOSURE_MONITOR_BPM_INDEX,
-        )
-        assert len(available_correctors) > max(CORRECTOR_INDICES), (
-            f"the deployed project yields {len(available_correctors)} horizontal correctors, "
-            f"too few for this bump's geometry (needs position {max(CORRECTOR_INDICES)})"
-        )
-        assert len(available_bpms) > max(bpm_indices), (
-            f"the deployed project yields {len(available_bpms)} horizontal BPM readbacks, "
-            f"too few for this bump's geometry (needs position {max(bpm_indices)})"
-        )
-
-        stack = DeployedBumpStack(
-            repo=repo,
-            correctors=[available_correctors[index] for index in CORRECTOR_INDICES],
-            target_bpm=available_bpms[TARGET_BPM_INDEX],
-            closure_readbacks=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
-            span_monitor=available_bpms[SPAN_MONITOR_BPM_INDEX],
-            closure_monitor=available_bpms[CLOSURE_MONITOR_BPM_INDEX],
-        )
-
-        # Only the devices this bump names reach the worker namespace: every one
-        # of them is a Channel Access connection the RE worker environment has to
-        # open before the queue will accept a plan, and the facility's whole
-        # corrector set would spend that on devices no assertion here reads.
-        all_correctors = _orm_stack.select_correctors(records, count=None)
-        _orm_stack.write_devices_file(
-            repo,
-            correctors={name: all_correctors[name] for name in stack.correctors},
-            bpms={name: name for name in stack.all_bpms},
-        )
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
@@ -582,9 +526,34 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         port_base=21900,
         timeout=BUILD_TIMEOUT_SEC,
         extra_config=EXTRA_CONFIG,
-        pre_build=author_devices,
+        pre_build=still_monitors,
     )
-    assert stack is not None, "the pre-build hook did not run -- no devices were authored"
+
+    # The bump's geometry is chosen from the device file the build staged, so
+    # every device it names is one the worker registered.
+    available_correctors, available_bpms = _horizontal_devices(repo)
+    bpm_indices = (
+        TARGET_BPM_INDEX,
+        *CLOSURE_BPM_INDICES,
+        SPAN_MONITOR_BPM_INDEX,
+        CLOSURE_MONITOR_BPM_INDEX,
+    )
+    assert len(available_correctors) > max(CORRECTOR_INDICES), (
+        f"the deployed project yields {len(available_correctors)} horizontal correctors, "
+        f"too few for this bump's geometry (needs position {max(CORRECTOR_INDICES)})"
+    )
+    assert len(available_bpms) > max(bpm_indices), (
+        f"the deployed project yields {len(available_bpms)} horizontal BPM readbacks, "
+        f"too few for this bump's geometry (needs position {max(bpm_indices)})"
+    )
+    stack = DeployedBumpStack(
+        repo=repo,
+        correctors=[available_correctors[index] for index in CORRECTOR_INDICES],
+        target_bpm=available_bpms[TARGET_BPM_INDEX],
+        closure_readbacks=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
+        span_monitor=available_bpms[SPAN_MONITOR_BPM_INDEX],
+        closure_monitor=available_bpms[CLOSURE_MONITOR_BPM_INDEX],
+    )
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.

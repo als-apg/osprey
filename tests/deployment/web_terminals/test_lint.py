@@ -1380,7 +1380,7 @@ def test_lint_persona_seed_base_absent_is_accepted() -> None:
 
 def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     """A config predating persona catalogs (no `personas:` block, no `persona:`
-    keys, no `default_persona`) must resolve every entry as zero-migration and
+    keys, no `default_persona`) must resolve every entry on the no-persona path and
     trip none of the new persona checks."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
@@ -2371,66 +2371,32 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
 
 
-# --- empty facility.prefix (web container-name prefix) -----------------------
+# --- project name the persona checks resolve against -------------------------
 
 
-def test_lint_users_with_absent_facility_prefix_is_an_error() -> None:
-    """Web container names are `<facility.prefix>-nginx`/`<...>-web-<user>`, so a
-    configured roster with no facility section at all renders leading-dash names
-    like `-nginx`, which Docker rejects only at `osprey up`. Catch it at lint."""
+def test_lint_resolves_personas_against_the_project_name(monkeypatch) -> None:
+    """Lint resolves the roster under the same project name provisioning addresses,
+    so a `facility.prefix` that differs from the project name names nothing."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config.pop("facility", None)  # no facility section -> empty effective prefix
+    config["project_name"] = "demo"
+    config["facility"] = {"prefix": "other"}
+    resolved: list[dict] = []
+    real_resolve = lint.resolve_personas
+
+    def _recording_resolve(*args, **kwargs):
+        entries = real_resolve(*args, **kwargs)
+        resolved.extend(entries)
+        return entries
+
+    monkeypatch.setattr(lint, "resolve_personas", _recording_resolve)
 
     # Act
-    findings = lint_web_terminals(config)
+    lint_web_terminals(config)
 
     # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.empty_facility_prefix" for f in errors)
-
-
-def test_lint_users_with_empty_string_facility_prefix_is_an_error() -> None:
-    """An explicit empty-string prefix derives the same broken `-nginx` name as an
-    absent one (`facility.get("prefix") or ""`), so it is equally an error."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["facility"] = {"prefix": ""}
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.empty_facility_prefix" for f in errors)
-
-
-def test_lint_users_with_nonempty_facility_prefix_reports_no_prefix_error() -> None:
-    """A non-empty prefix yields valid `<prefix>-nginx` names, so the check is silent."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["facility"] = {"prefix": "als"}
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any(f.code == "web_terminals.empty_facility_prefix" for f in findings)
-
-
-def test_lint_no_users_with_absent_facility_prefix_reports_no_prefix_error() -> None:
-    """With no users configured there are no per-user services to name, so an empty
-    prefix is not this check's concern (empty users[] is `_check_empty_users`')."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config.pop("facility", None)
-    config["modules"]["web_terminals"]["users"] = []
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert not any(f.code == "web_terminals.empty_facility_prefix" for f in findings)
+    assert resolved
+    assert {entry["project"] for entry in resolved} == {"demo-assistant"}
 
 
 def test_lint_omitted_mcp_topology_reports_no_error() -> None:

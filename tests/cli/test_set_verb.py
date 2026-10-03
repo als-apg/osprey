@@ -281,14 +281,14 @@ def test_multiple_pairs_all_written(runner, lifecycle_repo):
         lifecycle_repo,
         "provider=cborg",
         "channel_finder_mode=in_context",
-        "config.facility.name=Test Ring",
+        "config.system.timezone=UTC",
     )
 
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo)
     assert "provider: cborg" in after
     assert "channel_finder_mode: in_context" in after
-    assert "facility.name: Test Ring" in after
+    assert "system.timezone: UTC" in after
 
 
 def test_values_are_read_as_yaml(runner, lifecycle_repo):
@@ -369,16 +369,6 @@ def test_no_facility_gateway_addresses_are_shipped():
     assert not data_dir.exists() or not any(data_dir.rglob("*.py")), sorted(data_dir.rglob("*.py"))
 
 
-def test_tier_is_a_settable_key(runner, lifecycle_repo):
-    """Absorbs `build --tier`: the tier is profile content like anything else."""
-    result = _invoke(runner, lifecycle_repo, "tier=1", "channel_finder_mode=in_context")
-
-    assert result.exit_code == 0, result.output
-    after = _profile_text(lifecycle_repo)
-    assert "tier: 1" in after
-    assert "channel_finder_mode: in_context" in after
-
-
 # --- unrecognized keys ------------------------------------------------------
 
 
@@ -407,7 +397,11 @@ def test_recognized_and_config_prefixed_keys_are_never_called_out(runner, lifecy
     nothing) cannot read as a pass in either direction.
     """
     result = _invoke(
-        runner, lifecycle_repo, "model=claude-sonnet-5", "config.facility.name=Somewhere", "tier=2"
+        runner,
+        lifecycle_repo,
+        "model=claude-sonnet-5",
+        "config.system.timezone=UTC",
+        "channel_finder_mode=hierarchical",
     )
 
     assert result.exit_code == 0, result.output
@@ -511,12 +505,12 @@ def test_drift_hint_reports_the_build_this_edit_invalidated(runner, lifecycle_re
 
 
 def test_written_keys_are_reported(runner, lifecycle_repo):
-    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5", "config.facility.name=Ring")
+    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5", "config.system.timezone=UTC")
 
     assert result.exit_code == 0, result.output
     assert str(lifecycle_repo / "profile.yml") in result.output
     assert "model" in result.output
-    assert "config.facility.name" in result.output
+    assert "config.system.timezone" in result.output
 
 
 # --- the verb is reachable --------------------------------------------------
@@ -563,7 +557,6 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "provider: cborg\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
-        "tier: 1\n"
         "config:\n"
         "  control_system.type: mock\n"
         "  archiver.type: mock_archiver\n"
@@ -588,7 +581,7 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     shutil.copytree(
         TemplateManager().template_root / "apps" / "control_assistant" / "data", repo / "data"
     )
-    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 

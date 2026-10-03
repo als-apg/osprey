@@ -3,8 +3,8 @@
 The key is read by three consumers — the ``osprey_facility_knowledge`` MCP
 server, the ``osprey knowledge`` CLI, and the OKF knowledge panel. They used to
 normalise it three different ways, so the shipped relative value
-(``data/facility_knowledge``) pointed the CLI at ``<cwd>/data/facility_knowledge``
-while the other two opened ``<project>/data/facility_knowledge``.
+(``data/facility/knowledge``) pointed the CLI at ``<cwd>/data/facility/knowledge``
+while the other two opened ``<project>/data/facility/knowledge``.
 
 Every test here runs from a foreign CWD — that is the condition under which the
 old divergence was observable at all.
@@ -19,7 +19,7 @@ import pytest
 CONFIG_KEY = "facility_knowledge.bundle_path"
 
 #: The relative value shipped in control_assistant/config.yml.j2.
-SHIPPED_RELATIVE = "data/facility_knowledge"
+SHIPPED_RELATIVE = "data/facility/knowledge"
 
 
 def _write_concept(bundle_root: Path, concept_id: str) -> None:
@@ -113,7 +113,7 @@ def test_shipped_relative_path_agrees_across_all_three_sites(project, monkeypatc
 def test_cli_does_not_resolve_relative_to_the_cwd(project, monkeypatch):
     """Regression: the CLI must not be a CWD-relative outlier.
 
-    A bundle sitting at ``<cwd>/data/facility_knowledge`` must NOT win over the
+    A bundle sitting at ``<cwd>/data/facility/knowledge`` must NOT win over the
     one the config points at — that decoy is exactly what a CWD-relative
     resolver opens.
     """

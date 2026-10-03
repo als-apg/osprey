@@ -53,13 +53,11 @@ target inherits when its own block says nothing about itself.
 Session-relativity
 ------------------
 Availability is not a property of a target alone; it is a property of a target
-*and the session asking*. FR-8 gates a switch **to** the live machine on strict
-limits posture plus an operator acknowledgment, and a switch **to** the stand-in
-on the limits posture alone — the stand-in really is dialled and really behaves
-like hardware, but the acknowledgment it needs was already given at build time
-by the ``virtual_accelerator.live_standin`` line that stood it up. Both are
-waived **except** when the target is the deployment's own baseline and the
-session is returning to it — stranding a session on the simulator is the less
+*and the session asking*. FR-8 gates a switch **to** the live machine on an
+operator acknowledgment; the stand-in needs none — the acknowledgment it needs
+was already given at build time by the ``virtual_accelerator.live_standin``
+line that stood it up. The acknowledgment is waived when the target is the
+deployment's own baseline and the session is returning to it — stranding a session on the simulator is the less
 safe outcome, so coming home is never gated, and the baseline a deployment comes
 home to may be ``standin`` as readily as ``live``. The exemption covers the
 Channel Access shape of a connector block too — its gateways, the role this
@@ -130,10 +128,8 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
     VIRTUAL_ACCELERATOR,
-    LimitsPosture,
     resolve_target,
     target_writes_enabled,
-    type_limits_posture,
 )
 
 # -- Config keys, spelled once ---------------------------------------------
@@ -194,7 +190,6 @@ REASON_SELECTED_ROLE_MISSING = "selected_role_missing"
 REASON_PROBE_CHANNEL_MISSING = "probe_channel_missing"
 REASON_STANDIN_NOT_DEPLOYED = "standin_not_deployed"
 REASON_INVENTED_HISTORY = "invented_history"
-REASON_LIMITS_POSTURE = "limits_posture"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
 REASON_ARCHIVE_BELONGS_TO_STANDIN = "archive_belongs_to_standin"
 
@@ -586,20 +581,6 @@ def _is_set(value: Any) -> bool:
     return bool(value)
 
 
-def _limits_posture(config: Any, connector_type: str) -> LimitsPosture:
-    """The limits posture *connector_type* runs under, with its answering key.
-
-    Per connector type rather than per deployment, for the reason the write
-    posture is: a deployment with a live machine beside a virtual accelerator
-    holds one posture per machine, and a relaxation written for the simulator
-    must not decide what the live gate sees. The resolved value travels with the
-    key that answered so a refusal sends the operator to the line they can
-    actually edit — the per-type one when a per-type block spoke, the
-    deployment-wide one when none did.
-    """
-    return type_limits_posture(_section(config, "control_system"), connector_type)
-
-
 def _selected_role_missing(
     config: Any, derivation: TargetDerivation, target: str
 ) -> Eligibility | None:
@@ -707,12 +688,10 @@ def evaluate_eligibility(
        itself — the virtual accelerator or the stand-in — while the archiver
        resolves to the mock would pair an invented present with an invented
        past;
-    7. FR-8 posture, only for a switch *toward* a target, and split by which
-       machine it is: the strict limits posture applies to ``live`` **and**
-       ``standin``, both of which behave like hardware; the operator
-       acknowledgment applies to ``live`` alone, since the stand-in's
-       equivalent was said at build time by ``virtual_accelerator.live_standin``
-       (:data:`REASON_LIMITS_POSTURE`, :data:`REASON_OPERATOR_ACK_MISSING`);
+    7. FR-8 posture, only for a switch *toward* ``live``: the operator
+       acknowledgment. The stand-in's equivalent was said at build time by
+       ``virtual_accelerator.live_standin``
+       (:data:`REASON_OPERATOR_ACK_MISSING`);
     8. for ``live`` only, and only toward it: the archive is not the stand-in's.
        A deployment that records its own store beside a stand-in records the
        stand-in, and a real machine's readings must not land in that store
@@ -854,25 +833,6 @@ def evaluate_eligibility(
                 f"archiver.type is {pairing.archiver_phrase}. Set `archiver.type` to "
                 "a real archiver — this deployment's own store — before switching a "
                 "session onto this target.",
-            )
-
-    if switching_away and target in (TARGET_LIVE, TARGET_STANDIN):
-        # The strict limits posture guards both machines an operator meets
-        # hardware behaviour on. The stand-in really is dialled, really refuses
-        # out-of-limit writes and really carries `real_machine` — a rehearsal on
-        # a permissive posture would rehearse the wrong facility.
-        posture = _limits_posture(config, connector_type)
-        if not posture.strict:
-            # Both keys off the posture, so a per-type block that answered is
-            # the line the operator is sent to and the deployment-wide one it
-            # overrides is not mentioned at all.
-            enabled_key = posture.key("enabled")
-            allow_unlisted_key = posture.key("allow_unlisted_channels")
-            return Eligibility(
-                False,
-                REASON_LIMITS_POSTURE,
-                f"Switching to target {target!r} requires the strict limits posture: "
-                f"'{enabled_key}' true and '{allow_unlisted_key}' false.",
             )
 
     if target == TARGET_LIVE and switching_away:

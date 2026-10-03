@@ -265,7 +265,7 @@ def test_live_standin_overrides_do_not_refuse_the_deployments_own_posture() -> N
             _va(STANDIN_PORT),
             {
                 "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
                 "control_system.target_switch.live_gateway_acknowledged": "cagw.example.org:5064",
             },
         )
@@ -422,7 +422,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
     def test_live_standin_overrides_take_the_limits_posture_from_the_profile(
         self, runner, lifecycle_repo
     ) -> None:
-        """The strict pair is rendered because the profile authored it."""
+        """The limits pair is rendered because the profile authored it."""
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
 
         result = _build(runner, lifecycle_repo)
@@ -431,7 +431,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         rendered = (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
         limits = yaml.safe_load(rendered)["control_system"]["limits_checking"]
         assert limits["enabled"] is True
-        assert limits["allow_unlisted_channels"] is False
+        assert limits["mode"] == "optional"
 
     def test_live_standin_overrides_build_with_an_unstated_limits_posture(
         self, runner, lifecycle_repo
@@ -439,11 +439,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         """Take the pair out of the profile and nothing puts it back — nor is it required.
 
         The other half of the claim above, and the one that actually separates
-        "authored" from "derived". While the stand-in was ``live`` the build
-        flipped this key itself and then had to rewrite the comment beside it to
-        stop the rendered line contradicting its own value. Nothing does that
-        now — and there is no template default underneath to fall back to
-        either, because a deployment's declarative config is its own.
+        "authored" from "derived".
 
         Limits checking is opt-in per target, and the connector's per-write
         check is the enforcement point: a target whose posture is unstated
@@ -456,17 +452,18 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         _remove_config_entries(
             lifecycle_repo,
             "control_system.limits_checking.enabled",
-            "control_system.limits_checking.allow_unlisted_channels",
+            "control_system.limits_checking.mode",
         )
 
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        limits = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
+        control_system = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
             "control_system"
-        ]["limits_checking"]
-        assert "enabled" not in limits, "an unstated posture must not be filled in by the build"
-        assert "allow_unlisted_channels" not in limits
+        ]
+        assert "limits_checking" not in control_system, (
+            "an unstated posture must not be filled in by the build"
+        )
 
     def test_live_standin_overrides_leave_the_sandbox_gateways_portless(
         self, runner, lifecycle_repo
@@ -530,7 +527,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         assert "probe_channel" not in control_system["connector"]["epics"]
         # Still the profile's own pair, unchanged by the stand-in going away:
         # nothing about the limits posture was ever the stand-in's to decide.
-        assert control_system["limits_checking"]["allow_unlisted_channels"] is False
+        assert control_system["limits_checking"]["mode"] == "optional"
 
     def test_live_standin_overrides_refuse_a_duplicate_at_build_time(
         self, runner, lifecycle_repo, caplog

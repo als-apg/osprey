@@ -42,7 +42,7 @@ class TestRows:
             **HYBRID_ON,
             "services": {"qmd": {"port": 8180}},
             "web": {"panels": {"okf": {"enabled": True}}},
-            "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+            "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
         }
         rows = await _run(config)
         assert "reach.qmd" in rows
@@ -113,7 +113,7 @@ class TestOutcomes:
         sidecar; the row reports the missing endpoint without crying wolf."""
         config = {
             "web": {"panels": {"okf": {"enabled": True}}},
-            "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+            "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
         }
         rows = await _run(config)
         assert rows["reach.qmd"].value == "unresolved"

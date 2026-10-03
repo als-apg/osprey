@@ -99,7 +99,6 @@ def _config(
         web_terminals["default_persona"] = default_persona
     return {
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},

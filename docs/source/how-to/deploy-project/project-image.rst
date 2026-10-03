@@ -707,8 +707,10 @@ The file is yours — common edits:
           lets ``useradd`` pick the next free id hands the volume to the wrong
           user
       * - Narrow the ownership change
-        - ``chown -R osprey:osprey`` on ``var/`` only, plus
-          ``build/data/facility_knowledge`` when the deployment renders one.
+        - ``chown -R osprey:osprey`` on ``var/`` only, plus the directory
+          ``facility_knowledge.bundle_path`` names under ``build/``
+          (``build/data/facility/knowledge`` for the ``control-assistant``
+          preset) when the deployment names one.
           Not the project root — that blanket chown is what hands the render
           away
       * - Hand over ``config.yml`` for one tier only

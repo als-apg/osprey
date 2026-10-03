@@ -123,9 +123,9 @@ _PROTOCOL_DB = {
         "KICK": {
             "Voltage": {
                 "ChannelNames": ["K1:V", "K2:V"],
-                "TangoNames": ["ring/kick/1/v", "ring/kick/2/v"],
+                "TangoNames": ["dom/kick/1/v", "dom/kick/2/v"],
             },
-            "Current": {"TangoNames": ["ring/kick/1/i", "ring/kick/2/i"]},
+            "Current": {"TangoNames": ["dom/kick/1/i", "dom/kick/2/i"]},
             "setup": {"DeviceList": [[1, 1], [1, 2]]},
         }
     }
@@ -175,7 +175,7 @@ def test_list_channels_protocol_tango_on_dual_key(tmp_path, monkeypatch):
     result = _call_on(database, system="RING", family="KICK", field="Voltage", protocol="tango")
 
     data = extract_response_dict(result)
-    assert data == {"channels": ["ring/kick/1/v", "ring/kick/2/v"], "total": 2}
+    assert data == {"channels": ["dom/kick/1/v", "dom/kick/2/v"], "total": 2}
 
 
 def test_list_channels_protocol_absent_is_validation_error(tmp_path, monkeypatch):

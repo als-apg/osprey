@@ -474,10 +474,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     if not (web_terminals_cfg.get("enabled") and user_names):
         return
 
-    facility_cfg = config.get("facility", {})
-    if not isinstance(facility_cfg, dict):
-        facility_cfg = {}
-    facility_prefix = facility_cfg.get("prefix") or ""
+    project = resolve_project_name(config)
 
     by_name = {}
     for container in all_containers:
@@ -503,7 +500,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     output.report("")
     output.section("Web Terminal Users:", ())
     for user in user_names:
-        container = by_name.get(web_container_name(facility_prefix, user))
+        container = by_name.get(web_container_name(project, user))
         claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
         # Only for a container that EXISTS: a marker names why a launch refused,
         # and there is no launch to explain for a user whose container was never

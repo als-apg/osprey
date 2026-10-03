@@ -520,16 +520,16 @@ def _env_value(repo: Path, key: str) -> str:
 def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
     """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
 
-    The sweep band is the middle half of the corrector's OWN
-    ``channel_limits.json`` entry, so this never hardcodes a facility channel
-    and never asks the reference monitor for a value outside its band.
+    The sweep band is the middle half of the corrector's OWN limits record, so
+    this never hardcodes a facility channel and never asks the reference
+    monitor for a value outside its band.
 
-    The corrector NAMES come from the device file the build staged, derived
-    from the facility channel roster; the band VALUES come from the limits
-    projection, which gates a subset of those channels and enumerates none of
-    them. The two are not the same set, so the axis is the first staged
-    corrector the limits file actually BOUNDS — indexing the projection by the
-    first staged name raises inside a fixture the stages cannot report from.
+    The corrector NAMES come from the device file the build staged; the band
+    VALUES come from the limits table, which holds the records the facility
+    tree authors and names no other channel. The two are not the same set, so
+    the axis is the first staged corrector a record BOUNDS — indexing the
+    table by the first staged name raises inside a fixture the stages cannot
+    report from.
     """
     axis = next(
         (
@@ -542,7 +542,7 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
         None,
     )
     assert axis is not None, (
-        "no staged corrector carries a channel_limits band, so this plan has no "
+        "no staged corrector carries a limits record, so this plan has no "
         f"axis to sweep (staged correctors: {sorted(stack.correctors)})"
     )
     axis_name, entry = axis
@@ -894,9 +894,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         _sidecar_secret = _env_value(repo, "OSPREY_TERMINAL_SECRET")
 
         # Device names come from the device file the BUILD staged and the
-        # worker mounts -- this lane authors none of its own, so what is read
-        # back here is the turn-key derivation from the deployment's own
-        # channel_limits.json. Reading it rather than re-deriving is what makes
+        # worker mounts -- the build's Bluesky view of the facility file.
+        # Reading it rather than re-deriving is what makes
         # the plans this test composes name exactly the devices the deployed
         # worker registered, and a change in that derivation show up here as a
         # real failure rather than a silently-diverging second copy of the logic.
@@ -924,9 +923,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         assert correctors, "the build staged no modelled settable device -- nothing to drive"
         assert bpms, "the build staged no modelled readable device -- nothing to read"
 
-        # The repo's own copy, which the build copies into build/data verbatim:
-        # same bytes, same channels the deployed containers see.
-        limits = json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+        limits = _orm_stack.channel_limits(repo)
 
         yield QueueStack(
             repo=repo,
@@ -1902,10 +1899,10 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     actually run with.
 
     The plan body sweeps ``-span_a .. span_a`` absolutely and restores to 0.0,
-    so the device must be one whose own ``channel_limits.json`` band contains
-    that range -- a bipolar corrector. The staged device set is the whole
-    roster (dipoles and all), so the first settable is not that device; pick
-    the first one whose limits prove it is.
+    so the device must be one whose own limits record contains that range -- a
+    bipolar corrector. The staged device set is every channel of the facility
+    file (dipoles and all), so the first settable is not that device; pick the
+    first one whose record proves it is.
     """
     span_a = 1.0
     corrector = next(
@@ -1921,7 +1918,7 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
         None,
     )
     assert corrector is not None, (
-        f"no staged settable has a channel_limits band covering "
+        f"no staged settable has a limits record covering "
         f"[-{span_a}, {span_a}] -- the session sweep needs a bipolar corrector"
     )
     return {

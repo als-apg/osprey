@@ -45,7 +45,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from osprey.services.facility_knowledge.ttl_generator.model import PN_LOCAL
+from osprey.facility import PN_LOCAL
 from osprey.services.mml.family import FamilyView, family_views, system_bodies
 from osprey.services.mml.judgments import (
     PendingJudgments,

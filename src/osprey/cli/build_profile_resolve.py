@@ -597,7 +597,6 @@ PROFILE_FILENAME = "profile.yml"
 def write_back_cli_overrides(
     profile_path: Path,
     set_pairs: tuple[str, ...] = (),
-    tier: int | None = None,
 ) -> list[str]:
     """Write ``osprey set``'s pairs into the profile, before it is read back.
 
@@ -624,7 +623,6 @@ def write_back_cli_overrides(
     Args:
         profile_path: The ``profile.yml`` (or persona delta) being edited.
         set_pairs: The ``osprey set`` pairs.
-        tier: Written as the profile's ``tier:`` key.
 
     Returns:
         The dotted key paths written, in write order; empty when there was
@@ -639,8 +637,6 @@ def write_back_cli_overrides(
     # Only what the CLI supplied is written — the profile's own content is
     # never rewritten as a side effect.
     layer = cli_edit_layer(set_pairs)
-    if tier is not None:
-        layer["tier"] = tier
     if "extends" in layer:
         raise click.UsageError(EXTENDS_OVERRIDE_REFUSAL)
     if not layer:

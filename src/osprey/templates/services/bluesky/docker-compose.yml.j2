@@ -863,15 +863,15 @@ services:
       - ./build/services/bluesky/control_identity.py:{{ control_identity_container_path }}:ro
 {% if bluesky_devices | default(false) %}
       # The device file the env var above names. Unlike the limits DB, the
-      # SOURCE is a literal staged path rather than a computed one: the staging
-      # step copies whatever `bluesky.devices_file` names — or derives a set
-      # from the limits database — into this service's build context under a
-      # fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so the operator's
-      # own filename and directory never reach this bind and no configured path
-      # is left here to resolve. Both plan lanes declare the same service
-      # `path` and therefore render this one directory, staging identical bytes
-      # on the second pass; one staged file consequently serves both lanes, and
-      # any per-lane device split lives inside the document, not in this mount.
+      # SOURCE is a literal staged path rather than a computed one: `osprey
+      # build` writes the devices view from the channels under data/facility/,
+      # and the staging step copies it unchanged into this service's build
+      # context under a fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so
+      # no configured path is left here to resolve. Both plan lanes declare the
+      # same service `path` and therefore render this one directory, staging
+      # identical bytes on the second pass; one staged file consequently serves
+      # both lanes, and any per-lane device split lives inside the document,
+      # not in this mount.
       - ./build/services/bluesky/bluesky_devices.yml:/app/project/data/bluesky_devices.yml:ro
 {% endif %}
 {% if svc.plan_dir %}

@@ -181,55 +181,6 @@ class TestHierarchicalExplore:
         assert resp.json()["facility_name"] == "ERF"
 
 
-class TestHierarchicalCrud:
-    def test_add_tree_node_success(self, client):
-        _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
-        mock_db.add_node.return_value = {"status": "added"}
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post(
-                "/api/tree/node",
-                json={"level": "system", "name": "SR", "description": "ring"},
-            )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "added"
-
-    def test_add_tree_node_write_error_400(self, client):
-        _set_pipeline(client, "hierarchical")
-        from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
-        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
-        mock_db.add_node.side_effect = DatabaseWriteError("duplicate", "dup")
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post("/api/tree/node", json={"level": "system", "name": "SR"})
-        assert resp.status_code == 400
-
-    def test_add_tree_node_unexpected_error_500(self, client):
-        _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
-        mock_db.add_node.side_effect = RuntimeError("boom")
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post("/api/tree/node", json={"level": "system", "name": "SR"})
-        assert resp.status_code == 500
-
-    def test_tree_impact_reports_breakdown(self, client):
-        _set_pipeline(client, "hierarchical")
-        mock_db = MagicMock(spec=HierarchicalChannelDatabase)
-        mock_db.count_descendants.return_value = {"channels": 40, "devices": 5}
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post("/api/tree/impact", json={"level": "system", "name": "SR"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["affected_channels"] == 40
-        assert data["breakdown"] == {"devices": 5}
-
-    def test_get_tree_expansion_invalid_json_422(self, client):
-        _set_pipeline(client, "hierarchical")
-        with patch(_DB_PATCH, return_value=MagicMock(spec=HierarchicalChannelDatabase)):
-            resp = client.get("/api/tree/expansion?level=device&selections={bad")
-        assert resp.status_code == 422
-
-
 class TestMiddleLayerExplore:
     def test_explore_systems(self, client):
         _set_pipeline(client, "middle_layer")
@@ -290,38 +241,6 @@ class TestMiddleLayerExplore:
         assert resp.json() == {"count": 8}
 
 
-class TestMiddleLayerCrud:
-    def test_add_family_success(self, client):
-        _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock(spec=MiddleLayerDatabase)
-        mock_db.add_family.return_value = {"status": "added"}
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post(
-                "/api/structure/family",
-                json={"system": "SR", "family": "BPM", "description": "monitors"},
-            )
-        assert resp.status_code == 200
-
-    def test_add_family_write_error_400(self, client):
-        _set_pipeline(client, "middle_layer")
-        from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
-        mock_db = MagicMock(spec=MiddleLayerDatabase)
-        mock_db.add_family.side_effect = DatabaseWriteError("dup", "dup")
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post("/api/structure/family", json={"system": "SR", "family": "BPM"})
-        assert resp.status_code == 400
-
-    def test_structure_impact(self, client):
-        _set_pipeline(client, "middle_layer")
-        mock_db = MagicMock(spec=MiddleLayerDatabase)
-        mock_db.count_family_channels.return_value = 24
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post("/api/structure/impact", json={"system": "SR", "family": "BPM"})
-        assert resp.status_code == 200
-        assert resp.json()["affected_channels"] == 24
-
-
 class TestInContextChunkBounds:
     def test_chunk_idx_out_of_range_422(self, client):
         _set_pipeline(client, "in_context")
@@ -332,10 +251,6 @@ class TestInContextChunkBounds:
         assert resp.status_code == 422
 
 
-_TREE_NODE = {"level": "system", "name": "SR"}
-_ML_FAMILY = {"system": "SR", "family": "BPM"}
-_ML_CHANNEL = {"system": "SR", "family": "BPM", "field": "Monitor", "channel_name": "SR:BPM:X"}
-
 #: One row per route that serves exactly one file-backed paradigm:
 #: ``(paradigm, method, path, body)``. Every body passes the route's request
 #: model, so no answer is a validation 422.
@@ -343,26 +258,12 @@ _PARADIGM_ROUTES = [
     ("hierarchical", "GET", "/api/explore/options?level=system", None),
     ("hierarchical", "GET", "/api/explore/build?selections={}", None),
     ("hierarchical", "GET", "/api/explore/hierarchy-info", None),
-    ("hierarchical", "POST", "/api/tree/node", _TREE_NODE),
-    ("hierarchical", "PUT", "/api/tree/node", {"level": "system", "old_name": "SR"}),
-    ("hierarchical", "DELETE", "/api/tree/node", _TREE_NODE),
-    ("hierarchical", "POST", "/api/tree/impact", _TREE_NODE),
-    ("hierarchical", "GET", "/api/tree/expansion?level=device", None),
-    ("hierarchical", "PUT", "/api/tree/expansion", {"level": "device"}),
     ("middle_layer", "GET", "/api/explore/systems", None),
     ("middle_layer", "GET", "/api/explore/families?system=SR", None),
     ("middle_layer", "GET", "/api/explore/fields?system=SR&family=BPM", None),
     ("middle_layer", "GET", "/api/explore/channels?system=SR&family=BPM&field=Monitor", None),
     ("middle_layer", "GET", "/api/explore/device-info?system=SR&family=BPM", None),
-    ("middle_layer", "POST", "/api/structure/family", _ML_FAMILY),
-    ("middle_layer", "DELETE", "/api/structure/family", _ML_FAMILY),
-    ("middle_layer", "POST", "/api/structure/channel", _ML_CHANNEL),
-    ("middle_layer", "DELETE", "/api/structure/channel", _ML_CHANNEL),
-    ("middle_layer", "POST", "/api/structure/impact", _ML_FAMILY),
     ("in_context", "GET", "/api/channels", None),
-    ("in_context", "POST", "/api/channels", {"channel_name": "SR:X"}),
-    ("in_context", "PUT", "/api/channels/SR:X", {"description": "d"}),
-    ("in_context", "DELETE", "/api/channels/SR:X", None),
 ]
 
 _BACKENDS = {
@@ -639,8 +540,8 @@ class TestGraphParadigmRoutes:
         """Membership and enumeration answer from the roster, or say they cannot.
 
         An app started without one keeps no roster at all — the state
-        ``install_graph_paradigm`` leaves behind — and both routes name the key
-        that would give it one rather than reporting an empty facility.
+        ``install_graph_paradigm`` leaves behind — and both routes name the
+        build that would give it one rather than reporting an empty facility.
         """
         install_graph_paradigm(client)
         kwargs = {"json": body} if body is not None else {}
@@ -649,7 +550,7 @@ class TestGraphParadigmRoutes:
 
         assert resp.status_code == 503
         assert resp.json()["error_type"] == "service_unavailable"
-        assert "services.graphdb.ttl_path" in " ".join(resp.json()["suggestions"])
+        assert "osprey build" in " ".join(resp.json()["suggestions"])
 
     def test_switch_pipeline_400_names_the_paradigm_and_read_cypher(self, client):
         install_graph_paradigm(client)
@@ -665,14 +566,11 @@ class TestGraphParadigmRoutes:
     @pytest.mark.parametrize(
         ("method", "path", "body"),
         [
-            # One route per pipeline gate: hierarchical, middle_layer, plus the
-            # two write gates that share those checks. ``/api/channels`` is not
-            # among them any more: the graph paradigm enumerates from the
-            # roster, and its gate is tested above.
+            # One route per pipeline gate: hierarchical, middle_layer.
+            # ``/api/channels`` is not among them any more: the graph paradigm
+            # enumerates from the roster, and its gate is tested above.
             ("get", "/api/explore/options?level=system", None),
             ("get", "/api/explore/systems", None),
-            ("post", "/api/tree/node", {"level": "system", "name": "SR"}),
-            ("post", "/api/structure/family", {"system": "SR", "family": "BPM"}),
         ],
     )
     def test_explorer_routes_404_under_graph(self, client, method, path, body):

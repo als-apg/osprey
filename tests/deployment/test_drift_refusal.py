@@ -156,12 +156,12 @@ def test_profile_key_edit_names_the_changed_key(repo):
 
 
 def test_added_profile_key_is_named(repo):
-    _write(repo / "profile.yml", PROFILE_YAML + "tier: 2\n")
+    _write(repo / "profile.yml", PROFILE_YAML + "model: claude-opus-5-5\n")
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
-    assert "tier" in report.changed_keys
+    assert "model" in report.changed_keys
 
 
 def test_persona_delta_edit_names_the_delta(repo):

@@ -271,9 +271,8 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
 
 - Facility knowledge: skeleton and index files, stubs in the user's words, or stubs
   derived from a named source and marked as such. Nothing else gets a file.
-- Channel databases: the shipped template, the facility's own file, one built from the
-  facility's CSV by `osprey channel-finder build-database`, or one emitted from the
-  facility's MML export by `osprey mml emit`. Never by hand.
+- Channel databases: the shipped template, the facility's own file, or one emitted from
+  the facility's MML export by `osprey mml emit`. Never by hand.
 - The MML mapping: `data/mml/mapping.yaml` is reviewed to `stated` and every
   `judgments:` slot is answered by the user before anything is emitted from it, and
   every file `osprey mml emit` writes is `built` — the database, the ontology, the
@@ -351,8 +350,8 @@ core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · i
 ## Ledger
 | path or block | provenance | content | note |
 | --- | --- | --- | --- |
-| data/facility_knowledge/ | pulled | skeleton | indexes only |
-| data/facility_knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
+| data/facility/knowledge/ | pulled | skeleton | indexes only |
+| data/facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
 | data/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
 | services.postgresql | ported | LCLS | ARIEL store |
 ## Decided

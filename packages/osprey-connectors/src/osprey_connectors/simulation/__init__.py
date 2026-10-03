@@ -13,12 +13,15 @@ from osprey_connectors.simulation.engine import (
 )
 from osprey_connectors.simulation.expressions import ExpressionError
 from osprey_connectors.simulation.machine import DEFAULT_SCENARIO
+from osprey_connectors.simulation.values import coerce, zero
 
 __all__ = [
     "DEFAULT_SCENARIO",
     "ExpressionError",
     "SimReading",
     "SimulationEngine",
+    "coerce",
     "engine_from_connector_config",
     "engine_serves",
+    "zero",
 ]

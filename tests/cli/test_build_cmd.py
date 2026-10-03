@@ -1923,26 +1923,8 @@ class TestWebPanelsRendering:
 
 
 # ---------------------------------------------------------------------------
-# Tier Flattening (materialize_tier_artifacts)
+# Channel-finder staging trees stay out of the render
 # ---------------------------------------------------------------------------
-
-
-def _preset_tier_source(tier: int, paradigm: str) -> Path:
-    """Path to the bundled preset's tier-routed source DB."""
-    import osprey
-
-    osprey_root = Path(osprey.__file__).parent
-    return (
-        osprey_root
-        / "templates"
-        / "apps"
-        / "control_assistant"
-        / "data"
-        / "channel_databases"
-        / "tiers"
-        / f"tier{tier}"
-        / f"{paradigm}.json"
-    )
 
 
 # The posture every deployment must state in its own `config:` block for a
@@ -1957,32 +1939,24 @@ POSTURE_CONFIG: dict = {
 }
 
 
-def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
-    """A deployment repo whose profile pins one paradigm and, optionally, a tier.
-
-    The tier lives in ``profile.yml`` — it is a property of the deployment, not
-    of the invocation that renders it — so a test that wants tier 1 writes tier
-    1 into the source and builds. ``osprey set tier=N`` is the CLI spelling of
-    the same edit and is pinned in tests/cli/test_set_verb.py.
-    """
-    repo = tmp_path / f"tier-{paradigm}-{tier or 'default'}"
+def _mode_repo(tmp_path: Path, paradigm: str) -> Path:
+    """A deployment repo whose profile pins one channel-finder mode."""
+    repo = tmp_path / f"mode-{paradigm}"
     repo.mkdir(parents=True, exist_ok=True)
     profile_data: dict = {
-        "name": "Tier Test",
+        "name": "Mode Test",
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": paradigm,
         "config": dict(POSTURE_CONFIG),
     }
-    if tier is not None:
-        profile_data["tier"] = tier
     (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
     # The data tree `osprey init` lays down beside the profile: the build stages
     # its channel databases out of this tree and no other, and the Reach
     # Contract refuses a render whose bind source is not there.
     materialize_data(repo)
-    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 
@@ -1998,43 +1972,33 @@ def _render(repo: Path):
 # Every paradigm whose store is a channel-database file, derived from the
 # registry so a new paradigm cannot be added without landing here. ``graph`` is
 # excluded by the same subtraction the CLI's ``click.Choice`` lists use: its
-# store is a graph service, so a graph build materializes no
-# ``channel_databases/<paradigm>.json`` for these tests to byte-compare against
-# a preset tier source. See tests/build/test_mode_registry_single_source.py.
+# store is a graph service, so its index is not a database file the render
+# check below can name. See tests/build/test_modes.py.
 _PARADIGMS_FOR_BUILD: tuple[str, ...] = tuple(FILE_DATABASE_PARADIGMS)
 
-#: The flat channel databases a build materializes for those paradigms. Named
-#: here so the graph render can assert it flattened none of them without also
-#: asserting the directory is empty: the app template ships an example database
-#: and an ``examples/`` tree in there, which every render carries.
+#: The flat channel databases no render carries. Named here so a render can be
+#: asserted to hold none of them without also asserting the directory is empty:
+#: the app template ships an example database and an ``examples/`` tree in
+#: there, which every render carries.
 _PARADIGM_DATABASE_FILENAMES: frozenset[str] = frozenset(
     f"{paradigm}.json" for paradigm in _PARADIGMS_FOR_BUILD
 )
 
 
-# Tier selection is restricted to {1, 3}, and tier 1 is in_context-only
-# (it ships no hierarchical/middle_layer DB). Only these combos are buildable.
-_VALID_TIER_PARADIGMS: tuple[tuple[int, str], ...] = (
-    (1, "in_context"),
-    (3, "in_context"),
-    (3, "hierarchical"),
-    (3, "middle_layer"),
-)
+@pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
+def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> None:
+    """A control-assistant render carries the index views and no staging tree.
 
-
-@pytest.mark.parametrize("tier,paradigm", _VALID_TIER_PARADIGMS)
-def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
-    """A build materializes the active paradigm's DB at the flat path and
-    removes the ``tiers/`` subtree.
-
-    - rendered config.yml emits ``data/channel_databases/<paradigm>.json``
-      (no ``tiers/`` segment).
-    - the file exists at that flat path and byte-equals the preset's
-      ``tiers/tier{N}/<paradigm>.json`` source.
-    - the other paradigms' flat files are NOT created.
-    - the ``tiers/`` subdirectory has been removed.
+    - rendered config.yml names the index the build writes at
+      ``data/channel_finder/<paradigm>.json``, and the file is there.
+    - no ``data/channel_databases/tiers/``, ``data/benchmarks/cross_paradigm/``
+      or ``data/raw/`` reaches the render; the facility tree keeps them.
+    - no ``data/channel_databases/<paradigm>.json`` is materialized from a tier
+      source, for this paradigm or any other.
+    - the mode's benchmark query set lands at ``data/benchmarks/queries.json``.
+    - a hierarchical render tells the channel-finder agent the index's levels.
     """
-    repo = _tier_repo(tmp_path, paradigm, tier)
+    repo = _mode_repo(tmp_path, paradigm)
 
     result = _render(repo)
     assert result.exit_code == 0, (
@@ -2046,89 +2010,32 @@ def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
     project_dir = repo / "build"
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     pipelines = config["channel_finder"]["pipelines"]
+    expected_path = f"data/channel_finder/{paradigm}.json"
+    assert pipelines[paradigm]["database"]["path"] == expected_path
+    assert (project_dir / expected_path).is_file()
 
-    # (a) Rendered config points to the FLAT path — no tiers/ segment.
-    assert pipelines[paradigm]["database"]["path"] == f"data/channel_databases/{paradigm}.json", (
-        f"paradigm={paradigm} got {pipelines[paradigm]['database']['path']!r}"
+    data = project_dir / "data"
+    assert not (data / "channel_databases" / "tiers").exists()
+    assert not (data / "benchmarks" / "cross_paradigm").exists()
+    assert not (data / "raw").exists()
+    staged = sorted(path.name for path in (data / "channel_databases").glob("*"))
+    assert not [name for name in staged if name in _PARADIGM_DATABASE_FILENAMES], (
+        f"a {paradigm} render materialized a paradigm channel database: {staged}"
     )
+    assert (data / "benchmarks" / "queries.json").is_file()
 
-    # (b) The flat DB exists and byte-equals the preset tier source.
-    flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
-    assert flat_path.exists(), f"flat DB missing: {flat_path}"
+    # The facility tree the render came from is never pruned.
+    assert (repo / "data" / "channel_databases" / "tiers").is_dir()
 
-    src = _preset_tier_source(tier, paradigm)
-    assert src.exists(), f"preset source missing: {src}"
-    assert flat_path.read_bytes() == src.read_bytes(), (
-        f"flat DB does not byte-equal preset tier{tier}/{paradigm}.json"
-    )
-
-    # (c) Other paradigms are NOT materialized to the flat root.
-    for other in _PARADIGMS_FOR_BUILD:
-        if other == paradigm:
-            continue
-        other_flat = project_dir / "data" / "channel_databases" / f"{other}.json"
-        assert not other_flat.exists(), (
-            f"{other}.json should not have been materialized for mode={paradigm!r}"
+    if paradigm == "hierarchical":
+        # The levels the channel-finder agent is told are the index's own.
+        index = json.loads((project_dir / expected_path).read_text(encoding="utf-8"))
+        levels = [level["name"] for level in index["hierarchy"]["levels"]]
+        prompt = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text(
+            encoding="utf-8"
         )
-
-    # (d) The tiers/ subtree has been pruned.
-    assert not (project_dir / "data" / "channel_databases" / "tiers").exists(), (
-        "tiers/ subtree was not pruned after materialization"
-    )
-
-
-# Re-tiering 1 → 3 only applies to in_context; tier 1 is in_context-only.
-@pytest.mark.parametrize("paradigm", ["in_context"])
-def test_build_retier(tmp_path: Path, paradigm: str) -> None:
-    """Changing the tier is a source edit followed by a rebuild.
-
-    This is the source/output split doing its job: nothing about the tier lives
-    in the invocation, so re-tiering is `osprey set tier=3` and then `osprey
-    build`, and the render that comes out is a tier-3 render with no trace of
-    the tier-1 one it replaced.
-    """
-    from click.testing import CliRunner
-
-    from osprey.cli.set_cmd import set as set_cmd
-
-    repo = _tier_repo(tmp_path, paradigm, 1)
-
-    first = _render(repo)
-    assert first.exit_code == 0, f"tier-1 build failed: {first.output}\n{first.exception}"
-
-    edited = CliRunner().invoke(set_cmd, ["--repo", str(repo), "tier=3"])
-    assert edited.exit_code == 0, edited.output
-
-    second = _render(repo)
-    assert second.exit_code == 0, f"tier-3 rebuild failed: {second.output}\n{second.exception}"
-
-    flat_path = repo / "build" / "data" / "channel_databases" / f"{paradigm}.json"
-    src = _preset_tier_source(3, paradigm)
-    assert flat_path.read_bytes() == src.read_bytes(), (
-        f"after re-tiering to 3, {paradigm}.json does not byte-equal preset tier3 source"
-    )
-
-
-@pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
-def test_build_profile_only_tier(tmp_path: Path, paradigm: str) -> None:
-    """The profile's ``tier: 3`` is what drives materialization.
-
-    There is no other source for it: the tier is a property of the deployment,
-    recorded where a facility can read and edit it, so a render can never
-    disagree with the profile it came from.
-    """
-    repo = _tier_repo(tmp_path, paradigm, 3)
-
-    result = _render(repo)
-    assert result.exit_code == 0, (
-        f"profile-only-tier build failed: {result.output}\n{result.exception}"
-    )
-
-    flat_path = repo / "build" / "data" / "channel_databases" / f"{paradigm}.json"
-    src = _preset_tier_source(3, paradigm)
-    assert flat_path.read_bytes() == src.read_bytes(), (
-        f"profile tier=3 not honored for {paradigm}.json"
-    )
+        assert levels
+        assert f"- **hierarchy_levels**: {levels}" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -2159,7 +2066,6 @@ class TestEventsPanelUrlDerivation:
             "dispatcher_port": dispatcher_port,
             "worker_port_base": 9190,
             "timeout_sec": 300,
-            "facility_name": "generic-facility",
             "channel_strip_prefix": "",
         }
         base.update(overrides)
@@ -2862,54 +2768,6 @@ class TestCopyServiceTemplates:
         )
 
 
-# ---------------------------------------------------------------------------
-# Tier selection rules
-# ---------------------------------------------------------------------------
-
-
-class TestTierSelectionRules:
-    """Tier selection is restricted to {1, 3}, and tier 1 is in_context-only.
-
-    The tier is a profile key, so the rule is enforced where the profile
-    resolves — these cases pin that a tier-2 or a tier1+non-in_context profile
-    fails with a rule-naming error rather than an opaque downstream scaffolding
-    FileNotFoundError.
-    """
-
-    @pytest.fixture()
-    def test_profile_tier_2_rejected(self, tmp_path: Path) -> None:
-        """A profile YAML with ``tier: 2`` fails validation naming the {1,3} rule."""
-        from osprey.cli.build_profile import resolve_build_profile
-
-        prof = tmp_path / "profile.yml"
-        prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 2\n")
-        with pytest.raises(BuildProfileError, match="tier must be 1 or 3"):
-            resolve_build_profile(prof.resolve(), preset=None)
-
-    def test_profile_tier1_hierarchical_rejected(self, tmp_path: Path) -> None:
-        """tier 1 paired with a non-in_context paradigm fails at validation with
-        the tier rule — not later as a scaffolding FileNotFoundError."""
-        from osprey.cli.build_profile import resolve_build_profile
-
-        prof = tmp_path / "profile.yml"
-        prof.write_text("name: t\nchannel_finder_mode: hierarchical\ntier: 1\n")
-        with pytest.raises(
-            BuildProfileError, match="tier 1 requires channel_finder_mode: in_context"
-        ):
-            resolve_build_profile(prof.resolve(), preset=None)
-
-    def test_profile_tier1_in_context_accepted(self, tmp_path: Path) -> None:
-        """The valid tier-1 combo (in_context) resolves cleanly."""
-        from osprey.cli.build_profile import resolve_build_profile
-
-        (tmp_path / "data").mkdir()
-        prof = tmp_path / "profile.yml"
-        prof.write_text("name: t\ndata: data\nchannel_finder_mode: in_context\ntier: 1\n")
-        resolved, _ = resolve_build_profile(prof.resolve(), preset=None)
-        assert resolved.tier == 1
-        assert resolved.resolved_tier() == 1
-
-
 def test_preset_build_never_touches_the_presets_package_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3243,166 +3101,53 @@ class TestVAArchiverConfigDerivation:
 
 
 # ---------------------------------------------------------------------------
-# What the build hands `create_project` as `tier`
+# The graph paradigm's render
 # ---------------------------------------------------------------------------
 
 
-class TestTierIsPinnedOnlyWhereTheParadigmAcceptsOne:
-    """The `tier` `_render_project` hands `create_project`, per paradigm.
+def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: Path) -> None:
+    """The graph paradigm builds, and its render flattens no paradigm database.
 
-    ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
-    not "the tier to use": given ``None`` it derives the paradigm-aware default
-    itself, and given a value it enforces ``tier_mode_conflict`` against the
-    paradigm (both boundaries pinned in ``tests/cli/test_templates.py``). So the
-    build has to hand it a tier only where the paradigm accepts one. ``graph``
-    is the paradigm that does not — it derives tier 3 like every
-    non-``in_context`` paradigm, but its store is a service rather than tiered
-    database files, so no tier selects anything for it and pinning one is a
-    rule error. A build that handed its own derived tier straight back as a pin
-    would be refused at the boundary it had just satisfied, and would render
-    nothing at all.
-
-    Two tests, one per side of that rule: dropped for the paradigm that refuses
-    a tier, and carried through unchanged — overriding the derivation — for the
-    paradigms that take one.
+    What it DOES stage under ``data/channel_databases`` is the search index
+    derived from the corpus: the file the roster, the explorer and the agent's
+    keyword tool read instead of parsing the corpus again. The builder itself is
+    pinned in tests/cli/test_build_graph_index.py; here it is the render's own
+    inventory that has to name it.
     """
+    from click.testing import CliRunner
 
-    def _tiers_handed_over(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        name: str,
-        **profile_keys: object,
-    ) -> tuple[Path, list[int | None]]:
-        """Build the control-assistant preset with *profile_keys* stated.
+    from osprey.cli.build_cmd import build
+    from osprey.cli.init_cmd import init
 
-        Returns the render and the ``tier`` every render in the build handed
-        ``create_project``. A build renders more than once — the deployment's
-        own project, its personas, its container copy — and the whole list comes
-        back rather than the first entry, because one render disagreeing with
-        the others is the interesting failure.
+    repo = tmp_path / "graphed"
+    runner = CliRunner()
+    created = runner.invoke(
+        init,
+        [
+            str(repo),
+            "--preset",
+            "control-assistant",
+            "--no-git",
+            *_set_args({"channel_finder_mode": "graph"}),
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert rendered.exit_code == 0, rendered.output
+    render = repo / "build"
 
-        The argument is read off the bound signature rather than out of
-        ``kwargs``, so a caller that ever passes it positionally is still
-        recorded rather than silently read as ``None`` — which would make this
-        spy agree with a build that had stopped passing a tier at all.
-        """
-        import inspect
-
-        from click.testing import CliRunner
-
-        from osprey.cli.build_cmd import build
-        from osprey.cli.init_cmd import init
-        from osprey.cli.templates.manager import TemplateManager
-
-        repo = tmp_path / name
-
-        runner = CliRunner()
-        created = runner.invoke(
-            init,
-            [
-                str(repo),
-                "--preset",
-                "control-assistant",
-                "--no-git",
-                *_set_args(profile_keys),
-            ],
-        )
-        assert created.exit_code == 0, created.output
-
-        create_project = TemplateManager.create_project
-        signature = inspect.signature(create_project)
-        seen: list[int | None] = []
-
-        def spy(self: TemplateManager, *args: object, **kwargs: object) -> Path:
-            bound = signature.bind(self, *args, **kwargs)
-            bound.apply_defaults()
-            seen.append(bound.arguments["tier"])
-            return create_project(self, *args, **kwargs)
-
-        monkeypatch.setattr(TemplateManager, "create_project", spy)
-        rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-        assert rendered.exit_code == 0, rendered.output
-        assert seen, "the build rendered no project at all"
-        return repo / "build", seen
-
-    def test_graph_mode_renders_and_pins_no_tier(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The graph paradigm builds, and nothing in the build pins its tier.
-
-        The exit code is half the claim: pinning the derived tier here is not a
-        subtle mis-selection but a hard refusal, so a regression shows up as a
-        build that cannot render the paradigm at all.
-        """
-        render, tiers = self._tiers_handed_over(
-            tmp_path, monkeypatch, "graphed", channel_finder_mode="graph"
-        )
-
-        assert set(tiers) == {None}, (
-            f"a render pinned a tier for the graph paradigm: {tiers}. graph has no "
-            "tiered artifacts, so create_project refuses an explicit tier."
-        )
-        # The paradigm reached the render: graph flattens no paradigm channel
-        # database, so the server it declares is the whole of that evidence.
-        servers = json.loads((render / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
-        assert servers["channel-finder"]["args"] == [
-            "-m",
-            "osprey.mcp_server.channel_finder_graph",
-        ]
-        # What it DOES flatten into that directory is the search index derived
-        # from the corpus it stages: the file the roster, the explorer and the
-        # agent's keyword tool read instead of parsing the corpus again. The
-        # builder itself is pinned in tests/cli/test_build_graph_index.py; here
-        # it is the render's own inventory that has to name it.
-        databases = render / "data" / "channel_databases"
-        staged = sorted(path.name for path in databases.glob("*"))
-        assert "graph.duckdb" in staged, f"a graph render stages {staged}"
-        assert not [name for name in staged if name in _PARADIGM_DATABASE_FILENAMES], (
-            f"a graph render flattened a paradigm channel database: {staged}"
-        )
-        # And the manifest does not checksum it: a derived binary carrying its
-        # own content digest would read as render drift on every rebuild.
-        manifest = json.loads((render / ".osprey-manifest.json").read_text(encoding="utf-8"))
-        assert not [name for name in manifest["file_checksums"] if name.endswith(".duckdb")]
-
-    def test_an_explicit_tier_overrides_the_derivation_on_a_file_paradigm(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A pinned tier still reaches the materializer, and still decides the DB.
-
-        ``in_context`` with an explicit ``tier: 3`` is the one legal pairing
-        where the pin and the paradigm's own default disagree — the derivation
-        would pick tier 1. So this is the case that can tell "the profile's
-        pin was passed through" from "``create_project`` derived the same
-        number anyway", which a ``hierarchical`` profile (deriving 3, pinning 3)
-        cannot.
-        """
-        render, tiers = self._tiers_handed_over(
-            tmp_path, monkeypatch, "pinned", channel_finder_mode="in_context", tier=3
-        )
-
-        assert set(tiers) == {3}, (
-            f"the build dropped the profile's explicit tier: {tiers}. Passing None "
-            "here would have let create_project derive tier 1 from in_context, "
-            "silently building a smaller channel database than the profile asked for."
-        )
-
-        preset_tier3 = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "osprey"
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "data"
-            / "channel_databases"
-            / "tiers"
-            / "tier3"
-            / "in_context.json"
-        )
-        flat = render / "data" / "channel_databases" / "in_context.json"
-        assert flat.read_bytes() == preset_tier3.read_bytes(), (
-            "the render materialized a channel database that is not the preset's "
-            "tier-3 in_context source — the pinned tier did not decide the artifact"
-        )
+    servers = json.loads((render / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert servers["channel-finder"]["args"] == [
+        "-m",
+        "osprey.mcp_server.channel_finder_graph",
+    ]
+    databases = render / "data" / "channel_databases"
+    staged = sorted(path.name for path in databases.glob("*"))
+    assert "graph.duckdb" in staged, f"a graph render stages {staged}"
+    assert not [name for name in staged if name in _PARADIGM_DATABASE_FILENAMES], (
+        f"a graph render flattened a paradigm channel database: {staged}"
+    )
+    # And the manifest does not checksum it: a derived binary carrying its
+    # own content digest would read as render drift on every rebuild.
+    manifest = json.loads((render / ".osprey-manifest.json").read_text(encoding="utf-8"))
+    assert not [name for name in manifest["file_checksums"] if name.endswith(".duckdb")]

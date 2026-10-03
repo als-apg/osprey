@@ -65,7 +65,7 @@ def test_writes_enabled_note_names_every_layer_and_the_remedy():
     "key_path",
     [
         "control_system.limits_checking.enabled",
-        "control_system.limits_checking.allow_unlisted_channels",
+        "control_system.limits_checking.mode",
     ],
 )
 def test_hook_only_limits_keys_stay_hot(key_path):

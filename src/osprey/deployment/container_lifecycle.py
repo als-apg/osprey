@@ -5959,7 +5959,7 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
 
 
 def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> None:
-    """Bootstrap the staged store and, on a first bring-up only, import its corpus.
+    """Bootstrap the staged store and make it hold exactly the configured corpus.
 
     One session for the whole sequence, and each step gated on the one before:
 
@@ -5967,15 +5967,19 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
       osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
       is reported and left alone: n10s refuses to re-initialize a configured
       store, so importing into it would load a corpus under assumptions about the
-      graph's shape that do not hold. Only ``--force`` can resolve that, and only
-      by wiping — which a deploy does not get to do to data it did not write.
-    * **seed** — only into an EMPTY graph (zero ``(:Resource)`` nodes, n10s's own
-      bookkeeping not counted), and only when a corpus is configured. A deploy may
-      fill a blank; it may not overwrite a graph somebody seeded.
+      graph's shape that do not hold. Only ``--force`` can resolve that.
+    * **stamp** — the store's ``(:_OspreySeed)`` marker is compared with
+      ``ttl_sha256`` of the configured corpus. Equal means the store holds this
+      corpus: its data is left as it is and only the prompt snapshot is re-baked.
+      Any other value, a missing marker included, means it does not: the store is
+      wiped, bootstrapped again (the wipe removes n10s's config with the data),
+      and the corpus imported.
     * **marker** — only after the import reports success. n10s commits in batches,
-      so a failed import leaves triples behind; a marker written regardless would
-      label that half-graph a good seed and every later run would report it
-      unchanged and skip it forever.
+      so a failed import leaves triples behind; a store left without a marker
+      reads as a mismatch, so the next deploy replaces it again.
+
+    Without a configured corpus there is nothing to compare: the store is left as
+    it is, and a populated one still gets its prompt snapshot.
 
     :param config: Raw deploy config.
     :param project_dir: Root of the built project.
@@ -6004,18 +6008,10 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
             return
         _report_step("graph store bootstrapped")
 
-        if graph_seeder.resource_count(session) > 0:
-            # The normal second-deploy path: a graph that already carries a
-            # corpus is left exactly as it is, and silently — this is not a
-            # problem, and a warning here would cry wolf on every redeploy.
-            # The rendered agent prompt is NOT left as it is: this deploy's
-            # build reset it to the placeholder, so it is re-baked from the
-            # live store on every up — which is what keeps prompt and store in
-            # sync by construction rather than by convention.
-            _bake_graph_prompt_snapshot(session, project_dir)
-            return
-
         if ttl_path is None:
+            if graph_seeder.resource_count(session) > 0:
+                _bake_graph_prompt_snapshot(session, project_dir)
+                return
             _report_fact(
                 "graph store bootstrapped but not seeded: no services.graphdb.ttl_path "
                 f"is configured. Set one and run `{_GRAPHDB_RECOVERY_HINT}` to import a "
@@ -6024,6 +6020,23 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
             return
 
         resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
+        digest = graph_seeder.ttl_sha256(text)
+        if graph_seeder.read_marker(session) == digest:
+            # The normal redeploy path, and silent: the store already holds this
+            # corpus. The rendered agent prompt is re-baked regardless, because
+            # this deploy's build reset it to the placeholder.
+            _bake_graph_prompt_snapshot(session, project_dir)
+            return
+
+        graph_seeder.wipe(session)
+        rebootstrapped = graph_seeder.bootstrap(session)
+        if not rebootstrapped.ok:
+            logger.warning(
+                f"The graph store was wiped, but its {rebootstrapped.message}. Nothing "
+                f"was imported. Run `{_GRAPHDB_RECOVERY_HINT} --force` from {project_dir}."
+            )
+            return
+
         imported = graph_seeder.import_ttl(session, text)
         if not imported.ok:
             logger.warning(
@@ -6035,11 +6048,7 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
             )
             return
 
-        graph_seeder.write_marker(
-            session,
-            graph_seeder.ttl_sha256(text),
-            graph_seeder.parse_direction_source(text),
-        )
+        graph_seeder.write_marker(session, digest)
         _report_step(f"graph seeded: {imported.triples_loaded} triples")
         _bake_graph_prompt_snapshot(session, project_dir)
 
@@ -6071,7 +6080,7 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
 
 
 def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
-    """Start the graph store, bootstrap it, and seed it on a first bring-up.
+    """Start the graph store, bootstrap it, and seed it whenever its marker differs.
 
     The knowledge-graph counterpart of :func:`_stage_ariel_store`, and staged
     ahead of the full bring-up for the same kind of reason: a store that comes up

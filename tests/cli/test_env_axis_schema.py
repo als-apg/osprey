@@ -379,7 +379,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
     """The axis appends like every other check — no fail-fast, no short-circuit."""
     profile = BuildProfile(
         name="",
-        tier=2,
+        channel_finder_mode="in-context",
         services={
             "gchat_bridge": ServiceDef(
                 template="osprey.gchat_bridge",
@@ -389,7 +389,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
     )
     messages = _errors(profile, tmp_path)
     assert "Profile 'name' is required" in messages
-    assert "tier must be 1 or 3 (got 2)" in messages
+    assert any("(got 'in-context')" in message for message in messages)
     assert "services.gchat_bridge.network must be one of bridge, host (got 'hostnet')" in messages
     assert (
         "services.gchat_bridge.env[0] must be an environment variable name matching "

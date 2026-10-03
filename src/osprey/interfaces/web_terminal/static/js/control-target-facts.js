@@ -207,7 +207,6 @@ export const REASON_PHRASES = {
   probe_channel_missing: 'not set up',
   connector_not_switchable: 'switching not supported',
   target_unresolvable: 'unavailable',
-  limits_posture: 'needs strict limits',
   operator_ack_missing: 'needs gateway ack',
   archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',

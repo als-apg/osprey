@@ -78,7 +78,7 @@ Working with a Bundle
 
       .. code-block:: text
 
-         data/facility_knowledge/
+         data/facility/knowledge/
          ├── index.md            ← bundle root index (CLI-generated)
          ├── subsystems/         ← how the major systems work (vacuum, timing, safety…)
          │   ├── index.md        ← sub-directory index (CLI-generated)
@@ -94,7 +94,7 @@ Working with a Bundle
       The ``control-assistant`` preset ships an Example Research Facility bundle
       you can read as a worked example, then replace with your own.
 
-      Author the bundle in your **profile** (``data/facility_knowledge/`` in the deployment repository),
+      Author the bundle in your **profile** (``data/facility/knowledge/`` in the deployment repository),
       not in the built project: each build copies the profile's ``data/`` tree
       over the project's, so an edit made in the project is lost on the next
       rebuild. See :doc:`../build-profiles`.
@@ -142,12 +142,12 @@ Working with a Bundle
       .. code-block:: yaml
 
          facility_knowledge:
-           bundle_path: data/facility_knowledge
+           bundle_path: data/facility/knowledge
 
       Relative paths are resolved against the project root — the deployment
       repo, not the ``build/`` render inside it, which every ``osprey build``
       re-creates. For the ``control-assistant`` preset the example bundle is
-      scaffolded into ``data/facility_knowledge/`` automatically.
+      scaffolded into ``data/facility/knowledge/`` automatically.
 
       .. _shared-bundle-multi-user:
 
@@ -256,7 +256,7 @@ Working with a Bundle
 
       .. code-block:: console
 
-         $ osprey knowledge regen-index data/facility_knowledge
+         $ osprey knowledge regen-index data/facility/knowledge
 
       When called without an argument the bundle path is read from
       ``facility_knowledge.bundle_path`` in ``config.yml``.  Or via the Python
@@ -267,7 +267,7 @@ Working with a Bundle
          from osprey.services.facility_knowledge.okf.index import regenerate_indexes
          from pathlib import Path
 
-         regenerate_indexes(Path("data/facility_knowledge"))
+         regenerate_indexes(Path("data/facility/knowledge"))
 
       The root ``index.md`` includes an ``okf_version`` frontmatter key;
       sub-directory indexes contain no frontmatter (they are consumed by the
@@ -280,8 +280,8 @@ Working with a Bundle
 
       .. code-block:: console
 
-         $ osprey knowledge validate data/facility_knowledge
-         All files in data/facility_knowledge are valid.
+         $ osprey knowledge validate data/facility/knowledge
+         All files in data/facility/knowledge are valid.
 
       Concept documents are checked at the *authoring* level (``type``,
       ``title``, and ``description`` must be present and non-empty).  Index files
@@ -295,7 +295,7 @@ Working with a Bundle
 
       .. code-block:: console
 
-         $ osprey knowledge seed-from-ttl devices.ttl data/facility_knowledge
+         $ osprey knowledge seed-from-ttl devices.ttl data/facility/knowledge
 
       Idempotency rules applied per stub:
 
@@ -314,6 +314,12 @@ Working with a Bundle
          ``--force`` overwrites existing stubs.  Omit it to protect hand-edited
          documents.
 
+      Each stub carries a ``device_id`` key in its frontmatter. Under
+      ``data/facility/knowledge``, that key links the page to a facility device:
+      ``osprey build`` warns, once per page, when the value is no device id in
+      ``facility.json``, and goes on building. A page without the key is not
+      linked and never warns.
+
       **seed-graph** — loads the same kind of TTL file into the deployed graph
       store.  The two seeding verbs are worth telling apart: **seed-graph seeds
       the deployed graph store; seed-from-ttl builds an OKF document bundle.**
@@ -331,9 +337,9 @@ Working with a Bundle
       only after the import succeeds, so a run that dies partway is caught as
       ``unmanaged-partial`` on the next one instead of passing for a good seed.
 
-      The deploy already runs this for you on a first bring-up (see
-      :doc:`../deploy-project/index`); you need the verb when that step warned, or when
-      the corpus changed.  For the full list of outcomes and flags, see
+      The deploy already runs this for you whenever the store's marker differs
+      from the corpus (see :doc:`../deploy-project/index`); you need the verb
+      when that step warned.  For the full list of outcomes and flags, see
       ``osprey knowledge seed-graph --help``.
 
       **build-ttl** — generates the corpus ``seed-graph`` loads, deriving it
@@ -388,7 +394,7 @@ Tuning ranked search
 .. code-block:: yaml
 
    facility_knowledge:
-     bundle_path: data/facility_knowledge
+     bundle_path: data/facility/knowledge
      search:
        rerank: false        # default
        candidate_limit: 40  # omit to use qmd's own default

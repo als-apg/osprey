@@ -37,7 +37,7 @@ from tests._config_render_context import (
     render_config,
 )
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import _ariel_server_enabled
 from osprey.cli.derived_keys import is_derived_key
 from osprey.cli.templates.manager import TemplateManager, _enable_flags
@@ -289,9 +289,7 @@ def test_in_context_pipeline_values():
     pipeline = _config(**_mode_ctx("in_context"))["channel_finder"]["pipelines"]["in_context"]
     assert pipeline == {
         "database": {
-            "type": "template",
-            "path": "data/channel_databases/in_context.json",
-            "presentation_mode": "template",
+            "path": "data/channel_finder/in_context.json",
         },
         "subagent_model": None,
     }
@@ -300,10 +298,7 @@ def test_in_context_pipeline_values():
 def test_hierarchical_pipeline_values():
     pipeline = _config(**_mode_ctx("hierarchical"))["channel_finder"]["pipelines"]["hierarchical"]
     assert pipeline == {
-        "database": {
-            "type": "hierarchical",
-            "path": "data/channel_databases/hierarchical.json",
-        },
+        "database": {"path": "data/channel_finder/hierarchical.json"},
         "feedback": {
             "enabled": True,
             "store_path": "var/agent_data/feedback/hierarchical_feedback.json",
@@ -315,8 +310,8 @@ def test_middle_layer_pipeline_values():
     pipeline = _config(**_mode_ctx("middle_layer"))["channel_finder"]["pipelines"]["middle_layer"]
     assert pipeline == {
         "database": {
-            "type": "middle_layer",
-            "path": "data/channel_databases/middle_layer.json",
+            "path": "data/channel_finder/middle_layer.json",
+            "duckdb_path": "data/channel_finder/middle_layer.duckdb",
         }
     }
 

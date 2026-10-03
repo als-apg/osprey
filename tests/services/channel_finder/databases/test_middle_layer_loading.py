@@ -58,3 +58,49 @@ def test_metadata_keys_are_tolerated_at_every_level(tmp_path: Path) -> None:
     }
     db = MiddleLayerDatabase(_write(tmp_path, body))
     assert set(db.channel_map) == {"SR01:BPM:X"}
+
+
+def test_a_channel_listed_under_two_families_keeps_both_memberships(tmp_path: Path) -> None:
+    body = {
+        "SR": {
+            "BPM": {"Monitor": {"ChannelNames": ["SR01:BPM:X"]}},
+            "DIAG": {"SR01:BPM:X": {"ChannelNames": ["SR01:BPM:X"]}},
+        },
+        "BR": {"DIAG": {"Monitor": {"ChannelNames": ["SR01:BPM:X"]}}},
+    }
+    db = MiddleLayerDatabase(_write(tmp_path, body))
+
+    entry = db.get_channel("SR01:BPM:X")
+    assert entry is not None
+    assert [(m["system"], m["family"], m["field"]) for m in entry["memberships"]] == [
+        ("SR", "BPM", "Monitor"),
+        ("SR", "DIAG", "SR01:BPM:X"),
+        ("BR", "DIAG", "Monitor"),
+    ]
+    assert entry["memberships"][0] == {
+        "system": "SR",
+        "family": "BPM",
+        "field": "Monitor",
+        "subfield": None,
+        "description": "SR:BPM:Monitor",
+        "protocol": "ca",
+    }
+    assert db.validate_channel("SR01:BPM:X")
+    assert db.get_statistics()["total_channels"] == 1
+
+
+def test_a_family_listing_a_channel_under_two_fields_keeps_one_membership(
+    tmp_path: Path,
+) -> None:
+    body = {
+        "SR": {
+            "RF": {
+                "Monitor": {"ChannelNames": ["SR:RF:F"]},
+                "Setpoint": {"ChannelNames": ["SR:RF:F"]},
+            }
+        }
+    }
+    db = MiddleLayerDatabase(_write(tmp_path, body))
+
+    (membership,) = db.channel_map["SR:RF:F"]["memberships"]
+    assert (membership["family"], membership["field"]) == ("RF", "Setpoint")

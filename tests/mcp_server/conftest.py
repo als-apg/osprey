@@ -358,7 +358,7 @@ def mock_config_with_limits(tmp_path):
                     "limits_checking": {
                         "enabled": True,
                         "database_path": str(limits_db),
-                        "allow_unlisted_channels": False,
+                        "mode": "exclusive",
                         "on_violation": "error",
                     },
                 },

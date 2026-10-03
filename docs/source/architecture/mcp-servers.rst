@@ -225,7 +225,7 @@ clicking that layout).
 - ``session_log`` -- Retrieve the structured session activity log.
 - ``session_summary`` -- Return a compact inventory of all data and artifacts in the session.
 - ``submit_response`` -- Submit a formatted response to the web terminal.
-- ``facility_description`` -- Get facility description and context.
+- ``facility_description`` -- Get the hand-written facility description and the build's generated facts page.
 - ``prior_answer_read`` -- Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).
 
 **Setup / Diagnostics:**

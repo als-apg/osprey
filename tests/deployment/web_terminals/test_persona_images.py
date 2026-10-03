@@ -183,7 +183,7 @@ def test_build_persona_images_builds_a_shared_render_once(
     assert "shared-app:local" in calls[0]
 
 
-def test_build_persona_images_never_builds_zero_migration_entries(
+def test_build_persona_images_never_builds_no_persona_entries(
     monkeypatch, tmp_path, _no_dev_wheel_staging
 ):
     """An entry with persona=None (no persona system in effect) is skipped --

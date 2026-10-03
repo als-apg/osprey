@@ -983,7 +983,7 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     """Copy content out of a packaged app template into this repo.
 
     PRESET[:PATH] names what to copy: 'control-assistant' is the whole
-    template, 'control-assistant:data/facility_knowledge' one subtree of it.
+    template, 'control-assistant:data/facility/knowledge' one subtree of it.
     Each file lands at the same path under this repo, where you edit it and
     commit it. Run --list first to see every path a preset offers.
 
@@ -1000,7 +1000,7 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
 
     \b
       $ osprey scaffold pull control-assistant --list
-      $ osprey scaffold pull control-assistant:data/facility_knowledge
+      $ osprey scaffold pull control-assistant:data/facility/knowledge
       $ osprey scaffold pull control-assistant:web-terminal-context
       $ osprey scaffold pull hello-world:mcp_servers/example_server --force
     """
@@ -1844,8 +1844,12 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
                 "modules.web_terminals has lint errors; fix them or pass --no-lint to render anyway."
             )
 
+    # The preview names the facility by the project name, the name a build
+    # with no authored identity records.
     try:
-        artifacts = render_web_terminals(config)
+        artifacts = render_web_terminals(
+            config, facility_name=str(config.get("project_name") or "")
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 

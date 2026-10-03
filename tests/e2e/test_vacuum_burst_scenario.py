@@ -120,20 +120,12 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     # spinning in channel-finder discovery loops without progressing to
     # archiver retrieval. The data-visualizer / channel-finder subagents
     # still use their per-agent tier defaults from the resolver.
-    #
-    # Tier 3 (full channel DB): the vacuum gauges live only in tier 2+, so a
-    # tier-1 build leaves SR:VAC:GAUGE:* undiscoverable and the agent spins in
-    # channel-finder without ever retrieving data. Tier 3 (not the merely
-    # sufficient tier 2) is used so the discoverable channel set matches the
-    # full facility the simulation machine model defines, consistent with the
-    # sibling RF scenario.
     repo = init_project(
         tmp_path,
         "vacuum_burst_demo",
         template="control_assistant",
         provider="als-apg",
         model="claude-opus-5-5",
-        tier=3,
     )
     # Switch the mock connectors' data substrate from the flat ``nominal``
     # default to the ``vacuum-burst`` scenario bundle — the SR07 pressure spike
