@@ -81,7 +81,9 @@ its own Field keyed by its address. A Field's ``_description`` is the family's
 ``signals`` sentence under the longest key every one of its addresses ends
 with; a group without ``signals`` writes no Field sentence. ``_setup`` holds
 each member's last name (its common name) and its ``DeviceList`` and
-``ElementList`` attributes, each list only when every member states it. A
+``ElementList`` attributes, each list only when every member states it: a
+device's common name is its last names entry; its first is its source name,
+which the graph view reads; a device with no names is named by its id. A
 channel of no family is left out; the build names how many channels it left
 out and how many it keyed by address in one note. A render
 carries the index when its ``channel_finder.pipeline_mode`` is
@@ -100,7 +102,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.views import ViewInputs
+from osprey.facility.views import PIPELINE_MODE_KEY, ViewInputs
 
 __all__ = [
     "ABSENT",
@@ -108,6 +110,7 @@ __all__ = [
     "HIERARCHICAL_FILE",
     "HIERARCHICAL_MODE",
     "IN_CONTEXT_FILE",
+    "IN_CONTEXT_MODE",
     "IN_CONTEXT_TAG",
     "MIDDLE_LAYER_DUCKDB_FILE",
     "MIDDLE_LAYER_FILE",
@@ -127,6 +130,7 @@ __all__ = [
 
 CHANNEL_FINDER_SCHEMA = "osprey.facility.channel_finder/1"
 IN_CONTEXT_FILE = "in_context.json"
+IN_CONTEXT_MODE = "in_context"
 IN_CONTEXT_TAG = "in_context"
 HIERARCHICAL_FILE = "hierarchical.json"
 HIERARCHICAL_MODE = "hierarchical"
@@ -145,9 +149,6 @@ _LEVEL_WORD = re.compile(r"\w+")
 
 #: One alphanumeric run of an address or of a ``signals`` key.
 _ALNUM_RUN = re.compile(r"[A-Za-z0-9]+")
-
-#: The rendered config key that selects a pipeline.
-PIPELINE_MODE_KEY = "channel_finder.pipeline_mode"
 
 
 def _row(channel: Mapping[str, Any]) -> dict[str, Any]:
@@ -184,7 +185,7 @@ def in_context_selected(inputs: ViewInputs) -> bool:
     Returns:
         True when the rendered ``channel_finder.pipeline_mode`` is ``in_context``.
     """
-    return _pipeline_mode(inputs) == IN_CONTEXT_TAG
+    return _pipeline_mode(inputs) == IN_CONTEXT_MODE
 
 
 def _pipeline_mode(inputs: ViewInputs) -> str | None:
@@ -229,7 +230,7 @@ def write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
     document = in_context_document(inputs.doc)
     if not document["channels"]:
         raise _mode_unsupported(
-            f"selects {IN_CONTEXT_TAG} and no channel is tagged `{IN_CONTEXT_TAG}`",
+            f"selects {IN_CONTEXT_MODE} and no channel is tagged `{IN_CONTEXT_TAG}`",
             f"tag at least one channel `{IN_CONTEXT_TAG}`, or select another channel_finder_mode",
         )
     root.mkdir(parents=True, exist_ok=True)
@@ -725,6 +726,11 @@ def middle_layer_families(doc: Mapping[str, Any]) -> dict[str, list[tuple[str, s
 
 
 def _setup(members: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """A family's ``_setup``: each member's common name and the attributes every member states.
+
+    A device's common name is its last names entry; its first is its source
+    name, which the graph view reads; a device with no names is named by its id.
+    """
     names = [str((member.get("names") or [member["id"]])[-1]) for member in members]
     setup: dict[str, Any] = {"CommonNames": names}
     for attribute in SETUP_ATTRIBUTES:

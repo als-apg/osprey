@@ -496,6 +496,8 @@ def _devices() -> list[dict[str, Any]]:
         record: dict[str, Any] = {
             "id": device.id,
             "class": device.cls,
+            # A device's common name is its last names entry; its first is
+            # its source name, which the graph view reads.
             "names": [device.name, setup["common_name"]],
         }
         if device.id not in wired:

@@ -20,20 +20,18 @@ Database Contracts, per Paradigm
 In-context
 ----------
 
-A flat JSON structure loaded by ``TemplateChannelDatabase``, with standalone
-entries and template entries for device families:
+A flat JSON structure, the index ``osprey build`` writes from the channels
+tagged ``in_context``: one row per channel, sorted by address, loaded by the
+flat ``ChannelDatabase``:
 
 .. code-block:: json
 
    {
+     "schema": "osprey.facility.channel_finder/1",
      "channels": [
-       {"template": false, "channel": "TerminalVoltageReadBack",
+       {"channel": "TerminalVoltageReadBack",
         "address": "TerminalVoltageReadBack",
-        "description": "Actual value of the terminal potential"},
-       {"template": true, "base_name": "BPM", "instances": [1, 10],
-        "sub_channels": ["XPosition", "YPosition"],
-        "address_pattern": "BPM{instance:02d}{suffix}",
-        "description": "Beam Position Monitors"}
+        "description": "Actual value of the terminal potential"}
      ]
    }
 

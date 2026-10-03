@@ -79,9 +79,11 @@ matching.
 embedded in the system prompt and the model returns the most relevant channels
 in one shot (no query-splitting or iterative-correction stage).
 
-The database is a flat JSON structure loaded by ``TemplateChannelDatabase``,
-with standalone entries and template entries for device families --- see
-:doc:`/reference/contracts/channel-finder` for the schema.
+``osprey build`` writes the database from the facility description as
+``data/channel_finder/in_context.json``: one row per channel tagged
+``in_context``, with its name, address and description --- see
+:doc:`/reference/contracts/channel-finder` for the schema. A facility
+description with no tagged channel stops the build with ``view-unsupported``.
 
 Validate and preview:
 

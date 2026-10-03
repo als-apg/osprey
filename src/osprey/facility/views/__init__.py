@@ -21,7 +21,18 @@ from typing import Any
 
 from osprey.facility.build import FacilityDocument
 
-__all__ = ["VIEWS", "View", "ViewInputs", "report_note", "report_omitted", "view_bytes"]
+__all__ = [
+    "PIPELINE_MODE_KEY",
+    "VIEWS",
+    "View",
+    "ViewInputs",
+    "report_note",
+    "report_omitted",
+    "view_bytes",
+]
+
+#: The rendered config key that selects one channel-finder index view.
+PIPELINE_MODE_KEY = "channel_finder.pipeline_mode"
 
 
 @dataclass(frozen=True)
@@ -234,25 +245,25 @@ VIEWS: tuple[View, ...] = (
         name="in_context",
         path="channel_finder",
         written_when=_in_context_selected,
-        reason="channel_finder.pipeline_mode",
+        reason=PIPELINE_MODE_KEY,
         write=_write_in_context,
-        selected_by="channel_finder.pipeline_mode",
+        selected_by=PIPELINE_MODE_KEY,
     ),
     View(
         name="hierarchical",
         path="channel_finder",
         written_when=_hierarchical_selected,
-        reason="channel_finder.pipeline_mode",
+        reason=PIPELINE_MODE_KEY,
         write=_write_hierarchical,
-        selected_by="channel_finder.pipeline_mode",
+        selected_by=PIPELINE_MODE_KEY,
     ),
     View(
         name="middle_layer",
         path="channel_finder",
         written_when=_middle_layer_selected,
-        reason="channel_finder.pipeline_mode",
+        reason=PIPELINE_MODE_KEY,
         write=_write_middle_layer,
-        selected_by="channel_finder.pipeline_mode",
+        selected_by=PIPELINE_MODE_KEY,
     ),
     View(
         name="graph",

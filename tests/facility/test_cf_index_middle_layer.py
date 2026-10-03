@@ -154,6 +154,22 @@ def test_setup_lists_an_attribute_only_when_every_member_states_it() -> None:
     }
 
 
+def test_a_common_name_is_the_last_names_entry_else_the_id() -> None:
+    doc = {
+        "places": [{"id": "M", "level": "machine"}],
+        "devices": [
+            {"id": "M/A", "place": "M", "s": 1.0, "names": ["a", "b"]},
+            {"id": "M/C", "place": "M", "s": 2.0},
+        ],
+        "groups": [{"id": "M/F", "members": ["M/A", "M/C"]}],
+        "channels": [],
+    }
+
+    document, _left_out, _by_address = _document(doc)
+
+    assert document["M"]["F"]["_setup"]["CommonNames"] == ["b", "M/C"]
+
+
 def test_a_field_takes_the_sentence_under_the_longest_key_every_address_ends_with() -> None:
     document, _left_out, _by_address = _document(SYNTHETIC)
     fields = _fields(document["M"]["QUAD"])

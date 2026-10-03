@@ -68,7 +68,8 @@ def run_sql(sql: str) -> str:
                 "not_configured",
                 "DuckDB database is not configured for the channel finder.",
                 [
-                    "Set channel_finder.pipelines.middle_layer.database.duckdb_path in the build profile (profile.yml on the host), then rebuild and redeploy."
+                    "Run osprey build with channel_finder_mode set to middle_layer, then redeploy: "
+                    "the build writes this DuckDB database for that mode."
                 ],
             )
 
