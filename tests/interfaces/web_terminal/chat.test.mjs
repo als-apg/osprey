@@ -41,6 +41,7 @@ const transport = {
   sendPrompt: vi.fn(),
   interrupt: vi.fn(),
   requestHandoff: vi.fn(),
+  fetchCommands: vi.fn(),
 };
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => ({
@@ -50,6 +51,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   interrupt: (/** @type {any} */ key) => transport.interrupt(key),
   requestHandoff: (/** @type {any} */ key, /** @type {any} */ options) =>
     transport.requestHandoff(key, options),
+  fetchCommands: () => transport.fetchCommands(),
 }));
 
 // terminal.js is xterm glue; the console only needs its panel broadcast, and
@@ -143,6 +145,9 @@ beforeEach(() => {
   transport.sendPrompt.mockReset().mockReturnValue({ abort: () => {}, aborted: false });
   transport.interrupt.mockReset().mockResolvedValue(undefined);
   transport.requestHandoff.mockReset().mockResolvedValue({ state: 'simple', session_id: 'k' });
+  transport.fetchCommands.mockReset().mockResolvedValue([
+    { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
+  ]);
 });
 
 afterEach(() => {
@@ -570,6 +575,27 @@ describe('a prompt refused by the other view', () => {
     expect(textOf('.op-system')).toBe('Connection to the operator agent failed.');
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
     expect(logEntries()).toEqual(['status?']);
+  });
+});
+
+describe('slash commands in the Simple view', () => {
+  test('picking a suggestion fills the box and does not send', async () => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = '/di';
+    textarea.dispatchEvent(new Event('input'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const enter = () =>
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+    enter();
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe('/diagnose ');
+
+    enter();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+    expect(transport.sendPrompt.mock.calls[0][1]).toBe('/diagnose');
   });
 });
 

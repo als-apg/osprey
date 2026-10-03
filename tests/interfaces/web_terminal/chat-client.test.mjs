@@ -579,3 +579,30 @@ describe('fetchHistory', () => {
     expect(err.slug).toBe('session_unknown');
   });
 });
+
+describe('fetchCommands', () => {
+  test('GETs the slash commands through the prefix and returns them', async () => {
+    window.__OSPREY_PREFIX__ = '/u/a';
+    const commands = [
+      { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
+    ];
+    const fetchMock = vi.fn(async () => jsonResponse({ commands }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(chat.fetchCommands()).resolves.toEqual(commands);
+    expect(firstUrl(fetchMock)).toBe('/u/a/api/chat/commands');
+  });
+
+  test('a body without an array yields an empty list', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ commands: null })));
+    await expect(chat.fetchCommands()).resolves.toEqual([]);
+  });
+
+  test('a non-2xx status rejects', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({}, { ok: false, status: 500, statusText: 'Server Error' }))
+    );
+    await expect(chat.fetchCommands()).rejects.toThrow();
+  });
+});
