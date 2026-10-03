@@ -14,7 +14,10 @@ functions on the shared control-assistant build's facility file, to those
 copies: the same address set less the declared fingerprint additions, the
 machine and family descriptions reachable, every benchmark target indexed, each
 copy's Family with an equal ``DeviceList``, and no fewer benchmark queries
-answerable by whole index cells than the copies answer.
+answerable by whole index cells than the copies answer. The in_context view,
+called the same way, holds the in_context golden's address set, and every
+in_context benchmark target is one of its rows. Each query file is checked
+against the indexes its pipeline scores.
 """
 
 from __future__ import annotations
@@ -67,6 +70,11 @@ def fingerprint_rows() -> list[dict[str, Any]]:
 
 def fingerprint_addresses() -> set[str]:
     return {row["address"] for row in fingerprint_rows()}
+
+
+def in_context_golden_addresses() -> set[str]:
+    """The addresses of the frozen in_context golden."""
+    return {row["address"] for row in load_golden("in_context_size.json")["rows"]}
 
 
 @cache
@@ -340,6 +348,15 @@ def test_pre_line_queries_target_fingerprint_addresses() -> None:
         assert set(query["targeted_pv"]) <= addresses, query["user_query"]
 
 
+def test_in_context_queries_target_in_context_golden_addresses() -> None:
+    queries = in_context_queries()
+    assert len(queries) == 20
+    addresses = in_context_golden_addresses()
+    for query in queries:
+        assert query["targeted_pv"], query["user_query"]
+        assert set(query["targeted_pv"]) <= addresses, query["user_query"]
+
+
 @pytest.fixture(scope="module")
 def hierarchical_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import hierarchical_document
@@ -353,6 +370,13 @@ def middle_layer_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
 
     document, _left_out, _keyed = middle_layer_document(built_control_assistant.facility)
     return document
+
+
+@pytest.fixture(scope="module")
+def in_context_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
+    from osprey.facility.views.channel_finder import in_context_document
+
+    return in_context_document(built_control_assistant.facility)
 
 
 def test_the_pre_line_copies_hold_the_fingerprint_addresses() -> None:
@@ -395,6 +419,13 @@ def test_the_middle_layer_view_holds_the_pre_line_addresses(
 
 @pytest.mark.slow
 @pytest.mark.xdist_group("built_control_assistant")
+def test_the_in_context_view_holds_the_golden_addresses(in_context_view: dict[str, Any]) -> None:
+    view = {row["address"] for row in in_context_view["channels"]}
+    assert view == in_context_golden_addresses()
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
 def test_the_hierarchical_view_keeps_the_machine_and_family_descriptions(
     hierarchical_view: dict[str, Any],
 ) -> None:
@@ -428,6 +459,16 @@ def test_every_benchmark_target_is_a_tree_leaf_and_a_middle_layer_channel(
         targets = set(query["targeted_pv"])
         assert targets <= leaves, query["user_query"]
         assert targets <= channels, query["user_query"]
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_every_in_context_benchmark_target_is_an_in_context_row(
+    in_context_view: dict[str, Any],
+) -> None:
+    rows = {row["address"] for row in in_context_view["channels"]}
+    for query in in_context_queries():
+        assert set(query["targeted_pv"]) <= rows, query["user_query"]
 
 
 @pytest.mark.slow
