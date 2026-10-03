@@ -54,8 +54,8 @@ class TestLoaderReadsEveryChannelKey:
         )
         db = MiddleLayerDatabase(str(path))
         assert set(db.channel_map) == {"QF1:I", "QF2:I", "QF:SP"}
-        assert db.channel_map["QF1:I"]["Units"] == "A"
-        assert db.channel_map["QF:SP"]["subfield"] == ["X"]
+        assert db.channel_map["QF1:I"]["memberships"][0]["Units"] == "A"
+        assert db.channel_map["QF:SP"]["memberships"][0]["subfield"] == ["X"]
         assert db.list_channel_names("RING", "QF", "Monitor") == ["QF1:I", "QF2:I"]
         assert db.list_channel_names("RING", "QF", "Setpoint", "X") == ["QF:SP"]
 
@@ -67,7 +67,7 @@ class TestLoaderReadsEveryChannelKey:
         )
         db = MiddleLayerDatabase(str(path))
         assert set(db.channel_map) == {"ring/kick/1/v", "ring/kick/2/v"}
-        assert db.channel_map["ring/kick/1/v"]["field"] == "Voltage"
+        assert db.channel_map["ring/kick/1/v"]["memberships"][0]["field"] == "Voltage"
 
     def test_a_tango_names_field_is_listed(self, tmp_path):
         """``list_channel_names`` answers a ``TangoNames``-only field."""
@@ -109,7 +109,7 @@ class TestLoaderReadsEveryChannelKey:
         )
         db = MiddleLayerDatabase(str(path))
         assert set(db.channel_map) == {"a", "b", "c"}
-        assert db.channel_map["c"]["subfield"] == ["X"]
+        assert db.channel_map["c"]["memberships"][0]["subfield"] == ["X"]
 
 
 class TestReachesChannelNames:

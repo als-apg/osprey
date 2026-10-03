@@ -100,7 +100,11 @@ def test_a_middle_layer_render_answers_run_sql_with_its_channel_count(
 
     monkeypatch.setenv("OSPREY_CONFIG", str(repo / BUILD_DIR_NAME / "config.yml"))
     context = initialize_cf_ml_context()
-    answer = json.loads(getattr(run_sql, "fn", run_sql)(sql="SELECT count(*) AS n FROM channels"))
+    answer = json.loads(
+        getattr(run_sql, "fn", run_sql)(
+            sql="SELECT count(DISTINCT channel_name) AS n FROM channels"
+        )
+    )
 
     assert context.duckdb_path is not None
     assert answer["rows"] == [{"n": len(context.database.channel_map)}]

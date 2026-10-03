@@ -61,7 +61,7 @@ def _make_duckdb(path: Path, channels: list[str]) -> None:
 
     con = duckdb.connect(str(path))
     try:
-        con.execute("CREATE TABLE channels (channel_name TEXT PRIMARY KEY, system TEXT)")
+        con.execute("CREATE TABLE channels (channel_name TEXT NOT NULL, system TEXT)")
         if channels:
             con.executemany("INSERT INTO channels VALUES (?, ?)", [(c, "SR") for c in channels])
     finally:
@@ -248,6 +248,14 @@ class TestDuckDBCount:
         channels = by_name["channel_finder_channels"]
         assert channels.status is Status.OK
         assert channels.value == "3 channels"
+
+    async def test_a_channel_in_two_families_counts_once(self, tmp_path) -> None:
+        js = tmp_path / "middle_layer.json"
+        _write_json_db(js)
+        duck = tmp_path / "middle_layer.duckdb"
+        _make_duckdb(duck, ["SR:BPM1:X", "SR:BPM1:X", "SR:HCM1:Setpoint"])
+        by_name = await _run(_cf(mode="middle_layer", path=str(js), duckdb_path=str(duck)))
+        assert by_name["channel_finder_channels"].value == "2 channels"
 
     async def test_zero_channels_warns(self, tmp_path) -> None:
         js = tmp_path / "middle_layer.json"

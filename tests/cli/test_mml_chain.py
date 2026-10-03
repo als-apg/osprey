@@ -226,15 +226,20 @@ def facility_mapping_of(tree: Path) -> Path | None:
 
 
 def _duck_counts(path: Path) -> dict[str, int]:
-    """The ``channels`` and ``systems`` row counts of a DuckDB import."""
+    """The channel and system counts of a DuckDB import.
+
+    A channel is one ``channels`` row per family it belongs to, so the channel
+    count is the number of distinct channel names.
+    """
     import duckdb
 
     connection = duckdb.connect(str(path), read_only=True)
     try:
-        return {
-            table: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-            for table in ("channels", "systems")
-        }
+        (channels,) = connection.execute(
+            "SELECT count(DISTINCT channel_name) FROM channels"
+        ).fetchone()
+        (systems,) = connection.execute("SELECT count(*) FROM systems").fetchone()
+        return {"channels": channels, "systems": systems}
     finally:
         connection.close()
 

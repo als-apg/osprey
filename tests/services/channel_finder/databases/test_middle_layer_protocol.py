@@ -63,26 +63,30 @@ def tango(tmp_path):
 
 
 class TestChannelMapProtocol:
-    """Every channel-map entry names the protocol of the key that listed it."""
+    """Every membership of a channel-map entry names the protocol of the key that listed it."""
 
     def test_dual_key_entries_carry_their_protocol(self, dual):
         """CA names are ``ca``, Tango attributes ``tango``, on one field."""
-        assert dual.channel_map["K1:V"]["protocol"] == "ca"
-        assert dual.channel_map["K2:V"]["protocol"] == "ca"
-        assert dual.channel_map["ring/kick/1/v"]["protocol"] == "tango"
-        assert dual.channel_map["K:IX"]["protocol"] == "ca"
-        assert dual.channel_map["ring/kick/ix"]["protocol"] == "tango"
+        assert dual.channel_map["K1:V"]["memberships"][0]["protocol"] == "ca"
+        assert dual.channel_map["K2:V"]["memberships"][0]["protocol"] == "ca"
+        assert dual.channel_map["ring/kick/1/v"]["memberships"][0]["protocol"] == "tango"
+        assert dual.channel_map["K:IX"]["memberships"][0]["protocol"] == "ca"
+        assert dual.channel_map["ring/kick/ix"]["memberships"][0]["protocol"] == "tango"
 
     def test_tango_only_entries_are_tango(self, tango):
         """A Tango-only database yields only ``tango`` entries."""
-        assert {entry["protocol"] for entry in tango.channel_map.values()} == {"tango"}
-        assert tango.channel_map["ring/kick/ix"]["subfield"] == ["X"]
+        assert {
+            membership["protocol"]
+            for entry in tango.channel_map.values()
+            for membership in entry["memberships"]
+        } == {"tango"}
+        assert tango.channel_map["ring/kick/ix"]["memberships"][0]["subfield"] == ["X"]
 
     def test_a_name_under_both_keys_keeps_the_first_key(self, tmp_path):
         """A string listed under both keys of one field resolves in key order."""
         body = {"R": {"F": {"V": {"TangoNames": ["same"], "ChannelNames": ["same"]}}}}
         db = MiddleLayerDatabase(str(_write(tmp_path, body)))
-        assert db.channel_map["same"]["protocol"] == "ca"
+        assert db.channel_map["same"]["memberships"][0]["protocol"] == "ca"
 
 
 class TestInspectFieldsLabels:
