@@ -1482,8 +1482,8 @@ def _resolve_index_output(output: Path | None) -> Path:
 def build_index(ttl: Path | None, output: Path | None) -> None:
     """Build the graph channel finder's search index from a TTL corpus.
 
-    The index is a DuckDB file holding the corpus's channel bindings, its
-    device classes and its channel roster, so the graph channel finder answers
+    The index is a DuckDB file holding the corpus's channel bindings and its
+    device classes, so the graph channel finder answers
     a search by reading a table rather than by parsing Turtle. It is derived
     from the corpus and nothing else, so rebuild it whenever the corpus
     changes, and seed the graph store from the same file so the two agree.
@@ -1540,6 +1540,6 @@ def build_index(ttl: Path | None, output: Path | None) -> None:
     note(
         f"{built.binding_count:,} bindings, {built.device_count:,} devices, "
         f"{built.class_count:,} classes, {built.signal_count:,} signals, "
-        f"{built.section_count:,} sections, {built.channel_count:,} channels."
+        f"{built.section_count:,} sections."
     )
     note(f"Built from {ttl_path}, corpus sha256 {built.corpus_sha256[:12]}.")

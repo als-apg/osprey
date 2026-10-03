@@ -319,11 +319,14 @@ class TestDemoSearchIndex:
         assert meta.device_count == len({row["device"] for row in DEMO_ROWS})
         assert meta.corpus_sha256
 
-    def test_every_address_on_the_page_is_a_channel_in_the_index(self):
-        """The roster the index answers is the page the fake store serves."""
+    def test_every_address_on_the_page_is_bound_in_the_index(self):
+        """The addresses the index binds are the page the fake store serves."""
         with open_demo_index() as index:
             addresses = {
-                row[0] for row in index.cursor().execute("SELECT address FROM channels").fetchall()
+                row[0]
+                for row in index.cursor()
+                .execute("SELECT DISTINCT full_pv FROM bindings")
+                .fetchall()
             }
 
         assert addresses == {row["fullPv"] for row in DEMO_ROWS}
@@ -474,7 +477,7 @@ def _probe_app(index: Any) -> FastAPI:
         # A real query rather than a look at the meta row: taking a cursor is
         # what a closed index refuses, and that refusal is half of what this
         # helper is asserted on.
-        return {"channels": handle.cursor().execute("SELECT count(*) FROM channels").fetchone()[0]}
+        return {"bindings": handle.cursor().execute("SELECT count(*) FROM bindings").fetchone()[0]}
 
     @app.get("/probe")
     async def probe(request: Request) -> Any:
@@ -505,7 +508,7 @@ class TestServeIndexRead:
             resp = TestClient(app).get("/probe")
 
         assert resp.status_code == 200
-        assert resp.json() == {"channels": len(DEMO_ROWS)}
+        assert resp.json() == {"bindings": len(DEMO_ROWS)}
         assert len(app.state.reads) == 1
         assert app.state.reads[0][1] is False
 

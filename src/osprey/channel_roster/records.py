@@ -8,14 +8,14 @@ roster.
 
 This module is purely declarative data, in the style of
 :mod:`osprey.simulation.channel_schema`: stdlib-only, no I/O, no source
-selection, no parsing. The readers (:mod:`osprey.channel_roster.sources`,
-:mod:`osprey.channel_roster.graph`) build these types; the consumers --
+selection, no parsing. The reader (:mod:`osprey.channel_roster.sources`)
+builds these types; the consumers --
 plan-device derivation, the channel snapshot, the build's fact lines, the
 channel-finder web routes -- read them.
 
 **Absence is data, not a missing return.** A roster that cannot be built is
 reported as a :class:`RosterAbsence` carrying its reason and the subjects it
-has to name (a path, the config keys that would have declared one), and every
+has to name (a path, the failure underneath), and every
 consumer renders it through :meth:`RosterAbsence.message`. The phrasing of each
 reason therefore lives once, in :data:`ABSENCE_TEMPLATES`, rather than in a
 per-consumer ``if`` chain -- build facts and HTTP 503 bodies say the same true
@@ -25,7 +25,7 @@ raises there instead of rendering a blank.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -46,12 +46,6 @@ class RosterSourceKind(Enum):
     #: channel record states its role and a setpoint states its readback.
     FACILITY = "facility"
 
-    #: The search index a build derives from the facility knowledge graph's
-    #: Turtle corpus, where direction is carried explicitly -- the corpus
-    #: states it with ``writesSignal`` / ``readsSignal`` and the index keeps
-    #: it in a column.
-    GRAPH = "graph"
-
 
 #: How each source kind is named to a human. A table rather than a branch in
 #: every consumer, so the build fact line and the web body call the same file
@@ -59,7 +53,6 @@ class RosterSourceKind(Enum):
 #: described as the wrong one.
 SOURCE_LABELS: Mapping[RosterSourceKind, str] = {
     RosterSourceKind.FACILITY: "this project's facility file",
-    RosterSourceKind.GRAPH: "the channel index built from the facility knowledge graph",
 }
 
 
@@ -69,8 +62,7 @@ class RosterAbsenceReason(Enum):
     Named rather than left to each caller's prose because these are different
     situations with different remedies, and every surface that reports one has
     to tell them apart: the facility file is not built, it is built and
-    declares no channels, a source is not there, a source is there and
-    unreadable, or a source reads cleanly and enumerates nothing.
+    declares no channels, or it is there and unreadable.
     """
 
     #: No build has written the facility file into this render. Fail-soft,
@@ -85,25 +77,9 @@ class RosterAbsenceReason(Enum):
     #: so building again writes the same file.
     FACILITY_EMPTY = "facility-empty"
 
-    #: A configured source names a path that does not exist. Fail-soft, and
-    #: deliberately NOT :attr:`CORRUPT_SOURCE`: a source that is not there is a
-    #: facility this project has not staged yet -- during a build, often not
-    #: staged *yet* -- while one that is there and unreadable is a facility it
-    #: meant to describe and got wrong. Consumers apply opposite rules to the
-    #: two, so telling them apart is this vocabulary's job rather than every
-    #: consumer's second ``stat``.
-    MISSING_SOURCE = "missing-source"
-
     #: A configured source is present and could not be read or parsed.
     #: Fail-closed: this is a broken deployment, not an absent one.
     CORRUPT_SOURCE = "corrupt-source"
-
-    #: A configured source was read cleanly and enumerates nothing. Reported
-    #: rather than returned as an empty roster: a source that declares no
-    #: channels is a staging or seeding gap, and serving its emptiness as a
-    #: fact would tell an operator the facility has no channels -- and would
-    #: mark every real channel invalid on the way.
-    EMPTY_SOURCE = "empty-source"
 
 
 #: The one place each absence reason is phrased for a human. Fields in braces
@@ -119,16 +95,8 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
         "The facility file {path} declares no channels: the project's "
         "data/facility tree holds no channel records."
     ),
-    RosterAbsenceReason.MISSING_SOURCE: (
-        "The channel roster source at {path} is not there, so the set of channels "
-        "this facility has is unknown; it is declared by {config_keys}."
-    ),
     RosterAbsenceReason.CORRUPT_SOURCE: (
         "The channel roster source at {path} could not be read: {detail}."
-    ),
-    RosterAbsenceReason.EMPTY_SOURCE: (
-        "The channel roster source at {path} was read and declares no channels, "
-        "which is a staging or seeding gap rather than a facility with none."
     ),
 }
 
@@ -136,14 +104,6 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
 def _template_fields(template: str) -> tuple[str, ...]:
     """Return the brace-named fields ``template`` interpolates, in order."""
     return tuple(name for _, name, _, _ in Formatter().parse(template) if name)
-
-
-def _join_keys(keys: Iterable[str]) -> str:
-    """Join config keys into an English list (``"a"``, ``"a and b"``, ...)."""
-    items = list(keys)
-    if len(items) <= 1:
-        return "".join(items)
-    return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,13 +117,11 @@ class RosterSource:
             render-relative rule for the facility file) happens in
             :mod:`osprey.channel_roster.sources`; by the time it is here it is
             settled.
-        spelled: The configured value the path was resolved FROM, as an
-            operator wrote it, or None when there is nothing but the resolved
-            path. Carried because the two are different sentences to a reader:
-            a build resolves a relative corpus into its own staging tree, so
-            the resolved path names a ``build/.tmp/...`` file nobody can retype
-            or edit, while the configured spelling is the line in ``config.yml``
-            the operator would change. Display uses this; I/O never does.
+        spelled: The name the file is shown under, or None when the resolved
+            path is the one to show. The facility file is resolved into the
+            render root the build wrote it to, a path nobody retypes or edits,
+            while its name, ``facility.json``, is what the build fact and the
+            web body call it. Display uses this; I/O never does.
     """
 
     kind: RosterSourceKind
@@ -174,11 +132,10 @@ class RosterSource:
         """Render this source the way a build fact names it.
 
         Names :attr:`spelled` when there is one, so an operator is handed the
-        path they configured rather than the one the build resolved it to.
+        file's name rather than the render path it was resolved to.
 
         Returns:
-            e.g. ``"the channel index built from the facility knowledge graph
-            (./data/channel_databases/graph.duckdb)"``.
+            e.g. ``"this project's facility file (facility.json)"``.
         """
         return f"{SOURCE_LABELS[self.kind]} ({self.spelled or self.path})"
 
@@ -199,15 +156,8 @@ class RosterAbsence:
             spelling differs from the resolved one (see
             :attr:`RosterSource.spelled`). The message renders this; ``path``
             stays the resolved file either way.
-        config_keys: The configuration keys that would have declared a source,
-            when naming them is the remedy.
         detail: The underlying failure, for
-            :attr:`RosterAbsenceReason.CORRUPT_SOURCE`; or, on a
-            :attr:`RosterAbsenceReason.MISSING_SOURCE`, the remedy that would
-            put the source there -- a source a build writes has one, a source
-            an operator hands the deployment does not, so the reader that
-            knows which supplies it and the message appends it as its own
-            sentence.
+            :attr:`RosterAbsenceReason.CORRUPT_SOURCE`.
 
     Raises:
         ValueError: If the reason's phrasing names a subject this absence did
@@ -217,12 +167,10 @@ class RosterAbsence:
 
     reason: RosterAbsenceReason
     path: Path | None = None
-    config_keys: tuple[str, ...] = ()
     detail: str | None = None
     spelled: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "config_keys", tuple(self.config_keys))
         template = ABSENCE_TEMPLATES[self.reason]
         values = self._values()
         missing = [name for name in _template_fields(template) if not values[name]]
@@ -236,23 +184,12 @@ class RosterAbsence:
         """Return the fill values for this absence's :data:`ABSENCE_TEMPLATES` entry."""
         return {
             "path": self.spelled or (str(self.path) if self.path is not None else ""),
-            "config_keys": _join_keys(self.config_keys),
             "detail": self.detail or "",
         }
 
     def message(self) -> str:
-        """Render this absence as one honest sentence, for any consumer.
-
-        A :attr:`RosterAbsenceReason.MISSING_SOURCE` carrying a
-        :attr:`detail` says its remedy after that sentence rather than inside
-        it: the template names the path and the keys that declare it, which is
-        the whole answer for a source nothing here writes, and a second
-        sentence is what a reader adds when there IS a command to run.
-        """
-        rendered = ABSENCE_TEMPLATES[self.reason].format(**self._values())
-        if self.reason is RosterAbsenceReason.MISSING_SOURCE and self.detail:
-            return f"{rendered} {self.detail}"
-        return rendered
+        """Render this absence as one honest sentence, for any consumer."""
+        return ABSENCE_TEMPLATES[self.reason].format(**self._values())
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,7 @@
 """Tests for the whole build: a Turtle corpus in, a DuckDB index file out.
 
 The pieces below it have their own lanes -- ``test_parse_corpus.py`` for the
-rows, ``test_channels.py`` for the roster, ``test_writer.py`` for the file. What
+rows, ``test_writer.py`` for the file. What
 is only true of the entry point is pinned here: that the census it states is the
 one the seeded store would count, that the digest it stamps is the seeder's own
 so a store and an index filled from one corpus agree they hold one corpus, and
@@ -23,13 +23,10 @@ import duckdb
 import pytest
 from tests.services.channel_finder.graph_index import corpora
 
-from osprey.channel_roster import RosterSource, RosterSourceKind
-from osprey.channel_roster.graph import read_graph_roster
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
 from osprey.services.channel_finder.graph_index.builder import (
     IndexBuildReport,
     build_graph_index,
-    channels_from_corpus,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_VERSION
@@ -124,11 +121,10 @@ class TestDemoCorpus:
         }
 
     def test_the_tables_hold_the_rows_the_report_counted(self, built):
-        report, index_path = built
+        _, index_path = built
 
         assert _read(index_path, "SELECT count(*) FROM bindings") == [(DEMO_BINDINGS,)]
         assert _read(index_path, "SELECT count(*) FROM classes") == [(DEMO_CLASSES,)]
-        assert _read(index_path, "SELECT count(*) FROM channels") == [(report.channel_count,)]
         assert _read(index_path, "SELECT count(DISTINCT device_uri) FROM bindings") == [
             (DEMO_DEVICES,)
         ]
@@ -157,33 +153,6 @@ class TestDemoCorpus:
 
         assert report.class_count == len(parsed.class_rows)
         assert report.class_count == len(prune_device_taxonomy(raw))
-
-    def test_the_channels_table_is_the_roster_the_reader_answers(
-        self, built, demo_path: Path
-    ) -> None:
-        """The rows the build wrote are the records the roster hands back.
-
-        The oracle is the CORPUS, not the file: the channels the derivation
-        rules read out of the same Turtle are what a consumer has to get back
-        out of the index, in that order, with each direction and readback
-        intact. Comparing the reader against a query over the file it just read
-        would pass on any index the writer and the reader agreed to truncate
-        together. The census the report states is asserted alongside it.
-        """
-        report, index_path = built
-        expected = channels_from_corpus(
-            parse_corpus(demo_path.read_text(encoding="utf-8")),
-            RosterSource(kind=RosterSourceKind.GRAPH, path=demo_path),
-        )
-
-        records = read_graph_roster(
-            RosterSource(kind=RosterSourceKind.GRAPH, path=index_path)
-        ).records
-
-        assert [(r.address, r.direction, r.readback) for r in records] == [
-            (row.address, row.direction, row.readback) for row in expected
-        ]
-        assert len(records) == report.channel_count == DEMO_BINDINGS
 
     def test_the_build_logs_one_line_naming_its_counts(
         self, demo_path: Path, tmp_path: Path, caplog
@@ -289,7 +258,6 @@ class TestCorpusWithoutBindings:
         assert index_path.exists()
         assert report.binding_count == 0
         assert report.device_count == 0
-        assert report.channel_count == 0
         assert _read(index_path, "SELECT count(*) FROM bindings") == [(0,)]
         assert any("bound no channels" in record.getMessage() for record in caplog.records)
 

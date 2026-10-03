@@ -25,7 +25,6 @@ from osprey.services.channel_finder.graph_index.builder import (
     CALLER_META_KEYS,
     ParsedCorpus,
     build_from_rows,
-    channels_from_rows,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
@@ -61,7 +60,6 @@ def _build(parsed: ParsedCorpus, index_path: Path) -> dict:
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
-        channels_from_rows(parsed.binding_rows),
         index_path,
         values,
     )
@@ -259,16 +257,16 @@ class TestReadOnly:
         with opened:
             cursor = opened.cursor()
             with pytest.raises(duckdb.Error):
-                cursor.execute("INSERT INTO channels VALUES ('SR:NEW', 'read', NULL)")
+                cursor.execute("INSERT INTO meta SELECT * FROM meta")
 
     def test_the_rows_are_unchanged_after_a_refused_write(self, index: Path):
         opened = open_graph_index(index)
         assert isinstance(opened, GraphIndex)
         with opened:
-            before = opened.cursor().execute("SELECT count(*) FROM channels").fetchone()
+            before = opened.cursor().execute("SELECT count(*) FROM bindings").fetchone()
             with pytest.raises(duckdb.Error):
-                opened.cursor().execute("DELETE FROM channels")
-            assert opened.cursor().execute("SELECT count(*) FROM channels").fetchone() == before
+                opened.cursor().execute("DELETE FROM bindings")
+            assert opened.cursor().execute("SELECT count(*) FROM bindings").fetchone() == before
 
 
 class TestClose:
@@ -343,7 +341,7 @@ class TestImportIsolation:
         subprocess.run([sys.executable, "-c", script], check=True)
 
     def test_a_missing_index_is_answered_without_importing_duckdb(self):
-        """The roster and the health check ask about paths that do not exist."""
+        """The health check asks about paths that do not exist."""
         script = textwrap.dedent(
             """
             import sys

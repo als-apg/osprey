@@ -356,7 +356,7 @@ def _make_index(
     filename: str = "demo_machine.ttl",
     counts: tuple[int, int, int, int, int] = (12, 5, 3, 4, 2),
 ) -> None:
-    """Write a tiny real search index: the four tables and one ``meta`` row.
+    """Write a tiny real search index: the three tables and one ``meta`` row.
 
     No builder exists yet, so the row is inserted directly. The DDL is the
     package's own, which is what makes this a real index rather than a fixture
