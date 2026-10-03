@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 02, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 03, 2026"/>
   </head>
   
   
@@ -597,6 +597,24 @@ menu (or the command palette) at any time. The choice is remembered per
 browser, and each user’s own pick wins over the configured default. (Pair it
 with the retro theme for a navy-and-teal terminal — see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>.)</p>
 </section>
+<section id="when-a-panel-stops-answering">
+<h2>When a panel stops answering<a class="headerlink" href="#when-a-panel-stops-answering" title="Link to this heading">#</a></h2>
+<p>Panels with a health check are polled every 10 seconds. One that has answered
+and then misses two polls in a row dims its rail entry, which stays clickable
+and reads “not answering since &lt;time&gt;” in its tooltip. Its open tile shows a
+warning strip with the same time across the top and greys the page below it,
+so the out-of-date view is not mistaken for a live one. The page underneath is
+left exactly as it was, stays readable, and can still be scrolled and clicked,
+because a slow backend often still serves what is loaded. Both clear on the
+next answer. A panel that has not answered since the page loaded keeps its
+greyed-out entry and does not open.</p>
+<p>This applies to panels that have a health check: Jupyter, SYSTEM, and any
+URL-backed panel whose entry names a <code class="docutils literal notranslate"><span class="pre">health_endpoint</span></code>.</p>
+<p>Clicking a dimmed entry closes its tile as usual, but the panel cannot be
+opened again until its backend answers.
+If the agent points a panel that is not answering at a new page, the page
+loads on the backend’s next answer.</p>
+</section>
 <section id="panels-backed-by-a-url">
 <h2>Panels backed by a URL<a class="headerlink" href="#panels-backed-by-a-url" title="Link to this heading">#</a></h2>
 <p>An entry under <code class="docutils literal notranslate"><span class="pre">web.panels</span></code> can also declare a <strong>URL-backed panel</strong> — a tab
@@ -955,6 +973,7 @@ shape of it.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-that-need-a-section-as-well-as-a-tick">Panels that need a section as well as a tick</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panel-rail-lives">Where the panel rail lives</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-a-panel-stops-answering">When a panel stops answering</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
