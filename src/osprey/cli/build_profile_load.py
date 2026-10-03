@@ -469,10 +469,10 @@ _RETIRED_APP_TEMPLATE_REFUSAL = (
 )
 
 
-#: The profile key that no longer selects a channel-finder subset. The
-#: ``in_context`` tag on a channel record is what puts it in the in_context
-#: index, and ``channel_finder_mode`` picks the benchmark query set, so a
-#: profile that still spells it is stopped rather than told it is merely unknown.
+#: A profile key that selects nothing: the ``in_context`` tag on a channel
+#: record is what puts it in the in_context index, and ``channel_finder_mode``
+#: picks the benchmark query set, so a profile that spells it is stopped with
+#: what does the selecting rather than told the key is merely unknown.
 _RETIRED_TIER_KEY = "tier"
 
 
