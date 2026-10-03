@@ -11,7 +11,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-theme-switcher.js';
 import { renderAgents, renderToolLog, renderArtifacts, renderConversation } from './session-views.js';
 import { withPrefix, createEventSource } from './api.js';
@@ -31,12 +31,13 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 
 applyEmbedded();
 
-// Follower role: session.html is opened directly (new tab) or embedded
-// read-only; it never persists a preference or broadcasts — it only
-// applies whatever theme-boot.js already resolved pre-paint, a validated
-// ?theme= query param, and whatever the hub broadcasts if this page is
-// ever embedded. Manifest validation here is what closes the arbitrary
-// data-theme injection hole the old hand-rolled ?theme= handling had.
+// Standalone, this page owns its own theme chrome (the header
+// <osprey-theme-switcher>), so it runs theme-manager.js in the hub role:
+// persistence, OS auto-follow and ?theme= handling all come with it, and
+// broadcast is a structural no-op on a page with no iframes. Framed
+// (?embedded=true) it is a follower instead: theme-boot.js already applied
+// data-theme pre-paint, and this attaches the postMessage listener for the
+// host's live broadcasts.
 //
 // The osprey-theme-switcher.js side-effect import above registers the
 // custom element before this call runs: module imports always evaluate
@@ -45,7 +46,7 @@ applyEmbedded();
 // <osprey-theme-switcher> tag in session.html's header) has been parsed
 // and connected — so the button already exists by the time initTheme()
 // wires its click handler.
-initTheme({ role: 'follower' });
+initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 // ---- State ----
 /** @type {ViewName} */
