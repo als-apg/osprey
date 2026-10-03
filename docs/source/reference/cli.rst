@@ -145,7 +145,7 @@ that edits configuration for you — the rendered ``build/config.yml`` is
 generated from it and is never hand-edited. Run ``osprey build`` to carry a
 setting through to ``build/``, then ``osprey up`` to deploy it.
 
-``KEY`` is a top-level profile key (``provider``, ``model``, ``tier``,
+``KEY`` is a top-level profile key (``provider``, ``model``,
 ``channel_finder_mode``, ``connector``) or a dotted path. Keys under ``config.``
 address the rendered config: ``config.control_system.type=epics`` writes that
 literal dotted entry into the profile's ``config:`` block. ``VALUE`` is read as
@@ -168,7 +168,7 @@ facilities' gateway addresses.
 
    osprey set model=claude-sonnet-5
    osprey set connector=epics
-   osprey set tier=1 channel_finder_mode=in_context
+   osprey set channel_finder_mode=in_context
    osprey set config.system.timezone=America/Los_Angeles
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
    osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
@@ -847,25 +847,10 @@ Copy framework services to your project for customization.
 osprey channel-finder
 =====================
 
-Tools for building, validating, previewing, and serving control system
+Tools for validating, previewing, serving and benchmarking control system
 channel databases.
 
 Options: ``--project PATH``, ``-v, --verbose``
-
-``osprey channel-finder build-database``
-   Build a channel database from a CSV file.
-
-   The CSV's ``address`` column *is* each family's address pattern: write the
-   address the way your machine spells it, with ``{instance:02d}`` where the
-   device number goes and ``{sub_channel}`` where the row's sub-channel goes,
-   and it is used as written --- separators, prefixes and level order are
-   yours. All rows of one family must give the same address, and it may name
-   only ``{instance}``, ``{sub_channel}``, ``{base}`` and ``{axis}``; a family
-   that breaks either rule stops the build by name. A family whose rows carry a
-   literal address instead gets ``<family>{instance:02d}{suffix}`` synthesised
-   from its name, as before. The ``instances`` column is a count
-   (``10`` means 1--10) or an explicit range (``4-11``) for a machine whose
-   device numbering does not start at one.
 
 ``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
    Validate a channel database JSON file. ``--pipeline`` names the paradigm: the
@@ -876,14 +861,6 @@ Options: ``--project PATH``, ``-v, --verbose``
 
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
-
-``osprey channel-finder generate (--source PATH | --demo) [--output-dir DIR] [--force] [--format in_context|hierarchical|middle_layer|all] [--tier 1|3|none] [--validate]``
-   Generate channel databases from a hierarchical template. Produces one
-   or more pipeline formats (default: all three) with optional tier filtering.
-   Name the source: ``--source`` for your own hierarchical database, ``--demo``
-   for the packaged demo one. Files already in the output directory are left
-   alone unless you pass ``--force`` --- the default output directory,
-   ``data/channel_databases/``, is the one the pipelines read.
 
 ``osprey channel-finder benchmark --model PROVIDER/WIRE_ID [--queries SPEC] [--runs-per-query N] [--concurrency N] [--output-dir DIR] [--queries-path PATH] [-v]``
    Run the benchmark harness against a channel-finder pipeline using a
@@ -901,10 +878,8 @@ and ``--pipeline`` does not offer ``graph`` for the same reason.
 
 .. code-block:: bash
 
-   osprey channel-finder build-database
    osprey channel-finder validate
    osprey channel-finder preview
-   osprey channel-finder generate --source my_channels.json --format hierarchical
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
 

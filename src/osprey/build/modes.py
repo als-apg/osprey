@@ -25,9 +25,8 @@ from __future__ import annotations
 #:   — every entry is a ``database.path`` config key, so a paradigm whose store
 #:   is not a database file has no entry to name.
 #: - :data:`osprey.cli.channel_finder_cmd.FILE_DATABASE_PARADIGMS`, behind the
-#:   two ``click.Choice`` lists in that module — ``validate`` opens a database
-#:   file and ``generate`` writes one, so neither has anything to offer a
-#:   paradigm without a file.
+#:   ``validate --pipeline`` ``click.Choice`` — ``validate`` opens a database
+#:   file, so it has nothing to offer a paradigm without a file.
 VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
     "in_context",
     "hierarchical",

@@ -81,9 +81,9 @@ class TestUnifiedQueriesValidateAgainstTierDbs:
     """Cross-drift sentinel: every targeted_pv must exist in every paradigm DB
     at that tier.
 
-    Delegates to :func:`validate_queries` (per-tier mode) so the assertion
-    semantics here match what ``scripts/generate_benchmark_suite.py --validate``
-    enforces at suite-regen time.
+    Delegates to :func:`validate_queries` (per-tier mode), so the assertion
+    semantics here are that function's: each tier's queries are checked against
+    exactly the paradigms that tier publishes.
     """
 
     def test_no_drift_across_tiers(self):

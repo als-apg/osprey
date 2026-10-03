@@ -53,7 +53,7 @@ directory, seeded into the `services.graphdb` store.
 
 Best for fewer than about 1,000 channels. The whole database fits in the
 agent's context, so lookup is direct semantic search over a flat list of channel
-and template entries. This is the only paradigm with a CSV build path.
+and template entries.
 
 ### `hierarchical` — nested structure
 
@@ -72,13 +72,6 @@ the control system names them.
 Database tools are `osprey channel-finder` CLI subcommands. Each reads the
 active database from `config.yml` unless you pass `--database`.
 
-Build a database from CSV (`in_context` only):
-
-```bash
-osprey channel-finder build-database --csv data/raw/address_list.csv
-osprey channel-finder build-database --csv data/raw/address_list.csv --use-llm
-```
-
 Validate database format and structure:
 
 ```bash
@@ -91,23 +84,6 @@ Preview database contents:
 ```bash
 osprey channel-finder preview
 osprey channel-finder preview --database data/channel_databases/hierarchical.json
-```
-
-## CSV Format
-
-The CSV consumed by `build-database` has these columns:
-
-```csv
-channel,address,description
-ChannelName1,PV:ADDRESS:1,Description of the channel
-ChannelName2,PV:ADDRESS:2,Description of the channel
-```
-
-For template-based channels (with multiple instances):
-
-```csv
-template_base_name,base_address,description,instances_start,instances_end,sub_channels
-QuadrupoleMagnet,Q{instance:02d},Quadrupole magnets,1,17,SetPoint|ReadBack
 ```
 
 ## Benchmarks

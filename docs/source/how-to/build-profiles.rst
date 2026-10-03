@@ -746,24 +746,6 @@ servers, tool permissions, ``services``, ``va_archiver``, lifecycle commands,
 :doc:`/reference/configuration/profile`.
 
 
-Regenerating a channel database
-===============================
-
-``osprey channel-finder build-database`` writes the generated database **into the
-profile**, not into the project — beside the CSV inputs it came from, where it
-survives a rebuild. The sequence is meant to run to completion:
-
-.. code-block:: bash
-
-   osprey channel-finder build-database
-   # the deployment now reports its build as out of date
-   osprey build
-   # the report clears
-
-The drift report in between is the reminder that the new database has not been
-deployed yet — not a problem to fix. Use ``--output`` to write somewhere else.
-
-
 Building
 ========
 
@@ -865,7 +847,7 @@ What the build does
 ===================
 
 1. Settle the profile (materialize from a preset on first use, or read the one
-   you named), writing any ``--set`` / ``--tier`` into it.
+   you named), writing any ``--set`` into it.
 2. Resolve and validate the profile, including any persona delta merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
 4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing
