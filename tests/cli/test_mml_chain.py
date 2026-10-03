@@ -639,7 +639,7 @@ def _build_index_counts(ttl: Path, output: Path) -> dict[str, int]:
     # wrap, the line breaks do not.
     flat = " ".join(result.output.split())
     counts = {}
-    for name in ("bindings", "channels"):
+    for name in ("bindings",):
         match = re.search(rf"([\d,]+) {name}", flat)
         assert match, f"build-index reported no {name} count:\n{result.output}"
         counts[name] = int(match.group(1).replace(",", ""))
@@ -888,13 +888,10 @@ class TestZeroLoss:
         assert len(_bindings(chain.graph)) == expected
         assert len(_full_pvs(chain.graph)) == expected
 
-    def test_build_index_counts_the_same_bindings_and_channels(
-        self, chain: Chain, tmp_path: Path
-    ) -> None:
+    def test_build_index_counts_the_same_bindings(self, chain: Chain, tmp_path: Path) -> None:
         counts = _build_index_counts(chain.ttl, tmp_path / "index.json")
 
         assert counts["bindings"] == _census_bindings(chain.root, chain.mapping)
-        assert counts["channels"] == len(_kept_addresses(chain.ao, chain.document))
 
     def test_the_profile_lists_every_shared_pv_with_all_its_owners(self, chain: Chain) -> None:
         shared = {
@@ -1457,7 +1454,7 @@ def test_the_als_export_chains_to_its_pinned_counts(tmp_path: Path) -> None:
     assert len(_bindings(chain.graph)) == ALS_BINDINGS
     assert len(_kept_addresses(chain.ao, chain.document)) == ALS_DISTINCT_PVS
     counts = _build_index_counts(chain.ttl, tmp_path / "index.json")
-    assert counts == {"bindings": ALS_BINDINGS, "channels": ALS_DISTINCT_PVS}
+    assert counts == {"bindings": ALS_BINDINGS}
     for record in chain.passes:
         assert record.duck["channels"] == ALS_DISTINCT_PVS
         assert record.duck["systems"] == len(chain.mapping.section_order)

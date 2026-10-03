@@ -35,7 +35,7 @@ from tests.services.channel_finder.graph_index import corpora
 #: What ``SUBCLASS_CHAIN`` holds: three bindings under one device, the pruned
 #: chain Quadrupole/Magnet/AcceleratorDevice, two signals, one section, and one
 #: channel per binding.
-EXPECTED_COUNTS = "3 bindings, 1 devices, 3 classes, 2 signals, 1 sections, 3 channels."
+EXPECTED_COUNTS = "3 bindings, 1 devices, 3 classes, 2 signals, 1 sections."
 
 #: How many characters of the corpus checksum the verb prints, matching the
 #: prefix the ``channel_finder_search_index`` health row shows.

@@ -30,7 +30,6 @@ from osprey.services.channel_finder.graph_index.builder import (
     CALLER_META_KEYS,
     ParsedCorpus,
     build_from_rows,
-    channels_from_rows,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
@@ -91,7 +90,6 @@ def _build_index(corpus: str, index_path: Path) -> None:
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
-        channels_from_rows(parsed.binding_rows),
         index_path,
         _meta(parsed),
     )

@@ -524,25 +524,22 @@ class TestGraphIndexImportIsolation:
         assert ok, f"resolving graph_index's lazy exports leaked a blocked dependency:\n{stderr}"
 
 
-class TestChannelRosterGraphImportIsolation:
-    """``osprey.channel_roster`` and its graph reader must stay import-light.
+class TestChannelRosterImportIsolation:
+    """``osprey.channel_roster`` and its facility-file reader import no graph stack.
 
-    ``registered_channels`` dispatches to :mod:`osprey.channel_roster.graph`
-    for the graph paradigm, and that reader parses the Turtle corpus — via
-    rdflib — at call time, not at import time; see its module docstring. This
-    check only pins the import-time half of that contract: rdflib, neo4j and
-    ``osprey.services.qmd`` must all stay out of ``sys.modules`` merely from
-    importing the package and the reader function, before any corpus is read.
+    The roster reads the facility file a build writes, so rdflib, neo4j and
+    ``osprey.services.qmd`` stay out of ``sys.modules`` after importing the
+    package and its reader.
     """
 
     def test_import_stays_light(self):
-        """Importing the roster package and the graph reader must not leak a driver."""
+        """Importing the roster package and its reader leaks no graph dependency."""
         ok, stderr = _run_multi_absent_check(
             ("rdflib", "neo4j", "osprey.services.qmd"),
             "import osprey.channel_roster\n"
-            "from osprey.channel_roster.graph import read_graph_roster\n",
+            "from osprey.channel_roster.sources import read_facility_roster\n",
         )
-        assert ok, f"channel_roster.graph import leaked a blocked dependency:\n{stderr}"
+        assert ok, f"channel_roster import leaked a blocked dependency:\n{stderr}"
 
 
 #: Builds the Channel Finder app without serving it: the module-level imports

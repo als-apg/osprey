@@ -2,19 +2,19 @@
 
 A deployment reads this file; it never writes one. ``osprey build`` derives the
 index from the Turtle corpus, and everything the explorer asks on a click —
-search, the ontology rail, the badge counts and the channel roster — is a scan
+search, the ontology rail and the badge counts — is a scan
 over the rows :mod:`.schema` declares.
 
 The index is a file, so its absence is ordinary and is answered rather than
 raised: :func:`open_graph_index` returns a :class:`GraphIndexAbsence` for a
 build that has not run, a file the driver cannot open, and an index written by
 a different schema version. Callers turn that into the sentence their surface
-shows — a 503 on the search routes, a roster absence, a health-check row —
+shows — a 503 on the search routes, a health-check row —
 without a ``try`` around the open.
 
-``duckdb`` is imported inside :func:`open_graph_index`. The roster and the
-health check import this package on paths where dragging the driver in would be
-a regression, and a subprocess test in this package's test module pins it.
+``duckdb`` is imported inside :func:`open_graph_index`. The health check
+imports this package on paths where dragging the driver in would be a
+regression, and a subprocess test in this package's test module pins it.
 """
 
 from __future__ import annotations
@@ -42,9 +42,9 @@ _META_SELECT = f"SELECT {', '.join(META_KEYS)} FROM meta"
 
 #: Command that regenerates the Turtle corpus an index is built from, named in
 #: the suggestion an index that binds nothing carries. Spelled here rather than
-#: imported from :mod:`osprey.deployment.graphdb_service`: the roster and the
-#: health check import this module on paths where pulling the deployment
-#: package into the process would be the regression.
+#: imported from :mod:`osprey.deployment.graphdb_service`: the health check
+#: imports this module on paths where pulling the deployment package into the
+#: process would be the regression.
 BUILD_TTL_COMMAND = "osprey knowledge build-ttl"
 
 #: The two edge types a binding reaches its signal through, as n10s imports the
@@ -351,8 +351,7 @@ class GraphIndexAbsence:
 
     Attributes:
         reason: Which of the three absences this is, for callers that branch on
-            it (the roster maps ``missing`` and the other two to different
-            absence kinds).
+            it.
         path: Where the index was looked for, always the caller's path.
         detail: One sentence naming the path and, where there is one, the
             driver's own message or the two schema versions. Surfaces show it

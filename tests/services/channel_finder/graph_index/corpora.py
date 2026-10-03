@@ -116,8 +116,7 @@ BOTH_EDGES = (
 )
 
 #: Two devices each binding their own ``ChannelBinding`` node under one
-#: ``fullPv``, one reading and one writing. The store answers two search rows;
-#: the roster collapses them to one address with no direction.
+#: ``fullPv``, one reading and one writing. The store answers two search rows.
 SHARED_FULL_PV = (
     PREFIXES
     + SHARED_ONTOLOGY

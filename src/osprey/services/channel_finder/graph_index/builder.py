@@ -21,8 +21,8 @@ local names; ``handleRDFTypes='LABELS_AND_NODES'``; ``applyNeo4jNaming``):
 
 Only ``rdflib`` is imported here, inside :func:`parse_corpus`, and ``duckdb``
 and ``pandas`` only inside :func:`build_from_rows`, so importing this module
-stays cheap: the roster and the health check reach this package on paths where
-any of those dependencies appearing in ``sys.modules`` would be the regression.
+stays cheap: the health check reaches this package on paths where any of those
+dependencies appearing in ``sys.modules`` would be the regression.
 """
 
 from __future__ import annotations
@@ -34,20 +34,17 @@ from collections import deque
 from collections.abc import Iterable, Mapping
 from dataclasses import astuple, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..core.exceptions import GraphIndexBuildError
 from .schema import META_KEYS, SCHEMA_VERSION, create_tables
 from .taxonomy import class_name, prune_device_taxonomy
 
-if TYPE_CHECKING:  # pragma: no cover - typing only; the roster stays a lazy import
-    from osprey.channel_roster.records import RosterSource
-
 logger = logging.getLogger(__name__)
 
-#: The ``narad_p:`` property namespace, spelled here for the same reason
-#: :mod:`osprey.channel_roster.graph` spells it: importing the facility
-#: knowledge package would pull ``osprey.services.qmd`` into the build.
+#: The ``narad_p:`` property namespace, spelled here rather than imported:
+#: importing the facility knowledge package would pull ``osprey.services.qmd``
+#: into the build.
 NARAD_P = "https://narad.example.org/property/"
 
 #: Local names n10s turns into the labels the Cypher matches on. Any namespace
@@ -62,16 +59,6 @@ SEMANTIC_SIGNAL_LABEL = "SemanticSignal"
 #: fixed ascending order a row's ``edges`` list uses.
 EDGE_READS = "READSSIGNAL"
 EDGE_WRITES = "WRITESSIGNAL"
-
-#: How the ``channels`` table spells a direction. These are the two values of
-#: :data:`osprey.channel_roster.records.ChannelDirection`, repeated here rather
-#: than imported for the reason the module docstring gives for every other
-#: spelled constant: the roster's record module is stdlib-only, but reaching it
-#: from a table-shaping helper would tie this module's import graph to it for
-#: two strings. A record built with anything else raises in ``ChannelRecord``,
-#: and the demo-corpus pin below compares these rows against real records.
-DIRECTION_READ = "read"
-DIRECTION_WRITE = "write"
 
 #: Bound on the ``SUBCLASSOF`` walk, copied from ``[:SUBCLASSOF*0..10]``: a
 #: corpus whose class edges form a cycle must not walk forever, and no real
@@ -122,41 +109,15 @@ class ClassRow:
 
 
 @dataclass(slots=True)
-class ChannelRow:
-    """One row of the ``channels`` table, fields in column order.
-
-    The channel roster, one row per address: a ``full_pv`` bound under two
-    devices is one channel however many bindings carry it. ``direction`` is
-    ``"read"``, ``"write"`` or ``None`` when the corpus cannot say, and
-    ``readback`` is ``None`` -- never the empty string -- for an address the
-    corpus pairs nothing with.
-    """
-
-    address: str
-    direction: str | None
-    readback: str | None
-
-
-@dataclass(slots=True)
 class ParsedCorpus:
     """Everything one rdflib parse of the corpus yields.
 
-    ``binding_rows`` and ``class_rows`` are the index tables. ``graph``,
-    ``writes``, ``reads`` and ``bindings`` are the roster's raw material, shaped
-    exactly as :func:`osprey.channel_roster.graph.read_graph_roster` builds them
-    so that ``_records`` and ``_corpus_readbacks`` from that module can be
-    applied without a second parse: ``writes``/``reads`` are the sets of
-    binding nodes carrying ``writesSignal``/``readsSignal`` (whatever the edge
-    points at), and ``bindings`` is ``(address, binding_node)`` for every
-    non-empty ``fullPv`` literal in the corpus, typed or not.
+    ``binding_rows`` and ``class_rows`` are the index tables; the two censuses
+    below fill the ``meta`` counts no row carries.
     """
 
-    graph: Any
     binding_rows: list[BindingRow]
     class_rows: list[ClassRow]
-    writes: set[Any]
-    reads: set[Any]
-    bindings: list[tuple[str, Any]]
     #: Distinct ``sectionCode`` literal values over every subject, which is how
     #: the store's section census counts them (bound or not).
     section_codes: frozenset[str] = field(default_factory=frozenset)
@@ -172,7 +133,7 @@ def parse_corpus(text: str) -> ParsedCorpus:
             it — the same string the seeders hash.
 
     Returns:
-        The rows and the roster's raw material; see :class:`ParsedCorpus`.
+        The rows and the censuses; see :class:`ParsedCorpus`.
         A corpus binding no channel is not an error: both row lists are empty
         and the caller decides what to say about it.
 
@@ -225,15 +186,6 @@ def parse_corpus(text: str) -> ParsedCorpus:
     class_nodes = labelled[CLASS_LABEL]
     binding_nodes = labelled[CHANNEL_BINDING_LABEL]
     signal_nodes = labelled[SEMANTIC_SIGNAL_LABEL]
-
-    # -- the roster's raw material, shaped as channel_roster.graph shapes it --
-    writes = set(graph.subjects(p_writes, None))
-    reads = set(graph.subjects(p_reads, None))
-    bindings = [
-        (str(address), binding)
-        for binding, address in graph.subject_objects(p_full_pv)
-        if isinstance(address, Literal) and str(address)
-    ]
 
     # -- SUBCLASSOF ancestry, the store's [:SUBCLASSOF*0..10] to a :Class ----
     parents_of: dict[Any, list[Any]] = {}
@@ -333,7 +285,7 @@ def parse_corpus(text: str) -> ParsedCorpus:
             full_pv = literal(binding, p_full_pv)
             if not full_pv:
                 # The store would answer this binding with a null fullPv; the
-                # table's NOT NULL column cannot, and the roster skips it too.
+                # table's NOT NULL column cannot.
                 continue
             description = literal(binding, p_description)
             edges: set[str] = set()
@@ -415,115 +367,11 @@ def parse_corpus(text: str) -> ParsedCorpus:
     )
 
     return ParsedCorpus(
-        graph=graph,
         binding_rows=binding_rows,
         class_rows=class_rows,
-        writes=writes,
-        reads=reads,
-        bindings=bindings,
         section_codes=section_codes,
         signal_count=len(signal_nodes),
     )
-
-
-def _row_direction(row: BindingRow) -> str | None:
-    """Which way one binding row points, or ``None`` when it cannot say.
-
-    The same rule :func:`osprey.channel_roster.graph._direction` applies to a
-    binding node, read off the row's ``edges`` instead: a row carrying only
-    ``WRITESSIGNAL`` is settable, one carrying only ``READSSIGNAL`` is
-    readable, and one carrying both or neither abstains. Claiming both is
-    drift in the corpus, and calling such a channel writable on a guess is the
-    one error that reaches hardware.
-    """
-    is_write = EDGE_WRITES in row.edges
-    is_read = EDGE_READS in row.edges
-    if is_write and not is_read:
-        return DIRECTION_WRITE
-    if is_read and not is_write:
-        return DIRECTION_READ
-    return None
-
-
-def channels_from_rows(rows: Iterable[BindingRow]) -> list[ChannelRow]:
-    """Collapse binding rows into the roster, one row per address.
-
-    The vote is the roster's own: an address's direction is the one its
-    bindings agree on, a binding that states none abstains, and bindings that
-    disagree leave the address undirected. Every readback is ``None``: a
-    corpus states a pair between two *bindings* through their device grouping
-    and their ``bindingId`` fields, neither of which survives into a
-    :class:`BindingRow`, so the rows cannot answer that half.
-
-    Use this when the rows are all that is at hand -- a rebuild from a stored
-    index. When the parse is at hand, :func:`channels_from_corpus` is the
-    answer of record: it derives the same table from the roster reader itself,
-    readbacks included, and over an untyped ``hasBinding`` target or an edge to
-    an untyped signal the two legitimately differ (see that function).
-
-    Args:
-        rows: The binding rows, in any order.
-
-    Returns:
-        One :class:`ChannelRow` per distinct ``full_pv``, sorted by address.
-    """
-    votes: dict[str, set[str]] = {}
-    for row in rows:
-        directions = votes.setdefault(row.full_pv, set())
-        direction = _row_direction(row)
-        if direction is not None:
-            directions.add(direction)
-    return [
-        ChannelRow(
-            address=address,
-            direction=next(iter(votes[address])) if len(votes[address]) == 1 else None,
-            readback=None,
-        )
-        for address in sorted(votes)
-    ]
-
-
-def channels_from_corpus(parsed: ParsedCorpus, source: RosterSource) -> list[ChannelRow]:
-    """Derive the ``channels`` table from the parse, as the roster reader would.
-
-    The roster is not re-implemented here. :attr:`ParsedCorpus.writes`,
-    ``reads``, ``bindings`` and ``graph`` are shaped exactly as
-    :func:`osprey.channel_roster.graph.read_graph_roster` shapes them, so that
-    module's own ``_records`` and ``_corpus_readbacks`` are applied to them and
-    the index carries the records that reader answers -- byte for byte, with
-    the readbacks the corpus states. Reaching for its private names is
-    deliberate: a second spelling of the address vote or of the
-    ``Setpoint``/``Monitor`` pairing is a second answer to drift away, and the
-    index exists to serve the roster's answer without a second parse. The
-    import runs inside the function so importing this module stays cheap and
-    the dependency points one way only, from the index to the roster.
-
-    This differs from :func:`channels_from_rows` on two corpus shapes, both
-    honest: the roster is untyped-agnostic, so a ``hasBinding`` target that is
-    never typed ``ChannelBinding`` is a channel here and no row there, and it
-    reads direction off the ``readsSignal``/``writesSignal`` predicates
-    themselves, so a binding pointing at a node that is not typed
-    ``SemanticSignal`` is directed here while the row it produced carries no
-    edge. The shipped demo corpus has neither shape, and the two agree on it.
-
-    Args:
-        parsed: The corpus parse, from :func:`parse_corpus`.
-        source: The resolved corpus the roster records name as their
-            provenance. Only carried through the records; nothing is read from
-            disk here.
-
-    Returns:
-        One :class:`ChannelRow` per address, sorted by address, carrying the
-        direction the corpus states and the readback it pairs.
-    """
-    from osprey.channel_roster.graph import _corpus_readbacks, _records
-
-    readbacks = _corpus_readbacks(parsed.graph, parsed.writes, parsed.reads, parsed.bindings)
-    records = _records(parsed.bindings, source, parsed.writes, parsed.reads, readbacks)
-    return [
-        ChannelRow(address=record.address, direction=record.direction, readback=record.readback)
-        for record in records
-    ]
 
 
 # -- writing the rows into a DuckDB file ------------------------------------
@@ -547,7 +395,6 @@ BINDING_COLUMNS = (
     "haystack",
 )
 CLASS_COLUMNS = ("uri", "name", "alt_labels", "parents", "direct_devices", "rollup_devices")
-CHANNEL_COLUMNS = ("address", "direction", "readback")
 
 #: The name the bulk loader registers its frame under. Nothing else in the
 #: build names a view, and it is unregistered again before the next table, so
@@ -566,9 +413,7 @@ class IndexBuildReport:
 
     ``path`` is the index that now exists. ``corpus_sha256`` and the five
     census counts are the ``meta`` row as written — the same numbers the
-    explorer's badges and the health check read back. ``channel_count`` is the
-    number of ``channels`` rows written; ``meta`` has no column for it, since
-    the roster's size is not a badge.
+    explorer's badges and the health check read back.
     """
 
     path: Path
@@ -578,7 +423,6 @@ class IndexBuildReport:
     class_count: int
     signal_count: int
     section_count: int
-    channel_count: int
 
 
 def _insert(con: Any, table: str, columns: tuple[str, ...], rows: Iterable[Any]) -> int:
@@ -633,18 +477,6 @@ def _insert(con: Any, table: str, columns: tuple[str, ...], rows: Iterable[Any])
     return len(tuples)
 
 
-def _channel_tuple(row: ChannelRow) -> tuple[Any, ...]:
-    """A ``channels`` row with an unstated readback as SQL NULL, never ``''``.
-
-    :class:`ChannelRow` already promises this, and the roster builds it that
-    way; the normalisation is here because a caller assembling rows by hand is
-    the one path that could slip an empty string into a column the reader tests
-    with ``IS NULL``.
-    """
-    address, direction, readback = astuple(row)
-    return (address, direction, readback or None)
-
-
 def _meta_values(meta: Mapping[str, Any]) -> tuple[Any, ...]:
     """The ``meta`` row in column order, or raise if the caller's keys are wrong.
 
@@ -680,7 +512,6 @@ def _remove(path: Path) -> None:
 def build_from_rows(
     rows: Iterable[BindingRow],
     classes: Iterable[ClassRow],
-    channels: Iterable[ChannelRow],
     index_path: Path,
     meta: Mapping[str, Any],
 ) -> IndexBuildReport:
@@ -693,7 +524,7 @@ def build_from_rows(
     previous index exactly as it was.
 
     ``duckdb`` and ``pandas`` are imported inside this function: importing this
-    module must stay cheap for the roster and the health check, which reach it
+    module must stay cheap for the health check, which reaches it
     on paths where pulling a database engine into the process would be the
     regression. The tables are loaded columnwise through a registered frame
     rather than row by row — see :func:`_insert` for why.
@@ -701,7 +532,6 @@ def build_from_rows(
     Args:
         rows: The ``bindings`` rows, written in the order given.
         classes: The ``classes`` rows.
-        channels: The ``channels`` rows — the roster, one per address.
         index_path: Where the index goes. Its parent directory must already
             exist; creating it is the caller's job, because only the caller
             knows whether a missing directory is a build step not yet run or a
@@ -746,9 +576,6 @@ def build_from_rows(
                 con, "bindings", BINDING_COLUMNS, (astuple(row) for row in rows)
             )
             class_count = _insert(con, "classes", CLASS_COLUMNS, (astuple(row) for row in classes))
-            channel_count = _insert(
-                con, "channels", CHANNEL_COLUMNS, (_channel_tuple(row) for row in channels)
-            )
             if binding_count == 0:
                 logger.warning(
                     "The corpus bound no channels: writing an empty search index at %s. "
@@ -775,7 +602,6 @@ def build_from_rows(
         class_count=class_count,
         signal_count=meta["signal_count"],
         section_count=meta["section_count"],
-        channel_count=channel_count,
     )
 
 
@@ -839,7 +665,6 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
         GraphIndexBuildError: When the corpus is not valid Turtle, or when the
             index cannot be written (see :func:`build_from_rows`).
     """
-    from osprey.channel_roster.records import RosterSource, RosterSourceKind
     from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 
     started = time.perf_counter()
@@ -847,13 +672,6 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
     text = ttl_path.read_text(encoding="utf-8")
     digest = ttl_sha256(text)
     parsed = parse_corpus(text)
-
-    # Provenance only: the records carry this source, and nothing is read from
-    # disk through it. The corpus is the honest answer to "where did these
-    # channels come from" here, whatever file the roster later opens to get
-    # them back.
-    source = RosterSource(kind=RosterSourceKind.GRAPH, path=ttl_path)
-    channels = channels_from_corpus(parsed, source)
 
     meta = {
         "corpus_sha256": digest,
@@ -870,13 +688,13 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
         "section_count": len(parsed.section_codes),
     }
 
-    report = build_from_rows(parsed.binding_rows, parsed.class_rows, channels, index_path, meta)
+    report = build_from_rows(parsed.binding_rows, parsed.class_rows, index_path, meta)
     # DEBUG: the callers own the operator-facing line (the build's progress
     # line names the corpus, the ``build-index`` verb prints its own summary),
     # and a build keeps absolute paths out of its INFO view.
     logger.debug(
         "Built the channel search index at %s in %.2f s: %d bindings, %d devices, "
-        "%d classes, %d signals, %d sections, %d channels (corpus %s).",
+        "%d classes, %d signals, %d sections (corpus %s).",
         report.path,
         time.perf_counter() - started,
         report.binding_count,
@@ -884,7 +702,6 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
         report.class_count,
         report.signal_count,
         report.section_count,
-        report.channel_count,
         report.corpus_sha256[:12],
     )
     return report

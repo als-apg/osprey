@@ -2,15 +2,14 @@
 
 The facility knowledge graph is a Turtle corpus, seeded into Neo4j for the
 agent's semantic reads and flattened here into a DuckDB file for everything the
-explorer asks on a click: search, ontology, statistics and the channel roster.
-One ``osprey build`` derives the index; every reader afterwards opens a file.
+explorer asks on a click: search, ontology and statistics. One ``osprey
+build`` derives the index; every reader afterwards opens a file.
 
 Importing this package must stay cheap. It pulls in neither ``duckdb``,
-``rdflib``, ``neo4j`` nor ``osprey.services.qmd``: the roster and the health
-check import it on paths where dragging a graph stack in would be a regression.
-Every public name is therefore resolved on first attribute access, and the
-modules behind them import their own heavy dependencies inside the functions
-that need them.
+``rdflib``, ``neo4j`` nor ``osprey.services.qmd``: the health check imports it
+on paths where dragging a graph stack in would be a regression. Every public
+name is therefore resolved on first attribute access, and the modules behind
+them import their own heavy dependencies inside the functions that need them.
 """
 
 from __future__ import annotations
@@ -27,9 +26,6 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ParsedCorpus": ".builder",
     "BindingRow": ".builder",
     "ClassRow": ".builder",
-    "ChannelRow": ".builder",
-    "channels_from_corpus": ".builder",
-    "channels_from_rows": ".builder",
     "open_graph_index": ".reader",
     "GraphIndex": ".reader",
     "GraphIndexAbsence": ".reader",
