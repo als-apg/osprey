@@ -8,21 +8,10 @@ import shutil
 import pytest
 
 from osprey.services.channel_finder.benchmarks.generator import (
-    ALIAS_FAMILY_NAMES,
-    ALIAS_FIELD_NAMES,
-    ALIAS_RING_NAMES,
-    ALIAS_SUBFIELD_NAMES,
-    FAMILY_NAMES,
-    FIELD_NAMES,
-    RING_NAMES,
-    SUBFIELD_NAMES,
     TEMPLATE_DATA_DIR,
     TEMPLATE_DB_PATH,
     TIER_PARADIGMS,
     expand_hierarchy,
-    generate_alias,
-    generate_description,
-    load_template,
     validate_queries,
 )
 from osprey.services.channel_finder.tools.generate_from_spec import TIER1_FILTER
@@ -118,101 +107,6 @@ class TestExpandHierarchy:
         assert rings == {"SR", "BR", "BTS"}
 
 
-class TestGenerateDescription:
-    """Tests for generate_description()."""
-
-    def test_generate_description(self) -> None:
-        """Test description generation for several PV patterns."""
-        cases = [
-            (
-                {
-                    "ring": "SR",
-                    "system": "MAG",
-                    "family": "DIPOLE",
-                    "device": "01",
-                    "field": "CURRENT",
-                    "subfield": "SP",
-                },
-                "Storage ring dipole bending magnet 01 current setpoint",
-            ),
-            (
-                {
-                    "ring": "SR",
-                    "system": "DIAG",
-                    "family": "BPM",
-                    "device": "01",
-                    "field": "POSITION",
-                    "subfield": "X",
-                },
-                "Storage ring beam position monitor 01 position horizontal",
-            ),
-            (
-                {
-                    "ring": "BR",
-                    "system": "MAG",
-                    "family": "QF",
-                    "device": "01",
-                    "field": "STATUS",
-                    "subfield": "FAULT",
-                },
-                "Booster ring focusing quadrupole 01 status fault",
-            ),
-            (
-                {
-                    "ring": "BTS",
-                    "system": "MAG",
-                    "family": "VCM",
-                    "device": "01",
-                    "field": "CURRENT",
-                    "subfield": "RB",
-                },
-                "Booster-to-storage transfer line vertical corrector 01 current readback",
-            ),
-            (
-                {
-                    "ring": "SR",
-                    "system": "RF",
-                    "family": "CAVITY",
-                    "device": "01",
-                    "field": "POWER",
-                    "subfield": "FWD",
-                },
-                "Storage ring RF cavity 01 power forward",
-            ),
-            (
-                {
-                    "ring": "SR",
-                    "system": "VAC",
-                    "family": "ION-PUMP",
-                    "device": "01",
-                    "field": "PRESSURE",
-                    "subfield": "RB",
-                },
-                "Storage ring ion pump 01 pressure readback",
-            ),
-        ]
-
-        for pv_parts, expected in cases:
-            result = generate_description(pv_parts)
-            assert result == expected, (
-                f"For {pv_parts['ring']}:...:{pv_parts['subfield']}: "
-                f"got {result!r}, expected {expected!r}"
-            )
-
-    def test_description_starts_uppercase(self) -> None:
-        """Every description must start with a capital letter."""
-        parts = {
-            "ring": "SR",
-            "system": "MAG",
-            "family": "DIPOLE",
-            "device": "B01",
-            "field": "CURRENT",
-            "subfield": "RB",
-        }
-        desc = generate_description(parts)
-        assert desc[0].isupper()
-
-
 class TestValidateQueries:
     """Tests for validate_queries()."""
 
@@ -287,106 +181,6 @@ class TestValidateQueries:
         assert result["total_queries"] == 0
 
 
-class TestGenerateAlias:
-    """Tests for alias generation maps and generate_alias()."""
-
-    def test_alias_known_examples(self) -> None:
-        """Verify aliases match expected output for known inputs."""
-        cases = [
-            (
-                {
-                    "ring": "SR",
-                    "system": "MAG",
-                    "family": "DIPOLE",
-                    "device": "05",
-                    "field": "CURRENT",
-                    "subfield": "SP",
-                },
-                "StorageRing_Dipole_05_Current_Setpoint",
-            ),
-            (
-                {
-                    "ring": "SR",
-                    "system": "DIAG",
-                    "family": "BPM",
-                    "device": "01",
-                    "field": "POSITION",
-                    "subfield": "X",
-                },
-                "StorageRing_BPM_01_Position_X",
-            ),
-            (
-                {
-                    "ring": "SR",
-                    "system": "RF",
-                    "family": "CAVITY",
-                    "device": "02",
-                    "field": "VOLTAGE",
-                    "subfield": "RB",
-                },
-                "StorageRing_Cavity_02_Voltage_Readback",
-            ),
-            (
-                {
-                    "ring": "BR",
-                    "system": "MAG",
-                    "family": "DIPOLE",
-                    "device": "01",
-                    "field": "CURRENT",
-                    "subfield": "SP",
-                },
-                "BoosterRing_Dipole_01_Current_Setpoint",
-            ),
-            (
-                {
-                    "ring": "BTS",
-                    "system": "DIAG",
-                    "family": "BPM",
-                    "device": "01",
-                    "field": "POSITION",
-                    "subfield": "Y",
-                },
-                "BoosterToStorageRing_BPM_01_Position_Y",
-            ),
-        ]
-        for pv_parts, expected in cases:
-            result = generate_alias(pv_parts)
-            assert result == expected, f"Got {result!r}, expected {expected!r}"
-
-    def test_alias_map_completeness(self) -> None:
-        """Every key in verbose maps must have a corresponding alias map entry."""
-        for key in FAMILY_NAMES:
-            assert key in ALIAS_FAMILY_NAMES, f"ALIAS_FAMILY_NAMES missing key: {key}"
-        for key in SUBFIELD_NAMES:
-            assert key in ALIAS_SUBFIELD_NAMES, f"ALIAS_SUBFIELD_NAMES missing key: {key}"
-        for key in FIELD_NAMES:
-            assert key in ALIAS_FIELD_NAMES, f"ALIAS_FIELD_NAMES missing key: {key}"
-        for key in RING_NAMES:
-            assert key in ALIAS_RING_NAMES, f"ALIAS_RING_NAMES missing key: {key}"
-
-    def test_alias_fallback_unmapped(self) -> None:
-        """Unmapped keys should fall back to the raw name."""
-        parts = {
-            "ring": "UNKNOWN_RING",
-            "system": "SYS",
-            "family": "UNKNOWN_FAM",
-            "device": "D01",
-            "field": "UNKNOWN_FIELD",
-            "subfield": "UNKNOWN_SF",
-        }
-        result = generate_alias(parts)
-        assert result == "UNKNOWN_RING_UNKNOWN_FAM_D01_UNKNOWN_FIELD_UNKNOWN_SF"
-
-    def test_alias_format(self, all_channels: list[dict]) -> None:
-        """All aliases should be underscore-separated with no colons."""
-        for ch in _tier1(all_channels):
-            alias = generate_alias(ch)
-            assert "_" in alias, f"Alias missing underscores: {alias}"
-            assert ":" not in alias, f"Alias contains colons: {alias}"
-            # Should have exactly 4 underscores (5 parts)
-            assert alias.count("_") == 4, f"Alias has wrong number of parts: {alias}"
-
-
 class TestPerTierValidation:
     """Tests for per-tier validation mode of validate_queries()."""
 
@@ -451,57 +245,6 @@ class TestPerTierValidation:
 
         with pytest.raises(ValueError, match="output_dir"):
             validate_queries(tier_queries={1: Path("x.json")})
-
-
-class TestLoadTemplate:
-    """Tests for load_template() convenience function."""
-
-    def test_default_path(self):
-        """Default call loads the built-in hierarchical template."""
-        tree_data, channels = load_template()
-        assert isinstance(tree_data, dict)
-        assert isinstance(channels, list)
-
-    def test_channels_have_required_keys(self):
-        """Expanded channels have the expected key set."""
-        _, channels = load_template()
-        required = {"pv", "ring", "system", "family", "device", "field", "subfield"}
-        for ch in channels[:5]:
-            assert required.issubset(ch.keys())
-
-    def test_custom_source(self, tmp_path):
-        """load_template() accepts a custom source path."""
-        # Create a minimal hierarchical template
-        mini_template = {
-            "SR": {
-                "_description": "Test ring",
-                "_expansion": {"rings": {"SR": "SR"}},
-                "MAG": {
-                    "_description": "Magnets",
-                    "BPM": {
-                        "_description": "BPMs",
-                        "_expansion": {
-                            "count": 2,
-                            "device_prefix": "BPM",
-                            "zero_pad": 2,
-                        },
-                        "POSITION": {
-                            "_description": "Position",
-                            "X": {"_description": "Horizontal"},
-                            "Y": {"_description": "Vertical"},
-                        },
-                    },
-                },
-            },
-        }
-        src = tmp_path / "custom.json"
-        src.write_text(json.dumps(mini_template))
-
-        tree_data, channels = load_template(src)
-        assert isinstance(tree_data, dict)
-        assert "SR" in tree_data
-        # Custom template may produce fewer channels
-        assert isinstance(channels, list)
 
 
 class TestMaterializedTierDatabases:
