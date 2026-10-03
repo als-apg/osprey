@@ -51,7 +51,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import is_readonly_run
 
 if TYPE_CHECKING:
-    from osprey.interfaces.web_terminal.pty_manager import PtySession
+    from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
     from osprey.interfaces.web_terminal.session_handoff import (
         AcquireResult,
         SpawnCallback,
@@ -773,6 +773,55 @@ def _resize_pty(session: PtySession, rows: int, cols: int) -> None:
         logger.debug("Could not resize the PTY", exc_info=True)
 
 
+async def _spawn_pooled_pty(
+    registry: PtyRegistry,
+    key: str,
+    command: list[str],
+    *,
+    rows: int,
+    cols: int,
+    extra_env: dict[str, str] | None,
+    cwd: str | None,
+) -> PtySession:
+    """Fill *key* in the pool without killing anything on the event loop.
+
+    The registry fills a key on the calling thread, and both kills it may
+    perform there — a warm child whose launch env no longer matches, and the
+    oldest background session of a full pool — block for seconds. This takes
+    each out of the pool unkilled and kills it in a worker thread before
+    asking the registry to spawn. The env-mismatched entry goes first, so its
+    slot counts before the eviction pass picks a victim.
+
+    Every popped entry is killed exactly once: the pop and the threaded kill
+    are adjacent, and this runs only inside the hand-off door's shielded
+    phase, which is never cancelled, so a submitted kill is never abandoned.
+
+    Args:
+        registry: The pool to fill.
+        key: The session key to spawn under.
+        command: The child's argv.
+        rows: Initial terminal height.
+        cols: Initial terminal width.
+        extra_env: The one launch-env overlay used for the mismatch check and
+            the spawn alike.
+        cwd: Working directory for a spawned child.
+
+    Returns:
+        The session now pooled under *key*.
+    """
+    stale = registry.pop_env_mismatch(key, extra_env)
+    if stale is not None:
+        await asyncio.to_thread(stale.terminate)
+    victim = registry.pop_lru_victim()
+    if victim is not None:
+        await asyncio.to_thread(victim.terminate)
+    spawned: PtySession
+    spawned, _ = registry.get_or_create_session(
+        key, command, rows=rows, cols=cols, extra_env=extra_env, cwd=cwd
+    )
+    return spawned
+
+
 @router.websocket("/ws/terminal")
 async def terminal_ws(websocket: WebSocket):
     """WebSocket bridge for terminal I/O with session pool support.
@@ -800,8 +849,9 @@ async def terminal_ws(websocket: WebSocket):
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
-    the key's current transcript. The spawn callback below is the only
-    place the registry's blocking create path is called from.
+    the key's current transcript. The spawn callback below, through
+    :func:`_spawn_pooled_pty`, is the only place the registry's create path is
+    called from, and it never lets that path kill on the loop.
 
     ``transcript_missing`` answers a resume — the ``mode=resume`` connect or a
     ``switch_session`` — of an id no surface holds and no transcript on disk
@@ -888,23 +938,15 @@ async def terminal_ws(websocket: WebSocket):
         else:
             command = build_session_argv(base_shell_command, session_id=request.key, effort=effort)
         extra_env = _build_extra_env(websocket, request.key, request.key)
-        # A full pool evicts its oldest background session first, and the
-        # registry's own eviction kills it on the calling thread. This runs
-        # on the event loop, under the key's hand-off lock, so the victim is
-        # taken out here and killed off the loop instead.
-        victim = registry.pop_lru_victim()
-        if victim is not None:
-            await asyncio.to_thread(victim.terminate)
-        spawned: PtySession
-        spawned, _ = registry.get_or_create_session(
+        return await _spawn_pooled_pty(
+            registry,
             request.key,
             command,
             rows=channel.rows,
             cols=channel.cols,
-            extra_env=extra_env if extra_env else None,
+            extra_env=extra_env or None,
             cwd=app.state.project_cwd,
         )
-        return spawned
 
     async def close_displaced() -> None:
         # A newer terminal on the same key took the PTY over. This handler's
