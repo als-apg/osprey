@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.ariel_search.attachments import fetchable_url
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
@@ -184,13 +185,20 @@ class JLabLogbookAdapter(FacilityAdapter):
         self,
         source_attachments: list[dict[str, Any]],
     ) -> list[AttachmentInfo]:
-        """Transform JLab attachments to ARIEL format."""
+        """Transform JLab attachments to ARIEL format.
+
+        An attachment whose url is non-empty and not an absolute http(s) url is
+        dropped with a debug log; an empty url stays as a header-only item.
+        """
         result: list[AttachmentInfo] = []
         for att in source_attachments:
             if not isinstance(att, dict) or "url" not in att:
                 continue
 
             url = att["url"]
+            if not isinstance(url, str) or (url and not fetchable_url(url, file_source=False)):
+                logger.debug(f"Dropping JLab attachment with unfetchable url: {url!r}")
+                continue
             filename = url.rsplit("/", 1)[-1] if "/" in url else url
 
             attachment: AttachmentInfo = {

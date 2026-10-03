@@ -15,10 +15,11 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import unquote
 
 import aiohttp
 
-from osprey.services.ariel_search.attachments import guess_mime_type
+from osprey.services.ariel_search.attachments import fetchable_url, guess_mime_type
 from osprey.services.ariel_search.exceptions import (
     AuthenticationRequiredError,
     IngestionError,
@@ -28,7 +29,7 @@ from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookE
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.config import ARIELConfig, Origin
     from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
 logger = get_logger("ariel")
@@ -251,11 +252,31 @@ def parse_als_categories(category_str: str) -> list[str]:
     return [cat.strip() for cat in category_str.split(",") if cat.strip()]
 
 
+def _is_safe_als_path(path: str) -> bool:
+    """Return whether a raw ALS attachment path may be joined onto the eLog prefix.
+
+    A path carrying a URL scheme (``javascript:``, ``file:``, ``https:``) or a
+    ``..`` segment, raw or percent-decoded, is unsafe: prefixing would turn it
+    into a plausible-looking https url that points somewhere else.
+    """
+    for candidate in (path, unquote(path)):
+        if ":" in re.split(r"[/\\]", candidate, maxsplit=1)[0]:
+            return False
+        if ".." in re.split(r"[/\\]", candidate):
+            return False
+    return True
+
+
 def transform_als_attachments(
     source_attachments: list[dict[str, Any]],
     url_prefix: str,
 ) -> list[AttachmentInfo]:
     """Transform ALS relative attachment paths to full URLs.
+
+    The raw path is checked before prefixing: a non-string path, a path with a
+    URL scheme, or a path with a ``..`` segment is dropped with a debug log, and
+    the prefixed url must then be fetchable. An empty path stays as a
+    header-only item with url ``""``.
 
     Args:
         source_attachments: List of attachment dicts from ALS logbook
@@ -266,16 +287,30 @@ def transform_als_attachments(
     """
     result: list[AttachmentInfo] = []
     for att in source_attachments:
-        if isinstance(att, dict) and "url" in att:
-            path = att["url"]
-            filename = path.rsplit("/", 1)[-1] if "/" in path else path
-            result.append(
-                {
-                    "url": url_prefix.rstrip("/") + "/" + path.lstrip("/"),
-                    "filename": filename,
-                    "type": guess_mime_type(filename),
-                }
-            )
+        if not (isinstance(att, dict) and "url" in att):
+            continue
+        path = att["url"]
+        if not isinstance(path, str):
+            logger.debug("Dropping ALS attachment with non-string url")
+            continue
+        filename = path.rsplit("/", 1)[-1] if "/" in path else path
+        if not path:
+            result.append({"url": "", "filename": filename, "type": None})
+            continue
+        if not _is_safe_als_path(path):
+            logger.debug(f"Dropping ALS attachment with unsafe path: {path!r}")
+            continue
+        url = url_prefix.rstrip("/") + "/" + path.lstrip("/")
+        if not fetchable_url(url, file_source=False):
+            logger.debug(f"Dropping ALS attachment with unfetchable url: {url!r}")
+            continue
+        result.append(
+            {
+                "url": url,
+                "filename": filename,
+                "type": guess_mime_type(filename),
+            }
+        )
     return result
 
 
@@ -321,6 +356,17 @@ class ALSLogbookAdapter(FacilityAdapter):
             return False
         write_cfg = self.config.ingestion.write
         return write_cfg.enabled and bool(write_cfg.write_url)
+
+    def attachment_origins(self) -> frozenset["Origin"]:
+        """Return the origin of the eLog attachment prefix.
+
+        ALS attachment paths resolve against ``attachment_url_prefix`` whether
+        entries come from a file export or over HTTP, so that is the origin.
+        """
+        from osprey.services.ariel_search.attachments.fetch import origin_of
+
+        origin = origin_of(self.attachment_url_prefix)
+        return frozenset({origin}) if origin is not None else frozenset()
 
     def _detect_source_type(self, source_url: str) -> Literal["file", "http"]:
         """Detect source type from URL scheme."""

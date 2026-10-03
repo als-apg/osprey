@@ -1,62 +1,62 @@
 """Extract entry metadata from a sidecar JSON attachment.
 
 Scans an entry's attachments for the sidecar filenames its adapter declares,
-fetches the content (local file or HTTP), and merges the result into the
-entry's metadata dict. All failures are non-fatal --- logged as warnings.
+fetches each through :func:`~osprey.services.ariel_search.attachments.fetch.fetch_attachment_bytes`
+--- the same origin set, file-source confinement, size cap, TLS and proxy as
+every other attachment fetch --- and merges the result into the entry's
+metadata dict. All failures are non-fatal --- logged as warnings.
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.ariel_search.attachments.fetch import fetch_attachment_bytes, origins_for
 from osprey.services.ariel_search.models import EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.services.ariel_search.config import IngestionConfig
     from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 
 logger = get_logger("ariel.ingestion")
 
-#: The filename the step matched before adapters could declare their own. Used
-#: when no adapter is supplied, so a direct caller behaves as it always did.
+#: The filename the step matches when no adapter declares its own.
 DEFAULT_SIDECAR_NAMES: tuple[str, ...] = ("metadata.json",)
+
+#: Largest sidecar accepted, in bytes.
+SIDECAR_MAX_BYTES: int = 1024 * 1024
+
+#: Total seconds one sidecar fetch may take.
+SIDECAR_FETCH_TIMEOUT: int = 5
 
 
 async def extract_metadata_from_attachments(
     entry: EnhancedLogbookEntry,
     *,
-    fetch_timeout: int = 5,
+    fetch_timeout: int = SIDECAR_FETCH_TIMEOUT,
     adapter: FacilityAdapter | None = None,
-    ingestion: IngestionConfig | None = None,
 ) -> None:
     """Merge an entry's sidecar metadata attachment into its metadata dict.
 
     The function modifies *entry* in place. If no attachment matches, or if
     fetching or parsing fails, the entry is left unchanged.
 
-    Which filenames count is the ADAPTER's answer, not this module's:
-    ``metadata.json`` is one facility's convention, and a logbook that names
-    its sidecar anything else was silently getting no metadata at all. An
-    adapter declares its own through
-    :attr:`~osprey.services.ariel_search.ingestion.base.FacilityAdapter.metadata_sidecar_names`.
+    Which filenames count is the adapter's answer, declared through
+    :attr:`~osprey.services.ariel_search.ingestion.base.FacilityAdapter.metadata_sidecar_names`;
+    ``metadata.json`` is the default.
 
-    The HTTP fetch honours the ingestion config it is given --- the same TLS
-    verification, site CA and SOCKS proxy the adapter itself uses. Without
-    that, this step reached the logbook host over a connection configured
-    differently from every other request in the same ingest: unverified where
-    the adapter verified, and direct where the adapter went through a proxy
-    (so, on an air-gapped site, not at all).
+    Where a sidecar may be fetched from is the adapter's answer too: an http(s)
+    sidecar must lie in the adapter's origin set (its own origin plus
+    ``ariel.attachments.allowed_origins``), and a file source reads only
+    relative paths under its file base. Without an adapter there is no origin
+    set and no file base, so nothing is fetched.
 
     Args:
         entry: The logbook entry to enrich.
-        fetch_timeout: HTTP request timeout in seconds.
-        adapter: The adapter that produced *entry*, for its sidecar filenames
-            and its proxy connector. ``None`` falls back to
-            :data:`DEFAULT_SIDECAR_NAMES` and a plain session.
-        ingestion: The ingestion config, for ``verify_ssl`` and ``ca_bundle``.
+        fetch_timeout: Total timeout of one sidecar fetch, in seconds.
+        adapter: The adapter that produced *entry*, for its sidecar filenames,
+            its origins, its file base, its TLS context and its proxy.
     """
     names = _sidecar_names(adapter)
     attachments = entry.get("attachments", [])
@@ -71,11 +71,14 @@ async def extract_metadata_from_attachments(
         url = att.get("url", "")
         if not url:
             continue
+        if adapter is None:
+            logger.debug("No adapter to fetch sidecar metadata %s through; skipped", url)
+            continue
 
         try:
-            data = await _fetch_metadata(url, fetch_timeout, adapter, ingestion)
+            data = await _fetch_metadata(url, fetch_timeout, adapter)
         except Exception:
-            logger.warning("Failed to fetch sidecar metadata from %s", url, exc_info=True)
+            logger.warning("Failed to read sidecar metadata from %s", url, exc_info=True)
             continue
 
         if isinstance(data, dict):
@@ -97,38 +100,38 @@ def _sidecar_names(adapter: FacilityAdapter | None) -> set[str]:
     return {str(name).lower() for name in declared}
 
 
-async def _fetch_metadata(
-    url: str,
-    timeout: int,
-    adapter: FacilityAdapter | None = None,
-    ingestion: IngestionConfig | None = None,
-) -> Any:
-    """Fetch and parse a sidecar metadata file from a URL or local path."""
-    if url.startswith(("http://", "https://")):
-        import aiohttp
+async def _fetch_metadata(url: str, timeout: float, adapter: FacilityAdapter) -> Any:
+    """Fetch and parse one sidecar through the attachment fetcher.
 
-        from osprey.services.ariel_search.ingestion.http import build_ssl_context
+    Args:
+        url: The sidecar's url or relative path from upstream data.
+        timeout: Total timeout of the fetch, in seconds.
+        adapter: The adapter whose origins, file base and transport apply.
 
-        ssl_context: Any = True
-        if ingestion is not None:
-            ssl_context = build_ssl_context(ingestion.verify_ssl, ingestion.ca_bundle)
+    Returns:
+        The parsed JSON, or ``None`` when the fetcher delivered no bytes; that
+        case is logged once at WARNING with the fetcher's code.
 
-        # The adapter's own connector, so a SOCKS proxy the ingest goes
-        # through carries this request too. A sidecar fetched without an
-        # adapter has none to inherit and goes out on aiohttp's default.
-        connector = adapter._create_connector() if adapter is not None else None
-
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(
+    Raises:
+        ValueError: The bytes are not valid JSON.
+    """
+    out = await fetch_attachment_bytes(
+        url,
+        SIDECAR_MAX_BYTES,
+        origins_for(adapter, adapter.config),
+        adapter,
+        total=timeout,
+    )
+    if out.data is None:
+        if out.code == "origin_not_allowed":
+            logger.warning(
+                "Sidecar metadata %s not fetched (origin_not_allowed): list its origin "
+                "in ariel.attachments.allowed_origins to read it",
                 url,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-                ssl=ssl_context,
-            ) as resp:
-                resp.raise_for_status()
-                return await resp.json()
-    else:
-        # Treat as local file path
-        path = Path(url)
-        if path.exists():
-            return json.loads(path.read_text())
-        raise FileNotFoundError(f"sidecar metadata not found at {url}")
+            )
+        else:
+            logger.warning(
+                "Sidecar metadata %s not fetched (%s)", url, out.code or "transient failure"
+            )
+        return None
+    return json.loads(out.data)

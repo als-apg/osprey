@@ -7,6 +7,7 @@ import ssl
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiohttp
@@ -17,7 +18,7 @@ from osprey.utils.config import localize_facility
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.config import ARIELConfig, Origin
     from osprey.services.ariel_search.models import (
         EnhancedLogbookEntry,
         FacilityEntryCreateRequest,
@@ -118,9 +119,41 @@ class FacilityAdapter(ABC):
                 source_system=self.source_system_name,
             ) from e
 
-        logger.info(f"Using SOCKS proxy: {self.proxy_url}")
+        from osprey.services.ariel_search.attachments.fetch import redact_url
+
+        logger.info("Using SOCKS proxy: %s", redact_url(self.proxy_url))
         connector: aiohttp.BaseConnector = ProxyConnector.from_url(self.proxy_url)
         return connector
+
+    def attachment_origins(self) -> frozenset["Origin"]:
+        """Return the origins this adapter's attachments may be fetched from.
+
+        The default is the origin of the adapter's ``source_url`` attribute,
+        falling back to the configured ``ingestion.source_url`` -- this base
+        class never sets ``source_url`` and a registered adapter need not --
+        when that is an http(s) URL; a file source or no source has none.
+        Override when attachments live somewhere other than the entries.
+
+        Returns:
+            A set of ``(scheme, host, effective port)`` origins.
+        """
+        from osprey.services.ariel_search.attachments.fetch import origin_of
+
+        ingestion = self.config.ingestion
+        source_url = getattr(self, "source_url", None) or (
+            ingestion.source_url if ingestion else None
+        )
+        origin = origin_of(source_url)
+        return frozenset({origin}) if origin is not None else frozenset()
+
+    def attachment_file_base(self) -> Path | None:
+        """Return the directory relative attachment paths resolve against.
+
+        Returns:
+            ``None`` by default: the adapter is not a file source. A file-source
+            adapter returns the directory its entries were read from.
+        """
+        return None
 
     def _ssl_context(self) -> ssl.SSLContext | bool:
         """Return the ``ssl=`` argument for this adapter's outbound requests.

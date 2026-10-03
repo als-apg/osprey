@@ -1585,3 +1585,160 @@ class TestBuildSSLContext:
         assert "ssl.CERT_NONE" not in source
         assert "build_ssl_context(" not in source
         assert "build_ssl_context(" in inspect.getsource(base)
+
+
+class TestAdapterUrlFiltering:
+    """Adapters drop unfetchable attachment urls and keep header-only items."""
+
+    @staticmethod
+    def _config(adapter: str, source_url: str) -> ARIELConfig:
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://test"},
+                "ingestion": {"adapter": adapter, "source_url": source_url},
+            }
+        )
+
+    def test_ornl_three_headers_become_three_header_only_items(self):
+        """ORNL headers without attachments yield one url-less item each."""
+        adapter = ORNLLogbookAdapter(self._config("ornl_logbook", "/fake/path.json"))
+        result = adapter._transform_attachments(
+            {"attachment": "Y", "attachment_header": ["a.png", "b.pdf", "c.txt"]}
+        )
+        assert [item["url"] for item in result] == ["", "", ""]
+        assert [item["filename"] for item in result] == ["a.png", "b.pdf", "c.txt"]
+
+    def test_ornl_drops_unfetchable_and_keeps_empty_and_http(self):
+        """ORNL keeps http(s) and empty urls, drops other schemes and relative paths."""
+        adapter = ORNLLogbookAdapter(self._config("ornl_logbook", "/fake/path.json"))
+        result = adapter._transform_attachments(
+            {
+                "attachments": [
+                    {"url": "https://ornl.example.com/a.png", "filename": "a.png"},
+                    {"url": "javascript:alert(1)", "filename": "x"},
+                    {"url": "file:///etc/passwd", "filename": "passwd"},
+                    {"url": "relative/b.png", "filename": "b.png"},
+                    {"filename": "missing.png"},
+                    {"url": "", "filename": "empty.png"},
+                ]
+            }
+        )
+        assert [item["filename"] for item in result] == ["a.png", "missing.png", "empty.png"]
+        assert [item["url"] for item in result] == ["https://ornl.example.com/a.png", "", ""]
+
+    def test_jlab_drops_javascript_and_file_urls(self):
+        """JLab drops non-http(s) urls and keeps http(s) and empty urls."""
+        adapter = JLabLogbookAdapter(self._config("jlab_logbook", "/fake/path.json"))
+        result = adapter._transform_attachments(
+            [
+                {"url": "https://logbooks.example.org/files/a.png"},
+                {"url": "javascript:alert(1)"},
+                {"url": "file:///etc/passwd"},
+                {"url": "../secret.png"},
+                {"url": ""},
+            ]
+        )
+        assert [item["url"] for item in result] == [
+            "https://logbooks.example.org/files/a.png",
+            "",
+        ]
+
+    def test_jlab_non_string_url_dropped(self):
+        """A non-string JLab url is dropped without raising."""
+        adapter = JLabLogbookAdapter(self._config("jlab_logbook", "/fake/path.json"))
+        assert adapter._transform_attachments([{"url": 42}, {"url": None}]) == []
+
+    def test_als_drops_javascript_and_file_urls(self):
+        """ALS drops raw paths carrying a scheme before prefixing them."""
+        result = transform_als_attachments(
+            [
+                {"url": "javascript:alert(1)"},
+                {"url": "file:///etc/passwd"},
+                {"url": "https://evil.example.com/x.png"},
+                {"url": "attachments/2024/01/photo.jpg"},
+            ],
+            "https://elog.example.com/",
+        )
+        assert [item["url"] for item in result] == [
+            "https://elog.example.com/attachments/2024/01/photo.jpg"
+        ]
+
+    def test_als_drops_dot_dot_segments(self):
+        """ALS drops raw paths with a ``..`` segment, percent-encoded or not."""
+        result = transform_als_attachments(
+            [
+                {"url": "attachments/../../admin"},
+                {"url": "attachments/%2e%2e/admin"},
+                {"url": "..\\admin"},
+            ],
+            "https://elog.example.com/",
+        )
+        assert result == []
+
+    def test_als_non_string_url_dropped_without_raising(self):
+        """A non-string ALS url is dropped, never raises."""
+        result = transform_als_attachments(
+            [{"url": 7}, {"url": None}, {"url": ["a"]}, {"url": {"p": 1}}],
+            "https://elog.example.com/",
+        )
+        assert result == []
+
+    def test_als_empty_url_stays_header_only(self):
+        """An empty ALS url yields a header-only item with url ``""``."""
+        result = transform_als_attachments([{"url": ""}], "https://elog.example.com/")
+        assert len(result) == 1
+        assert result[0]["url"] == ""
+
+    def test_als_sample_fixture_keeps_every_attachment(self):
+        """Every attachment in sample_als_entries.jsonl survives filtering."""
+        fixture_path = FIXTURES_DIR / "sample_als_entries.jsonl"
+        raw_count = 0
+        kept_count = 0
+        for line in fixture_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            source = json.loads(line).get("attachments", [])
+            raw_count += len(source)
+            kept_count += len(transform_als_attachments(source, "https://elog.example.org/"))
+        assert raw_count > 0
+        assert kept_count == raw_count
+
+    def test_generic_file_source_keeps_relative_path_verbatim(self):
+        """A generic file source keeps a confinable relative path unchanged."""
+        adapter = GenericJSONAdapter(self._config("generic_json", "/fake/dir/entries.json"))
+        entry = adapter._convert_entry(
+            {
+                "id": "g-1",
+                "timestamp": 1704067200,
+                "text": "t",
+                "attachments": [
+                    {"url": "images/plot.png"},
+                    {"url": "https://example.com/a.png"},
+                    {"url": "../outside.png"},
+                    {"url": "/etc/passwd"},
+                    {"url": "javascript:alert(1)"},
+                    {"url": "file:///etc/passwd"},
+                    {"url": ""},
+                ],
+            }
+        )
+        assert [a["url"] for a in entry["attachments"]] == [
+            "images/plot.png",
+            "https://example.com/a.png",
+            "",
+        ]
+
+    def test_generic_http_source_drops_relative_path(self):
+        """A generic HTTP source has no file base, so relative paths are dropped."""
+        adapter = GenericJSONAdapter(
+            self._config("generic_json", "https://logs.example.com/entries.json")
+        )
+        entry = adapter._convert_entry(
+            {
+                "id": "g-2",
+                "timestamp": 1704067200,
+                "text": "t",
+                "attachments": [{"url": "images/plot.png"}, {"url": "https://example.com/a.png"}],
+            }
+        )
+        assert [a["url"] for a in entry["attachments"]] == ["https://example.com/a.png"]
