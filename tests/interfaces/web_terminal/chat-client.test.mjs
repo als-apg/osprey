@@ -431,7 +431,7 @@ describe('requestHandoff: request shape', () => {
     const init = firstInit(fetchMock);
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(init.body)).toEqual({ to: 'simple', interrupt: false });
+    expect(JSON.parse(init.body)).toEqual({ to: 'simple', interrupt: false, end_started: false });
     expect(result).toEqual({ state: 'ready', session_id: 'k-1' });
   });
 
@@ -440,7 +440,23 @@ describe('requestHandoff: request shape', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await chat.requestHandoff('k', { interrupt: true });
-    expect(JSON.parse(firstInit(fetchMock).body)).toEqual({ to: 'simple', interrupt: true });
+    expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
+      to: 'simple',
+      interrupt: true,
+      end_started: false,
+    });
+  });
+
+  test('forwards end_started: true when the operator agrees to end started commands', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ state: 'ready', session_id: 'k' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chat.requestHandoff('k', { endStarted: true });
+    expect(JSON.parse(firstInit(fetchMock).body)).toEqual({
+      to: 'simple',
+      interrupt: false,
+      end_started: true,
+    });
   });
 
   test('applies the multi-user prefix and encodes the key', async () => {
@@ -530,6 +546,38 @@ describe('requestHandoff: rejection slugs', () => {
     expect(err.status).toBe(status);
     expect(err.slug).toBe(slug);
     expect(err.message).toBe(`HTTP ${status}: ${statusText}`);
+  });
+
+  test('a started-commands refusal carries the commands it lists', async () => {
+    const commands = [{ label: 'magnet_scan.py', command: 'python magnet_scan.py' }];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          { detail: { error: 'handoff_started_commands', message: 'm', commands } },
+          { ok: false, status: 409, statusText: 'Conflict' }
+        )
+      )
+    );
+
+    const err = await chat.requestHandoff('k').catch((e) => e);
+    expect(err.slug).toBe('handoff_started_commands');
+    expect(err.commands).toEqual(commands);
+  });
+
+  test('a refusal without a list carries no commands', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          { detail: { error: 'session_attached_elsewhere' } },
+          { ok: false, status: 409, statusText: 'Conflict' }
+        )
+      )
+    );
+
+    const err = await chat.requestHandoff('k').catch((e) => e);
+    expect(err.commands).toBeUndefined();
   });
 });
 

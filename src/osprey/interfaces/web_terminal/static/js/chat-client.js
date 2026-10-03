@@ -147,7 +147,12 @@ async function pump(reader, callbacks) {
  * user-facing copy on the slug: two rejections share status 409 and mean
  * opposite things to the operator — one says a turn is already running, the
  * other says this chat was restarted and the prompt needs sending again.
- * @typedef {Error & { status: number, slug: string }} TransportError
+ *
+ * `commands` is the list a `handoff_started_commands` refusal carries: the
+ * commands the outgoing agent started that ending it would also end. It is
+ * present only when the body carried one.
+ * @typedef {Error & { status: number, slug: string,
+ *   commands?: import('./started-commands.js').StartedCommandJson[] }} TransportError
  */
 
 /**
@@ -160,9 +165,12 @@ async function pump(reader, callbacks) {
  */
 async function transportError(res) {
   let slug = '';
+  /** @type {import('./started-commands.js').StartedCommandJson[] | undefined} */
+  let commands;
   try {
     const detail = (await res.json())?.detail;
     if (detail && typeof detail.error === 'string') slug = detail.error;
+    if (detail && Array.isArray(detail.commands)) commands = detail.commands;
   } catch {
     /* no body, or not the JSON error shape — the status carries the failure */
   }
@@ -171,6 +179,7 @@ async function transportError(res) {
   );
   err.status = res.status;
   err.slug = slug;
+  if (commands) err.commands = commands;
   return err;
 }
 
@@ -280,6 +289,9 @@ export async function interrupt(chatId) {
  * down, waits for it to be observed dead, and answers `{state, session_id}`
  * once the Simple view may resume the key's transcript. `interrupt` says the
  * operator chose to cut a turn that was still running rather than wait for it.
+ * `endStarted` says the operator agreed that ending the outgoing agent also
+ * ends the commands it started; without it, a hand-off that would end them is
+ * refused `handoff_started_commands` with the list in `err.commands`.
  *
  * The request is long-lived by design — a busy Expert turn can take minutes to
  * reach idle — so this adds no timeout of its own; *signal* is the only way to
@@ -293,17 +305,17 @@ export async function interrupt(chatId) {
  * client's channel closed, so no surface was handed over and there is nothing
  * to resume.
  * @param {string} key
- * @param {{ interrupt?: boolean, signal?: AbortSignal }} [options]
+ * @param {{ interrupt?: boolean, endStarted?: boolean, signal?: AbortSignal }} [options]
  * @returns {Promise<{ state: string, session_id: string } | null>}
  */
 export async function requestHandoff(key, options = {}) {
-  const { interrupt: cutRunningTurn = false, signal } = options;
+  const { interrupt: cutRunningTurn = false, endStarted = false, signal } = options;
   const res = await fetch(withPrefix(`${SESSION_ENDPOINT}/${encodeURIComponent(key)}/handoff`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // `to` is fixed: this module is the Simple view's transport, and the
     // Expert view acquires its surface over `/ws/terminal` instead.
-    body: JSON.stringify({ to: 'simple', interrupt: cutRunningTurn }),
+    body: JSON.stringify({ to: 'simple', interrupt: cutRunningTurn, end_started: endStarted }),
     signal,
   });
   if (!res.ok) throw await transportError(res);
