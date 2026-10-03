@@ -14,6 +14,7 @@ network or a bundled extension file.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,9 @@ import pytest
 duckdb = pytest.importorskip("duckdb")
 
 from osprey.services.channel_finder.databases import duckdb_import as dimp  # noqa: E402
+from osprey.services.channel_finder.databases.middle_layer import (  # noqa: E402
+    MiddleLayerDatabase,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -102,6 +106,23 @@ class TestImportedContent:
             con.close()
         assert member_of == "BPM, Diagnostics"
         assert units == "mm"
+
+
+class TestUpdatedAt:
+    def test_a_non_utc_session_reads_back_the_utc_instant(self, mml_json: str):
+        """``updated_at`` holds the import's instant whatever the session's TimeZone."""
+        con = duckdb.connect(":memory:")
+        try:
+            con.execute("SET TimeZone = 'America/Los_Angeles'")
+            dimp._create_schema(con)
+            before = time.time()
+            dimp._import_channels(con, MiddleLayerDatabase(mml_json))
+            after = time.time()
+            stamps = con.execute("SELECT DISTINCT epoch(updated_at) FROM channels").fetchall()
+        finally:
+            con.close()
+        assert len(stamps) == 1
+        assert before - 1 <= stamps[0][0] <= after + 1
 
 
 #: Member families and the umbrella families that repeat their channels.

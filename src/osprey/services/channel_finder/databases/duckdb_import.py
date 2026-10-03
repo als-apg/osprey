@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS channels (
     mode         TEXT DEFAULT '',
     member_of    TEXT DEFAULT '',
     source       TEXT DEFAULT 'mml',
-    updated_at   TIMESTAMP DEFAULT current_timestamp,
+    updated_at   TIMESTAMPTZ DEFAULT current_timestamp,
     UNIQUE (channel_name, system, family, field, subfield)
 );
 

@@ -28,7 +28,8 @@ def run_sql(sql: str) -> str:
 
     **channels** — One row per place a channel is listed.
     Columns: row_id (PK), channel_name, system, family, field, subfield,
-    description, units, data_type, mode, member_of, source, updated_at.
+    description, units, data_type, mode, member_of, source, updated_at
+    (TIMESTAMPTZ: the import's instant).
     Key: (channel_name, system, family, field, subfield). A channel appears
     once per place it is listed (System, Family, Field, Subfield), so
     COUNT(*) counts listings and COUNT(DISTINCT channel_name) counts
