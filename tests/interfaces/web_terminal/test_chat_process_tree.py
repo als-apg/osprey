@@ -8,16 +8,20 @@ real sleepers in sessions of their own, beside a helper in the server's group.
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import signal
 import sys
+import time
 
 import pytest
 
+from osprey.interfaces.web_terminal import operator_session, process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry, OperatorSession
 from osprey.interfaces.web_terminal.session_handoff import HandoffRefused
 from tests.interfaces.web_terminal._chat_child import (
+    ChildClient,
     child_factory,
     start_chat,
     wait_for_chat_pids,
@@ -33,14 +37,12 @@ from tests.interfaces.web_terminal._handoff_harness import (
     pty_spawner,
     registry,
 )
-from tests.interfaces.web_terminal._pty_child import kill_quietly, pid_gone
+from tests.interfaces.web_terminal._pty_child import CHILD_HANG_CEILING, kill_quietly, pid_gone
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
     pytest.mark.skipif(shutil.which("ps") is None, reason="needs ps to read the process tree"),
 ]
-
-_STOP_ENDS_ONLY_THE_CHILD = "stopping the chat agent ends only its child"
 
 
 def _pool(idle_seconds: float = 900.0, max_sessions: int = 5) -> ChatSessionPool:
@@ -54,7 +56,6 @@ def _pool(idle_seconds: float = 900.0, max_sessions: int = 5) -> ChatSessionPool
     )
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
 async def test_stop_ends_the_processes_the_chat_agent_started(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py", "orbit_poll.py"))
     session = await start_chat(factory)
@@ -71,7 +72,6 @@ async def test_stop_ends_the_processes_the_chat_agent_started(tmp_path):
         kill_quietly(pids)
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
 async def test_stop_ends_started_processes_that_ignore_sigterm(tmp_path):
     factory = child_factory(
         tmp_path,
@@ -92,7 +92,49 @@ async def test_stop_ends_started_processes_that_ignore_sigterm(tmp_path):
         kill_quietly(pids)
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
+async def test_stop_logs_what_it_ended(tmp_path, caplog):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+
+        with caplog.at_level(logging.INFO, logger=operator_session.__name__):
+            await session.stop()
+
+        grandchild = pids[0]
+        assert [
+            record
+            for record in caplog.records
+            if "magnet_scan.py" in record.getMessage() and str(grandchild) in record.getMessage()
+        ]
+    finally:
+        await session.stop()
+        kill_quietly(pids)
+
+
+async def test_stop_of_a_child_that_already_exited_looks_for_nothing(monkeypatch):
+    def factory(**_kwargs):
+        return ChildClient([sys.executable, "-c", "pass"])
+
+    session = await start_chat(factory)
+    deadline = time.monotonic() + CHILD_HANG_CEILING
+    while not session.process_exited:
+        assert time.monotonic() < deadline
+        await asyncio.sleep(0.05)
+    looks: list[None] = []
+
+    def spy():
+        looks.append(None)
+        return {}
+
+    monkeypatch.setattr(process_tree, "snapshot", spy)
+
+    await session.stop()
+
+    assert looks == []
+
+
 async def test_terminating_a_pooled_chat_ends_what_it_started(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     pool = _pool()
@@ -110,7 +152,6 @@ async def test_terminating_a_pooled_chat_ends_what_it_started(tmp_path):
         kill_quietly(pids)
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
 async def test_evicting_a_chat_ends_what_it_started(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     pool = _pool(max_sessions=1)
@@ -128,7 +169,6 @@ async def test_evicting_a_chat_ends_what_it_started(tmp_path):
         kill_quietly(pids)
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
 async def test_reaping_an_idle_chat_ends_what_it_started(tmp_path):
     factory = child_factory(tmp_path)
     pool = _pool(idle_seconds=0.01)
@@ -147,7 +187,6 @@ async def test_reaping_an_idle_chat_ends_what_it_started(tmp_path):
         kill_quietly(pids)
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
 async def test_a_launch_change_ends_what_the_old_child_started(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     pool = _pool()
@@ -164,7 +203,6 @@ async def test_a_launch_change_ends_what_the_old_child_started(tmp_path):
         kill_quietly(pids)
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
 async def test_cleanup_all_ends_what_every_agent_started(tmp_path):
     """Restart, logout and server shutdown all drain the registry this way."""
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
@@ -187,7 +225,6 @@ async def test_cleanup_all_ends_what_every_agent_started(tmp_path):
         kill_quietly(pids)
 
 
-@pytest.mark.xfail(strict=True, reason=_STOP_ENDS_ONLY_THE_CHILD)
 async def test_a_replaced_operator_session_ends_what_it_started(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     operators = OperatorRegistry()
@@ -202,6 +239,11 @@ async def test_a_replaced_operator_session_ends_what_it_started(tmp_path):
     finally:
         await operators.cleanup_all()
         kill_quietly(pids)
+
+
+# ---------------------------------------------------------------------------
+# The hand-off asks first
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.xfail(strict=True, reason="the hand-off does not look for started commands")

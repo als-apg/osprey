@@ -13,7 +13,9 @@ import pytest
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtySession
+from tests.interfaces.web_terminal._chat_child import child_factory
 from tests.interfaces.web_terminal._pty_child import (
+    CHILD_HANG_CEILING,
     detaching_child_script,
     kill_quietly,
     pid_gone,
@@ -161,3 +163,126 @@ def test_describe_escapes_labels():
     text = process_tree.describe([ProcessGroup(4242, ((4242, 0.0),), "a\nb", "a\nb")])
     assert "\n" not in text
     assert "\\n" in text
+
+
+# ---------------------------------------------------------------------------
+# A chat child: started groups and the server's own group
+# ---------------------------------------------------------------------------
+
+
+def _read_pids(path, count: int) -> list[int]:
+    deadline = time.monotonic() + CHILD_HANG_CEILING
+    while True:
+        if path.exists():
+            lines = path.read_text().split()
+            if len(lines) >= count:
+                return [int(line) for line in lines[:count]]
+        assert time.monotonic() < deadline, f"no {count} pid(s) in {path.name}"
+        time.sleep(0.05)
+
+
+async def test_server_group_members_are_the_roots_descendants_in_the_servers_group(tmp_path):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    pids: list[int] = []
+    async with factory() as client:
+        root = client._transport._process.pid
+        try:
+            pids = _read_pids(factory.pid_files[0], 2)
+            grandchild, helper = pids
+
+            members = {row.pid for row in process_tree.server_group_members(root)}
+
+            assert helper in members
+            assert root not in members
+            assert grandchild not in members
+        finally:
+            kill_quietly(pids)
+
+
+async def test_started_groups_leave_out_the_roots_own_group(tmp_path):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    pids: list[int] = []
+    async with factory() as client:
+        root = client._transport._process.pid
+        try:
+            pids = _read_pids(factory.pid_files[0], 2)
+            grandchild = pids[0]
+
+            groups = process_tree.started_groups(root)
+
+            assert [g.pgid for g in groups] == [grandchild]
+            assert groups[0].label == "magnet_scan.py"
+        finally:
+            kill_quietly(pids)
+
+    pid_file = tmp_path / "pty-pids"
+    script = sleeper_script(tmp_path, "orbit_poll.py")
+    session = PtySession([sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])])
+    session.start()
+    pty_pids: list[int] = []
+    try:
+        pty_pids = wait_for_pids(session, pid_file, 2)
+        child = session.pid
+        assert child is not None
+
+        pgids = {g.pgid for g in process_tree.started_groups(child)}
+
+        assert pgids == {pty_pids[0]}
+        assert os.getpgid(child) not in pgids
+    finally:
+        session.terminate()
+        kill_quietly(pty_pids)
+
+
+def test_end_processes_never_signals_the_server(monkeypatch):
+    row = _own_row()
+    signalled: list[int] = []
+    monkeypatch.setattr(process_tree, "END_TERM_WAIT_S", 0.0)
+    monkeypatch.setattr(process_tree, "END_KILL_WAIT_S", 0.0)
+    monkeypatch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
+
+    process_tree.end_processes([row])
+
+    assert os.getpid() not in signalled
+
+
+def test_end_processes_skips_a_reused_pid(monkeypatch):
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        deadline = time.monotonic() + 10
+        rows = process_tree.snapshot()
+        while rows is None or proc.pid not in rows:
+            assert time.monotonic() < deadline
+            rows = process_tree.snapshot()
+        live = rows[proc.pid]
+        reused = process_tree.ProcessRow(
+            live.pid, live.ppid, live.pgid, live.started + 1.0, live.command, live.state
+        )
+        signalled: list[int] = []
+        monkeypatch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
+
+        ended, survivors = process_tree.end_processes([reused])
+
+        assert signalled == []
+        assert ended == [] and survivors == []
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_no_ps_finds_no_server_group_members(monkeypatch):
+    def no_ps(*args, **kwargs):
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(process_tree.subprocess, "run", no_ps)
+
+    assert process_tree.server_group_members(os.getpid()) == []
+
+
+def test_describe_processes_escapes_labels():
+    text = process_tree.describe_processes(
+        [process_tree.ProcessRow(4242, 1, 4242, 0.0, "scan\x1b[2J", "S")]
+    )
+    assert text.startswith("pid 4242 ")
+    assert "\x1b" not in text
+    assert "\\x1b" in text
