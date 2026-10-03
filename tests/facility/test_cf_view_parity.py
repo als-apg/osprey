@@ -8,29 +8,44 @@ reads them, and the tests below hold the frozen invariants every later
 comparison relies on: the fingerprint's size, role split and pinned sha256,
 the in_context size, the standalone address set, the limits projection and
 the byte identity of the pre-LINE channel-finder index copies.
+
+The parity tests hold the hierarchical and middle-layer views, called as pure
+functions on the shared control-assistant build's facility file, to those
+copies: the same address set less the declared fingerprint additions, the
+machine and family descriptions reachable, every benchmark target indexed, each
+copy's Family with an equal ``DeviceList``, and no fewer benchmark queries
+answerable by whole index cells than the copies answer.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+
+if TYPE_CHECKING:
+    from tests.facility.conftest import BuiltProject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 CF_INDEX_DIR = GOLDEN_DIR / "cf_index_pre_line"
 
-#: The benchmark queries the pre-LINE indexes are scored against; every query
-#: names the addresses it targets in ``targeted_pv``.
-PRE_LINE_QUERIES = (
-    REPO_ROOT
-    / "src/osprey/templates/apps/control_assistant/data/benchmarks"
-    / "cross_paradigm/queries/tree_queries.json"
+QUERY_DIR = (
+    REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/benchmarks/cross_paradigm/queries"
 )
+
+#: The benchmark queries the pre-LINE tree indexes are scored against; every
+#: query names the addresses it targets in ``targeted_pv``.
+PRE_LINE_QUERIES = QUERY_DIR / "tree_queries.json"
+
+#: The benchmark queries the in_context index is scored against.
+IN_CONTEXT_QUERIES = QUERY_DIR / "in_context_queries.json"
 
 #: The channel-finder pipelines with an index file, keyed by their index name.
 PRE_LINE_INDEXES = ("hierarchical", "in_context", "middle_layer")
@@ -64,6 +79,174 @@ def pre_line_index(index: str) -> Any:
 def pre_line_queries() -> list[dict[str, Any]]:
     """The benchmark queries the pre-LINE indexes answer."""
     return json.loads(PRE_LINE_QUERIES.read_text(encoding="utf-8"))
+
+
+@cache
+def in_context_queries() -> list[dict[str, Any]]:
+    """The benchmark queries the in_context index answers."""
+    return json.loads(IN_CONTEXT_QUERIES.read_text(encoding="utf-8"))
+
+
+def addition_addresses() -> set[str]:
+    """The addresses the demo declares beyond the frozen fingerprint."""
+    return {row["address"] for row in load_golden("demo_fingerprint_additions.json")["rows"]}
+
+
+def _children(node: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
+    for key, child in node.items():
+        if not key.startswith("_") and isinstance(child, dict):
+            yield key, child
+
+
+def _instances(expansion: dict[str, Any]) -> list[str]:
+    if expansion["_type"] == "list":
+        return list(expansion["_instances"])
+    low, high = expansion["_range"]
+    return [expansion["_pattern"].format(number) for number in range(low, high + 1)]
+
+
+def hierarchical_leaves(index: dict[str, Any]) -> list[tuple[tuple[str, ...], str]]:
+    """Every leaf of a hierarchical index as (its node path, its address).
+
+    A level of type ``instances`` expands its ``_expansion`` node into one path
+    step per instance. A leaf's address is its ``_channel_part`` when that is
+    non-empty, else the naming pattern filled with its path.
+    """
+    hierarchy = index["hierarchy"]
+    levels = hierarchy["levels"]
+    leaves: list[tuple[tuple[str, ...], str]] = []
+
+    def walk(node: dict[str, Any], path: tuple[str, ...]) -> None:
+        if len(path) == len(levels):
+            names = {level["name"]: step for level, step in zip(levels, path, strict=True)}
+            address = node.get("_channel_part") or hierarchy["naming_pattern"].format(**names)
+            leaves.append((path, address))
+            return
+        if levels[len(path)]["type"] == "instances":
+            for _key, container in _children(node):
+                for instance in _instances(container["_expansion"]):
+                    walk(container, (*path, instance))
+        else:
+            for key, child in _children(node):
+                walk(child, (*path, key))
+
+    walk(index["tree"], ())
+    return leaves
+
+
+def hierarchical_channel_parts(index: dict[str, Any]) -> set[str]:
+    """The non-empty ``_channel_part`` of every leaf of a hierarchical index."""
+    depth = len(index["hierarchy"]["levels"])
+    parts: set[str] = set()
+
+    def walk(node: dict[str, Any], level: int) -> None:
+        if level == depth:
+            if node.get("_channel_part"):
+                parts.add(node["_channel_part"])
+            return
+        for _key, child in _children(node):
+            walk(child, level + 1)
+
+    walk(index["tree"], 0)
+    return parts
+
+
+def hierarchical_subtrees(index: dict[str, Any]) -> list[list[frozenset[str]]]:
+    """For each level of a hierarchical index, the address set of each node at it."""
+    leaves = hierarchical_leaves(index)
+    subtrees: list[list[frozenset[str]]] = []
+    for depth in range(1, len(index["hierarchy"]["levels"]) + 1):
+        nodes: dict[tuple[str, ...], set[str]] = defaultdict(set)
+        for path, address in leaves:
+            nodes[path[:depth]].add(address)
+        subtrees.append([frozenset(addresses) for addresses in nodes.values()])
+    return subtrees
+
+
+def hierarchical_descriptions(index: dict[str, Any]) -> set[str]:
+    """The ``_description`` of every node of a hierarchical index above its leaves."""
+    depth = len(index["hierarchy"]["levels"])
+    found: set[str] = set()
+
+    def walk(node: dict[str, Any], level: int) -> None:
+        if level == depth:
+            return
+        for _key, child in _children(node):
+            if child.get("_description"):
+                found.add(child["_description"])
+            walk(child, level + 1)
+
+    walk(index["tree"], 1)
+    return found
+
+
+def middle_layer_cells(index: dict[str, Any]) -> list[frozenset[str]]:
+    """The address set of every ``ChannelNames`` list of a middle-layer index."""
+    cells: list[frozenset[str]] = []
+
+    def walk(node: dict[str, Any]) -> None:
+        for _key, child in _children(node):
+            if "ChannelNames" in child:
+                cells.append(frozenset(child["ChannelNames"]))
+            else:
+                walk(child)
+
+    walk(index)
+    return cells
+
+
+def middle_layer_families(index: dict[str, Any]) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Every (System, Family, Family node) of a middle-layer index."""
+    for system, system_node in _children(index):
+        for family, family_node in _children(system_node):
+            yield system, family, family_node
+
+
+def is_union_of(target: frozenset[str], cells: Iterable[frozenset[str]]) -> bool:
+    """Whether ``target`` is exactly a union of whole ``cells``."""
+    covered: set[str] = set()
+    for cell in cells:
+        if cell <= target:
+            covered |= cell
+    return covered == target
+
+
+def answerable_count(hierarchical: dict[str, Any], middle_layer: dict[str, Any]) -> int:
+    """How many tree benchmark queries both indexes answer with whole cells.
+
+    A query counts when its ``targeted_pv`` is a union of whole middle-layer
+    ``ChannelNames`` cells and a union of whole hierarchical subtrees at some
+    level.
+    """
+    cells = middle_layer_cells(middle_layer)
+    subtrees = hierarchical_subtrees(hierarchical)
+    count = 0
+    for query in pre_line_queries():
+        target = frozenset(query["targeted_pv"])
+        if is_union_of(target, cells) and any(is_union_of(target, nodes) for nodes in subtrees):
+            count += 1
+    return count
+
+
+def golden_family_descriptions() -> dict[tuple[str, str], str]:
+    """Each pre-LINE family's description by (machine, family).
+
+    The hierarchical copy keeps them at the family level, under a system level
+    the middle-layer copy does not have.
+    """
+    tree = pre_line_index("hierarchical")["tree"]
+    return {
+        (machine, family): node["_description"]
+        for machine, machine_node in _children(tree)
+        for _system, system_node in _children(machine_node)
+        for family, node in _children(system_node)
+    }
+
+
+def golden_machine_descriptions() -> dict[str, str]:
+    """Each pre-LINE machine's description by machine."""
+    tree = pre_line_index("hierarchical")["tree"]
+    return {machine: node["_description"] for machine, node in _children(tree)}
 
 
 def _rows_sha256(rows: list[dict[str, Any]]) -> str:
@@ -155,3 +338,111 @@ def test_pre_line_queries_target_fingerprint_addresses() -> None:
     for query in queries:
         assert query["targeted_pv"], query["user_query"]
         assert set(query["targeted_pv"]) <= addresses, query["user_query"]
+
+
+@pytest.fixture(scope="module")
+def hierarchical_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
+    from osprey.facility.views.channel_finder import hierarchical_document
+
+    return hierarchical_document(built_control_assistant.facility)
+
+
+@pytest.fixture(scope="module")
+def middle_layer_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
+    from osprey.facility.views.channel_finder import middle_layer_document
+
+    document, _left_out, _keyed = middle_layer_document(built_control_assistant.facility)
+    return document
+
+
+def test_the_pre_line_copies_hold_the_fingerprint_addresses() -> None:
+    hierarchical = {
+        address for _path, address in hierarchical_leaves(pre_line_index("hierarchical"))
+    }
+    middle_layer = set().union(*middle_layer_cells(pre_line_index("middle_layer")))
+    assert hierarchical == middle_layer == fingerprint_addresses()
+
+
+def test_the_pre_line_copies_describe_three_machines_and_28_families() -> None:
+    families = golden_family_descriptions()
+    assert len(golden_machine_descriptions()) == 3
+    assert len(families) == 28
+    middle_layer = pre_line_index("middle_layer")
+    assert {
+        (system, family) for system, family, _node in middle_layer_families(middle_layer)
+    } == set(families)
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_the_hierarchical_view_holds_the_pre_line_addresses(
+    hierarchical_view: dict[str, Any],
+) -> None:
+    golden = {address for _path, address in hierarchical_leaves(pre_line_index("hierarchical"))}
+    view = {address for _path, address in hierarchical_leaves(hierarchical_view)}
+    assert view - addition_addresses() == golden
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_the_middle_layer_view_holds_the_pre_line_addresses(
+    middle_layer_view: dict[str, Any],
+) -> None:
+    golden = set().union(*middle_layer_cells(pre_line_index("middle_layer")))
+    view = set().union(*middle_layer_cells(middle_layer_view))
+    assert view - addition_addresses() == golden
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_the_hierarchical_view_keeps_the_machine_and_family_descriptions(
+    hierarchical_view: dict[str, Any],
+) -> None:
+    machines = {key: node.get("_description") for key, node in _children(hierarchical_view["tree"])}
+    for machine, description in golden_machine_descriptions().items():
+        assert machines[machine] == description, machine
+    reachable = hierarchical_descriptions(hierarchical_view)
+    for family, description in golden_family_descriptions().items():
+        assert description in reachable, family
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_the_middle_layer_view_keeps_the_machine_and_family_descriptions(
+    middle_layer_view: dict[str, Any],
+) -> None:
+    for machine, description in golden_machine_descriptions().items():
+        assert middle_layer_view[machine]["_description"] == description, machine
+    for (system, family), description in golden_family_descriptions().items():
+        assert middle_layer_view[system][family]["_description"] == description, (system, family)
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_every_benchmark_target_is_a_tree_leaf_and_a_middle_layer_channel(
+    hierarchical_view: dict[str, Any], middle_layer_view: dict[str, Any]
+) -> None:
+    leaves = hierarchical_channel_parts(hierarchical_view)
+    channels = set().union(*middle_layer_cells(middle_layer_view))
+    for query in [*pre_line_queries(), *in_context_queries()]:
+        targets = set(query["targeted_pv"])
+        assert targets <= leaves, query["user_query"]
+        assert targets <= channels, query["user_query"]
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_every_pre_line_family_keeps_its_device_list(middle_layer_view: dict[str, Any]) -> None:
+    for system, family, golden in middle_layer_families(pre_line_index("middle_layer")):
+        view = middle_layer_view[system][family]["_setup"]["DeviceList"]
+        assert view == golden["_setup"]["DeviceList"], (system, family)
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_the_views_answer_no_fewer_tree_queries_than_the_pre_line_copies(
+    hierarchical_view: dict[str, Any], middle_layer_view: dict[str, Any]
+) -> None:
+    golden = answerable_count(pre_line_index("hierarchical"), pre_line_index("middle_layer"))
+    assert golden > 0
+    assert answerable_count(hierarchical_view, middle_layer_view) >= golden
