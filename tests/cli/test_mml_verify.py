@@ -284,7 +284,11 @@ def _inside(row: Sequence[str]) -> int:
 
 
 def _agreement(row: Sequence[str]) -> tuple[int, int]:
-    """One block's sign agreement, as the table spells it."""
+    """One judged block's sign agreement, as the table spells it.
+
+    A block nothing judges counts no sign agreement, so its cell holds no pair.
+    """
+    assert row[4] != "not counted", f"{row[0]} ← {row[1]} is not judged"
     agreed, _, checked = row[4].partition("/")
     return int(agreed), int(checked)
 
@@ -581,6 +585,18 @@ class TestTheSyntheticRingAgainstItsOwnMatrix:
         assert _inside(row) == int(row[2]), row
         assert checked and agreed == checked
         assert _median_ratio(row) == pytest.approx(1.0, abs=0.01)
+
+    def test_a_cross_plane_block_counts_no_sign_agreement(self, report: str) -> None:
+        """Its model entries are the deck's coupling, whose sign asserts nothing."""
+        rows = _blocks(report)
+        crossed = [rows["BPMx ← VC"], rows["BPMy ← HC"]]
+
+        for row in crossed:
+            assert not _judged(row), row
+            assert row[4] == "not counted", row
+        for row in _judged_blocks(report).values():
+            assert re.fullmatch(r"\d+/\d+", row[4]), row
+        assert "their sign is not counted" in report
 
     def test_no_entry_of_any_block_is_an_outlier(self, report: str) -> None:
         """A wrong calibration scales a column, a mispaired row swaps two entries

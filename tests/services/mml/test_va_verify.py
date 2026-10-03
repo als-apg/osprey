@@ -373,6 +373,13 @@ class TestInPlaneJudging:
             assert not block.judged
             assert block.unjudged == "cross-plane"
 
+    def test_a_cross_plane_block_counts_no_sign_agreement(self, result: VerifyReport) -> None:
+        """Its model entries are the deck's coupling, so their sign asserts nothing."""
+        for monitors, actuators in (("BPMx", "VC"), ("BPMy", "HC")):
+            block = _block(result, monitors, actuators)
+            assert block.signed == (block.full.checked, None)
+            assert block.counts.agreed is None
+
     def test_the_totals_pool_the_judged_blocks_alone(self, result: VerifyReport) -> None:
         """The verdict counts what the criterion means something about."""
         judged = [_block(result, "BPMx", "HC"), _block(result, "BPMy", "VC")]

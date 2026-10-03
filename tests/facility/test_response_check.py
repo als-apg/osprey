@@ -244,27 +244,27 @@ def test_the_figures_are_mml_verifys_on_spear3(spear3_blocks: tuple[Block, ...])
         assert block.reversed_columns == tuple(column.device for column in report.polarity)
         for mine_figures, their_figures in (
             (block.counts, report.counts),
-            (figures(block.entries), report.full),
+            (block.full, report.full),
         ):
             assert asdict(mine_figures) == pytest.approx(asdict(their_figures), nan_ok=True)
+            assert (mine_figures.agreed is None) == (not block.judged), block.name
 
 
 def test_spear3_holds_the_counts_mml_verify_reports(spear3_blocks: tuple[Block, ...]) -> None:
     """The orbit-response table ``osprey mml verify`` writes for the same export.
 
-    A cross-plane block's model entries are coupling noise whose sign the
-    platform's float arithmetic decides, so an unjudged block's sign count is
-    left out of the table; every other figure is pinned for every block.
+    A cross-plane block's model entries are the deck's coupling at the noise
+    level, so an unjudged block counts no sign agreement: its ``agreed`` is
+    ``None``. Every other figure is pinned for every block.
     """
 
     def row(block: Block) -> tuple[Any, ...]:
-        full = figures(block.entries)
-        agreed = full.agreed if block.judged else None
+        full = block.full
         return (
             block.judged,
             full.compared,
             full.passed,
-            agreed,
+            full.agreed,
             full.checked,
             len(block.reversed_columns),
         )
@@ -277,7 +277,7 @@ def test_spear3_holds_the_counts_mml_verify_reports(spear3_blocks: tuple[Block, 
         "BPMy/VCM": (True, 3192, 1358, 3007, 3007, 0),
     }
     assert {block.origin for block in spear3_blocks} == {"measured"}
-    ratios = {block.name: figures(block.entries).median_ratio for block in spear3_blocks}
+    ratios = {block.name: block.full.median_ratio for block in spear3_blocks}
     assert ratios["BPMx/HCM"] == pytest.approx(0.921625, rel=1e-5)
     assert ratios["BPMy/VCM"] == pytest.approx(0.944868, rel=1e-5)
 
@@ -381,6 +381,22 @@ def test_a_cross_plane_block_is_judged_by_nothing() -> None:
     assert ModelCheck("SR", judge([cross], "model")).line == (
         "response check SR: model - judged blocks 0 (pass at 0)"
     )
+
+
+def test_a_cross_plane_block_counts_no_sign_agreement() -> None:
+    """Above-floor entries whose signs all agree count only where the block is judged."""
+    pairs = [(1.0, 1.0)] * 10
+    cross = _block("measured", pairs, judged=False)
+    judged = _block("measured", pairs)
+
+    for weighed in (cross.counts, cross.full, figures(cross.entries, judged=False)):
+        assert weighed.checked == 10
+        assert weighed.agreed is None
+        assert math.isnan(weighed.sign_ratio)
+    for weighed in (judged.counts, judged.full, figures(judged.entries)):
+        assert weighed.checked == 10
+        assert weighed.agreed == weighed.checked
+        assert weighed.sign_ratio == 1.0
 
 
 def test_a_reversed_column_is_set_aside() -> None:
