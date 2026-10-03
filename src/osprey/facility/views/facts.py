@@ -13,9 +13,8 @@ takes the project's. ``place_levels`` is the distinct ``level`` words of the
 places, shallowest first. ``device_classes`` has one entry per class a device
 carries and per facility-added class: ``count`` devices, the ``aliases`` the
 vocabulary and ``classes.yaml`` give the class in their authored spelling, and
-``families``, the sorted ids of the groups holding one of its devices. A
-class's families are the groups holding one of its devices; a family is a
-group, the same groups the middle-layer index files as Families.
+``families``, the sorted ids of the groups holding one of its devices: a
+family is a group, the same groups the middle-layer index files as Families.
 ``models`` lists every model with its ``engine``, whether the render serves it
 and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 measurement view the render carries, ``channel_count`` counts the channels, and

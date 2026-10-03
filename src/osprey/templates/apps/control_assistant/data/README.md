@@ -47,8 +47,8 @@ directory, seeded into the `services.graphdb` store.
 ### `in_context` — flat structure
 
 Best for fewer than about 1,000 channels. The whole database fits in the
-agent's context, so lookup is direct semantic search over a flat list of channel
-and template entries.
+agent's context, so lookup is direct semantic search over a flat list of
+channels.
 
 ### `hierarchical` — nested structure
 
@@ -71,14 +71,14 @@ Validate database format and structure:
 
 ```bash
 osprey channel-finder validate
-osprey channel-finder validate --database data/channel_databases/hierarchical.json
+osprey channel-finder validate --database data/channel_finder/hierarchical.json
 ```
 
 Preview database contents:
 
 ```bash
 osprey channel-finder preview
-osprey channel-finder preview --database data/channel_databases/hierarchical.json
+osprey channel-finder preview --database data/channel_finder/hierarchical.json
 ```
 
 ## Benchmarks

@@ -440,7 +440,12 @@ def _integer(value: Any) -> int | None:
 
 
 def _devices(view: FamilyView, klass: str | None) -> Iterable[dict[str, Any]]:
-    """The fields of each device of one family, in device order."""
+    """The fields of each device of one family, in device order.
+
+    A device's one names entry is its ``CommonNames`` entry: a device's common
+    name is its last names entry and its source name its first, so one entry
+    is both.
+    """
     names = view.aligned("CommonNames")
     elements = view.aligned("ElementList")
     rows = view.device_rows

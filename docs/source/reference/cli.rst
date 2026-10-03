@@ -992,13 +992,13 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       database that is not the packaged demo one says so.
 
    The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
-   source tree. A rendered project keeps only the paradigm it runs, as a flat
-   ``data/channel_databases/<paradigm>.json``, and prunes the tier tree — so
+   source tree. A rendered project carries only the index of the paradigm it
+   runs, at ``data/channel_finder/<paradigm>.json``, and no tier tree — so
    there is no neighbour to find and ``--descriptions`` has to be named there,
-   and ``--channel-db`` too unless the project runs the hierarchical paradigm
-   and its config already names the database. A graph-mode project ships no
-   channel database at all, so the command refuses there and says to name the
-   sources with ``--channel-db`` and ``--descriptions``.
+   and ``--channel-db`` too: a hierarchical project's index uses the
+   facility's own levels, not this verb's grammar. A graph-mode project ships
+   no channel database at all, so the command refuses there and says to name
+   the sources with ``--channel-db`` and ``--descriptions``.
 
    ``OUTPUT`` deliberately does **not** default to
    ``services.graphdb.ttl_path``: that key usually names a hand-curated corpus,
