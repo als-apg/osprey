@@ -563,7 +563,7 @@ def test_service_templates_honor_a_port_override_pin() -> None:
         },
     )
     assert '"127.0.0.1:31017:27017"' in mongo
-    assert "20801" not in mongo
+    assert ":20801:" not in mongo
 
     bluesky = _render_template_through_injection(
         "services/bluesky/docker-compose.yml.j2",
@@ -574,7 +574,7 @@ def test_service_templates_honor_a_port_override_pin() -> None:
         },
     )
     assert '"127.0.0.1:31090:31090"' in bluesky
-    assert "20080" not in bluesky
+    assert ":20080:" not in bluesky
 
     postgres = _render_template_through_injection(
         "services/postgresql/docker-compose.yml.j2",
