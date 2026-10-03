@@ -109,7 +109,8 @@ names such channels once in its log. That is a warning, not a refusal.
 
 A live read of a numeric channel starts from its effective value: a value
 written during the session, else the active scenario's override, else the
-baseline. It then adds the texture, applies the relative noise, adds the
+baseline. It then adds the texture and any shared-driver couplings
+(:ref:`simulation-bundle-drivers`), applies the relative noise, adds the
 absolute noise, and clamps into ``min``/``max``. The clamp applies to what is
 read out, never to what is stored: overrides and writes are kept as given.
 Synthesized archiver history builds on the baseline and the active scenario's
@@ -169,9 +170,12 @@ and noise.
    * - ``physics``
      - Deploy-time lattice faults for the Virtual Accelerator
        (:ref:`simulation-bundle-physics`).
+   * - ``drivers``, ``couple``, ``noise``
+     - Shared slow causes that several channels follow, and per-channel noise
+       replacements (:ref:`simulation-bundle-drivers`).
 
-Every channel named under ``overrides`` or ``archiver`` must be defined in
-``machine.json``. Unrecognised keys are ignored, so a note to the reader can sit
+Every channel named under ``overrides``, ``archiver``, ``couple`` or ``noise``
+must be defined in ``machine.json``. Unrecognised keys are ignored, so a note to the reader can sit
 in a key of its own such as ``_comment``. The type of an override is not checked
 against the channel's: a number overriding a string-valued channel loads, and
 keeping the two consistent is the author's responsibility.
@@ -246,6 +250,64 @@ state file the current time.
    instant that can be written. The mock archiver can still draw an ``at``
    event at read time, but a bundle meant to be applied uses ``at_offset`` or
    ``at_time``, and the shipped bundles are held to that.
+
+.. _simulation-bundle-drivers:
+
+Shared drivers
+==============
+
+Every channel's texture and noise are keyed to that channel alone, so any two
+channels are uncorrelated. A scenario gives channels a common cause with three
+optional blocks:
+
+.. code-block:: json
+
+   {
+     "drivers": {"cav01-thermal": {"kind": "wander", "amplitude": 1.0, "period_s": 300}},
+     "couple": {
+       "SR:RF:CAVITY:01:TEMPERATURE:RB": [{"driver": "cav01-thermal", "gain": 0.5}],
+       "SR:RF:CAVITY:01:POWER:REV": [
+         {"driver": "cav01-thermal", "gain": 2.5,
+          "gain_wander": {"amplitude": 0.8, "period_s": 900}}
+       ]
+     },
+     "noise": {"SR:RF:CAVITY:01:POWER:REV": {"noise": 0.0, "noise_abs": 0.75}}
+   }
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Key
+     - Rule
+   * - ``drivers``
+     - Mapping of driver name to ``{"kind", "amplitude", "period_s"}``, all
+       required, the same closed keys and rules as a channel's ``texture``.
+       A driver is the same ``wander`` stack, keyed by the driver's name
+       instead of a channel's, so it is a pure function of epoch time and
+       every channel coupled to it sees the same value at the same instant.
+   * - ``couple``
+     - Mapping of channel name to a non-empty list of couplings
+       ``{"driver", "gain", "gain_wander"}``. ``driver`` must be declared in
+       the same scenario's ``drivers`` and appear once per channel; ``gain``
+       is a number in the channel's units per unit of driver (negative
+       anti-correlates). The optional ``gain_wander`` is
+       ``{"amplitude", "period_s"}``, both greater than 0: the gain becomes
+       ``gain * (1 + wander(t))``, keyed by channel and driver, so how
+       strongly the channel follows the driver drifts over time.
+   * - ``noise``
+     - Mapping of channel name to ``{"noise", "noise_abs"}`` (at least one,
+       each ≥ 0), replacing the machine file's value of that term while the
+       scenario is active.
+
+A coupled channel adds the sum of ``gain * driver(t)`` after its texture and
+before its noise, in live reads and in synthesized history alike, so history
+synthesized at a timestamp carries the same coupled term a live read at that
+timestamp does. Couplings and noise replacements are not seen through an
+``expr`` reference on a live read (like texture) and do not reach a channel
+whose level the Virtual Accelerator's lattice model owns, such as a BPM
+readback. On the Virtual Accelerator they reach the channels it serves from the
+engine; a readback that echoes its setpoint shows them only in history.
 
 .. _simulation-bundle-physics:
 
@@ -333,8 +395,8 @@ Composition
 ``nominal`` is always active and always first. The other names keep the order
 given, with duplicates dropped.
 
-A scenario *touches* every channel it names under ``overrides`` and every
-channel it names in an ``archiver`` entry; an entry whose ``events`` list is
+A scenario *touches* every channel it names under ``overrides``, ``couple``
+or ``noise`` and every channel it names in an ``archiver`` entry; an entry whose ``events`` list is
 empty **still touches its channel**. No two active scenarios may touch one
 channel. Because ``nominal`` is always active, a channel ``nominal`` touches is
 off limits to every other scenario.
@@ -440,6 +502,24 @@ message names.
      - ``Scenario '<name>' physics bpm_errors['<id>']: '<key>' must be``
    * - A ``corrector_gain`` factor not a number
      - ``Scenario '<name>' physics: corrector_gain['<id>'] must be a number``
+   * - A ``drivers``, ``couple`` or ``noise`` block not a mapping
+     - ``Scenario '<name>': 'drivers' must be a mapping`` (or ``'couple'``,
+       ``'noise'``)
+   * - A driver entry malformed: not a mapping, unknown or missing key,
+       ``kind`` not ``wander``, ``amplitude`` or ``period_s`` not greater
+       than 0
+     - ``Scenario '<name>': driver '<id>'``
+   * - Couple for an undefined or string-valued channel
+     - ``Scenario '<name>': couple for unknown channel`` (or ``couple for
+       string-valued channel``)
+   * - Couple entry malformed: empty list, unknown or missing key, unknown
+       driver, a driver twice, ``gain`` not a number, bad ``gain_wander``
+     - ``Scenario '<name>': couple['<ch>']``
+   * - Noise replacement for an undefined or string-valued channel
+     - ``Scenario '<name>': noise override for unknown channel`` (or ``for
+       string-valued channel``)
+   * - Noise replacement malformed: unknown key, empty, negative value
+     - ``Scenario '<name>': noise['<ch>']``
    * - Logbook entry not a mapping
      - ``Scenario '<name>' logbook: each entry must be a mapping``
    * - Bad ``entry_id``
