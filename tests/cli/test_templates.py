@@ -138,7 +138,7 @@ class TestTemplateManager:
             / "control_assistant"
             / "data"
         )
-        source = "tier1_queries.json" if mode == "in_context" else "tier3_queries.json"
+        source = "in_context_queries.json" if mode == "in_context" else "tree_queries.json"
         expected = preset_data / "benchmarks" / "cross_paradigm" / "queries" / source
         queries = project_dir / "data" / "benchmarks" / "queries.json"
         assert queries.read_bytes() == expected.read_bytes()

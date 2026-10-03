@@ -436,8 +436,8 @@ def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -
     """Copy the mode's benchmark query file into place and prune the staging trees.
 
     The facility tree ships its benchmark query sources under
-    ``data/benchmarks/cross_paradigm/queries/``: ``tier1_queries.json`` for
-    ``in_context`` and ``tier3_queries.json`` for every other mode. The selected
+    ``data/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
+    for ``in_context`` and ``tree_queries.json`` for every other mode. The selected
     one is copied to ``data/benchmarks/queries.json``. Then
     ``data/benchmarks/cross_paradigm/``, ``data/channel_databases/tiers/`` and
     ``data/raw/`` are removed from the render; the facility tree they were
@@ -459,7 +459,9 @@ def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -
     queries_root = data_dir / "benchmarks" / "cross_paradigm" / "queries"
     if queries_root.exists():
         source_name = (
-            "tier1_queries.json" if channel_finder_mode == "in_context" else "tier3_queries.json"
+            "in_context_queries.json"
+            if channel_finder_mode == "in_context"
+            else "tree_queries.json"
         )
         queries_src = queries_root / source_name
         if not queries_src.exists():

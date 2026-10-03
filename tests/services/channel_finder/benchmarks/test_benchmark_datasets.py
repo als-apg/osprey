@@ -1,6 +1,6 @@
 """Drift sentinel for the unified cross-paradigm benchmark queries.
 
-Validates that every ``targeted_pv`` in the per-tier queries.json files shipped
+Validates that every ``targeted_pv`` in the query files shipped
 under ``data/benchmarks/cross_paradigm/queries/`` resolves against the matching
 tier's channel database tree
 (``data/channel_databases/tiers/tier{N}/{in_context,hierarchical,middle_layer}.json``).
@@ -34,6 +34,10 @@ TIERS_ROOT = TEMPLATE_DATA_DIR / "channel_databases" / "tiers"
 # The published tiers are exactly the keys of the paradigm map (tier 2 retired).
 _TIER_NUMS: tuple[int, ...] = tuple(TIER_PARADIGMS)
 
+# The query file each tier's databases are checked against: tier 1 is the
+# in_context selection, tier 3 the tree pipelines' full set.
+_QUERY_FILES: dict[int, str] = {1: "in_context_queries.json", 3: "tree_queries.json"}
+
 
 def test_graph_is_not_a_tier_view() -> None:
     """Tier 3 validates every paradigm except ``graph``, by subtraction.
@@ -48,22 +52,22 @@ def test_graph_is_not_a_tier_view() -> None:
 
 
 class TestUnifiedQueriesShipped:
-    """All three tier query files must exist alongside the preset."""
+    """Every tier's query file must exist alongside the preset."""
 
     @pytest.mark.parametrize("tier_num", _TIER_NUMS)
     def test_query_file_exists(self, tier_num: int):
-        path = QUERIES_DIR / f"tier{tier_num}_queries.json"
+        path = QUERIES_DIR / _QUERY_FILES[tier_num]
         assert path.exists(), f"Missing unified queries file: {path}"
 
     @pytest.mark.parametrize("tier_num", _TIER_NUMS)
     def test_query_file_is_non_empty_array(self, tier_num: int):
-        data = json.loads((QUERIES_DIR / f"tier{tier_num}_queries.json").read_text())
+        data = json.loads((QUERIES_DIR / _QUERY_FILES[tier_num]).read_text())
         assert isinstance(data, list)
         assert len(data) > 0
 
     @pytest.mark.parametrize("tier_num", _TIER_NUMS)
     def test_query_schema(self, tier_num: int):
-        data = json.loads((QUERIES_DIR / f"tier{tier_num}_queries.json").read_text())
+        data = json.loads((QUERIES_DIR / _QUERY_FILES[tier_num]).read_text())
         for i, entry in enumerate(data):
             assert "user_query" in entry, f"tier{tier_num} entry {i} missing user_query"
             assert "targeted_pv" in entry, f"tier{tier_num} entry {i} missing targeted_pv"
@@ -84,12 +88,12 @@ class TestUnifiedQueriesValidateAgainstTierDbs:
 
     def test_no_drift_across_tiers(self):
         tier_queries = {
-            n: QUERIES_DIR / f"tier{n}_queries.json"
+            n: QUERIES_DIR / _QUERY_FILES[n]
             for n in _TIER_NUMS
-            if (QUERIES_DIR / f"tier{n}_queries.json").exists()
+            if (QUERIES_DIR / _QUERY_FILES[n]).exists()
         }
         assert tier_queries, "No tier query files found — expected " + ", ".join(
-            f"tier{n}_queries.json" for n in _TIER_NUMS
+            _QUERY_FILES[n] for n in _TIER_NUMS
         )
 
         result = validate_queries(tier_queries=tier_queries, output_dir=TIERS_ROOT)
