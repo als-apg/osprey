@@ -1014,7 +1014,6 @@ def build_demo_index(directory: Path | str) -> Path:
 
     from osprey.services.channel_finder.graph_index.builder import (
         build_from_rows,
-        channels_from_rows,
         parse_corpus,
     )
 
@@ -1024,7 +1023,6 @@ def build_demo_index(directory: Path | str) -> Path:
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
-        channels_from_rows(parsed.binding_rows),
         index_path,
         {
             "corpus_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),

@@ -10,7 +10,8 @@ APOC): ``(:Resource)-[:HASBINDING]->(:ChannelBinding)``, a device typed by
 ``(:Resource)-[:TYPE]->(:Class)`` with ``:Class`` nodes chained by
 ``[:SUBCLASSOF]``, and a binding reaching its meaning through
 ``(:ChannelBinding)-[:READSSIGNAL|WRITESSIGNAL]->(:SemanticSignal)``. Devices
-carry ``uri``, ``sourceName``, ``sectionCode`` and ``system``; bindings carry
+carry ``uri``, ``sourceName``, ``sectionCode``, ``system``, ``placePath``,
+``sPositionM`` and ``ordinalInPlace``; bindings carry
 ``fullPv`` and ``description``; signals carry ``uri`` and ``label``; classes
 carry ``uri`` and a list-valued ``altLabel``. Every node also wears n10s's
 ``Resource`` label, which is why the Cypher these tables replace matches on no
@@ -20,17 +21,18 @@ The mapping onto the tables:
 
 * ``bindings`` — one row per ``(device, binding)`` pair, denormalised with the
   device's columns, the URIs and names of the signals the binding reaches, and
-  the URIs of every class the device rolls up to under ``SUBCLASSOF``.
+  the URIs of every class the device rolls up to under ``SUBCLASSOF``. The
+  device's place path, s position in metres and ordinal within its place are
+  NULL where the corpus states none, so a place binding a channel itself
+  carries a path and no position.
   ``haystack`` is the lowercase text the token filter matches, so a search
   never joins.
 * ``classes`` — one row per class of the pruned device taxonomy, with the
   ancestors it hangs under and the device counts the ontology rail shows.
-* ``channels`` — the channel roster: one record per address, so a ``full_pv``
-  bound under two devices collapses to a single row.
 * ``meta`` — a single row: the schema version, the corpus digest that both this
   index and the store's seed marker carry, and the badge counts.
 
-``classes.uri`` and ``channels.address`` are each unique by construction.
+``classes.uri`` is unique by construction.
 ``binding_uri`` is not: ``HASBINDING`` is matched per device, so a binding node
 hung under two devices is two rows, one carrying each device's columns, exactly
 as the store answers it. No key or index is declared on any column: the builder
@@ -48,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only; duckdb stays a lazy import
 #: Version of the table layout below. The reader refuses an index whose
 #: ``meta.schema_version`` differs, so bump this whenever a column is added,
 #: removed, renamed or retyped.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: One row per ``(device, binding)`` pair, denormalised over the device, the
 #: binding's signals and the classes the device rolls up to.
@@ -61,6 +63,9 @@ CREATE TABLE bindings (
     device_name  VARCHAR,
     section      VARCHAR,
     system       VARCHAR,
+    place_path   VARCHAR,
+    s_position_m DOUBLE,
+    ordinal_in_place BIGINT,
     edges        VARCHAR[],
     signal_uris  VARCHAR[],
     signal_names VARCHAR[],
@@ -81,16 +86,6 @@ CREATE TABLE classes (
 )
 """
 
-#: The channel roster: one record per address. ``readback`` is NULL when the
-#: corpus names no readback for an address, never the empty string.
-CHANNELS_DDL = """
-CREATE TABLE channels (
-    address   VARCHAR NOT NULL,
-    direction VARCHAR,
-    readback  VARCHAR
-)
-"""
-
 #: A single row describing the index itself.
 META_DDL = """
 CREATE TABLE meta (
@@ -105,8 +100,8 @@ CREATE TABLE meta (
 )
 """
 
-#: The four statements :func:`create_tables` runs, in order.
-CREATE_TABLE_STATEMENTS = (BINDINGS_DDL, CLASSES_DDL, CHANNELS_DDL, META_DDL)
+#: The three statements :func:`create_tables` runs, in order.
+CREATE_TABLE_STATEMENTS = (BINDINGS_DDL, CLASSES_DDL, META_DDL)
 
 #: Column names of the ``meta`` row, in table order. The builder writes them in
 #: this order and the reader reads them back by name.
@@ -123,7 +118,7 @@ META_KEYS = (
 
 
 def create_tables(con: duckdb.DuckDBPyConnection) -> None:
-    """Create the four index tables on an open connection.
+    """Create the three index tables on an open connection.
 
     The connection must be writable and the tables must not already exist: the
     builder writes every index into a fresh file, so there is nothing to

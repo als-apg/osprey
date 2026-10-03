@@ -24,6 +24,11 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
+from osprey.deployment.graphdb_service import (
+    DEFAULT_TTL_PATH,
+    GRAPHDB_SERVICE_NAME,
+    GRAPHDB_TTL_PATH_CONFIG_KEY,
+)
 from osprey.deployment.host_binding import (
     BIND_ENV_KEY,
     BUNDLED_HOST_BINDINGS,
@@ -66,6 +71,32 @@ logger = get_logger("build")
 _BUNDLED_WORKER_TARGET_RE = re.compile(
     r"^(?P<prefix>https?://dispatch-worker-(?P<index>\d+):)(?P<port>\d+)(?P<suffix>/.*)?$"
 )
+
+
+def graphdb_corpus_fill(config: Mapping[str, Any]) -> dict[str, str]:
+    """Return the corpus key a ``services.graphdb`` block leaves unspelled.
+
+    Every render with a graph store seeds it from the graph view the build
+    writes, :data:`~osprey.deployment.graphdb_service.DEFAULT_TTL_PATH`. A
+    profile that names a corpus of its own keeps it: the fill supplies the key
+    only where the profile's block does not address it.
+
+    Args:
+        config: A profile's ``config:`` overlay, in either spelling -- dotted
+            keys, nested mappings, or a mix.
+
+    Returns:
+        ``{"services.graphdb.ttl_path": DEFAULT_TTL_PATH}`` when the overlay
+        carries a ``services.graphdb`` block without a ``ttl_path``, else an
+        empty mapping.
+    """
+    from .build_profile_archiver import _expand_dotted
+
+    services = _expand_dotted(dict(config)).get("services")
+    block = services.get(GRAPHDB_SERVICE_NAME) if isinstance(services, Mapping) else None
+    if not isinstance(block, Mapping) or "ttl_path" in block:
+        return {}
+    return {GRAPHDB_TTL_PATH_CONFIG_KEY: DEFAULT_TTL_PATH}
 
 
 def _worker_port(worker_port_base: int, index: int, stride: int) -> int:

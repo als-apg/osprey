@@ -461,10 +461,9 @@ The render that field produces has no graph entry under
 ``channel_finder.pipelines``: that section comes out empty in graph mode,
 because graph names no database file.
 
-The store block names one more thing: the search index the finder reads, under
-``services.graphdb.index_path`` — ``./data/channel_databases/graph.duckdb``
-unless the project says otherwise, which is why the mode and the store are the
-whole of the configuration.
+The search index the finder reads needs no key: the build writes it to
+``./data/channel_databases/graph.duckdb`` beside the render's ``config.yml``,
+which is why the mode and the store are the whole of the configuration.
 
 The store comes from the ``services.graphdb`` block, either one this deployment
 runs or one the facility already hosts (an explicit ``services.graphdb.uri``

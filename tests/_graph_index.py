@@ -1,9 +1,9 @@
 """Build the channel search index that a staged Turtle corpus implies.
 
-The graph paradigm's channel roster reads a DuckDB search index, not the Turtle
-corpus it was derived from. A build writes that index; a test that stages a
-corpus by hand and then expects channels has to write one too, or the roster
-answers with the absence that says the index is not there.
+The graph paradigm's explorer and keyword tool read a DuckDB search index, not
+the Turtle corpus it was derived from. A build writes that index; a test that
+stages a corpus by hand and then expects search answers has to write one too,
+or the reader answers with the absence that says the index is not there.
 
 ``osprey build`` is covered already -- ``tests/conftest.py`` stubs the build's
 own derivation step so the suite's many renders share one parse per corpus.
@@ -14,7 +14,7 @@ Two rules keep the helper honest about where the index goes:
 
 * with a project config, the path comes from
   :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path` -- the one
-  resolver the build, the roster, the app and the health row all use, so a test
+  resolver the build, the app and the health row all use, so a test
   cannot accidentally pin a path rule of its own;
 * without one, it is the default ``index_path`` under the render holding the
   corpus, which is the same answer that resolver gives a config with no
@@ -40,7 +40,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-#: ``services.graphdb.index_path``'s default, relative to the render that holds
+#: Where a build writes the index, relative to the render that holds
 #: ``config.yml`` -- split so a test can join it to a render root rather than
 #: spell the string a second time.
 DEFAULT_INDEX_RELPATH = Path("data") / "channel_databases" / "graph.duckdb"
@@ -68,9 +68,9 @@ def build_index_from_ttl(
 
     Args:
         ttl_path: The staged Turtle corpus to derive the index from.
-        config: The project config the roster will be asked about, when there is
-            one. Its ``services.graphdb.index_path`` decides where the index
-            goes, resolved against the config's own ``config_dir``.
+        config: The project config the index belongs to, when there is one.
+            The index goes to the fixed path under the config's own
+            ``config_dir``.
         config_dir: The directory holding ``config.yml``, for a config that does
             not record one. Ignored when *config* is omitted.
         index_path: An explicit destination, for a test that names the index

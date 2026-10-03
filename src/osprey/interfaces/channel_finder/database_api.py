@@ -18,7 +18,6 @@ import functools
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -27,13 +26,10 @@ from pydantic import BaseModel
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
-    DEFAULT_INDEX_PATH,
     GRAPHDB_BUILD_INDEX_COMMAND,
     GRAPHDB_SERVICE_NAME,
     GRAPHDB_TTL_PATH_CONFIG_KEY,
-    UNRESOLVED_INDEX_PATH_REMEDY,
     graph_corpus_configured,
-    unresolved_index_path_detail,
 )
 from osprey.mcp_server.graph.server_context import GraphStoreError
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
@@ -129,43 +125,6 @@ _INDEX_READ_FAILED_SUGGESTIONS = [
 ]
 
 
-class UnresolvedIndexPath(GraphIndexAbsence):
-    """The absence a config that spells ``index_path`` wrongly resolves to.
-
-    Its own type rather than a sentence to match on: the 503 builder has to
-    tell this state apart from an index that is merely not built yet, because
-    it answers no build remedy — a build would read the same malformed key —
-    and recognising it by the tail of its prose would come undone the first
-    time that prose is edited.
-
-    An ``unreadable`` absence to every other reader, which is what it is: the
-    config named no path this process could read the index from.
-    """
-
-
-def unresolved_index_path(exc: ValueError) -> UnresolvedIndexPath:
-    """Build the absence a malformed ``index_path`` puts on the app's state.
-
-    A config typo is not a missing artifact, and there is no resolved path to
-    name — so the absence carries the key's default location, and its own
-    sentence says which key to fix.
-
-    Args:
-        exc: What :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`
-            refused with.
-
-    Returns:
-        The absence, carrying the resolver's own sentence and the remedy.
-    """
-    # The remedy travels in the sentence itself, so every surface that shows the
-    # detail — the 503 body, the log line — shows the fix.
-    return UnresolvedIndexPath(
-        "unreadable",
-        Path(DEFAULT_INDEX_PATH),
-        f"{unresolved_index_path_detail(exc).rstrip('.')}. {UNRESOLVED_INDEX_PATH_REMEDY}",
-    )
-
-
 #: Said instead when the project configures no corpus: there is nothing to
 #: build an index *from*, so naming the build verb would name the wrong step —
 #: the build refuses in exactly that state. Whether an index *location* is
@@ -248,12 +207,8 @@ def _graph_index_error_payload(
     added here, because only a surface knows what an operator can do about it.
 
     Which remedy depends on what the project has, decided the way the MCP
-    tool decides it so the two surfaces never name different steps. An
-    An
-    :class:`UnresolvedIndexPath` — the absence a malformed ``index_path``
-    resolves to — gets no further remedy, since a build would read the same
-    malformed key. A deployment that
-    configures no corpus has nothing to build an index *from*, and the build
+    tool decides it so the two surfaces never name different steps. A
+    deployment that configures no corpus has nothing to build an index *from*, and the build
     refuses in that state, so it is told to configure one. Everything else is
     one build away from an answer.
 
@@ -266,9 +221,7 @@ def _graph_index_error_payload(
     Returns:
         The response body: the detail, ``service_unavailable``, and the remedy.
     """
-    if isinstance(absence, UnresolvedIndexPath):
-        suggestions: list[str] = []
-    elif not graph_corpus_configured(config):
+    if not graph_corpus_configured(config):
         suggestions = _NO_GRAPH_CORPUS_SUGGESTIONS
     else:
         suggestions = _NO_GRAPH_INDEX_SUGGESTIONS

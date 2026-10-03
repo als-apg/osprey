@@ -46,6 +46,7 @@ import yaml
 from osprey.cli.build_cmd import _attached_service_overrides
 from osprey.cli.build_profile_merge import merge_persona_delta
 from osprey.cli.build_profile_ports import layout_port_fill
+from osprey.deployment.graphdb_service import DEFAULT_TTL_PATH
 from osprey.deployment.reach import REACH_CONTRACTS, render_local_keys
 from osprey.port_layout import DEFAULT_PORT_BASE
 from tests.cli.test_explicit_config_equivalence import CELL_DELTAS
@@ -414,7 +415,8 @@ def test_an_attached_render_keeps_the_external_store_it_names(
 
     Requirement 5's external-store clause: ``services.graphdb`` keeps
     ``port_host`` and ``http_port_host`` beside its ``uri``, exactly as a
-    deploying render would. ``uri`` is the profile's own; the two ports are the
+    deploying render would, and the corpus the build fills into every graphdb
+    block. ``uri`` is the profile's own; the two ports are the
     layout fill's, and a drop scoped to the whole ``services.*`` surface took
     all three — leaving the graph consumer with the address the Reach Contract
     happens to project back for a host of its own, and nothing at all beside a
@@ -424,11 +426,11 @@ def test_an_attached_render_keeps_the_external_store_it_names(
     where a store is and claiming to run one are different statements.
     """
     fill = layout_port_fill({"services.graphdb.uri": EXTERNAL_GRAPH_URI}, DEFAULT_PORT_BASE)
-    expected = {"uri": EXTERNAL_GRAPH_URI} | {
+    expected = {"uri": EXTERNAL_GRAPH_URI, "ttl_path": DEFAULT_TTL_PATH} | {
         key.rpartition(".")[2]: value for key, value in fill.items()
     }
 
-    assert set(expected) == {"uri", "port_host", "http_port_host"}, (
+    assert set(expected) == {"uri", "ttl_path", "port_host", "http_port_host"}, (
         f"the layout fill no longer supplies the external store's two ports: {fill}"
     )
     assert external_store_render["deployed_services"] == []
@@ -545,17 +547,13 @@ def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
 def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() -> None:
     """A key that names a file in the render's own data tree is not a stack claim.
 
-    ``services.graphdb.ttl_path`` and ``index_path`` say where THIS render's
-    corpus and search index are, and every persona stages that same ``data/``
-    tree. Dropped with the claimed stack, the persona's build could not derive
-    its index and its containers could not say where the corpus is. The Reach
-    Contract declares them render-local, so they survive the drop; the store's
-    address, image and JVM keys go as before.
+    ``services.graphdb.ttl_path`` says where THIS render's corpus is, and every
+    persona stages that same ``data/`` tree. Dropped with the claimed stack, the
+    persona's build could not derive its index and its containers could not say
+    where the corpus is. The Reach Contract declares it render-local, so it
+    survives the drop; the store's address, image and JVM keys go as before.
     """
-    assert RENDER_LOCAL_SERVICE_KEYS >= {
-        "services.graphdb.ttl_path",
-        "services.graphdb.index_path",
-    }
+    assert RENDER_LOCAL_SERVICE_KEYS >= {"services.graphdb.ttl_path"}
 
     overrides = _attached_service_overrides(
         {
@@ -563,7 +561,6 @@ def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() ->
             "services.graphdb.port_host": 10802,
             "services.graphdb.heap_max_size": "1G",
             "services.graphdb.ttl_path": "./data/demo_machine.ttl",
-            "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
             "deployed_services": ["graphdb"],
         }
     )
@@ -571,5 +568,4 @@ def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() ->
     assert overrides == {
         "deployed_services": [],
         "services.graphdb.ttl_path": "./data/demo_machine.ttl",
-        "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
     }

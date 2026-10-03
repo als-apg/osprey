@@ -43,26 +43,10 @@ from osprey.channel_roster.records import (
     RosterSource,
     RosterSourceKind,
 )
-from osprey.deployment.graphdb_service import GRAPHDB_INDEX_PATH_CONFIG_KEY
 from osprey.facility import FACILITY_FILE
 from osprey.utils.logger import get_logger
 
 logger = get_logger("channel_roster.sources")
-
-#: The paradigm name :func:`detect_pipeline_config` answers on the mode alone,
-#: because a graph store is a service rather than a database file.
-GRAPH_PARADIGM = "graph"
-
-#: The keys a graph-mode project declares its search index with, named in the
-#: absence :mod:`osprey.channel_roster.graph` reports when that index is not
-#: there. ``ttl_path`` is the corpus a build stages; ``index_path`` is where
-#: the build writes the search index derived from it; ``uri`` is how a project
-#: points at a store it does not run.
-GRAPH_CORPUS_CONFIG_KEYS: tuple[str, ...] = (
-    "services.graphdb.ttl_path",
-    GRAPHDB_INDEX_PATH_CONFIG_KEY,
-    "services.graphdb.uri",
-)
 
 #: The direction each facility-file ``role`` states. ``none`` states neither,
 #: which the roster carries as an unknown rather than as readable.

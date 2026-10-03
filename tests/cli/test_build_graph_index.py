@@ -1,7 +1,7 @@
 """The build step that derives the graph paradigm's channel search index.
 
 A graph-mode project's channels live in its Turtle corpus. Every consumer of
-them -- the roster, the explorer, the agent's keyword tool -- reads a DuckDB
+them -- the explorer, the agent's keyword tool -- reads a DuckDB
 index derived from that corpus rather than parsing it again, and ``osprey
 build`` is where the derivation happens: once per build, on the host, shared by
 every render pass.
@@ -18,15 +18,12 @@ is ordinary background work in dozens of build and deployment tests, and every
 one of them would parse the same corpus again, so ``tests/conftest.py`` stubs
 the build's index step out: it builds each corpus once per session and copies
 that file into every render. The last three tests here are about the stub
-itself -- that a render still carries a real index the roster can read, that a
-second corpus becomes a second cache entry built once, and that the marker
-above really does put the real hook back.
+itself -- that a render still carries a real index, that a second corpus
+becomes a second cache entry built once, and that the marker above really does
+put the real hook back.
 
-The roster facade is the oracle in one place only, the stub's own test: reading
-a render's index through ``registered_channels`` is what shows the file is a
-real index and not merely a file. The five marked tests read the index
-directly, which is also what pins that it sits exactly where
-``resolve_graph_index_path`` sends every reader.
+Every test reads the index directly, which is also what pins that it sits
+exactly where ``resolve_graph_index_path`` sends every reader.
 """
 
 from __future__ import annotations
@@ -41,7 +38,7 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.services.virtual_accelerator.manifest.build import LIMITS_FILENAME
 from tests.services.channel_finder.graph_index import corpora
 
-#: Where a render's index goes, as ``services.graphdb.index_path`` defaults.
+#: Where a render's index goes: the fixed path under the render.
 _INDEX_RELATIVE = Path("data") / "channel_databases" / "graph.duckdb"
 
 #: What the profile points ``services.graphdb.ttl_path`` at, inside its own tree.
@@ -56,17 +53,13 @@ def _plain_reporter():
     install_reporter(previous)
 
 
-@pytest.fixture(autouse=True)
-def _cold_roster():
-    """Every test resolves its own source cold; none inherits another's read."""
-    import osprey.channel_roster as channel_roster
-
-    channel_roster._roster_cache.clear()
-    yield
-    channel_roster._roster_cache.clear()
-
-
-def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = ()) -> Path:
+def _graph_repo(
+    root: Path,
+    *,
+    corpus: str | None,
+    personas: tuple[str, ...] = (),
+    mode: str = "graph",
+) -> Path:
     """A graph-mode deployment repo with its OWN corpus and no ``tiers/``.
 
     The data tree carries the per-tree sources a build reads and no paradigm
@@ -86,7 +79,7 @@ def _graph_repo(root: Path, *, corpus: str | None, personas: tuple[str, ...] = (
     (root / "profile.yml").write_text(
         "name: Graph Index\n"
         "provider: anthropic\n"
-        "channel_finder_mode: graph\n"
+        f"channel_finder_mode: {mode}\n"
         "data: data\n"
         "config:\n"
         # The posture floor a hand-written profile states for itself: with no
@@ -147,7 +140,7 @@ def test_a_profile_build_derives_the_index_from_its_own_corpus(tmp_path: Path) -
         f"the build wrote no channel search index; it holds {_indexes(render)}"
     )
     # The one path every reader resolves. An index written anywhere else is an
-    # index the roster, the explorer and the agent's tool all report as missing.
+    # index the explorer and the agent's tool both report as missing.
     rendered = _rendered_config(render)
     assert resolve_graph_index_path(rendered, config_dir=render) == index_path
 
@@ -163,11 +156,11 @@ def test_a_profile_build_derives_the_index_from_its_own_corpus(tmp_path: Path) -
         assert index.meta.corpus_filename == "facility.ttl"
         assert index.meta.binding_count == 3
         assert index.meta.device_count == 1
-        rows = index.cursor().execute("SELECT address, direction FROM channels ORDER BY address")
+        rows = index.cursor().execute("SELECT full_pv, edges FROM bindings ORDER BY full_pv")
         assert rows.fetchall() == [
-            ("SR:MAG:QF1:CURRENT:RB", "read"),
-            ("SR:MAG:QF1:CURRENT:SP", "write"),
-            ("SR:MAG:QF1:NOTE", None),
+            ("SR:MAG:QF1:CURRENT:RB", ["READSSIGNAL"]),
+            ("SR:MAG:QF1:CURRENT:SP", ["WRITESSIGNAL"]),
+            ("SR:MAG:QF1:NOTE", []),
         ]
     finally:
         index.close()
@@ -176,6 +169,38 @@ def test_a_profile_build_derives_the_index_from_its_own_corpus(tmp_path: Path) -
     # carrying its own digest would turn every rebuild into apparent drift.
     manifest = json.loads((render / ".osprey-manifest.json").read_text(encoding="utf-8"))
     assert not [name for name in manifest["file_checksums"] if name.endswith(".duckdb")]
+
+
+@pytest.mark.real_graph_index
+def test_a_render_with_a_graph_store_ships_the_index_in_any_mode(tmp_path: Path) -> None:
+    """The index follows the store, not the channel-finder paradigm.
+
+    A render that seeds a graph store carries the index derived from the same
+    corpus whichever pipeline its channel finder runs, so the explorer and the
+    keyword tool read the facility the store holds.
+    """
+    from osprey.services.channel_finder.graph_index import open_graph_index
+    from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+
+    repo = _graph_repo(
+        tmp_path / "hierarchical-with-store", corpus=corpora.SUBCLASS_CHAIN, mode="hierarchical"
+    )
+
+    result = _build(repo)
+
+    assert result.exit_code == 0, result.output
+    render = repo / "build"
+    index_path = render / _INDEX_RELATIVE
+    assert index_path.is_file(), (
+        f"the build wrote no channel search index; it holds {_indexes(render)}"
+    )
+    index = open_graph_index(index_path)
+    try:
+        assert getattr(index, "meta", None) is not None, f"index absent: {index}"
+        staged = render / "data" / "facility.ttl"
+        assert index.meta.corpus_sha256 == ttl_sha256(staged.read_text(encoding="utf-8"))
+    finally:
+        index.close()
 
 
 @pytest.mark.real_graph_index
@@ -308,7 +333,7 @@ def _preset_repo(tmp_path: Path, name: str) -> Path:
     return repo
 
 
-def test_the_stub_ships_a_real_index_the_roster_can_read(tmp_path: Path) -> None:
+def test_the_stub_ships_a_real_index(tmp_path: Path) -> None:
     """Under the suite-wide stub, a preset render still carries a true index.
 
     The stub is only allowed to skip the *parse*, never to change what a render
@@ -316,10 +341,9 @@ def test_the_stub_ships_a_real_index_the_roster_can_read(tmp_path: Path) -> None
     that have nothing to do with this step and would silently start asserting
     against a fiction. So the render is read back the way its containers will
     read it: the index sits where every reader resolves it, its meta names the
-    digest of the corpus THIS render staged, and the roster facade enumerates
-    channels from it.
+    digest of the corpus THIS render staged, and its bindings table holds the
+    rows the meta row counts.
     """
-    from osprey.channel_roster import registered_channels
     from osprey.cli import build_cmd
     from osprey.services.channel_finder.graph_index import open_graph_index
     from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
@@ -352,11 +376,10 @@ def test_the_stub_ships_a_real_index_the_roster_can_read(tmp_path: Path) -> None
             target.corpus_path.read_text(encoding="utf-8")
         )
         assert index.meta.binding_count > 0
+        rows = index.cursor().execute("SELECT count(*) FROM bindings").fetchone()
+        assert rows == (index.meta.binding_count,)
     finally:
         index.close()
-
-    roster = registered_channels(rendered)
-    assert roster.records, f"the roster read no channels off the index: {roster.absence}"
 
 
 def test_a_second_corpus_becomes_a_second_cache_entry_built_once(

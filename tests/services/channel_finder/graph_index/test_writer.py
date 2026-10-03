@@ -30,18 +30,16 @@ from osprey.services.channel_finder.graph_index import schema as schema_module
 from osprey.services.channel_finder.graph_index.builder import (
     CALLER_META_KEYS,
     BindingRow,
-    ChannelRow,
     ClassRow,
     IndexBuildReport,
     ParsedCorpus,
     build_from_rows,
-    channels_from_rows,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_VERSION
 
 
-def _meta(parsed: ParsedCorpus, channels: list[ChannelRow], **overrides) -> dict:  # noqa: ARG001 - it mirrors the build_from_rows row arguments
+def _meta(parsed: ParsedCorpus, **overrides) -> dict:
     """A ``meta`` mapping for ``parsed``, as the corpus build will state it."""
     values = {
         "corpus_sha256": "0" * 64,
@@ -58,13 +56,11 @@ def _meta(parsed: ParsedCorpus, channels: list[ChannelRow], **overrides) -> dict
 
 def _build(parsed: ParsedCorpus, index_path: Path, **overrides) -> IndexBuildReport:
     """Write ``parsed`` to ``index_path`` with a consistent ``meta`` row."""
-    channels = channels_from_rows(parsed.binding_rows)
     return build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
-        channels,
         index_path,
-        _meta(parsed, channels, **overrides),
+        _meta(parsed, **overrides),
     )
 
 
@@ -96,13 +92,13 @@ class TestRoundTrip:
         _build(chain, path)
         return path
 
-    def test_the_file_exists_and_carries_the_four_tables(self, index_path: Path):
+    def test_the_file_exists_and_carries_the_three_tables(self, index_path: Path):
         con = duckdb.connect(str(index_path), read_only=True)
         try:
             names = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
         finally:
             con.close()
-        assert names == {"bindings", "classes", "channels", "meta"}
+        assert names == {"bindings", "classes", "meta"}
 
     def test_binding_rows_round_trip_in_column_order(self, index_path: Path, chain: ParsedCorpus):
         read_back = _read(index_path, "SELECT * FROM bindings")
@@ -115,6 +111,9 @@ class TestRoundTrip:
                 row.device_name,
                 row.section,
                 row.system,
+                row.place_path,
+                row.s_position_m,
+                row.ordinal_in_place,
                 row.edges,
                 row.signal_uris,
                 row.signal_names,
@@ -172,13 +171,6 @@ class TestRoundTrip:
             for row in chain.class_rows
         ]
 
-    def test_channel_rows_round_trip(self, index_path: Path):
-        assert _read(index_path, "SELECT * FROM channels ORDER BY address") == [
-            ("SR:MAG:QF1:CURRENT:RB", "read", None),
-            ("SR:MAG:QF1:CURRENT:SP", "write", None),
-            ("SR:MAG:QF1:NOTE", None, None),
-        ]
-
     def test_the_meta_row_is_exact(self, index_path: Path, chain: ParsedCorpus):
         row = _read(index_path, f"SELECT {', '.join(META_KEYS)} FROM meta")
         assert row == [
@@ -207,25 +199,6 @@ class TestRoundTrip:
             assert _read(index_path, "SELECT count(*) FROM bindings") == [(3,)]
 
 
-class TestReadbackNull:
-    def test_an_empty_readback_is_stored_as_null(self, chain: ParsedCorpus, tmp_path: Path):
-        path = tmp_path / "graph.duckdb"
-        channels = [ChannelRow(address="A", direction=None, readback="")]
-        build_from_rows(
-            chain.binding_rows, chain.class_rows, channels, path, _meta(chain, channels)
-        )
-        assert _read(path, "SELECT readback FROM channels") == [(None,)]
-        assert _read(path, "SELECT count(*) FROM channels WHERE readback IS NULL") == [(1,)]
-
-    def test_a_stated_readback_is_kept(self, chain: ParsedCorpus, tmp_path: Path):
-        path = tmp_path / "graph.duckdb"
-        channels = [ChannelRow(address="A:SP", direction="write", readback="A:RB")]
-        build_from_rows(
-            chain.binding_rows, chain.class_rows, channels, path, _meta(chain, channels)
-        )
-        assert _read(path, "SELECT * FROM channels") == [("A:SP", "write", "A:RB")]
-
-
 class TestReport:
     def test_fields_and_values(self, chain: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"
@@ -238,7 +211,6 @@ class TestReport:
             class_count=len(chain.class_rows),
             signal_count=chain.signal_count,
             section_count=1,
-            channel_count=3,
         )
 
     def test_the_counts_are_what_the_meta_row_carries(self, chain: ParsedCorpus, tmp_path: Path):
@@ -301,7 +273,10 @@ class TestEmptyCorpus:
             _build(parsed, path)
         warnings = _builder_warnings(caplog)
         assert len(warnings) == 1
-        assert str(path) in warnings[0].getMessage()
+        message = warnings[0].getMessage()
+        assert "corpus.ttl" in message
+        assert path.name in message
+        assert str(path.parent) not in message
 
     def test_a_corpus_with_bindings_does_not_warn(
         self, chain: ParsedCorpus, tmp_path: Path, caplog
@@ -331,13 +306,12 @@ class TestAtomicity:
         self, existing: tuple[Path, bytes], chain: ParsedCorpus
     ):
         path, before = existing
-        channels = channels_from_rows(chain.binding_rows)
         rows = [*chain.binding_rows, _ShortRow("https://example.org/binding/short")]
         # The columnar load would pad a short row out with nulls, so the writer
         # counts the values itself and names the row rather than letting one
         # through: the error is the build's, not the database's.
         with pytest.raises(GraphIndexBuildError, match="Row 3 of bindings carries 1 values"):
-            build_from_rows(rows, chain.class_rows, channels, path, _meta(chain, channels))
+            build_from_rows(rows, chain.class_rows, path, _meta(chain))
         assert path.read_bytes() == before
         assert _temp_files(path.parent) == []
 
@@ -357,9 +331,8 @@ class TestAtomicity:
 
     def test_a_bad_meta_row_writes_nothing_at_all(self, tmp_path: Path, chain: ParsedCorpus):
         path = tmp_path / "graph.duckdb"
-        channels = channels_from_rows(chain.binding_rows)
         with pytest.raises(GraphIndexBuildError):
-            build_from_rows(chain.binding_rows, chain.class_rows, channels, path, {})
+            build_from_rows(chain.binding_rows, chain.class_rows, path, {})
         assert not path.exists()
         assert _temp_files(tmp_path) == []
 
@@ -412,60 +385,46 @@ class TestOverwrite:
 
 
 class TestMetaValidation:
-    @pytest.fixture
-    def parts(self, chain: ParsedCorpus):
-        channels = channels_from_rows(chain.binding_rows)
-        return chain, channels
-
     def test_caller_keys_are_the_meta_columns_minus_schema_version(self):
         assert set(CALLER_META_KEYS) == set(META_KEYS) - {"schema_version"}
         assert "schema_version" not in CALLER_META_KEYS
 
-    def test_a_missing_key_is_refused_and_named(self, parts, tmp_path: Path):
-        chain, channels = parts
-        meta = _meta(chain, channels)
+    def test_a_missing_key_is_refused_and_named(self, chain: ParsedCorpus, tmp_path: Path):
+        meta = _meta(chain)
         del meta["signal_count"]
         with pytest.raises(GraphIndexBuildError, match="missing signal_count"):
-            build_from_rows(
-                chain.binding_rows, chain.class_rows, channels, tmp_path / "i.duckdb", meta
-            )
+            build_from_rows(chain.binding_rows, chain.class_rows, tmp_path / "i.duckdb", meta)
 
-    def test_an_unknown_key_is_refused_and_named(self, parts, tmp_path: Path):
-        chain, channels = parts
-        meta = _meta(chain, channels, device_countt=1)
+    def test_an_unknown_key_is_refused_and_named(self, chain: ParsedCorpus, tmp_path: Path):
+        meta = _meta(chain, device_countt=1)
         with pytest.raises(GraphIndexBuildError, match="unknown device_countt"):
-            build_from_rows(
-                chain.binding_rows, chain.class_rows, channels, tmp_path / "i.duckdb", meta
-            )
+            build_from_rows(chain.binding_rows, chain.class_rows, tmp_path / "i.duckdb", meta)
 
-    def test_the_caller_may_not_choose_the_schema_version(self, parts, tmp_path: Path):
-        chain, channels = parts
-        meta = _meta(chain, channels, schema_version=99)
+    def test_the_caller_may_not_choose_the_schema_version(
+        self, chain: ParsedCorpus, tmp_path: Path
+    ):
+        meta = _meta(chain, schema_version=99)
         with pytest.raises(GraphIndexBuildError, match="unknown schema_version"):
-            build_from_rows(
-                chain.binding_rows, chain.class_rows, channels, tmp_path / "i.duckdb", meta
-            )
+            build_from_rows(chain.binding_rows, chain.class_rows, tmp_path / "i.duckdb", meta)
 
     def test_the_written_schema_version_is_the_modules(self, chain: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"
         _build(chain, path)
         assert _read(path, "SELECT schema_version FROM meta") == [(schema_module.SCHEMA_VERSION,)]
 
-    def test_a_binding_count_that_miscounts_the_rows_is_refused(self, parts, tmp_path: Path):
-        chain, channels = parts
-        meta = _meta(chain, channels, binding_count=99)
+    def test_a_binding_count_that_miscounts_the_rows_is_refused(
+        self, chain: ParsedCorpus, tmp_path: Path
+    ):
+        meta = _meta(chain, binding_count=99)
         with pytest.raises(GraphIndexBuildError, match="binding_count=99 but 3 rows"):
-            build_from_rows(
-                chain.binding_rows, chain.class_rows, channels, tmp_path / "i.duckdb", meta
-            )
+            build_from_rows(chain.binding_rows, chain.class_rows, tmp_path / "i.duckdb", meta)
 
-    def test_a_class_count_that_miscounts_the_rows_is_refused(self, parts, tmp_path: Path):
-        chain, channels = parts
-        meta = _meta(chain, channels, class_count=0)
+    def test_a_class_count_that_miscounts_the_rows_is_refused(
+        self, chain: ParsedCorpus, tmp_path: Path
+    ):
+        meta = _meta(chain, class_count=0)
         with pytest.raises(GraphIndexBuildError, match="class_count=0"):
-            build_from_rows(
-                chain.binding_rows, chain.class_rows, channels, tmp_path / "i.duckdb", meta
-            )
+            build_from_rows(chain.binding_rows, chain.class_rows, tmp_path / "i.duckdb", meta)
 
 
 class TestMissingDirectory:
@@ -481,6 +440,23 @@ class TestMissingDirectory:
         assert str(path.parent) in str(excinfo.value)
 
 
+class TestPlacedDevices:
+    def test_place_position_and_ordinal_are_written_with_their_types(self, tmp_path: Path):
+        parsed = parse_corpus(corpora.PLACED_DEVICES)
+        path = tmp_path / "graph.duckdb"
+        _build(parsed, path)
+        rows = _read(
+            path,
+            "SELECT full_pv, place_path, s_position_m, ordinal_in_place FROM bindings "
+            "WHERE place_path = 'SR/SECT1' ORDER BY s_position_m NULLS LAST",
+        )
+        assert rows == [
+            ("SR:QF9:RB", "SR/SECT1", 3.0, 1),
+            ("SR:QF8:RB", "SR/SECT1", 12.5, 2),
+            ("SR:SECT1:TEMP", "SR/SECT1", None, None),
+        ]
+
+
 class TestSharedFullPvAndTwoDevices:
     """The shapes that make ``binding_uri`` non-unique must survive the write."""
 
@@ -492,12 +468,11 @@ class TestSharedFullPvAndTwoDevices:
         assert [section for _, section in rows] == ["BR", "SR"]
         assert len({uri for uri, _ in rows}) == 1
 
-    def test_two_bindings_sharing_a_full_pv_are_one_channel(self, tmp_path: Path):
+    def test_two_bindings_sharing_a_full_pv_are_two_rows(self, tmp_path: Path):
         parsed = parse_corpus(corpora.SHARED_FULL_PV)
         path = tmp_path / "graph.duckdb"
         _build(parsed, path)
         assert _read(path, "SELECT count(*) FROM bindings") == [(2,)]
-        assert _read(path, "SELECT * FROM channels") == [("SR:MAG:SHARED:CURRENT", None, None)]
 
 
 class TestImportIsolation:
@@ -554,7 +529,6 @@ class TestDemoCorpus:
         assert report.class_count == 19
         assert _read(path, "SELECT count(*) FROM bindings") == [(2908,)]
         assert _read(path, "SELECT count(*) FROM classes") == [(19,)]
-        assert _read(path, "SELECT count(*) FROM channels") == [(report.channel_count,)]
 
     def test_every_binding_row_survives_with_its_lists(self, demo: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"
@@ -567,7 +541,6 @@ class TestDemoCorpus:
 
 
 def test_row_types_are_the_dataclasses_the_parser_produces():
-    """A reminder that the writer inserts these three, in field order."""
+    """A reminder that the writer inserts these two, in field order."""
     assert list(BindingRow.__dataclass_fields__)[0] == "binding_uri"
     assert list(ClassRow.__dataclass_fields__)[0] == "uri"
-    assert list(ChannelRow.__dataclass_fields__) == ["address", "direction", "readback"]

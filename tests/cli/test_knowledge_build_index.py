@@ -1,10 +1,9 @@
 """Tests for ``osprey knowledge build-index``.
 
 Covers:
-- A bare run takes both paths from config: the corpus from
-  ``services.graphdb.ttl_path`` and the index from
-  ``services.graphdb.index_path``, both resolved against the render's own
-  ``config.yml`` directory rather than the process CWD.
+- A bare run takes the corpus from ``services.graphdb.ttl_path`` and writes
+  the index to ``data/channel_databases/graph.duckdb``, both resolved against
+  the render's own ``config.yml`` directory rather than the process CWD.
 - ``--ttl`` and ``--output`` override each of those, and a typed path stays
   shell-relative like every other filename an operator types.
 - The output parent is created, so a first build into a render that has no
@@ -15,8 +14,7 @@ Covers:
 - The corpus failures an operator can actually hit -- a path naming nothing, a
   file that is not valid Turtle, and a file that is not UTF-8 -- are one
   legible line each and never a traceback.
-- A malformed ``services.graphdb.index_path`` and an output parent that cannot
-  be created are refused the same way.
+- An output parent that cannot be created is refused the same way.
 - The digest the run prints is the corpus checksum the graph store's seed
   marker carries, truncated to the prefix the health row shows.
 """
@@ -35,7 +33,7 @@ from tests.services.channel_finder.graph_index import corpora
 #: What ``SUBCLASS_CHAIN`` holds: three bindings under one device, the pruned
 #: chain Quadrupole/Magnet/AcceleratorDevice, two signals, one section, and one
 #: channel per binding.
-EXPECTED_COUNTS = "3 bindings, 1 devices, 3 classes, 2 signals, 1 sections, 3 channels."
+EXPECTED_COUNTS = "3 bindings, 1 devices, 3 classes, 2 signals, 1 sections."
 
 #: How many characters of the corpus checksum the verb prints, matching the
 #: prefix the ``channel_finder_search_index`` health row shows.
@@ -104,21 +102,6 @@ def test_build_index_takes_both_paths_from_config(
     flat = _flat(result)
     assert f"Wrote {index}." in flat
     assert EXPECTED_COUNTS in flat
-
-
-def test_build_index_honours_a_configured_index_path(
-    render: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """``index_path`` moves the index, and is resolved against the render."""
-    _patch_config(
-        monkeypatch,
-        {"ttl_path": "./data/demo.ttl", "index_path": "./var/search/graph.duckdb"},
-    )
-
-    result = CliRunner().invoke(knowledge, ["build-index"])
-
-    assert result.exit_code == 0, result.output
-    assert (render / "var" / "search" / "graph.duckdb").is_file()
 
 
 def test_build_index_creates_the_output_parent(
@@ -312,18 +295,6 @@ def test_build_index_uncreatable_output_parent_is_a_clean_error(
     assert f"Cannot create {output.parent}" in _flat(result)
 
 
-@pytest.mark.usefixtures("render")
-def test_build_index_refuses_a_malformed_index_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-string services.graphdb.index_path is refused by name, not a traceback."""
-    _patch_config(monkeypatch, {"ttl_path": "./data/demo.ttl", "index_path": 7})
-
-    result = CliRunner().invoke(knowledge, ["build-index"])
-
-    assert result.exit_code == 1
-    assert "Traceback" not in result.output
-    assert "Cannot use services.graphdb.index_path" in _flat(result)
-
-
 # ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
@@ -336,7 +307,7 @@ def test_build_index_help_names_its_defaults_and_the_restart() -> None:
     assert result.exit_code == 0, result.output
     flat = " ".join(result.output.split())
     assert "services.graphdb.ttl_path" in flat
-    assert "services.graphdb.index_path" in flat
+    assert "data/channel_databases/graph.duckdb" in flat
     assert "restart it to read a rebuilt one" in flat
 
 

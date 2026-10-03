@@ -1009,17 +1009,16 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
 
 ``osprey knowledge build-index [--ttl PATH] [--output PATH]``
    Build the graph channel finder's search index from a TTL corpus. The index
-   is a DuckDB file holding the corpus's channel bindings, its device classes
-   and its channel roster, so a search reads a table instead of parsing Turtle
-   — which is what lets the channel explorer, the channel roster and the
-   agent's keyword tool answer in milliseconds at any corpus size. ``osprey
-   build`` writes it into a graph-mode project; run the verb by hand whenever
-   the corpus changes, and seed the store from the same file so the two
-   describe one machine.
+   is a DuckDB file holding the corpus's channel bindings and its device
+   classes, so a search reads a table instead of parsing Turtle — which is what
+   lets the channel explorer and the agent's keyword tool answer in
+   milliseconds at any corpus size. ``osprey build`` writes it into every
+   render with a graph store; run the verb by hand whenever the corpus changes,
+   and seed the store from the same file so the two describe one machine.
 
    Unnamed, ``--ttl`` is ``services.graphdb.ttl_path`` — the file
-   ``seed-graph`` loads — and ``--output`` is ``services.graphdb.index_path``,
-   ``data/channel_databases/graph.duckdb`` in a rendered project. Both resolve
+   ``seed-graph`` loads — and ``--output`` is
+   ``data/channel_databases/graph.duckdb``. Both resolve
    against the ``config.yml`` directory, so run the command inside the render,
    or with ``OSPREY_CONFIG`` naming that config. With no corpus configured the
    command refuses in one sentence and names the key to set. Missing parent

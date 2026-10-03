@@ -22,12 +22,12 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
-from osprey.interfaces.channel_finder.app import _open_graph_index
-from osprey.interfaces.channel_finder.database_api import (
-    UNRESOLVED_INDEX_PATH_REMEDY,
-    _serve_index_read,
+from osprey.deployment.graphdb_service import (
+    GRAPHDB_BUILD_INDEX_COMMAND,
+    resolve_graph_index_path,
 )
+from osprey.interfaces.channel_finder.app import _open_graph_index
+from osprey.interfaces.channel_finder.database_api import _serve_index_read
 from osprey.services.channel_finder.graph_index.reader import GraphIndexAbsence
 from osprey.services.channel_finder.graph_queries import GRAPH_DEVICE_CYPHER
 from tests.interfaces.channel_finder.graph_fixture import (
@@ -319,11 +319,14 @@ class TestDemoSearchIndex:
         assert meta.device_count == len({row["device"] for row in DEMO_ROWS})
         assert meta.corpus_sha256
 
-    def test_every_address_on_the_page_is_a_channel_in_the_index(self):
-        """The roster the index answers is the page the fake store serves."""
+    def test_every_address_on_the_page_is_bound_in_the_index(self):
+        """The addresses the index binds are the page the fake store serves."""
         with open_demo_index() as index:
             addresses = {
-                row[0] for row in index.cursor().execute("SELECT address FROM channels").fetchall()
+                row[0]
+                for row in index.cursor()
+                .execute("SELECT DISTINCT full_pv FROM bindings")
+                .fetchall()
             }
 
         assert addresses == {row["fullPv"] for row in DEMO_ROWS}
@@ -395,10 +398,22 @@ _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 class TestOpenGraphIndexAtStartup:
     """What the lifespan puts on ``app.state.graph_index``."""
 
-    def test_a_configured_index_is_opened(self, tmp_path):
-        index_path = build_demo_index(tmp_path)
+    @pytest.fixture
+    def render(self, tmp_path, monkeypatch):
+        """A render directory the app finds through ``OSPREY_CONFIG``."""
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+        return tmp_path
 
-        opened = _open_graph_index({"services": {"graphdb": {"index_path": str(index_path)}}})
+    @staticmethod
+    def _index_path(render):
+        return resolve_graph_index_path(None, render)
+
+    def test_a_built_index_is_opened(self, render):
+        index_path = self._index_path(render)
+        index_path.parent.mkdir(parents=True)
+        build_demo_index(index_path.parent)
+
+        opened = _open_graph_index({"services": {"graphdb": {}}})
 
         try:
             assert not isinstance(opened, GraphIndexAbsence)
@@ -406,44 +421,33 @@ class TestOpenGraphIndexAtStartup:
         finally:
             opened.close()
 
-    def test_an_index_that_was_never_built_is_an_absence(self, tmp_path):
-        missing = tmp_path / "graph.duckdb"
+    def test_an_index_that_was_never_built_is_an_absence(self, render):
+        missing = self._index_path(render)
 
-        opened = _open_graph_index({"services": {"graphdb": {"index_path": str(missing)}}})
+        opened = _open_graph_index({"services": {"graphdb": {}}})
 
         assert isinstance(opened, GraphIndexAbsence)
         assert opened.reason == "missing"
         assert str(missing) in opened.detail
 
-    def test_a_malformed_index_path_is_an_absence_rather_than_a_refusal(self):
-        """A config typo must not stop the app from serving everything else."""
-        opened = _open_graph_index({"services": {"graphdb": {"index_path": 42}}})
-
-        assert isinstance(opened, GraphIndexAbsence)
-        assert opened.reason == "unreadable"
-        assert "Cannot resolve the search index's path" in opened.detail
-        # The remedy travels in the sentence itself, so every surface that
-        # shows the detail — 503 body, health row, log line — shows the fix.
-        assert opened.detail.endswith(UNRESOLVED_INDEX_PATH_REMEDY)
-
-    def test_an_unbuilt_index_is_logged_at_info(self, tmp_path, caplog):
+    @pytest.mark.usefixtures("render")
+    def test_an_unbuilt_index_is_logged_at_info(self, caplog):
         """Not built yet is an ordinary state, not a warning."""
-        missing = tmp_path / "graph.duckdb"
-
         with caplog.at_level(logging.DEBUG, logger=_APP_LOGGER):
-            _open_graph_index({"services": {"graphdb": {"index_path": str(missing)}}})
+            _open_graph_index({"services": {"graphdb": {}}})
 
         records = [r for r in caplog.records if r.name == _APP_LOGGER]
         assert records, "the absence was not logged"
         assert {r.levelno for r in records} == {logging.INFO}
 
-    def test_an_index_the_driver_refuses_is_logged_at_warning(self, tmp_path, caplog):
+    def test_an_index_the_driver_refuses_is_logged_at_warning(self, render, caplog):
         """A file that is there but cannot be read is worth a warning."""
-        garbage = tmp_path / "graph.duckdb"
+        garbage = self._index_path(render)
+        garbage.parent.mkdir(parents=True)
         garbage.write_bytes(b"not a duckdb file")
 
         with caplog.at_level(logging.DEBUG, logger=_APP_LOGGER):
-            opened = _open_graph_index({"services": {"graphdb": {"index_path": str(garbage)}}})
+            opened = _open_graph_index({"services": {"graphdb": {}}})
 
         assert isinstance(opened, GraphIndexAbsence)
         assert opened.reason == "unreadable"
@@ -474,7 +478,7 @@ def _probe_app(index: Any) -> FastAPI:
         # A real query rather than a look at the meta row: taking a cursor is
         # what a closed index refuses, and that refusal is half of what this
         # helper is asserted on.
-        return {"channels": handle.cursor().execute("SELECT count(*) FROM channels").fetchone()[0]}
+        return {"bindings": handle.cursor().execute("SELECT count(*) FROM bindings").fetchone()[0]}
 
     @app.get("/probe")
     async def probe(request: Request) -> Any:
@@ -505,7 +509,7 @@ class TestServeIndexRead:
             resp = TestClient(app).get("/probe")
 
         assert resp.status_code == 200
-        assert resp.json() == {"channels": len(DEMO_ROWS)}
+        assert resp.json() == {"bindings": len(DEMO_ROWS)}
         assert len(app.state.reads) == 1
         assert app.state.reads[0][1] is False
 

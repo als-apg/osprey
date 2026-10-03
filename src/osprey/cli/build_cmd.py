@@ -86,6 +86,7 @@ from .build_injectors import (
     _inject_va,
     _inject_va_archiver,
     _locate_pkg_services,
+    graphdb_corpus_fill,
 )
 from .build_lifecycle import (
     _SHELL_METACHARACTERS,
@@ -1740,7 +1741,7 @@ class GraphIndexTarget:
     """The staged Turtle corpus, as ``services.graphdb.ttl_path`` resolves."""
 
     index_path: Path
-    """Where ``services.graphdb.index_path`` says the index goes."""
+    """``data/channel_databases/graph.duckdb`` under the render, where the index goes."""
 
 
 def _graph_index_target(
@@ -1748,20 +1749,20 @@ def _graph_index_target(
     rendered_config: Mapping[str, Any],
     reported: set[str] | None = None,
 ) -> GraphIndexTarget | None:
-    """The corpus and index path for a graph-mode render, or ``None`` with a reason.
+    """The corpus and index path for a render with a graph store, or ``None`` with a reason.
 
-    Only the rendered config can answer this: both keys are render-relative
+    Only the rendered config can answer this: the corpus key and the fixed
+    index path are render-relative
     (:func:`osprey.utils.config_paths.resolve_render_relative_path`), so they
     are resolved against the render that wrote them rather than against the repo
-    or the working directory. That is the same resolution the roster, the
-    ``osprey knowledge`` verbs and the deploy's seeding step apply, which is what
-    keeps the build writing the index where every reader afterwards looks.
+    or the working directory. That is the same resolution the ``osprey
+    knowledge`` verbs and the deploy's seeding step apply, which is what keeps
+    the build writing the index where every reader afterwards looks.
 
     The three answers that are not a target are facts rather than failures. A
     project with no corpus staged is a legal project: it keeps its device card
-    from the store it dials, and its roster reports the same absence it reports
-    today. So each returns ``None`` after saying which key left it there, and
-    the build carries on.
+    from the store it dials. So each returns ``None`` after saying which key
+    left it there, and the build carries on.
 
     Args:
         render_dir: The render's own directory, holding its ``config.yml``.
@@ -1820,8 +1821,7 @@ def _build_graph_index(
 ) -> Path | None:
     """Write the render's channel search index, building it at most once per build.
 
-    The index is what the graph paradigm's roster, explorer and keyword tool
-    read, so every render that ships a corpus ships one derived from THAT
+    The index is what the graph paradigm's explorer and keyword tool read, so every render that ships a corpus ships one derived from THAT
     corpus. Deriving it is an rdflib parse of the whole file, and the render
     passes of one build stage the same corpus over and over, so the first pass
     builds and the rest copy: the memo is keyed on the corpus text's digest
@@ -1887,14 +1887,14 @@ def _build_graph_index(
 
     shared.graph_indexes[digest] = target.index_path
     progress(
-        "  ✓ Built the channel search index (%d channel(s) from %s)",
-        report.channel_count,
+        "  ✓ Built the channel search index (%d binding(s) from %s)",
+        report.binding_count,
         target.corpus_path.name,
     )
     _report_fact(
         f"Channel search index built from {target.corpus_path.name}: "
         f"{report.binding_count} binding(s) over {report.device_count} device(s), "
-        f"{report.channel_count} channel(s), {report.class_count} class(es)."
+        f"{report.class_count} class(es)."
     )
     return target.index_path
 
@@ -2166,14 +2166,17 @@ def _render_project(
         # contribute to the rendered config, applied with the profile's own
         # `config:` entries in one pass.
         #
-        # Two entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
+        # Three entries are FILL-IF-ABSENT rather than refuse-if-spelled. One is
         # `layout`'s host ports: a host port is the facility's to move —
         # `services.<name>.port` is the documented override — so the fill only
         # supplies the layout's number for a service block the profile deploys
         # and left without one, and a spelled port is skipped rather than
-        # refused. The other is the deploy block's `registry.url`, filled only
+        # refused. Another is the deploy block's `registry.url`, filled only
         # when `config:` names none, because a facility may point the web tier
-        # at a registry other than the one CI pushes to. Every other derived key
+        # at a registry other than the one CI pushes to. The third is
+        # `graphdb`'s corpus: a `services.graphdb` block seeds its store from
+        # the graph view this build writes unless the profile names a corpus
+        # of its own. Every other derived key
         # the profile also spells is rejected at validation, so winning here can
         # never silently overwrite a facility's own value. `layout` is listed
         # first so that a block below, which does own its keys, still wins if
@@ -2185,6 +2188,7 @@ def _render_project(
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
             "modules.web_terminals": health_config_overrides(build_profile.config),
+            "graphdb": graphdb_corpus_fill(build_profile.config),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
@@ -2372,16 +2376,14 @@ def _render_project(
             data_root / "facility", shared.facility, shared.knowledge_links_reported, repo_root
         )
 
-        # The graph paradigm's roster, explorer and keyword tool all read the
-        # search index rather than the corpus, so a graph-mode render that ships
-        # a corpus ships the index too. Gated on the paradigm the profile
-        # resolved, which is what the render just wrote as
-        # `channel_finder.pipeline_mode`. Before the manifest write below, so the
-        # index is inside the render when the checksums are taken.
-        if build_profile.channel_finder_mode == "graph":
-            graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
-            if graph_target is not None:
-                _build_graph_index(shared, graph_target, progress)
+        # The explorer and the keyword tool read the search index rather than the
+        # corpus, so every render that seeds a graph store ships the index
+        # derived from the same corpus, whatever its channel-finder paradigm.
+        # Before the manifest write below, so the index is inside the render
+        # when the checksums are taken.
+        graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
+        if graph_target is not None:
+            _build_graph_index(shared, graph_target, progress)
 
         if not va_from_databases:
             # This render now holds its facility file, so the roster the manifest
@@ -4375,10 +4377,11 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
 
     One kind of ``services.<name>`` key is not a claim about the stack at all:
     a key that names a file in the render's OWN data tree —
-    ``services.graphdb.ttl_path``, the corpus, and ``index_path``, the search
-    index the build derives from it. An attached render stages that ``data/``
-    tree like any other, and its build and its containers read both files from
-    it, so the key is as true for the persona as for its host. Which keys those
+    ``services.graphdb.ttl_path``, the corpus the build derives the search
+    index from, which it writes to ``data/channel_databases/graph.duckdb`` in
+    the same tree. An attached render stages that ``data/`` tree like any
+    other, and its build and its containers read both files from it, so the key
+    is as true for the persona as for its host. Which keys those
     are is the Reach Contract's declaration
     (:attr:`osprey.deployment.reach.ReachContract.render_local`), read here
     through :func:`osprey.deployment.reach.render_local_keys`, and they are

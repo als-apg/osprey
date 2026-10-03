@@ -119,30 +119,30 @@ Graph
 
 The graph pipeline has no channel database of its own: the facility graph
 describes the machine. Its contract is the graph schema documented in
-:doc:`/how-to/facility-knowledge/use-facility-graph`, authored as the Turtle
-corpus ``services.graphdb.ttl_path`` names. Load that corpus into the
-``services.graphdb`` store with ``osprey knowledge seed-graph``.
+:doc:`/how-to/facility-knowledge/use-facility-graph`, carried by the Turtle
+corpus ``osprey build`` writes from the facility file into
+``data/graph/facility.ttl``. The build writes that path into every rendered
+``services.graphdb`` block as ``ttl_path`` unless the profile names a corpus of
+its own. Load that corpus into the ``services.graphdb`` store with ``osprey
+knowledge seed-graph``.
 
 The corpus is the source of truth, and two things are built from it. The store
 answers questions about structure — which device an address belongs to, what a
 class is a kind of — and the device card and the agent's Cypher tools read it.
-``osprey build`` also derives a flat search index from the same file, and a
-graph-mode project ships that index as ``data/channel_databases/graph.duckdb``
-(``services.graphdb.index_path``). Nothing parses the corpus while the
-deployment runs; rebuild the index with ``osprey knowledge build-index``
+``osprey build`` also derives a flat search index from the same file, and every
+render with a ``services.graphdb`` block ships that index as
+``data/channel_databases/graph.duckdb`` under the render, a fixed path no key
+moves. Nothing parses the corpus while
+the deployment runs; rebuild the index with ``osprey knowledge build-index``
 whenever the corpus changes, and seed the store from the same file so the two
 agree.
 
-The corpus is also this deployment's **channel roster** — the one answer to
-which channels the facility has, and which of them are written. The web
-interface enumerates and validates against it, and ``osprey build`` derives the
-queue server's plan devices from it (:doc:`/how-to/bluesky/write-plans`). Both
-read the index built from the corpus, not the store, and both need a corpus
-this deployment holds (``services.graphdb.ttl_path``), or an ``index_path``
-that names an index built elsewhere: a deployment pointed at a store the
-facility runs, holding no corpus file of its own and no such index, has
-nothing to enumerate, and the two web routes say so — naming that key —
-instead of reporting a facility with no channels.
+The deployment's **channel roster** — the one answer to which channels the
+facility has, and which of them are written — is the facility file
+(``facility.json``) the build writes at the root of the render, not the corpus
+or the index. The web interface enumerates and validates against it, and
+``osprey build`` derives the queue server's plan devices from it
+(:doc:`/how-to/bluesky/write-plans`).
 
 
 Configuration Reference

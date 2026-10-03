@@ -73,7 +73,6 @@ from osprey.bluesky_bridge_connection import (
     lane_env_prefix,
 )
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_INDEX_PATH_CONFIG_KEY,
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
     GRAPHDB_SERVICE_NAME,
@@ -905,12 +904,12 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
         names_external=_graphdb_named,
-        # The corpus and the search index derived from it are files in the
-        # render's own data/ tree, which every attached render stages: the
-        # build derives the persona's index from the persona's own corpus key,
-        # and inside the container the roster, the explorer and the keyword
-        # tool resolve both files against the render they sit in.
-        render_local=(GRAPHDB_TTL_PATH_CONFIG_KEY, GRAPHDB_INDEX_PATH_CONFIG_KEY),
+        # The corpus is a file in the render's own data/ tree, which every
+        # attached render stages: the build derives the persona's index from
+        # the persona's own corpus key, and inside the container the explorer
+        # and the keyword tool resolve the corpus and the index beside it
+        # against the render they sit in.
+        render_local=(GRAPHDB_TTL_PATH_CONFIG_KEY,),
         note="the graph MCP server and the graph channel finder dial bolt on loopback",
     ),
     "postgresql": ReachContract(

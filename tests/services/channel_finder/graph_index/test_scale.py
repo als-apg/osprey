@@ -59,7 +59,6 @@ from osprey.services.channel_finder.graph_index.builder import (
     ClassRow,
     build_from_rows,
     build_graph_index,
-    channels_from_rows,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
@@ -82,9 +81,8 @@ logger = logging.getLogger(__name__)
 #: Writing a hundred thousand derived rows into a fresh DuckDB file.
 #:
 #: A workstation takes about 1.0 s in all -- 0.01 ms per binding row -- of
-#: which roughly two thirds is the two bulk loads: the twelve-column
-#: ``bindings`` table and the three-column ``channels`` table pivoted into
-#: registered frames and read columnwise by ``INSERT ... SELECT``. The history
+#: which roughly two thirds is the bulk load of the ``bindings`` table pivoted
+#: into a registered frame and read columnwise by ``INSERT ... SELECT``. The history
 #: is worth keeping: the writer first inserted row by row through
 #: ``executemany``, which cost ~0.26 ms per binding row and ~0.13 ms per
 #: channel row whatever the batch size (26 s and 13 s, 36.7 s in all), because
@@ -279,6 +277,9 @@ def synthetic_binding_rows() -> list[BindingRow]:
                         device_name=device_name,
                         section=section,
                         system=system,
+                        place_path=f"{system}/{section}",
+                        s_position_m=float(section_index * ORDINAL_COUNT + ordinal),
+                        ordinal_in_place=ordinal,
                         edges=list(edges),
                         signal_uris=[f"{_NARAD}signal/{name}" for name in signal_names],
                         signal_names=list(signal_names),
@@ -607,7 +608,6 @@ class TestHundredThousandBindings:
     def built(self, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, int, float]:
         rows = synthetic_binding_rows()
         classes = synthetic_class_rows(rows)
-        channels = channels_from_rows(rows)
         index_path = tmp_path_factory.mktemp("scale") / "graph.duckdb"
         meta = {
             "corpus_sha256": "c" * 64,
@@ -621,7 +621,7 @@ class TestHundredThousandBindings:
         assert set(meta) == set(CALLER_META_KEYS), sorted(meta)
 
         started = time.perf_counter()
-        report = build_from_rows(rows, classes, channels, index_path, meta)
+        report = build_from_rows(rows, classes, index_path, meta)
         elapsed = time.perf_counter() - started
 
         assert report.binding_count == len(rows)
