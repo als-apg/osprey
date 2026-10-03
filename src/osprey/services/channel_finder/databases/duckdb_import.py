@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 
 import duckdb
 
+from osprey.services.channel_finder.databases.duckdb_bulk import bulk_insert
 from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
 from osprey.services.channel_finder.databases.middle_layer import (
     MiddleLayerDatabase,
@@ -93,11 +94,12 @@ def _import_systems(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> 
     if not systems:
         return 0
     con.execute("DELETE FROM systems")
-    con.executemany(
-        "INSERT INTO systems (name, description) VALUES (?, ?)",
+    return bulk_insert(
+        con,
+        "systems",
+        ("name", "description"),
         [(s["name"], s["description"]) for s in systems],
     )
-    return len(systems)
 
 
 def _import_families(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
@@ -110,11 +112,7 @@ def _import_families(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
     if not rows:
         return 0
     con.execute("DELETE FROM families")
-    con.executemany(
-        "INSERT INTO families (system, name, description) VALUES (?, ?, ?)",
-        rows,
-    )
-    return len(rows)
+    return bulk_insert(con, "families", ("system", "name", "description"), rows)
 
 
 #: The MML ``Units`` mode words, lower-cased: which of ``HWUnits`` and
@@ -188,15 +186,25 @@ def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
                 )
             )
 
-    if rows:
-        con.executemany(
-            """INSERT INTO channels
-               (channel_name, system, family, field, subfield, description,
-                units, data_type, mode, member_of, source, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            rows,
-        )
-    return len(rows)
+    return bulk_insert(
+        con,
+        "channels",
+        (
+            "channel_name",
+            "system",
+            "family",
+            "field",
+            "subfield",
+            "description",
+            "units",
+            "data_type",
+            "mode",
+            "member_of",
+            "source",
+            "updated_at",
+        ),
+        rows,
+    )
 
 
 def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
@@ -224,14 +232,12 @@ def _import_device_map(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) 
                 cname = common_names[idx] if idx < len(common_names) else ""
                 rows.append((system, family, idx, sector, device, cname))
 
-    if rows:
-        con.executemany(
-            """INSERT INTO device_map
-               (system, family, device_index, sector, device, common_name)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            rows,
-        )
-    return len(rows)
+    return bulk_insert(
+        con,
+        "device_map",
+        ("system", "family", "device_index", "sector", "device", "common_name"),
+        rows,
+    )
 
 
 def _create_fts_index(con: duckdb.DuckDBPyConnection) -> None:
