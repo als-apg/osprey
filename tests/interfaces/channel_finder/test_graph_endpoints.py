@@ -34,7 +34,6 @@ from osprey.interfaces.channel_finder.database_api import UNRESOLVED_INDEX_PATH_
 from osprey.mcp_server.graph.server_context import GraphUnreachable
 from osprey.services.channel_finder.graph_index.builder import (
     build_from_rows,
-    channels_from_rows,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
@@ -106,7 +105,6 @@ def _index_over(text: str, directory: Path) -> Iterator[GraphIndex]:
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
-        channels_from_rows(parsed.binding_rows),
         index_path,
         {
             "corpus_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),

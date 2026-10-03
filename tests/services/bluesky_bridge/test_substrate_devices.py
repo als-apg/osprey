@@ -50,7 +50,9 @@ from tests._facility_file import write_demo_facility_file
 DEMO_WRITES = 396
 DEMO_READS = 2516
 
-_SOURCE = RosterSource(kind=RosterSourceKind.GRAPH, path=Path("/data/demo_machine.ttl"))
+_SOURCE = RosterSource(
+    kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json"), spelled="facility.json"
+)
 _SCHEMA = "osprey.facility.bluesky_devices/1"
 
 

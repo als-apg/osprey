@@ -1759,9 +1759,8 @@ def _graph_index_target(
 
     The three answers that are not a target are facts rather than failures. A
     project with no corpus staged is a legal project: it keeps its device card
-    from the store it dials, and its roster reports the same absence it reports
-    today. So each returns ``None`` after saying which key left it there, and
-    the build carries on.
+    from the store it dials. So each returns ``None`` after saying which key
+    left it there, and the build carries on.
 
     Args:
         render_dir: The render's own directory, holding its ``config.yml``.
@@ -1820,8 +1819,7 @@ def _build_graph_index(
 ) -> Path | None:
     """Write the render's channel search index, building it at most once per build.
 
-    The index is what the graph paradigm's roster, explorer and keyword tool
-    read, so every render that ships a corpus ships one derived from THAT
+    The index is what the graph paradigm's explorer and keyword tool read, so every render that ships a corpus ships one derived from THAT
     corpus. Deriving it is an rdflib parse of the whole file, and the render
     passes of one build stage the same corpus over and over, so the first pass
     builds and the rest copy: the memo is keyed on the corpus text's digest
@@ -1887,14 +1885,14 @@ def _build_graph_index(
 
     shared.graph_indexes[digest] = target.index_path
     progress(
-        "  ✓ Built the channel search index (%d channel(s) from %s)",
-        report.channel_count,
+        "  ✓ Built the channel search index (%d binding(s) from %s)",
+        report.binding_count,
         target.corpus_path.name,
     )
     _report_fact(
         f"Channel search index built from {target.corpus_path.name}: "
         f"{report.binding_count} binding(s) over {report.device_count} device(s), "
-        f"{report.channel_count} channel(s), {report.class_count} class(es)."
+        f"{report.class_count} class(es)."
     )
     return target.index_path
 

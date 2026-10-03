@@ -382,36 +382,6 @@ def test_the_index_statistics_are_the_stores_census(ties_session: Any, ties_inde
     assert stats["total_channels"] == ties_index.search()["total"], stats
 
 
-# ---------------------------------------------------------------------------
-# What the roster reads out of the same index
-# ---------------------------------------------------------------------------
-
-
-def test_the_roster_collapses_the_shared_address_to_one_channel(ties_index_path: Path) -> None:
-    """Two devices binding one address are one channel, with no direction.
-
-    The search rows keep the two apart, because an operator looking at the
-    graph is looking at devices.  The roster cannot: a channel is an address,
-    and an address that one device reads and another writes has no single
-    direction to offer, so it is offered as neither rather than as whichever
-    binding happened to sort first.
-    """
-    from osprey.channel_roster.graph import read_graph_roster
-    from osprey.channel_roster.records import RosterSource, RosterSourceKind
-
-    result = read_graph_roster(RosterSource(kind=RosterSourceKind.GRAPH, path=ties_index_path))
-    directions = {record.address: record.direction for record in result.records}
-
-    assert len(result.records) == 5, result.records
-    assert len(directions) == 5, "an address is one channel"
-    assert directions[SHARED_ADDRESS] is None, directions
-    # The binding under two devices is one address with one direction: both
-    # rows say the same thing about it, so there is nothing to reconcile.
-    assert directions[TWICE_BOUND_ADDRESS] == "read", directions
-    # And the binding carrying both edges is the other way of having none.
-    assert directions["SR:MAG:QF2:CURRENT"] is None, directions
-
-
 def test_paging_a_tie_is_stable_and_complete(ties_index: Any) -> None:
     """The index's own paging never loses or repeats a row of a tie group.
 
