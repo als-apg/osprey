@@ -360,6 +360,7 @@ class TestSessionSwitchingContract:
         mock_reg.get_session.side_effect = pool.get
         mock_reg.pop_session.side_effect = lambda key: pool.pop(key, None)
         mock_reg.pop_lru_victim.return_value = None  # a pool below capacity evicts nothing
+        mock_reg.pop_env_mismatch.return_value = None  # no warm entry under a different launch env
         mock_reg.attach_session.return_value = True
         mock_reg.is_attached.return_value = False
         mock_reg.attached_owner.return_value = None

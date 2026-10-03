@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
 import time
 import uuid as uuid_mod
 from contextlib import ExitStack
@@ -42,7 +43,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
+from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, env_fingerprint
+from osprey.interfaces.web_terminal.routes.websocket import _spawn_pooled_pty
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_handoff import (
     WS_CLOSE_OUTGOING_RUNNING,
@@ -306,6 +308,58 @@ def test_a_spawn_at_capacity_evicts_the_oldest_background_pty_off_the_loop(app, 
             assert len(spawns) == 1 and registry.get_session(sid) is spawns[0].session
 
     assert victim.killed_on_loop is False
+
+
+async def test_a_launch_env_change_kills_the_stale_pty_off_the_loop():
+    """The stale child's kill blocks for seconds, so the spawn path pops it and kills it in a
+    worker thread while the loop keeps serving."""
+
+    class SlowStalePty(ObservedPty):
+        def __init__(self):
+            super().__init__()
+            self.kill_started = threading.Event()
+            self.loop_moved = threading.Event()
+            self.kills = 0
+            self.loop_was_free: bool | None = None
+
+        def terminate(self):
+            self.kills += 1
+            self.kill_started.set()
+            # Blocks until a coroutine on the loop gets to run, or gives up.
+            self.loop_was_free = self.loop_moved.wait(timeout=1.0)
+            super().terminate()
+
+    registry = PtyRegistry(max_background=5)
+    stale = SlowStalePty()
+    registry._sessions["k"] = stale
+    registry._env_fingerprints["k"] = env_fingerprint({"OSPREY_PANEL_TOKEN": "before"})
+    fresh = ObservedPty()
+    registry._spawn_session = lambda *_args, **_kwargs: fresh
+
+    async def note_the_loop_moving():
+        while not stale.kill_started.is_set():
+            await asyncio.sleep(0.005)
+        stale.loop_moved.set()
+
+    watcher = asyncio.create_task(note_the_loop_moving())
+
+    spawned = await _spawn_pooled_pty(
+        registry,
+        "k",
+        ["fake"],
+        rows=24,
+        cols=80,
+        extra_env={"OSPREY_PANEL_TOKEN": "after"},
+        cwd=None,
+    )
+    await asyncio.wait_for(watcher, 2.0)
+
+    assert stale.loop_was_free is True
+    assert stale.kills == 1
+    assert stale.is_alive is False
+    assert spawned is fresh
+    assert registry.get_session("k") is fresh
+    assert registry._env_fingerprints["k"] == env_fingerprint({"OSPREY_PANEL_TOKEN": "after"})
 
 
 def test_a_free_key_gets_no_pending_frame(app, sessions_dir):

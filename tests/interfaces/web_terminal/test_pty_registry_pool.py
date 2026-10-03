@@ -3,7 +3,8 @@
 No real PTY is spawned. Covered here: reuse, respawn and LRU eviction on the
 production spawn path; ``pop_session``, the bookkeeping half of
 ``terminate_session`` that leaves the kill to the caller; ``pop_lru_victim``,
-the eviction pass without the kill; hand-off reservations, which hold a key
+the eviction pass without the kill; ``pop_env_mismatch``, the env-mismatch
+respawn without the kill; hand-off reservations, which hold a key
 over the gap where it is attached to nobody; and ``reinsert``, which puts a
 popped session back when its kill did not take. Attachment ownership rules
 live in ``test_pty_attach_owner.py``.
@@ -15,7 +16,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
+from osprey.interfaces.web_terminal.pty_manager import (
+    PtyRegistry,
+    env_fingerprint,
+)
 
 #: Stand-in for a consumer's attachment token. Attachment is owned by a token,
 #: not by a key, so every attach/detach in these tests names one.
@@ -289,6 +293,76 @@ class TestPopLruVictim:
         assert registry.pop_lru_victim() is s3
         assert registry.pop_lru_victim() is None
         assert "a" in registry._sessions and "b" in registry._sessions
+
+
+class TestPopEnvMismatch:
+    """``pop_env_mismatch`` is the env-mismatch respawn without the kill."""
+
+    def test_a_live_mismatched_entry_is_returned_alive_and_forgotten(self):
+        """The stale entry leaves the pool with its bookkeeping; the kill is the caller's."""
+        registry = PtyRegistry(max_background=3)
+        s = _mock_session()
+        registry._sessions["k"] = s
+        registry._env_fingerprints["k"] = env_fingerprint({"A": "1"})
+        registry.attach_session("k", OWNER)
+
+        assert registry.pop_env_mismatch("k", {"A": "2"}) is s
+        s.terminate.assert_not_called()
+        assert "k" not in registry._sessions
+        assert "k" not in registry._env_fingerprints
+        assert not registry.is_attached("k")
+
+    def test_a_matching_entry_stays_pooled(self):
+        """An entry spawned under the same launch env is left to be reattached."""
+        registry = PtyRegistry(max_background=3)
+        s = _mock_session()
+        registry._sessions["k"] = s
+        registry._env_fingerprints["k"] = env_fingerprint({"A": "1"})
+
+        assert registry.pop_env_mismatch("k", {"A": "1"}) is None
+        assert registry._sessions["k"] is s
+        s.terminate.assert_not_called()
+
+    def test_a_dead_entry_is_left_for_the_respawn_path(self):
+        """A dead entry is not popped, whatever its launch env."""
+        registry = PtyRegistry(max_background=3)
+        s = _mock_session(alive=False)
+        registry._sessions["k"] = s
+        registry._env_fingerprints["k"] = env_fingerprint({"A": "1"})
+
+        assert registry.pop_env_mismatch("k", {"A": "2"}) is None
+        assert "k" in registry._sessions
+
+    def test_an_unknown_key_pops_nothing(self):
+        """A key the pool does not hold yields None."""
+        registry = PtyRegistry(max_background=3)
+
+        assert registry.pop_env_mismatch("k", {"A": "1"}) is None
+
+    def test_an_unrecorded_entry_counts_as_the_base_environment(self):
+        """An entry with no recorded fingerprint matches no overlay and nothing else."""
+        registry = PtyRegistry(max_background=3)
+        s = _mock_session()
+        registry._sessions["k"] = s
+        assert "k" not in registry._env_fingerprints
+
+        assert registry.pop_env_mismatch("k", None) is None
+        assert registry._sessions["k"] is s
+        assert registry.pop_env_mismatch("k", {"A": "1"}) is s
+
+    def test_get_or_create_kills_the_mismatched_entry_once(self):
+        """The synchronous path composes the pop with exactly one kill, then spawns."""
+        registry = PtyRegistry(max_background=3)
+        s = _mock_session()
+        registry._sessions["k"] = s
+        registry._env_fingerprints["k"] = env_fingerprint({"A": "1"})
+        fresh = _mock_session()
+
+        with patch.object(registry, "_spawn_session", return_value=fresh):
+            result = registry.get_or_create_session("k", ["cmd"], extra_env={"A": "2"})
+
+        assert result == (fresh, False)
+        s.terminate.assert_called_once()
 
 
 class TestReservations:
