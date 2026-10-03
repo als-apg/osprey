@@ -6,6 +6,7 @@ migration logic and configuration parts that don't require database access.
 
 import json
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -126,6 +127,12 @@ class RecordingMigration(StubMigration):
         self.events.append("mark_unapplied")
 
 
+@asynccontextmanager
+async def no_lock(_conninfo, _key, **_kwargs):
+    """Lock factory that holds nothing, so fake-pool runner tests open no connection."""
+    yield True
+
+
 def make_runner(pool=None, config: ARIELConfig | None = None) -> MigrationRunner:
     """Build a MigrationRunner that needs no real database.
 
@@ -138,7 +145,7 @@ def make_runner(pool=None, config: ARIELConfig | None = None) -> MigrationRunner
     """
     if config is None:
         config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost:5432/test"))
-    return MigrationRunner(pool=pool, config=config)  # type: ignore[arg-type]
+    return MigrationRunner(pool=pool, config=config, lock_factory=no_lock)  # type: ignore[arg-type]
 
 
 def sql_index(conn, needle: str) -> int:
@@ -832,6 +839,10 @@ class TestGetEnabledMigrations:
             "core_schema",
             "keyword_search_fts_index",
             "attachment_files",
+            "attachment_text_columns",
+            "attachment_text_upstream_fold",
+            "raw_text_fts_index_v2",
+            "attachment_files_copy_state",
             "als_logbook_plain_text",
         ]
 
@@ -914,7 +925,7 @@ class TestMigrationRunnerRun:
         runner = make_runner(pool=fake_pool)
         runner._get_enabled_migrations = lambda: [embedding, core]  # type: ignore[method-assign]
 
-        assert await runner.run() == ["core_schema", "text_embedding"]
+        assert await runner.run() == (["core_schema", "text_embedding"], [])
         assert core.events == ["is_applied", "up", "mark_applied"]
         assert embedding.events == ["is_applied", "up", "mark_applied"]
 
@@ -924,7 +935,7 @@ class TestMigrationRunnerRun:
         runner = make_runner(pool=fake_pool)
         runner._get_enabled_migrations = lambda: [migration]  # type: ignore[method-assign]
 
-        assert await runner.run() == []
+        assert await runner.run() == ([], [])
         assert migration.events == ["is_applied"]
 
     async def test_dry_run_reports_without_touching_the_schema(self, fake_pool, caplog) -> None:
@@ -934,7 +945,7 @@ class TestMigrationRunnerRun:
         runner = make_runner(pool=fake_pool)
         runner._get_enabled_migrations = lambda: [migration]  # type: ignore[method-assign]
 
-        assert await runner.run(dry_run=True) == ["core_schema"]
+        assert await runner.run(dry_run=True) == (["core_schema"], [])
         assert migration.events == ["is_applied"]
         assert "Would apply migration: core_schema" in caplog.text
 
@@ -944,7 +955,8 @@ class TestMigrationRunnerRun:
         """A missing prerequisite (e.g. pgvector) downgrades to a warning.
 
         The migration must stay unmarked so it retries once the prerequisite is
-        installed, and later migrations must still get their turn.
+        installed, and a migration depending on it must wait with it rather
+        than run against a schema its dependency never built.
         """
         caplog.set_level(logging.WARNING, logger="ariel")
         skipped = RecordingMigration(
@@ -954,9 +966,12 @@ class TestMigrationRunnerRun:
         runner = make_runner(pool=fake_pool)
         runner._get_enabled_migrations = lambda: [skipped, follower]  # type: ignore[method-assign]
 
-        assert await runner.run() == ["attachment_files"]
+        assert await runner.run() == ([], [])
         assert skipped.events == ["is_applied", "up"]
+        assert "up" not in follower.events
+        assert "mark_applied" not in follower.events
         assert "Migration text_embedding skipped: pgvector is not available" in caplog.text
+        assert "attachment_files waits for text_embedding" in caplog.text
 
     async def test_unexpected_failure_aborts_the_run(self, fake_pool, caplog) -> None:
         """Any non-skip error propagates and stops later migrations."""
@@ -985,7 +1000,7 @@ class TestMigrationRunnerRun:
         runner = make_runner(pool=fake_pool)
         runner._get_enabled_migrations = lambda: [migration]  # type: ignore[method-assign]
 
-        assert await runner.run() == ["core_schema"]
+        assert await runner.run() == (["core_schema"], [])
         assert migration.events == ["is_applied", "up", "mark_applied"]
         assert fake_pool.conn.transactions == ["BEGIN", "COMMIT"]
 
@@ -1029,7 +1044,7 @@ class TestMigrationRunnerRun:
         runner = make_runner(pool=fake_pool)
         runner._get_enabled_migrations = lambda: [skipped]  # type: ignore[method-assign]
 
-        assert await runner.run() == []
+        assert await runner.run() == ([], [])
         assert "mark_applied" not in skipped.events
         assert fake_pool.conn.transactions == ["BEGIN", "ROLLBACK"]
 
@@ -1039,7 +1054,7 @@ class TestMigrationRunnerRun:
         monkeypatch.setattr(MigrationRunner, "_get_enabled_migrations", lambda self: [migration])
         config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost:5432/test"))
 
-        assert await run_migrations(fake_pool, config) == ["core_schema"]
+        assert await run_migrations(fake_pool, config, lock_factory=no_lock) == ["core_schema"]
         assert migration.events == ["is_applied", "up", "mark_applied"]
 
 

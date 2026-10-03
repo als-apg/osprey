@@ -8,7 +8,7 @@ that index appear without mutating the historical migration record.
 from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.database.migrations import BaseMigration
-from osprey.services.ariel_search.database.search_fts import RAW_TEXT_FTS_EXPRESSION
+from osprey.services.ariel_search.database.search_fts import RAW_TEXT_FTS_EXPRESSION_V1_FROZEN
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -32,7 +32,7 @@ class KeywordSearchFtsMigration(BaseMigration):
         await conn.execute(
             f"""
             CREATE INDEX IF NOT EXISTS idx_entries_raw_text_fts
-            ON enhanced_entries USING GIN({RAW_TEXT_FTS_EXPRESSION})
+            ON enhanced_entries USING GIN({RAW_TEXT_FTS_EXPRESSION_V1_FROZEN})
             """
         )
 

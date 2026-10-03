@@ -379,6 +379,56 @@ async def _seed_rows(repository: Any, factory: Any, rows: tuple[tuple[str, str],
         )
 
 
+@pytest.fixture
+def scratch_database(database_url: str):
+    """A fresh, empty database on the session server, dropped at teardown.
+
+    For the tests that need an empty store, a fresh migration run or exactly
+    today's migration set: the shared ``ariel_test`` database is migrated once
+    per session and carries every other module's state, so it can answer none
+    of those. ``vector`` is created when the server has pgvector, as the
+    session database has it.
+
+    Args:
+        database_url: Session database URL; its server hosts the scratch one.
+
+    Yields:
+        The scratch database's URI.
+    """
+    import uuid
+
+    import psycopg
+    from psycopg import sql
+
+    name = f"ariel_{uuid.uuid4().hex}"
+    uri = f"{database_url.rsplit('/', 1)[0]}/{name}"
+    with psycopg.connect(database_url, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    try:
+        with psycopg.connect(uri, autocommit=True) as conn:
+            try:
+                conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            except psycopg.Error:
+                pass  # no pgvector on this server; the vector migrations skip
+        yield uri
+    finally:
+        with psycopg.connect(database_url, autocommit=True) as conn:
+            conn.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
+            )
+
+
+@pytest.fixture
+def scratch_config(scratch_database: str, integration_ariel_config: ARIELConfig) -> ARIELConfig:
+    """``integration_ariel_config`` pointed at :func:`scratch_database`."""
+    from dataclasses import replace
+
+    return replace(
+        integration_ariel_config,
+        database=replace(integration_ariel_config.database, uri=scratch_database),
+    )
+
+
 @pytest.fixture(scope="package")
 def seeded_prefixes(database_url: str):
     """Ledger of the entry-id prefixes seeded so far, cleaned up at teardown.
