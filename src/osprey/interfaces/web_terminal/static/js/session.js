@@ -1,9 +1,11 @@
 // @ts-check
 /* OSPREY Web Terminal — Session Activity Log: Entry Point
  *
- * Bootstraps session.html: theme + embedded-mode wiring, the same-origin
- * osprey-session-change receiver (the receiver-rejects-foreign-origin
- * contract is pinned by test_contract_params.py), the four-view nav, the
+ * Bootstraps session.html: theme + embedded-mode wiring, the session id
+ * (first from the page's own ?session_id=, then from a host frame's
+ * same-origin osprey-session-change message — the
+ * receiver-rejects-foreign-origin contract is pinned by
+ * test_contract_params.py), the four-view nav, the
  * shared api/toast helpers the view renderers (session-views.js) depend
  * on, the periodic refresh loop, and the activity strip's SSE feed.
  *
@@ -17,6 +19,7 @@ import { renderAgents, renderToolLog, renderArtifacts, renderConversation } from
 import { withPrefix, createEventSource } from './api.js';
 import { bootActivityStrip } from './activity-strip.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
+import { sessionIdFromQuery } from './activity-log-link.js';
 
 /** @typedef {'agents'|'toollog'|'artifacts'|'conversation'} ViewName */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -51,8 +54,12 @@ initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 // ---- State ----
 /** @type {ViewName} */
 let activeView = 'agents';
-/** @type {string|null} */
-let currentSessionId = null;
+/**
+ * The session a link named, or `null` for the project's most recent
+ * transcript; a host frame's `osprey-session-change` replaces it.
+ * @type {string|null}
+ */
+let currentSessionId = sessionIdFromQuery(window.location.search);
 /** @type {SessionCache} */
 let cache = { agents: null, toollog: null, artifacts: null, conversation: null };
 

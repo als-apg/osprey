@@ -8,6 +8,9 @@
  *   - theme role: standalone, the page owns its theme (a pick persists);
  *     framed (?embedded=true), it follows its host and never writes the
  *     host's preference
+ *   - session scope: the page reads a canonical ?session_id= from its own URL,
+ *     ignores a malformed one, and still moves when a host frame names
+ *     another session
  *
  *   npx vitest run tests/interfaces/web_terminal/session-standalone.test.mjs
  */
@@ -71,5 +74,42 @@ describe('theme role', () => {
     ThemeManager.setTheme('light');
 
     expect(localStorage.getItem('osprey-theme')).toBeNull();
+  });
+});
+
+describe('session scope', () => {
+  const KEY = '11111111-2222-3333-4444-555555555555';
+  const OTHER_KEY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  /** @returns {string[]} */
+  const fetchedUrls = () => fetchStub.mock.calls.map((call) => String(call[0]));
+  // The page's own reads; modules in its import closure fetch other routes.
+  /** @returns {string[]} */
+  const sessionReads = () => fetchedUrls().filter((url) => url.includes('/api/session-'));
+
+  test('a link naming a session scopes the first read to it', async () => {
+    await bootAt(`/static/session.html?session_id=${KEY}`);
+
+    expect(sessionReads()[0]).toContain(`session_id=${KEY}`);
+  });
+
+  test('a malformed session_id is not read', async () => {
+    await bootAt('/static/session.html?session_id=..%2F..%2Fx');
+
+    expect(sessionReads().length).toBeGreaterThan(0);
+    expect(fetchedUrls().some((url) => url.includes('session_id'))).toBe(false);
+  });
+
+  test('a host frame stays authoritative over the URL', async () => {
+    await bootAt(`/static/session.html?session_id=${KEY}`);
+    const before = sessionReads().length;
+
+    window.postMessage(
+      { type: 'osprey-session-change', session_id: OTHER_KEY },
+      window.location.origin,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sessionReads()[before]).toContain(`session_id=${OTHER_KEY}`);
   });
 });
