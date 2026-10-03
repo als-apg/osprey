@@ -19,6 +19,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator
 
 from osprey.agent_runner.clean_env import build_base_child_env
+from osprey.interfaces.web_terminal import process_tree
 from osprey.utils.logger import get_logger
 
 logger = get_logger("pty_manager")
@@ -281,18 +282,31 @@ class PtySession:
         self._last_cols = cols
 
     def terminate(self) -> None:
-        """Terminate the subprocess and close the PTY.
+        """End the child and every process descending from it, and close the PTY.
 
-        Blocking, and best-effort: it hangs up the terminal, then escalates
-        SIGTERM to SIGKILL, waiting between steps, so it can occupy the
-        calling thread for about seven seconds. A caller that must not block
-        that long runs it in a worker thread.
+        The descendants are ended by process group, the child's own group
+        included, so a command the agent ran in a group of its own ends too;
+        the server's own group never is. Blocking, and best-effort: it hangs up
+        the terminal, escalates SIGTERM to SIGKILL against the child, then does
+        the same to the started groups, waiting between steps, so it can occupy
+        the calling thread for about seven seconds for the child plus about
+        five more for started processes that ignore SIGTERM. A caller that
+        must not block that long runs it in a worker thread.
 
         It may also return with the child still running — the SIGKILL wait can
         expire, which is logged and then let go. Returning is therefore not
         proof of death: :attr:`is_alive` is, and it is the probe anything that
-        needs to *know* the child is gone must poll.
+        needs to *know* the child is gone must poll. What became of the started
+        processes is in the log line this method writes.
         """
+        # Taken before the hang-up: a process the agent started in a session
+        # of its own keeps its parent link only until the agent exits.
+        groups = (
+            process_tree.tree_groups(self._process.pid)
+            if self._process is not None and self._process.poll() is None
+            else []
+        )
+
         # Close master fd FIRST — the kernel sends SIGHUP to the entire
         # session (all process groups under this session leader), which is the
         # standard Unix mechanism for cleaning up terminal sessions.  Shells
@@ -332,6 +346,22 @@ class PtySession:
                             "PTY process %d did not exit after SIGKILL — orphaned",
                             self._process.pid,
                         )
+
+        if groups and self._process is not None:
+            ended, survivors = process_tree.end_groups(groups)
+            if ended:
+                logger.info(
+                    "Ended %d process group(s) the PTY child %d started: %s",
+                    len(ended),
+                    self._process.pid,
+                    process_tree.describe(ended),
+                )
+            if survivors:
+                logger.warning(
+                    "Process group(s) the PTY child %d started survived SIGKILL: %s",
+                    self._process.pid,
+                    process_tree.describe(survivors),
+                )
 
     @property
     def pid(self) -> int | None:
