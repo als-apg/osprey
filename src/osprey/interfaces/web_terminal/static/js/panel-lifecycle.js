@@ -45,6 +45,7 @@ import {
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} ensureActive - give the empty workspace slot to the best panel available
  * @property {(id: string, options?: {userInitiated?: boolean}) => void} activate - surface a healthy panel
+ * @property {(id: string) => void} navigatePending - load the address a panel was pointed at while it was not answering
  */
 
 /** @type {LifecycleDeps | null} */
@@ -268,6 +269,7 @@ function onHealthSettled(panel, wasHealthy) {
     state.missSince = null;
     if (!wasHealthy) {
       setEntryEnabled(c.getRailEl(), panel.id, true);
+      c.navigatePending(panel.id);
       if (state.activateOnHealthy) {
         // The operator asked for this panel by clicking its failed entry.
         state.activateOnHealthy = false;
