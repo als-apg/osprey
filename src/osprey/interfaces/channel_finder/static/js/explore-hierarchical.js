@@ -4,22 +4,20 @@
  *
  * Progressive drill-down through hierarchy levels with multi-select
  * support on instance levels and "Build Channels" action.
- * Inline CRUD: add, rename, delete nodes at each level.
+ * Read-only: corrections go into data/facility/fixes.yaml and take effect with
+ * `osprey build`.
  */
 
-import { fetchJSON, postJSON, putJSON, deleteJSON } from './api.js';
+import { fetchJSON } from './api.js';
 import { showToast } from './app.js';
 import { esc, messageOf } from './utils.js';
-import { formModal, confirmModal } from './modal.js';
-import { refreshStatsBadges } from './stats-badges.js';
-import { isTreeLevel, computeSelection } from './explore-selection.js';
+import { computeSelection } from './explore-selection.js';
 
 /**
  * @typedef {object} Column
  * @property {string} level
  * @property {any[]} options
  * @property {Set<string>} selectedValues
- * @property {any} [expansion]
  */
 
 /** @type {any} */
@@ -44,6 +42,9 @@ export function setShowDescriptions(val) {
  */
 export async function mountHierarchical(container) {
   container.innerHTML = `
+    <div class="cf-corrections-info" style="color: var(--text-muted); font-size: var(--cf-text-sm); margin-bottom: var(--cf-space-2);">
+      Corrections go in <code>data/facility/fixes.yaml</code> and take effect with <code>osprey build</code>.
+    </div>
     <div class="miller-container" id="miller-container">
       <div class="loading-center"><div class="loading-spinner"></div> Loading hierarchy...</div>
     </div>
@@ -97,23 +98,10 @@ async function loadLevel(levelIdx) {
     // Trim columns beyond current level
     columns = columns.slice(0, levelIdx);
 
-    // For instance-type levels, eagerly fetch expansion config
-    let expansion = null;
-    if (!isTreeLevel(hierInfo?.hierarchy_config?.levels, level)) {
-      try {
-        const expSelParam = Object.keys(apiSelections).length > 0
-          ? `?selections=${encodeURIComponent(JSON.stringify(apiSelections))}&level=${encodeURIComponent(level)}`
-          : `?level=${encodeURIComponent(level)}`;
-        const expData = await fetchJSON(`/api/tree/expansion${expSelParam}`);
-        expansion = expData.expansion || null;
-      } catch { /* expansion info unavailable */ }
-    }
-
     columns.push({
       level,
       options: data.options || [],
       selectedValues: new Set(),
-      expansion,
     });
 
     renderColumns();
@@ -127,18 +115,11 @@ function renderColumns() {
   if (!mc) return;
 
   mc.innerHTML = columns.map((col, colIdx) => {
-    const treeLevel = isTreeLevel(hierInfo?.hierarchy_config?.levels, col.level);
     const items = (col.options || []).map((/** @type {any} */ opt) => {
       const name = typeof opt === 'string' ? opt : (opt.name || opt.label || opt.value || '');
       const count = (typeof opt === 'object' && opt.count !== null && opt.count !== undefined) ? opt.count : null;
       const desc = (typeof opt === 'object' && opt.description) ? opt.description : '';
       const isSelected = col.selectedValues.has(name);
-
-      const actionBtns = treeLevel ? `
-          <span class="item-actions">
-            <button class="item-action-btn action-edit" data-col="${colIdx}" data-name="${esc(name)}" title="Edit">&#9998;</button>
-            <button class="item-action-btn action-delete" data-col="${colIdx}" data-name="${esc(name)}" title="Delete">&times;</button>
-          </span>` : '';
 
       const descHtml = desc
         ? (showDescriptions
@@ -148,36 +129,27 @@ function renderColumns() {
 
       return `
         <div class="miller-item${isSelected ? ' selected' : ''}"
-             data-col="${colIdx}" data-value="${esc(name)}"
-             data-desc="${esc(desc)}">
+             data-col="${colIdx}" data-value="${esc(name)}">
           <div class="item-name-group">
             <span class="item-label">${esc(name)}</span>
             ${descHtml}
           </div>
           <span>${count !== null && count !== undefined ? `<span class="item-count">${esc(count)}</span>` : ''}</span>
-          ${actionBtns}
         </div>
       `;
     }).join('');
-
-    const footerBtn = treeLevel
-      ? `<div class="column-add-btn" data-col="${colIdx}">+ Add ${esc(col.level)}</div>`
-      : `<div class="column-add-btn column-edit-expansion-btn" data-col="${colIdx}">&#9881; Edit range</div>`;
 
     return `
       <div class="miller-column">
         <div class="miller-column-header">${esc(col.level)}</div>
         <div class="miller-column-body">${items || '<div class="empty-state">No options</div>'}</div>
-        ${footerBtn}
       </div>
     `;
   }).join('');
 
   // Attach click handlers for item selection
   mc.querySelectorAll('.miller-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      // Don't select when clicking action buttons
-      if (/** @type {HTMLElement} */ (e.target).closest('.item-action-btn')) return;
+    item.addEventListener('click', () => {
       const el = /** @type {HTMLElement} */ (item);
       const colIdx = parseInt(el.dataset.col ?? '', 10);
       const value = el.dataset.value;
@@ -185,262 +157,6 @@ function renderColumns() {
       handleSelect(colIdx, value);
     });
   });
-
-  // Attach CRUD handlers
-  mc.querySelectorAll('.item-action-btn.action-edit').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const el = /** @type {HTMLElement} */ (btn);
-      const name = el.dataset.name;
-      if (!name) return;
-      handleEdit(parseInt(el.dataset.col ?? '', 10), name);
-    });
-  });
-
-  mc.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const el = /** @type {HTMLElement} */ (btn);
-      const name = el.dataset.name;
-      if (!name) return;
-      handleDelete(parseInt(el.dataset.col ?? '', 10), name);
-    });
-  });
-
-  mc.querySelectorAll('.column-add-btn:not(.column-edit-expansion-btn)').forEach(btn => {
-    btn.addEventListener('click', () => {
-      handleAdd(parseInt(/** @type {HTMLElement} */ (btn).dataset.col ?? '', 10));
-    });
-  });
-
-  mc.querySelectorAll('.column-edit-expansion-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      handleEditExpansion(parseInt(/** @type {HTMLElement} */ (btn).dataset.col ?? '', 10));
-    });
-  });
-
-}
-
-// ---- CRUD Handlers ----
-
-/**
- * @param {number} colIdx
- */
-async function handleAdd(colIdx) {
-  const col = columns[colIdx];
-  if (!col) return;
-
-  const result = await formModal({
-    title: `Add ${col.level}`,
-    fields: [
-      { name: 'name', label: 'Name', required: true, placeholder: `New ${col.level} name` },
-      { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional description' },
-    ],
-  });
-
-  if (!result) return;
-
-  // Build parent_selections — include instance levels so backend can navigate
-  /** @type {Record<string, any>} */
-  const parentSelections = {};
-  for (let i = 0; i < colIdx; i++) {
-    const lvl = columns[i].level;
-    if (selections[lvl] !== undefined) {
-      const val = selections[lvl];
-      parentSelections[lvl] = Array.isArray(val) ? val[0] : val;
-    }
-  }
-
-  try {
-    await postJSON('/api/tree/node', {
-      level: col.level,
-      parent_selections: parentSelections,
-      name: result.name,
-      description: result.description,
-    });
-    showToast(`Added "${result.name}"`, 'success');
-    await loadLevel(colIdx);
-    refreshStatsBadges();
-  } catch (e) {
-    showToast(`Failed to add: ${messageOf(e)}`, 'error');
-  }
-}
-
-/**
- * @param {number} colIdx
- * @param {string} name
- */
-async function handleEdit(colIdx, name) {
-  const col = columns[colIdx];
-  if (!col) return;
-
-  // Find current description from the DOM data attribute
-  const itemEl = /** @type {HTMLElement|null} */ (document.querySelector(
-    `.miller-item[data-col="${colIdx}"][data-value="${CSS.escape(name)}"]`
-  ));
-  const currentDesc = itemEl?.dataset.desc || '';
-
-  const result = await formModal({
-    title: `Edit ${col.level}`,
-    fields: [
-      { name: 'new_name', label: 'Name', required: true, value: name },
-      { name: 'description', label: 'Description', type: 'textarea', value: currentDesc, placeholder: 'Optional description' },
-    ],
-    submitLabel: 'Save',
-  });
-
-  if (!result) return;
-
-  const nameChanged = result.new_name !== name;
-  const descChanged = result.description !== currentDesc;
-  if (!nameChanged && !descChanged) return;
-
-  // Build selections for parent path
-  /** @type {Record<string, any>} */
-  const parentSelections = {};
-  for (let i = 0; i < colIdx; i++) {
-    const lvl = columns[i].level;
-    if (selections[lvl] !== undefined) {
-      const val = selections[lvl];
-      parentSelections[lvl] = Array.isArray(val) ? val[0] : val;
-    }
-  }
-
-  try {
-    await putJSON('/api/tree/node', {
-      level: col.level,
-      selections: parentSelections,
-      old_name: name,
-      new_name: nameChanged ? result.new_name : null,
-      description: descChanged ? result.description : null,
-    });
-    const msg = nameChanged
-      ? `Renamed "${name}" to "${result.new_name}"`
-      : `Updated "${name}"`;
-    showToast(msg, 'success');
-    await loadLevel(colIdx);
-    refreshStatsBadges();
-  } catch (e) {
-    showToast(`Failed to edit: ${messageOf(e)}`, 'error');
-  }
-}
-
-/**
- * @param {number} colIdx
- * @param {string} name
- */
-async function handleDelete(colIdx, name) {
-  const col = columns[colIdx];
-  if (!col) return;
-
-  // Build selections for parent path
-  /** @type {Record<string, any>} */
-  const parentSelections = {};
-  for (let i = 0; i < colIdx; i++) {
-    const lvl = columns[i].level;
-    if (selections[lvl] !== undefined) {
-      const val = selections[lvl];
-      parentSelections[lvl] = Array.isArray(val) ? val[0] : val;
-    }
-  }
-
-  // Get impact breakdown
-  let impactText = '';
-  try {
-    const impact = await postJSON('/api/tree/impact', {
-      level: col.level,
-      selections: parentSelections,
-      name,
-    });
-    const parts = [];
-    if (impact.breakdown) {
-      for (const [lvl, count] of Object.entries(impact.breakdown)) {
-        if (count > 0) parts.push(`${count} ${lvl}${count !== 1 ? 's' : ''}`);
-      }
-    }
-    if (impact.affected_channels > 0) {
-      parts.push(`${impact.affected_channels} channel${impact.affected_channels !== 1 ? 's' : ''}`);
-    }
-    if (parts.length) {
-      impactText = `This will remove ${parts.join(', ')}.`;
-    }
-  } catch { /* ignore impact errors */ }
-
-  const confirmed = await confirmModal({
-    title: `Delete "${name}"?`,
-    message: `Remove "${name}" and all its descendants from the database.`,
-    impact: impactText,
-    confirmLabel: 'Delete',
-    danger: true,
-  });
-
-  if (!confirmed) return;
-
-  try {
-    await deleteJSON('/api/tree/node', {
-      level: col.level,
-      selections: parentSelections,
-      name,
-    });
-    showToast(`Deleted "${name}"`, 'success');
-    // Remove from selections if selected
-    if (selections[col.level] === name) {
-      delete selections[col.level];
-    }
-    await loadLevel(colIdx);
-    refreshStatsBadges();
-  } catch (e) {
-    showToast(`Failed to delete: ${messageOf(e)}`, 'error');
-  }
-}
-
-/**
- * @param {number} colIdx
- */
-async function handleEditExpansion(colIdx) {
-  const col = columns[colIdx];
-  if (!col) return;
-
-  // Build parent selections for the API call
-  /** @type {Record<string, any>} */
-  const parentSelections = {};
-  for (let i = 0; i < colIdx; i++) {
-    const lvl = columns[i].level;
-    if (selections[lvl] !== undefined) {
-      const val = selections[lvl];
-      parentSelections[lvl] = Array.isArray(val) ? val[0] : val;
-    }
-  }
-
-  // Use expansion config cached at column load time
-  const currentExpansion = col.expansion || {};
-  const hasRange = currentExpansion.range !== null && currentExpansion.range !== undefined;
-  const result = await formModal({
-    title: `Edit ${col.level} expansion`,
-    fields: [
-      { name: 'pattern', label: 'Pattern', value: currentExpansion.pattern || '', placeholder: 'e.g. B{:02d}' },
-      { name: 'start', label: 'Range start', value: hasRange ? String(currentExpansion.range[0]) : '', placeholder: '1' },
-      { name: 'end', label: 'Range end', value: hasRange ? String(currentExpansion.range[1]) : '', placeholder: '10' },
-    ],
-    submitLabel: 'Save',
-  });
-
-  if (!result) return;
-
-  try {
-    await putJSON('/api/tree/expansion', {
-      level: col.level,
-      selections: parentSelections,
-      pattern: result.pattern || null,
-      range_start: result.start ? parseInt(result.start, 10) : null,
-      range_end: result.end ? parseInt(result.end, 10) : null,
-    });
-    showToast(`Updated ${col.level} expansion`, 'success');
-    await loadLevel(colIdx);
-    refreshStatsBadges();
-  } catch (e) {
-    showToast(`Failed to update expansion: ${messageOf(e)}`, 'error');
-  }
 }
 
 // ---- Selection ----
