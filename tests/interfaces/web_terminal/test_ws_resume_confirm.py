@@ -26,7 +26,6 @@ with ``_spawn_session`` patched to a ``FakePtySession``.
 
 from __future__ import annotations
 
-import json
 import sys
 import time
 import uuid as uuid_mod
@@ -38,48 +37,9 @@ from starlette.testclient import TestClient
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from tests.interfaces.web_terminal._fakes import FakePtySession
+from tests.interfaces.web_terminal._ws import json_frames_until, recv_frame, recv_json
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
-
-
-def _recv_json(ws, msg_type: str, max_frames: int = 30):
-    """Receive frames until a JSON message with the given ``type`` arrives.
-
-    Skips binary frames. Raises ``AssertionError`` if ``msg_type`` is not
-    found within *max_frames* frames.
-    """
-    collected = []
-    for _ in range(max_frames):
-        raw = ws.receive()
-        if "text" in raw:
-            data = json.loads(raw["text"])
-            collected.append(data)
-            if data.get("type") == msg_type:
-                return data
-        # binary frames are silently skipped
-    types = [d.get("type") for d in collected]
-    raise AssertionError(
-        f"Expected JSON type '{msg_type}' not received within {max_frames} frames. "
-        f"Got types: {types}"
-    )
-
-
-def _collect_json_until(ws, msg_type: str, max_frames: int = 30) -> list[dict]:
-    """Every JSON message up to and including the first *msg_type*.
-
-    The twin of :func:`_recv_json` for asserting what did NOT arrive: read to a
-    frame the server is guaranteed to send, then inspect the whole run.
-    """
-    collected = []
-    for _ in range(max_frames):
-        raw = ws.receive()
-        if "text" in raw:
-            data = json.loads(raw["text"])
-            collected.append(data)
-            if data.get("type") == msg_type:
-                return collected
-    types = [d.get("type") for d in collected]
-    raise AssertionError(f"'{msg_type}' not received within {max_frames} frames. Got: {types}")
 
 
 def _uuid() -> str:
@@ -222,11 +182,11 @@ def test_warm_session_without_transcript_is_reattached(app):
         reg, spawned = _patch_spawn(app)
         with client.websocket_connect("/ws/terminal") as ws:
             _send_resize(ws)
-            sid = _recv_json(ws, "session_info")["session_id"]
+            sid = recv_json(ws, "session_info")["session_id"]
 
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
+            assert recv_json(ws, "session_info")["session_id"] == sid
 
         # Warm reuse under the confirmed id: nothing new spawned or pooled.
         assert list(reg._sessions) == [sid]
@@ -247,7 +207,7 @@ def test_cold_resume_with_existing_file_confirms_immediately(app, sessions_dir):
         _, spawned = _patch_spawn(app)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
+            assert recv_json(ws, "session_info")["session_id"] == sid
     assert len(spawned) == 1
 
 
@@ -270,10 +230,10 @@ def test_cold_resume_without_transcript_is_surfaced_not_spawned(app):
         reg, spawned = _patch_spawn(app)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            msg = _recv_json(ws, "transcript_missing")
+            msg = recv_json(ws, "transcript_missing")
             assert msg["session_id"] == sid
             # The server closes rather than holding a socket with no PTY.
-            assert ws.receive()["type"] == "websocket.close"
+            assert recv_frame(ws)["type"] == "websocket.close"
 
         assert spawned == []
         assert reg.get_session(sid) is None
@@ -300,13 +260,13 @@ def test_resume_child_that_finds_no_conversation_is_surfaced(app, sessions_dir):
         _, spawned = _patch_spawn(app)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
+            assert recv_json(ws, "session_info")["session_id"] == sid
             child = _wait_for_spawn(spawned)
             child.emit(b"No conversation found with session ID:\r\n")
             child.emit(f"{sid}\r\n".encode())
             child.exit(1)
 
-            seen = _collect_json_until(ws, "transcript_missing")
+            seen = json_frames_until(ws, "transcript_missing")
 
     final = seen[-1]
     assert final == {"type": "transcript_missing", "session_id": sid, "code": 1}
@@ -321,12 +281,12 @@ def test_resume_child_exiting_for_another_reason_still_sends_exit(app, sessions_
         _, spawned = _patch_spawn(app)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
+            assert recv_json(ws, "session_info")["session_id"] == sid
             child = _wait_for_spawn(spawned)
             child.emit(b"Resumed. Goodbye.\r\n")
             child.exit(0)
 
-            seen = _collect_json_until(ws, "exit")
+            seen = json_frames_until(ws, "exit")
 
     assert seen[-1] == {"type": "exit", "code": 0}
     assert "transcript_missing" not in [m["type"] for m in seen]
@@ -356,7 +316,7 @@ def test_cold_resume_of_a_chat_held_key_is_not_refused(app):
 
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
+            assert recv_json(ws, "session_info")["session_id"] == sid
 
     assert len(spawned) == 1
     assert holder.chats.get(sid) is None
@@ -373,8 +333,8 @@ def test_cold_resume_of_a_key_no_surface_holds_is_refused(app):
 
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "transcript_missing")["session_id"] == sid
-            assert ws.receive()["type"] == "websocket.close"
+            assert recv_json(ws, "transcript_missing")["session_id"] == sid
+            assert recv_frame(ws)["type"] == "websocket.close"
 
         assert spawned == []
         assert reg.get_session(sid) is None
@@ -407,8 +367,8 @@ def test_a_resume_outside_the_key_grammar_is_refused_even_with_a_transcript(app,
         reg, spawned = _patch_spawn(app)
         with client.websocket_connect(_resume_url(bad)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "transcript_missing")["session_id"] == bad
-            assert ws.receive()["type"] == "websocket.close"
+            assert recv_json(ws, "transcript_missing")["session_id"] == bad
+            assert recv_frame(ws)["type"] == "websocket.close"
 
         assert spawned == []
         assert reg.get_session(bad) is None
@@ -428,8 +388,8 @@ def test_a_resume_outside_the_key_grammar_never_reaches_the_chat_pool(app):
 
         with client.websocket_connect(_resume_url(bad)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "transcript_missing")["session_id"] == bad
-            assert ws.receive()["type"] == "websocket.close"
+            assert recv_json(ws, "transcript_missing")["session_id"] == bad
+            assert recv_frame(ws)["type"] == "websocket.close"
 
     assert spawned == []
     assert holder.chat.teardowns == 0

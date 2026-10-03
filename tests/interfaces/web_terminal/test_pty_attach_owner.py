@@ -21,7 +21,6 @@ The pool's LRU behaviour around attachment lives in
 
 from __future__ import annotations
 
-import json
 import sys
 import uuid as uuid_mod
 from unittest.mock import MagicMock, patch
@@ -33,6 +32,7 @@ from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from tests.interfaces.web_terminal._fakes import FakePtySession
+from tests.interfaces.web_terminal._ws import recv_frame, recv_json
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 
@@ -64,24 +64,11 @@ def _send_resize(ws, cols: int = 80, rows: int = 24):
     ws.send_json({"type": "resize", "cols": cols, "rows": rows})
 
 
-def _recv_type(ws, msg_type: str, max_frames: int = 30):
-    """Receive frames until a JSON message with the given ``type`` arrives."""
-    seen = []
-    for _ in range(max_frames):
-        raw = ws.receive()
-        if "text" in raw:
-            data = json.loads(raw["text"])
-            seen.append(data.get("type"))
-            if data.get("type") == msg_type:
-                return data
-    raise AssertionError(f"'{msg_type}' not received within {max_frames} frames. Got: {seen}")
-
-
 def _recv_close(ws, max_frames: int = 30) -> dict:
     """The close frame that ends the socket, skipping anything sent first."""
     seen = []
     for _ in range(max_frames):
-        raw = ws.receive()
+        raw = recv_frame(ws)
         if raw["type"] == "websocket.close":
             return raw
         seen.append(raw.get("text") or raw["type"])
@@ -256,7 +243,7 @@ class TestTerminalWsAttachment:
             reg, spawned = _patch_spawn(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
-                _recv_type(ws, "session_info")
+                recv_json(ws, "session_info")
                 assert reg.is_attached(sid) is True
 
             assert reg.is_attached(sid) is False
@@ -277,9 +264,9 @@ class TestTerminalWsAttachment:
             reg, _ = _patch_spawn(app)
             with client.websocket_connect(_resume_url(initial)) as ws:
                 _send_resize(ws)
-                _recv_type(ws, "session_info")
+                recv_json(ws, "session_info")
                 ws.send_json({"type": "switch_session", "session_id": target})
-                _recv_type(ws, "session_switched")
+                recv_json(ws, "session_switched")
 
                 assert reg.is_attached(initial) is False
                 assert reg.is_attached(target) is True
@@ -311,7 +298,7 @@ class TestTerminalWsAttachment:
 
             with client.websocket_connect(_resume_url(initial)) as ws:
                 _send_resize(ws)
-                _recv_type(ws, "session_info")
+                recv_json(ws, "session_info")
                 reg.attach_session = lambda key, owner: False
 
                 ws.send_json({"type": "switch_session", "session_id": target})
