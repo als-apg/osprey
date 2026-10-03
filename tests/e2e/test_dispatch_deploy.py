@@ -1911,20 +1911,20 @@ def _a_short_plan(repo: Path) -> dict[str, Any]:
     """``grid_scan`` arguments naming this deployment's OWN devices.
 
     Read back from the device file the build staged and from the deployment's
-    own ``channel_limits.json`` rather than authored here: the enqueue is
+    own limits table rather than authored here: the enqueue is
     validated against the names the worker registered, so a plan composed from
     a hardcoded facility channel would be refused ``unknown_device`` and these
     rows would fail on an address rather than on the owner. The sweep is the
     middle half of the axis's own band, and two points, because nothing here
     ever runs the plan.
 
-    The device NAMES come from the roster the build derived
+    The device NAMES come from the view the build staged
     (``_orm_stack.staged_devices``); the band VALUES come from the limits
-    projection, which gates a subset of those channels and enumerates none of
-    them (see ``_orm_stack.channel_limits``). The two are not the same set, so
-    the axis is the first staged corrector the limits file actually BOUNDS —
-    indexing the projection by the first staged name would raise deep inside a
-    deploy, naming nothing about the owner.
+    table, which holds the records the facility tree authors and names no
+    other channel (see ``_orm_stack.channel_limits``). The two are not the same
+    set, so the axis is the first staged corrector a record BOUNDS — indexing
+    the table by the first staged name would raise deep inside a deploy, naming
+    nothing about the owner.
     """
     correctors, bpms = _orm_stack.staged_devices(repo)
     assert correctors and bpms, (
@@ -1943,7 +1943,7 @@ def _a_short_plan(repo: Path) -> dict[str, Any]:
         None,
     )
     assert axis is not None, (
-        "no staged corrector carries a channel_limits band, so this plan has no "
+        "no staged corrector carries a limits record, so this plan has no "
         f"axis to sweep (staged correctors: {sorted(correctors)})"
     )
     axis_name, entry = axis

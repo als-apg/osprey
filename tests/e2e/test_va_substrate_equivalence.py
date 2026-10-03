@@ -33,11 +33,13 @@ spelled once in ``tests/e2e/_queue_drive.py``). That is transport only — what
 these proofs assert about the substrate is unchanged.
 
 No preset channel names are hardcoded: every address used below is derived
-from the source zone's ``data/channel_limits.json`` (a ``:SP`` address with a
-``:RB`` sibling) restricted to sp-echo pairs — the writable addresses the
-tree's own ``va_bindings.json`` does NOT claim. A plan names each device by its
+from the Bluesky view of the source zone's own facility tree (a setpoint with
+a paired readback) restricted to sp-echo pairs — the writable addresses the
+tree's own ``va_bindings.json`` does NOT claim. The suite authors one limits
+record per chosen setpoint into its own throwaway tree before the build, so
+each scan has a band to sweep inside. A plan names each device by its
 address, the name the build's device file gives it. A write the lattice model is
-coupled to has ring-wide physics side effects, wrong for an isolated
+coupled to has machine-wide physics side effects, wrong for an isolated
 fault/equivalence probe; sp-echo is a pure software echo, exactly what P3-P5
 need.
 
@@ -80,6 +82,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _orm_stack, _queue_drive
@@ -100,6 +103,11 @@ HOST_CA_OP_SCRIPT = Path(__file__).resolve().parent / "_va_host_ca_op.py"
 # Must match _va_host_ca_op.RESULT_MARKER (kept as a local literal rather than
 # imported -- tests/e2e is a package, so the helper is not on sys.path).
 HOST_CA_RESULT_MARKER = "__HOST_CA_RESULT__"
+
+#: The band of the limits record this suite authors for each sp-echo setpoint
+#: it drives. An sp-echo is a software copy with no physical range, so any band
+#: clear of 0.0 serves.
+SP_ECHO_BAND = (280.0, 360.0)
 
 
 # Channel Access port the Virtual Accelerator serves on. An ephemeral free
@@ -252,17 +260,6 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def _channel_limits(repo: Path) -> dict[str, Any]:
-    """The source zone's channel limits file, ``<repo>/data/channel_limits.json``.
-
-    This is the file ``init`` copies from the preset, not the limits database
-    the build writes to ``build/data/``: the build writes that one from the
-    facility's limits records, which bound far fewer channels than this file
-    lists. The sp-echo pairs and the scan bands are drawn from this one.
-    """
-    return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
-
-
 def _monitor_motion_bands(repo: Path, truths: dict[str, float]) -> dict[str, float]:
     """How far each served reading's declared motion can carry it from the model's truth.
 
@@ -298,49 +295,60 @@ def _monitor_motion_bands(repo: Path, truths: dict[str, float]) -> dict[str, flo
     return bands
 
 
-def _select_sp_echo_pairs(
-    repo: Path, channel_limits: dict[str, Any], count: int
-) -> list[tuple[str, str]]:
-    """Derive ``count`` disjoint sp-echo (``:SP``, ``:RB``) pairs from the
-    source zone's channel_limits.json -- no hardcoded preset channels.
+def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
+    """Derive ``count`` disjoint sp-echo (setpoint, readback) pairs from the
+    Bluesky view of the repo's own facility tree -- no hardcoded preset
+    channels.
 
-    A candidate ``:SP`` is an entry of that file whose address ends ``:SP``
-    and whose ``:RB`` sibling is an entry too. Restricted to the sp-echo partition rather than
-    every writable ``:SP``: a write the lattice model is coupled to has
-    ring-wide physics side effects (it moves other monitors through the
-    model), wrong for an isolated equivalence/fault probe -- sp-echo is a
-    pure, isolated software copy (write SP, RB follows immediately, nothing
-    else touched).
+    A candidate is a settable of that view that names a readback. Restricted
+    to the sp-echo partition rather than every settable: a write the lattice
+    model is coupled to has machine-wide physics side effects (it moves other
+    monitors through the model), wrong for an isolated equivalence/fault probe
+    -- sp-echo is a pure, isolated software copy (write SP, RB follows
+    immediately, nothing else touched).
 
     Which of the two a channel is, is read off the deployment's own
     ``simulation/va_bindings.json``, through the one helper that spells what a
     binding claims (``_orm_stack.claimed_addresses``): a claimed address is
     coupled to the model, and a writable address no binding claims is the
-    software echo this probe wants.
+    software echo this probe wants. The view is built in memory from the
+    repo's tree, because the pairs are chosen before the build.
     """
-    from osprey.services.virtual_accelerator.bindings import load_bindings
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.facility.build import build_facility
+    from osprey.facility.views.bluesky import bluesky_document
+    from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
 
-    document = load_bindings(ManifestPaths(repo / "data").va_bindings)
-    coupled = _orm_stack.claimed_addresses(document)
-
-    keys = {k for k in channel_limits if not k.startswith("_") and k != "defaults"}
-    sp_keys = sorted(k for k in keys if k.endswith(":SP"))
-
-    pairs: list[tuple[str, str]] = []
-    for sp in sp_keys:
-        rb = sp[:-3] + ":RB"
-        if sp in coupled or rb in coupled:
-            continue
-        if rb in keys:
-            pairs.append((sp, rb))
-
+    coupled = _orm_stack.claimed_addresses(_orm_stack.repo_bindings(repo))
+    document = bluesky_document(build_facility(repo / "data" / "facility", project_name=repo.name))
+    pairs = sorted(
+        (entry["setpoint"], entry["readback"])
+        for entry in document[SETTABLES_KEY]
+        if "readback" in entry
+        and entry["setpoint"] not in coupled
+        and entry["readback"] not in coupled
+    )
     if len(pairs) < count:
         raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(pairs)} sp-echo "
+            f"the deployed project's facility tree only yields {len(pairs)} sp-echo "
             f"pairs, need {count}"
         )
     return pairs[:count]
+
+
+def _author_sp_echo_records(repo: Path, setpoints: list[str]) -> None:
+    """Append one limits record per setpoint to the repo's ``limits.yaml``.
+
+    The suite's own throwaway tree, written before the build so the render
+    enforces the same records :func:`_orm_stack.channel_limits` reads back.
+    ``SP_ECHO_BAND`` is wide of 0.0, the readbacks' initial value.
+    """
+    limits_file = repo / "data" / "facility" / "limits.yaml"
+    limits = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
+    low, high = SP_ECHO_BAND
+    limits["records"].extend(
+        {"address": setpoint, "min_value": low, "max_value": high} for setpoint in setpoints
+    )
+    limits_file.write_text(yaml.safe_dump(limits, sort_keys=False), encoding="utf-8")
 
 
 def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
@@ -464,11 +472,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
 
-    # The pairs come from the source zone's channel limits file, which exists
-    # once `init` has written the repo.
-    limits = _channel_limits(repo)
-    sp3, sp4, sp5 = _select_sp_echo_pairs(repo, limits, count=3)
+    # The pairs come from the source zone's facility tree, which exists once
+    # `init` has written the repo, and their limits records go into that tree
+    # before the build renders it.
+    sp3, sp4, sp5 = _select_sp_echo_pairs(repo, count=3)
     pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
+    _author_sp_echo_records(repo, [setpoint for setpoint, _ in pairs.values()])
+    limits = _orm_stack.channel_limits(repo)
 
     build = _run(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -701,9 +711,9 @@ def _host_ca_op_spec(
     used -- ``project_root`` is the deployment repo and
     ``limits_checking.database_path`` names the RENDER's channel_limits.json,
     the limits database the build writes from the facility's limits records.
-    The sp-echo setpoints these proofs write hold no record there, so the
-    per-type mode below is ``optional``: a channel with no record is written
-    with no limits applied. Spelled absolute rather than repo-relative: a
+    The sp-echo setpoints these proofs write hold the records this suite
+    authored, and the per-type mode below is ``optional``: a channel with no
+    record is written with no limits applied. Spelled absolute rather than repo-relative: a
     relative ``database_path`` resolves against ``CONFIG_FILE``'s directory when
     that is set and against ``project_root`` otherwise, and this subprocess sets
     neither anchor to the render.

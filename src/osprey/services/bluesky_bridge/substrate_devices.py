@@ -171,7 +171,7 @@ def write_devices_file(
     records: Sequence[ChannelRecord],
     *,
     source: RosterSource,
-    schema: str | None = None,
+    schema: str,
 ) -> dict[str, list[dict[str, str]]]:
     """Write the document ``devices_document(records)`` builds to ``path`` as
     YAML, and return it.
@@ -182,9 +182,8 @@ def write_devices_file(
     set is a projection of. It is passed rather than read off the records
     because an empty roster has to name its provenance too.
 
-    ``schema``, when given, is written as the file's first line
-    (``schema: <value>``), ahead of the header; the returned document does not
-    carry it.
+    ``schema`` is the file's first line (``schema: <value>``), ahead of the
+    header; the returned document does not carry it.
 
     The write is atomic (same-directory temp file + ``os.replace``): the file is
     staged into a build tree that a running deploy may mount, so a reader must
@@ -201,8 +200,7 @@ def write_devices_file(
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            if schema is not None:
-                handle.write(f"{SCHEMA_KEY}: {schema}\n")
+            handle.write(f"{SCHEMA_KEY}: {schema}\n")
             handle.write(_GENERATED_HEADER.format(provenance=source.describe()))
             handle.write(body)
         # ``mkstemp`` creates the temp file 0600 and ``os.replace`` carries that
