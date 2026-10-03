@@ -11,11 +11,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.database.repository import warn_schema_behind_once
 from osprey.services.ariel_search.database.search_fts import (
+    ATTACHMENT_TEXT_DOCUMENT,
+    EMPTY_TSQUERY,
+    FTS_CONFIG,
+    PHRASE_TSQUERY_LEG,
+    PLAIN_TSQUERY_LEG,
     build_expanded_tsquery,
     keyword_fts_expression,
 )
@@ -391,16 +397,16 @@ def build_tsquery(search_text: str, phrases: list[str]) -> str:
     # Process main search text
     if search_text.strip():
         if has_boolean_operators(search_text):
-            tsquery_parts.append("websearch_to_tsquery('english', %s)")
+            tsquery_parts.append(f"websearch_to_tsquery({FTS_CONFIG}, %s)")
         else:
-            tsquery_parts.append("plainto_tsquery('english', %s)")
+            tsquery_parts.append(PLAIN_TSQUERY_LEG)
 
     # Add phrase matches
     for _phrase in phrases:
-        tsquery_parts.append("phraseto_tsquery('english', %s)")
+        tsquery_parts.append(PHRASE_TSQUERY_LEG)
 
     if not tsquery_parts:
-        return "plainto_tsquery('english', '')"
+        return EMPTY_TSQUERY
 
     return " && ".join(tsquery_parts)
 
@@ -444,6 +450,46 @@ def _name_pattern(error: PatternError, spans: tuple[PatternSpan, ...]) -> Patter
         pattern=culprit.original,
         technical_details=dict(error.technical_details),
     )
+
+
+async def _attach_caption_matches(
+    results: list[tuple[EnhancedLogbookEntry, float, list[str]]],
+    repository: ARIELRepository,
+    config: ARIELConfig,
+    *,
+    tsquery: tuple[str | None, list[Any]],
+    pattern_bodies: list[str],
+) -> None:
+    """Mark each hit with the ids of its attachments whose caption matched.
+
+    One ``caption_matches`` call over the hit ids, with the same tsquery and
+    pattern bodies the main statement used. A hit whose captions matched gets
+    ``_matched_attachment_ids``; any other hit is left untouched. The ids are
+    supplementary evidence: a timeout or database failure logs one WARNING and
+    marks nothing, so it never fails a search the main statement answered.
+    """
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
+    from osprey.services.ariel_search.exceptions import (
+        DatabaseQueryError,
+        SearchTimeoutError,
+    )
+
+    tsquery_sql, tsquery_params = tsquery
+    try:
+        matched = await repository.caption_matches(
+            [entry["entry_id"] for entry, _score, _highlights in results],
+            caption_model_id(config),
+            tsquery_sql=tsquery_sql,
+            tsquery_params=tsquery_params,
+            pattern_bodies=pattern_bodies,
+        )
+    except (SearchTimeoutError, DatabaseQueryError) as e:
+        logger.warning(f"keyword_search: caption matching skipped: {e}")
+        return
+    for entry, _score, _highlights in results:
+        ids = matched.get(entry["entry_id"])
+        if ids:
+            cast("dict[str, Any]", entry)["_matched_attachment_ids"] = list(ids)
 
 
 async def keyword_search(
@@ -540,8 +586,14 @@ async def keyword_search(
     params: list[Any] = []
     where_clauses: list[str] = []
 
+    # One read of the schema fact per query: the WHERE built here, the rank and
+    # headline the repository builds, and the fuzzy fallback all select from it.
+    v2 = (await repository.schema_facts()).has_v2_fts
+    if not v2:
+        warn_schema_behind_once()
+
     if search_text.strip() or phrases:
-        fts_expression = keyword_fts_expression(config)
+        fts_expression = keyword_fts_expression(config, v2=v2)
         expand = query_expansion is not None and bool(query_expansion.groups)
 
         if expand and has_boolean_operators(search_text):
@@ -563,8 +615,12 @@ async def keyword_search(
             where_clauses.append(f"{fts_expression} @@ ({build_tsquery(search_text, phrases)})")
 
     for span in parsed.pattern_spans:
-        where_clauses.append("raw_text ~* %s")
-        params.append(span.body)
+        if v2:
+            where_clauses.append(f"(raw_text ~* %s OR {ATTACHMENT_TEXT_DOCUMENT} ~* %s)")
+            params.extend([span.body, span.body])
+        else:
+            where_clauses.append("raw_text ~* %s")
+            params.append(span.body)
 
     if "author" in field_filters:
         where_clauses.append("author ILIKE %s")
@@ -618,10 +674,27 @@ async def keyword_search(
             search_text=probe_text,
             max_results=max_results,
             include_highlights=include_highlights,
+            v2=v2,
             **extra,
         )
     except PatternError as e:
         raise _name_pattern(e, parsed.pattern_spans) from e
+
+    if results:
+        if tsquery_sql is None and (search_text.strip() or phrases):
+            caption_tsquery: tuple[str | None, list[Any]] = (
+                build_tsquery(search_text, phrases),
+                [search_text, *phrases] if search_text.strip() else list(phrases),
+            )
+        else:
+            caption_tsquery = (tsquery_sql, list(tsquery_params or []))
+        await _attach_caption_matches(
+            results,
+            repository,
+            config,
+            tsquery=caption_tsquery,
+            pattern_bodies=[span.body for span in parsed.pattern_spans],
+        )
 
     # Fuzzy fallback probes the text the operator typed first, so expansion can
     # only ever add hits, never remove one. A pattern search never falls back: a
@@ -634,6 +707,7 @@ async def keyword_search(
             max_results=max_results,
             start_date=start_date,
             end_date=end_date,
+            v2=v2,
         )
         if not results and expansion_applied and query_expansion is not None:
             results = await repository.fuzzy_search(
@@ -642,6 +716,7 @@ async def keyword_search(
                 max_results=max_results,
                 start_date=start_date,
                 end_date=end_date,
+                v2=v2,
             )
 
     logger.info(f"keyword_search: returning {len(results)} results")

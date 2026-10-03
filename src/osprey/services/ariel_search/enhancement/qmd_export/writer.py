@@ -198,6 +198,7 @@ def render_entry(entry: Mapping[str, Any]) -> str:
     raw_text = sanitize_text(entry.get("raw_text")).strip()
     summary = sanitize_text(entry.get("summary")).strip()
     keywords = _render_keywords(entry.get("keywords"))
+    captions = _render_captions(entry.get("attachment_text"))
     stamp = _format_timestamp(entry.get("timestamp"))
 
     lines = [
@@ -213,6 +214,8 @@ def render_entry(entry: Mapping[str, Any]) -> str:
         lines.append(f"Summary: {_sentence(summary)}")
     if keywords:
         lines.append(f"Keywords: {_sentence(keywords)}")
+    if captions:
+        lines.append(f"Captions: {captions}")
     lines.extend(["", raw_text])
 
     document = "\n".join(lines).rstrip("\n") + "\n"
@@ -408,6 +411,12 @@ def _render_keywords(keywords: Any) -> str:
     if not rendered:
         return ""
     return f"{', '.join(rendered)}"
+
+
+def _render_captions(attachment_text: Any) -> str:
+    """Render an entry's picture text as one line: its non-blank lines joined by spaces."""
+    parts = [line.strip() for line in sanitize_text(attachment_text).splitlines()]
+    return " ".join(part for part in parts if part)
 
 
 def _sentence(text: str) -> str:

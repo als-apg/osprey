@@ -1355,6 +1355,28 @@ def _is_ollama_available() -> bool:
         return False
 
 
+def ollama_has_model(name: str, base_url: str = "http://localhost:11434") -> bool:
+    """True if the Ollama server at ``base_url`` lists ``name`` in ``/api/tags``.
+
+    A name without a tag matches its ``:latest`` listing. Never raises: an
+    unreachable server or an unexpected listing reads as ``False``.
+    """
+    wanted = {name, name if ":" in name else f"{name}:latest"}
+    try:
+        import requests
+
+        response = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=2)
+        if response.status_code != 200:
+            return False
+        models = response.json().get("models") or []
+        return any(
+            isinstance(m, dict) and (m.get("name") in wanted or m.get("model") in wanted)
+            for m in models
+        )
+    except Exception:
+        return False
+
+
 # The second element is the skip reason: a fixed string, or a zero-arg callable
 # for a resource whose absence has more than one explanation to report.
 _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] = {

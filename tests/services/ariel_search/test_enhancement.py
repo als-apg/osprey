@@ -11,6 +11,7 @@ from unittest import mock
 
 import pytest
 
+from osprey.models.provider_registry import ProviderRegistry
 from osprey.services.ariel_search.config import ARIELConfig, DatabaseConfig
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
 from osprey.services.ariel_search.enhancement.factory import (
@@ -29,12 +30,49 @@ from osprey.services.ariel_search.enhancement.text_embedding import (
     TextEmbeddingModule,
 )
 from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+    embedding_input,
     fit_to_input_limit,
     max_input_tokens,
 )
-from tests.services.ariel_search.conftest import _FakeConnection, _FakeEmbeddingProvider
+from tests.services.ariel_search.conftest import _FakeConnection
+from tests.services.ariel_search.fake_providers import (
+    make_fake_embedding_provider,
+    ollama_text_embedder,
+)
 
 TABLES_QUERY = "information_schema.tables"
+
+#: The registry lookup as shipped, captured before any test routes it.
+_REAL_GET_PROVIDER = ProviderRegistry.get_provider
+
+
+def _route_provider(monkeypatch, provider_cls, lookups=None):
+    """Answer every ``ProviderRegistry.get_provider`` lookup with *provider_cls*.
+
+    Returns *provider_cls*; the names asked for are appended to *lookups*.
+    """
+
+    def get_provider(_self, name):
+        if lookups is not None:
+            lookups.append(name)
+        return provider_cls
+
+    monkeypatch.setattr(ProviderRegistry, "get_provider", get_provider)
+    return provider_cls
+
+
+@pytest.fixture(autouse=True)
+def _fake_provider_is_registered(monkeypatch):
+    """Register a default fake embedding provider under the name ``fake``.
+
+    Every other name keeps its real registry lookup.
+    """
+    fake_cls = make_fake_embedding_provider()
+
+    def get_provider(self, name):
+        return fake_cls if name == "fake" else _REAL_GET_PROVIDER(self, name)
+
+    monkeypatch.setattr(ProviderRegistry, "get_provider", get_provider)
 
 
 class TestEnhancementFactory:
@@ -43,7 +81,13 @@ class TestEnhancementFactory:
     def test_get_enhancer_names(self):
         """get_enhancer_names returns correct list."""
         names = get_enhancer_names()
-        assert names == ["semantic_processor", "text_embedding", "qmd_export"]
+        assert names == [
+            "image_caption",
+            "semantic_processor",
+            "text_embedding",
+            "image_embedding",
+            "qmd_export",
+        ]
 
     def test_create_enhancers_no_modules_enabled(self):
         """Factory returns empty list when no modules enabled."""
@@ -374,10 +418,10 @@ class TestSemanticProcessorHealthCheck:
     async def test_health_check_no_llm(self):
         """Health check returns unhealthy when no LLM configured."""
         module = SemanticProcessorModule()
-        healthy, message = await module.health_check()
+        result = await module.health_check()
         # Without LLM configured, should be unhealthy
-        assert isinstance(healthy, bool)
-        assert isinstance(message, str)
+        assert isinstance(result.reachable, bool)
+        assert isinstance(result.message, str)
 
 
 class TestTextEmbeddingModuleEmbedder:
@@ -407,10 +451,10 @@ class TestTextEmbeddingModuleHealthCheck:
     async def test_health_check_no_embedder(self):
         """Health check returns unhealthy when no embedder configured."""
         module = TextEmbeddingModule()
-        healthy, message = await module.health_check()
+        result = await module.health_check()
         # Without embedder configured, should be unhealthy
-        assert isinstance(healthy, bool)
-        assert isinstance(message, str)
+        assert isinstance(result.reachable, bool)
+        assert isinstance(result.message, str)
 
 
 class TestSemanticProcessorEnhanceEmptyEntry:
@@ -1015,9 +1059,9 @@ class TestSemanticProcessorHealthCheckBranches:
             fake_completion,
         )
 
-        healthy, message = await SemanticProcessorModule().health_check()
+        result = await SemanticProcessorModule().health_check()
 
-        assert (healthy, message) == (True, "OK")
+        assert (result.reachable, result.message, result.reason) == (True, "OK", None)
         assert calls == ["Say OK"]
 
     @pytest.mark.asyncio
@@ -1028,18 +1072,23 @@ class TestSemanticProcessorHealthCheckBranches:
             lambda message, model_config=None: "",
         )
 
-        healthy, message = await SemanticProcessorModule().health_check()
+        result = await SemanticProcessorModule().health_check()
 
-        assert (healthy, message) == (False, "Empty response from LLM")
+        assert (result.reachable, result.message) == (False, "Empty response from LLM")
+        assert result.reason == "unreachable"
 
     @pytest.mark.asyncio
     async def test_health_check_unhealthy_on_import_error(self, monkeypatch):
         """An unimportable completion module reports unhealthy."""
         monkeypatch.setitem(sys.modules, "osprey.models.completion", None)
 
-        healthy, message = await SemanticProcessorModule().health_check()
+        result = await SemanticProcessorModule().health_check()
 
-        assert (healthy, message) == (False, "osprey.models.completion not available")
+        assert (result.reachable, result.message) == (
+            False,
+            "osprey.models.completion not available",
+        )
+        assert result.reason == "config"
 
     @pytest.mark.asyncio
     async def test_health_check_unhealthy_on_llm_error(self, monkeypatch):
@@ -1050,9 +1099,10 @@ class TestSemanticProcessorHealthCheckBranches:
 
         monkeypatch.setattr("osprey.models.completion.get_chat_completion", boom)
 
-        healthy, message = await SemanticProcessorModule().health_check()
+        result = await SemanticProcessorModule().health_check()
 
-        assert (healthy, message) == (False, "no route to host")
+        assert (result.reachable, result.message) == (False, "no route to host")
+        assert result.reason == "unreachable"
 
 
 def _embedding_module(models=None, provider=None):
@@ -1161,10 +1211,8 @@ class TestTextEmbeddingEnhanceWithProvider:
     @pytest.mark.asyncio
     async def test_enhance_stores_embedding_in_model_table(self, entry, monkeypatch):
         """A successful embedding is upserted into the model's own table."""
-        provider = _FakeEmbeddingProvider(vectors=[[0.1, 0.2, 0.3, 0.4]])
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
+        provider = _route_provider(
+            monkeypatch, make_fake_embedding_provider(vectors=[[0.1, 0.2, 0.3, 0.4]])
         )
         module = _embedding_module(
             provider={"name": "fake", "base_url": "http://fake:11434", "api_key": "secret"}
@@ -1190,10 +1238,9 @@ class TestTextEmbeddingEnhanceWithProvider:
     @pytest.mark.asyncio
     async def test_enhance_falls_back_to_provider_default_base_url(self, entry, monkeypatch):
         """With no configured base_url the provider's own default is used."""
-        provider = _FakeEmbeddingProvider(default_base_url="http://provider-default:11434")
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
+        provider = _route_provider(
+            monkeypatch,
+            make_fake_embedding_provider(default_base_url="http://provider-default:11434"),
         )
         module = _embedding_module(provider={"name": "fake"})
         conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
@@ -1206,11 +1253,7 @@ class TestTextEmbeddingEnhanceWithProvider:
     @pytest.mark.asyncio
     async def test_enhance_cuts_a_long_entry_to_the_model_input_limit(self, monkeypatch):
         """A long entry is cut to the model's limit less the reserved tokens, in bytes."""
-        provider = _FakeEmbeddingProvider()
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
-        )
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
         module = _embedding_module(
             models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
         )
@@ -1223,11 +1266,7 @@ class TestTextEmbeddingEnhanceWithProvider:
     @pytest.mark.asyncio
     async def test_enhance_sends_an_entry_within_the_limit_whole(self, monkeypatch):
         """An entry that fits the limit is sent unchanged."""
-        provider = _FakeEmbeddingProvider()
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
-        )
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
         module = _embedding_module(
             models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
         )
@@ -1240,11 +1279,7 @@ class TestTextEmbeddingEnhanceWithProvider:
     @pytest.mark.asyncio
     async def test_enhance_logs_the_cut_naming_the_entry(self, monkeypatch, caplog):
         """A cut entry is logged once with its id, its length and the length embedded."""
-        provider = _FakeEmbeddingProvider()
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
-        )
+        _route_provider(monkeypatch, make_fake_embedding_provider())
         module = _embedding_module(
             models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
         )
@@ -1264,11 +1299,7 @@ class TestTextEmbeddingEnhanceWithProvider:
     @pytest.mark.asyncio
     async def test_enhance_uses_the_default_limit_when_none_is_set(self, monkeypatch):
         """A model listed without max_input_tokens is cut to the default limit."""
-        provider = _FakeEmbeddingProvider()
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
-        )
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
         module = _embedding_module(models=[{"name": "test-model", "dimension": 4}])
         conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
 
@@ -1278,15 +1309,9 @@ class TestTextEmbeddingEnhanceWithProvider:
 
     @pytest.mark.asyncio
     async def test_enhance_loads_provider_once_across_entries(self, entry, monkeypatch):
-        """The provider is looked up lazily and then reused."""
+        """The provider class is looked up once, in configure(), and then reused."""
         lookups = []
-        provider = _FakeEmbeddingProvider()
-
-        def fake_lookup(name):
-            lookups.append(name)
-            return provider
-
-        monkeypatch.setattr("osprey.models.embeddings.get_embedding_provider", fake_lookup)
+        _route_provider(monkeypatch, make_fake_embedding_provider(), lookups)
         module = _embedding_module(provider="ollama")
         conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
 
@@ -1300,10 +1325,8 @@ class TestTextEmbeddingEnhanceWithProvider:
         self, entry, monkeypatch, caplog
     ):
         """Every model failing escalates to RuntimeError naming each one."""
-        provider = _FakeEmbeddingProvider(error=RuntimeError("embedding backend down"))
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
+        _route_provider(
+            monkeypatch, make_fake_embedding_provider(error=RuntimeError("embedding backend down"))
         )
         module = _embedding_module(
             models=[{"name": "model-a", "dimension": 4}, {"name": "model-b", "dimension": 4}]
@@ -1318,6 +1341,94 @@ class TestTextEmbeddingEnhanceWithProvider:
         assert "model-b: embedding backend down" in str(exc.value)
         assert "Failed to generate embedding for entry entry-001" in caplog.text
         assert not any("INSERT" in sql for sql in conn.sql)
+
+
+class TestTextEmbeddingEnhanceWithAttachmentText:
+    """The embedder appends an entry's picture text to its own text."""
+
+    @pytest.mark.asyncio
+    async def test_the_caption_follows_the_entry_text_in_the_input(self, monkeypatch):
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+        caption = "[picture a.png - upstream caption] dipole trip"
+
+        await module.enhance(
+            {"entry_id": "e1", "raw_text": "beam lost", "attachment_text": caption}, conn
+        )
+
+        assert provider.calls[0]["texts"] == [f"beam lost\n{caption}"]
+
+    @pytest.mark.asyncio
+    async def test_an_entry_without_attachment_text_gets_exactly_the_b1_input(self, monkeypatch):
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module(
+            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance({"entry_id": "e1", "raw_text": "x" * 100}, conn)
+        await module.enhance(
+            {"entry_id": "e2", "raw_text": "x" * 100, "attachment_text": None}, conn
+        )
+
+        assert [c["texts"] for c in provider.calls] == [
+            [fit_to_input_limit("x" * 100, 40)],
+            [fit_to_input_limit("x" * 100, 40)],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_entry_with_only_picture_text_is_embedded(self, monkeypatch):
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance(
+            {"entry_id": "e1", "raw_text": "  ", "attachment_text": "[picture] trip"}, conn
+        )
+
+        assert provider.calls[0]["texts"] == ["  \n[picture] trip"]
+
+    @pytest.mark.asyncio
+    async def test_an_entry_blank_in_both_is_skipped(self, monkeypatch):
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance({"entry_id": "e1", "raw_text": " ", "attachment_text": " \n"}, conn)
+
+        assert provider.calls == []
+
+
+class TestEmbeddingInput:
+    """The shared embed-input helper: the entry text, then its capped picture text."""
+
+    def test_no_picture_text_is_exactly_the_cut_entry_text(self):
+        text = "y" * 20
+        assert embedding_input(text, None, 40) is text
+        assert embedding_input(text, "", 40) is text
+        assert embedding_input("x" * 100, "   ", 40) == fit_to_input_limit("x" * 100, 40)
+
+    def test_a_short_entry_keeps_its_whole_text_before_the_picture_text(self):
+        assert embedding_input("beam lost", "cap", 40) == "beam lost\ncap"
+
+    def test_a_long_entry_fills_the_byte_budget_exactly(self):
+        out = embedding_input("x" * 100, "cap", 40)
+
+        assert len(out.encode("utf-8")) == 32
+        assert out == "x" * 28 + "\ncap"
+
+    def test_the_picture_text_is_capped_at_a_quarter_of_the_budget(self):
+        out = embedding_input("x" * 100, "c" * 100, 40)
+
+        assert out == "x" * 23 + "\n" + "c" * 8
+        assert len(out.encode("utf-8")) == 32
+
+    def test_the_cuts_count_utf8_bytes_and_never_split_a_character(self):
+        out = embedding_input("加" * 100, "图" * 10, 40)
+
+        assert out == "加" * 8 + "\n" + "图" * 2
+        assert len(out.encode("utf-8")) <= 32
 
 
 class TestFitToInputLimit:
@@ -1378,45 +1489,208 @@ class TestTextEmbeddingHealthCheckBranches:
 
     @pytest.mark.asyncio
     async def test_health_check_delegates_to_provider(self, monkeypatch):
-        """A healthy provider's verdict is returned, with credentials passed through."""
-        provider = _FakeEmbeddingProvider(healthy=(True, "ollama reachable"))
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
+        """A healthy verdict is returned, with credentials and the first model passed through."""
+        provider = _route_provider(
+            monkeypatch, make_fake_embedding_provider(healthy=(True, "ollama reachable"))
         )
         module = _embedding_module(
             provider={"name": "fake", "base_url": "http://fake:11434", "api_key": "secret"}
         )
 
-        assert await module.health_check() == (True, "ollama reachable")
+        result = await module.health_check()
+        assert (result.reachable, result.message, result.reason) == (
+            True,
+            "ollama reachable",
+            None,
+        )
         assert provider.calls == [
-            {"check_health": True, "api_key": "secret", "base_url": "http://fake:11434"}
+            {
+                "check_embedding_health": True,
+                "api_key": "secret",
+                "base_url": "http://fake:11434",
+                "model_id": "test-model",
+            }
         ]
+
+    @pytest.mark.asyncio
+    async def test_health_check_with_no_models_lets_the_adapter_choose(self, monkeypatch):
+        """With no models configured the probe names no model."""
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module(models=[])
+
+        assert (await module.health_check()).reachable is True
+        assert provider.calls[0]["model_id"] is None
 
     @pytest.mark.asyncio
     async def test_health_check_reports_provider_unhealthy(self, monkeypatch):
         """An unhealthy provider's message is surfaced verbatim."""
-        provider = _FakeEmbeddingProvider(healthy=(False, "connection refused"))
-        monkeypatch.setattr(
-            "osprey.models.embeddings.get_embedding_provider",
-            lambda name: provider,
+        _route_provider(
+            monkeypatch, make_fake_embedding_provider(healthy=(False, "connection refused"))
         )
 
-        assert await _embedding_module().health_check() == (False, "connection refused")
+        result = await _embedding_module().health_check()
+        assert (result.reachable, result.message, result.reason) == (
+            False,
+            "connection refused",
+            "unreachable",
+        )
 
     @pytest.mark.asyncio
-    async def test_health_check_unhealthy_when_provider_lookup_fails(self, monkeypatch):
-        """A provider that cannot be loaded reports unhealthy rather than raising."""
+    async def test_unknown_reachability_is_returned_unchanged(self, monkeypatch):
+        """A verdict whose reachability is unknown (None) is passed on as it is."""
+        from osprey.models.providers.health import HealthResult
 
-        def boom(_name):
-            raise ValueError("unknown embedding provider 'fake'")
+        _route_provider(
+            monkeypatch,
+            make_fake_embedding_provider(healthy=HealthResult(None, "not checked", None)),
+        )
 
-        monkeypatch.setattr("osprey.models.embeddings.get_embedding_provider", boom)
+        assert await _embedding_module().health_check() == HealthResult(None, "not checked", None)
 
-        healthy, message = await _embedding_module().health_check()
+    @pytest.mark.asyncio
+    async def test_health_check_unhealthy_when_the_probe_raises(self, monkeypatch):
+        """A probe that raises reports unhealthy rather than raising."""
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
 
-        assert healthy is False
-        assert message == "unknown embedding provider 'fake'"
+        def boom(_self, *_args, **_kwargs):
+            raise RuntimeError("no route to host")
+
+        monkeypatch.setattr(provider, "check_embedding_health", boom)
+
+        result = await _embedding_module().health_check()
+        assert (result.reachable, result.message, result.reason) == (
+            False,
+            "no route to host",
+            "unreachable",
+        )
+
+
+class TestTextEmbeddingProviderResolution:
+    """configure() resolves the provider class once, from the provider registry."""
+
+    @pytest.mark.parametrize(
+        "provider_key",
+        ["ariel.enhancement_modules.text_embedding.provider", "ariel.embedding.provider"],
+    )
+    def test_unknown_provider_is_refused_naming_its_key(self, monkeypatch, provider_key):
+        """An unknown provider fails configure() with the key it came from."""
+        _route_provider(monkeypatch, None)
+
+        with pytest.raises(ValueError, match="nonesuch") as exc:
+            TextEmbeddingModule().configure(
+                {
+                    "models": [{"name": "m", "dimension": 4}],
+                    "provider": "nonesuch",
+                    "provider_key": provider_key,
+                }
+            )
+        assert provider_key in str(exc.value)
+
+    def test_a_provider_without_embeddings_is_refused(self, monkeypatch):
+        """A chat-only provider fails configure() with the module key."""
+        from osprey.models.providers.base import BaseProvider
+
+        class ChatOnly(BaseProvider):
+            name = "chat-only"
+            requires_api_key = False
+            requires_base_url = False
+            requires_model_id = False
+            supports_proxy = False
+
+        _route_provider(monkeypatch, ChatOnly)
+
+        with pytest.raises(
+            ValueError, match=r"ariel\.enhancement_modules\.text_embedding\.provider"
+        ):
+            TextEmbeddingModule().configure({"models": [], "provider": "chat-only"})
+
+    def test_config_from_ariel_config_carries_the_key(self, monkeypatch):
+        """The key from get_enhancement_module_config reaches the error."""
+        _route_provider(monkeypatch, None)
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "embedding": {"provider": "nonesuch"},
+                "enhancement_modules": {
+                    "text_embedding": {"enabled": True, "models": [{"name": "m", "dimension": 4}]}
+                },
+            }
+        )
+
+        with pytest.raises(ValueError, match=r"ariel\.embedding\.provider"):
+            TextEmbeddingModule().configure(config.get_enhancement_module_config("text_embedding"))
+
+
+class TestTextEmbeddingDimensions:
+    """Only a provider that cuts vectors to length is told the table's dimension."""
+
+    @pytest.fixture
+    def entry(self):
+        return {"entry_id": "entry-001", "raw_text": "Beam current stabilized at 500mA."}
+
+    @pytest.mark.asyncio
+    async def test_a_non_truncating_provider_gets_no_dimensions_key(self, entry, monkeypatch):
+        """An Ollama-like provider is called without a ``dimensions`` key."""
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module(models=[{"name": "test-model", "dimension": 4}])
+
+        await module.enhance(entry, _FakeConnection(rows_for={TABLES_QUERY: [(True,)]}))
+
+        assert "dimensions" not in provider.calls[0]
+
+    @pytest.mark.asyncio
+    async def test_a_truncating_provider_gets_each_models_dimension(self, entry, monkeypatch):
+        """Each model's own dimension is passed to a truncating provider."""
+        provider = _route_provider(
+            monkeypatch, make_fake_embedding_provider(truncates_to_dimensions=True)
+        )
+        module = _embedding_module(
+            models=[{"name": "model-a", "dimension": 4}, {"name": "model-b", "dimension": 2}]
+        )
+
+        await module.enhance(entry, _FakeConnection(rows_for={TABLES_QUERY: [(True,)]}))
+
+        assert [call["dimensions"] for call in provider.calls] == [4, 2]
+
+    @pytest.mark.asyncio
+    async def test_llama_cpp_text_embedding_stores_the_configured_length(self, entry, monkeypatch):
+        """llama-cpp answers 2048 floats; configure() + enhance() store 1024-d unit vectors."""
+        import math
+
+        import requests
+
+        monkeypatch.setattr(ProviderRegistry, "get_provider", _REAL_GET_PROVIDER)
+        monkeypatch.delenv("LLAMA_CPP_HOST", raising=False)
+        posts = []
+
+        class _Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": [{"embedding": [float(i % 7 + 1) for i in range(2048)]}]}
+
+        def fake_post(url, json, **_kwargs):
+            posts.append((url, json))
+            return _Response()
+
+        monkeypatch.setattr(requests, "post", fake_post)
+        module = TextEmbeddingModule()
+        module.configure(
+            {
+                "models": [{"name": "qwen3-vl-embedding-2b", "dimension": 1024}],
+                "provider": "llama-cpp",
+                "provider_key": "ariel.enhancement_modules.text_embedding.provider",
+            }
+        )
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        await module.enhance(entry, conn)
+
+        assert posts[0][0] == "http://localhost:8080/v1/embeddings"
+        stored = conn.calls[-1][1][1]
+        assert len(stored) == 1024
+        assert math.isclose(math.sqrt(sum(v * v for v in stored)), 1.0, rel_tol=1e-6)
 
 
 class TestQmdExportModule:
@@ -1560,16 +1834,21 @@ class TestQmdExportModule:
     @pytest.mark.asyncio
     async def test_health_check_reports_missing_configuration(self):
         """Health check is explicit about an unconfigured mirror."""
-        assert await QmdExportModule().health_check() == (False, "mirror_path is not configured")
+        result = await QmdExportModule().health_check()
+        assert (result.reachable, result.message, result.reason) == (
+            False,
+            "mirror_path is not configured",
+            "config",
+        )
 
     @pytest.mark.asyncio
     async def test_health_check_creates_the_mirror_root(self, tmp_path):
         """A configured, creatable mirror root reports healthy."""
         module = self._module(tmp_path / "mirror")
 
-        healthy, message = await module.health_check()
+        result = await module.health_check()
 
-        assert (healthy, message) == (True, "OK")
+        assert (result.reachable, result.message, result.reason) == (True, "OK", None)
         assert (tmp_path / "mirror").is_dir()
 
     @pytest.mark.asyncio
@@ -1579,7 +1858,73 @@ class TestQmdExportModule:
         blocker.write_text("not a directory")
         module = self._module(blocker)
 
-        healthy, message = await module.health_check()
+        result = await module.health_check()
 
-        assert healthy is False
-        assert "not writable" in message
+        assert result.reachable is False
+        assert "not writable" in result.message
+        assert result.reason == "config"
+
+
+class TestOllamaTextEmbedder:
+    """The helper the Ollama-gated ARIEL tests embed through."""
+
+    def test_embeds_through_the_registered_ollama_adapter(self, monkeypatch):
+        """The helper's adapter sends the text to Ollama's embedding endpoint via litellm."""
+        from osprey.models.providers.ollama import OllamaProviderAdapter
+
+        monkeypatch.delenv("OLLAMA_HOST", raising=False)
+        embedder = ollama_text_embedder()
+        assert isinstance(embedder, OllamaProviderAdapter)
+
+        with (
+            mock.patch("osprey.models.providers._local_server.probe", return_value=True),
+            mock.patch("litellm.embedding") as mock_embed,
+        ):
+            mock_embed.return_value = mock.MagicMock(data=[{"embedding": [0.25, 0.5]}])
+            vectors = embedder.execute_embedding(["x"], "nomic-embed-text")
+
+        assert vectors == [[0.25, 0.5]]
+        call = mock_embed.call_args.kwargs
+        assert call["model"] == "ollama/nomic-embed-text"
+        assert call["input"] == ["x"]
+
+
+class TestBaseHealthContract:
+    """The base module's health answer is a typed 'not checked', never 'healthy'."""
+
+    @pytest.mark.asyncio
+    async def test_default_health_check_is_unchecked(self):
+        """A module with no check of its own answers reachable None, no reason."""
+        from osprey.models.providers.health import HealthResult
+        from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
+
+        class _NoCheck(BaseEnhancementModule):
+            @property
+            def name(self) -> str:
+                return "no_check"
+
+            async def enhance(self, entry, conn):  # noqa: ARG002 - the module contract
+                return None
+
+        module = _NoCheck()
+
+        assert await module.health_check() == HealthResult(None, "no health check", None)
+        assert module.health_reason() is None
+
+    @pytest.mark.asyncio
+    async def test_a_sync_check_does_not_block_the_loop(self, monkeypatch):
+        """The text-embedding probe runs off the loop, so a timeout can return."""
+        import asyncio
+        import time
+
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+
+        def slow(_self, *_args, **_kwargs):
+            time.sleep(3)
+            raise AssertionError("never read")
+
+        monkeypatch.setattr(provider, "check_embedding_health", slow)
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(_embedding_module().health_check(), 0.2)
+        assert time.monotonic() - started < 1.5
