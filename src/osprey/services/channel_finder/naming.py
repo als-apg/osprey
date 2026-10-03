@@ -3,13 +3,10 @@
 Single source of truth for the token (PascalCase channel-name component) and
 phrase (lowercase natural-language component) spellings of every ring, family,
 FIELD, and SUBFIELD used when synthesizing ``in_context``-style channel names
-and descriptions. Two generators consume it:
-
-* :mod:`osprey.services.channel_finder.tools.generate_from_spec` -- grows the
-  shipped tier-3/tier-1 databases; looks tokens up strictly (a missing key is
-  a bug in the spec/schema wiring).
-* :mod:`osprey.services.channel_finder.benchmarks.generator` -- builds the
-  benchmark databases; falls back to the raw component for unmapped keys.
+and descriptions. One module consumes it:
+:mod:`osprey.services.channel_finder.tools.generate_from_spec`, which grows the
+shipped tier-3/tier-1 databases and looks tokens up strictly (a missing key is
+a bug in the spec/schema wiring).
 
 Spellings are sourced verbatim from the shipped SR ``in_context`` entries
 where a shipped precedent exists (e.g. ``"QuadFocus"`` / ``"focusing

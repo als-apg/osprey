@@ -216,12 +216,6 @@ def print_validation_results(
         stats_table.add_row("Format", stats.get("format", "unknown"))
         stats_table.add_row("Total Channels", str(stats.get("total_channels", 0)))
 
-        if "template_entries" in stats:
-            stats_table.add_row("Template Entries", str(stats["template_entries"]))
-        if "standalone_entries" in stats:
-            stats_table.add_row("Standalone Entries", str(stats["standalone_entries"]))
-        if "compressed_ratio" in stats:
-            stats_table.add_row("Compression Ratio", f"{stats['compressed_ratio']:.1f}x")
         if "systems" in stats:
             # Paradigms report ``systems`` either as the collection of system
             # names or as a count of them; the row wants the count either way.
@@ -248,9 +242,6 @@ def print_validation_results(
                 if key not in [
                     "format",
                     "total_channels",
-                    "template_entries",
-                    "standalone_entries",
-                    "compressed_ratio",
                     "systems",
                 ]:
                     detailed_table.add_row(key, str(value))

@@ -1,9 +1,8 @@
 """Benchmark channel helpers over the hierarchical template database.
 
 Expands the hierarchical channel database template into flat channel lists,
-generates human-readable descriptions and aliases, declares the paradigms each
-benchmark tier publishes, and checks a query set's targeted channels against
-the tier databases.
+declares the paradigms each benchmark tier publishes, and checks a query set's
+targeted channels against the tier databases.
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import json
 from pathlib import Path
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
-from osprey.services.channel_finder import naming
 
 # Root of the control_assistant preset's shipped data tree. It anchors both the
 # canonical template DB and the tier subsets, so consumers derive their paths
@@ -25,42 +23,6 @@ TEMPLATE_DATA_DIR = (
 # structural superset. It is the tier-3 hierarchical view (tier 3 is unfiltered),
 # and every tier subset / paradigm is generated from the same content.
 TEMPLATE_DB_PATH = TEMPLATE_DATA_DIR / "channel_databases" / "tiers" / "tier3" / "hierarchical.json"
-
-
-def load_template(source_path: Path | None = None) -> tuple[dict, list[dict]]:
-    """Load a hierarchical template and expand to flat channels.
-
-    Args:
-        source_path: Path to hierarchical JSON. Defaults to the packaged demo
-            template — callers that write into a deployment's own database
-            directory name the source explicitly rather than relying on it.
-
-    Returns:
-        (tree_data, expanded_channels) tuple.
-    """
-    path = source_path or TEMPLATE_DB_PATH
-    tree_data = json.loads(path.read_text(encoding="utf-8"))
-    channels = expand_hierarchy(tree_data)
-    return tree_data, channels
-
-
-# ---------------------------------------------------------------------------
-# Description-phrase and alias-token maps
-# ---------------------------------------------------------------------------
-#
-# The vocabulary itself lives in :mod:`osprey.services.channel_finder.naming`
-# (shared with the tier-DB generator). The names below are this module's
-# long-standing public API, kept as thin views of the canonical maps.
-
-RING_NAMES: dict[str, str] = naming.RING_PHRASES
-FIELD_NAMES: dict[str, str] = naming.FIELD_PHRASES
-SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_PHRASES
-FAMILY_NAMES: dict[str, str] = naming.FAMILY_PHRASES
-
-ALIAS_RING_NAMES: dict[str, str] = naming.RING_TOKENS
-ALIAS_FIELD_NAMES: dict[str, str] = naming.FIELD_TOKENS
-ALIAS_SUBFIELD_NAMES: dict[str, str] = naming.SUBFIELD_TOKENS
-ALIAS_FAMILY_NAMES: dict[str, str] = naming.FAMILY_TOKENS
 
 
 # ---------------------------------------------------------------------------
@@ -172,50 +134,6 @@ def expand_hierarchy(tree_data: dict) -> list[dict]:
 
     channels.sort(key=lambda c: c["pv"])
     return channels
-
-
-def generate_description(pv_parts: dict) -> str:
-    """Generate a natural-language description for a PV.
-
-    Args:
-        pv_parts: Dict with keys ``ring``, ``system``, ``family``,
-            ``device``, ``field``, ``subfield``.
-
-    Returns:
-        Human-readable description string, e.g.
-        ``"Storage ring dipole bending magnet B01 current setpoint"``.
-    """
-    ring = RING_NAMES.get(pv_parts["ring"], pv_parts["ring"])
-    family = FAMILY_NAMES.get(pv_parts["family"], pv_parts["family"])
-    device = pv_parts["device"]
-    field_desc = FIELD_NAMES.get(pv_parts["field"], pv_parts["field"])
-    subfield_desc = SUBFIELD_NAMES.get(pv_parts["subfield"], pv_parts["subfield"])
-
-    # Capitalise first word only
-    desc = f"{ring} {family} {device} {field_desc} {subfield_desc}"
-    return desc[0].upper() + desc[1:]
-
-
-def generate_alias(pv_parts: dict) -> str:
-    """Generate a short alias for a PV.
-
-    Composes aliases as ``{AliasRing}_{AliasFamily}_{Device}_{AliasField}_{AliasSubfield}``,
-    falling back to the raw name for any component without a mapping.
-
-    Args:
-        pv_parts: Dict with keys ``ring``, ``system``, ``family``,
-            ``device``, ``field``, ``subfield``.
-
-    Returns:
-        Alias string, e.g. ``"StorageRing_Dipole_B05_Current_Setpoint"``.
-    """
-    ring = ALIAS_RING_NAMES.get(pv_parts["ring"], pv_parts["ring"])
-    family = ALIAS_FAMILY_NAMES.get(pv_parts["family"], pv_parts["family"])
-    device = pv_parts["device"]
-    field_alias = ALIAS_FIELD_NAMES.get(pv_parts["field"], pv_parts["field"])
-    subfield_alias = ALIAS_SUBFIELD_NAMES.get(pv_parts["subfield"], pv_parts["subfield"])
-
-    return f"{ring}_{family}_{device}_{field_alias}_{subfield_alias}"
 
 
 # ---------------------------------------------------------------------------
