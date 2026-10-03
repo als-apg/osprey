@@ -732,6 +732,14 @@ class TestTheGateIsDiscriminating:
             channel = reserved_write_channel(project_dir, authored)
             assert channel is not None and "`data/facility/`" in channel
 
+    def test_the_graph_views_are_refused(self, project_dir):
+        """The graph view and its index are build output, derived from the facility tree."""
+        from osprey.interfaces.web_terminal.ownership import reserved_write_channel
+
+        for view in ("data/graph/facility.ttl", "data/channel_databases/graph.duckdb"):
+            channel = reserved_write_channel(project_dir, view)
+            assert channel is not None and "`data/facility/`" in channel
+
     def test_a_knowledge_page_linked_into_the_facility_tree_is_refused(self, project_dir):
         """The opening is for the file the bytes land in, not the name spelled."""
         from osprey.interfaces.web_terminal.ownership import reserved_write_channel

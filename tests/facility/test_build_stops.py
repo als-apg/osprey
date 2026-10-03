@@ -455,6 +455,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "`project/data/channel_finder/in_context.json`",
     ),
     (
+        "profile_invalid__mirrored_graph_view",
+        "profile-invalid",
+        "`project/data/graph/facility.ttl`",
+    ),
+    (
         "profile_invalid__unknown_served_model",
         "profile-invalid",
         "`simulation.models` names a model the facility file lacks",
@@ -1598,6 +1603,15 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "author the facility in data/facility/"
         ),
     ),
+    "profile_invalid__mirrored_graph_view": (
+        _plain(),
+        (
+            "facility: profile-invalid: path project/data/graph/facility.ttl — the "
+            "project/ mirror writes data/graph/facility.ttl, which the build writes "
+            "from data/facility/; fix: remove project/data/graph/facility.ttl and "
+            "author the facility in data/facility/"
+        ),
+    ),
     "profile_invalid__unknown_served_model": (
         _deck(),
         (
@@ -1630,6 +1644,7 @@ MIRRORED: dict[str, tuple[str, ...]] = {
     "profile_invalid__mirrored_simulator_view": ("data/simulator/x.json",),
     "profile_invalid__mirrored_facts_view": ("data/facility_facts.json",),
     "profile_invalid__mirrored_channel_finder_view": ("data/channel_finder/in_context.json",),
+    "profile_invalid__mirrored_graph_view": ("data/graph/facility.ttl",),
 }
 
 
