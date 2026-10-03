@@ -8,10 +8,24 @@ from typing import Any
 
 from osprey.utils.logger import get_logger
 
+from . import _local_server
 from .base import BaseProvider
+from .health import HealthResult, failure_reason
 from .litellm_adapter import execute_litellm_completion
 
 logger = get_logger("ollama")
+
+#: Seconds each base-URL probe may take; a caller's shorter timeout lowers it.
+_PROBE_TIMEOUT = 2.0
+
+
+class OllamaUnreachableError(ConnectionError, ValueError):
+    """No candidate Ollama server answered.
+
+    A ``ConnectionError``, so an availability check reads a dead server as
+    unreachable by type, and a ``ValueError``, so every caller that already
+    catches the base-URL failure as a ``ValueError`` still does.
+    """
 
 
 class OllamaProviderAdapter(BaseProvider):
@@ -41,8 +55,18 @@ class OllamaProviderAdapter(BaseProvider):
     supports_images = False
     supports_thinking = False
 
+    # Embedding defaults
+    default_embedding_model_id = "nomic-embed-text"
+    health_check_embedding_model_id = "nomic-embed-text"
+
     # LiteLLM integration
     litellm_prefix = "ollama"
+
+    # Embedding-path server resolution: the path a live server answers 200 on,
+    # the environment override tried first, and the well-known port.
+    fallback_probe_path = "/api/tags"
+    host_env_var = "OLLAMA_HOST"
+    default_port = 11434
 
     @staticmethod
     def _get_fallback_urls(base_url: str) -> list[str]:
@@ -68,30 +92,28 @@ class OllamaProviderAdapter(BaseProvider):
         return fallback_urls
 
     @staticmethod
-    def _test_connection(base_url: str) -> bool:
-        """Test if Ollama is accessible at the given URL."""
-        try:
-            import requests
+    def _test_connection(base_url: str, timeout: float = _PROBE_TIMEOUT) -> bool:
+        """Test if Ollama is accessible at the given URL within *timeout* seconds."""
+        return _local_server.probe(base_url, "/v1/models", timeout)
 
-            test_url = base_url.rstrip("/") + "/v1/models"
-            response = requests.get(test_url, timeout=2)
-            return response.status_code == 200
-        except Exception:
-            return False
-
-    def _resolve_base_url(self, base_url: str | None) -> str:
+    def _resolve_base_url(self, base_url: str | None, probe_timeout: float = _PROBE_TIMEOUT) -> str:
         """Resolve a reachable base URL, probing container/localhost variants.
 
         The configured value is resolved through
         :meth:`~osprey.models.providers.base.BaseProvider.require_effective_base_url`
         first, so this method never has to interpret ``None`` — the connectivity
         fallbacks below all do substring matching, which a ``None`` breaks with an
-        unhelpful ``TypeError``.
+        unhelpful ``TypeError``. Each candidate is probed for at most
+        *probe_timeout* seconds.
+
+        Raises:
+            ValueError: When no base URL is configured or declared.
+            OllamaUnreachableError: When no candidate answers.
         """
         base_url = self.require_effective_base_url(base_url)
 
         # Test primary URL first
-        if self._test_connection(base_url):
+        if self._test_connection(base_url, timeout=probe_timeout):
             logger.debug(f"Successfully connected to Ollama at {base_url}")
             return base_url
 
@@ -101,7 +123,7 @@ class OllamaProviderAdapter(BaseProvider):
         fallback_urls = self._get_fallback_urls(base_url)
         for fallback_url in fallback_urls:
             logger.debug(f"Attempting fallback connection to Ollama at {fallback_url}")
-            if self._test_connection(fallback_url):
+            if self._test_connection(fallback_url, timeout=probe_timeout):
                 logger.warning(
                     f"Ollama connection fallback: configured URL '{base_url}' failed, "
                     f"using fallback '{fallback_url}'. Consider updating your configuration."
@@ -109,7 +131,7 @@ class OllamaProviderAdapter(BaseProvider):
                 return fallback_url
 
         # All connection attempts failed
-        raise ValueError(
+        raise OllamaUnreachableError(
             f"Failed to connect to Ollama at configured URL '{base_url}' "
             f"and all fallback URLs {fallback_urls}. Please ensure Ollama is running "
             f"and accessible, or update your configuration."
@@ -128,9 +150,17 @@ class OllamaProviderAdapter(BaseProvider):
         output_format: Any | None = None,
         **kwargs,
     ) -> str | Any:
-        """Execute Ollama chat completion via LiteLLM with fallback support."""
+        """Execute Ollama chat completion via LiteLLM with fallback support.
+
+        A ``timeout`` keyword bounds the request and lowers each base-URL probe
+        to ``min(2.0, timeout)``, so the whole call stays within ``timeout``
+        plus at most one probe bound per candidate.
+        """
+        timeout = kwargs.get("timeout")
+        probe_timeout = _PROBE_TIMEOUT if timeout is None else min(_PROBE_TIMEOUT, timeout)
+
         # Resolve working base URL with fallbacks
-        effective_base_url = self._resolve_base_url(base_url)
+        effective_base_url = self._resolve_base_url(base_url, probe_timeout=probe_timeout)
 
         return execute_litellm_completion(
             provider=self.name,
@@ -170,3 +200,112 @@ class OllamaProviderAdapter(BaseProvider):
                 return False, f"Not accessible at {probe_url}"
         except Exception as e:
             return False, f"Connection test failed: {str(e)[:50]}"
+
+    def _resolve_embedding_base_url(self, base_url: str | None) -> str:
+        """Resolve a reachable server for the embedding path.
+
+        Tries ``OLLAMA_HOST`` first, then the configured URL, then its container
+        fallbacks, probing :attr:`fallback_probe_path` on every call.
+
+        Raises:
+            ValueError: When no base URL is configured or declared.
+            LocalServerUnreachable: When no candidate answers.
+        """
+        url = self.require_effective_base_url(base_url)
+        return _local_server.resolve_local_server(
+            url,
+            probe_path=self.fallback_probe_path,
+            env_var=self.host_env_var,
+            default_port=self.default_port,
+            label="Ollama",
+        )
+
+    def execute_embedding(
+        self,
+        texts: list[str],
+        model_id: str,
+        api_key: str | None = None,  # noqa: ARG002 - provider adapter contract; Ollama needs no key
+        base_url: str | None = None,
+        dimensions: int | None = None,
+        timeout: float = 600.0,
+    ) -> list[list[float]]:
+        """Embed *texts* with an Ollama model via LiteLLM.
+
+        Raises:
+            ValueError: When no base URL is configured or declared.
+            LocalServerUnreachable: When no candidate server answers.
+            RuntimeError: When the embedding request fails.
+        """
+        if not texts:
+            return []
+
+        resolved_url = self._resolve_embedding_base_url(base_url)
+
+        try:
+            import litellm
+
+            embed_kwargs: dict[str, Any] = {
+                "model": f"{self.litellm_prefix}/{model_id}",
+                "input": texts,
+                "timeout": timeout,
+                "api_base": resolved_url,
+            }
+            if dimensions is not None:
+                embed_kwargs["dimensions"] = dimensions
+
+            response = litellm.embedding(**embed_kwargs)
+            return [item["embedding"] for item in response.data]
+        except ImportError as e:
+            raise RuntimeError(
+                "litellm is required for Ollama embedding support. "
+                "Install with: pip install litellm"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to generate embeddings with Ollama: {e}") from e
+
+    def check_embedding_health(
+        self,
+        api_key: str | None,  # noqa: ARG002 - provider adapter contract; Ollama needs no key
+        base_url: str | None,
+        model_id: str | None = None,
+        timeout: float = 10.0,
+    ) -> HealthResult:
+        """Check that an Ollama server answers and has the embedding model pulled.
+
+        A model not pulled answers reason ``model``; no answering server answers
+        ``unreachable``; any other failure is classified by
+        :func:`~osprey.models.providers.health.failure_reason`, else ``unreachable``.
+        """
+        try:
+            configured = self.require_effective_base_url(base_url)
+        except ValueError as e:
+            return HealthResult(False, str(e), "config")
+
+        try:
+            url = self._resolve_embedding_base_url(configured)
+        except _local_server.LocalServerUnreachable:
+            return HealthResult(False, f"Cannot connect to Ollama at {configured}", "unreachable")
+
+        model = model_id or self.health_check_embedding_model_id
+        try:
+            import requests
+
+            response = requests.get(url.rstrip("/") + self.fallback_probe_path, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            return HealthResult(
+                False,
+                f"Failed to check model availability: {e}",
+                failure_reason(e) or "unreachable",
+            )
+
+        available = [m.get("name", "").split(":")[0] for m in data.get("models", [])]
+        if model and model.split(":")[0] not in available:
+            return HealthResult(
+                False,
+                f"Model '{model}' not found. Available: {available}. "
+                f"Run 'ollama pull {model}' to download.",
+                "model",
+            )
+        return HealthResult(True, f"Ollama connected at {url}", None)

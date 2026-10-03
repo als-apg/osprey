@@ -105,6 +105,11 @@ class TestTablesAgreeWithTheDeclarations:
             assert cls is not None, name
             assert entry.key_env_var == cls.api_key_env_var, name
             assert entry.api_protocol == cls.api_protocol, name
+            assert entry.chat == cls.supports_chat(), name
+
+    def test_every_builtin_adapter_class_instantiates(self):
+        for name, cls in _adapters().items():
+            assert isinstance(cls(), BaseProvider), name
 
     def test_the_derived_secret_variable_is_the_adapters_for_every_keyed_provider(self):
         for name, cls in _adapters().items():

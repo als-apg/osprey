@@ -21,6 +21,7 @@ class CBorgProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = None
+    models_probe = "bearer"
     default_model_id = "anthropic/claude-haiku"  # Claude Haiku via CBORG for general use
     health_check_model_id = "anthropic/claude-haiku"  # Fast and cost-effective for health checks
 

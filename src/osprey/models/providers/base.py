@@ -1,22 +1,53 @@
 """Base Provider Interface for AI Model Access."""
 
 import os
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Literal
 
 from osprey_connectors.config import is_unresolved_placeholder
+
+from .health import HealthResult
 
 # A keyless endpoint (an on-prem vLLM, a local Ollama) still needs a non-empty
 # key on the wire: the OpenAI-compatible clients underneath refuse to send
 # without one.
 KEYLESS_API_KEY_PLACEHOLDER = "EMPTY"
 
+# One image for an image-embedding call: its raw bytes and their MIME type.
+ImageInput = tuple[bytes, str]
+# One text for an image-embedding call, embedded into the same space as images.
+TextInput = str
 
-class BaseProvider(ABC):
+
+class EmbeddingDimensionError(ValueError):
+    """The requested ``dimensions`` exceed the length of the vector the model returned.
+
+    A configuration fault: every vector from the same model fails the same way,
+    so no retry or per-input skip can help. A ``ValueError`` because the value a
+    caller passed is what is wrong.
+    """
+
+
+class DegenerateVectorError(ValueError):
+    """A returned vector has zero norm or a non-finite component.
+
+    A fault of one input, not of the configuration: the vector cannot be
+    L2-normalised, so it cannot be stored or ranked. A ``ValueError`` because
+    the value the model returned is what is wrong.
+    """
+
+
+class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" default
     """Abstract base class for AI model providers.
 
-    All provider implementations must inherit from this class and implement
-    the two core methods: execute_completion and check_health.
+    All provider implementations inherit from this class and override the
+    endpoints they serve: ``execute_completion``/``check_health`` for chat,
+    ``execute_embedding`` for text embeddings, ``execute_image_embedding`` for
+    image embeddings, and ``check_embedding_health`` for either embedding route.
+    Every endpoint method defaults to "not served" (``NotImplementedError`` or an
+    unhealthy verdict), and what a provider serves is derived from which of them
+    it overrides — see :meth:`supports_chat`, :meth:`supports_embeddings` and
+    :meth:`supports_image_embeddings`.
 
     **Metadata as Class Attributes** (SINGLE SOURCE OF TRUTH):
     Subclasses define provider metadata as class attributes. The registry
@@ -66,6 +97,28 @@ class BaseProvider(ABC):
         supports_thinking: Whether this provider's OpenAI-protocol route takes
             the request's thinking setting and returns the model's thinking.
 
+    Declared Behaviour:
+        accepts_chat_request: Whether a chat call honours the full request a
+            caller builds (its ``chat_request`` and its timeout). False on a
+            provider whose completion path drops them.
+        host_override_env_var: An environment variable naming a server URL that
+            the reachability walk tries before the configured one. Read only by
+            health checks and the out-of-call resolver, never by a model call.
+            None (the default) means there is no such override.
+        resolves_fallback_outside_calls: Whether a reachable endpoint for this
+            provider is found (env override, configured URL, container
+            fallbacks) and cached by the caller before a model call, instead of
+            by the adapter during every call. False by default.
+        truncates_to_dimensions: Whether an embedding call honours
+            ``dimensions`` by truncating each returned vector and
+            L2-renormalising it. Callers send ``dimensions`` only to a provider
+            that declares this. False by default.
+
+    Embedding Attributes:
+        default_embedding_model_id: Default embedding model for templates.
+        health_check_embedding_model_id: Model an embedding health check probes
+            when the caller names none.
+
     LiteLLM Integration Attributes:
         litellm_prefix: LiteLLM provider prefix (e.g., "anthropic", "gemini"). If None,
             uses the provider name. Set to empty string "" if no prefix needed.
@@ -89,6 +142,15 @@ class BaseProvider(ABC):
     supports_proxy: bool = NotImplemented
     default_base_url: str | None = None
     base_url_env_var: str | None = None  # Env var overriding all base_url sources (opt-in)
+    # How a health check lists this route's models: "bearer" for an
+    # OpenAI-compatible GET /v1/models with a bearer key, "anthropic" for the
+    # Anthropic listing (x-api-key + anthropic-version). None means the route
+    # serves no listing a probe can trust, and it is never probed.
+    models_probe: Literal["bearer", "anthropic"] | None = None
+    # Endpoint the listing probe uses when neither the caller nor a required
+    # default supplies one. Read only by the probe, so it never pins the route
+    # a model call takes.
+    models_probe_base_url: str | None = None
     default_model_id: str | None = None  # Default model for templates/general use
     health_check_model_id: str | None = None  # Cheapest model for health checks
     available_models: list[str] = []  # List of available models for this provider
@@ -123,6 +185,44 @@ class BaseProvider(ABC):
     supports_interactive_login: bool = False
     supports_images: bool = False
     supports_thinking: bool = False
+
+    # Whether a chat call carries the caller's full request (chat_request, timeout).
+    accepts_chat_request: bool = True
+    # Server-URL environment override tried first when looking for a reachable endpoint.
+    host_override_env_var: str | None = None
+    # Whether the caller resolves and caches a reachable endpoint before calling.
+    resolves_fallback_outside_calls: bool = False
+    # Whether ``dimensions`` is honoured by truncating and L2-renormalising each vector.
+    truncates_to_dimensions: bool = False
+
+    # Embedding health surface
+    default_embedding_model_id: str | None = None
+    health_check_embedding_model_id: str | None = None
+
+    @classmethod
+    def _implements(cls, name: str) -> bool:
+        """Whether this class overrides *name* somewhere below :class:`BaseProvider`.
+
+        Resolved through the MRO, so an intermediate base that implements the
+        method (``LiteLLMDelegatingProvider`` for chat) counts for every
+        subclass of it.
+        """
+        return getattr(cls, name) is not getattr(BaseProvider, name)
+
+    @classmethod
+    def supports_chat(cls) -> bool:
+        """Whether this provider serves chat completions."""
+        return cls._implements("execute_completion")
+
+    @classmethod
+    def supports_embeddings(cls) -> bool:
+        """Whether this provider serves text embeddings."""
+        return cls._implements("execute_embedding")
+
+    @classmethod
+    def supports_image_embeddings(cls) -> bool:
+        """Whether this provider serves image embeddings."""
+        return cls._implements("execute_image_embedding")
 
     @classmethod
     def accepts_temperature(cls, model_id: str) -> bool:
@@ -189,6 +289,22 @@ class BaseProvider(ABC):
         if cls.requires_base_url and cls.default_base_url:
             return base_url or cls.default_base_url
         return base_url
+
+    @classmethod
+    def validate_base_url(cls, url: str | None) -> None:
+        """Refuse a base URL this provider cannot use, before any request is built.
+
+        Accepts every URL by default. A provider whose request paths are built
+        on the base URL overrides this to refuse a shape that would silently
+        reach the wrong path.
+
+        Args:
+            url: A resolved base URL, or None.
+
+        Raises:
+            ValueError: When this provider cannot use *url*.
+        """
+        return None
 
     @classmethod
     def require_effective_base_url(cls, base_url: str | None) -> str:
@@ -265,7 +381,6 @@ class BaseProvider(ABC):
             return api_key
         return None if cls.requires_api_key else KEYLESS_API_KEY_PLACEHOLDER
 
-    @abstractmethod
     def execute_completion(
         self,
         message: str,
@@ -281,6 +396,9 @@ class BaseProvider(ABC):
     ) -> str | Any:
         """Execute a direct chat completion.
 
+        Not served unless a subclass overrides it; :meth:`supports_chat` answers
+        from that override.
+
         :param message: User message to send
         :param model_id: Model identifier
         :param api_key: API authentication key
@@ -292,21 +410,22 @@ class BaseProvider(ABC):
         :param output_format: Structured output format (Pydantic model or TypedDict)
         :param kwargs: Additional provider-specific arguments
         :return: Model response text or structured output
+        :raises NotImplementedError: When this provider has no chat endpoint
         """
-        pass
+        raise NotImplementedError(f"{self.name} has no chat endpoint")
 
-    @abstractmethod
     def check_health(
         self,
-        api_key: str | None,
-        base_url: str | None,
-        timeout: float = 5.0,
-        model_id: str | None = None,
+        api_key: str | None,  # noqa: ARG002 - provider adapter contract
+        base_url: str | None,  # noqa: ARG002 - provider adapter contract
+        timeout: float = 5.0,  # noqa: ARG002 - provider adapter contract
+        model_id: str | None = None,  # noqa: ARG002 - provider adapter contract
     ) -> tuple[bool, str]:
         """Test provider connectivity and authentication.
 
         Makes a minimal API call to verify the API key works. For paid providers,
         uses the cheapest available model with minimal tokens (~$0.0001 per check).
+        A provider without a chat endpoint answers unhealthy without a call.
 
         :param api_key: API authentication key
         :param base_url: Custom API endpoint URL
@@ -314,4 +433,71 @@ class BaseProvider(ABC):
         :param model_id: Optional model ID to test with (uses cheapest if not provided)
         :return: (success, message) tuple
         """
-        pass
+        return False, f"{self.name} has no chat endpoint"
+
+    def execute_embedding(
+        self,
+        texts: list[str],
+        model_id: str,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        dimensions: int | None = None,
+        timeout: float = 600.0,
+    ) -> list[list[float]]:
+        """Embed *texts*, one vector per text, in input order.
+
+        :param texts: Texts to embed
+        :param model_id: Embedding model identifier
+        :param api_key: API authentication key
+        :param base_url: Custom API endpoint URL
+        :param dimensions: When given, every returned vector has exactly this length
+        :param timeout: Request timeout in seconds
+        :return: One embedding vector per input text
+        :raises NotImplementedError: When this provider has no text-embedding endpoint
+        """
+        raise NotImplementedError(f"{self.name} has no embedding endpoint")
+
+    def execute_image_embedding(
+        self,
+        inputs: list[ImageInput | TextInput],
+        model_id: str,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        dimensions: int | None = None,
+        timeout: float = 600.0,
+    ) -> list[list[float]]:
+        """Embed images and texts into one shared vector space, in input order.
+
+        :param inputs: Each an :data:`ImageInput` ``(bytes, mime)`` or a :data:`TextInput`
+        :param model_id: Embedding model identifier
+        :param api_key: API authentication key
+        :param base_url: Custom API endpoint URL
+        :param dimensions: When given, every returned vector has exactly this length
+            (truncated and L2-renormalised), so stored and query vectors agree
+        :param timeout: Request timeout in seconds
+        :return: One embedding vector per input
+        :raises NotImplementedError: When this provider has no image-embedding endpoint
+        """
+        raise NotImplementedError(f"{self.name} has no image embedding endpoint")
+
+    def check_embedding_health(
+        self,
+        api_key: str | None,  # noqa: ARG002 - provider adapter contract
+        base_url: str | None,  # noqa: ARG002 - provider adapter contract
+        model_id: str | None = None,  # noqa: ARG002 - provider adapter contract
+        timeout: float = 10.0,  # noqa: ARG002 - provider adapter contract
+    ) -> HealthResult:
+        """Test the embedding endpoint, answering with one typed verdict.
+
+        Never raises for a server or HTTP failure. An unhealthy verdict always
+        carries a reason — :func:`~osprey.models.providers.health.failure_reason`
+        of the exception, else ``unreachable`` for a timeout or an endpoint that
+        never answered — so no caller classifies a verdict from its message.
+
+        :param api_key: API authentication key
+        :param base_url: Custom API endpoint URL
+        :param model_id: Model to check (``health_check_embedding_model_id`` if omitted)
+        :param timeout: Request timeout in seconds
+        :return: The verdict
+        """
+        return HealthResult(False, f"{self.name} has no embedding endpoint", "config")

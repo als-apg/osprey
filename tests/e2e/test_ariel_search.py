@@ -261,7 +261,7 @@ async def seeded_ariel_db(
     Yields:
         Dict with repository, config, pool, and entry_count
     """
-    from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+    from osprey.models.provider_registry import get_provider_registry
     from osprey.services.ariel_search.database import ARIELRepository
     from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
 
@@ -271,7 +271,7 @@ async def seeded_ariel_db(
     adapter = ALSLogbookAdapter(e2e_ariel_config)
 
     # Initialize embedder
-    embedder = OllamaEmbeddingProvider()
+    embedder = get_provider_registry().get_provider("ollama")()
 
     # Ingest entries
     entry_count = 0
@@ -338,10 +338,10 @@ class TestSemanticSearchE2E:
 
     async def test_conceptual_search(self, seeded_ariel_db):
         """Search 'electrical failure' finds power-related entries."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+        from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = get_provider_registry().get_provider("ollama")()
         results = await semantic_search(
             query="electrical failure",
             repository=seeded_ariel_db["repository"],
@@ -363,10 +363,10 @@ class TestSemanticSearchE2E:
 
     async def test_rephrased_query(self, seeded_ariel_db):
         """Search 'accelerator shutdown' finds trip/failure entries."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+        from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = get_provider_registry().get_provider("ollama")()
         results = await semantic_search(
             query="accelerator shutdown incident",
             repository=seeded_ariel_db["repository"],
@@ -388,10 +388,10 @@ class TestSemanticSearchE2E:
 
     async def test_domain_concept_search(self, seeded_ariel_db):
         """Search 'cold equipment problems' finds cryogenic issues."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+        from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = get_provider_registry().get_provider("ollama")()
         results = await semantic_search(
             query="cold equipment temperature problems",
             repository=seeded_ariel_db["repository"],
@@ -445,11 +445,11 @@ class TestSearchIntegration:
 
     async def test_keyword_and_semantic_consistency(self, seeded_ariel_db):
         """Keyword and semantic search both find the same entry for exact terms."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+        from osprey.models.provider_registry import get_provider_registry
         from osprey.services.ariel_search.search.keyword import keyword_search
         from osprey.services.ariel_search.search.semantic import semantic_search
 
-        embedder = OllamaEmbeddingProvider()
+        embedder = get_provider_registry().get_provider("ollama")()
 
         # Both should find E002 for "vacuum leak sector 5"
         keyword_results = await keyword_search(
@@ -574,7 +574,7 @@ async def vocabulary_seeded_entry(seeded_ariel_db):
     """
     from datetime import UTC, datetime
 
-    from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
+    from osprey.models.provider_registry import get_provider_registry
 
     repository = seeded_ariel_db["repository"]
     entry = {
@@ -589,8 +589,9 @@ async def vocabulary_seeded_entry(seeded_ariel_db):
     }
     await repository.upsert_entry(entry)
 
+    embedder = get_provider_registry().get_provider("ollama")()
     try:
-        embeddings = OllamaEmbeddingProvider().execute_embedding(
+        embeddings = embedder.execute_embedding(
             texts=[VOCAB_ENTRY_TEXT],
             model_id="nomic-embed-text",
         )

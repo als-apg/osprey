@@ -32,6 +32,7 @@ class DS4ProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "http://127.0.0.1:8000/v1"
+    models_probe = "bearer"
     default_model_id = "deepseek-v4-flash"
     health_check_model_id = None  # query the server for available models
 

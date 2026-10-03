@@ -312,3 +312,268 @@ class TestOllamaHealthCheck:
             )
             assert success is False
             assert "failed" in message.lower()
+
+
+LS_PROBE = "osprey.models.providers._local_server.probe"
+
+
+class TestOllamaEmbedding:
+    """The embedding endpoint of the unified Ollama adapter."""
+
+    @pytest.fixture(autouse=True)
+    def _no_env(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+    def test_embedding_defaults(self):
+        """Both embedding model defaults are nomic-embed-text."""
+        assert OllamaProviderAdapter.default_embedding_model_id == "nomic-embed-text"
+        assert OllamaProviderAdapter.health_check_embedding_model_id == "nomic-embed-text"
+        assert OllamaProviderAdapter.fallback_probe_path == "/api/tags"
+
+    def test_serves_chat_and_embeddings(self):
+        """The adapter serves chat and text embeddings."""
+        assert OllamaProviderAdapter.supports_chat()
+        assert OllamaProviderAdapter.supports_embeddings()
+
+    def test_empty_texts_short_circuits(self):
+        """Empty input returns [] before any probe."""
+        with patch(LS_PROBE) as mock_probe:
+            assert OllamaProviderAdapter().execute_embedding(texts=[], model_id="x") == []
+        mock_probe.assert_not_called()
+
+    def test_execute_embedding_builds_litellm_call(self):
+        """Model is 'ollama/<id>', the resolved URL is api_base, vectors come from data."""
+        with (
+            patch(LS_PROBE, return_value=True),
+            patch("litellm.embedding") as mock_embed,
+        ):
+            mock_embed.return_value = MagicMock(data=[{"embedding": [0.5, 0.6]}])
+            result = OllamaProviderAdapter().execute_embedding(
+                texts=["hi"], model_id="nomic-embed-text", base_url="http://localhost:11434"
+            )
+        assert result == [[0.5, 0.6]]
+        kwargs = mock_embed.call_args[1]
+        assert kwargs["model"] == "ollama/nomic-embed-text"
+        assert kwargs["api_base"] == "http://localhost:11434"
+        assert "dimensions" not in kwargs
+
+    def test_execute_embedding_forwards_dimensions(self):
+        """dimensions is forwarded when set."""
+        with patch(LS_PROBE, return_value=True), patch("litellm.embedding") as mock_embed:
+            mock_embed.return_value = MagicMock(data=[{"embedding": [0.1]}])
+            OllamaProviderAdapter().execute_embedding(texts=["a"], model_id="m", dimensions=1)
+        assert mock_embed.call_args[1]["dimensions"] == 1
+
+    def test_embedding_falls_back_with_probe_path(self):
+        """Primary down -> the docker fallback is used, probed on /api/tags."""
+        with (
+            patch(LS_PROBE, side_effect=[False, True]) as mock_probe,
+            patch("litellm.embedding") as mock_embed,
+        ):
+            mock_embed.return_value = MagicMock(data=[{"embedding": [1.0]}])
+            OllamaProviderAdapter().execute_embedding(
+                texts=["a"], model_id="m", base_url="http://localhost:11434"
+            )
+        assert mock_embed.call_args[1]["api_base"] == "http://host.docker.internal:11434"
+        assert all(call.args[1] == "/api/tags" for call in mock_probe.call_args_list)
+
+    def test_embedding_uses_ollama_host(self, monkeypatch):
+        """OLLAMA_HOST is tried first on the embedding path."""
+        monkeypatch.setenv("OLLAMA_HOST", "http://ollama:11434")
+        with patch(LS_PROBE, return_value=True), patch("litellm.embedding") as mock_embed:
+            mock_embed.return_value = MagicMock(data=[{"embedding": [1.0]}])
+            OllamaProviderAdapter().execute_embedding(texts=["a"], model_id="m")
+        assert mock_embed.call_args[1]["api_base"] == "http://ollama:11434"
+
+    def test_embedding_unreachable_raises_runtime_error(self):
+        """No answering server raises a RuntimeError naming Ollama."""
+        with patch(LS_PROBE, return_value=False):
+            with pytest.raises(RuntimeError, match="Failed to connect to Ollama"):
+                OllamaProviderAdapter().execute_embedding(texts=["a"], model_id="m")
+
+    def test_embedding_request_failure_wrapped(self):
+        """A failing litellm call surfaces as RuntimeError with the cause chained."""
+        with (
+            patch(LS_PROBE, return_value=True),
+            patch("litellm.embedding", side_effect=ValueError("bad")),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to generate embeddings") as info:
+                OllamaProviderAdapter().execute_embedding(texts=["a"], model_id="m")
+        assert isinstance(info.value.__cause__, ValueError)
+
+    def test_chat_path_ignores_ollama_host(self, monkeypatch):
+        """OLLAMA_HOST does not reach the chat resolution."""
+        monkeypatch.setenv("OLLAMA_HOST", "http://ollama:11434")
+        with patch.object(OllamaProviderAdapter, "_test_connection", return_value=True) as conn:
+            resolved = OllamaProviderAdapter()._resolve_base_url("http://localhost:11434")
+        assert resolved == "http://localhost:11434"
+        conn.assert_called_once_with("http://localhost:11434", timeout=2.0)
+
+
+class TestOllamaEmbeddingHealth:
+    """check_embedding_health verdicts."""
+
+    @pytest.fixture(autouse=True)
+    def _no_env(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+    @staticmethod
+    def _tags(*names):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"models": [{"name": n} for n in names]}
+        return resp
+
+    def test_healthy_with_default_model(self):
+        """model_id=None checks nomic-embed-text and answers healthy."""
+        with (
+            patch(LS_PROBE, return_value=True),
+            patch("requests.get", return_value=self._tags("nomic-embed-text:latest")),
+        ):
+            result = OllamaProviderAdapter().check_embedding_health(
+                api_key=None, base_url="http://localhost:11434", model_id=None
+            )
+        assert result.reachable is True
+        assert result.reason is None
+        assert "connected" in result.message
+
+    def test_model_not_pulled(self):
+        """A model not pulled answers reason 'model'."""
+        with (
+            patch(LS_PROBE, return_value=True),
+            patch("requests.get", return_value=self._tags("other-model:latest")),
+        ):
+            result = OllamaProviderAdapter().check_embedding_health(
+                api_key=None, base_url="http://localhost:11434", model_id=None
+            )
+        assert result.reachable is False
+        assert result.reason == "model"
+        assert "ollama pull nomic-embed-text" in result.message
+
+    def test_unreachable(self):
+        """No answering candidate answers reason 'unreachable'."""
+        with patch(LS_PROBE, return_value=False):
+            result = OllamaProviderAdapter().check_embedding_health(
+                api_key=None, base_url="http://localhost:11434"
+            )
+        assert result.reachable is False
+        assert result.reason == "unreachable"
+        assert result.message == "Cannot connect to Ollama at http://localhost:11434"
+
+    def test_request_failure_classified(self):
+        """A 404 on the tags request is classified by failure_reason."""
+        import requests
+
+        resp = MagicMock(status_code=404)
+        resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+        with patch(LS_PROBE, return_value=True), patch("requests.get", return_value=resp):
+            result = OllamaProviderAdapter().check_embedding_health(
+                api_key=None, base_url="http://localhost:11434"
+            )
+        assert result.reachable is False
+        assert result.reason == "model"
+
+    def test_unclassified_failure_is_unreachable(self):
+        """A failure failure_reason does not know answers 'unreachable'."""
+        with (
+            patch(LS_PROBE, return_value=True),
+            patch("requests.get", side_effect=ValueError("garbled")),
+        ):
+            result = OllamaProviderAdapter().check_embedding_health(
+                api_key=None, base_url="http://localhost:11434"
+            )
+        assert result.reachable is False
+        assert result.reason == "unreachable"
+
+
+class TestOllamaCompletionTimeout:
+    """A caller's timeout bounds both the base-URL probes and the request."""
+
+    @staticmethod
+    def _reply():
+        response = MagicMock()
+        response.json.return_value = {"message": {"content": "ok"}}
+        response.raise_for_status = MagicMock()
+        return response
+
+    @patch("httpx.post")
+    def test_refusing_primary_probes_each_candidate_within_the_timeout(self, mock_post):
+        """With timeout=0.5 each probe gets 0.5 s and the request gets 0.5 s."""
+        mock_post.return_value = self._reply()
+        with patch.object(
+            OllamaProviderAdapter, "_test_connection", side_effect=[False, True]
+        ) as probe:
+            result = OllamaProviderAdapter().execute_completion(
+                message="Hello",
+                model_id="mistral:7b",
+                api_key=None,
+                base_url="http://localhost:11434",
+                timeout=0.5,
+            )
+
+        assert result == "ok"
+        assert probe.call_count == 2
+        assert [c.kwargs["timeout"] for c in probe.call_args_list] == [0.5, 0.5]
+        assert mock_post.call_args.kwargs["timeout"] == 0.5
+
+    @patch("httpx.post")
+    def test_a_long_timeout_still_caps_each_probe_at_two_seconds(self, mock_post):
+        """A timeout above two seconds leaves each probe at two."""
+        mock_post.return_value = self._reply()
+        with patch.object(OllamaProviderAdapter, "_test_connection", return_value=True) as probe:
+            OllamaProviderAdapter().execute_completion(
+                message="Hello",
+                model_id="mistral:7b",
+                api_key=None,
+                base_url="http://localhost:11434",
+                timeout=30.0,
+            )
+
+        assert probe.call_args.kwargs["timeout"] == 2.0
+        assert mock_post.call_args.kwargs["timeout"] == 30.0
+
+    @patch("httpx.post")
+    def test_no_timeout_keeps_two_second_probes_and_120_second_request(self, mock_post):
+        """Without a timeout the probes stay at two seconds and the request at 120."""
+        mock_post.return_value = self._reply()
+        with patch.object(OllamaProviderAdapter, "_test_connection", return_value=True) as probe:
+            OllamaProviderAdapter().execute_completion(
+                message="Hello",
+                model_id="mistral:7b",
+                api_key=None,
+                base_url="http://localhost:11434",
+            )
+
+        assert probe.call_args.kwargs["timeout"] == 2.0
+        assert mock_post.call_args.kwargs["timeout"] == 120.0
+
+    def test_probe_passes_its_timeout_to_requests(self):
+        """_test_connection bounds its GET by the timeout it is given."""
+        with patch("requests.get") as mock_get:
+            mock_get.return_value = Mock(status_code=200)
+            assert OllamaProviderAdapter._test_connection("http://localhost:11434", timeout=0.5)
+
+        assert mock_get.call_args.kwargs["timeout"] == 0.5
+
+
+class TestOllamaUnreachableError:
+    """A dead Ollama is both a connection error and the ValueError callers catch."""
+
+    @patch.object(OllamaProviderAdapter, "_test_connection", return_value=False)
+    def test_every_candidate_refusing_raises_connection_and_value_error(self, _mock_test):
+        """With every candidate refusing, the error is both kinds, with the known message."""
+        from osprey.models.providers.ollama import OllamaUnreachableError
+
+        with pytest.raises(OllamaUnreachableError) as info:
+            OllamaProviderAdapter().execute_completion(
+                message="Hello",
+                model_id="mistral:7b",
+                api_key=None,
+                base_url="http://localhost:11434",
+            )
+
+        assert isinstance(info.value, ConnectionError)
+        assert isinstance(info.value, ValueError)
+        assert str(info.value).startswith(
+            "Failed to connect to Ollama at configured URL 'http://localhost:11434' "
+            "and all fallback URLs"
+        )

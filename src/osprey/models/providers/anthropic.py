@@ -20,6 +20,8 @@ class AnthropicProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = None
+    models_probe = "anthropic"
+    models_probe_base_url = "https://api.anthropic.com"
     default_model_id = "claude-haiku-4-5"
     health_check_model_id = "claude-haiku-4-5"
 

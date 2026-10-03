@@ -3,6 +3,7 @@
 This provider uses LiteLLM as the backend for unified API access.
 """
 
+from .health import HealthResult, failure_reason
 from .litellm_adapter import check_litellm_health, execute_litellm_completion
 from .litellm_delegating import LiteLLMDelegatingProvider
 
@@ -25,8 +26,12 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "https://api.openai.com/v1"
+    models_probe = "bearer"
+    models_probe_base_url = "https://api.openai.com/v1"
     default_model_id = "gpt-5.6-sol"  # Flagship for general use
     health_check_model_id = "gpt-5.6-luna"  # Cheapest listed model for health checks
+    default_embedding_model_id = "text-embedding-3-small"
+    health_check_embedding_model_id = "text-embedding-3-small"
 
     # API key acquisition information
     api_key_url = "https://platform.openai.com/api-keys"
@@ -71,3 +76,97 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
         )
 
     # execute_completion / check_health inherited from LiteLLMDelegatingProvider.
+
+    def execute_embedding(
+        self,
+        texts: list[str],
+        model_id: str | None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        dimensions: int | None = None,
+        timeout: float = 600.0,
+    ) -> list[list[float]]:
+        """Embed *texts* through LiteLLM, one vector per text, in input order.
+
+        A key, base URL or dimension count that is not given is left out of the
+        call, so LiteLLM applies its own default for it.
+
+        Args:
+            texts: Texts to embed.
+            model_id: Embedding model id (``default_embedding_model_id`` when None).
+            api_key: OpenAI API key.
+            base_url: Custom endpoint, e.g. a proxy or Azure OpenAI.
+            dimensions: Output vector length (v3 models only).
+            timeout: Request timeout in seconds.
+
+        Returns:
+            One embedding vector per input text.
+
+        Raises:
+            RuntimeError: When LiteLLM is missing or the call fails; the
+                original exception is the ``__cause__``.
+        """
+        if not texts:
+            return []
+
+        try:
+            import litellm
+        except ImportError as e:
+            raise RuntimeError(
+                "litellm is required for OpenAI embedding support. "
+                "Install with: pip install litellm"
+            ) from e
+
+        embed_kwargs: dict = {
+            "model": model_id or self.default_embedding_model_id,
+            "input": texts,
+            "timeout": timeout,
+        }
+        if api_key:
+            embed_kwargs["api_key"] = api_key
+        if base_url:
+            embed_kwargs["api_base"] = base_url
+        if dimensions is not None:
+            embed_kwargs["dimensions"] = dimensions
+
+        try:
+            response = litellm.embedding(**embed_kwargs)
+        except Exception as e:
+            raise RuntimeError(f"Failed to generate embeddings with OpenAI: {e}") from e
+        return [item["embedding"] for item in response.data]
+
+    def check_embedding_health(
+        self,
+        api_key: str | None,
+        base_url: str | None,
+        model_id: str | None = None,
+        timeout: float = 10.0,
+    ) -> HealthResult:
+        """Embed one one-token text against the configured model.
+
+        Never raises for a provider failure: the exception is classified by
+        :func:`~osprey.models.providers.health.failure_reason`, and anything it
+        does not know is reported ``unreachable``.
+
+        Args:
+            api_key: OpenAI API key; without one no request is made.
+            base_url: Custom endpoint, e.g. a proxy or Azure OpenAI.
+            model_id: Model to check (``health_check_embedding_model_id`` when None).
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The verdict.
+        """
+        if not api_key:
+            return HealthResult(False, "OpenAI API key is required", "config")
+
+        model = model_id or self.health_check_embedding_model_id
+        try:
+            self.execute_embedding(
+                ["ping"], model_id=model, api_key=api_key, base_url=base_url, timeout=timeout
+            )
+        except Exception as e:
+            cause = e.__cause__ if isinstance(e.__cause__, BaseException) else e
+            reason = failure_reason(cause) or "unreachable"
+            return HealthResult(False, f"OpenAI embedding health check failed: {cause}", reason)
+        return HealthResult(True, f"OpenAI embedding API healthy (model: {model})", None)

@@ -111,7 +111,6 @@ def failure_reason(exc: BaseException) -> FailureReason | None:
 
 
 _ANTHROPIC_VERSION = "2023-06-01"
-_TRANSIENT_STATUSES = frozenset({429})
 _NOT_PROBED = HealthResult(None, "not probed", None)
 
 

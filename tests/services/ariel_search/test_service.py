@@ -975,3 +975,156 @@ class TestToolInputSchemaDefaults:
         """SemanticSearchInput has similarity_threshold default of 0.5."""
         input_schema = SemanticSearchInput(query="test")
         assert input_schema.similarity_threshold == 0.5
+
+
+_LLAMA_MODEL = "qwen3-vl-embedding-2b"
+
+
+def _service_for(ariel: dict) -> ARIELSearchService:
+    """A service over *ariel* (merged onto a database URI) with a recording repository."""
+    config = ARIELConfig.from_dict({"database": {"uri": "postgresql://localhost/test"}, **ariel})
+    pool = MagicMock()
+    pool.close = AsyncMock()
+    repository = MagicMock()
+    repository.validate_search_model_table = AsyncMock()
+    repository.semantic_search = AsyncMock(return_value=[])
+    repository.get_embedding_tables = AsyncMock(return_value=[])
+    return ARIELSearchService(config=config, pool=pool, repository=repository)
+
+
+def _route_registry(monkeypatch, classes: dict) -> list[str]:
+    """Answer ``ProviderRegistry.get_provider`` from *classes*; returns the names asked."""
+    from osprey.models.provider_registry import ProviderRegistry
+
+    asked: list[str] = []
+
+    def get_provider(_self, name):
+        asked.append(name)
+        return classes.get(name)
+
+    monkeypatch.setattr(ProviderRegistry, "get_provider", get_provider)
+    return asked
+
+
+class TestEmbedderResolution:
+    """_get_embedder resolves the class that built the table a query searches."""
+
+    @pytest.mark.parametrize(
+        ("ariel", "expected"),
+        [
+            (
+                {
+                    "embedding": {"provider": "ollama"},
+                    "search_modules": {"semantic": {"enabled": True, "provider": "openai"}},
+                    "enhancement_modules": {"text_embedding": {"provider": "llama-cpp"}},
+                },
+                "openai",
+            ),
+            (
+                {
+                    "embedding": {"provider": "ollama"},
+                    "enhancement_modules": {"text_embedding": {"provider": "llama-cpp"}},
+                },
+                "llama-cpp",
+            ),
+            ({"embedding": {"provider": "openai"}}, "openai"),
+            ({}, "ollama"),
+        ],
+    )
+    def test_precedence(self, monkeypatch, ariel, expected):
+        from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
+
+        fake = make_fake_embedding_provider()
+        asked = _route_registry(monkeypatch, {expected: fake})
+        service = _service_for(ariel)
+
+        embedder = service._get_embedder()
+
+        assert asked == [expected]
+        assert type(embedder) is fake
+        assert service._get_embedder() is embedder
+        assert asked == [expected]
+
+    @pytest.mark.parametrize(
+        ("ariel", "key"),
+        [
+            (
+                {"search_modules": {"semantic": {"enabled": True, "provider": "nonesuch"}}},
+                "ariel.search_modules.semantic.provider",
+            ),
+            (
+                {"enhancement_modules": {"text_embedding": {"provider": "nonesuch"}}},
+                "ariel.enhancement_modules.text_embedding.provider",
+            ),
+            ({"embedding": {"provider": "nonesuch"}}, "ariel.embedding.provider"),
+        ],
+    )
+    def test_unknown_provider_is_refused_naming_its_key(self, monkeypatch, ariel, key):
+        _route_registry(monkeypatch, {})
+
+        with pytest.raises(ValueError, match="nonesuch") as exc:
+            _service_for(ariel)._get_embedder()
+        assert key in str(exc.value)
+
+    def test_a_provider_without_embeddings_is_refused(self):
+        service = _service_for({"embedding": {"provider": "anthropic"}})
+
+        with pytest.raises(ValueError, match=r"ariel\.embedding\.provider"):
+            service._get_embedder()
+
+    def test_a_preset_embedder_skips_resolution(self, monkeypatch):
+        from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
+
+        asked = _route_registry(monkeypatch, {})
+        service = _service_for({})
+        preset = make_fake_embedding_provider()()
+        service._embedder = preset
+
+        assert service._get_embedder() is preset
+        assert asked == []
+
+
+class TestSemanticSearchThroughTheService:
+    """service.search(mode='semantic') embeds with the table's own provider."""
+
+    @pytest.mark.asyncio
+    async def test_llama_cpp_text_table_is_queried_through_llama_cpp(self, monkeypatch):
+        """text_embedding on llama-cpp outranks embedding.provider: ollama for queries."""
+        import requests
+
+        monkeypatch.setattr("osprey.models.config.get_provider_config", lambda name: {})
+        monkeypatch.delenv("LLAMA_CPP_HOST", raising=False)
+        posts: list[str] = []
+
+        class _Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": [{"embedding": [float(i % 5 + 1) for i in range(2048)]}]}
+
+        def fake_post(url, **_kwargs):
+            posts.append(url)
+            return _Response()
+
+        monkeypatch.setattr(requests, "post", fake_post)
+        service = _service_for(
+            {
+                "embedding": {"provider": "ollama"},
+                "search_modules": {"semantic": {"enabled": True, "model": _LLAMA_MODEL}},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "provider": "llama-cpp",
+                        "models": [{"name": _LLAMA_MODEL, "dimension": 1024}],
+                    }
+                },
+            }
+        )
+
+        result = await service.search("orbit kick near BPM 7", mode="semantic")
+
+        assert result.search_modes_used == ("semantic",)
+        assert posts == ["http://localhost:8080/v1/embeddings"]
+        query_embedding = service.repository.semantic_search.call_args.kwargs["query_embedding"]
+        assert len(query_embedding) == 1024
