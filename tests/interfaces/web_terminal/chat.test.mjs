@@ -578,6 +578,157 @@ describe('a prompt refused by the other view', () => {
   });
 });
 
+describe('started commands', () => {
+  const MAGNET = { label: 'magnet_scan.py', command: 'python magnet_scan.py -s 3' };
+
+  /**
+   * The refusal the hand-off answers when stopping the agent would end commands it started.
+   * @param {{label: string, command: string}[] | undefined} commands
+   */
+  function startedRefusal(commands) {
+    const err = /** @type {Error & { status: number, slug: string, commands?: any }} */ (
+      transportError(409, 'handoff_started_commands')
+    );
+    if (commands) err.commands = commands;
+    return err;
+  }
+
+  /** Let a click's hand-off request and its answer settle. */
+  async function settle() {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  }
+
+  /** The question while it is up; one on its way out carries `data-closing`. */
+  const dialog = () => document.querySelector('.posture-modal-overlay:not([data-closing])');
+  const dialogTitle = () => document.querySelector('.posture-modal-title')?.textContent ?? '';
+  /** @param {string} selector */
+  const dialogButton = (selector) =>
+    /** @type {HTMLButtonElement} */ (document.querySelector(selector));
+
+  /** The mode-change broadcasts this window posted, as frame-params' pickUiMode sends them. */
+  function modeChanges(/** @type {import('vitest').MockInstance} */ spy) {
+    return spy.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message?.type === 'osprey-mode-change');
+  }
+
+  test('a stop refused for started commands asks, and "Stop both" re-sends with end_started', async () => {
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert({ interrupt: true });
+
+    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    expect(dialog()).not.toBeNull();
+    expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
+    expect(document.activeElement).toBe(dialogButton('.posture-modal-cancel'));
+
+    dialogButton('.posture-modal-confirm').click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(2);
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
+      interrupt: true,
+      endStarted: true,
+    }));
+    expect(dialog()).toBeNull();
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+    expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
+  });
+
+  test('"Cancel" sends nothing more and flips to the Expert view', async () => {
+    const posted = vi.spyOn(window, 'postMessage');
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+    await chat.enterFromExpert({ interrupt: true });
+
+    dialogButton('.posture-modal-cancel').click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
+    expect(modeChanges(posted)).toEqual([{ type: 'osprey-mode-change', mode: 'expert' }]);
+    expect(dialog()).toBeNull();
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+    // The session is the Expert view's again, so this console stays out of reach.
+    expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(true);
+    posted.mockRestore();
+  });
+
+  test('Escape behaves as Cancel', async () => {
+    const posted = vi.spyOn(window, 'postMessage');
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+    await chat.enterFromExpert({ interrupt: true });
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
+    expect(modeChanges(posted)).toEqual([{ type: 'osprey-mode-change', mode: 'expert' }]);
+    expect(dialog()).toBeNull();
+    posted.mockRestore();
+  });
+
+  test('a plain flip refused for started commands asks without an interrupt, and "Stop both" keeps it plain', async () => {
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert();
+    expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
+
+    dialogButton('.posture-modal-confirm').click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
+      interrupt: false,
+      endStarted: true,
+    }));
+  });
+
+  test('with nothing running the stop goes straight through and nothing is asked', async () => {
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert({ interrupt: true });
+
+    expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
+    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
+      interrupt: true,
+      endStarted: false,
+    }));
+    expect(document.querySelector('.posture-modal-overlay')).toBeNull();
+    expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
+  });
+
+  test('a prompt refused for started commands shows the overlay, and its stop asks', async () => {
+    await mountChat({ pointer: 'K1' });
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'status?';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+
+    const callbacks = transport.sendPrompt.mock.calls[0][2];
+    callbacks.onError(startedRefusal(undefined));
+
+    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
+    expect(action.textContent).toBe('Stop and switch now');
+    // The chat endpoint's refusal carries no list, so nothing is asked yet.
+    expect(dialog()).toBeNull();
+
+    transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));
+    action.click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
+      interrupt: true,
+      endStarted: false,
+    }));
+    expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
+
+    dialogButton('.posture-modal-cancel').click();
+    await settle();
+  });
+});
+
 describe('slash commands in the Simple view', () => {
   test('picking a suggestion fills the box and does not send', async () => {
     await mountChat({ pointer: 'K1' });

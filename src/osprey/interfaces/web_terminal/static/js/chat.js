@@ -22,6 +22,7 @@
  * simply hidden in expert mode — never torn down or toggled from here.
  */
 
+import { pickUiMode } from '/design-system/js/frame-params.js';
 import { uuid4 } from '/design-system/js/uuid.js';
 
 import { fetchCommands, fetchHistory, interrupt, requestHandoff, sendPrompt } from './chat-client.js';
@@ -29,6 +30,7 @@ import { createChatRenderer, elem } from './chat-render.js';
 import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
 import { attachSlashComplete } from './slash-complete.js';
+import { askAboutStartedCommands } from './started-commands.js';
 import { notifySessionChange } from './terminal.js';
 import {
   HANDOFF_PENDING_MESSAGE,
@@ -91,6 +93,10 @@ const HANDOFF_REFUSALS = {
   },
   handoff_needs_interrupt: {
     message: 'The other view may still be working.',
+    action: 'interrupt',
+  },
+  handoff_started_commands: {
+    message: 'The agent started a command that is still running.',
     action: 'interrupt',
   },
   handoff_superseded: { message: 'Another request took over this session.', action: 'retry' },
@@ -545,6 +551,21 @@ export function initChat(containerId = 'operator-container') {
     overlayAction.onclick = null;
   }
 
+  /**
+   * Abandon the hand-off and give the session back to the Expert view.
+   *
+   * Nothing was ended: the agent and the commands it started keep running
+   * there. The console stays transitioning, because the session is not this
+   * view's.
+   */
+  function cancelHandoff() {
+    ++handoffGeneration;
+    handoffAbort?.abort();
+    handoffAbort = null;
+    hideOverlay();
+    pickUiMode('expert');
+  }
+
   /** Clear the log and everything the old conversation left behind. */
   function resetLog() {
     handle?.abort();
@@ -584,10 +605,16 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Ask the server for the session, showing the wait and then either the
    * conversation or the reason it was refused.
+   *
+   * A refusal for commands the outgoing agent started asks the operator
+   * whether to end them with it: *Stop both* re-sends this request with
+   * `endStarted`, and every other answer abandons the hand-off.
    * @param {boolean} cutRunningTurn
+   * @param {boolean} [endStarted] - the operator agreed that ending the
+   *   outgoing agent also ends the commands it started
    * @returns {Promise<void>}
    */
-  async function runHandoff(cutRunningTurn) {
+  async function runHandoff(cutRunningTurn, endStarted = false) {
     const generation = ++handoffGeneration;
     // The server frees a key whose requester disconnects, so abandoning the
     // wait in flight is what makes room for this one — two live requests for
@@ -601,12 +628,23 @@ export function initChat(containerId = 'operator-container') {
     /** @type {{ state: string, session_id: string } | null} */
     let handed = null;
     try {
-      handed = await requestHandoff(key, { interrupt: cutRunningTurn, signal: controller.signal });
+      handed = await requestHandoff(key, {
+        interrupt: cutRunningTurn,
+        endStarted,
+        signal: controller.signal,
+      });
     } catch (err) {
       if (generation !== handoffGeneration) return;
       handoffAbort = null;
       const refusal = handoffRefusal(err);
       showHandoffRefused(refusal ?? HANDOFF_FALLBACK);
+      const refused = /** @type {import('./chat-client.js').TransportError} */ (err);
+      if (refused?.slug === 'handoff_started_commands') {
+        askAboutStartedCommands(Array.isArray(refused.commands) ? refused.commands : [], {
+          onStop: () => void runHandoff(cutRunningTurn, true),
+          onCancel: cancelHandoff,
+        });
+      }
       return;
     }
     if (generation !== handoffGeneration) return;
