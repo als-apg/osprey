@@ -51,6 +51,7 @@ EXCLUDED: tuple[str, ...] = ("changelog.d/", "CHANGELOG.md")
 #: Files that spell retired tokens as data.
 SELF_EXEMPT: tuple[str, ...] = (
     "src/osprey/profiles/config_key_manifest.yml",
+    "tests/build/test_tier_completion.py",
     "tests/connectors/test_limits_mode.py",
     "tests/docs/test_environment_variable_page.py",
     "tests/docs/test_mml_converter_retired.py",
@@ -63,14 +64,20 @@ RETIRED: dict[str, str] = {
     "GRAPH_MALFORMED": "2",
     "GRAPH_NO_TTL": "2",
     "GRAPH_SOURCE_PARADIGM": "2",
+    "TierSpec": "4a",
     "_check_empty_facility_prefix": "3b",
     "allow_unlisted_channels": "3a",
     "assign_readbacks": "2",
+    "build_tiers": "4a",
     "facility_vocabulary": "3a",
+    "google_sheets": "4a",
+    "middle_layer_duckdb": "4a",
     "osprey.channel_roster.database": "2",
     "pairing.py": "2",
+    "prune_csv_build_artifacts": "4a",
     "read_database_roster": "2",
     "resolve_facility_name": "3a",
+    "tier_mode_conflict": "4a",
     "va_graph_deferred": "2",
 }
 
