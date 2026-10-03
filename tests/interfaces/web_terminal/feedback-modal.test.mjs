@@ -136,6 +136,28 @@ describe('feedback modal shell — overlay lifecycle', () => {
     expect(root.classList.contains('visible')).toBe(true);
   });
 
+  test('shell: the heading and the accessible name are both "Send feedback"', () => {
+    modal.open();
+
+    const dialog = qs(document, DIALOG);
+    expect(dialog.getAttribute('aria-label')).toBe('Send feedback');
+    expect(qs(dialog, '.feedback-modal-title').textContent).toBe('Send feedback');
+  });
+
+  test('shell: a title passed at construction is not an option and changes nothing', () => {
+    // @ts-expect-error -- FeedbackModalOptions has no title; the heading is fixed.
+    const m = new FeedbackModal({ title: 'Something else' });
+    try {
+      m.open();
+
+      const dialog = qs(document, DIALOG);
+      expect(dialog.getAttribute('aria-label')).toBe('Send feedback');
+      expect(qs(dialog, '.feedback-modal-title').textContent).toBe('Send feedback');
+    } finally {
+      m.close();
+    }
+  });
+
   test('shell: close removes the node from the document — never parked', async () => {
     modal.open();
     await flushRaf();

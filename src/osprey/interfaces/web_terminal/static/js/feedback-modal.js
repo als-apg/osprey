@@ -167,7 +167,6 @@ const _openModals = new Set();
 
 /**
  * @typedef {object} FeedbackModalOptions
- * @property {string} [title] - heading text and the dialog's accessible name.
  * @property {() => string|null} [getSessionId] - the current terminal session
  *   id. Injected rather than imported from `terminal.js` so the dialog has no
  *   dependency on the terminal module. Defaults to "no session".
@@ -390,8 +389,6 @@ export class FeedbackModal {
    * @returns {HTMLElement} the scrim, with the dialog already inside it
    */
   _build() {
-    const title = this._options.title ?? DEFAULT_TITLE;
-
     const overlay = el('div', 'feedback-modal-overlay');
     overlay.addEventListener('mousedown', (event) => {
       // Only a press on the scrim itself dismisses; a press that started
@@ -402,12 +399,12 @@ export class FeedbackModal {
     const dialog = el('div', 'feedback-modal-dialog');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
-    dialog.setAttribute('aria-label', title);
+    dialog.setAttribute('aria-label', DEFAULT_TITLE);
     dialog.tabIndex = -1;
 
     const header = el('div', 'feedback-modal-header');
     const heading = el('h2', 'feedback-modal-title');
-    heading.textContent = title;
+    heading.textContent = DEFAULT_TITLE;
     header.appendChild(heading);
 
     const closeBtn = document.createElement('button');
