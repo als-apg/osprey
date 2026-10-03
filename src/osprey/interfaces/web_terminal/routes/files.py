@@ -5,31 +5,53 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from osprey.interfaces.web_terminal.session_key import is_posture_key
+
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-_UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
-
 
 def _resolve_workspace(request: Request) -> Path:
-    """Resolve workspace dir, optionally scoped to a session.
+    """Resolve the workspace directory a file request is served from.
 
-    Reads ``?session_id=`` query param. Returns the session-scoped
-    subdirectory if valid, otherwise the base workspace dir.
+    An absent or empty ``?session_id=`` serves the base workspace. A canonical
+    session key serves ``sessions/<key>/``, the directory the child spawned
+    under that key works in, which is why the key grammar
+    (:func:`~osprey.interfaces.web_terminal.session_key.is_posture_key`) is the
+    right test here. Any other value is refused rather than widened to the
+    base tree: a request for one session's files is never answered with every
+    session's.
+
+    Args:
+        request: The incoming request; its ``session_id`` query parameter is read.
+
+    Returns:
+        The base workspace directory, or the session's subdirectory of it.
+
+    Raises:
+        HTTPException: 400 ``invalid_session_id`` for a ``session_id`` that is
+            present, non-empty and not a canonical session key.
     """
     workspace_base: Path = request.app.state.workspace_dir
     session_id = request.query_params.get("session_id")
-    if session_id and _UUID_RE.match(session_id):
-        return workspace_base / "sessions" / session_id
-    return workspace_base
+    if not session_id:
+        return workspace_base
+    if not is_posture_key(session_id):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_session_id",
+                "message": "session_id must be a canonical lowercase session UUID.",
+            },
+        )
+    return workspace_base / "sessions" / session_id
 
 
 #: The server-side stores the file routes never show, each named by the
@@ -120,7 +142,8 @@ async def file_tree(request: Request):
     """Return the workspace directory tree as JSON.
 
     A concealed store is omitted when it lies inside the served tree, as is any
-    symlink leading into one — see :func:`_concealed_stores`.
+    symlink leading into one — see :func:`_concealed_stores`. A malformed
+    ``session_id`` answers 400 ``invalid_session_id``.
     """
     workspace_dir: Path = _resolve_workspace(request)
     workspace_root = workspace_dir.resolve()
@@ -189,6 +212,7 @@ async def file_content(filepath: str, request: Request):
 
     Anything under a concealed store answers 404 — byte-for-byte what a path
     that was never there returns, so a probe cannot confirm the store exists.
+    A malformed ``session_id`` answers 400 ``invalid_session_id``.
     """
     workspace_dir: Path = _resolve_workspace(request)
     workspace_root = workspace_dir.resolve()
