@@ -16,6 +16,10 @@ Three claims, against a real Neo4j + neosemantics store:
   new marker, and the new description in the store.
 * **Health reports one digest.** The ``graphdb_seed`` row's value is the
   12-character prefix of the marker's digest and nothing else.
+* **The search index follows by the same digest.** After every deploy the
+  render's ``graph.duckdb`` carries the marker's digest as its
+  ``corpus_sha256``, and the ``channel_finder_search_index`` health row is OK
+  with that digest's prefix and no different-corpora warning.
 
 The project is a real ``osprey init`` + ``osprey build`` of the
 control-assistant preset. Its rendered ``config.yml`` is pointed at the graph
@@ -57,6 +61,9 @@ pytestmark = [
 
 #: The rendered graph view, relative to the render's ``config.yml``.
 GRAPH_VIEW_TTL_PATH = "./data/graph/facility.ttl"
+
+#: The search index the build writes, relative to the render's ``config.yml``.
+SEARCH_INDEX_PATH = Path("data") / "channel_databases" / "graph.duckdb"
 
 #: The repo-side facility records holding the channel descriptions.
 CHANNEL_RECORDS = Path("data") / "facility" / "records" / "channels.yaml"
@@ -145,6 +152,37 @@ def _change_one_description(repo: Path) -> str:
     return str(record["id"])
 
 
+def _index_digest(repo: Path) -> str:
+    """The ``corpus_sha256`` the render's search index carries."""
+    import duckdb
+
+    con = duckdb.connect(str(repo / "build" / SEARCH_INDEX_PATH), read_only=True)
+    try:
+        (digest,) = con.execute("SELECT corpus_sha256 FROM meta").fetchone()
+    finally:
+        con.close()
+    return str(digest)
+
+
+def _search_index_row(config: dict[str, Any], repo: Path):
+    from osprey.health.core.channel_finder import channel_finder
+
+    results = asyncio.run(channel_finder(config, cwd=repo / "build")())
+    return next(row for row in results if row.name == "channel_finder_search_index")
+
+
+def _assert_the_index_follows(config: dict[str, Any], repo: Path, marker: str | None) -> None:
+    """The render's index carries the store's digest, and health agrees."""
+    from osprey.health.models import Status
+
+    assert marker is not None
+    assert _index_digest(repo) == marker
+    row = _search_index_row(config, repo)
+    assert row.status is Status.OK, (row.message, row.value, row.details)
+    assert marker[:12] in (row.value or "")
+    assert "different corpora" not in row.message
+
+
 def _seed_row(config: dict[str, Any]):
     from osprey.health.core.graphdb import graphdb
 
@@ -200,6 +238,7 @@ def test_the_store_follows_the_facility_file_by_stamp(
     assert first_marker == graph_seeder.ttl_sha256(first_text)
     assert first_count > 0
     assert len(imports) == 1
+    _assert_the_index_follows(config, repo, first_marker)
 
     # Unchanged redeploy: same marker, same count, no import.
     config = _build_and_point_at_store(repo, store_port)
@@ -208,6 +247,7 @@ def test_the_store_follows_the_facility_file_by_stamp(
     assert store.marker() == first_marker
     assert store.resource_count() == first_count
     assert len(imports) == 1, "an unchanged redeploy imported the corpus again"
+    _assert_the_index_follows(config, repo, store.marker())
 
     # One changed description: new view, new marker, new description in the store.
     address = _change_one_description(repo)
@@ -222,6 +262,7 @@ def test_the_store_follows_the_facility_file_by_stamp(
     assert store.description(address) == CHANGED_DESCRIPTION
     assert store.resource_count() == first_count
     assert len(imports) == 2
+    _assert_the_index_follows(config, repo, second_marker)
 
     # Health reports the one digest the marker carries.
     row = _seed_row(config)
