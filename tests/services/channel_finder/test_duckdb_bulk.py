@@ -3,17 +3,21 @@
 ``bulk_insert`` loads rows through one registered frame instead of a per-row
 ``executemany``. These tests pin that the values arrive unchanged (``None``,
 lists, strings, timestamps), that a short row is refused rather than padded,
-and that a table constraint still raises.
+that a table constraint still raises, and that the middle-layer import writes
+exactly the rows a row-by-row load would.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 duckdb = pytest.importorskip("duckdb")
 
+from osprey.services.channel_finder.databases import duckdb_import as dimp  # noqa: E402
 from osprey.services.channel_finder.databases.duckdb_bulk import bulk_insert  # noqa: E402
 
 
@@ -92,3 +96,101 @@ class TestBulkInsert:
         with pytest.raises(duckdb.ConstraintException):
             bulk_insert(con, "t", ("name",), [("a",), ("a",)])
         assert bulk_insert(con, "t", ("name",), [("b",)]) == 1
+
+
+def _row_by_row(con, table, columns, rows):
+    """The reference load: one parameterised INSERT per row."""
+    rows = [tuple(row) for row in rows]
+    if rows:
+        con.executemany(
+            f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
+            rows,
+        )
+    return len(rows)
+
+
+@pytest.fixture()
+def multi_membership_json(tmp_path: Path) -> str:
+    """A middle layer where one channel sits in two families and two systems."""
+    data = {
+        "SR": {
+            "_description": "Storage",
+            "BPM": {
+                "_description": "Beam position monitors",
+                "Monitor": {
+                    "ChannelNames": ["SR01:BPM:X", "SHARED:PV"],
+                    "Units": "Hardware",
+                    "HWUnits": "mm",
+                    "DataType": "double",
+                    "MemberOf": ["BPM", "Diagnostics"],
+                },
+                "Setpoint": {"X": {"ChannelNames": ["SR01:BPM:XSet"]}},
+                "setup": {"DeviceList": [[1, 1], [1, 2]], "CommonNames": ["BPM1", "BPM2"]},
+            },
+            "HCM": {
+                "_description": "Correctors",
+                "Setpoint": {"ChannelNames": ["SR01:HCM:SP", "SHARED:PV"], "Units": "A"},
+                "setup": {"DeviceList": [[2, 1]]},
+            },
+        },
+        "BTS": {
+            "_description": "Transfer line",
+            "BPM": {
+                "Monitor": {"ChannelNames": ["SHARED:PV"]},
+            },
+        },
+    }
+    path = tmp_path / "middle_layer.json"
+    path.write_text(json.dumps(data, indent=2))
+    return str(path)
+
+
+def _dump(path: str) -> dict:
+    con = duckdb.connect(path)
+    try:
+        return {
+            "systems": con.execute("SELECT * FROM systems ORDER BY name").fetchall(),
+            "families": con.execute("SELECT * FROM families ORDER BY system, name").fetchall(),
+            "channels": con.execute(
+                "SELECT channel_name, system, family, field, subfield, description, units, "
+                "data_type, mode, member_of, source FROM channels "
+                "ORDER BY channel_name, system, family"
+            ).fetchall(),
+            "row_ids": con.execute("SELECT row_id FROM channels ORDER BY row_id").fetchall(),
+            "device_map": con.execute(
+                "SELECT * FROM device_map ORDER BY system, family, device_index"
+            ).fetchall(),
+        }
+    finally:
+        con.close()
+
+
+class TestMiddleLayerImport:
+    @pytest.fixture(autouse=True)
+    def _no_fts(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(dimp, "ensure_fts", lambda con: None)
+        monkeypatch.setattr(dimp, "_create_fts_index", lambda con: None)
+
+    def test_matches_a_row_by_row_load(
+        self, multi_membership_json: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        bulk_path = str(tmp_path / "bulk.duckdb")
+        bulk_stats = dimp.import_to_duckdb(multi_membership_json, bulk_path)
+
+        monkeypatch.setattr(dimp, "bulk_insert", _row_by_row)
+        ref_path = str(tmp_path / "ref.duckdb")
+        ref_stats = dimp.import_to_duckdb(multi_membership_json, ref_path)
+
+        for stats in (bulk_stats, ref_stats):
+            stats.pop("duckdb_path")
+        assert bulk_stats == ref_stats
+        assert bulk_stats["channels"] == 6
+
+        bulk, ref = _dump(bulk_path), _dump(ref_path)
+        assert bulk == ref
+        assert [row[:3] for row in bulk["channels"] if row[0] == "SHARED:PV"] == [
+            ("SHARED:PV", "BTS", "BPM"),
+            ("SHARED:PV", "SR", "BPM"),
+            ("SHARED:PV", "SR", "HCM"),
+        ]
+        assert len(bulk["row_ids"]) == len(set(bulk["row_ids"])) == 6
