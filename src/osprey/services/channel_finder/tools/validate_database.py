@@ -284,9 +284,9 @@ def print_graph_paradigm_guidance(console: Console | None = None) -> None:
 
     # Imported inside the function so that reading a channel database does not
     # drag the deployment package into its import closure. The spelling of the
-    # seeding verb is owned there, by the module that also names it for the
+    # rebuild command is owned there, by the module that also names it for the
     # deploy warnings and the health remedy.
-    from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+    from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 
     console.print()
     console.print(
@@ -295,7 +295,7 @@ def print_graph_paradigm_guidance(console: Console | None = None) -> None:
             "The graph store is the database: a graph project ships no channel "
             "database file, so there is nothing on disk to open here.\n\n"
             "[label]Load or refresh the graph:[/label]\n"
-            f"  [value]{GRAPHDB_SEED_COMMAND}[/value]\n\n"
+            f"  [value]{GRAPHDB_REBUILD_HINT}[/value]\n\n"
             "[label]Check the store is reachable:[/label]\n"
             "  [value]osprey health --category graphdb[/value]\n\n"
             "[label]Look inside it:[/label]\n"

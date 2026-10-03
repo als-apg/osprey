@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.interfaces.channel_finder import database_api
 from osprey.mcp_server.graph.server_context import GraphUnreachable
 from osprey.services.channel_finder.graph_index.builder import (
@@ -450,7 +450,7 @@ class TestIndexUnavailable:
         # three keys off the body it is handed.
         assert body["detail"] == "No search index at g."
         assert body["error_type"] == "service_unavailable"
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
 
     # ``client`` builds the app through the same config seam, so the pin has to be
     # installed after it to be the one the routes read.
@@ -469,7 +469,7 @@ class TestIndexUnavailable:
         body = resp.json()
         assert body["detail"] == "The search index is not open."
         assert body["error_type"] == "service_unavailable"
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
 
     @pytest.mark.parametrize("path", ROUTES)
     def test_a_project_with_a_store_but_no_corpus_is_told_to_configure_one(
@@ -489,7 +489,7 @@ class TestIndexUnavailable:
         assert len(body["suggestions"]) == 1
         assert "services.graphdb.ttl_path" in body["suggestions"][0]
         assert "Turtle file" in body["suggestions"][0]
-        assert GRAPHDB_BUILD_INDEX_COMMAND not in body["suggestions"][0]
+        assert GRAPHDB_REBUILD_HINT not in body["suggestions"][0]
 
     # ``client`` builds the app through the same config seam, so the pin has to be
     # installed after it to be the one the routes read.
@@ -515,7 +515,7 @@ class TestIndexUnavailable:
         # untrue. Retry first, rebuild only if it keeps failing.
         assert len(body["suggestions"]) == 1
         assert body["suggestions"][0].startswith("Retry the request")
-        assert GRAPHDB_BUILD_INDEX_COMMAND in body["suggestions"][0]
+        assert GRAPHDB_REBUILD_HINT in body["suggestions"][0]
 
     @pytest.mark.parametrize("path", ROUTES)
     def test_a_read_that_fails_on_an_open_index_is_a_500_not_a_remedy(self, client, path):

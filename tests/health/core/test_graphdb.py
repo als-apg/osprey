@@ -15,6 +15,7 @@ import sys
 
 import pytest
 
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.health.core.graphdb import SEED_DIGEST_DETAIL_PREFIX, graphdb, seed_digest
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port
@@ -255,7 +256,7 @@ async def test_corpus_without_a_marker_warns_that_it_cannot_be_identified(
     assert row.status is Status.WARNING
     assert "no seed marker" in row.message
     assert "unseeded" not in row.message, "a store holding a corpus is not unseeded"
-    assert "osprey knowledge seed-graph" in row.details
+    assert GRAPHDB_REBUILD_HINT in row.details
     assert seed_digest(row) == ""
 
 
@@ -267,7 +268,7 @@ async def test_empty_store_without_a_marker_warns_unseeded(
     row = (await _run(_cfg()))["graphdb_seed"]
     assert row.status is Status.WARNING
     assert "unseeded" in row.message
-    assert "osprey knowledge seed-graph" in row.details
+    assert GRAPHDB_REBUILD_HINT in row.details
 
 
 async def test_marker_without_a_digest_reads_as_no_marker(
@@ -386,7 +387,7 @@ async def test_empty_graph_warns_and_names_the_seed_verb(
     assert by_name["graphdb_connection"].status is Status.OK
     row = by_name["graphdb_resources"]
     assert row.status is Status.WARNING
-    assert "osprey knowledge seed-graph" in f"{row.message} {row.details}"
+    assert GRAPHDB_REBUILD_HINT in f"{row.message} {row.details}"
 
 
 async def test_count_failure_warns_but_keeps_the_connection_row(

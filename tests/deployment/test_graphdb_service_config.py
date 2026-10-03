@@ -20,11 +20,10 @@ from osprey.deployment.graphdb_service import (
     DEFAULT_PASSWORD,
     DEFAULT_PORT,
     DEFAULT_USERNAME,
-    GRAPHDB_BUILD_INDEX_COMMAND,
     GRAPHDB_HTTP_PORT_CONFIG_KEY,
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     GraphdbConnection,
     GraphdbServiceConfig,
@@ -214,11 +213,8 @@ class TestConstants:
         assert DEFAULT_INDEX_PATH == "./data/channel_databases/graph.duckdb"
         assert not Path(DEFAULT_INDEX_PATH).is_absolute()
 
-    def test_the_two_operator_commands_are_distinct(self) -> None:
-        """Seeding the store and building the index are different repairs."""
-        assert GRAPHDB_SEED_COMMAND == "osprey knowledge seed-graph"
-        assert GRAPHDB_BUILD_INDEX_COMMAND == "osprey knowledge build-index"
-        assert GRAPHDB_SEED_COMMAND != GRAPHDB_BUILD_INDEX_COMMAND
+    def test_the_rebuild_hint_names_the_build_and_the_start(self) -> None:
+        assert GRAPHDB_REBUILD_HINT == "osprey build && osprey up"
 
 
 class TestBindAddress:

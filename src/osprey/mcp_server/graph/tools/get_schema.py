@@ -32,7 +32,7 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.graph.server import make_error, mcp
 from osprey.mcp_server.graph.server_context import GraphStoreError, get_server_context
 from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
@@ -105,7 +105,7 @@ def get_schema() -> str:
             return make_error(
                 "no_results",
                 _EMPTY_MESSAGE,
-                [f"Seed it with `{GRAPHDB_SEED_COMMAND}`"],
+                [f"Seed it with `{GRAPHDB_REBUILD_HINT}`"],
             )
 
         # run_read enforces the read-only transaction and the query timeout, so

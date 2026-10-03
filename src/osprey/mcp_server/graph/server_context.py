@@ -60,7 +60,7 @@ from typing import Any
 from osprey.deployment.graphdb_service import (
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     GraphdbConnection,
     resolve_graphdb_connection,
@@ -296,7 +296,7 @@ class GraphReadOnlyViolation(GraphStoreError):
             "This server reads the graph and never writes to it — rewrite the query using "
             "MATCH / RETURN only.",
             f"The graph is rebuilt from its TTL corpus, so changes belong in that file "
-            f"followed by `{GRAPHDB_SEED_COMMAND}`.",
+            f"followed by `{GRAPHDB_REBUILD_HINT}`.",
         ]
 
 
@@ -479,7 +479,7 @@ class GraphContext:
 
         Returns:
             True when the store carries no ``:Resource`` nodes — bootstrapped
-            but never seeded. Callers name :data:`GRAPHDB_SEED_COMMAND` when it
+            but never seeded. Callers name :data:`GRAPHDB_REBUILD_HINT` when it
             is, which is why this is a separate question from "did the query
             match anything".
 

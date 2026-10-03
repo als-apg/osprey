@@ -10,7 +10,7 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.graph.server import make_error, mcp
 from osprey.mcp_server.graph.server_context import (
     QUERY_MAX_ROWS_CONFIG_KEY,
@@ -53,7 +53,7 @@ _NOTES: tuple[str, ...] = (
     f"Every result is bounded. The row cap comes from {QUERY_MAX_ROWS_CONFIG_KEY} "
     f"and the per-query deadline from {QUERY_TIMEOUT_CONFIG_KEY}; a truncated "
     "result means narrow the query.",
-    f"An empty graph is a seeding gap, not a query bug — run `{GRAPHDB_SEED_COMMAND}` "
+    f"An empty graph is a seeding gap, not a query bug — run `{GRAPHDB_REBUILD_HINT}` "
     "to load the corpus.",
 )
 

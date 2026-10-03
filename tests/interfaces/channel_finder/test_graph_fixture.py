@@ -23,7 +23,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_BUILD_INDEX_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     resolve_graph_index_path,
 )
 from osprey.interfaces.channel_finder.app import _open_graph_index
@@ -523,7 +523,7 @@ class TestServeIndexRead:
         body = resp.json()
         assert body["detail"] == "No search index at g."
         assert body["error_type"] == "service_unavailable"
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
         assert any("osprey build" in line for line in body["suggestions"])
 
     def test_a_project_with_no_corpus_is_told_to_configure_one(self, graph_config, tmp_path):
@@ -544,7 +544,7 @@ class TestServeIndexRead:
         assert resp.status_code == 503
         body = resp.json()
         assert body["detail"] == "The search index is not open."
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
 
     @pytest.mark.usefixtures("graph_config")
     def test_a_closed_index_answers_503_rather_than_500(self):

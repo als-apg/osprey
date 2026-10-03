@@ -84,8 +84,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_BUILD_INDEX_COMMAND,
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     resolve_graph_index_path,
 )
 from osprey.health.core.graphdb import _CONNECTION_ROW as _GRAPHDB_CONNECTION_ROW
@@ -355,8 +354,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             Status.WARNING,
             f"No search index at {index_path}",
             details=(
-                "'osprey build' writes it from the TTL corpus; rebuild it in place "
-                f"with `{GRAPHDB_BUILD_INDEX_COMMAND}`."
+                f"'osprey build' writes it from the TTL corpus; run `{GRAPHDB_REBUILD_HINT}`."
             ),
         )
 
@@ -383,7 +381,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             f"Could not read the search index: {exc}",
-            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+            details=f"Rebuild it with `{GRAPHDB_REBUILD_HINT}`.",
         )
 
     if row is None:
@@ -392,7 +390,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             f"Search index carries no meta row ({index_path})",
-            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+            details=f"Rebuild it with `{GRAPHDB_REBUILD_HINT}`.",
         )
 
     meta = dict(zip(META_KEYS, row, strict=True))
@@ -403,7 +401,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             CATEGORY,
             Status.WARNING,
             f"Search index is schema v{version}, this osprey reads v{SCHEMA_VERSION}",
-            details=f"Rebuild it with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+            details=f"Rebuild it with `{GRAPHDB_REBUILD_HINT}`.",
         )
 
     digest = str(meta["corpus_sha256"])
@@ -414,10 +412,7 @@ def _index_row(index_path: Path, seed: str) -> CheckResult:
             Status.WARNING,
             "Search index and graph store were built from different corpora",
             value=f"index {digest[:_DIGEST_PREFIX_LEN]} · store {seed[:_DIGEST_PREFIX_LEN]}",
-            details=(
-                f"Rebuild the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`, or reseed the "
-                f"store with `{GRAPHDB_SEED_COMMAND}`."
-            ),
+            details=(f"Rebuild the index and reseed the store with `{GRAPHDB_REBUILD_HINT}`."),
         )
 
     value = f"{_index_counts(meta)} · {digest[:_DIGEST_PREFIX_LEN]}"

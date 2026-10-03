@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
-from osprey.deployment.graphdb_service import resolve_graph_index_path
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT, resolve_graph_index_path
 from osprey.health.core.channel_finder import channel_finder
 from osprey.health.models import CheckResult, Status
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
@@ -513,7 +513,7 @@ class TestGraphPipeline(_GraphModeCase):
         self._install_driver(monkeypatch, _FakeDriver(count=0))
         row = (await _run(self._cfg()))["channel_finder_resources"]
         assert row.status is Status.WARNING
-        assert "osprey knowledge seed-graph" in f"{row.message} {row.details}"
+        assert GRAPHDB_REBUILD_HINT in f"{row.message} {row.details}"
 
     async def test_external_store_is_dialed_at_its_own_uri(
         self, monkeypatch: pytest.MonkeyPatch
@@ -599,7 +599,7 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.WARNING
         assert str(self.index_path) in row.message
         assert "osprey build" in row.details
-        assert "osprey knowledge build-index" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_unreadable_index_degrades_to_warning(
         self, monkeypatch: pytest.MonkeyPatch
@@ -610,7 +610,7 @@ class TestSearchIndexRow(_GraphModeCase):
         self.index_path.write_bytes(b"this is not a duckdb file at all")
         row = (await _run(self._cfg()))["channel_finder_search_index"]
         assert row.status is Status.WARNING
-        assert "osprey knowledge build-index" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_index_from_another_schema_version_warns(
         self, monkeypatch: pytest.MonkeyPatch
@@ -624,20 +624,19 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.WARNING
         assert f"v{SCHEMA_VERSION + 1}" in row.message
         assert f"v{SCHEMA_VERSION}" in row.message
-        assert "osprey knowledge build-index" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_index_and_store_from_different_corpora_warn(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Two corpora, two digests: the row shows both and offers both fixes."""
+        """Two corpora, two digests: the row shows both and names the rebuild."""
         self._install_driver(monkeypatch, _FakeDriver(sha256=DIGEST))
         _make_index(self.index_path, digest=OTHER_DIGEST)
         row = (await _run(self._cfg()))["channel_finder_search_index"]
         assert row.status is Status.WARNING
         assert "different corpora" in row.message
         assert row.value == f"index {OTHER_DIGEST[:12]} · store {DIGEST[:12]}"
-        assert "osprey knowledge build-index" in row.details
-        assert "osprey knowledge seed-graph" in row.details
+        assert GRAPHDB_REBUILD_HINT in row.details
 
     async def test_unseeded_store_leaves_the_index_row_ok(
         self, monkeypatch: pytest.MonkeyPatch

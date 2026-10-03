@@ -16,6 +16,7 @@ import pytest
 from rich.console import Console
 
 from osprey.cli.styles import osprey_theme
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.facility.views.channel_finder import CHANNEL_FINDER_SCHEMA
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
@@ -534,7 +535,7 @@ class TestPreviewGraphParadigm:
         out = " ".join(_text(console).split())
         assert "Graph Paradigm" in out
         assert "The graph store is the database" in out
-        assert "osprey knowledge seed-graph" in out
+        assert GRAPHDB_REBUILD_HINT in out
         assert "osprey health --category graphdb" in out
         assert "get_schema and read_cypher" in out
 

@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.services.channel_finder.databases import (
     FlatChannelDatabase,
     HierarchicalChannelDatabase,
@@ -501,7 +501,7 @@ class TestGraphParadigmRoutes:
         # three keys off the body it is handed.
         assert body["detail"] == "No search index at g."
         assert body["error_type"] == "service_unavailable"
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
 
     def test_statistics_503_when_the_app_holds_no_index_at_all(self, client, monkeypatch):
         monkeypatch.setattr(
@@ -516,7 +516,7 @@ class TestGraphParadigmRoutes:
         body = resp.json()
         assert body["detail"] == "The search index is not open."
         assert body["error_type"] == "service_unavailable"
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
 
     def test_statistics_answers_without_a_store_context(self, client):
         # The badges come from the index; an app whose store context could not

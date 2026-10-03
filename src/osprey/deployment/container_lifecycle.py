@@ -52,7 +52,7 @@ from osprey.deployment.errors import (
     NoRenderedBuildError,
 )
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     preflight_graphdb_config,
 )
@@ -5828,13 +5828,6 @@ _GRAPHDB_HEALTH_POLL_S = 2.0
 # and a query whose cost grows with the graph would make a big store look down.
 _GRAPHDB_PING_CYPHER = "RETURN 1 AS ok"
 
-# The one command that finishes the job by hand, named in every warning below
-# and by the graphdb health category's remedy text, so an operator reading
-# either is pointed at the same verb. Imported from the module both sides
-# already share their vocabulary through, rather than spelled here a second
-# time: two copies would agree only until one of them was edited.
-_GRAPHDB_RECOVERY_HINT = GRAPHDB_SEED_COMMAND
-
 
 def _graphdb_store_deployed(config: dict) -> bool:
     """True when this deploy runs the graph store itself.
@@ -6011,8 +6004,8 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
             logger.warning(
                 f"The graph store came up, but its {bootstrapped.message}. Nothing was "
                 f"imported, so its contents are whatever was already there. Run "
-                f"`{_GRAPHDB_RECOVERY_HINT} --force` from {project_dir} to wipe it and "
-                f"re-seed under osprey's settings."
+                f"`{GRAPHDB_REBUILD_HINT}` from {project_dir} to re-seed it under "
+                f"osprey's settings."
             )
             return
         _report_step("graph store bootstrapped")
@@ -6031,7 +6024,7 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
         if not rebootstrapped.ok:
             logger.warning(
                 f"The graph store was wiped, but its {rebootstrapped.message}. Nothing "
-                f"was imported. Run `{_GRAPHDB_RECOVERY_HINT} --force` from {project_dir}."
+                f"was imported. Run `{GRAPHDB_REBUILD_HINT}` from {project_dir}."
             )
             return
 
@@ -6041,7 +6034,7 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
                 f"The graph store came up but importing {resolved} failed "
                 f"({imported.termination_status}: {imported.extra_info}), so graph queries "
                 f"will return little or nothing. Everything else in this deploy is "
-                f"unaffected. Fix the corpus and run `{_GRAPHDB_RECOVERY_HINT} --force` "
+                f"unaffected. Fix the corpus and run `{GRAPHDB_REBUILD_HINT}` "
                 f"from {project_dir}."
             )
             return
@@ -6091,8 +6084,8 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
     one search surface among many, and a control room whose channels, plan runs
     and archive are all up should not be denied them because its graph could not
     be provisioned — but every warning names
-    ``osprey knowledge seed-graph`` (see :data:`_GRAPHDB_RECOVERY_HINT`), so the
-    gap is never silent.
+    :data:`~osprey.deployment.graphdb_service.GRAPHDB_REBUILD_HINT`, so the gap
+    is never silent.
 
     :param config: Raw deploy config.
     :param compose_files: Rendered compose file paths for this deploy.
@@ -6131,7 +6124,7 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
         logger.warning(
             f"The graph store could not be bootstrapped or seeded, so graph queries will "
             f"return nothing. Everything else in this deploy is unaffected. Run "
-            f"`{_GRAPHDB_RECOVERY_HINT}` from {project_dir} once the store is reachable. "
+            f"`{GRAPHDB_REBUILD_HINT}` from {project_dir} once the store is reachable. "
             f"Cause: {exc}"
         )
         return

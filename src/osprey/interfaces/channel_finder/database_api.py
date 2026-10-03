@@ -26,7 +26,7 @@ from pydantic import BaseModel
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_BUILD_INDEX_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     GRAPHDB_TTL_PATH_CONFIG_KEY,
     graph_corpus_configured,
@@ -111,7 +111,7 @@ _NO_GRAPH_INDEX_DETAIL = "The search index is not open."
 #: Two facts: the verb that writes one, and the build that runs that verb as
 #: part of rendering the project.
 _NO_GRAPH_INDEX_SUGGESTIONS = [
-    f"Build the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+    f"Build the index with `{GRAPHDB_REBUILD_HINT}`.",
     "`osprey build` renders the project and builds the index in one step.",
 ]
 
@@ -121,7 +121,7 @@ _NO_GRAPH_INDEX_SUGGESTIONS = [
 #: only then is a rebuild the remedy.
 _INDEX_READ_FAILED_SUGGESTIONS = [
     f"Retry the request; if it keeps failing, rebuild the index with "
-    f"`{GRAPHDB_BUILD_INDEX_COMMAND}` and restart the channel finder.",
+    f"`{GRAPHDB_REBUILD_HINT}` and restart the channel finder.",
 ]
 
 

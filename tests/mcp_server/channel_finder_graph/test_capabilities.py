@@ -306,9 +306,9 @@ class TestLimits:
         assert "narrow" in notes.lower()
 
     def test_notes_name_the_seed_command_for_an_empty_graph(self, payload):
-        from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+        from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 
-        assert GRAPHDB_SEED_COMMAND in " ".join(payload["notes"])
+        assert GRAPHDB_REBUILD_HINT in " ".join(payload["notes"])
 
     def test_notes_state_that_this_is_not_a_health_check(self, payload):
         notes = " ".join(payload["notes"]).lower()

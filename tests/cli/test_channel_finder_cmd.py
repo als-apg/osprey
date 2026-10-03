@@ -17,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 
 
 @pytest.fixture
@@ -376,7 +377,7 @@ class TestGraphParadigmGuidance:
         assert result.exit_code == 0
         assert "Graph Paradigm" in printed
         assert "The graph store is the database" in printed
-        assert "osprey knowledge seed-graph" in printed
+        assert GRAPHDB_REBUILD_HINT in printed
         assert "osprey health --category graphdb" in printed
         assert "get_schema and read_cypher" in printed
 
@@ -393,7 +394,7 @@ class TestGraphParadigmGuidance:
         assert result.exit_code == 0
         assert "Graph Paradigm" in printed
         assert "The graph store is the database" in printed
-        assert "osprey knowledge seed-graph" in printed
+        assert GRAPHDB_REBUILD_HINT in printed
         assert "osprey health --category graphdb" in printed
         assert "get_schema and read_cypher" in printed
 
