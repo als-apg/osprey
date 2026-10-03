@@ -144,27 +144,6 @@ def deployed_grid_scan_stack(
 ) -> Iterator[DeployedGridScanStack]:
     base = tmp_path_factory.mktemp("grid_scan_roundtrip_build")
 
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container. Selected from the repo's own channel roster — the same
-    # channel database the build materializes for the deployed channel finder,
-    # read here from the tier the profile pins because that is the only copy
-    # that exists this early.
-    correctors: dict[str, tuple[str, str]] = {}
-    bpms: dict[str, str] = {}
-
-    def author_devices(repo: Path) -> None:
-        nonlocal correctors, bpms
-        records = _orm_stack.roster_records(repo)
-        # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
-        # the orm plan, grid_scan doesn't sweep every named corrector against
-        # every named detector, so there is no benefit to _orm_stack's usual
-        # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
-        correctors = _orm_stack.select_correctors(records, count=1)
-        bpms = _orm_stack.select_bpms(records, count=1)
-        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
-
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
@@ -176,9 +155,13 @@ def deployed_grid_scan_stack(
         # landing on a real deployment's default 10000 block.
         port_base=21300,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=author_devices,
     )
-    _orm_stack.assert_devices_authored(correctors, bpms)
+    # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
+    # the orm plan, grid_scan doesn't sweep every named corrector against
+    # every named detector, so there is no benefit to _orm_stack's usual
+    # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
+    correctors = _orm_stack.select_correctors(repo, count=1)
+    bpms = _orm_stack.select_bpms(repo, count=1)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.

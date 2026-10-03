@@ -40,13 +40,11 @@ agreement is therefore bounded only by AT numerical-solve reproducibility and
 the JSON/HTTP round trip, not a physical noise floor -- see ``MATCH_ATOL``.
 
 No preset channel names are hardcoded: correctors and BPMs are selected from
-the deployment repo's own channel ROSTER -- the channel-finder database the
-build copies verbatim into the build zone, where the deployed containers read
-it -- via ``_orm_stack.roster_records`` +
+the device file the build staged for the queueserver worker -- the build's
+Bluesky view of the facility file -- via
 ``_orm_stack.select_correctors``/``select_bpms`` (restricted to the channels
 the tree's own bindings document couples to the lattice, exactly the class of
-device the ``orm`` plan and the model oracle both operate on). They reach the queueserver worker as the
-device file this fixture authors before the build stages it, so the names a
+device the ``orm`` plan and the model oracle both operate on), so the names a
 plan here may address are exactly the names the worker registered.
 
 Container safety: every docker invocation below names an exact
@@ -207,26 +205,11 @@ class DeployedOrmStack:
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
 
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container. Selected from the repo's own channel roster — the same
-    # channel database the build materializes for the deployed channel finder,
-    # read here from the tier the profile pins because that is the only copy
-    # that exists this early.
-    correctors: dict[str, tuple[str, str]] = {}
-    bpms: dict[str, str] = {}
-
-    def author_devices(repo: Path) -> None:
-        nonlocal correctors, bpms
+    def still_monitors(repo: Path) -> None:
         # The oracle is the noiseless model (see MATCH_RTOL), so the monitors
         # serve the solved orbit without the drift and noise the machine file
         # gives them.
         still_monitor_motion(repo / "data")
-        records = _orm_stack.roster_records(repo)
-        correctors = _orm_stack.select_correctors(records, CORRECTOR_COUNT)
-        bpms = _orm_stack.select_bpms(records)
-        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
@@ -234,13 +217,14 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         PROJECT_NAME,
         output_dir=base,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=author_devices,
+        pre_build=still_monitors,
         # This module's own thousand-port block (see test_dispatch_deploy.py's
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
         port_base=21200,
     )
-    _orm_stack.assert_devices_authored(correctors, bpms)
+    correctors = _orm_stack.select_correctors(repo, CORRECTOR_COUNT)
+    bpms = _orm_stack.select_bpms(repo)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.

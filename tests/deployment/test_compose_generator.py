@@ -2102,34 +2102,19 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
 
     runner = CliRunner()
 
-    # The correctors the stack's plans drive are chosen BETWEEN `init` and
-    # `build`, from the deployment's own channel roster -- its facility file,
-    # built from the repo's own data/facility tree -- never a hardcoded preset
-    # channel. The file the build stages into the bluesky service context is
-    # its own devices view of that facility file, so it carries every one.
-    authored_correctors: dict[str, tuple[str, str]] = {}
-
-    def author_devices(repo: Path) -> None:
-        nonlocal authored_correctors
-        records = _orm_stack.roster_records(repo)
-        authored_correctors = _orm_stack.select_correctors(records)
-        _orm_stack.write_devices_file(
-            repo, correctors=authored_correctors, bpms=_orm_stack.select_bpms(records)
-        )
-
-    project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path, pre_build=author_devices)
+    project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path)
 
     # -- the build's device view reached the bluesky build context ----------
     # The staged file is the build's Bluesky devices view, written from the
-    # facility file, and the render mounts it into the queueserver worker.
-    # Asserted here because it is the ONE thing about this deploy config that
-    # the compose text alone cannot show: a view that failed to stage leaves a
-    # worker that browses plans and runs none.
+    # facility file, and the render mounts it into the queueserver worker; the
+    # stack chooses its correctors and BPMs from it. Asserted here because it
+    # is the ONE thing about this deploy config that the compose text alone
+    # cannot show: a view that failed to stage leaves a worker that browses
+    # plans and runs none.
+    staged = _orm_stack.staged_devices_file(project_dir.parent).read_text(encoding="utf-8")
+    assert staged.split("\n", 1)[0] == "schema: osprey.facility.bluesky_devices/1"
     staged_correctors, staged_bpms = _orm_stack.staged_devices(project_dir.parent)
-    assert set(authored_correctors) <= set(staged_correctors), (
-        "the staged view must carry every corrector the stack chose: "
-        f"{sorted(set(authored_correctors) - set(staged_correctors))}"
-    )
+    assert staged_correctors, "the staged device file must name the correctors the stack drives"
     assert staged_bpms, "the staged device file must name the BPMs the orm plan reads"
 
     # -- execution_method: subprocess (the only backend OSPREY ships) --------

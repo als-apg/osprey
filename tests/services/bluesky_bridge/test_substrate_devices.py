@@ -1,10 +1,10 @@
 """Unit tests for the canonical EPICS-substrate plan-device derivation.
 
-Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the single
-host-side producer shared by the build's device-file staging
-(``compose_generator._stage_bluesky_devices``) and ``tests/e2e/_orm_stack.py``:
-the device document derived from the channel roster's records, and the atomic
-write of that document to a file the queueserver worker mounts.
+Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the host-side
+producer behind the build's Bluesky devices view
+(``osprey.facility.views.bluesky``): the device document derived from the
+channel roster's records, and the atomic write of that document to the file
+the build stages for the queueserver worker.
 
 Two properties are load-bearing here and nowhere else.
 
@@ -51,6 +51,7 @@ DEMO_WRITES = 396
 DEMO_READS = 2516
 
 _SOURCE = RosterSource(kind=RosterSourceKind.GRAPH, path=Path("/data/demo_machine.ttl"))
+_SCHEMA = "osprey.facility.bluesky_devices/1"
 
 
 def _write(address: str, readback: str | None = None) -> ChannelRecord:
@@ -235,12 +236,25 @@ class TestTheShippedDemoRoster:
 
 
 class TestWriteDevicesFile:
+    def test_the_schema_line_is_the_first_line(self, tmp_path) -> None:
+        path = tmp_path / "bluesky_devices.yml"
+
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+
+        assert path.read_text(encoding="utf-8").split("\n", 1)[0] == f"schema: {_SCHEMA}"
+
+    def test_a_write_without_a_schema_is_refused(self, tmp_path) -> None:
+        with pytest.raises(TypeError, match="schema"):
+            write_devices_file(  # type: ignore[call-arg]
+                tmp_path / "bluesky_devices.yml", _RECORDS, source=_SOURCE
+            )
+
     def test_written_yaml_parses_back_to_the_returned_document(self, tmp_path) -> None:
         path = tmp_path / "bluesky_devices.yml"
 
-        document = write_devices_file(path, _RECORDS, source=_SOURCE)
+        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
-        assert yaml.safe_load(path.read_text(encoding="utf-8")) == document
+        assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"schema": _SCHEMA, **document}
         assert document == devices_document(_RECORDS)
 
     def test_header_marks_the_file_generated_and_names_the_roster_source(self, tmp_path) -> None:
@@ -249,7 +263,7 @@ class TestWriteDevicesFile:
         projection of."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         text = "\n".join(
             line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("#")
@@ -264,7 +278,7 @@ class TestWriteDevicesFile:
         path = tmp_path / "bluesky_devices.yml"
         source = RosterSource(kind=RosterSourceKind.FACILITY, path=tmp_path / "facility.json")
 
-        write_devices_file(path, _RECORDS, source=source)
+        write_devices_file(path, _RECORDS, source=source, schema=_SCHEMA)
 
         assert source.describe() in path.read_text(encoding="utf-8")
 
@@ -272,7 +286,7 @@ class TestWriteDevicesFile:
         """Which is why the source is passed rather than read off a record."""
         path = tmp_path / "bluesky_devices.yml"
 
-        document = write_devices_file(path, (), source=_SOURCE)
+        document = write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
 
         assert document == {"settables": [], "readables": []}
         assert _SOURCE.describe() in path.read_text(encoding="utf-8")
@@ -280,7 +294,7 @@ class TestWriteDevicesFile:
     def test_leaves_no_temp_file_behind(self, tmp_path) -> None:
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         assert [entry.name for entry in tmp_path.iterdir()] == ["bluesky_devices.yml"]
 
@@ -289,10 +303,10 @@ class TestWriteDevicesFile:
         two concatenated documents behind."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
-        document = write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
-        assert yaml.safe_load(path.read_text(encoding="utf-8")) == document
+        assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"schema": _SCHEMA, **document}
 
     def test_failed_write_leaves_the_previous_document_intact(self, tmp_path, monkeypatch) -> None:
         """Atomicity is the point of the temp file: a deploy may be mounting
@@ -300,7 +314,7 @@ class TestWriteDevicesFile:
         import os
 
         path = tmp_path / "bluesky_devices.yml"
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
         before = path.read_text(encoding="utf-8")
 
         def _boom(*args, **kwargs):
@@ -308,7 +322,7 @@ class TestWriteDevicesFile:
 
         monkeypatch.setattr(os, "replace", _boom)
         with pytest.raises(OSError):
-            write_devices_file(path, (), source=_SOURCE)
+            write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
 
         assert path.read_text(encoding="utf-8") == before
         assert [entry.name for entry in tmp_path.iterdir()] == ["bluesky_devices.yml"]
@@ -318,7 +332,7 @@ class TestWriteDevicesFile:
         would make it unreadable to any uid but the one that rendered it."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE)
+        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         assert path.stat().st_mode & 0o044 == 0o044
 
@@ -343,7 +357,7 @@ class TestDeviceFileRoundTrip:
         from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 
         path = tmp_path / "bluesky_devices.yml"
-        write_devices_file(path, self._AWKWARD, source=_SOURCE)
+        write_devices_file(path, self._AWKWARD, source=_SOURCE, schema=_SCHEMA)
 
         settables, readables = specs_from_file(path)
 
@@ -365,7 +379,7 @@ class TestDeviceFileRoundTrip:
         from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 
         path = tmp_path / "bluesky_devices.yml"
-        document = write_devices_file(path, _RECORDS, source=_SOURCE)
+        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
         settables, readables = specs_from_file(path)
 
