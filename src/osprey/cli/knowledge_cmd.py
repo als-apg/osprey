@@ -1424,43 +1424,33 @@ def compile_ontology(source: Path, output: Path, check: bool) -> None:
 
 
 def _resolve_index_output(output: Path | None) -> Path:
-    """Return *output*, or the index path this project's config names.
+    """Return *output*, or the index path this project's render fixes.
 
     A path typed on the command line is used as typed, like every other
-    filename an operator types.  The configured default goes through
+    filename an operator types.  The default goes through
     :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`, the one
-    resolver every reader of that key uses -- the build step that writes the
-    index, the channel roster, the agent's keyword tool and the health row that
-    compares the index against the store's seed marker all go through it, so
-    this verb cannot write the index somewhere none of them looks.
+    resolver the build step that writes the index, the agent's keyword tool
+    and the health row that compares the index against the store's seed marker
+    all go through, so this verb cannot write the index somewhere none of them
+    looks.
 
     Args:
         output: The ``--output`` value, or ``None``.
 
     Returns:
         Where the index goes.  It need not exist yet.
-
-    Raises:
-        click.ClickException: When ``services.graphdb.index_path`` is present
-            but not a usable string.
     """
     if output is not None:
         return output
 
-    from osprey.deployment.graphdb_service import (
-        GRAPHDB_INDEX_PATH_CONFIG_KEY,
-        resolve_graph_index_path,
-    )
+    from osprey.deployment.graphdb_service import resolve_graph_index_path
 
     block = _graphdb_block()
     config = {"services": {"graphdb": block}} if block is not None else None
-    try:
-        # No config_dir, exactly as _resolve_ttl passes none: the render is
-        # found through OSPREY_CONFIG, so the corpus and the index it is built
-        # into are read out of the one project.
-        return resolve_graph_index_path(config)
-    except ValueError as exc:
-        raise click.ClickException(f"Cannot use {GRAPHDB_INDEX_PATH_CONFIG_KEY}: {exc}") from exc
+    # No config_dir, exactly as _resolve_ttl passes none: the render is found
+    # through OSPREY_CONFIG, so the corpus and the index it is built into are
+    # read out of the one project.
+    return resolve_graph_index_path(config)
 
 
 @knowledge.command("build-index")
@@ -1477,7 +1467,7 @@ def _resolve_index_output(output: Path | None) -> Path:
     "--output",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Index file to write. Defaults to services.graphdb.index_path.",
+    help="Index file to write. Defaults to data/channel_databases/graph.duckdb.",
 )
 def build_index(ttl: Path | None, output: Path | None) -> None:
     """Build the graph channel finder's search index from a TTL corpus.
@@ -1494,9 +1484,8 @@ def build_index(ttl: Path | None, output: Path | None) -> None:
       --ttl     services.graphdb.ttl_path from the OSPREY config, resolved
                 against the config file's own directory. That is the file
                 'osprey knowledge seed-graph' loads into the store.
-      --output  services.graphdb.index_path, resolved the same way. In a
-                rendered project that is
-                data/channel_databases/graph.duckdb.
+      --output  data/channel_databases/graph.duckdb under the config
+                file's own directory.
 
     Missing parent directories are created, and an existing index is replaced
     only once the new one is complete.

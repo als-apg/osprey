@@ -27,13 +27,11 @@ from typing import Any, Literal, get_args
 from fastmcp.exceptions import ToolError
 
 from osprey.deployment.graphdb_service import (
+    DEFAULT_INDEX_PATH,
     GRAPHDB_BUILD_INDEX_COMMAND,
-    GRAPHDB_INDEX_PATH_CONFIG_KEY,
     GRAPHDB_TTL_PATH_CONFIG_KEY,
-    UNRESOLVED_INDEX_PATH_REMEDY,
     graph_corpus_configured,
     resolve_graph_index_path,
-    unresolved_index_path_detail,
 )
 from osprey.services.channel_finder.graph_index.reader import (
     DEFAULT_PAGE_SIZE,
@@ -131,8 +129,8 @@ def _absence_suggestions(absence: GraphIndexAbsence, config: dict[str, Any]) -> 
     return [
         f"Build the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
         "`osprey build` renders the project and builds the index in one step.",
-        f"{GRAPHDB_INDEX_PATH_CONFIG_KEY} says where the index is read from; the build "
-        "writes it to the same place.",
+        f"The index is read from {DEFAULT_INDEX_PATH} beside config.yml, where the build "
+        "writes it.",
         "read_cypher answers the same questions against the graph store while there is no index.",
     ]
 
@@ -158,16 +156,7 @@ def _get_index() -> GraphIndex:
         config = load_osprey_config() or {}
         # No config_dir: the render is found through OSPREY_CONFIG, which is how
         # an in-container consumer resolves it, and this server is one.
-        try:
-            path = resolve_graph_index_path(config)
-        except ValueError as exc:
-            # A malformed key is a config typo, not a server fault: say which key
-            # and stop, rather than reporting it as an internal failure.
-            make_error(
-                "service_unavailable",
-                unresolved_index_path_detail(exc),
-                [UNRESOLVED_INDEX_PATH_REMEDY],
-            )
+        path = resolve_graph_index_path(config)
         opened = open_graph_index(path)
         if isinstance(opened, GraphIndexAbsence):
             logger.warning("search_channels: no usable index at %s (%s)", path, opened.reason)

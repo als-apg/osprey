@@ -38,7 +38,7 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.services.virtual_accelerator.manifest.build import LIMITS_FILENAME
 from tests.services.channel_finder.graph_index import corpora
 
-#: Where a render's index goes, as ``services.graphdb.index_path`` defaults.
+#: Where a render's index goes: the fixed path under the render.
 _INDEX_RELATIVE = Path("data") / "channel_databases" / "graph.duckdb"
 
 #: What the profile points ``services.graphdb.ttl_path`` at, inside its own tree.

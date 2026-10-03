@@ -471,13 +471,12 @@ Rebuild it by hand after editing or regenerating the corpus:
 
    osprey knowledge build-index
 
-Both paths come from the project's config: the corpus from
-``services.graphdb.ttl_path``, the index from ``services.graphdb.index_path``,
-which defaults to ``./data/channel_databases/graph.duckdb``. Name either with
-``--ttl`` or ``--output`` to override it. With no corpus configured the command
-refuses in one sentence and says which key to set. Run it inside the render, or
-with ``OSPREY_CONFIG`` pointing at the project's ``config.yml``, so both keys
-resolve against the same project.
+The corpus comes from the project's ``services.graphdb.ttl_path``, and the
+index goes to ``./data/channel_databases/graph.duckdb`` beside the
+``config.yml``. Name either with ``--ttl`` or ``--output`` to override it. With
+no corpus configured the command refuses in one sentence and says which key to
+set. Run it inside the render, or with ``OSPREY_CONFIG`` pointing at the
+project's ``config.yml``, so both paths resolve against the same project.
 
 Seed the store from the same file you indexed. The two are independent
 derivations of one corpus, and only that keeps them describing one machine:

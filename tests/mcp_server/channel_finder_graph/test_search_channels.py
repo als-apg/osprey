@@ -1,9 +1,9 @@
 """Tests for ``search_channels``, the keyword tool over the graph search index.
 
 Every index here is a real one: a fixture corpus is parsed, its rows derived and
-the file written by the builder, then found the way a deployment finds it — a
-``config.yml`` naming a relative ``services.graphdb.index_path``, reached through
-``OSPREY_CONFIG``. So what is asserted is the answer the deployed agent would
+the file written by the builder, then found the way a deployment finds it — at
+the fixed path under the directory of the ``config.yml`` ``OSPREY_CONFIG``
+names. So what is asserted is the answer the deployed agent would
 get, resolution included, not what a hand-built payload would have said.
 
 The tool holds its index for the process's lifetime, which is exactly the state
@@ -95,11 +95,19 @@ def _build_index(corpus: str, index_path: Path) -> None:
     )
 
 
-def _write_config(render: Path, index_path: str | None = "data/graph.duckdb") -> Path:
-    """Write a config naming the index relative to its own directory."""
-    lines = ["facility:", "  name: Test Facility"]
-    if index_path is not None:
-        lines += ["services:", "  graphdb:", f"    index_path: {index_path}"]
+#: Where a build writes the index, relative to the render's ``config.yml``.
+_INDEX_RELPATH = Path("data") / "channel_databases" / "graph.duckdb"
+
+
+def _write_config(render: Path) -> Path:
+    """Write a config naming a store and no corpus; the index sits beside it."""
+    lines = [
+        "facility:",
+        "  name: Test Facility",
+        "services:",
+        "  graphdb:",
+        "    uri: bolt://graph.example.org:7687",
+    ]
     config = render / "config.yml"
     config.write_text("\n".join(lines) + "\n")
     return config
@@ -129,7 +137,7 @@ def render(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             corpora.BINDING_UNDER_TWO_DEVICES,
             corpora.DEVICE_WITHOUT_SECTION_OR_SYSTEM,
         ),
-        tmp_path / "data" / "graph.duckdb",
+        tmp_path / _INDEX_RELPATH,
     )
     monkeypatch.setenv("OSPREY_CONFIG", str(_write_config(tmp_path)))
     return tmp_path
@@ -347,7 +355,6 @@ class TestAbsence:
             "facility:\n  name: Test Facility\n"
             "services:\n  graphdb:\n"
             "    ttl_path: data/machine.ttl\n"
-            "    index_path: data/graph.duckdb\n"
         )
         monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
 
@@ -356,7 +363,7 @@ class TestAbsence:
 
         envelope = _envelope(exc)
         assert envelope["error_type"] == "service_unavailable"
-        assert str(render / "data" / "graph.duckdb") in envelope["error_message"]
+        assert str(render / _INDEX_RELPATH) in envelope["error_message"]
         assert envelope["details"]["reason"] == "missing"
         assert any("osprey knowledge build-index" in s for s in envelope["suggestions"])
         assert any("osprey build" in s for s in envelope["suggestions"])
@@ -383,7 +390,7 @@ class TestAbsence:
         """
         stale = GraphIndexAbsence(
             reason="schema_mismatch",
-            path=render / "data" / "graph.duckdb",
+            path=render / _INDEX_RELPATH,
             detail="built for schema version 99",
         )
         monkeypatch.setattr(tool_module, "open_graph_index", lambda path: stale)
@@ -405,7 +412,7 @@ class TestAbsence:
         with pytest.raises(ToolError):
             _search()
 
-        _build_index(corpora.SUBCLASS_CHAIN, tmp_path / "data" / "graph.duckdb")
+        _build_index(corpora.SUBCLASS_CHAIN, tmp_path / _INDEX_RELPATH)
 
         assert json.loads(_search(query="qf1"))["total"] == 3
 

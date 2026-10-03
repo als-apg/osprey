@@ -1186,7 +1186,7 @@ class TestControlAssistantPersonas:
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         graphdb = (config.get("services") or {}).get("graphdb") or {}
         assert not {"port_host", "http_port_host", "uri", "username"} & set(graphdb), graphdb
-        assert set(graphdb) <= {"ttl_path", "index_path"}, graphdb
+        assert set(graphdb) <= {"ttl_path"}, graphdb
         preset = resolve_preset("control-assistant-logbook").config
         assert preset.get("claude_code.servers.graph.enabled") is False
 

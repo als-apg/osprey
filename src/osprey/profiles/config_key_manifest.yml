@@ -408,18 +408,6 @@ keys:
     default_note: >-
       ./data/graph/facility.ttl, the graph view the build writes; rendered into
       every services.graphdb block that names no corpus
-  services.graphdb.index_path:
-    rendered: false
-    evidence: 'block\.get\("index_path"\)'
-    note: >-
-      DuckDB search index derived from `ttl_path` at build time, read by the
-      channel explorer's search, the channel roster and the agent's keyword
-      tool instead of querying the store. Resolved against the config file's
-      directory like `ttl_path`, and for the same reason: the build writes it
-      into the `data/` tree it assembled there. Left unset it resolves to the
-      default below, so a deployment moves the index by naming this key once
-      and every consumer follows.
-    default: ./data/channel_databases/graph.duckdb
   services.graphdb.heap_initial_size:
     evidence: 'block\.get\("heap_initial_size"\)'
     note: >-
@@ -3030,6 +3018,11 @@ deleted:
 - channel_finder.channel_name_generation.llm_model.provider
 - channel_finder.channel_name_generation.llm_model.model_id
 - channel_finder.channel_name_generation.llm_model.max_tokens
+  # The graph search index sits at data/channel_databases/graph.duckdb under the
+  # render, a fixed path every reader resolves; nothing moves it. No orphan_sites
+  # entry: the key postdates the back-test baseline, so no regex for it can
+  # match there.
+- services.graphdb.index_path
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a

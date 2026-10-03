@@ -547,17 +547,13 @@ def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
 def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() -> None:
     """A key that names a file in the render's own data tree is not a stack claim.
 
-    ``services.graphdb.ttl_path`` and ``index_path`` say where THIS render's
-    corpus and search index are, and every persona stages that same ``data/``
-    tree. Dropped with the claimed stack, the persona's build could not derive
-    its index and its containers could not say where the corpus is. The Reach
-    Contract declares them render-local, so they survive the drop; the store's
-    address, image and JVM keys go as before.
+    ``services.graphdb.ttl_path`` says where THIS render's corpus is, and every
+    persona stages that same ``data/`` tree. Dropped with the claimed stack, the
+    persona's build could not derive its index and its containers could not say
+    where the corpus is. The Reach Contract declares it render-local, so it
+    survives the drop; the store's address, image and JVM keys go as before.
     """
-    assert RENDER_LOCAL_SERVICE_KEYS >= {
-        "services.graphdb.ttl_path",
-        "services.graphdb.index_path",
-    }
+    assert RENDER_LOCAL_SERVICE_KEYS >= {"services.graphdb.ttl_path"}
 
     overrides = _attached_service_overrides(
         {
@@ -565,7 +561,6 @@ def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() ->
             "services.graphdb.port_host": 10802,
             "services.graphdb.heap_max_size": "1G",
             "services.graphdb.ttl_path": "./data/demo_machine.ttl",
-            "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
             "deployed_services": ["graphdb"],
         }
     )
@@ -573,5 +568,4 @@ def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() ->
     assert overrides == {
         "deployed_services": [],
         "services.graphdb.ttl_path": "./data/demo_machine.ttl",
-        "services.graphdb.index_path": "./data/channel_databases/graph.duckdb",
     }
