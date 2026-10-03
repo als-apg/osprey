@@ -375,3 +375,59 @@ def test_cold_resume_of_a_key_no_surface_holds_is_refused(app):
 
         assert spawned == []
         assert reg.get_session(sid) is None
+
+
+# ---------------------------------------------------------------------------
+# Resume of an id outside the session-key grammar — refused before any lookup
+# ---------------------------------------------------------------------------
+
+# Each of these is an id a transcript file could be named, so the existence
+# check alone would let it through.
+MALFORMED_KEYS = [
+    "-" * 36,
+    "0" * 36,
+    "not-a-uuid",
+    "AAAAAAAA-1111-2222-3333-444444444444",
+    "operator-deadbeef",
+]
+
+
+@pytest.mark.parametrize("bad", MALFORMED_KEYS)
+def test_a_resume_outside_the_key_grammar_is_refused_even_with_a_transcript(app, sessions_dir, bad):
+    """A transcript named after a non-key does not make it a key.
+
+    The answer is the one an id naming no session gets: ``transcript_missing``
+    and a close, with nothing spawned, pooled, reserved or attached.
+    """
+    (sessions_dir / f"{bad}.jsonl").write_text("")
+    with TestClient(app) as client:
+        reg, spawned = _patch_spawn(app)
+        with client.websocket_connect(_resume_url(bad)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "transcript_missing")["session_id"] == bad
+            assert ws.receive()["type"] == "websocket.close"
+
+        assert spawned == []
+        assert reg.get_session(bad) is None
+        assert not reg.is_reserved(bad)
+        assert reg.attached_owner(bad) is None
+        assert reg._sessions == {}
+
+
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_resume_outside_the_key_grammar_never_reaches_the_chat_pool(app):
+    """A chat pool answering to a non-key is never asked, so no hand-off happens."""
+    bad = "0" * 36
+    with TestClient(app) as client:
+        _, spawned = _patch_spawn(app)
+        holder = _ChatHoldingRegistry(bad)
+        app.state.operator_registry = holder
+
+        with client.websocket_connect(_resume_url(bad)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "transcript_missing")["session_id"] == bad
+            assert ws.receive()["type"] == "websocket.close"
+
+    assert spawned == []
+    assert holder.chat.teardowns == 0
+    assert holder.chats.get(bad) is holder.chat

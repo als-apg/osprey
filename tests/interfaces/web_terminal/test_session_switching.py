@@ -200,6 +200,55 @@ class TestSessionSwitchingProtocol:
                 # Refused before the door: nothing spawned for the bad id.
                 assert len(spawned) == 1
 
+    @pytest.mark.parametrize(
+        "bad",
+        ["0" * 36, "-" * 36, "AAAAAAAA-1111-2222-3333-444444444444"],
+        ids=["zeros-36", "dashes-36", "uppercase"],
+    )
+    def test_switch_outside_the_key_grammar_spawns_nothing(self, app, sessions_dir, bad):
+        """A switch target with a transcript but outside the key grammar is refused.
+
+        The operator stays on the current session: a later switch to it is the
+        no-op ``session_switched``, and no second PTY was spawned or pooled.
+        """
+        initial = _uuid()
+        _seed_session_file(sessions_dir, initial)
+        _seed_session_file(sessions_dir, bad)
+        with TestClient(app) as client:
+            reg, spawned = self._patch_spawn(app)
+            with client.websocket_connect(_resume_url(initial)) as ws:
+                _send_resize(ws)
+                _sync_after_connect(ws, initial)
+                ws.send_json({"type": "switch_session", "session_id": bad})
+                assert _recv_json(ws, "error")["message"] == "Invalid session ID format"
+                ws.send_json({"type": "switch_session", "session_id": initial})
+                assert _recv_json(ws, "session_switched")["session_id"] == initial
+            assert len(spawned) == 1
+            assert reg.get_session(bad) is None
+            assert reg.get_session(initial) is spawned[0]
+
+    @pytest.mark.parametrize(
+        "value",
+        [123, None, ["x"], {"a": 1}],
+        ids=["int", "null", "list", "object"],
+    )
+    def test_a_non_string_switch_target_is_refused_and_the_connection_survives(
+        self, app, sessions_dir, value
+    ):
+        """A switch frame is decoded JSON; a non-string id is an error, not a crash."""
+        initial = _uuid()
+        _seed_session_file(sessions_dir, initial)
+        with TestClient(app) as client:
+            _, spawned = self._patch_spawn(app)
+            with client.websocket_connect(_resume_url(initial)) as ws:
+                _send_resize(ws)
+                _sync_after_connect(ws, initial)
+                ws.send_json({"type": "switch_session", "session_id": value})
+                assert _recv_json(ws, "error")["message"] == "Invalid session ID format"
+                ws.send_json({"type": "switch_session", "session_id": initial})
+                assert _recv_json(ws, "session_switched")["session_id"] == initial
+            assert len(spawned) == 1
+
     # -- warm session reuse --
 
     def test_switch_back_reuses_warm_session(self, app, sessions_dir):
