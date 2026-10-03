@@ -13,9 +13,9 @@ takes the project's. ``place_levels`` is the distinct ``level`` words of the
 places, shallowest first. ``device_classes`` has one entry per class a device
 carries and per facility-added class: ``count`` devices, the ``aliases`` the
 vocabulary and ``classes.yaml`` give the class in their authored spelling, and
-``families``, the sorted ids of the families with a member of that class. A
-family is a group carrying per-signal sentences (``signals``): the same groups
-the middle-layer index names as Families. A group without them is not a family.
+``families``, the sorted ids of the groups holding one of its devices. A
+class's families are the groups holding one of its devices; a family is a
+group, the same groups the middle-layer index files as Families.
 ``models`` lists every model with its ``engine``, whether the render serves it
 and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 measurement view the render carries, ``channel_count`` counts the channels, and
@@ -96,9 +96,8 @@ def _authored_aliases(
 def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     """Each device class with its count, authored aliases and families.
 
-    A family is a group carrying per-signal sentences (``signals``), the same
-    groups the middle-layer index names as Families; a class none of whose
-    devices sits in one has no family.
+    A class's families are the groups holding one of its devices; a family is
+    a group, the same groups the middle-layer index files as Families.
     """
     from osprey.facility.validate import vocabulary
 
@@ -116,8 +115,6 @@ def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 
     families: dict[str, set[str]] = defaultdict(set)
     for group in doc.get("groups", []):
-        if not group.get("signals"):
-            continue
         for member in group.get("members") or []:
             if str(member) in class_of:
                 families[class_of[str(member)]].add(str(group["id"]))

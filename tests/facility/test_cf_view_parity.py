@@ -12,9 +12,9 @@ the byte identity of the pre-LINE channel-finder index copies.
 The parity tests hold the hierarchical and middle-layer views, called as pure
 functions on the shared control-assistant build's facility file, to those
 copies: the same address set less the declared fingerprint additions, the
-machine and family descriptions reachable, every benchmark target indexed, each
-copy's Family with an equal ``DeviceList``, and no fewer benchmark queries
-answerable by whole index cells than the copies answer. The in_context view,
+machine, system and family descriptions reachable, every benchmark target
+indexed, each copy's Family with an equal ``DeviceList``, and no fewer
+benchmark queries answerable by whole index cells than the copies answer. The in_context view,
 called the same way, holds the in_context golden's address set, and every
 in_context benchmark target is one of its rows. Each query file is checked
 against the indexes its pipeline scores.
@@ -251,6 +251,20 @@ def golden_family_descriptions() -> dict[tuple[str, str], str]:
     }
 
 
+def golden_system_descriptions() -> dict[tuple[str, str], str]:
+    """Each pre-LINE system's description by (machine, system).
+
+    The hierarchical copy keeps them at the system level; the middle-layer
+    index files each system's group as a Family of its machine.
+    """
+    tree = pre_line_index("hierarchical")["tree"]
+    return {
+        (machine, system): node["_description"]
+        for machine, machine_node in _children(tree)
+        for system, node in _children(machine_node)
+    }
+
+
 def golden_machine_descriptions() -> dict[str, str]:
     """Each pre-LINE machine's description by machine."""
     tree = pre_line_index("hierarchical")["tree"]
@@ -446,6 +460,17 @@ def test_the_middle_layer_view_keeps_the_machine_and_family_descriptions(
         assert middle_layer_view[machine]["_description"] == description, machine
     for (system, family), description in golden_family_descriptions().items():
         assert middle_layer_view[system][family]["_description"] == description, (system, family)
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("built_control_assistant")
+def test_the_middle_layer_view_keeps_the_system_descriptions_as_families(
+    middle_layer_view: dict[str, Any],
+) -> None:
+    systems = golden_system_descriptions()
+    assert len(systems) == 8
+    for (machine, system), description in systems.items():
+        assert middle_layer_view[machine][system]["_description"] == description, (machine, system)
 
 
 @pytest.mark.slow
