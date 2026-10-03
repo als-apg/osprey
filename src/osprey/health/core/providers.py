@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.health.models import CheckResult, Status
 from osprey.health.probes import ProbeContext, provider_canary
 from osprey.health.runtime import HealthRuntime
+from osprey.models.provider_registry import get_provider_registry
 
 if TYPE_CHECKING:
     from osprey.health.core import CategoryCallable
@@ -92,14 +93,31 @@ def providers(
         if not api_providers:
             return rows
 
+        # A provider that serves no chat has no completion route to canary;
+        # its reachability belongs to the module that embeds through it.
+        reg = registry if registry is not None else get_provider_registry()
         names = list(api_providers)
-        specs = [_spec(name, api_providers.get(name) or {}) for name in names]
-        outcomes = await asyncio.gather(
+        chat_names = [name for name in names if reg.is_chat(name)]
+        specs = [_spec(name, api_providers.get(name) or {}) for name in chat_names]
+        gathered = await asyncio.gather(
             *(provider_canary.run(spec, ctx, registry=registry) for spec in specs),
             return_exceptions=True,
         )
+        outcomes = dict(zip(chat_names, gathered, strict=True))
 
-        for name, outcome in zip(names, outcomes, strict=True):
+        for name in names:
+            if name not in outcomes:
+                rows.append(
+                    CheckResult(
+                        name,
+                        CATEGORY,
+                        Status.SKIP,
+                        "embeddings only, no chat; reachability is reported by "
+                        "`osprey ariel status`",
+                    )
+                )
+                continue
+            outcome = outcomes[name]
             if isinstance(outcome, CheckResult):
                 row = outcome
             else:

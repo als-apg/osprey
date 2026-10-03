@@ -970,6 +970,20 @@ def unserved_model_ids(spec: ClaudeCodeModelSpec) -> list[str]:
     return sorted({model_id for model_id in configured if model_id not in spec.served_models})
 
 
+def non_chat_provider_refusal(provider_name: str) -> str:
+    """The sentence that refuses *provider_name* as the agent's provider.
+
+    Said wherever a provider that serves no chat (``ProviderRegistry.is_chat``
+    answers False) is named where a chat model must run: the build, and the
+    resolver that renders the agent's settings.
+    """
+    return (
+        f"{provider_name} serves embeddings only, no chat; name it as an embedding "
+        "module's provider (ariel.enhancement_modules.image_embedding.provider or "
+        "text_embedding.provider)"
+    )
+
+
 class ClaudeCodeModelResolver:
     """Resolves Claude Code model configuration from project config."""
 
@@ -1038,8 +1052,8 @@ class ClaudeCodeModelResolver:
             Resolved spec, or ``None`` when no provider is configured.
 
         Raises:
-            ValueError: If the provider name is not in CLAUDE_CODE_PROVIDERS
-                and not in api_providers, if a provider that declares
+            ValueError: If the provider serves no chat, if the provider name
+                is not in CLAUDE_CODE_PROVIDERS and not in api_providers, if a provider that declares
                 ``requires_base_url`` resolves no endpoint, if no main model can
                 be named, or if a configured model is a bare alias word.
         """
@@ -1049,6 +1063,10 @@ class ClaudeCodeModelResolver:
 
         api_providers = api_providers or {}
 
+        registry = get_provider_registry()
+        if not registry.is_chat(provider_name):
+            raise ValueError(f"{non_chat_provider_refusal(provider_name)}.")
+
         if provider_name not in CLAUDE_CODE_PROVIDERS:
             # Custom proxy: must be defined in api.providers
             if provider_name not in api_providers:
@@ -1057,9 +1075,15 @@ class ClaudeCodeModelResolver:
                 # error that lists only the built-ins reads as "this framework
                 # supports three providers" and sends an operator off to add a
                 # proxy that is often already in their own config.yml (#725).
+                # Only chat providers can run the agent, so an embeddings-only
+                # entry is neither listed nor offered as a correction.
                 builtin = sorted(CLAUDE_CODE_PROVIDERS)
-                configured = sorted(set(api_providers) - set(CLAUDE_CODE_PROVIDERS))
-                available = sorted(set(builtin) | set(api_providers))
+                configured = sorted(
+                    name
+                    for name in set(api_providers) - set(CLAUDE_CODE_PROVIDERS)
+                    if registry.is_chat(name)
+                )
+                available = sorted(set(builtin) | set(configured))
                 close = difflib.get_close_matches(provider_name, available, n=1)
                 hint = f" Did you mean '{close[0]}'?" if close else ""
                 raise ValueError(

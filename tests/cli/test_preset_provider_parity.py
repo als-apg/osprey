@@ -30,6 +30,11 @@ from osprey.agent_runner.provider_env import (
     ClaudeCodeModelResolver,
     _without_unresolved_base_urls,
 )
+from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_merge import _resolve_extends
+from osprey.cli.build_profile_presets import _load_preset_raw
+from osprey.models.provider_registry import get_provider_registry
+from osprey.models.providers.llama_cpp import LLAMA_CPP_DEFAULT_MODEL
 from osprey.profiles.providers import packaged_catalog_path
 from osprey_connectors.config import resolve_env_vars
 
@@ -122,7 +127,10 @@ def test_every_declared_provider_resolves(monkeypatch):
         monkeypatch.setenv(var, PLACEHOLDER_ENDPOINT)
     providers = resolve_env_vars(_api_providers())
     assert providers, "the packaged catalog declares no providers"
+    registry = get_provider_registry()
     for name in providers:
+        if not registry.is_chat(name):
+            continue
         spec = ClaudeCodeModelResolver.resolve({"provider": name}, providers)
         assert spec is not None, f"provider {name!r} resolved to None"
         endpoints = (spec.upstream_base_url, spec.env_block.get("ANTHROPIC_BASE_URL"))
@@ -132,6 +140,64 @@ def test_every_declared_provider_resolves(monkeypatch):
                 "catalog still carries a variable reference where the endpoint "
                 "belongs"
             )
+
+
+def test_the_llama_cpp_entry_expands_to_its_server_root(monkeypatch):
+    """The embeddings-only entry is not an agent route; it is judged on its own.
+
+    It expands to the server root (the adapter appends ``/v1/embeddings``), keeps
+    its literal key, and serves exactly the adapter's default model.
+    """
+    monkeypatch.delenv("LLAMA_CPP_HOST", raising=False)
+    entry = resolve_env_vars(_api_providers())["llama-cpp"]
+    assert entry["base_url"] == "http://localhost:8080"
+    assert entry["api_key"] == "llama-cpp"
+    assert entry["models"] == [LLAMA_CPP_DEFAULT_MODEL]
+    assert entry["default_model"] == LLAMA_CPP_DEFAULT_MODEL
+    assert not get_provider_registry().is_chat("llama-cpp")
+
+
+#: The two presets that ship an ``ariel:`` block, and so the picture modules.
+ARIEL_PRESETS = ("control-assistant", "ariel-standalone")
+
+
+def _preset_ariel(preset: str) -> dict:
+    """The preset's ``ariel`` config as the build reads it, dotted keys expanded."""
+    raw, path = _load_preset_raw(preset)
+    document = _resolve_extends(dict(raw), path)
+    return _expand_dotted(dict(document.get("config") or {}))["ariel"]
+
+
+@pytest.mark.parametrize("preset", ARIEL_PRESETS)
+def test_the_presets_embed_pictures_with_the_llama_cpp_default_model(preset):
+    """A preset's picture-embedding model is the one the llama-cpp entry serves.
+
+    Two homes for one model id would let the preset ask a llama-server for a
+    model it was never told to load.
+    """
+    catalog_default = _api_providers()["llama-cpp"]["default_model"]
+    assert catalog_default == LLAMA_CPP_DEFAULT_MODEL == "qwen3-vl-embedding-2b"
+    embedding = _preset_ariel(preset)["enhancement_modules"]["image_embedding"]
+    assert embedding["provider"] == "llama-cpp"
+    assert embedding["model"] == catalog_default
+
+
+@pytest.mark.parametrize("preset", ARIEL_PRESETS)
+def test_the_presets_turn_the_picture_modules_and_hybrid_search_on(preset):
+    """Captions, picture search and the view tool ship on, beside hybrid search.
+
+    Each degrades on its own when its server or model is missing, so on is the
+    default a deployment gets; ``enabled: false`` is the way off.
+    """
+    ariel = _preset_ariel(preset)
+    modules = ariel["enhancement_modules"]
+    assert modules["image_caption"]["enabled"] is True
+    assert modules["image_caption"]["provider"] == "ollama"
+    assert modules["image_caption"]["model"] == {"model_id": "qwen3-vl:4b"}
+    assert modules["image_embedding"]["enabled"] is True
+    assert modules["image_embedding"]["dimensions"] == 1024
+    assert ariel["attachments"] == {"copy_on_ingest": "images", "view": {"enabled": True}}
+    assert ariel["search_modules"]["hybrid"]["enabled"] is True
 
 
 def test_a_gateway_with_no_endpoint_exported_is_refused_rather_than_routed(monkeypatch):

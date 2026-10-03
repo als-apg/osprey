@@ -743,6 +743,13 @@ config:
   # the same Postgres the logbook lives in, so this number is a storage
   # decision in both directions.
   # ariel.attachments.max_file_mb: 10
+  # Which attachments ingest copies into the logbook database: `images` (what
+  # captions, picture search and `attachment_view` read), `all`, or `none`.
+  ariel.attachments.copy_on_ingest: images
+  # The agents' `attachment_view` tool and the attachment summaries in their
+  # search and entry results. false hides both from agents and leaves the web
+  # panel unchanged.
+  ariel.attachments.view.enabled: true
   # How much of each entry's text the agent sees: search and browse results
   # carry the first `listing_chars`, `entries_by_ids` the first `read_chars`,
   # and `entry_get` the whole entry. A cut entry says so and gives its length.
@@ -842,6 +849,40 @@ config:
     - name: nomic-embed-text
       dimension: 768
       max_input_tokens: 2048
+  # Picture captions: a vision model describes each copied picture and lists
+  # its visible text, so search finds an entry by what its plots show. Runs
+  # when the Ollama server and the model are available; otherwise it is
+  # skipped, `osprey ariel status` says why, and everything else keeps
+  # working. `enabled: false` turns it off. Provider and model are this
+  # module's own, never the deployment's main model.
+  ariel.enhancement_modules.image_caption.enabled: true
+  ariel.enhancement_modules.image_caption.provider: ollama
+  ariel.enhancement_modules.image_caption.model.model_id: qwen3-vl:4b
+  # Pictures captioned per entry, in attachment order; the rest are recorded
+  # as over the cap and never sent to the model.
+  # ariel.enhancement_modules.image_caption.max_images_per_entry: 8
+  # Replaces the caption prompt; `{text}` is replaced by the entry text. A
+  # replacement must keep asking for the `Visible text:` list the reply is
+  # split at.
+  # ariel.enhancement_modules.image_caption.prompt_template: |
+  # Seconds one vision call may take; a local vision model on CPU can spend
+  # minutes on one picture. A timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_caption.timeout_seconds: 1320
+  # Picture embedding for picture search: hybrid search also ranks pictures
+  # against the query. Needs a site-run llama-server serving the model (see
+  # the ARIEL guide). Runs when that server and the model are available;
+  # otherwise it is skipped, `osprey ariel status` says why, `hybrid_search`
+  # answers text-only with a diagnostic, and everything else keeps working.
+  # `enabled: false` turns it off.
+  ariel.enhancement_modules.image_embedding.enabled: true
+  ariel.enhancement_modules.image_embedding.provider: llama-cpp
+  # The model id the server advertises and the vector width it is cut to;
+  # changing either makes every picture owed again.
+  ariel.enhancement_modules.image_embedding.model: qwen3-vl-embedding-2b
+  ariel.enhancement_modules.image_embedding.dimensions: 1024
+  # Seconds one picture embedding call may take, many times what one picture
+  # takes on a CPU-only server; a timeout is retried on the next pass.
+  # ariel.enhancement_modules.image_embedding.timeout_seconds: 120
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.

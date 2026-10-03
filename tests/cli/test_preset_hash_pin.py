@@ -177,27 +177,36 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # already did. A rebuilt project of any of the four has no picker, so the
     # advisory firing is correct. control-assistant and hello-world gained a
     # comment only, which moves no digest; the other five stand still.
-    "ariel-standalone": ("sha256:abb22faa5923ade1f2cf430fd8a95f376bedf0a89ede3c738433f8bd776513c2"),
+    # The twenty-third move, and the two presets that carry an `ariel:` block:
+    # ariel-standalone and control-assistant turned the ARIEL picture modules
+    # on (`image_caption` and `image_embedding`, each with its own provider and
+    # model) and state `ariel.attachments.copy_on_ingest: images` and
+    # `ariel.attachments.view.enabled: true`. A rebuilt project captions and
+    # embeds pictures where it did not before, so the staleness advisory firing
+    # on already-deployed projects is the correct signal. The five `extends`
+    # children inherit them; channel-finder-standalone and hello-world stand
+    # still.
+    "ariel-standalone": ("sha256:ee029542c99d48bf38333f4d345820a09c1a1854a2154069a1bf97bba78e202f"),
     "channel-finder-standalone": (
         "sha256:7bec034ab9e5ae0c11d79df9cf294075e9c38c66bc7251ab9246a684165c9ee5"
     ),
     "control-assistant": (
-        "sha256:284e5a0e2ba8b55a9adcfd4fb97859e43a5c8ad01ed66e830f312cc36c09b182"
+        "sha256:88136ad30a695cde18e90f192434944d0d4320319a1b63540549375339559f26"
     ),
     "control-assistant-admin": (
-        "sha256:a1cde818cbb963b0eb9200b237f60e28a68431b3ac897bebf67873a595070bb5"
+        "sha256:803f04a65375d434a1c14af754dbf5e77f2ea4eaaca1b3e67080a79608f57ee3"
     ),
     "control-assistant-knowledge": (
-        "sha256:5d60857376ca6702cb371eaddce2a16c790bb372a2dacade4a5d4a227c0fc51d"
+        "sha256:726be2bfd607539a79173d48ad77463c5b77f50eeadfcc4557aae49d5487a721"
     ),
     "control-assistant-logbook": (
-        "sha256:5be8777709428d65ef629693978e07dee4910fd665260c8b66003a8b2ffdbefb"
+        "sha256:6297a4053f9d7913e1433aa1730993488450aaa00a6b549c846f1da32fa5c035"
     ),
     "control-assistant-readonly": (
-        "sha256:fc185914a127d56abbf0b9383012a7b2eb1dfbde54fe6573956de962a127e087"
+        "sha256:2eb45925ec3d07e5381f0ca11250c6ad0a017deb77762c60993c8ff0fa2e2132"
     ),
     "control-assistant-readwrite": (
-        "sha256:52ca513ef55d1ea7b32333a3730d6396ac5d7f687043cc9fea9c9161769f2217"
+        "sha256:843545f7bdb5fce1d654fe9513322572d2ed125f97ab1180952264206b134c2f"
     ),
     "hello-world": ("sha256:ac89cdddebf7f249c0aab55057fce9b6872ff5d0de9679b12221814628e4c2e6"),
 }

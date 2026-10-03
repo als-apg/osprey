@@ -2025,6 +2025,15 @@ keys:
       never cut. Refused at config parse when it is not a positive integer or
       is below `ariel.entry_text.listing_chars`.
     default: 1000
+  ariel.entry_text.listing_attachments:
+    rendered: false
+    evidence: '_entry_text_count\(data, "listing_attachments"'
+    note: >-
+      No preset renders it yet. Attachment summaries each entry of `browse`,
+      the three search tools and `entries_by_ids` carries; `0` omits them and
+      keeps `attachment_count`, and `entry_get` lists every attachment. A bool,
+      a non-integer or a negative value is refused at config parse.
+    default: 5
   ariel.default_search_mode: {evidence: 'default_search_mode', default: derived, default_note: the implicit mode for whichever search modules are enabled}
   # The facility vocabulary: shorthand the operators type, mapped to the words
   # the logbook prose actually uses. Read ONCE at config parse — the file is
@@ -2181,9 +2190,165 @@ keys:
   ariel.enhancement_modules.semantic_processor.model: {covered-by: ariel.enhancement_modules.semantic_processor, default: {}}
   ariel.enhancement_modules.semantic_processor.model.model_id: {covered-by: ariel.enhancement_modules.semantic_processor.model, default: n/a}
   ariel.enhancement_modules.semantic_processor.model.max_tokens: {evidence: 'max_tokens', default: n/a}
+  ariel.enhancement_modules.image_caption:
+    evidence: 'IMAGE_CAPTION_KEY = "ariel\.enhancement_modules\.image_caption"'
+    note: >-
+      Block of the catch-up caption module. The two presets that ship an
+      `ariel:` block render it on, with its own provider and model; absent, the
+      module is off like every enhancement module.
+    default: {}
+  ariel.enhancement_modules.image_caption.enabled:
+    covered-by: ariel.enhancement_modules.image_caption
+    note: >-
+      Whether the catch-up captions pictures. Shipped `true` in the two presets
+      that ship an `ariel:` block; a missing server or model skips the module,
+      named in `osprey ariel status`, and leaves everything else working.
+    default: false
+  ariel.enhancement_modules.image_caption.provider:
+    evidence: 'IMAGE_CAPTION_KEY\}\.provider is required'
+    note: >-
+      The api.providers entry the caption calls go to; required when the module
+      is enabled and never taken from ariel.embedding.provider. Shipped as
+      `ollama` in the presets.
+    default: null
+  ariel.enhancement_modules.image_caption.model:
+    covered-by: ariel.enhancement_modules.image_caption
+    note: >-
+      Block of the caption model.
+    default: {}
+  ariel.enhancement_modules.image_caption.model.model_id:
+    evidence: 'IMAGE_CAPTION_KEY\}\.model\.model_id is required'
+    note: >-
+      The vision model; captions and the completion marker are keyed on it, so
+      changing it makes every picture owed again. Required, never the main
+      model. Shipped as `qwen3-vl:4b` in the presets, an explicit key rather
+      than one derived from the deployment's model.
+    default: n/a
+  ariel.enhancement_modules.image_caption.max_images_per_entry:
+    rendered: false
+    evidence: '"max_images_per_entry", DEFAULT_MAX_IMAGES_PER_ENTRY'
+    note: >-
+      Viewable pictures captioned per entry, in attachment order; the rest are
+      recorded as over_image_cap with no model call. Commented in the presets.
+    default: 8
+  ariel.enhancement_modules.image_caption.prompt_template:
+    rendered: false
+    evidence: 'config\.get\("prompt_template"\) or DEFAULT_CAPTION_PROMPT'
+    note: >-
+      Replaces the caption prompt; `{text}` is replaced by the entry text. A
+      replacement must keep asking for the `Visible text:` list the reply is
+      split at. Commented in the presets.
+    default: derived
+    default_note: the module's own DEFAULT_CAPTION_PROMPT
+  ariel.enhancement_modules.image_caption.timeout_seconds:
+    rendered: false
+    evidence: '"timeout_seconds", DEFAULT_TIMEOUT_SECONDS'
+    note: >-
+      Seconds one vision call may take; a timeout is transient. Commented in
+      the presets.
+    default: 1320
+  ariel.enhancement_modules.image_caption.supports_images:
+    rendered: false
+    evidence: '"supports_images" in config'
+    note: >-
+      true, false or null. Unset, the provider entry's own supports_images
+      answers, else the model decides; false refuses the module at configure.
+      No preset renders it yet.
+    default: null
+  ariel.enhancement_modules.image_embedding:
+    evidence: 'IMAGE_EMBEDDING_KEY = "ariel\.enhancement_modules\.image_embedding"'
+    note: >-
+      Block of the catch-up picture embedding module. The two presets that ship
+      an `ariel:` block render it on as scalar keys (provider, model,
+      dimensions), not text_embedding's `models` list; absent, the module is
+      off like every enhancement module.
+    default: {}
+  ariel.enhancement_modules.image_embedding.enabled:
+    covered-by: ariel.enhancement_modules.image_embedding
+    note: >-
+      Whether the catch-up embeds pictures for picture search. Shipped `true`
+      in the presets; without a site-run llama-server the module is skipped,
+      named in `osprey ariel status`, and hybrid_search answers text-only with
+      a diagnostic.
+    default: false
+  ariel.enhancement_modules.image_embedding.provider:
+    evidence: 'IMAGE_EMBEDDING_KEY\}\.provider is required'
+    note: >-
+      The api.providers entry that serves image embeddings (llama-cpp); required
+      when the module is enabled and never taken from ariel.embedding.provider.
+      Shipped as `llama-cpp` in the presets.
+    default: null
+  ariel.enhancement_modules.image_embedding.model:
+    evidence: 'model_key = f"\{_IMAGE_MODULE_KEY\}\.model"'
+    note: >-
+      The model id the server advertises; with the dimensions it names the
+      image table, so changing it makes every picture owed again. Required.
+      Shipped as `qwen3-vl-embedding-2b`, the llama-cpp entry's default_model.
+    default: n/a
+  ariel.enhancement_modules.image_embedding.dimensions:
+    evidence: '"dimensions", _IMAGE_DIMENSIONS_DEFAULT'
+    note: >-
+      Vector width, 1 to 2000; the adapter truncates and renormalises to it.
+      Shipped as `1024` in the presets.
+    default: 1024
+  ariel.enhancement_modules.image_embedding.timeout_seconds:
+    rendered: false
+    evidence: 'config\.get\("timeout_seconds", DEFAULT_TIMEOUT_SECONDS\)'
+    note: >-
+      Seconds one picture embedding call may take; a timeout is transient.
+      Commented in the presets.
+    default: 120
+  ariel.enhancement:
+    rendered: false
+    evidence: 'get\("enhancement", \{\}\)'
+    note: >-
+      Read raw by `cli_operations.catchup_budget`; ARIELConfig has no block for
+      it. No preset renders a leaf under it yet.
+    default: {}
+  ariel.enhancement.catchup_budget_seconds:
+    rendered: false
+    evidence: 'get\("catchup_budget_seconds"\)'
+    note: >-
+      Seconds one catch-up pass may spend after a poll; null (the default)
+      means the rest of the poll interval. No preset renders it yet.
+    default: null
+  ariel.attachments:
+    evidence: 'config_dict\.get\("attachments"\)'
+    note: >-
+      Parsed only by AttachmentsConfig. The presets render `copy_on_ingest` and
+      `view.enabled` under it and carry `max_file_mb` as a commented example.
+    default: {}
+  ariel.attachments.copy_on_ingest:
+    evidence: '_ATTACHMENTS_PREFIX\}\.copy_on_ingest must be one of'
+    note: >-
+      What ingest copies into `attachment_files`: `images`, `all` or `none`.
+      Shipped as `images` in the presets; any other value is refused at config
+      parse.
+    default: images
+  ariel.attachments.allowed_origins:
+    rendered: false
+    evidence: '_ATTACHMENTS_PREFIX\}\.allowed_origins must be a list of origins'
+    note: >-
+      Never rendered: the origins ingest may fetch attachment urls from are
+      facility content. Each item must be a bare http(s) origin, stored as
+      (scheme, host, effective port); a malformed item is refused naming its
+      index.
+    default: []
+  ariel.attachments.view:
+    covered-by: ariel.attachments
+    note: >-
+      Block of the `attachment_view` switch.
+    default: {}
+  ariel.attachments.view.enabled:
+    evidence: 'attachment_view_enabled\(\{"attachments": data\}\)'
+    note: >-
+      Shipped `true` in the presets. False hides `attachment_view` and the
+      attachment summaries from agents; a present non-boolean (`"no"`, `1`) is
+      refused at config parse naming the key.
+    default: true
   ariel.attachments.max_file_mb:
     rendered: false
-    evidence: 'get_config_value\("ariel\.attachments\.max_file_mb"'
+    evidence: 'ariel\.attachments\.max_file_mb must be an integer >= 1'
     note: >-
       Largest file one logbook entry may attach, in megabytes. Commented in the
       two presets that ship an `ariel:` block: attachments are BYTEA rows in
@@ -3301,7 +3466,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 350
+  expected_union_size: 369
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
