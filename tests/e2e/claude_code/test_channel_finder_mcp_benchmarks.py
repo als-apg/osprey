@@ -2,10 +2,10 @@
 
 Thin pytest wrapper over ``BenchmarkRunner`` that exercises each of the four
 channel-finder paradigms (hierarchical, middle_layer, in_context, graph)
-against the preset's channel corpus. Each build materializes the tier-resolved
-unified query set into the render (``build/data/benchmarks/queries.json``) —
-one source of truth, paradigm-resolved at build time — so this test reads that
-file and slices the first ``SLICE_SIZE`` queries.
+against the preset's channel corpus. Each build copies the pipeline's query
+set into the render (``build/data/benchmarks/queries.json``) — one source of
+truth, paradigm-resolved at build time — so this test reads that file and
+slices the first ``SLICE_SIZE`` queries.
 
 The runner, queries, and evaluator all live in
 ``osprey.services.channel_finder.benchmarks``; this file only wires them into
@@ -81,7 +81,7 @@ JUDGE_MODEL = "claude-sonnet-5"
 
 #: Channel bindings in the shipped demo corpus — what ``osprey knowledge
 #: seed-graph`` puts in the store and what the graph lane's census must find.
-#: The same 2,908 addresses the tier-3 database files hold, which is what makes
+#: The same 2,908 addresses the facility file's channels hold, which is what makes
 #: the four lanes comparable: one corpus, four ways of searching it.
 #: ``tests/templates/test_control_assistant_demo_ttl.py`` owns the corpus-side
 #: pin; this is the benchmark-side one.
@@ -130,10 +130,10 @@ def _slice_indices(dataset_path: Path) -> list[int]:
     ships one, guaranteeing a distractor-family probe (QFA/SHF/SHD/SD) executes
     in the gate. The remaining slots round-robin over the *other* categories in
     sorted order — one query per category per round, in file order within a
-    category — until ``SLICE_SIZE`` is reached. With more categories than slots
-    (tier 3: 11 categories, 10 slots) exactly one non-near-miss category goes
-    unsampled per run; with fewer (tier 1: 6 categories) every category is
-    covered. A final file-order fallback fills any slots a degenerate dataset
+    category — until ``SLICE_SIZE`` is reached. With no more categories than
+    slots (the tree query set: 10 categories; the in_context one: 6) every
+    category is covered; with more, the categories sorted last go unsampled.
+    A final file-order fallback fills any slots a degenerate dataset
     (e.g. near-miss only) leaves open, so the slice always reaches
     ``min(SLICE_SIZE, len(queries))`` indices with no duplicates.
     """
@@ -239,9 +239,6 @@ def in_context_run(tmp_path_factory) -> BenchmarkRun:
 # The fourth lane: graph. Same query set, same thresholds, same runner — but a
 # store instead of a database file, so the fixture chain stands one up.
 # ---------------------------------------------------------------------------
-
-
-TIER_BOUNDARY_CATEGORY = "tier-boundary"
 
 
 def _assert_graph_pipeline_is_rendered(repo: Path) -> None:
@@ -353,11 +350,9 @@ def graph_run(graph_bench_project: Path, tmp_path: Path) -> BenchmarkRun:
 def annotate_categories(run: BenchmarkRun, dataset_path: Path) -> dict[int, str]:
     """Label each result with the query's category and log the composition.
 
-    The tier-3 query set carries a ``tier-boundary`` category: questions whose
-    answers straddle what a tier-1 corpus holds and what a tier-3 one does.
-    They are scored exactly like every other query — this annotation changes no
+    Every query is scored exactly like every other — this annotation changes no
     number and drops nothing from the aggregate. What it does is make a miss
-    *legible*: a graph lane that loses a tier-boundary query has said something
+    *legible*: a graph lane that loses a single-target query has said something
     different about the paradigm than one that loses a near-miss query, and
     without the label both arrive as an unexplained low F1.
 
@@ -393,12 +388,6 @@ def annotate_categories(run: BenchmarkRun, dataset_path: Path) -> dict[int, str]
             f"{category}={sum(scores) / len(scores):.2f}(n={len(scores)})"
             for category, scores in sorted(by_category.items())
         ),
-    )
-    boundary = sorted(qid for qid, cat in labelled.items() if cat == TIER_BOUNDARY_CATEGORY)
-    logger.info(
-        "%s tier-boundary queries in this slice: %s",
-        run.paradigm,
-        boundary or "none (the stratified slice reserves its slots for other categories)",
     )
     return labelled
 
@@ -454,7 +443,7 @@ def test_in_context_aggregate(in_context_run: BenchmarkRun) -> None:
 def test_graph_aggregate(graph_run: BenchmarkRun, graph_bench_project: Path) -> None:
     """The graph paradigm, scored against the same ground truth at the same bar.
 
-    Parity is the claim: same tier-3 query set, same stratified slice, same
+    Parity is the claim: same tree query set, same stratified slice, same
     judge, same two thresholds as the three file paradigms. A graph lane that
     needed its own thresholds would not be evidence that the paradigm works,
     only that it was graded gently.
@@ -506,24 +495,23 @@ def _write_dataset(tmp_path: Path, categories: list[tuple[str, int]]) -> tuple[P
     return path, queries
 
 
-# An 11-category shape mirroring the shipped tier-3 query set (near-miss is the
+# A 10-category shape mirroring the shipped tree query set (near-miss is the
 # largest category since it holds the discrimination queries).
-_TIER3_SHAPE = [
+_TREE_SHAPE = [
     ("aggregate", 4),
     ("ambiguous", 3),
     ("cross-ring", 5),
     ("device-specific", 7),
-    ("multi-target", 7),
+    ("multi-target", 8),
     ("near-miss", 11),
     ("range", 4),
     ("sector-based", 3),
     ("semantic", 3),
-    ("single-target", 9),
-    ("tier-boundary", 4),
+    ("single-target", 12),
 ]
 
-# A 6-category shape mirroring the leaner tier-1 query set.
-_TIER1_SHAPE = [
+# A 6-category shape mirroring the leaner in_context query set.
+_IN_CONTEXT_SHAPE = [
     ("aggregate", 3),
     ("device-specific", 4),
     ("multi-target", 3),
@@ -534,7 +522,7 @@ _TIER1_SHAPE = [
 
 
 def test_slice_reserves_near_miss_slot(tmp_path: Path) -> None:
-    path, queries = _write_dataset(tmp_path, _TIER3_SHAPE)
+    path, queries = _write_dataset(tmp_path, _TREE_SHAPE)
     indices = _slice_indices(path)
 
     assert queries[indices[0]]["category"] == NEAR_MISS_CATEGORY
@@ -544,42 +532,39 @@ def test_slice_reserves_near_miss_slot(tmp_path: Path) -> None:
 
 
 def test_slice_is_full_and_unique(tmp_path: Path) -> None:
-    path, _ = _write_dataset(tmp_path, _TIER3_SHAPE)
+    path, _ = _write_dataset(tmp_path, _TREE_SHAPE)
     indices = _slice_indices(path)
 
     assert len(indices) == SLICE_SIZE
     assert len(set(indices)) == len(indices)
 
 
-def test_slice_tier3_leaves_one_category_unsampled(tmp_path: Path) -> None:
-    path, queries = _write_dataset(tmp_path, _TIER3_SHAPE)
+def test_slice_tree_covers_every_category(tmp_path: Path) -> None:
+    path, queries = _write_dataset(tmp_path, _TREE_SHAPE)
     indices = _slice_indices(path)
 
     sampled = {queries[i]["category"] for i in indices}
-    all_categories = {cat for cat, _ in _TIER3_SHAPE}
-    # 11 categories, 10 slots, near-miss reserved -> exactly one non-near-miss
-    # category goes unsampled.
-    assert NEAR_MISS_CATEGORY in sampled
-    unsampled = all_categories - sampled
-    assert unsampled == {"tier-boundary"}, unsampled
+    # 10 categories, 10 slots, near-miss reserved -> every category is sampled.
+    assert sampled == {cat for cat, _ in _TREE_SHAPE}
+    assert len(indices) == SLICE_SIZE
 
 
-def test_slice_tier1_covers_every_category(tmp_path: Path) -> None:
-    path, queries = _write_dataset(tmp_path, _TIER1_SHAPE)
+def test_slice_in_context_covers_every_category(tmp_path: Path) -> None:
+    path, queries = _write_dataset(tmp_path, _IN_CONTEXT_SHAPE)
     indices = _slice_indices(path)
 
     sampled = {queries[i]["category"] for i in indices}
-    assert sampled == {cat for cat, _ in _TIER1_SHAPE}
+    assert sampled == {cat for cat, _ in _IN_CONTEXT_SHAPE}
     assert len(indices) == SLICE_SIZE
 
 
 def test_slice_is_deterministic(tmp_path: Path) -> None:
-    path, _ = _write_dataset(tmp_path, _TIER3_SHAPE)
+    path, _ = _write_dataset(tmp_path, _TREE_SHAPE)
     assert _slice_indices(path) == _slice_indices(path)
 
 
 def test_slice_without_near_miss_category(tmp_path: Path) -> None:
-    shape = [(cat, cnt) for cat, cnt in _TIER3_SHAPE if cat != NEAR_MISS_CATEGORY]
+    shape = [(cat, cnt) for cat, cnt in _TREE_SHAPE if cat != NEAR_MISS_CATEGORY]
     path, queries = _write_dataset(tmp_path, shape)
     indices = _slice_indices(path)
 
@@ -668,7 +653,7 @@ def _run_with_categories(*, f1_by_index: dict[int, float]) -> BenchmarkRun:
 
 
 def test_annotate_categories_labels_the_slice(tmp_path: Path) -> None:
-    path, queries = _write_dataset(tmp_path, _TIER3_SHAPE)
+    path, queries = _write_dataset(tmp_path, _TREE_SHAPE)
     indices = _slice_indices(path)
     run = _run_with_categories(f1_by_index=dict.fromkeys(indices, 1.0))
 
@@ -677,23 +662,6 @@ def test_annotate_categories_labels_the_slice(tmp_path: Path) -> None:
     assert labelled == {i: queries[i]["category"] for i in indices}
     # The label travels with the run, not just with the log line.
     assert all(r.eval_meta["category"] == labelled[r.query_id] for r in run.query_results)
-
-
-def test_annotate_categories_keeps_tier_boundary_in_the_slice(tmp_path: Path) -> None:
-    """A tier-boundary query is annotated and still scored, never set aside."""
-    path, queries = _write_dataset(tmp_path, _TIER3_SHAPE)
-    boundary = next(i for i, q in enumerate(queries) if q["category"] == TIER_BOUNDARY_CATEGORY)
-    other = next(i for i, q in enumerate(queries) if q["category"] == NEAR_MISS_CATEGORY)
-    # The tier-boundary query is the one this run got wrong.
-    run = _run_with_categories(f1_by_index={boundary: 0.0, other: 1.0})
-
-    labelled = annotate_categories(run, path)
-
-    assert labelled[boundary] == TIER_BOUNDARY_CATEGORY
-    # Scored, not excused: it is still in the denominator, so the aggregate is
-    # the mean over both queries rather than the survivor's perfect score.
-    assert run.aggregate_f1 == 0.5
-    assert perfect_match_rate(run) == 0.5
 
 
 def _closed_local_port() -> int:
