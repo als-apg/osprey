@@ -27,7 +27,6 @@ class ChannelDatabase(BaseDatabase):
         """
         self.channels: list[dict] = []
         self.channel_map: dict[str, dict] = {}
-        self._envelope_metadata: dict = {}
         super().__init__(db_path)
 
     def load_database(self):
@@ -40,10 +39,8 @@ class ChannelDatabase(BaseDatabase):
             data = json.load(f)
 
         if isinstance(data, dict) and "channels" in data:
-            self._envelope_metadata = {k: v for k, v in data.items() if k != "channels"}
             self.channels = data["channels"]
         else:
-            self._envelope_metadata = {}
             self.channels = data
 
         # Create lookup map for O(1) access
@@ -148,11 +145,3 @@ class ChannelDatabase(BaseDatabase):
             formatted.append(entry)
 
         return "\n".join(formatted)
-
-    # === Persistence ===
-
-    def _serialize(self) -> dict | list:
-        """Serialize channels, preserving envelope metadata if present."""
-        if self._envelope_metadata:
-            return {**self._envelope_metadata, "channels": self.channels}
-        return self.channels

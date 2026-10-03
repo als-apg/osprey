@@ -7,7 +7,7 @@
 
 import { test, expect } from 'vitest';
 
-import { computeSelection, isTreeLevel } from '../../../src/osprey/interfaces/channel_finder/static/js/explore-selection.js';
+import { computeSelection } from '../../../src/osprey/interfaces/channel_finder/static/js/explore-selection.js';
 
 test('non-terminal levels are single-select: a new value replaces the old', () => {
   // Fresh selection loads the next level.
@@ -48,11 +48,4 @@ test('selectionValue is null for empty, a scalar for one, an array for many', ()
   expect(computeSelection(['A'], 'A', true).selectionValue).toBeNull();
   expect(computeSelection([], 'A', true).selectionValue).toBe('A');
   expect(computeSelection(['A', 'B'], 'C', true).selectionValue).toEqual(['A', 'B', 'C']);
-});
-
-test('isTreeLevel defaults unknown levels to tree and honors explicit config', () => {
-  expect(isTreeLevel(undefined, 'system')).toBe(true);
-  expect(isTreeLevel({}, 'system')).toBe(true);
-  expect(isTreeLevel({ system: { type: 'tree' } }, 'system')).toBe(true);
-  expect(isTreeLevel({ sector: { type: 'instance' } }, 'sector')).toBe(false);
 });

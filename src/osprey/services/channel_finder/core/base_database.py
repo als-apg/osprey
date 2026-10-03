@@ -4,12 +4,7 @@ Abstract base class for all database implementations.
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
-import tempfile
 from abc import ABC, abstractmethod
-from pathlib import Path
 
 
 class BaseDatabase(ABC):
@@ -30,58 +25,13 @@ class BaseDatabase(ABC):
         """Load database from file."""
         pass
 
-    @abstractmethod
-    def _serialize(self) -> dict | list:
-        """Serialize in-memory state back to JSON-compatible structure.
-
-        This is the inverse of load_database(): it returns the data
-        that should be written to the database file on disk.
-        """
-        pass
-
-    def _persist(self) -> None:
-        """Write current in-memory state to disk atomically."""
-        self._atomic_write(Path(self.db_path), self._serialize())
-
     def _build_channel_map(self) -> dict[str, dict]:
         """Build the flat channel-name -> metadata lookup map.
 
-        Writable databases override this; ``_commit`` uses it to refresh
-        ``self.channel_map`` after each mutation.
+        The loaders that hold a tree override this and call it once the tree
+        is loaded.
         """
         raise NotImplementedError(f"{type(self).__name__} does not build a channel map")
-
-    def _commit(self) -> None:
-        """Finalize a mutation: rebuild the flat channel map and persist to disk."""
-        self.channel_map = self._build_channel_map()
-        self._persist()
-
-    @staticmethod
-    def _atomic_write(path: Path, data: dict | list) -> None:
-        """Write JSON atomically: backup current file, write via temp, os.replace.
-
-        Creates a ``.json.bak`` backup of the existing file before overwriting.
-        """
-        path = Path(path)
-
-        # Create backup if file exists
-        if path.exists():
-            bak = path.with_suffix(path.suffix + ".bak")
-            shutil.copy2(path, bak)
-
-        # Write to temp file in same directory, then atomic replace
-        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(data, f, indent=2)
-                f.write("\n")
-            os.replace(tmp, path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
 
     @abstractmethod
     def get_channel(self, channel_name: str) -> dict | None:
