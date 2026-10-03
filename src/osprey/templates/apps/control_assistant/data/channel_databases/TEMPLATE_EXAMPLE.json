@@ -1,15 +1,6 @@
 {
   "_metadata": {
     "_comment": "Optional metadata to document database generation",
-    "generated_from": "data/raw/address_list.csv",
-    "generation_date": "2025-11-08",
-    "generator": "build_channel_database.py",
-    "command": "python tools/build_channel_database.py --use-llm",
-    "llm_naming": {
-      "enabled": true,
-      "model": "anthropic/claude-haiku",
-      "purpose": "Generated descriptive names for standalone channels"
-    },
     "description": "Template-based channel database"
   },
   "channels": [

@@ -2864,7 +2864,6 @@ They are tracked, and `osprey build` only ever reads them.
 
 ```
 data/
-├── raw/                                  # CSV address data (in_context path)
 ├── channel_databases/
 │   ├── tiers/tier{1,3}/<paradigm>.json  # staged, one per paradigm
 │   └── TEMPLATE_EXAMPLE.json            # database format example
@@ -2995,15 +2994,6 @@ MACHINE_STATE_CHANNELS_JSON = """\
   "SR:DIAG:BPM:01:POSITION:Y": { "label": "BPM 1 vertical position", "group": "orbit" },
   "SR:MAG:HCM:01:CURRENT:RB": { "label": "Corrector 1 current", "group": "magnets" }
 }
-"""
-
-RAW_ADDRESS_LIST_CSV = """\
-address,description,family_name,instances,sub_channel
-# === STANDALONE CHANNELS (no templating) ===
-SR:DIAG:DCCT:01:CURRENT:RB,Total stored beam current in milliamps,,,
-# === DEVICE FAMILIES (one row expands to one channel per instance) ===
-SR:DIAG:BPM:{i}:POSITION:X,Horizontal beam position,BPM,01;02,X
-SR:DIAG:BPM:{i}:POSITION:Y,Vertical beam position,BPM,01;02,Y
 """
 
 FK_INDEX_MD = """\
@@ -3251,7 +3241,6 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
     "data/channel_limits.json": CHANNEL_LIMITS_JSON,
     "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
-    "data/raw/address_list.csv": RAW_ADDRESS_LIST_CSV,
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
