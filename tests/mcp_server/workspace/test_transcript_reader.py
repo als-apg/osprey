@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from osprey.agent_runner.project_paths import encode_claude_project_path
+from osprey.agent_runner.project_paths import (
+    CLAUDE_CONFIG_DIR_ENV,
+    claude_project_dir,
+    encode_claude_project_path,
+)
 from osprey.mcp_server.workspace.transcript_reader import (
     MAX_CHAT_MESSAGE_LENGTH,
     MAX_ERROR_RESULT_LENGTH,
@@ -1478,3 +1482,119 @@ class TestReadAgentTimelineWithSessionId:
             timeline = reader.read_agent_timeline("agent-abc")
         assert len(timeline) == 1
         assert timeline[0]["kind"] == "prompt"
+
+
+# ---------------------------------------------------------------------------
+# id containment
+# ---------------------------------------------------------------------------
+
+
+def _plant_outside(tmp_path: Path) -> Path:
+    """Write a transcript outside the transcript directory that every read would find."""
+    planted = tmp_path / "outside" / "planted.jsonl"
+    planted.parent.mkdir(parents=True, exist_ok=True)
+    _write_transcript(
+        planted,
+        [
+            _make_user_text_entry(_ts(0), "outside the directory"),
+            _make_assistant_entry(
+                _ts(1),
+                [{"id": "tu-out", "name": "mcp__controls__channel_read", "input": {}}],
+            ),
+            _make_user_entry(
+                _ts(2),
+                [{"tool_use_id": "tu-out", "content": "read", "is_error": False}],
+            ),
+        ],
+    )
+    return planted
+
+
+class TestTranscriptIdContainment:
+    """An id names a file inside the transcript directory; anything else reads as a missing transcript."""
+
+    @pytest.mark.parametrize("shape", ["relative", "absolute"], ids=["relative", "absolute"])
+    def test_session_id_outside_the_directory_reads_nothing(
+        self, transcript_dir, tmp_path, monkeypatch, shape
+    ):
+        project_dir, claude_dir = transcript_dir
+        planted = _plant_outside(tmp_path)
+        if shape == "relative":
+            session_id = "../" * len(claude_dir.relative_to(tmp_path).parts) + "outside/planted"
+        else:
+            session_id = str(planted.with_suffix(""))
+        assert (claude_dir / f"{session_id}.jsonl").is_file()
+
+        monkeypatch.setattr(Path, "home", lambda: claude_dir.parents[2])
+        reader = TranscriptReader(project_dir)
+        assert reader.find_transcript_by_id(session_id) is None
+        assert reader.read_session_by_id(session_id) == []
+        assert reader.read_chat_history_by_id(session_id) == []
+
+    @pytest.mark.parametrize("session_id", ["parent", None], ids=["by-session", "current"])
+    @pytest.mark.parametrize("shape", ["relative", "absolute"], ids=["relative", "absolute"])
+    def test_agent_id_outside_the_subagent_directory_reads_nothing(
+        self, transcript_dir, tmp_path, monkeypatch, shape, session_id
+    ):
+        project_dir, claude_dir = transcript_dir
+        planted = _plant_outside(tmp_path)
+        (claude_dir / "parent.jsonl").write_text("{}\n")
+        subagent_dir = claude_dir / "parent" / "subagents"
+        subagent_dir.mkdir(parents=True)
+        if shape == "relative":
+            agent_id = "../" * len(subagent_dir.relative_to(tmp_path).parts) + "outside/planted"
+        else:
+            agent_id = str(planted.with_suffix(""))
+
+        monkeypatch.setattr(Path, "home", lambda: claude_dir.parents[2])
+        reader = TranscriptReader(project_dir)
+        assert reader.read_agent_timeline(agent_id, session_id=session_id) == []
+
+    @pytest.mark.parametrize(
+        "session_id",
+        ["", "nested/inner", "nul\x00byte"],
+        ids=["empty", "separator", "nul"],
+    )
+    def test_an_id_that_is_not_a_plain_file_name_reads_nothing(
+        self, transcript_dir, monkeypatch, session_id
+    ):
+        project_dir, claude_dir = transcript_dir
+        _write_transcript(claude_dir / ".jsonl", [_make_user_text_entry(_ts(0), "hidden")])
+        (claude_dir / "nested").mkdir()
+        _write_transcript(
+            claude_dir / "nested" / "inner.jsonl", [_make_user_text_entry(_ts(0), "nested")]
+        )
+
+        monkeypatch.setattr(Path, "home", lambda: claude_dir.parents[2])
+        reader = TranscriptReader(project_dir)
+        assert reader.find_transcript_by_id(session_id) is None
+        assert reader.read_chat_history_by_id(session_id) == []
+
+    def test_a_transcript_symlinked_out_of_the_directory_reads_nothing(
+        self, transcript_dir, tmp_path, monkeypatch
+    ):
+        project_dir, claude_dir = transcript_dir
+        planted = _plant_outside(tmp_path)
+        (claude_dir / "linked.jsonl").symlink_to(planted)
+
+        monkeypatch.setattr(Path, "home", lambda: claude_dir.parents[2])
+        reader = TranscriptReader(project_dir)
+        assert reader.find_transcript_by_id("linked") is None
+        assert reader.read_chat_history_by_id("linked") == []
+
+    def test_a_symlinked_config_root_still_reads(self, transcript_dir, tmp_path, monkeypatch):
+        project_dir, _ = transcript_dir
+        real_config = tmp_path / "real-config"
+        monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(real_config))
+        claude_project_dir(project_dir).mkdir(parents=True)
+        linked_config = tmp_path / "linked-config"
+        linked_config.symlink_to(real_config, target_is_directory=True)
+        monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(linked_config))
+        _write_transcript(
+            claude_project_dir(project_dir) / "abc-123.jsonl",
+            [_make_user_text_entry(_ts(0), "through the link")],
+        )
+
+        reader = TranscriptReader(project_dir)
+        assert reader.find_transcript_by_id("abc-123") is not None
+        assert reader.read_chat_history_by_id("abc-123")[0]["content"] == "through the link"
