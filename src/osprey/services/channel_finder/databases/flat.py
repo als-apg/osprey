@@ -25,8 +25,6 @@ class ChannelDatabase(BaseDatabase):
             FileNotFoundError: If database file doesn't exist
             json.JSONDecodeError: If database file is malformed
         """
-        # Note: GoogleSheetsChannelDatabase mirrors these attributes manually
-        # in its __init__ (it cannot call super().__init__). Keep in sync.
         self.channels: list[dict] = []
         self.channel_map: dict[str, dict] = {}
         self._envelope_metadata: dict = {}
