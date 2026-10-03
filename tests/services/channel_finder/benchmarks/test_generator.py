@@ -508,10 +508,8 @@ class TestMaterializedTierDatabases:
     """Verify the on-disk tier DBs shipped with the control_assistant preset.
 
     The materialized JSON files under
-    src/osprey/templates/.../channel_databases/tiers/{tier1,tier3}/ must not
-    drift from the expanded template and TIER1_FILTER — e.g. someone bumps the
-    template or the filter but forgets to re-run
-    scripts/generate_tier_databases.py for every (tier, paradigm) combination.
+    src/osprey/templates/.../channel_databases/tiers/{tier1,tier3}/ equal the
+    expanded template and TIER1_FILTER for every (tier, paradigm) combination.
     """
 
     @staticmethod
@@ -604,8 +602,8 @@ class TestMaterializedTierDatabases:
     ):
         """Each shipped tier DB file must enumerate exactly the tier's channels.
 
-        Catches: stale regen (one paradigm forgotten), hand-edits, template or
-        filter changes without rerunning generate_tier_databases.py.
+        The count equals the expanded template's channels, filtered by
+        TIER1_FILTER for tier 1.
         """
         expected = len(_tier1(all_channels) if tier == 1 else all_channels)
         path = TIERS_ROOT / f"tier{tier}" / f"{paradigm}.json"
@@ -614,6 +612,5 @@ class TestMaterializedTierDatabases:
         n = counter(path)
         assert n == expected, (
             f"tier{tier}/{paradigm}.json has {n} channels, "
-            f"expected {expected}. Re-run "
-            f"scripts/generate_tier_databases.py to regenerate."
+            f"expected {expected} from the expanded template and TIER1_FILTER."
         )
