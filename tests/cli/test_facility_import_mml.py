@@ -334,3 +334,18 @@ def test_a_header_line_that_runs_on_past_the_header_is_refused(
         "import mml: authored-present: 1 file",
         "rm data/facility/limits.yaml",
     ]
+
+
+def test_the_seeded_readout_scenario_passes_a_second_import_unchanged(cleared: Path) -> None:
+    pytest.importorskip("at")
+    readout = _facility(cleared) / "scenarios" / "readout.yaml"
+
+    first = _import(cleared)
+    assert first.exit_code == 0, first.output
+    seeded = readout.read_bytes()
+    assert seeded.decode("utf-8").splitlines()[0] == HEADER
+
+    second = _import(cleared)
+    assert second.exit_code == 0, second.output
+    assert "authored-present" not in second.output
+    assert readout.read_bytes() == seeded
