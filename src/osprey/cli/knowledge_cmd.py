@@ -217,9 +217,11 @@ def validate(bundle: Path | None) -> None:
     help="Overwrite existing stub files even when their content differs.",
 )
 def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
-    """Seed OKF stub documents from a NARAD/als-ontology TTL file.
+    """Seed OKF stub documents from the build's graph view.
 
-    TTL is the path to a Turtle RDF file produced by NARAD or als-ontology.
+    TTL is the graph view 'osprey build' writes, data/graph/facility.ttl under
+    the render, or any other NARAD Turtle file.  Each stub's device_id is the
+    facility file's device id, so the build links the page to its device.
 
     BUNDLE is the path to the root directory of an OKF bundle.  One stub
     .md file is written per device node in the TTL, placed at

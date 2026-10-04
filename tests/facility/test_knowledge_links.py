@@ -145,3 +145,29 @@ def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
     assert "data/facility/knowledge/gone.md" in lines[0]
     assert "linked.md" not in result.stderr
     assert (repo / facility_file).is_file()
+
+
+@pytest.mark.xdist_group("built_control_assistant")
+def test_stubs_seeded_from_the_graph_view_link_held_devices(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    from click.testing import CliRunner
+
+    from osprey.cli.knowledge_cmd import knowledge
+
+    graph_view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+    bundle = tmp_path / "knowledge"
+    bundle.mkdir()
+
+    result = CliRunner().invoke(knowledge, ["seed-from-ttl", str(graph_view), str(bundle)])
+
+    assert result.exit_code == 0, result.output
+    held = {device["id"] for device in built_control_assistant.facility["devices"]}
+    linked = {
+        line.removeprefix("device_id: ").strip("'\"")
+        for page in bundle.rglob("*.md")
+        for line in page.read_text(encoding="utf-8").splitlines()
+        if line.startswith("device_id: ")
+    }
+    assert linked and linked <= held
+    assert dangling_links(tmp_path, built_control_assistant.facility) == []

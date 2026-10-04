@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Only imported at type-checking time so the runtime import stays lazy.
-    from rdflib import Graph, URIRef  # noqa: F401
+    from rdflib import Graph, Node
 
 # ---------------------------------------------------------------------------
 # NARAD namespace constants (strings — avoid importing rdflib at module level)
@@ -157,6 +157,29 @@ def _binding_channel_name(binding_iri: str, code: str, binding_id: str) -> str:
         return binding_id or local_name(binding_iri)
 
 
+def _device_id(g: Graph, subject: Node) -> str:
+    """Return the id a device node names, as the facility file holds it.
+
+    ``narad_p:deviceId`` when the node carries one. Otherwise the IRI's local
+    name, decoded with the node's ``narad_p:facility`` code when the IRI is one
+    the graph view minted for that code, and verbatim when it is not.
+    """
+    from rdflib import URIRef
+
+    device_id = g.value(subject, URIRef(_P_DEVICE_ID))
+    if device_id is not None and str(device_id):
+        return str(device_id)
+    code = g.value(subject, URIRef(_P_FACILITY))
+    if code is not None:
+        from osprey.facility.views.graph_iri import decode
+
+        try:
+            return decode(str(subject), str(code))
+        except ValueError:
+            pass
+    return local_name(str(subject))
+
+
 def _build_channel_rows(g: Graph, binding_iris: list[str], code: str) -> list[ChannelRow]:
     """Build sorted channel rows from a list of binding IRIs."""
     # Import lazily — callers guarantee rdflib is available by this point.
@@ -241,8 +264,9 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
 
     * ``resource`` — the verbatim device IRI.
     * ``device_class`` — the local name of the ``rdf:type`` class.
-    * ``device_id`` — value of ``narad_p:deviceId`` (fallback: local name of the
-      device IRI when ``narad_p:deviceId`` is absent).
+    * ``device_id`` — value of ``narad_p:deviceId``; when it is absent, the
+      device IRI decoded with its ``narad_p:facility`` code, else the IRI's
+      local name.
     * ``title`` — ``"<sectionCode>:<sourceName> (<device_class>)"`` when both
       section and source are present, otherwise ``"<device_class> <device_id>"``.
     * ``channels`` — sorted :class:`ChannelRow` list from all ``narad_p:hasBinding``
@@ -304,7 +328,7 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
             continue
         device_class = narad_sem_classes[0]
 
-        device_id = str(g.value(subject, URIRef(_P_DEVICE_ID)) or "")
+        device_id = _device_id(g, subject)
         source_name = str(g.value(subject, URIRef(_P_SOURCE_NAME)) or "")
         section_code = str(g.value(subject, URIRef(_P_SECTION_CODE)) or "")
         code = str(g.value(subject, URIRef(_P_FACILITY)) or "")
@@ -313,7 +337,7 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
         if section_code and source_name:
             title = f"{section_code}:{source_name} ({device_class})"
         else:
-            title = f"{device_class} {device_id or local_name(subject_str)}"
+            title = f"{device_class} {device_id}"
 
         # Collect binding IRIs.
         binding_iris = [str(b) for b in g.objects(subject, URIRef(_P_HAS_BINDING))]
@@ -322,7 +346,7 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
         stub = DeviceStub(
             resource=subject_str,
             device_class=device_class,
-            device_id=device_id or local_name(subject_str),
+            device_id=device_id,
             title=title,
             channels=channels,
         )

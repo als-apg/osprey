@@ -274,6 +274,50 @@ class TestIdempotency:
 
 
 # ---------------------------------------------------------------------------
+# The build's graph view
+# ---------------------------------------------------------------------------
+
+
+class TestSeedFromGraphView:
+    """A stub of the build's graph view names the facility file's device id."""
+
+    def test_device_id_is_the_facility_device_id(self, tmp_path):
+        _require_rdflib()
+        from osprey.facility.views.graph import graph_text
+        from osprey.services.facility_knowledge.seeder import seed_from_ttl
+
+        doc = {
+            "identity": {"code": "ca"},
+            "places": [{"id": "SR"}],
+            "devices": [{"id": "SR/QF-1.A", "class": "Quadrupole", "place": "SR"}],
+        }
+        ttl = tmp_path / "facility.ttl"
+        ttl.write_text(graph_text(doc), encoding="utf-8")
+
+        [stub] = seed_from_ttl(ttl)
+
+        assert stub.device_id == "SR/QF-1.A"
+
+    def test_a_device_with_no_device_id_decodes_its_iri(self, tmp_path):
+        _require_rdflib()
+        from osprey.facility.views.graph_iri import iri
+        from osprey.services.facility_knowledge.seeder import seed_from_ttl
+
+        ttl = tmp_path / "facility.ttl"
+        ttl.write_text(
+            "@prefix narad_p: <https://narad.example.org/property/> .\n"
+            "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .\n"
+            f"<{iri('ca', 'device', 'SR/QF-1.A')}> a narad_sem:Quadrupole ;\n"
+            '    narad_p:facility "ca" .\n',
+            encoding="utf-8",
+        )
+
+        [stub] = seed_from_ttl(ttl)
+
+        assert stub.device_id == "SR/QF-1.A"
+
+
+# ---------------------------------------------------------------------------
 # Integration test against real als-ontology TTL (optional)
 # ---------------------------------------------------------------------------
 
