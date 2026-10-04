@@ -1,21 +1,22 @@
 """The demo graph and the demo channel finder must describe the same machine.
 
-The control-assistant preset ships two descriptions of one demo accelerator: the
-tier-3 channel database the channel finder searches, and the Turtle corpus the
-graph store is seeded from. The agent reaches for whichever fits the question,
+The control-assistant preset carries two descriptions of one demo accelerator:
+the tier-3 channel database the channel finder searches, and the graph view the
+build writes and the graph store is seeded from. The agent reaches for whichever fits the question,
 and it has no way to notice when the two disagree — a channel it finds in the
 graph but cannot read, or a setpoint the graph calls a readback, looks like a
 control-system fault rather than a stale corpus.
 
 Nothing else in the suite compares them. The sibling guard in
 ``tests/templates/test_control_assistant_demo_ttl.py`` pins where the corpus
-lands in a render and counts what is in it; counting catches a corpus that
-shrank, not one that drifted sideways. This file pins the *set equalities*
-across the artifacts:
+counts what is in the view; counting catches a corpus that shrank, not one
+that drifted sideways. This file pins the *set equalities* across the
+artifacts:
 
-- every ``narad_p:fullPv`` in the corpus is a channel the database expands to,
-  and every channel the database expands to has a binding (graph ≡ channel
-  finder, in both directions);
+- every ``narad_p:fullPv`` in the corpus is a channel the database expands to
+  or one of the addresses the facility serves beyond it, and every channel the
+  database expands to has a binding (graph ≡ channel finder, in both
+  directions);
 - every channel the virtual accelerator simulates is documented in the corpus
   (a subset — the VA models a documented slice, not the whole machine);
 - the channels the corpus marks ``narad_p:writesSignal`` are exactly the ones
@@ -23,8 +24,7 @@ across the artifacts:
   the limits file is what the write path actually enforces, so a corpus that
   disagrees would have the agent proposing writes the connector refuses, or
   worse, describing an enforced setpoint as read-only;
-- the corpus carries the field, subfield, family, system and ring prose on the
-  right node. The prose is the whole point of searching a graph by meaning: a
+- the corpus carries the binding, family and system prose on the right node. The prose is the whole point of searching a graph by meaning: a
   corpus whose bindings carry no description is one the agent can only query
   by address, which is what the channel finder already does better.
 
@@ -40,6 +40,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from tests._builds import BuiltProject
 
 #: Repo root — this file sits at ``tests/services/facility_knowledge/``.
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -59,37 +61,39 @@ LIMITS_PATH = DEMO_DATA / "channel_limits.json"
 #: Virtual-accelerator / mock machine model.
 MACHINE_PATH = DEMO_DATA / "simulation/machine.json"
 
-#: The committed corpus the preset seeds its graph store from.
-TTL_PATH = DEMO_DATA / "demo_machine.ttl"
+#: The addresses the demo facility serves beyond the channel database, as rows
+#: of the frozen demo fingerprint's shape.
+ADDITIONS_PATH = REPO_ROOT / "tests/facility/golden/demo_fingerprint_additions.json"
 
 #: NARAD property namespace — the emitter binds it as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
 
 #: Expected sizes, spelled out rather than derived, so a change to *both* sides
 #: at once still trips something.
+#: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
+#: ``EXPECTED_BINDINGS`` in all, the four addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
+EXPECTED_BINDINGS = 2912
 EXPECTED_WRITABLE = 396
 EXPECTED_DEVICES = 512
 
 #: Prose predicates on ``narad_sem:ChannelBinding``, one per binding: the
-#: channel's own sentence, then the text of the FIELD and SUBFIELD tokens its
-#: address ends in. The last two live on the binding rather than on the signal
-#: they belong to because the tree qualifies them by ring, and a signal is
-#: keyed without one.
-BINDING_DESCRIPTION_PREDICATES = ("description", "fieldDescription", "subfieldDescription")
+#: channel's own sentence.
+BINDING_DESCRIPTION_PREDICATES = ("description",)
 
-#: Prose predicates on every device node, from the three tree levels above the
-#: device: its FAMILY, its SYSTEM and its RING.
-DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription", "ringDescription")
+#: Prose predicates on every device node: its family's and its system's.
+DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 
-#: Distinct texts behind the device predicates — the tree's whole family, system
-#: and ring vocabulary. Counting the distinct values, not just the triples,
-#: is what says the texts were joined by path rather than broadcast.
+#: Distinct texts behind the device predicates — the facility's whole family
+#: and system vocabulary. Counting the distinct values, not just the triples,
+#: is what says the texts were joined by device rather than broadcast.
 EXPECTED_DISTINCT_DEVICE_TEXTS = {
     "familyDescription": 28,
-    "systemDescription": 8,
-    "ringDescription": 3,
+    "systemDescription": 3,
 }
+
+#: The module reads the session's one control-assistant build.
+pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
 
 #: How many members of a set difference a failure message names before eliding.
 _MAX_REPORTED = 20
@@ -163,18 +167,27 @@ def channel_map() -> dict[str, dict]:
 
 
 @pytest.fixture(scope="module")
-def committed_graph() -> Any:
-    """The committed corpus, parsed once."""
+def committed_graph(built_control_assistant: BuiltProject) -> Any:
+    """The graph view the control-assistant build writes, parsed once."""
     from rdflib import Graph
 
     graph = Graph()
-    graph.parse(TTL_PATH, format="turtle")
+    graph.parse(
+        built_control_assistant.build_dir / "data" / "graph" / "facility.ttl", format="turtle"
+    )
     return graph
 
 
 @pytest.fixture(scope="module")
+def additions() -> set[str]:
+    """The addresses the facility serves beyond the channel database."""
+    rows = json.loads(ADDITIONS_PATH.read_text(encoding="utf-8"))["rows"]
+    return {row["address"] for row in rows}
+
+
+@pytest.fixture(scope="module")
 def corpus_pvs(committed_graph: Any) -> set[str]:
-    """Every ``narad_p:fullPv`` in the committed corpus."""
+    """Every ``narad_p:fullPv`` in the view."""
     return {str(pv) for _, pv in _objects_by_predicate(committed_graph, "fullPv")}
 
 
@@ -184,9 +197,12 @@ def corpus_pvs(committed_graph: Any) -> set[str]:
 
 
 def test_demo_ttl_bindings_equal_the_channel_database(
-    corpus_pvs: set[str], channel_map: dict[str, dict]
+    corpus_pvs: set[str], channel_map: dict[str, dict], additions: set[str]
 ) -> None:
     """Every documented channel has a binding, and every binding a channel.
+
+    The channels are the database's and the addresses the facility adds beyond
+    it, named in ``demo_fingerprint_additions.json``.
 
     Set equality in both directions is the point. A subset in either direction
     is a real defect: a channel with no binding is invisible to a graph search
@@ -200,11 +216,13 @@ def test_demo_ttl_bindings_equal_the_channel_database(
         f"{EXPECTED_CHANNELS}. If the demo machine really did change, update the "
         "corpus and this count together."
     )
-    assert corpus_pvs == database_pvs, (
+    assert corpus_pvs == database_pvs | additions, (
         "The graph corpus and the channel database describe different machines.\n"
-        + _difference_report(corpus_pvs, database_pvs, "the TTL corpus", "the channel database")
+        + _difference_report(
+            corpus_pvs, database_pvs | additions, "the graph view", "the channel database"
+        )
     )
-    assert len(corpus_pvs) == EXPECTED_CHANNELS
+    assert len(corpus_pvs) == EXPECTED_CHANNELS + len(additions)
 
 
 def test_demo_ttl_documents_every_simulated_channel(corpus_pvs: set[str]) -> None:
@@ -261,9 +279,13 @@ def test_demo_ttl_writes_exactly_the_limits_writable_set(committed_graph: Any) -
 
 
 def test_demo_ttl_reads_everything_the_limits_file_withholds(
-    committed_graph: Any, corpus_pvs: set[str]
+    committed_graph: Any, corpus_pvs: set[str], additions: set[str]
 ) -> None:
-    """The read set is the complement — no channel is both, and none is neither."""
+    """The read set is the complement — no channel is both, and none is neither.
+
+    The addresses the facility adds beyond the channel database sit on a place
+    and name no signal, so they are the only bindings with no direction.
+    """
     from osprey_connectors.control_system.limits_validator import LimitsValidator
 
     writable = set(LimitsValidator.writable_addresses(LIMITS_PATH))
@@ -271,10 +293,10 @@ def test_demo_ttl_reads_everything_the_limits_file_withholds(
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")
 
     assert not (read & written), f"Bindings carrying both directions: {_sample(read & written)}"
-    assert read | written == corpus_pvs, (
+    assert corpus_pvs - (read | written) == additions, (
         f"Bindings with no direction at all: {_sample(corpus_pvs - (read | written))}"
     )
-    assert read == corpus_pvs - writable
+    assert read == corpus_pvs - writable - additions
 
 
 def test_demo_ttl_generator_refuses_a_mixed_direction_group(tmp_path: Path) -> None:
@@ -322,8 +344,8 @@ def test_demo_ttl_generator_refuses_a_mixed_direction_group(tmp_path: Path) -> N
 # ---------------------------------------------------------------------------
 
 
-def test_every_binding_carries_its_field_and_subfield_prose(committed_graph: Any) -> None:
-    """The address' last two tokens are described on every binding.
+def test_every_binding_carries_its_prose(committed_graph: Any) -> None:
+    """Every binding carries its own sentence.
 
     One value per predicate per binding: neosemantics keeps a single value for a
     property it is not told is multi-valued, so two texts under one predicate
@@ -333,20 +355,20 @@ def test_every_binding_carries_its_field_and_subfield_prose(committed_graph: Any
     for predicate in BINDING_DESCRIPTION_PREDICATES:
         pairs = list(_objects_by_predicate(committed_graph, predicate))
         subjects = {subject for subject, _ in pairs}
-        assert len(pairs) == EXPECTED_CHANNELS, (
-            f"narad_p:{predicate} appears {len(pairs)} times, not {EXPECTED_CHANNELS}."
+        assert len(pairs) == EXPECTED_BINDINGS, (
+            f"narad_p:{predicate} appears {len(pairs)} times, not {EXPECTED_BINDINGS}."
         )
-        assert len(subjects) == EXPECTED_CHANNELS, (
+        assert len(subjects) == EXPECTED_BINDINGS, (
             f"narad_p:{predicate} carries more than one value on some binding."
         )
 
 
-def test_every_device_carries_its_family_system_and_ring_prose(committed_graph: Any) -> None:
-    """Device prose comes from the three tree levels above the device.
+def test_every_device_carries_its_family_and_system_prose(committed_graph: Any) -> None:
+    """Device prose comes from the device's family and its system.
 
-    The distinct-text counts are the assertion that matters: 28 families, 8
-    systems and 3 rings is the tree's vocabulary, and a join that fell back to a
-    single default would still put a text on all 512 devices.
+    The distinct-text counts are the assertion that matters: 28 families and 3
+    systems is the facility's vocabulary, and a join that fell back to a single
+    default would still put a text on all 512 devices.
     """
 
     for predicate in DEVICE_DESCRIPTION_PREDICATES:
@@ -365,9 +387,8 @@ def test_every_device_carries_its_family_system_and_ring_prose(committed_graph: 
 def test_semantic_signals_carry_no_prose(committed_graph: Any) -> None:
     """Signals are deliberately text-free.
 
-    A ``SemanticSignal`` stands for a ``(FAMILY, FIELD, SUBFIELD)`` group with no
-    ring in its key, while the tree's field and subfield texts are written per
-    ring — 20 of the 113 groups would have had to pick one ring's wording. The
+    A ``SemanticSignal`` is shared by every channel that reads or writes it, so
+    text on one would be one channel's wording standing in for all of them. The
     bindings carry that text instead, and a description turning up here means
     something started guessing.
     """
