@@ -175,8 +175,15 @@ def test_orbit_rms_stays_inside_the_bpm_texture_envelope():
         assert 0.0 < values.min() and values.max() < envelope_um
 
 
-def _decoded(png: bytes) -> tuple[str, tuple[int, int], bytes]:
-    """A PNG's mode, size and colours: what it shows, not how it was encoded.
+#: Largest RMS colour difference (on the 0-255 scale) between a rendered
+#: picture and the committed one that still counts as the same picture. Two
+#: hosts antialias an edge a few counts apart (measured 0.013 across CI
+#: runners); any change to the data moves whole lines and measures tens.
+_SAME_PICTURE_RMS = 1.0
+
+
+def _colours(png: bytes) -> tuple[str, tuple[int, int], np.ndarray]:
+    """A PNG's mode, size and RGB pixels: what it shows, not how it was encoded.
 
     The colours are read as RGB: a palette PNG stores indices into a palette
     whose order the encoder chooses, so two pictures of the same colours can
@@ -187,7 +194,17 @@ def _decoded(png: bytes) -> tuple[str, tuple[int, int], bytes]:
     from PIL import Image
 
     with Image.open(io.BytesIO(png)) as image:
-        return image.mode, image.size, image.convert("RGB").tobytes()
+        return image.mode, image.size, np.asarray(image.convert("RGB"), dtype=float)
+
+
+def _assert_same_picture(rendered: bytes, committed: bytes) -> None:
+    mode, size, pixels = _colours(rendered)
+    committed_mode, committed_size, committed_pixels = _colours(committed)
+    assert (mode, size) == (committed_mode, committed_size)
+    rms = float(np.sqrt(np.mean((pixels - committed_pixels) ** 2)))
+    assert rms < _SAME_PICTURE_RMS, (
+        f"rendered picture differs from the committed one: RMS {rms:.3f}"
+    )
 
 
 def test_a_rerun_writes_the_same_bytes(tmp_path):
@@ -203,11 +220,11 @@ def test_a_rerun_writes_the_same_bytes(tmp_path):
     plots.main(["scenario_plots.py", str(sim)])
     assert [p.read_bytes() for p in outputs] == first
     # The bundle holds what the script writes: the specs byte for byte, the
-    # picture pixel for pixel. The PNG compressor's output differs between
-    # platforms while the pixels it encodes do not, so the committed picture
-    # is compared decoded.
+    # picture as the same picture. The PNG compressor's output and the last
+    # bit of an antialiased edge differ between hosts, so the committed picture
+    # is compared decoded and within a tolerance no data change stays under.
     committed = [(SIM / p.relative_to(sim)).read_bytes() for p in outputs]
-    assert _decoded(first[0]) == _decoded(committed[0])
+    _assert_same_picture(first[0], committed[0])
     assert first[1:] == committed[1:]
     assert sorted(p.name for p in sim.glob("scenarios/*/plots/*")) == sorted(
         p.name for p in outputs

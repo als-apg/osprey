@@ -30,8 +30,8 @@ and quantity names, units, and the data. Nothing on it points at a finding.
 
 The output is deterministic: draws come from fixed seeds and keyed series, and
 the PNG is re-encoded without text chunks, so a re-run on the same library
-versions rewrites identical bytes on one host and identical pixels on any (the
-PNG compressor's output differs between platforms).
+versions rewrites identical bytes on one host and the same picture on any (the
+PNG compressor and the last bit of an antialiased edge differ between hosts).
 """
 
 from __future__ import annotations

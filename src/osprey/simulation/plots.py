@@ -9,8 +9,9 @@ Every picture follows one style: the spec's terse title, y label and series
 labels, matplotlib's default colour cycle, a legend, a light grid, date ticks on
 the time axis, and nothing else drawn on the axes. :func:`figure_png` is the one
 encoder for every demo picture: a fixed pixel size, a palette PNG with no text
-chunks, so the same inputs always give the same pixels, and on one host the same
-bytes (the PNG compressor's output differs between platforms).
+chunks, so the same inputs always give the same picture, and on one host the
+same bytes (the PNG compressor and the last bit of an antialiased edge differ
+between hosts).
 """
 
 from __future__ import annotations
