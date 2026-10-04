@@ -1356,23 +1356,101 @@ class _Records:
     # --- scenarios -----------------------------------------------------------------
 
     def _scenarios(self) -> Iterator[FacilityBuildError]:
+        records = {str(r.get("address")): r for r in self.index.limits}
         for scenario in self.scenarios:
             name = str(scenario.get("name"))
             files = [_scenario_file(scenario)]
             overrides = scenario.get("overrides") or {}
             for address, value in sorted(overrides.items(), key=lambda kv: str(kv[0])):
-                yield from self._value(
-                    "scenario", name, files, f"overrides.{address}", str(address), value
-                )
+                yield from self._override(name, files, str(address), value, records)
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
                     if str(address) not in self.index.channels:
                         continue
-                    yield from self._fault(name, files, str(model), str(address), value)
+                    yield from self._fault(name, files, str(model), str(address), value, records)
+
+    def _override(
+        self,
+        name: str,
+        files: list[str],
+        address: str,
+        value: Any,
+        records: Mapping[str, Mapping[str, Any]],
+    ) -> Iterator[FacilityBuildError]:
+        slot = f"overrides.{address}"
+        channel = self.index.channels[address]
+        role = channel.get("role", "readback")
+        wired = self.index.wired.get(address)
+        if wired and role != "setpoint":
+            models = ", ".join(sorted(wired))
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` names an output of model {models}",
+                f"fault model {models} instead",
+            )
+            return
+        refused = list(self._value("scenario", name, files, slot, address, value))
+        if refused:
+            yield from refused
+            return
+        record = records.get(address)
+        if role == "setpoint" and record is not None and _locked(record):
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` writes {address}, which limits.yaml locks",
+                f"remove `{slot}`, or make {address} writable in limits.yaml",
+            )
+            return
+        yield from self._band(name, files, slot, address, value, record)
+
+    def _band(
+        self,
+        name: str,
+        files: list[str],
+        slot: str,
+        address: str,
+        value: Any,
+        record: Mapping[str, Any] | None,
+    ) -> Iterator[FacilityBuildError]:
+        """Hold a scenario value on a setpoint to its limits record's band."""
+        if record is None or self._type(address) not in _NUMERIC_TYPES:
+            return
+        if self.index.channels[address].get("role") != "setpoint":
+            return
+        number, refusal = self._coerce(address, value)
+        if refusal is not None:
+            return
+        low, high = record.get("min_value"), record.get("max_value")
+        if low is not None and number < low:
+            side, bound = "below `min_value`", low
+        elif high is not None and number > high:
+            side, bound = "above `max_value`", high
+        else:
+            return
+        yield self._error(
+            "seed-invalid",
+            "scenario",
+            name,
+            [*files, "limits.yaml"],
+            f"`{slot}` {number:g} lies {side} {bound:g}",
+            "write a value inside [min_value, max_value], or widen the limits record",
+        )
 
     def _fault(
-        self, name: str, files: list[str], model: str, address: str, value: Any
+        self,
+        name: str,
+        files: list[str],
+        model: str,
+        address: str,
+        value: Any,
+        records: Mapping[str, Mapping[str, Any]],
     ) -> Iterator[FacilityBuildError]:
         slot = f"faults.{model}.{address}"
         if value == _STUCK:
@@ -1392,12 +1470,25 @@ class _Records:
             if roster is not None:
                 yield from map_fault_errors(name, files, model, address, value, roster)
             return
-        yield from self._value("scenario", name, files, slot, address, value)
+        refused = list(self._value("scenario", name, files, slot, address, value))
+        if refused:
+            yield from refused
+            return
+        yield from self._band(name, files, slot, address, value, records.get(address))
 
     def _roster(self, model: str) -> FaultRoster | None:
         if model not in self.rosters:
             self.rosters[model] = fault_roster(self.index.models[model], self.index.channels)
         return self.rosters[model]
+
+
+def _locked(record: Mapping[str, Any]) -> bool:
+    """True when a setpoint's limits record leaves it unwritable."""
+    return (
+        record.get("writable") is False
+        or record.get("min_value") is None
+        or record.get("max_value") is None
+    )
 
 
 def paired_nominal_error(

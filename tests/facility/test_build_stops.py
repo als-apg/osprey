@@ -335,6 +335,14 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("seed_invalid__paired_seed", "seed-invalid", "paired seed disagrees"),
     ("seed_invalid__int_nominal", "seed-invalid", "non-integral nominal on an int channel"),
     ("seed_invalid__int_override", "seed-invalid", "non-integral override on an int channel"),
+    ("seed_invalid__override_out_of_band", "seed-invalid", "a scenario override out of band"),
+    ("seed_invalid__fault_out_of_band", "seed-invalid", "a fault value on a setpoint out of band"),
+    ("seed_invalid__override_locked", "seed-invalid", "a scenario override on a locked setpoint"),
+    (
+        "seed_invalid__override_wired_output",
+        "seed-invalid",
+        "a scenario override on a channel any model wires as output",
+    ),
     ("seed_invalid__fault_out_of_range", "seed-invalid", "a fault out of range"),
     (
         "seed_missing__band_excludes_zero",
@@ -1293,6 +1301,46 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: seed-invalid: scenario warm — `overrides.T` of int channel T is 1.5, not "
             "integral; fix: write an integral `overrides.T`"
+        ),
+    ),
+    "seed_invalid__override_out_of_band": (
+        _plain(
+            limits({"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}),
+            scenario("warm", {"overrides": {"Q1:SP": 5.0}}),
+        ),
+        (
+            "facility: seed-invalid: scenario warm — `overrides.Q1:SP` 5 lies above `max_value` "
+            "1; fix: write a value inside [min_value, max_value], or widen the limits record"
+        ),
+    ),
+    "seed_invalid__fault_out_of_band": (
+        _plain(
+            put("models.yaml", [NO_DECK]),
+            limits({"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}),
+            scenario("warm", {"faults": {"optics": {"Q1:SP": -2.0}}}),
+        ),
+        (
+            "facility: seed-invalid: scenario warm — `faults.optics.Q1:SP` -2 lies below "
+            "`min_value` 0; fix: write a value inside [min_value, max_value], or widen the "
+            "limits record"
+        ),
+    ),
+    "seed_invalid__override_locked": (
+        _plain(
+            limits({"address": "Q1:SP", "writable": False}),
+            scenario("warm", {"overrides": {"Q1:SP": 0.5}}),
+        ),
+        (
+            "facility: seed-invalid: scenario warm — `overrides.Q1:SP` writes Q1:SP, which "
+            "limits.yaml locks; fix: remove `overrides.Q1:SP`, or make Q1:SP writable in "
+            "limits.yaml"
+        ),
+    ),
+    "seed_invalid__override_wired_output": (
+        _deck(scenario("warm", {"overrides": {"BPM1:X": 0.5}})),
+        (
+            "facility: seed-invalid: scenario warm — `overrides.BPM1:X` names an output of model "
+            "SR; fix: fault model SR instead"
         ),
     ),
     "seed_invalid__fault_out_of_range": (
