@@ -333,6 +333,58 @@ def test_a_wired_family_the_export_places_no_device_of_stops_per_family(tmp_path
     ]
 
 
+def _unstated(root: Path, family: str, edit: Callable[[dict[str, Any]], None] | None = None):
+    """The spear3 export with ``family``'s nominals unstated, its facts edited by ``edit``."""
+    sources = _exports(root, "spear3", TREES["spear3"])
+    path = sources[0].parent / "spear3.storagering.va.json"
+    va = json.loads(path.read_text(encoding="utf-8"))
+    facts = va["families"][family]
+    facts["nominals"]["Setpoint"]["values"] = ["NaN"] * len(facts["device_list"])
+    if edit is not None:
+        edit(facts)
+    path.write_text(json.dumps(va), encoding="utf-8")
+    return sources
+
+
+def test_a_one_way_family_with_no_nominal_is_wired_from_the_deck(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sources = _unstated(tmp_path, "Q9S")
+    facility = _facility(tmp_path, "spear3")
+    import_mml(sources, facility)
+    wired = {record["address"] for record in _models(facility)[STORAGE]["wiring"]}
+    assert {"09S-QF1:CurrSetpt", "09S-QD1:CurrSetpt", "09S-QF2:CurrSetpt"} <= wired
+    assert (
+        "import mml: nominal not stated: StorageRing: family Q9S; start value from the deck"
+        in capsys.readouterr().out.splitlines()
+    )
+
+
+def test_a_turning_conversion_with_no_nominal_stops_the_import(tmp_path: Path) -> None:
+    def turning(facts: dict[str, Any]) -> None:
+        calibration = facts["Setpoint"]["calibration"]
+        for row in calibration["grid"]:
+            row[-1] = row[0]
+
+    facility = _facility(tmp_path, "spear3")
+    with pytest.raises(ImportStop) as stop:
+        import_mml(_unstated(tmp_path, "Q9S", turning), facility)
+    assert stop.value.format_message() == (
+        "import mml: export-invalid: StorageRing: family Q9S is wired through Setpoint and "
+        "the export states no hardware nominal for 3 of its 3 devices"
+    )
+
+
+def test_a_series_supply_with_no_nominal_stops_the_import(tmp_path: Path) -> None:
+    facility = _facility(tmp_path, "spear3")
+    with pytest.raises(ImportStop) as stop:
+        import_mml(_unstated(tmp_path, "QF"), facility)
+    assert stop.value.format_message().startswith(
+        "import mml: export-invalid: StorageRing: family QF is wired through Setpoint and "
+        "the export states no hardware nominal for"
+    )
+
+
 def test_what_the_deck_pass_refuses_stops_the_import(tmp_path: Path) -> None:
     def unranked(document: dict[str, Any]) -> None:
         document["models"]["StorageRing"]["wiring"]["QF"]["engine"]["attribute"] = "K"
