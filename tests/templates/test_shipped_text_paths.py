@@ -214,9 +214,9 @@ def test_shipped_readmes_name_only_files_the_renderer_produces() -> None:
 #: them hands every facility's agent the reference facility's numbers.
 _REFERENCE_FACILITY_LATTICE_SYMBOLS = ("facility_spec", "FacilitySpec", "ALS_U_AR")
 
-#: What a channel does to the deck is read from the deployment's own file, at
-#: the path a deployment holds it at.
-_BINDINGS_PATH = "data/simulation/va_bindings.json"
+#: What a channel does to the deck is read from the simulator view's variables
+#: file, at the path every render holds it at.
+_BINDINGS_PATH = "data/simulator/variables.json"
 
 #: The section of the lattice-agent prompt that turns that path into an
 #: instruction: read the bindings before answering anything about a channel.
@@ -250,13 +250,13 @@ def test_the_pyat_prompt_names_the_bindings_file() -> None:
 
     The negative guard above forbids the reference facility's symbols; this is
     the positive half: the prompt says what a channel drives, and says it by the
-    path the deployment holds.
+    path of the simulator view's variables file.
     """
     assert PYAT_PROMPT.is_file(), f"lattice agent template not found at {_rel(PYAT_PROMPT)}"
     text = PYAT_PROMPT.read_text(encoding="utf-8")
     assert _BINDINGS_PATH in text, (
         f"{_rel(PYAT_PROMPT)} never names {_BINDINGS_PATH}, so the agent is not told "
-        "where the channel-to-element coupling is recorded"
+        "where the simulator view records each channel's wiring"
     )
     assert _CHANNEL_SECTION_HEADING in text, (
         f"{_rel(PYAT_PROMPT)} has no {_CHANNEL_SECTION_HEADING!r} section, so the path "

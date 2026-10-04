@@ -11,10 +11,10 @@ Two halves share one deployment-build path:
 
 - **Grounding** (:func:`test_pyat_specialist_grounding`): grades the subagent's
   answer — the artifact it files and returns — against ground truth computed
-  in-test from ``build_ring()`` with the *identical* 4D recipe (no pinned
-  numeric literals). Two checks: every requested quantity present and within
-  tolerance, and the answer labeled as computed from the
-  simulated design lattice. The judge model reads the numbers out of the
+  in-test from the render's ``data/simulator/decks/SR.json`` deck with the
+  *identical* 4D recipe (no pinned numeric literals). Two checks: every
+  requested quantity present and within tolerance, and the answer labeled as
+  computed from the simulated design lattice. The judge model reads the numbers out of the
   answer, wherever it put them, in prose or in a table; the comparison to
   ground truth runs in code, and the judge model grades only the provenance.
 
@@ -45,6 +45,7 @@ from tests.e2e.sdk_helpers import (
     e2e_budget_scale,
     init_project,
     is_claude_code_available,
+    render_dir,
     run_sdk_query_with_hooks,
 )
 
@@ -221,23 +222,22 @@ _EXTRACTION_FIELDS = (
 )
 
 
-def _ground_truth() -> dict:
+def _ground_truth(render: Path) -> dict:
     """Compute the reference quantities in-test with the template's 4D recipe.
 
-    Identical recipe to the agent template: ``build_ring()`` → ``deepcopy`` →
-    ``disable_6d()`` → ``at.get_optics(...)``. No pinned numeric literals — the
-    truth is recomputed from the shared lattice at use time so the test never
-    rots against a hand-copied constant. Imported lazily so module collection
-    never fails on a host that lacks accelerator-toolbox / osprey-framework.
+    Identical recipe to the agent template: ``at.load_lattice`` on the render's
+    ``data/simulator/decks/SR.json`` deck → ``deepcopy`` → ``disable_6d()`` →
+    ``at.get_optics(...)``. No pinned numeric literals — the truth is recomputed
+    from the deck the agent loads at use time so the test never rots against a
+    hand-copied constant. Imported lazily so module collection never fails on a
+    host that lacks accelerator-toolbox.
     """
     import copy
 
     import at
 
-    from osprey.simulation.lattice import build_ring
-
-    ring = build_ring()
-    ring4d = copy.deepcopy(ring)
+    lattice = at.load_lattice(render / "data" / "simulator" / "decks" / "SR.json")
+    ring4d = copy.deepcopy(lattice)
     ring4d.disable_6d()
     _, ringdata, elemdata = at.get_optics(ring4d, refpts=range(len(ring4d)))
 
@@ -313,7 +313,7 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
             f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
         )
 
-    truth = _ground_truth()
+    truth = _ground_truth(render_dir(repo))
     nu_x, nu_y = truth["tune"]
     bpm01_x, bpm01_y = truth["beta"]["BPM01"]
     bpm03_x, bpm03_y = truth["beta"]["BPM03"]
