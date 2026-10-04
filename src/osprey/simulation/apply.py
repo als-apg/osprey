@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from osprey.connectors.types import MOCK
+from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_archiver_type
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation.engine import (
     ACTIVE_SCENARIOS_FILENAME,
@@ -380,7 +380,34 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
 
 
 def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
-    """Connection parameters for the project's stored archive, if it has one.
+    """Connection parameters for the stored archive the project reads, if any.
+
+    The store's connection block alone does not make it the project's archive:
+    a preset carries ``archiver.mongodb_archiver`` for the store its deployment
+    would run, and a project that selects another archiver never reads that
+    store — so it has no stored history a scenario could need rewritten. Its
+    ``archiver.type`` decides, resolved as the archiver factory resolves it.
+
+    Args:
+        config: The project's loaded ``config.yml``.
+        project_dir: Root of the built project; supplies the ``.env``.
+
+    Returns:
+        The parameters :func:`archiver_store_connection` resolves, or ``None``
+        when the project's archiver is not the MongoDB archiver, or when that
+        function finds no store to connect to.
+    """
+    archiver = config.get("archiver") or {}
+    if resolve_archiver_type(archiver) != MONGODB_ARCHIVER:
+        return None
+    return archiver_store_connection(config, project_dir)
+
+
+def archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
+    """Connection parameters for the store ``archiver.mongodb_archiver`` names.
+
+    Whichever archiver the project selects: a deploy that runs the store seeds
+    it for the recorder that writes into it, read by the agent or not.
 
     The password is read from ``<project_dir>/.env`` **by name**, never from the
     ambient environment and never from a ``.env`` in the current directory. A
@@ -396,10 +423,8 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
     A store named by ``url`` is one this deployment reads, never one it writes.
 
     Returns:
-        The parameters, or ``None`` when the project declares no MongoDB
-        archive — a project whose history is synthesized at read time has
-        nothing to rewrite, which is a normal configuration, not a fault — or
-        names its store by ``url``.
+        The parameters, or ``None`` when the project declares no store host —
+        a normal configuration, not a fault — or names its store by ``url``.
     """
     archiver = config.get("archiver") or {}
     store = archiver.get(ARCHIVER_CONFIG_PREFIX)

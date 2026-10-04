@@ -377,6 +377,49 @@ class TestStoreResolution:
 
         assert archiver_store_config(config, root) is None
 
+    def test_a_store_the_project_does_not_read_is_never_written(self, tmp_path):
+        """A ``mongodb_archiver`` block left behind under another archiver type.
+
+        A preset carries the block for the store its deployment would run; a
+        project that selects a different archiver (an e2e build pins
+        ``mock_archiver``) never reads that store, never deploys it and never
+        mints its password, so it has no stored history to rewrite.
+        """
+        root = _write_project(
+            tmp_path / "proj",
+            {
+                "host": "127.0.0.1",
+                "port": 27017,
+                "database": "db",
+                "collection": "c",
+                "username": "u",
+            },
+            password=None,
+        )
+        config = yaml.safe_load((root / "config.yml").read_text())
+        config["archiver"]["type"] = "mock_archiver"
+
+        assert archiver_store_config(config, root) is None
+
+    def test_preflight_passes_when_the_store_is_not_the_active_archiver(self, tmp_path):
+        """The scenario apply refuses only for a store the project actually reads."""
+        root = _write_project(
+            tmp_path / "proj",
+            {
+                "host": "127.0.0.1",
+                "port": 27017,
+                "database": "db",
+                "collection": "c",
+                "username": "u",
+            },
+            password=None,
+        )
+        config = yaml.safe_load((root / "config.yml").read_text())
+        config["archiver"]["type"] = "mock_archiver"
+        machine = root / "data" / "simulation" / "machine.json"
+
+        assert preflight_archive_rewrite(root, config, machine, []) is None
+
     def test_archiver_collection_builds_its_client_from_the_shared_function(self, tmp_path):
         """A bundled store gets the same six-keyword client the agent's connector builds."""
         from unittest.mock import patch
