@@ -19,6 +19,7 @@ at = pytest.importorskip("at")
 import numpy as np  # noqa: E402
 from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
 
+from osprey.facility.errors import FacilityBuildError  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.engines import pyat_single_pass  # noqa: E402
 from osprey.simulation.engines.pyat_model import (  # noqa: E402
@@ -168,6 +169,12 @@ class TestBuild:
         }
         with pytest.raises(ValueError, match="serves no tunes or chromaticity"):
             _build(deck, wiring=[*WIRING, tune])
+
+    def test_twiss_in_on_a_periodic_model_is_refused(self, deck: Path):
+        with pytest.raises(FacilityBuildError) as stopped:
+            _build(deck, settings={"pyat": {"twiss_in": TWISS}})
+        assert stopped.value.kind == "engine-invalid"
+        assert "pyat.twiss_in is set on a periodic model" in str(stopped.value)
 
 
 class TestFailedSolve:

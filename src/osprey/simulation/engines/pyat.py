@@ -290,7 +290,8 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
         FacilityBuildError: ``engine-invalid`` for an unknown settings key or
             ``solve`` value, repeated monitor names, a periodic deck holding a
             cavity without longitudinal motion, ``single_pass`` without
-            ``twiss_in``, a ``twiss_in`` value of the wrong length, or a
+            ``twiss_in``, ``twiss_in`` on a periodic model, a ``twiss_in``
+            value of the wrong length, or a
             ``rest_mass_gev`` that is not a finite non-negative number.
     """
     import at
@@ -359,6 +360,14 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             )
 
     twiss = block.get("twiss_in")
+    if twiss is not None and solve == "periodic":
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            "settings key pyat.twiss_in is set on a periodic model",
+            "remove twiss_in or set solve to single_pass",
+        )
     if twiss is None and solve == "single_pass":
         raise _stop(
             deck,
