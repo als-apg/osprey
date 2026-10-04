@@ -47,6 +47,7 @@ from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.provenance import build_provenance
 from osprey.facility.sources import AUTHORED, COMPUTED_SLOTS, Sources
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
 __all__ = [
     "FIXES_FILE",
@@ -72,8 +73,6 @@ _KINDS = ("place", "device", "channel", "wiring", "group", "model")
 _FIX_KEYS = frozenset({"op", "kind", "id", "fields", "record", "why", "was"})
 
 _ROLE = "readback"
-_VALUE_TYPE = "float"
-_BOOL_OPTIONS = ("FALSE", "TRUE")
 _SLICE_WEIGHT = 1
 
 #: The file whose name the list of each kind emits under.
@@ -737,7 +736,7 @@ def _channel_defaults(address: str, fields: dict[str, Any], defaults: set[str]) 
         fields["role"] = _ROLE
         defaults.add("role")
     if "value_type" not in fields:
-        fields["value_type"] = _VALUE_TYPE
+        fields["value_type"] = DEFAULT_VALUE_TYPE
         defaults.add("value_type")
     if "on" not in fields:
         defaults.add("on")
@@ -745,7 +744,7 @@ def _channel_defaults(address: str, fields: dict[str, Any], defaults: set[str]) 
         fields["pair"] = address
         defaults.add("pair")
     if fields["value_type"] == "bool" and "options" not in fields:
-        fields["options"] = list(_BOOL_OPTIONS)
+        fields["options"] = list(DEFAULT_BOOL_OPTIONS)
         defaults.add("options")
 
 
