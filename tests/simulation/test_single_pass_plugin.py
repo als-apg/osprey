@@ -1,14 +1,18 @@
-"""The pyat engine's single-pass solve, over a three-cell synthetic line.
+"""The pyat engine's single-pass solve, over a three-cell synthetic line and an imported one.
 
 A ``single_pass`` model tracks one particle once through its line from the
 ``twiss_in`` its settings state: its monitors read that pass, its beta
 functions are propagated from ``twiss_in``, and it serves no tunes or
-chromaticity.
+chromaticity. The NSLS-II transport line, imported and built from its Middle
+Layer export, answers each corrector's step as the Middle Layer's transport
+calculator does.
 """
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +33,13 @@ from osprey.simulation.engines.pyat_model import (  # noqa: E402
     TUNES,
 )
 from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator  # noqa: E402
+from tests.facility._mml_built import FIXTURES, BuiltModel, mml_built  # noqa: E402, F401
+from tests.facility._model_reference import (  # noqa: E402
+    ORM_RMS_FRACTION,
+    model_reference,
+    section,
+)
+from tests.services.mml import _mml_recipes as recipes  # noqa: E402
 
 MODEL = "LINE"
 CELLS = (1, 2, 3)
@@ -224,3 +235,161 @@ class TestFailedSolve:
         lattice = at.load_lattice(str(deck))
         loss_map = at.lattice_track(lattice, np.zeros((6, 1)), losses=True)[2]["loss_map"]
         assert pyat_single_pass.loss_text(lattice, loss_map) is None
+
+
+# ---------------------------------------------------------------------------
+# The imported transport line
+# ---------------------------------------------------------------------------
+
+LTB = ("nsls2", "nsls2.ltb")
+
+#: The orbit row (0 for ``x``, 2 for ``y``) each monitor family of the line reads.
+LTB_PLANES = {"BPMx": 0, "BPMy": 2}
+
+
+def _ltb_row(values: Sequence[float]) -> tuple[int, ...]:
+    return tuple(int(value) for value in values)
+
+
+def _ltb_monitor_positions(
+    built: BuiltModel, family: str, device_list: Sequence[Sequence[float]]
+) -> list[int]:
+    """The deck position of each listed monitor, by the export's one-based ``AT.ATIndex``."""
+    ao = json.loads((FIXTURES / built.tree / f"{built.stem}.ao.json").read_text(encoding="utf-8"))
+    body = ao[family]
+    rows = [_ltb_row(row) for row in np.atleast_2d(body["DeviceList"])]
+    index = np.ravel(body["AT"]["ATIndex"])
+    return [int(index[rows.index(_ltb_row(row))]) - 1 for row in device_list]
+
+
+def _ltb_setpoints(built: BuiltModel, family: str) -> dict[tuple[int, ...], dict[str, Any]]:
+    """The setpoint each ``DeviceList`` row of a corrector family writes, from the wiring."""
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+
+    mapping = read_mapping(built.facility / MAPPING_FILE)
+    (model,) = [model for model in mapping.models.values() if model.name == built.name]
+    words = model.wiring[family].engine
+    assert words.attribute == "KickAngle", f"{family} is no corrector"
+    engine_words = {"attribute": "KickAngle", "index": int(words.index)}
+    (members,) = [
+        set(group.get("members", []))
+        for group in built.document["groups"]
+        if str(group["id"]) == mapping.mapped(family)
+    ]
+    rows = {
+        str(device["id"]): _ltb_row(device["attributes"]["DeviceList"])
+        for device in built.document["devices"]
+        if device.get("model") == built.name and str(device["id"]) in members
+    }
+    on_device = {
+        str(channel["id"]): (channel.get("on") or {}).get("device")
+        for channel in built.document["channels"]
+    }
+    found: dict[tuple[int, ...], dict[str, Any]] = {}
+    for entry in built.wiring:
+        device = on_device.get(str(entry["address"]))
+        if (
+            entry.get("direction") == "write"
+            and dict(entry.get("engine") or {}) == engine_words
+            and device in rows
+        ):
+            assert rows[device] not in found, f"{family} {rows[device]} has two setpoints"
+            found[rows[device]] = entry
+    return found
+
+
+def _ltb_hardware(entry: dict[str, Any], physics: float) -> float:
+    """The setpoint value the wiring's inverse calibration gives for a physics value."""
+    from osprey.simulation.engines.calibration import curve_from_record, to_hardware
+
+    calibration = entry["calibration"]
+    return to_hardware(
+        curve_from_record(calibration["curve"]),
+        curve_from_record(calibration["inverse"]),
+        physics,
+    )
+
+
+@pytest.fixture
+def ltb_line(mml_built: Callable[[str, str], BuiltModel]) -> BuiltModel:  # noqa: F811
+    """The LTB model of the session's one nsls2 build."""
+    return mml_built(*LTB)
+
+
+@pytest.mark.xdist_group("mml_built")
+class TestImportedLtbLine:
+    """The imported NSLS-II LTB line at ``solve: single_pass``, built through ``mml_built``.
+
+    The line's monitors are unwired in this fixture, so the plug-in's deck
+    holds no monitor element and serves no orbit reading. Each corrector is
+    stepped through the plug-in's own setpoint, and the plug-in's lattice is
+    tracked once from its normalised ``twiss_in`` launch orbit to the deck
+    positions the export's ``AT.ATIndex`` gives for the listed ``BPMx`` and
+    ``BPMy`` devices.
+    """
+
+    def test_the_ltb_line_builds_single_pass_from_the_imported_twiss_in(self, ltb_line: BuiltModel):
+        built = ltb_line
+        model = engine.build(built.name, built.wiring, built.deck, built.settings)
+        assert isinstance(model.simulator, SinglePassSimulator)
+        stated = built.settings["pyat"]["twiss_in"]
+        launch = model.simulator.twiss_in["closed_orbit"]
+        assert launch.shape == (6,)
+        np.testing.assert_array_equal(launch[:4], np.asarray(stated["closed_orbit"], dtype=float))
+        np.testing.assert_array_equal(launch[4:], np.zeros(2))
+
+    def test_the_ltb_corrector_columns_match_the_transport_recipe(self, ltb_line: BuiltModel):
+        built = ltb_line
+        model = engine.build(built.name, built.wiring, built.deck, built.settings)
+        lattice = model.simulator.lattice
+        start = np.asarray(model.simulator.twiss_in["closed_orbit"], dtype=float)
+        reference_deck = at.load_lattice(str(built.deck))
+        where = {str(element.FamName): [] for element in reference_deck}
+        for index, element in enumerate(reference_deck):
+            where[str(element.FamName)].append(index)
+
+        blocks = section(model_reference(*LTB), "orbit_response")["physics"]
+        computed, expected = [], []
+        for block in blocks:
+            family = block["actuator"]["family"]
+            setpoints = _ltb_setpoints(built, family)
+            monitors = _ltb_monitor_positions(
+                built, block["monitor"]["family"], block["monitor"]["device_list"]
+            )
+            row = LTB_PLANES[block["monitor"]["family"]]
+            kicks = np.broadcast_to(
+                np.asarray(block["actuator_delta"], dtype=float),
+                (len(block["actuator"]["device_list"]),),
+            )
+            correctors, columns = [], []
+            for device, kick in zip(block["actuator"]["device_list"], kicks, strict=True):
+                entry = setpoints[_ltb_row(device)]
+                (position,) = where[str(entry["element"])]
+                plane = int(entry["engine"]["index"])
+                correctors.append((position, plane))
+                element = lattice[position]
+                held = float(element.KickAngle[plane])
+                arms, applied = [], []
+                for sign in (1.0, -1.0):
+                    model.set({entry["address"]: _ltb_hardware(entry, held + sign * kick / 2.0)})
+                    applied.append(float(element.KickAngle[plane]))
+                    tracked = at.lattice_track(lattice, start.reshape(6, 1), refpts=monitors)[0]
+                    arms.append(tracked[row, 0, :, 0])
+                model.set({entry["address"]: _ltb_hardware(entry, held)})
+                assert applied[0] - applied[1] == pytest.approx(kick, rel=0, abs=1e-15)
+                columns.append((arms[0] - arms[1]) / kick)
+            computed.append(np.array(columns).T)
+            replay = recipes.loco_transport_full(reference_deck, start, correctors, kicks, monitors)
+            expected.append(replay[:, :, row // 2].T)
+
+        stated = np.concatenate([matrix.ravel() for matrix in expected])
+        band = ORM_RMS_FRACTION * float(np.sqrt(np.mean(stated**2)))
+        assert band > 0, "the recipe's columns are all zero"
+        for matrix, replay, block in zip(computed, expected, blocks, strict=True):
+            np.testing.assert_allclose(
+                matrix,
+                replay,
+                rtol=0,
+                atol=band,
+                err_msg=f"{block['monitor']['family']} / {block['actuator']['family']}",
+            )
