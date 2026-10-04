@@ -132,7 +132,7 @@ class TestMetaKeys:
         assert isinstance(META_KEYS, tuple)
 
     def test_a_meta_row_round_trips_by_key(self, con):
-        values = (SCHEMA_VERSION, "abc123", "demo_machine.ttl", 2908, 700, 41, 88, 12)
+        values = (SCHEMA_VERSION, "abc123", "facility.ttl", 2908, 700, 41, 88, 12)
         placeholders = ", ".join("?" for _ in META_KEYS)
         con.execute(f"INSERT INTO meta VALUES ({placeholders})", values)
         row = con.execute(f"SELECT {', '.join(META_KEYS)} FROM meta").fetchone()

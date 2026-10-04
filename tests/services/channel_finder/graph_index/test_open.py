@@ -36,7 +36,7 @@ from osprey.services.channel_finder.graph_index.reader import (
 from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_VERSION
 
 CORPUS_SHA = "a" * 64
-CORPUS_FILENAME = "demo_machine.ttl"
+CORPUS_FILENAME = "facility.ttl"
 
 
 def _meta(parsed: ParsedCorpus) -> dict:

@@ -18,11 +18,11 @@ import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import duckdb
 import pytest
+from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
@@ -503,18 +503,13 @@ class TestImportIsolation:
         assert graph_index.IndexBuildReport is IndexBuildReport
 
 
+@pytest.mark.xdist_group("built_control_assistant")
 class TestDemoCorpus:
     @pytest.fixture(scope="class")
-    def demo(self) -> ParsedCorpus:
-        resource = (
-            files("osprey.templates")
-            .joinpath("apps")
-            .joinpath("control_assistant")
-            .joinpath("data")
-            .joinpath("demo_machine.ttl")
-        )
-        with as_file(resource) as path:
-            return parse_corpus(path.read_text(encoding="utf-8"))
+    def demo(self, built_control_assistant: BuiltProject) -> ParsedCorpus:
+        """The graph view the control-assistant build writes, parsed."""
+        view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+        return parse_corpus(view.read_text(encoding="utf-8"))
 
     def test_the_shipped_corpus_writes_every_row(self, demo: ParsedCorpus, tmp_path: Path):
         """Row counts only. The build's time budget is asserted in test_scale.py
@@ -523,11 +518,11 @@ class TestDemoCorpus:
         under that contention measures the scheduler, not the writer.
         """
         path = tmp_path / "graph.duckdb"
-        report = _build(demo, path, corpus_filename="demo_machine.ttl")
+        report = _build(demo, path, corpus_filename="facility.ttl")
 
-        assert report.binding_count == 2908
+        assert report.binding_count == 2912
         assert report.class_count == 19
-        assert _read(path, "SELECT count(*) FROM bindings") == [(2908,)]
+        assert _read(path, "SELECT count(*) FROM bindings") == [(2912,)]
         assert _read(path, "SELECT count(*) FROM classes") == [(19,)]
 
     def test_every_binding_row_survives_with_its_lists(self, demo: ParsedCorpus, tmp_path: Path):
