@@ -20,7 +20,8 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   and the import says how many it skipped.
 * ``measurement/<model>.yaml``: for each model that carries wiring, the groups
   and instruments its wiring names, the measurements they allow and pyAML's
-  step and settle keys (:data:`TUNING`).
+  step and settle keys (:data:`TUNING`); the import names, per group role,
+  the families wired beside the one the role is seeded from.
 * ``classes.yaml``: one row per class of the mapping the vocabulary lacks,
   each declared branch ahead of the classes that extend it.
 * ``identity.yaml``: the mapping's ``facility:`` block, which is then removed
@@ -223,8 +224,9 @@ def seed_once(
         path = facility_dir / MEASUREMENT_DIR / f"{entry.get('name')}.yaml"
         if model is None or not entry.get("wiring") or path.exists():
             continue
-        document = _measurement(model, entry, mapping, carried.get(model.raw, set()), claims)
+        document, lines = _measurement(model, entry, mapping, carried.get(model.raw, set()), claims)
         seeded.written.append(_write(path, document))
+        seeded.lines.extend(lines)
 
     readout = facility_dir / READOUT_FILE
     if not readout.exists():
@@ -426,17 +428,22 @@ def _measurement(
     mapping: Mapping,
     carried: set[str],
     claims: dict[str, _Claim],
-) -> dict[str, Any]:
-    """One wired model's measurement file.
+) -> tuple[dict[str, Any], list[str]]:
+    """One wired model's measurement file, and a line per group role several families fill.
 
     Each group role is the first family of the model's wiring whose engine
-    block fills it; ``rf`` is the first setpoint wired to the engine's
-    frequency. ``kinds`` lists the measurements those resolve: the orbit
-    response needs the monitors and both corrector planes, and dispersion,
-    on a model that is not solved in a single pass, the ``rf`` instrument too.
+    block fills it; for ``quad`` and ``sext`` the families not taken are
+    named in one line each. ``rf`` is the first setpoint wired to the
+    engine's frequency, and ``tune`` the tune readback the model's ``tune``
+    block wires: its ``x`` plane's address, or its one waveform address.
+    ``kinds`` lists the measurements those resolve: the orbit response needs
+    the monitors and both corrector planes, and dispersion, on a model that
+    is not solved in a single pass, the ``rf`` instrument too; the tune
+    response needs the quadrupoles and the ``tune`` instrument.
     """
     groups: dict[str, str] = {}
     monitors: dict[str, str] = {}
+    filling: dict[str, list[str]] = {}
     for raw, wired in model.wiring.items():
         if raw not in carried or wired.engine is None:
             continue
@@ -447,6 +454,13 @@ def _measurement(
         for role, block in _GROUP_ENGINES:
             if (engine.attribute, engine.index) == block:
                 groups.setdefault(role, token)
+                filling.setdefault(role, []).append(token)
+    lines = [
+        f"measurement {model.name}: {role} seeded from {tokens[0]}; "
+        f"also wired: {', '.join(tokens[1:])}"
+        for role in ("quad", "sext")
+        if len(tokens := filling.get(role, [])) > 1
+    ]
     if monitors:
         groups["bpm"] = monitors.get("x", next(iter(monitors.values())))
     ordered = {
@@ -463,6 +477,12 @@ def _measurement(
     )
     if frequency:
         instruments["rf"] = frequency[0]
+    wired_addresses = {str(record["address"]) for record in entry.get("wiring") or ()}
+    tune = model.tune
+    if tune is not None:
+        address = tune.address if tune.address is not None else tune.planes.get("x")
+        if address is not None and address in wired_addresses:
+            instruments["tune"] = address
 
     settings = (entry.get("settings") or {}).get(entry.get("engine")) or {}
     kinds: list[str] = []
@@ -470,12 +490,14 @@ def _measurement(
         kinds.append("orm")
         if "rf" in instruments and settings.get("solve") != _SINGLE_PASS:
             kinds.append("dispersion")
+    if "quad" in ordered and "tune" in instruments:
+        kinds.append("trm")
 
     document: dict[str, Any] = {"kinds": kinds, "groups": ordered}
     if instruments:
-        document["instruments"] = instruments
+        document["instruments"] = dict(sorted(instruments.items()))
     document.update(TUNING)
-    return document
+    return document, lines
 
 
 # -- readout ------------------------------------------------------------------

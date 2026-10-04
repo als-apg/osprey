@@ -20,6 +20,9 @@ judgment the export pends, and what each model wires. The document shape is::
             engine: {attribute?, index?, axis?} | null   # pyAT's words
             calibration: linear | table | null
             voltage: <volts>  # optional; a Frequency family's cavity voltage
+        tune:                 # optional; the address the model's tunes are read on
+          {x: <address>, y: <address>, s?: <address>}   # one scalar per plane
+          | {address: <address>, planes: [x, y, s?]}    # one waveform, planes in order
     section_order: [<model name>, ...]
     branches: {<class>: {parent, description}}            # optional
     families: {<raw family>: {rename?, branch?, class?, devices?, aliases,
@@ -118,6 +121,8 @@ __all__ = [
     "RowAnswer",
     "SameAs",
     "SharedAnswer",
+    "TUNE_PLANES",
+    "TuneBlock",
     "Problem",
     "UnboundAnswer",
     "WiringFamily",
@@ -254,6 +259,24 @@ class WiringFamily:
     voltage: float | None = None
 
 
+#: The tune planes in the order the engine's ``tunes`` output holds them.
+TUNE_PLANES: tuple[str, ...] = ("x", "y", "s")
+
+
+@dataclass(frozen=True)
+class TuneBlock:
+    """Where one model's tunes are read.
+
+    A scalar block reads one plane per address: ``planes`` maps each plane
+    the block names to its address and ``address`` is ``None``. A waveform
+    block reads every plane on one ``address``, the planes in the order
+    ``planes`` lists them, each mapped to that address.
+    """
+
+    planes: dict[str, str]
+    address: str | None = None
+
+
 @dataclass(frozen=True)
 class Model:
     """One model, keyed in the document by the raw system token it is read from."""
@@ -263,6 +286,7 @@ class Model:
     description: str | None
     provenance: str
     wiring: dict[str, WiringFamily] = field(default_factory=dict)
+    tune: TuneBlock | None = None
 
 
 @dataclass(frozen=True)
@@ -512,7 +536,8 @@ _TOP_OPTIONAL = frozenset({"facility", "branches", "judgments"})
 _FACILITY_REQUIRED = frozenset({"code"})
 _FACILITY_OPTIONAL = frozenset({"name", "description"})
 _MODEL_REQUIRED = frozenset({"name", "description", "provenance"})
-_MODEL_OPTIONAL = frozenset({"wiring"})
+_MODEL_OPTIONAL = frozenset({"wiring", "tune"})
+_TUNE_WAVEFORM_KEYS = frozenset({"address", "planes"})
 _WIRING_KEYS = frozenset({"element_field", "engine", "calibration"})
 _WIRING_OPTIONAL = frozenset({"voltage"})
 _ENGINE_KEYS = frozenset({"attribute", "index", "axis"})
@@ -596,17 +621,40 @@ def _voltage(body: dict, engine: EngineBlock | None, entry: str) -> float | None
     return float(value)
 
 
+def _tune(value: Any, path: str) -> TuneBlock:
+    body = _dict(value, path)
+    if "address" in body or "planes" in body:
+        _keys(body, path, _TUNE_WAVEFORM_KEYS, _NONE)
+        address = _str(body, "address", path, nullable=False)
+        planes = _str_list(body["planes"], f"{path}.planes")
+        if planes != TUNE_PLANES[: len(planes)] or len(planes) < 2:
+            raise MappingError(
+                f"{path}.planes", f"must be [x, y] or [x, y, s], got [{', '.join(planes)}]"
+            )
+        return TuneBlock(planes=dict.fromkeys(planes, address), address=address)
+    _keys(body, path, _NONE, frozenset(TUNE_PLANES))
+    if not body:
+        raise MappingError(path, "must name an address per plane, or an address and its planes")
+    return TuneBlock(
+        planes={
+            plane: _str(body, plane, path, nullable=False) for plane in TUNE_PLANES if plane in body
+        }
+    )
+
+
 def _models(value: Any) -> dict[str, Model]:
     models: dict[str, Model] = {}
     for raw, body, path in _entries(value, "models"):
         _keys(body, path, _MODEL_REQUIRED, _MODEL_OPTIONAL)
         wiring = body.get("wiring", _MISSING)
+        tune = body.get("tune", _MISSING)
         models[raw] = Model(
             raw=raw,
             name=_str(body, "name", path, nullable=False),
             description=_str(body, "description", path, nullable=True),
             provenance=_str(body, "provenance", path, nullable=False),
             wiring={} if wiring is _MISSING else _wiring(wiring, f"{path}.wiring"),
+            tune=None if tune is _MISSING else _tune(tune, f"{path}.tune"),
         )
     return models
 

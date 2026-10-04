@@ -33,6 +33,10 @@ What is written, relative to ``data/facility/``:
   are the union of theirs. Its ``signals`` holds the description of each field
   the mapping gives a ``signal`` role, keyed by that role; a family with no
   such field states none.
+* the model's ``tune`` addresses, from the mapping's ``tune`` block: each a
+  readback channel, the record a family field wrote where one did; a waveform
+  block's address is ``value_type: waveform`` with ``shape`` its number of
+  planes.
 * ``imported/mml/models.yaml``: one ``pyat`` model per imported system, named
   by the mapping. A transport line (``state.is_transport`` of the export's
   ``<stem>.model.json``, else ``MachineType: Transport`` in its AD) runs
@@ -86,6 +90,7 @@ from osprey.facility.layers.mml.mapping import (
     Mapping,
     OwnerMap,
     Problem,
+    TuneBlock,
     _text,
     check_mapping,
     field_roles,
@@ -132,7 +137,18 @@ _TWISS_KEYS: tuple[tuple[str, str], ...] = (
 _SETPOINT = "setpoint"
 
 #: The keys of a channel record, in the order they are written.
-_CHANNEL_KEYS = ("id", "endpoint_of", "on", "role", "pair", "signal", "unit", "description")
+_CHANNEL_KEYS = (
+    "id",
+    "endpoint_of",
+    "on",
+    "role",
+    "pair",
+    "signal",
+    "value_type",
+    "shape",
+    "unit",
+    "description",
+)
 
 
 @dataclass
@@ -384,6 +400,9 @@ def _write_records(
         _channels(view, slot_ids, owners, mapping, roles, channels)
         _group(groups, mapping.mapped(view.raw_name), mapping, view.raw_name, slot_ids)
 
+    for system in exports.systems:
+        _tune_channels(mapping.models[system].tune, channels)
+
     family_ids: dict[str, dict[str, list[str]]] = {system: {} for system in exports.systems}
     for view, slots in zip(views, ids, strict=True):
         family_ids[view.system][view.raw_name] = slots
@@ -595,6 +614,22 @@ def _shared_pairs(fld: FieldView, paired: FieldView | None, devices: int) -> set
             if address is not None and pair is not None and pair != address:
                 read.setdefault(pair, set()).add(address)
     return {pair for pair, addresses in read.items() if len(addresses) > 1}
+
+
+def _tune_channels(tune: TuneBlock | None, channels: dict[str, dict[str, Any]]) -> None:
+    """Make each tune address a readback channel, a waveform block's a waveform of its planes.
+
+    A family field that wrote the address keeps its record, typed here; an
+    address no field wrote is written as a readback.
+    """
+    if tune is None:
+        return
+    for address in dict.fromkeys(tune.planes.values()):
+        channel = channels.setdefault(address, {"id": address, "role": "readback"})
+        if tune.address is not None:
+            channel["value_type"] = "waveform"
+            channel["shape"] = [len(tune.planes)]
+        channels[address] = {key: channel[key] for key in _CHANNEL_KEYS if key in channel}
 
 
 def _group(

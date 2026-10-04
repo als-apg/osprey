@@ -38,6 +38,10 @@ Rules of the derivation:
   address is a shared endpoint of several.
 * **A device with no element is not wired.** It is on the supply and not in
   the deck, so it enters no slice and no mean.
+* **The tunes are read off the solve.** A model's ``tune`` block wires its
+  address to the engine's tunes, ``{attribute: tune}`` naming no element: a
+  waveform block one record reading every plane, a scalar block one record
+  per plane, ``index`` 0, 1 or 2 for ``x``, ``y`` or ``s``.
 * **The energy knob names no element.** Its engine block,
   ``{attribute: energy}``, drives a property of the whole deck, so its record
   is ``{address, engine, calibration}`` and the dipoles its devices are placed
@@ -80,10 +84,12 @@ from typing import TYPE_CHECKING, Any
 from osprey.facility.layers.mml import decks
 from osprey.facility.layers.mml.mapping import (
     MONITOR_FIELD,
+    TUNE_PLANES,
     EngineBlock,
     ImportStop,
     MappingError,
     Model,
+    TuneBlock,
     WiringFamily,
     exported_number,
 )
@@ -202,7 +208,7 @@ def wire_model(
 
     name = model.name
     if deck_path is None:
-        if model.wiring:
+        if model.wiring or model.tune is not None:
             raise ImportStop(
                 EXPORT_INVALID, [f"{name}: the mapping wires families and the export saved no deck"]
             )
@@ -220,6 +226,8 @@ def wire_model(
             raise ImportStop(EXPORT_INVALID, unplaced)
         lines: list[str] = []
         records = _records(model, addressing, facts, views, device_ids, endpoints, answers, lines)
+        if model.tune is not None:
+            records = _with_tune(records, model.tune)
         served = decks.served_deck(addressing)
     except MappingError:
         raise
@@ -308,6 +316,32 @@ def _records(
                     )
                 wired[claimed] = (family, {"address": claimed, **copy.deepcopy(body)})
     return [wired[address][1] for address in sorted(wired)]
+
+
+#: The engine attribute a record reads the tunes on.
+_TUNE = "tune"
+
+
+def _with_tune(records: list[dict[str, Any]], tune: TuneBlock) -> list[dict[str, Any]]:
+    """The records with the tune block's, sorted by address.
+
+    Raises:
+        ValueError: A tune address is wired by a family too.
+    """
+    if tune.address is not None:
+        added = [{"address": tune.address, "engine": {"attribute": _TUNE}}]
+    else:
+        added = [
+            {"address": address, "engine": {"attribute": _TUNE, "index": TUNE_PLANES.index(plane)}}
+            for plane, address in tune.planes.items()
+        ]
+    wired = {str(record["address"]) for record in records}
+    for record in added:
+        if record["address"] in wired:
+            raise ValueError(
+                f"address {record['address']} is wired by a family and by the tune block"
+            )
+    return sorted([*records, *added], key=lambda record: str(record["address"]))
 
 
 def _elements(body: Map[str, Any]) -> list[str]:

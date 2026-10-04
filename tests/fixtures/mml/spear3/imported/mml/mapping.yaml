@@ -135,6 +135,12 @@ models:
         engine:
           attribute: energy
         calibration: table
+    tune:
+      address: MeasTune
+      planes:
+      - x
+      - y
+      - s
 section_order:
 - StorageRing
 families:

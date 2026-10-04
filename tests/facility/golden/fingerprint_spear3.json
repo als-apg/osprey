@@ -16,7 +16,7 @@
     "channels": 1370,
     "groups": 43,
     "models": 2,
-    "wiring": 834,
+    "wiring": 835,
     "limits": 313,
     "decks": 1
   },
@@ -2001,7 +2001,7 @@
       "MS2-QFC:Curr": "c10c24108fac7a06",
       "MS2-QFC:CurrSetpt": "3c11151841b06fb1",
       "MS2-QFC:CurrSetptDes": "7a17544d8714acc2",
-      "MeasTune": "950fe6cb4a11327f",
+      "MeasTune": "e45a2bb1984123f2",
       "OrbInt:Ch01BpldState": "12c8b1ddf159e863",
       "OrbInt:Ch02BpldState": "dd325cea37714917",
       "OrbInt:Ch03BpldState": "491830163d37559f",
@@ -2163,7 +2163,7 @@
       "VCMCurrReference": "7432b27c69b807cb"
     },
     "models": {
-      "StorageRing": "fe99bc0abc76181e",
+      "StorageRing": "73372ae6df70099a",
       "texture": "d806c9c72b11194d"
     },
     "wiring": {
@@ -3000,6 +3000,7 @@
       "StorageRing/MS1-SFM:CurrSetpt": "8b5f3faa8e27830b",
       "StorageRing/MS2-QFC:Curr": "0f3249871b0697f8",
       "StorageRing/MS2-QFC:CurrSetpt": "b7cdc36503e32e4f",
+      "StorageRing/MeasTune": "59d48dc9b342271f",
       "StorageRing/SPEAR:RFFreqSetpt": "4198c752ceaf78e6"
     },
     "limits": {
