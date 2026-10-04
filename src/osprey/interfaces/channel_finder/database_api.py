@@ -108,8 +108,8 @@ _NO_GRAPH_CONTEXT_SUGGESTIONS = [
 _NO_GRAPH_INDEX_DETAIL = "The search index is not open."
 
 #: What an operator does about an index that is missing, unreadable or stale.
-#: Two facts: the verb that writes one, and the build that runs that verb as
-#: part of rendering the project.
+#: Two facts: the rebuild hint, and that ``osprey build`` alone writes the index
+#: while it renders the project.
 _NO_GRAPH_INDEX_SUGGESTIONS = [
     f"Build the index with `{GRAPHDB_REBUILD_HINT}`.",
     "`osprey build` renders the project and builds the index in one step.",
