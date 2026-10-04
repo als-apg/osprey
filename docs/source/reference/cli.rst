@@ -1168,7 +1168,11 @@ into it. See :doc:`/how-to/import-mml-export` for the import end to end.
    failure with its cause and exits 1. An authored record source that would
    merge against the layer prints ``import mml: authored-present: <n> files``
    (``1 file`` for one) and one ``rm <path>`` line per file and exits 1;
-   ``fixes.yaml``, ``classes.yaml`` and ``knowledge/`` are never named.
+   ``fixes.yaml``, ``classes.yaml``, ``scenarios/`` and ``knowledge/`` are
+   never named. After the import, each scenario file that names a channel or
+   model the facility no longer has is printed as one ``rm <path>`` line under
+   ``these scenario files name channels that no longer exist:``; the import
+   deletes nothing, and ``osprey build`` stops while one is left.
 
 ``osprey facility import mml --print-exporter``
    Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an

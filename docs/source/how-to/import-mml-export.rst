@@ -107,6 +107,13 @@ your own that would merge against the imported records. It prints
 ``import mml: authored-present: <n> files`` and one ``rm <path>`` line per
 file. Corrections belong in ``fixes.yaml``, which is never in the way.
 
+Scenario files never stop the import. After a clean run it prints
+``these scenario files name channels that no longer exist:`` and one
+``rm <path>`` line for each scenario file that names a channel or model the
+imported facility does not have. The import deletes nothing, and
+``osprey build`` stops while one is left: remove each listed file, or point it
+at the imported channels.
+
 Check the result
 ================
 
