@@ -16,7 +16,7 @@
     "channels": 1370,
     "groups": 43,
     "models": 2,
-    "wiring": 833,
+    "wiring": 834,
     "limits": 313,
     "decks": 1
   },
@@ -2663,6 +2663,7 @@
       "StorageRing/11G-QF2:CurrSetpt": "4ed61653b5b33de2",
       "StorageRing/11G-QSS1:Curr1": "fd56815644cf7bd2",
       "StorageRing/11G-QSS1:CurrSetpt": "3458e0dd0dcc312d",
+      "StorageRing/11G-QSS2:Curr1": "f76cc29c30ee170f",
       "StorageRing/11G-QSS3:Curr1": "2246313099c713bc",
       "StorageRing/11G-QSS3:CurrSetpt": "b9206935dfb3468d",
       "StorageRing/11G-QSS4:Curr1": "b5b0029596e592e8",
