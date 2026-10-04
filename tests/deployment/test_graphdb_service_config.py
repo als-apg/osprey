@@ -398,6 +398,7 @@ class TestDeployedWithoutBlockPreflight:
         assert "services:" in remedy and "graphdb:" in remedy
         assert str(DEFAULT_PORT) in remedy
         assert str(DEFAULT_HTTP_PORT) in remedy
+        assert "ttl_path: ./data/graph/facility.ttl" in remedy
         assert "deployed_services" in remedy
 
     def test_malformed_block_still_raises_valueerror(self) -> None:

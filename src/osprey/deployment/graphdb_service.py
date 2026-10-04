@@ -575,7 +575,7 @@ def preflight_graphdb_config(config: Mapping[str, Any] | None) -> None:
             "        path: ./services/graphdb\n"
             f"        port_host: {DEFAULT_PORT}\n"
             f"        http_port_host: {DEFAULT_HTTP_PORT}\n"
-            "        ttl_path: ./data/demo_machine.ttl\n"
+            "        ttl_path: ./data/graph/facility.ttl\n"
             f"Or drop '{GRAPHDB_SERVICE_NAME}' from deployed_services if this deployment "
             "should not run a graph store."
         ),
