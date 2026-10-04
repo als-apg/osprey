@@ -15,6 +15,7 @@ import re
 import pytest
 
 from osprey.cli.templates.claude_code import (
+    _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL,
     _ariel_attachment_view,
     _ariel_read_tools,
     config_derived_context,
@@ -215,7 +216,9 @@ def _do_not_call(rendered: str) -> set[str]:
 
 @pytest.mark.parametrize("view", VIEW_FLAGS)
 def test_control_assistant_do_not_call_list_is_the_read_tools(view):
-    expected = set(FRAMEWORK_SERVERS["ariel"].permissions_allow) - {"capabilities", "status"}
+    expected = (
+        set(FRAMEWORK_SERVERS["ariel"].permissions_allow) - _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
+    )
     if not view:
         expected -= {"attachment_view"}
     assert _do_not_call(_render(CLAUDE_MD, view)) == expected
@@ -245,7 +248,7 @@ def test_ariel_read_tools_follow_the_flag(view):
     expected = [
         t
         for t in FRAMEWORK_SERVERS["ariel"].permissions_allow
-        if t not in {"capabilities", "status"} and (view or t != "attachment_view")
+        if t not in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL and (view or t != "attachment_view")
     ]
     assert _ariel_read_tools(view) == expected
 
@@ -260,3 +263,46 @@ def test_config_derived_context_sets_both_keys(tmp_path):
 def test_a_non_boolean_view_switch_is_refused_at_build_naming_the_key(tmp_path):
     with pytest.raises(BuildProfileError, match=r"ariel\.attachments\.view\.enabled"):
         config_derived_context({"ariel": {"attachments": {"view": {"enabled": "no"}}}}, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Showing the operator an entry or picture
+# ---------------------------------------------------------------------------
+
+SHOW_RULE_MAIN = (
+    "To show the operator a logbook entry or one of its pictures, call `entry_open` "
+    "yourself with the entry id and, for a picture, the `attachment_id` the subagent reported."
+)
+SHOW_RULE_ARIEL = (
+    "To show the operator an entry or one of its pictures, call `entry_open` with the "
+    "entry id and, for a picture, its `attachment_id`."
+)
+
+
+@pytest.mark.parametrize("view", VIEW_FLAGS)
+def test_main_claude_md_tells_the_main_agent_to_show_with_entry_open(view):
+    text = _flat(_render(CLAUDE_MD, view))
+    assert SHOW_RULE_MAIN in text
+    assert "entry_open" not in _do_not_call(_render(CLAUDE_MD, view))
+
+
+def test_main_claude_md_names_no_show_tool_without_the_ariel_server():
+    ctx = _ctx(True)
+    ctx["enabled_servers"] = ctx["enabled_servers"] - {"ariel"}
+    text = TemplateManager().jinja_env.get_template(CLAUDE_MD).render(**ctx)
+    assert "entry_open" not in text
+
+
+@pytest.mark.parametrize("view", VIEW_FLAGS)
+def test_claude_ariel_tells_the_agent_to_show_with_entry_open(view):
+    text = _flat(_render(CLAUDE_ARIEL, view))
+    assert SHOW_RULE_ARIEL in text
+    surface = text.split("## ARIEL Tool Surface", 1)[1].split("## When to use", 1)[0]
+    assert "`entry_open`" in surface
+
+
+@pytest.mark.parametrize("view", VIEW_FLAGS)
+@pytest.mark.parametrize("path", [*AGENTS.values(), SKILL])
+def test_subagent_bodies_name_no_show_tool(path, view):
+    """The subagents report ids; only the agent that holds the show tool is told to call it."""
+    assert "entry_open" not in _render(path, view)

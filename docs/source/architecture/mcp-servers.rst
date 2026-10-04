@@ -275,6 +275,7 @@ and entry creation with attachments.
 - ``entry_get`` -- Get a single logbook entry by its ID.
 - ``entries_by_ids`` -- Get multiple logbook entries by their IDs in a single call.
 - ``attachment_view`` -- Look at one viewable picture attached to an entry (hidden when ``ariel.attachments.view.enabled`` is off).
+- ``entry_open`` -- Show an entry, and optionally one of its pictures enlarged, in the ARIEL web panel.
 - ``entry_create`` -- Create a new logbook entry, optionally with file attachments.
 - ``entry_publish`` -- Publish an existing ARIEL entry to the facility logbook.
 - ``capabilities`` -- Report available ARIEL search capabilities.

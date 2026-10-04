@@ -258,6 +258,12 @@ describe('tool vocabulary', () => {
     );
   });
 
+  test('showing a logbook entry has its own phrase', () => {
+    expect(activityLabel({ type: 'tool_use', tool_name_raw: 'mcp__ariel__entry_open' })).toBe(
+      'Showing a logbook entry…'
+    );
+  });
+
   test('an unmapped tool has no phrase and keeps its raw name', () => {
     const event = /** @type {const} */ ({
       type: 'tool_use',

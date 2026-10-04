@@ -12,9 +12,9 @@ What is pinned per tool:
   real service and its search modules (the repository, the embedder and the qmd
   client are faked at their boundaries), so keys the service or repository
   layer adds reach the comparison.
-* ``browse``, ``entry_get``, ``entries_by_ids``, ``capabilities`` and ``status``
-  pin only the tool layer: they read the fake repository, the context config
-  or a patched ``service.get_status`` directly.
+* ``browse``, ``entry_get``, ``entries_by_ids``, ``capabilities``, ``status``
+  and ``entry_open`` pin only the tool layer: they read the fake repository,
+  the context config or a patched ``service.get_status`` directly.
 
 The comparison is "superset plus the listed changes": every golden path keeps
 its type, and a new path is accepted only when ``ALLOWED_ADDITIONS`` or
@@ -42,7 +42,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.mcp_server.ariel.conftest import KEYSET_ENTRY_ID, get_tool_fn
+from tests.mcp_server.ariel.conftest import KEYSET_ENTRY_ID, get_tool_fn, keyset_entries
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -59,6 +59,7 @@ TOOLS = (
     "entries_by_ids",
     "capabilities",
     "status",
+    "entry_open",
 )
 VALUE_TOOLS = ("keyword_search", "hybrid_search")
 
@@ -90,6 +91,7 @@ ALLOWED_ADDITIONS: dict[str, tuple[str, ...]] = {
     "entry_get": ("attachment_count",),
     "capabilities": ("attachments", "attachments.*"),
     "status": (),
+    "entry_open": (),
 }
 
 # Requirement 5: golden paths whose shape a later phase may change. The stored
@@ -282,6 +284,13 @@ def _status_result() -> Any:
     )
 
 
+def _keyset_picture_id() -> str:
+    """The ``attachment_id`` of the seeded entry's viewable PNG."""
+    from osprey.services.ariel_search.attachments import attachment_id_for
+
+    return attachment_id_for(KEYSET_ENTRY_ID, keyset_entries()[0]["attachments"][0])
+
+
 async def run_tool(tool: str, harness: Any) -> str:
     """Call *tool* the way an MCP client would and return its raw JSON text."""
     from osprey.mcp_server.ariel.tools.browse import browse
@@ -309,6 +318,13 @@ async def run_tool(tool: str, harness: Any) -> str:
     if tool == "status":
         with patch.object(harness.service, "get_status", AsyncMock(return_value=_status_result())):
             return await get_tool_fn(status)()
+    if tool == "entry_open":
+        from osprey.mcp_server.ariel.tools.entry import entry_open
+
+        with patch("osprey.mcp_server.http.notify_panel_focus"):
+            return await get_tool_fn(entry_open)(
+                entry_id=KEYSET_ENTRY_ID, attachment_id=_keyset_picture_id()
+            )
     raise AssertionError(f"no run for {tool}")
 
 

@@ -64,13 +64,17 @@ You have access to these ARIEL MCP tools for logbook search:
 - `attachment_view` — Look at one logbook picture by its attachment_id
 {%- endif %}
 
+**Showing the Operator**
+- `entry_open` — Open an entry, and optionally one of its pictures enlarged,
+  in the ARIEL panel
+
 **Entry Authoring** (gated by the approval hook)
 - `entry_create` — Create a new logbook entry (requires user approval)
 - `entry_publish` — Publish a drafted entry (requires user approval)
 
 Plus workspace MCP tools for artifact handoff (`mcp__osprey_workspace__*`).
 
-{% set attachments_heading = "###" %}{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
+{% set attachments_heading = "###" %}{% set attachments_show_tools = true %}{% include "claude_code/claude/agents/_shared/attachments.md.j2" %}
 
 ## When to use which search
 

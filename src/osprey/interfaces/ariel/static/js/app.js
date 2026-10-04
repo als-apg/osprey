@@ -11,7 +11,7 @@ import { contributeHeader, onHeaderAction } from '/design-system/js/header-contr
 import { capabilitiesApi } from './api.js';
 import { applyFacilityTimezone } from './components.js';
 import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
-import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
+import { initEntries, loadEntries, showEntry, openEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -127,7 +127,7 @@ async function init() {
     performSearch,
     clearSearch,
     showEntry,
-    closeEntryModal,
+    closeEntryModal: closeEntry,
     showImageLightbox,
     loadEntriesPage: (/** @type {number} */ page) => loadEntries({ page }),
     loadStatus,
@@ -186,12 +186,12 @@ function setupModals() {
   const entryModal = document.getElementById('entry-modal');
   const entryModalClose = document.getElementById('entry-modal-close');
 
-  entryModalClose?.addEventListener('click', () => closeEntryModal());
+  entryModalClose?.addEventListener('click', () => closeEntry());
 
   // Close on overlay click
   entryModal?.addEventListener('click', (e) => {
     if (e.target === entryModal) {
-      closeEntryModal();
+      closeEntry();
     }
   });
 
@@ -199,10 +199,22 @@ function setupModals() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (!entryModal?.classList.contains('hidden')) {
-        closeEntryModal();
+        closeEntry();
       }
     }
   });
+}
+
+/**
+ * Close the entry detail card. A card opened by the `entry` route hands the
+ * hash back to Browse, the view it was drawn over, so the same `#entry?...`
+ * link opens it again the next time it is followed.
+ */
+function closeEntry() {
+  closeEntryModal();
+  if (parseHash(window.location.hash.slice(1)).viewName === 'entry') {
+    navigateTo('browse');
+  }
 }
 
 /**
@@ -224,10 +236,15 @@ function parseHash(hash) {
 
 /**
  * Navigate to a view.
+ *
+ * `entry?id=<entry_id>` is not a view of its own: it shows Browse with that
+ * entry's detail card open over it, and `&attachment=<attachment_id>` also
+ * enlarges that picture when it is one of the entry's viewable pictures.
  * @param {string} hash - Full hash string (view name, optionally with query params)
  */
 function navigateTo(hash) {
-  const { viewName, params } = parseHash(hash);
+  const { viewName: routeName, params } = parseHash(hash);
+  const viewName = routeName === 'entry' ? 'browse' : routeName;
 
   // Search and Status are standalone-only: embedded users search the logbook
   // through the agent, and the hub's own ARIEL dot reports service health.
@@ -290,6 +307,11 @@ function navigateTo(hash) {
   currentView = viewName;
 
   publishHeaderContribution();
+
+  if (routeName === 'entry') {
+    const entryId = params.get('id');
+    if (entryId) openEntry(entryId, params.get('attachment'));
+  }
 }
 
 // Initialize when DOM is ready

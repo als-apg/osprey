@@ -67,6 +67,9 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Batch retrieve multiple entries by their IDs
    * - ``attachment_view``
      - Return one viewable picture attached to an entry, with its summary
+   * - ``entry_open``
+     - Show an entry, and optionally one of its viewable pictures enlarged, in
+       the ARIEL web panel
    * - ``entry_create``
      - Create a new logbook entry
 
@@ -113,6 +116,16 @@ for the agent. With it off:
   without summaries.
 
 The web panel's attachment display does not depend on this setting.
+
+``entry_open`` takes an ``entry_id`` and an optional ``attachment_id`` and asks
+the web terminal to bring the ARIEL panel forward at
+``#entry?id=<entry_id>``, with ``&attachment=<attachment_id>`` when that
+attachment is one of the entry's and is viewable. It returns ``entry_id``,
+``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel
+``url`` and a ``message``; without a web terminal the ``url`` is the link to
+follow. An unknown entry, or an attachment that is not the entry's, is
+``not_found``. The panel route also works in a browser on the standalone ARIEL
+web page.
 
 **Source:** :file:`src/osprey/mcp_server/ariel/tools/`
 

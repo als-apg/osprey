@@ -6,7 +6,10 @@ that caption into the entry's searchable text, so keyword, semantic and hybrid
 search find an entry by what its plots show. The `image_embedding` module embeds
 each copied picture with a multimodal model served by a site-run `llama-server`
 (the new `llama-cpp` provider), and `hybrid` search also ranks pictures against
-the query text. The agent's `attachment_view` tool returns one stored picture.
+the query text. The agent's `attachment_view` tool returns one stored picture,
+and `entry_open` shows an entry, or one of its pictures enlarged, to the operator
+in the ARIEL panel; the panel opens the same view from a
+`#entry?id=<entry_id>&attachment=<attachment_id>` link.
 The `control-assistant` and `ariel-standalone` presets turn all three on; each
 picture module runs when its server and model answer and is otherwise skipped,
 with `osprey ariel status` naming the skipped module and why.

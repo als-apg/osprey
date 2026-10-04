@@ -467,15 +467,19 @@ def _ariel_attachment_view(config: dict) -> bool:
         raise BuildProfileError(str(exc)) from exc
 
 
-_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset({"capabilities", "status"})
+#: The ARIEL tools the main agent calls itself rather than through a logbook
+#: subagent: the two introspection tools, and the show verb that puts an entry
+#: or picture the subagent found in front of the operator.
+_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset({"capabilities", "status", "entry_open"})
 
 
 def _ariel_read_tools(view_enabled: bool) -> list[str]:
     """The ARIEL read tools only the logbook subagents call, in registry order.
 
     Every ``permissions_allow`` tool of the ``ariel`` registry entry except
-    ``capabilities`` and ``status``, and except ``attachment_view`` while the
-    view is off (the server then does not offer it).
+    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, and except
+    ``attachment_view`` while the view is off (the server then does not offer
+    it).
     """
     from osprey.registry.mcp import FRAMEWORK_SERVERS
 

@@ -106,12 +106,13 @@ export function initEntryDetail() {
 /**
  * Show entry detail view.
  * @param {string} entryId - Entry ID
+ * @returns {Promise<any>} The entry shown, or null when it could not be loaded
  */
 export async function showEntry(entryId) {
   const modal = document.getElementById('entry-modal');
   const modalBody = document.getElementById('entry-modal-body');
 
-  if (!modal || !modalBody) return;
+  if (!modal || !modalBody) return null;
 
   // Show modal with loading state
   modal.classList.remove('hidden');
@@ -121,10 +122,33 @@ export async function showEntry(entryId) {
     const entry = await entriesApi.get(entryId);
     currentEntry = entry;
     renderEntryDetail(modalBody, entry);
+    return entry;
   } catch (error) {
     console.error('Failed to load entry:', error);
     modalBody.innerHTML = renderErrorState('Failed to Load Entry', error);
+    return null;
   }
+}
+
+/**
+ * Open an entry's detail card and, when `attachmentId` names one of that
+ * entry's viewable pictures, that picture enlarged in the lightbox. An
+ * attachment that is not the entry's, not viewable, or has no safe URL leaves
+ * the detail card open on its own.
+ * @param {string} entryId - Entry ID
+ * @param {string|null} [attachmentId] - Attachment to enlarge
+ * @returns {Promise<boolean>} Whether a picture was enlarged
+ */
+export async function openEntry(entryId, attachmentId = null) {
+  const entry = await showEntry(entryId);
+  if (!entry || !attachmentId) return false;
+  const att = (entry.attachments || []).find(
+    (/** @type {any} */ a) => a && a.attachment_id === attachmentId,
+  );
+  const href = att && att.viewable === true ? safeHref(att.display_url) : null;
+  if (!href) return false;
+  showImageLightbox(href, att.filename || 'attachment');
+  return true;
 }
 
 /**
@@ -338,6 +362,7 @@ export function getCurrentEntry() {
 export default {
   initEntryDetail,
   showEntry,
+  openEntry,
   closeEntryModal,
   showImageLightbox,
   getCurrentEntry,

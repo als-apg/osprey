@@ -86,3 +86,31 @@ def test_standalone_keeps_header_and_search_default(tmp_path, monkeypatch, chrom
         expect(page.locator("#view-search.active")).to_have_count(1)
 
         page.close()
+
+
+@pytest.mark.parametrize("query", ["?embedded=true", ""], ids=["embedded", "standalone"])
+def test_entry_route_opens_the_detail_card_over_browse(
+    tmp_path, monkeypatch, chromium_browser, query
+):
+    """``#entry?id=`` opens the detail card over Browse; closing hands the hash back.
+
+    The launched panel has no database, so the entry cannot load and the card
+    shows the panel's ordinary failure message.
+    """
+    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page()
+
+        page.goto(f"{base_url}/{query}#entry?id=no-such-entry&attachment=att-x", wait_until="load")
+
+        expect(page.locator("#view-browse.active")).to_have_count(1)
+        expect(page.locator("#entry-modal")).to_be_visible()
+        expect(page.locator("#entry-modal-body")).to_contain_text("Failed to Load Entry")
+        expect(page.locator("#image-lightbox")).to_have_count(0)
+        expect(page).to_have_url(f"{base_url}/{query}#entry?id=no-such-entry&attachment=att-x")
+
+        page.locator("#entry-modal-close").click()
+
+        expect(page.locator("#entry-modal")).to_be_hidden()
+        expect(page).to_have_url(f"{base_url}/{query}#browse")
+
+        page.close()

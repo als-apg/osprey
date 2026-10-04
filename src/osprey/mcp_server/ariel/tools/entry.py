@@ -37,6 +37,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
 
 
+def ariel_panel_url(route: str) -> str:
+    """Return the ARIEL web page URL that opens ``route`` (the part after ``#``).
+
+    The base defaults to the web terminal's origin-relative proxy path for the
+    ARIEL panel. The web terminal embeds the panel at /panel/ariel and resolves
+    this URL with `new URL(url, origin)`, so a relative path loads through the
+    proxy in both the clickable link and the auto-focus iframe. An absolute
+    container-internal address (e.g. 127.0.0.1:10300, the ariel slot at the
+    default port base) is unreachable from the user's browser. Set
+    ARIEL_WEB_URL to an absolute base only for standalone (non-proxied) ARIEL
+    deployments.
+    """
+    base_url = os.environ.get("ARIEL_WEB_URL", "/panel/ariel")
+    return f"{base_url}/#{route}"
+
+
+def _focus_ariel_panel(url: str) -> None:
+    """Ask the web terminal to show the ARIEL panel at ``url``; non-fatal without one."""
+    try:
+        from osprey.mcp_server.http import notify_panel_focus
+
+        notify_panel_focus("ariel", url=url)
+    except ToolError:
+        raise
+    except Exception:
+        pass  # Non-fatal — web terminal may not be running
+
+
 def _get_drafts_dir() -> Path:
     """Resolve the drafts directory at call time (not import time)."""
     from osprey.utils.workspace import resolve_shared_data_root
@@ -228,6 +256,125 @@ async def entries_by_ids(
 
 
 @mcp.tool()
+async def entry_open(
+    entry_id: str,
+    attachment_id: str | None = None,
+) -> str:
+    """Show a logbook entry to the operator in the ARIEL panel.
+
+    Opens the entry's detail card in the ARIEL web panel and brings the panel
+    to the front. With `attachment_id` it also opens that picture enlarged,
+    when the picture is one of this entry's and `viewable`. Use it whenever
+    the operator asks to see an entry or one of its pictures; it reads no
+    picture into this conversation and writes nothing.
+
+    Args:
+        entry_id: The entry to show, as listed by a search, browse or entry_get.
+        attachment_id: Optional `attachment_id` of one of that entry's
+            attachments (for example "att-0123456789abcdef01234567").
+
+    Returns:
+        JSON with `entry_id`, `attachment_id`, `opened` ("entry" or
+        "entry_and_picture"), the panel `url` (a link the operator can follow
+        when no web terminal is running) and a `message`. Errors:
+        validation_error for a missing entry id or a malformed attachment id,
+        not_found for an unknown entry or an attachment that is not the
+        entry's.
+    """
+    import re
+    from urllib.parse import quote
+
+    from osprey.services.ariel_search.attachments import ATTACHMENT_ID_RE
+
+    if not isinstance(entry_id, str) or not entry_id.strip():
+        make_error("validation_error", "entry_id is required.", ["Provide a valid entry ID."])
+    if attachment_id is not None and (
+        not isinstance(attachment_id, str) or re.fullmatch(ATTACHMENT_ID_RE, attachment_id) is None
+    ):
+        make_error(
+            "validation_error",
+            "attachment_id is not a valid attachment id",
+            ["Read attachment_id values from the attachments of entry_get or a search result."],
+        )
+
+    try:
+        registry = get_ariel_context()
+        service = await registry.service()
+
+        entry = await service.repository.get_entry(entry_id)
+        if not entry:
+            make_error(
+                "not_found",
+                f"Entry {entry_id} not found.",
+                [
+                    "Check the entry_id is correct.",
+                    "Use keyword_search/semantic_search or browse to find valid entry IDs.",
+                ],
+            )
+
+        route = f"entry?id={quote(entry['entry_id'], safe='')}"
+        opened = "entry"
+        message = f"The ARIEL panel shows entry {entry['entry_id']}."
+        if attachment_id is not None:
+            from osprey.services.ariel_search.database.repository import read_attachment_rows
+
+            config = registry.config
+            rows_map = await read_attachment_rows(service.repository, [entry["entry_id"]])
+            summaries = build_attachment_summaries(
+                entry,
+                None if rows_map is None else rows_map.get(entry["entry_id"], []),
+                None,
+                (),
+                file_source=file_source_for(config),
+                full_captions=False,
+                model_id=caption_model_id(config),
+            )
+            summary = next(
+                (item for item in summaries if item.get("attachment_id") == attachment_id), None
+            )
+            if summary is None:
+                make_error(
+                    "not_found",
+                    f"Entry {entry['entry_id']} has no attachment with this attachment_id.",
+                    ["Read attachment_id values from this entry's attachments in entry_get."],
+                )
+            if summary.get("viewable"):
+                route += f"&attachment={attachment_id}"
+                opened = "entry_and_picture"
+                message = (
+                    f"The ARIEL panel shows entry {entry['entry_id']} with picture "
+                    f"{attachment_id} enlarged."
+                )
+            else:
+                message += (
+                    f" Picture {attachment_id} is not viewable, so it is listed on the "
+                    "entry card but not enlarged."
+                )
+
+        url = ariel_panel_url(route)
+        _focus_ariel_panel(url)
+        return json.dumps(
+            {
+                "entry_id": entry["entry_id"],
+                "attachment_id": attachment_id,
+                "opened": opened,
+                "url": url,
+                "message": f"{message} If no ARIEL panel is in view, open {url}",
+            }
+        )
+
+    except ToolError:
+        raise
+    except Exception:
+        logger.exception("entry_open failed")
+        make_error(
+            "internal_error",
+            "Failed to open the entry.",
+            ["Check ARIEL database connectivity."],
+        )
+
+
+@mcp.tool()
 async def entry_create(
     subject: str,
     details: str,
@@ -346,27 +493,11 @@ async def entry_create(
             filepath = drafts_dir / f"{draft_id}.json"
             filepath.write_text(json.dumps(draft_data, indent=2))
 
-            # Default to the web terminal's origin-relative proxy path for the
-            # ARIEL panel. The web terminal embeds the panel at /panel/ariel and
-            # resolves this URL with `new URL(url, origin)`, so a relative path
-            # loads through the proxy in both the clickable link and the
-            # auto-focus iframe. An absolute container-internal address (e.g.
-            # 127.0.0.1:10300, the ariel slot at the default port base) is
-            # unreachable from the user's browser. Set ARIEL_WEB_URL to an
-            # absolute base only for standalone (non-proxied) ARIEL deployments.
-            base_url = os.environ.get("ARIEL_WEB_URL", "/panel/ariel")
-            url = f"{base_url}/#create?draft={draft_id}"
+            url = ariel_panel_url(f"create?draft={draft_id}")
 
             logger.info("Draft %s created at %s", draft_id, filepath)
 
-            try:
-                from osprey.mcp_server.http import notify_panel_focus
-
-                notify_panel_focus("ariel", url=url)
-            except ToolError:
-                raise
-            except Exception:
-                pass  # Non-fatal — web terminal may not be running
+            _focus_ariel_panel(url)
 
             return json.dumps(
                 {

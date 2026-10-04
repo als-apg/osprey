@@ -22,6 +22,20 @@ agent, needs neither module. See :doc:`/reference/contracts/ariel` for the
 tool and result contract.
 
 
+Agent tools for pictures
+========================
+
+- ``attachment_view`` shows one stored picture to the agent, so it can answer
+  what a plot shows. It is offered while ``ariel.attachments.view.enabled`` is
+  on.
+- ``entry_open`` shows an entry to the operator: it brings the ARIEL panel
+  forward with the entry's detail card open, and with an ``attachment_id`` it
+  also opens that picture enlarged. The main agent calls it itself, with the
+  entry id and ``attachment_id`` a logbook subagent reported. The same view is
+  a link, ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the ARIEL web
+  page.
+
+
 On by default, skipped when unavailable
 ========================================
 

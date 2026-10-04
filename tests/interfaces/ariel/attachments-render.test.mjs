@@ -11,7 +11,7 @@
  * marker only when the search matched through an image.
  */
 
-import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOriginal) => {
   const actual = /** @type {any} */ (await importOriginal());
@@ -24,6 +24,7 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
 import { entriesApi } from '../../../src/osprey/interfaces/ariel/static/js/api.js';
 import {
   showEntry,
+  openEntry,
   initEntryDetail,
   safeHref,
 } from '../../../src/osprey/interfaces/ariel/static/js/entries-detail.js';
@@ -201,6 +202,66 @@ describe('entry detail attachments', () => {
     const body = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
     body.innerHTML = '<div data-lightbox-url="javascript:alert(1)" data-lightbox-name="x"></div>';
     /** @type {HTMLElement} */ (body.firstElementChild).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.getElementById('image-lightbox')).toBeNull();
+  });
+});
+
+describe('openEntry (the #entry?id=...&attachment=... route)', () => {
+  /** @param {any[]} attachments */
+  const serve = (attachments) => vi.mocked(entriesApi.get).mockResolvedValueOnce({
+    entry_id: 'entry-1',
+    timestamp: '2026-01-01T00:00:00Z',
+    author: 'author',
+    source_system: 'sys',
+    raw_text: 'subject\nbody',
+    keywords: [],
+    attachments,
+  });
+  const PIC = { attachment_id: 'att-0123456789ab', filename: 'beam.png', viewable: true, display_url: RENDITION, mime_type: 'image/png' };
+
+  afterEach(() => document.getElementById('image-lightbox')?.remove());
+
+  test('opens the detail card and enlarges the named viewable picture', async () => {
+    serve([{ ...PIC, attachment_id: 'att-other', filename: 'other.png' }, PIC]);
+
+    expect(await openEntry('entry-1', 'att-0123456789ab')).toBe(true);
+
+    expect(entriesApi.get).toHaveBeenCalledWith('entry-1');
+    expect(document.getElementById('entry-modal')?.classList.contains('hidden')).toBe(false);
+    const overlay = /** @type {HTMLElement} */ (document.getElementById('image-lightbox'));
+    expect(overlay.querySelector('img')?.getAttribute('src')).toBe(RENDITION_SRC);
+    expect(overlay.textContent).toContain('beam.png');
+  });
+
+  test('without an attachment only the detail card opens', async () => {
+    serve([PIC]);
+
+    expect(await openEntry('entry-1')).toBe(false);
+
+    expect(document.getElementById('entry-modal')?.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('image-lightbox')).toBeNull();
+  });
+
+  test.each([
+    ['not one of the entry\'s attachments', [PIC], 'att-elsewhere'],
+    ['not viewable', [{ ...PIC, viewable: false, display_url: ORIGINAL }], PIC.attachment_id],
+    ['without a safe URL', [{ ...PIC, display_url: 'javascript:alert(1)' }], PIC.attachment_id],
+  ])('an attachment %s enlarges nothing', async (_why, attachments, attachmentId) => {
+    serve(/** @type {any[]} */ (attachments));
+
+    expect(await openEntry('entry-1', /** @type {string} */ (attachmentId))).toBe(false);
+
+    expect(document.getElementById('entry-modal')?.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('image-lightbox')).toBeNull();
+  });
+
+  test('an unknown entry shows the not-found message and enlarges nothing', async () => {
+    vi.mocked(entriesApi.get).mockRejectedValueOnce(new Error('Entry not found: nope'));
+
+    expect(await openEntry('nope', 'att-0123456789ab')).toBe(false);
+
+    const body = /** @type {HTMLElement} */ (document.getElementById('entry-modal-body'));
+    expect(body.textContent).toContain('Failed to Load Entry');
     expect(document.getElementById('image-lightbox')).toBeNull();
   });
 });

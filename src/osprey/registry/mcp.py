@@ -436,6 +436,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "browse",
             "entry_get",
             "attachment_view",
+            "entry_open",
             "capabilities",
             "status",
             "filter_options",

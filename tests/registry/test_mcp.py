@@ -1108,6 +1108,7 @@ _ARIEL_ALLOW_WITHOUT_VIEW = [
     "entries_by_ids",
     "browse",
     "entry_get",
+    "entry_open",
     "capabilities",
     "status",
     "filter_options",
