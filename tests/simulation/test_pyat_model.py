@@ -274,6 +274,46 @@ class TestFaultRoster:
             build(records=[*wiring(), clash])
 
 
+def _bound_fields(model: PyATLatticeModel) -> dict[tuple[str, str, int | None], float]:
+    """Every element field a writable variable binds, as the lattice holds it."""
+    fields: dict[tuple[str, str, int | None], float] = {}
+    for variable in model.supported_variables.values():
+        for binding in getattr(variable, "bindings", ()):
+            held = getattr(model.simulator.element(binding.element_name), binding.attribute)
+            key = (binding.element_name, binding.attribute, binding.index)
+            fields[key] = float(held if binding.index is None else held[binding.index])
+    return fields
+
+
+class TestBatchOrder:
+    @pytest.mark.parametrize("calibration_first", [True, False])
+    def test_a_batch_writes_its_calibration_before_its_setpoint(self, calibration_first):
+        batch = {"QF:01:SP/cal_factor": 1.05, "QF:01:SP": 104.0}
+        if not calibration_first:
+            batch = dict(reversed(batch.items()))
+        together = build()
+        together.set(batch)
+        apart = build()
+        apart.set({"QF:01:SP/cal_factor": 1.05})
+        apart.set({"QF:01:SP": 104.0})
+        assert together.simulator.element("QF_01").PolynomB[1] == pytest.approx(
+            apart.simulator.element("QF_01").PolynomB[1], rel=1e-15
+        )
+        assert together.simulator.element("QF_01").PolynomB[1] == pytest.approx(
+            1.05 * 1.04, rel=1e-12
+        )
+
+    def test_a_reset_after_a_calibration_fault_is_a_fresh_model(self):
+        fresh = build()
+        model = build()
+        model.set({"QF:01:SP/cal_factor": 1.05, "HCOR:02:SP": 3.0})
+        model.set({"QF:01:SP": 104.0})
+        model.reset()
+        assert _bound_fields(model) == _bound_fields(fresh)
+        readings = [f"BPM:{cell:02d}:{axis}" for cell in range(1, N_CELLS + 1) for axis in "XY"]
+        assert model.get(readings) == fresh.get(readings)
+
+
 class TestOptics:
     def test_optics_match_a_direct_linear_optics_pass(self, model):
         monitors = model.lattice.get_uint32_index(at.Monitor)

@@ -384,6 +384,7 @@ class PyATLatticeModel(LUMEPyATModel):
         self.derived_names: frozenset[str] = frozenset(
             variable.name for variable in (*declared, *optics)
         )
+        self._fault_names: frozenset[str] = frozenset(fault.name for fault in declared)
 
         # Sorted by lattice index, so row i of every per-monitor optics array
         # is the i-th monitor along the lattice.
@@ -392,6 +393,19 @@ class PyATLatticeModel(LUMEPyATModel):
             [self.element_index(element) for element in self._monitor_order], dtype=np.uint32
         )
         self._optics_memo: _OpticsMemo | None = None
+
+    def _set(self, values: dict[str, Any]) -> None:
+        """Apply a batch atomically, its faults before its channel variables.
+
+        A setpoint is converted through the calibration its element holds when
+        it is written, so a batch that names a setpoint and its calibration --
+        and :meth:`reset`, which names every writable -- writes the
+        calibration first, whatever order the mapping gives. Each part keeps
+        its own order.
+        """
+        faults = {name: value for name, value in values.items() if name in self._fault_names}
+        rest = {name: value for name, value in values.items() if name not in self._fault_names}
+        super()._set({**faults, **rest})
 
     # -- the optics arrays, which bind no element and are read on demand ----
 
