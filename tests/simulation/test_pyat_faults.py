@@ -41,6 +41,8 @@ MONITOR = "BPM03"
 X_ADDRESS = "SR:DIAG:BPM:03:POSITION:X"
 Y_ADDRESS = "SR:DIAG:BPM:03:POSITION:Y"
 OTHER_X_ADDRESS = "SR:DIAG:BPM:04:POSITION:X"
+QUADRUPOLE_ADDRESS = "SR:MAG:QF:01:CURRENT:SP"
+CORRECTOR_ADDRESS = "SR:MAG:HCM:01:CURRENT:SP"
 
 #: Beam motion added to the truth before the readout, in the published unit.
 MOTION = {X_ADDRESS: 2.5e-4, Y_ADDRESS: -1.5e-4, OTHER_X_ADDRESS: 4.0e-5}
@@ -179,3 +181,43 @@ class TestReadout:
 class TestSupplyCalibration:
     def test_magnet_cal_scales_then_shifts(self) -> None:
         assert magnet_cal(300.0, factor=1.3, offset=2.0) == pytest.approx(392.0)
+
+    @pytest.mark.parametrize(
+        ("address", "element", "attribute", "index"),
+        [
+            (QUADRUPOLE_ADDRESS, "QF01", "PolynomB", 1),
+            (CORRECTOR_ADDRESS, "HCM01", "KickAngle", 0),
+        ],
+    )
+    def test_a_setpoint_lands_through_its_supply_calibration(
+        self, records, address, element, attribute, index
+    ) -> None:
+        simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+        record = records[address]
+        gain = record["calibration"]["curve"]["linear"]["gain"]
+        offset = record["calibration"]["curve"]["linear"]["offset"]
+        variable = variable_from_wiring(
+            record, deck_energy_gev=deck_energy(simulator), default_value=0.0
+        )
+        target = simulator.element(element)
+        target.supply_cal_factor = 1.3
+        target.supply_cal_offset = 2.0
+
+        variable._set(simulator, 300.0)
+
+        held = getattr(target, attribute)[index]
+        assert held == pytest.approx(gain * (300.0 * 1.3 + 2.0) + offset, rel=1e-12)
+
+    def test_an_element_with_no_supply_calibration_takes_the_setpoint(self, records) -> None:
+        simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+        record = records[QUADRUPOLE_ADDRESS]
+        gain = record["calibration"]["curve"]["linear"]["gain"]
+        offset = record["calibration"]["curve"]["linear"]["offset"]
+        variable = variable_from_wiring(
+            record, deck_energy_gev=deck_energy(simulator), default_value=0.0
+        )
+
+        variable._set(simulator, 300.0)
+
+        held = simulator.element("QF01").PolynomB[1]
+        assert held == pytest.approx(gain * 300.0 + offset, rel=1e-12)
