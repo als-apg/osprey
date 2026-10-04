@@ -594,7 +594,7 @@ def _seed_anchor(world: DeployedArchiverWorld) -> datetime:
     test can put its window ACROSS the seam rather than wherever the clock
     happens to be when it runs.
     """
-    from osprey.simulation.archiver_seed import MANIFEST_ID
+    from osprey_connectors.simulation.archive import MANIFEST_ID
 
     with _collection(world) as collection:
         manifest = collection.find_one({"_id": MANIFEST_ID})
@@ -742,7 +742,10 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     limits = json.loads(
         (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
     )
-    setpoint = next(name for name in sorted(limits) if name.endswith(":SP"))
+    # The write needs a bounded, writable setpoint from the records the render enforces.
+    setpoint = next(
+        name for name in sorted(limits) if name.endswith(":SP") and limits[name]["writable"]
+    )
 
     async def _write_a_new_setpoint() -> tuple[float, datetime, Any]:
         register_builtin_connectors()  # idempotent; must run before create
@@ -803,7 +806,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     # no sweep intervenes the bracket collapses to the old exact comparison.
     def oldest_held() -> datetime:
         with _collection(archiver_world) as collection:
-            from osprey.simulation.archiver_seed import oldest_sample
+            from osprey_connectors.simulation.archive import oldest_sample
 
             oldest = oldest_sample(collection)
         assert oldest is not None, "the seeded store reports no oldest sample"

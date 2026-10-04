@@ -46,7 +46,7 @@ from osprey.simulation.apply import (
     persisted_scenario_anchor,
     preflight_archive_rewrite,
 )
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,

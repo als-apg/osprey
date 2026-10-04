@@ -725,9 +725,9 @@ def _stub_label_sweep(monkeypatch: pytest.MonkeyPatch, *, container_ids: list[st
 
 def _seed_state(name: str):
     """The archiver seeder's fingerprint verdict, by ``SeedState`` member name."""
-    from osprey.simulation import archiver_seed
+    from osprey_connectors.simulation import archive
 
-    return getattr(archiver_seed.SeedState, name)
+    return getattr(archive.SeedState, name)
 
 
 @pytest.fixture
@@ -739,7 +739,7 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     of them says something, and at what altitude.
     """
     from osprey.simulation import apply as apply_mod
-    from osprey.simulation import archiver_seed as seed_mod
+    from osprey_connectors.simulation import archive as seed_mod
 
     state: dict = {"state": _seed_state("ABSENT")}
 

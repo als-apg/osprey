@@ -43,8 +43,8 @@ if TYPE_CHECKING:
     from zoneinfo import ZoneInfo
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
-    from osprey.simulation.archiver_seed import SeedKnobs
     from osprey.simulation.machine import BpmErrorSpec, Scenario, ScenarioLogEntry
+    from osprey_connectors.simulation.archive import SeedKnobs
 
 logger = get_logger("simulation_apply")
 
@@ -758,7 +758,7 @@ def seed_archiver(
         ValueError: If an active scenario positions an archiver event by window
             fraction, which stored history cannot represent.
     """
-    from osprey.simulation.archiver_seed import MANIFEST_ID, SeedKnobs
+    from osprey_connectors.simulation.archive import MANIFEST_ID, SeedKnobs
 
     store = archiver_store_config(config, project_dir)
     if store is None:
@@ -906,7 +906,7 @@ def _archive_start(collection, manifest: dict, anchor_s: float, knobs: SeedKnobs
     archive reaches writes into the history that exists instead of describing
     history that does not.
     """
-    from osprey.simulation.archiver_seed import oldest_sample
+    from osprey_connectors.simulation.archive import oldest_sample
 
     oldest = oldest_sample(collection)
     if oldest is not None:
@@ -944,7 +944,7 @@ def _ledger_entries(windows: dict[str, tuple[float, float]]) -> list[dict]:
 
 def _write_ledger(collection, windows: dict[str, tuple[float, float]], anchor_s: float) -> None:
     """Record the windows a later apply has to recompute over."""
-    from osprey.simulation.archiver_seed import MANIFEST_ID
+    from osprey_connectors.simulation.archive import MANIFEST_ID
 
     collection.update_one(
         {"_id": MANIFEST_ID},
@@ -1044,7 +1044,7 @@ def _rewrite_documents(
         retention. A document whose values and expiry are already correct is not
         rewritten and not counted, so re-applying the set in force reports zero.
     """
-    from osprey.simulation.archiver_seed import tier_expiry
+    from osprey_connectors.simulation.archive import tier_expiry
 
     if not spans:
         return 0, 0

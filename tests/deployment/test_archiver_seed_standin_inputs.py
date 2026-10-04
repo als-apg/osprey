@@ -10,7 +10,7 @@ no operator caused.
 This is the *host* half of that: deciding whether there is a stand-in, finding
 the offsets it will actually run with, and turning them into the callable and
 the fingerprint description the seeder takes. The arithmetic itself lives in
-``osprey_connectors.simulation.archiver_seed`` and is pinned in
+``osprey_connectors.simulation.archive`` and is pinned in
 ``tests/simulation/test_archiver_seed_transform.py``.
 
 Two rules carry most of the weight:

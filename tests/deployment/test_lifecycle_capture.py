@@ -46,7 +46,7 @@ import pytest
 from osprey.cli import phase_reporter
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import container_lifecycle
-from osprey.simulation import archiver_seed as seed_mod
+from osprey_connectors.simulation import archive as seed_mod
 
 #: The ``(1.2s)`` / ``(2m03s)`` suffix ``Phase.step`` appends to a slow lap.
 _DURATION = re.compile(r" \((?:\d+\.\d+s|\d+m\d{2}s)\)$")
