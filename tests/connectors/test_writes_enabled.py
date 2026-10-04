@@ -13,6 +13,7 @@ from osprey.connectors.control_system.base import (
     ControlSystemConnector,
     WriteOutcome,
 )
+from tests.facility.served_tree import mock_config, served_tree
 
 
 class _StubConnector(ControlSystemConnector):
@@ -204,19 +205,20 @@ class TestMockWritesDisabledViaBaseClass:
     """Tests that MockConnector write blocking now comes from base class."""
 
     @pytest.mark.asyncio
-    async def test_mock_blocks_writes_when_disabled(self):
+    async def test_mock_blocks_writes_when_disabled(self, tmp_path):
         """MockConnector blocks writes via base class when writes_enabled=false."""
         from osprey.connectors.control_system.mock_connector import MockConnector
 
+        view = served_tree(tmp_path, ["TEST:PV"])
         connector = MockConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
             result = await connector.write_channel("TEST:PV", 1.0)
         assert result.outcome is WriteOutcome.REFUSED
         assert "writes are disabled" in result.error_message  # base class message
 
     @pytest.mark.asyncio
-    async def test_mock_allows_writes_when_enabled(self):
+    async def test_mock_allows_writes_when_enabled(self, tmp_path):
         """MockConnector allows writes when writes_enabled=true."""
         from osprey.connectors.control_system.mock_connector import MockConnector
 
@@ -225,12 +227,13 @@ class TestMockWritesDisabledViaBaseClass:
                 return True
             return default
 
+        view = served_tree(tmp_path, ["TEST:PV"])
         connector = MockConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
             result = await connector.write_channel("TEST:PV", 1.0)
         assert result.outcome is not WriteOutcome.REFUSED
 
@@ -246,13 +249,14 @@ class TestWriteBlockedIntegration:
     """Integration test: full write path with real MockConnector."""
 
     @pytest.mark.asyncio
-    async def test_write_blocked_full_path(self):
+    async def test_write_blocked_full_path(self, tmp_path):
         """Full path: MockConnector with writes_enabled=false blocks writes."""
         from osprey.connectors.control_system.mock_connector import MockConnector
 
+        view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = MockConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
@@ -262,7 +266,7 @@ class TestWriteBlockedIntegration:
         assert "control_system.writes_enabled" in result.error_message
 
     @pytest.mark.asyncio
-    async def test_write_allowed_full_path(self):
+    async def test_write_allowed_full_path(self, tmp_path):
         """Full path: MockConnector with writes_enabled=true allows writes."""
         from osprey.connectors.control_system.mock_connector import MockConnector
 
@@ -271,12 +275,13 @@ class TestWriteBlockedIntegration:
                 return True
             return default
 
+        view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = MockConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_for_write_test,
         ):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)

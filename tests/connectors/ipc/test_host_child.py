@@ -48,6 +48,7 @@ from osprey_connectors.control_system.base import (
 from osprey_connectors.control_system.mock_connector import MockConnector
 from osprey_connectors.ipc import frames, host
 from tests._control_context_fixtures import write_control_context
+from tests.facility.served_tree import mock_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -57,11 +58,20 @@ PYTHONPATH = os.pathsep.join(
 #: The mock connector by dotted path, so ``live`` resolves to it.
 MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
 
-CONTROL_SYSTEM = {
-    "type": MOCK_TYPE,
-    "writes_enabled": False,
-    "connector": {MOCK_TYPE: {"response_delay_ms": 10, "noise_level": 0.0}},
-}
+#: The addresses a spawned child writes, and the ones it only reads.
+SETPOINTS = ("SR:CORR:1:SP", "SR:CORR:2:SP")
+READINGS = ("SR:BEAM:CURRENT", *(f"SR:BPM:{index}:X" for index in range(6)))
+
+
+def _control_system(root: Path) -> dict:
+    """The mock deployment a child serves, from a tree built under ``root``."""
+    view = served_tree(root, SETPOINTS, READINGS)
+    return {
+        "type": MOCK_TYPE,
+        "writes_enabled": False,
+        "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=10)},
+    }
+
 
 #: A deployment whose real machine is EPICS and whose simulator is armed: the
 #: deployment-wide posture is off, the virtual accelerator's own block turns
@@ -101,6 +111,7 @@ class Child:
     """A spawned connector host, with its frame channel pumped by a thread."""
 
     def __init__(self, cwd, env_extra=None):
+        self.cwd = Path(cwd)
         env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
         env["PYTHONPATH"] = PYTHONPATH
         env.update(env_extra or {})
@@ -174,7 +185,7 @@ class Child:
         """Send the init frame and return the post-connect report frame."""
         return self.call(
             "init",
-            control_system=control_system or CONTROL_SYSTEM,
+            control_system=control_system or _control_system(self.cwd / "served"),
             target=target,
             **payload,
         )
@@ -347,10 +358,11 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
     """
     project = tmp_path / "project"
     project.mkdir()
+    view = served_tree(tmp_path / "served")
     control_system = {
         "type": MOCK_TYPE,
         "writes_enabled": False,
-        "connector": {MOCK_TYPE: {"response_delay_ms": 10, "writes_enabled": True}},
+        "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=10, writes_enabled=True)},
     }
     config_file = project / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": control_system}))
@@ -752,7 +764,7 @@ DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
 VA_MODE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 
-def _limits_control_system(database_path: Path) -> dict:
+def _limits_control_system(database_path: Path, view: Path) -> dict:
     """A deployment that refuses unlisted channels everywhere but its simulator.
 
     The deployment-wide block is strict and the virtual accelerator's own block
@@ -769,7 +781,7 @@ def _limits_control_system(database_path: Path) -> dict:
             "database_path": str(database_path),
         },
         "connector": {
-            MOCK_TYPE: {"response_delay_ms": 10, "noise_level": 0.0},
+            MOCK_TYPE: mock_config(view, response_delay_ms=10),
             "virtual_accelerator": {"limits_checking": {"enabled": True, "mode": "optional"}},
         },
     }
@@ -935,7 +947,7 @@ def limits_deployment(tmp_path):
     """
     database = tmp_path / "limits.json"
     database.write_text(json.dumps({"SR:CORR:1:SP": {"min_value": -1.0, "max_value": 1.0}}))
-    section = _limits_control_system(database)
+    section = _limits_control_system(database, served_tree(tmp_path / "served", SETPOINTS))
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": section}))
     return section, str(config_file)

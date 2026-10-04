@@ -19,6 +19,7 @@ from osprey.connectors import types
 from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey.services.python_executor.execution.control import get_execution_control_config
+from tests.facility.served_tree import mock_config, served_tree
 
 FACTORY_LOGGER = "connector_factory"
 EXECUTION_CONTROL_LOGGER = "execution_control"
@@ -45,9 +46,11 @@ def registered_connectors():
 
 class TestFactoryTypeFallback:
     @pytest.mark.asyncio
-    async def test_empty_config_creates_mock_connector(self, caplog):
+    async def test_empty_config_creates_mock_connector(self, caplog, tmp_path):
+        config = {"connector": {types.MOCK: mock_config(served_tree(tmp_path))}}
+
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
-            connector = await ConnectorFactory.create_control_system_connector({})
+            connector = await ConnectorFactory.create_control_system_connector(config)
 
         assert isinstance(connector, MockConnector)
         assert "control_system.type" in caplog.text
@@ -56,11 +59,13 @@ class TestFactoryTypeFallback:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_blank_type_is_treated_as_unset(self, caplog):
+    async def test_blank_type_is_treated_as_unset(self, caplog, tmp_path):
         # A commented-out or emptied YAML value parses as None; it must take the
         # same fail-closed path as a missing key rather than raising later.
+        config = {"type": None, "connector": {types.MOCK: mock_config(served_tree(tmp_path))}}
+
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
-            connector = await ConnectorFactory.create_control_system_connector({"type": None})
+            connector = await ConnectorFactory.create_control_system_connector(config)
 
         assert isinstance(connector, MockConnector)
         assert "control_system.type" in caplog.text
@@ -68,10 +73,13 @@ class TestFactoryTypeFallback:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_config_none_loads_global_config_and_falls_back(self, caplog, monkeypatch):
+    async def test_config_none_loads_global_config_and_falls_back(
+        self, caplog, monkeypatch, tmp_path
+    ):
+        section = {"connector": {types.MOCK: mock_config(served_tree(tmp_path))}}
         monkeypatch.setattr(
             "osprey.utils.config.get_config_value",
-            lambda path, default=None, config_path=None: {},
+            lambda path, default=None, config_path=None: section,
         )
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
@@ -83,8 +91,12 @@ class TestFactoryTypeFallback:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_explicit_type_is_honoured_without_warning(self, caplog):
-        config = {"type": types.MOCK, "connector": {types.MOCK: {"response_delay_ms": 0}}}
+    async def test_explicit_type_is_honoured_without_warning(self, caplog, tmp_path):
+        view = served_tree(tmp_path)
+        config = {
+            "type": types.MOCK,
+            "connector": {types.MOCK: mock_config(view, response_delay_ms=0)},
+        }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
             connector = await ConnectorFactory.create_control_system_connector(config)

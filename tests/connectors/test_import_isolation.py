@@ -22,6 +22,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.facility.served_tree import mock_config, served_tree
+
 SRC = str(Path(__file__).resolve().parents[2] / "src")
 
 # Sentinels for the two dependency trees that must stay out of the lean chain:
@@ -163,6 +165,7 @@ def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
             }
         )
     )
+    view = served_tree(tmp_path / "served", ["T:Q1:CUR:SP"])
     config_path = root / "config.yml"
     config_path.write_text(
         yaml.safe_dump(
@@ -171,7 +174,9 @@ def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
                 "project_root": str(root),
                 "control_system": {
                     "type": "mock",
-                    "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
+                    "connector": {
+                        "mock": mock_config(view, simulation_file="data/simulation/machine.json")
+                    },
                 },
                 "archiver": {"type": "mock_archiver"},
             }

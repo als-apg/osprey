@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from osprey_connectors.simulation import state, values
+from tests.facility.served_tree import mock_config, served_tree
 
 
 def test_engine_takes_the_state_names_from_the_state_module():
@@ -130,8 +131,9 @@ async def test_the_mock_connector_still_connects_on_a_machine_file(tmp_path, mon
     machine.write_text(
         json.dumps({"name": "m", "channels": {"A:B": {"value": 1.0, "units": "mm"}}})
     )
+    view = served_tree(tmp_path / "served", readings=["A:B"])
     connector = MockConnector()
-    await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine)})
+    await connector.connect(mock_config(view, response_delay_ms=0, simulation_file=str(machine)))
     try:
         assert connector._sim_engine is not None
         assert connector._sim_engine.has_channel("A:B")

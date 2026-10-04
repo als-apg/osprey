@@ -15,6 +15,7 @@ import pytest
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
+from tests.facility.served_tree import mock_config, served_tree
 
 TEST_MACHINE = {
     "name": "TestRig",
@@ -73,6 +74,16 @@ def machine_file(tmp_path):
 
 
 @pytest.fixture
+def view(tmp_path):
+    """A served tree holding every address the mock connector cases read or write."""
+    return served_tree(
+        tmp_path / "served",
+        {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB", "T:Q1:CUR:SP": "T:Q1:CUR:RB"},
+        ["BEAM:CURRENT", "T:MODE", "T:TRANS"],
+    )
+
+
+@pytest.fixture
 def state_dir(tmp_path, monkeypatch):
     """Per-test scenario-state directory, standing in for ``_agent_data/simulation/``.
 
@@ -92,11 +103,11 @@ class TestMockConnectorSimulation:
     """MockConnector with a simulation_file configured."""
 
     @pytest.mark.asyncio
-    async def test_no_simulation_file_means_no_engine(self):
+    async def test_no_simulation_file_means_no_engine(self, view):
         """Backward compat: without simulation_file the engine is never loaded."""
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             assert connector._sim_engine is None
             result = await connector.read_channel("T:Q1:CUR:SP")
@@ -106,10 +117,12 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_engine_channel(self, machine_file):
+    async def test_read_engine_channel(self, machine_file, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            await connector.connect(
+                mock_config(view, response_delay_ms=0, simulation_file=str(machine_file))
+            )
 
             result = await connector.read_channel("T:Q1:CUR:SP")
             assert result.value == 42.0
@@ -122,10 +135,12 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_string_channel_passes_through(self, machine_file):
+    async def test_string_channel_passes_through(self, machine_file, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            await connector.connect(
+                mock_config(view, response_delay_ms=0, simulation_file=str(machine_file))
+            )
 
             result = await connector.read_channel("T:MODE")
             assert result.value == "CW"
@@ -133,10 +148,12 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_unknown_pv_falls_back_to_legacy(self, machine_file):
+    async def test_unknown_pv_falls_back_to_legacy(self, machine_file, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            await connector.connect(
+                mock_config(view, response_delay_ms=0, simulation_file=str(machine_file))
+            )
 
             result = await connector.read_channel("BEAM:CURRENT")
             assert isinstance(result.value, float)
@@ -145,14 +162,16 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_engine_channel_readback_via_expr(self, machine_file):
+    async def test_write_engine_channel_readback_via_expr(self, machine_file, view):
         """Engine readbacks come from machine-file exprs, not legacy mirroring."""
         connector = MockConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            await connector.connect(
+                mock_config(view, response_delay_ms=0, simulation_file=str(machine_file))
+            )
 
             result = await connector.write_channel("T:Q1:CUR:SP", 30.0, confirm=True)
             assert result.outcome is WriteOutcome.CONFIRMED
@@ -166,18 +185,16 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_unknown_pv_uses_legacy_mirroring(self, machine_file):
+    async def test_write_unknown_pv_uses_legacy_mirroring(self, machine_file, view):
         connector = MockConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
             await connector.connect(
-                {
-                    "response_delay_ms": 0,
-                    "noise_level": 0.0,
-                    "simulation_file": str(machine_file),
-                }
+                mock_config(
+                    view, response_delay_ms=0, noise_level=0.0, simulation_file=str(machine_file)
+                )
             )
 
             await connector.write_channel("MAGNET:CURRENT:SP", 100.0)
@@ -187,11 +204,13 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_scenario_override_visible_through_connector(self, machine_file, state_dir):
+    async def test_scenario_override_visible_through_connector(self, machine_file, state_dir, view):
         (state_dir / "active_scenarios").write_text("quad-drift\n")
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            await connector.connect(
+                mock_config(view, response_delay_ms=0, simulation_file=str(machine_file))
+            )
 
             result = await connector.read_channel("T:Q1:CUR:SP")
             assert result.value == 28.4
@@ -201,7 +220,7 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_relative_path_resolved_against_project_root(self, tmp_path):
+    async def test_relative_path_resolved_against_project_root(self, tmp_path, view):
         sim_dir = tmp_path / "data" / "simulation"
         sim_dir.mkdir(parents=True)
         (sim_dir / "machine.json").write_text(json.dumps(TEST_MACHINE))
@@ -214,7 +233,9 @@ class TestMockConnectorSimulation:
         with patch("osprey.utils.config.get_config_value", side_effect=config_side_effect):
             connector = MockConnector()
             await connector.connect(
-                {"response_delay_ms": 0, "simulation_file": "data/simulation/machine.json"}
+                mock_config(
+                    view, response_delay_ms=0, simulation_file="data/simulation/machine.json"
+                )
             )
 
             assert connector._sim_engine is not None
@@ -224,10 +245,12 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_get_metadata_from_engine(self, machine_file):
+    async def test_get_metadata_from_engine(self, machine_file, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            await connector.connect(
+                mock_config(view, response_delay_ms=0, simulation_file=str(machine_file))
+            )
 
             metadata = await connector.get_metadata("T:Q1:CUR:SP")
             assert metadata.units == "A"

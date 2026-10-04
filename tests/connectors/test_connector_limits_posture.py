@@ -26,6 +26,7 @@ import pytest
 
 from osprey.connectors.types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey.errors import ChannelLimitsViolationError
+from tests.facility.served_tree import mock_config, served_tree
 
 DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
 
@@ -93,13 +94,13 @@ def _posture(connector) -> tuple[Any, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def _connected_mock(monkeypatch, section, db_path, connector_type):
+async def _connected_mock(monkeypatch, tmp_path, section, db_path, connector_type):
     from osprey.connectors.control_system.mock_connector import MockConnector
 
     _patch_config(monkeypatch, section, db_path)
     connector = MockConnector()
     connector._connector_type = connector_type
-    await connector.connect({"response_delay_ms": 0})
+    await connector.connect(mock_config(served_tree(tmp_path / "served"), response_delay_ms=0))
     return connector
 
 
@@ -110,6 +111,7 @@ class TestMockConnectorPosture:
     async def test_stamped_type_reads_its_own_block(self, monkeypatch, tmp_path):
         connector = await _connected_mock(
             monkeypatch,
+            tmp_path,
             _permissive_simulators_section(),
             _limits_db(tmp_path),
             VIRTUAL_ACCELERATOR,
@@ -121,7 +123,7 @@ class TestMockConnectorPosture:
     async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
         """Parity: a connector built outside the factory behaves as it always has."""
         connector = await _connected_mock(
-            monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), None
+            monkeypatch, tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), None
         )
 
         assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
@@ -130,7 +132,7 @@ class TestMockConnectorPosture:
     async def test_type_without_a_block_inherits_deployment_wide(self, monkeypatch, tmp_path):
         """``epics`` states no limits block, so the deployment-wide one answers."""
         connector = await _connected_mock(
-            monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
+            monkeypatch, tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
         )
 
         assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
@@ -143,7 +145,7 @@ class TestMockConnectorPosture:
         to the line they can actually edit.
         """
         connector = await _connected_mock(
-            monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
+            monkeypatch, tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
         )
 
         with pytest.raises(ChannelLimitsViolationError) as excinfo:
@@ -158,6 +160,7 @@ class TestMockConnectorPosture:
         """One deployment, two answers for the same channel — the point of the feature."""
         connector = await _connected_mock(
             monkeypatch,
+            tmp_path,
             _permissive_simulators_section(),
             _limits_db(tmp_path),
             VIRTUAL_ACCELERATOR,
