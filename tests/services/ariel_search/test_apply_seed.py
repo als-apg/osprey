@@ -219,6 +219,36 @@ async def _pictures(database_url: str, entry_id: str) -> tuple[list, list, list]
     return list(entry["attachments"]), rows, renditions
 
 
+async def _original(database_url: str, attachment_id: str) -> bytes:
+    """The stored original bytes of one attachment."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.database import create_connection_pool
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+
+    config = ARIELConfig.from_dict({"database": {"uri": database_url}})
+    pool = await create_connection_pool(config.database)
+    try:
+        original = await ARIELRepository(pool, config).get_attachment_original(attachment_id)
+    finally:
+        await pool.close()
+    assert original is not None, f"{attachment_id} has no stored original"
+    return bytes(original["data"])
+
+
+def _drawn(entry_id: str) -> bytes:
+    """The PNG seeding draws for ``entry_id``'s plot spec when applied at :data:`T0`."""
+    from osprey.simulation.machine import PlotSpec, load_narratives
+    from osprey.simulation.plots import render_plot_spec
+    from osprey.utils.relative_time import resolve_relative_timestamp
+
+    for entries in load_narratives(TEMPLATE_SIM / "scenarios").values():
+        for entry in entries:
+            if entry.entry_id == entry_id:
+                (spec,) = [item for item in entry.attachments if isinstance(item, PlotSpec)]
+                return render_plot_spec(spec, resolve_relative_timestamp(entry.when, T0))
+    raise AssertionError(f"no bundle entry {entry_id}")
+
+
 def test_seeded_pictures_are_copied_with_a_viewable_rendition(tmp_path, database_url):
     """A bundle entry's picture is in the store, linked on the entry and viewable as
     soon as apply returns -- no enhancement pass runs in between."""
@@ -231,8 +261,10 @@ def test_seeded_pictures_are_copied_with_a_viewable_rendition(tmp_path, database
     (row,) = rows
     assert row["copy_status"] == "copied", row
     assert items[0]["url"] == f"/api/attachments/{row['attachment_id']}"
-    assert items[0]["filename"] == "cavity_temperatures_week.png"
+    assert items[0]["filename"] == "cavity_temperatures.png"
     assert renditions[0] is not None
+    # The stored original is the entry's plot spec drawn at the entry's own instant.
+    assert asyncio.run(_original(database_url, row["attachment_id"])) == _drawn("DEMO-027")
 
     bare, bare_rows, _ = asyncio.run(_pictures(database_url, "DEMO-026"))
     assert bare == [] and bare_rows == []

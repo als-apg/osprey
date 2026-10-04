@@ -9,7 +9,7 @@ data/
 └── logbook_seed/             # Demo logbook (ariel.demo_narrative)
     └── <scenario>/
         ├── logbook.json      # The scenario's logbook entries
-        └── plots/            # Pictures those entries attach
+        └── plots/            # Pictures and plot specs those entries attach
 ```
 
 `logbook_seed/` holds the logbook narrative of every control-assistant demo

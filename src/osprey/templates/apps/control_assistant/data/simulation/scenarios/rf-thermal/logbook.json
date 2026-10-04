@@ -42,7 +42,7 @@
     ],
     "attachments": [
       {
-        "path": "plots/cavity_temperatures_week.png"
+        "plot": "plots/cavity_temperatures.json"
       }
     ]
   },

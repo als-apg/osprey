@@ -7,7 +7,8 @@
   target: demo_machine.ttl
 
 # The logbook narrative of every control-assistant scenario, with the pictures
-# its entries attach -- narrative only: no scenario.json, no telemetry. Seeded
+# and plot specs its entries attach -- narrative only: no scenario.json, no
+# telemetry; a plot spec carries its own series, so no machine draws it. Seeded
 # by `osprey up` and `osprey ariel quickstart` through `ariel.demo_narrative`.
 - from: control_assistant
   source: simulation/scenarios

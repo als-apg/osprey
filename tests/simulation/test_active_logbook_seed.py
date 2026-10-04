@@ -131,7 +131,7 @@ def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch)
 
 def test_seed_active_logbook_hands_over_each_entrys_pictures(tmp_path, monkeypatch):
     """The pictures a bundle entry names travel with it into the seed, keyed by the
-    entry they belong to, as files inside the project's own scenario tree."""
+    entry they belong to: each drawn from its plot spec at the entry's timestamp."""
     # Arrange
     project = _make_project(tmp_path)
     _activate(project, monkeypatch, ["rf-thermal"])
@@ -144,11 +144,10 @@ def test_seed_active_logbook_hands_over_each_entrys_pictures(tmp_path, monkeypat
     # Assert
     pictures = seen["pictures"]
     assert {entry_id: [p.name for p in paths] for entry_id, paths in pictures.items()} == {
-        "DEMO-011": ["orbit_rms_week.png"],
-        "DEMO-027": ["cavity_temperatures_week.png"],
+        "DEMO-011": ["orbit_rms.png"],
+        "DEMO-027": ["cavity_temperatures.png"],
     }
-    scenarios = (project / "data" / "simulation" / "scenarios").resolve()
-    assert all(p.is_file() and p.is_relative_to(scenarios) for ps in pictures.values() for p in ps)
+    assert all(data.startswith(b"\x89PNG") for ds in seen["bytes"].values() for data in ds)
     # The row itself is written bare; the seeder links the stored pictures.
     assert all(entry["attachments"] == [] for entry in seen["seeded"])
 

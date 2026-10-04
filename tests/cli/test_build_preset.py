@@ -240,10 +240,13 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
     assert [(e.title, e.text, e.when) for e in seeded] == [
         (e.title, e.text, e.when) for e in expected
     ]
+
+    def _pictures(entry):
+        """A shipped picture by its bytes, a plot spec by its parsed contents."""
+        return [item.read_bytes() if isinstance(item, pathlib.Path) else item for item in entry]
+
     for got, want in zip(seeded, expected, strict=True):
-        assert [p.read_bytes() for p in got.attachments] == [
-            p.read_bytes() for p in want.attachments
-        ], got.entry_id
+        assert _pictures(got.attachments) == _pictures(want.attachments), got.entry_id
     assert sum(len(e.attachments) for e in seeded) == 3
 
     corpus = templates / "control_assistant" / "data" / "demo_machine.ttl"
@@ -973,10 +976,8 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
         assert (sim_dir / "scenarios" / name / "scenario.json").exists(), f"{name} bundle missing"
     assert (sim_dir / "scenarios" / "nominal" / "logbook.json").exists()
     assert (sim_dir / "scenarios" / "rf-thermal" / "logbook.json").exists()
-    # The pictures logbook entries attach ship with their bundles.
-    assert (
-        sim_dir / "scenarios" / "rf-thermal" / "plots" / "cavity_temperatures_week.png"
-    ).exists()
+    # The pictures and plot specs logbook entries attach ship with their bundles.
+    assert (sim_dir / "scenarios" / "rf-thermal" / "plots" / "cavity_temperatures.json").exists()
     # vacuum-burst is telemetry-only by design (no logbook narrative).
     assert not (sim_dir / "scenarios" / "vacuum-burst" / "logbook.json").exists()
 

@@ -1,36 +1,42 @@
 #!/usr/bin/env python3
-"""Draw the pictures the control-assistant demo scenarios attach to their logbook entries.
+"""Write the pictures the control-assistant demo scenarios attach to their logbook entries.
 
 Usage: ``python scripts/scenario_plots.py [SIMULATION_DIR]``
 
 ``SIMULATION_DIR`` defaults to the control-assistant template's
-``data/simulation``. Each picture is written to ``<scenario>/plots/`` inside it
-and is named by an entry's ``attachments`` in that scenario's ``logbook.json``.
+``data/simulation``. Every output goes to ``<scenario>/plots/`` inside it and is
+named by an entry's ``attachments`` in that scenario's ``logbook.json``.
 
-Every value drawn is derived from the scenario's own definition, never typed in:
+Every value is derived from the scenario's own definition, never typed in:
 
-* ``bpm-polarity`` -- each sector BPM's reading against a kick of the corrector
-  upstream of the reversed BPM, from the demo ring's closed orbit, with the
-  scenario's BPM polarity applied to the readings and the machine file's BPM
-  noise added.
-* ``rf-thermal`` -- the two cavity temperatures over a week, synthesized by
-  the simulation engine from the scenario's archiver events.
-* ``nominal`` -- the RMS of all ring BPM readings over a week, synthesized by
-  the simulation engine from the machine file's BPM texture and noise.
+* ``bpm-polarity`` -- a shipped PNG: each sector BPM's reading against a kick
+  of the corrector upstream of the reversed BPM, from the demo ring's closed
+  orbit, with the scenario's BPM polarity applied to the readings and the
+  machine file's BPM noise added. It has no time axis, so it is drawn here.
+* ``rf-thermal`` -- a plot spec: the two cavity temperatures over a week,
+  synthesized by the simulation engine from the scenario's archiver events.
+* ``nominal`` -- a plot spec: the RMS of all ring BPM readings over a week,
+  synthesized by the simulation engine from the machine file's BPM texture and
+  noise.
 
-A time series ends at the time of the entry that attaches it, resolved from
-that entry's ``when`` against the same anchor the telemetry is drawn against, so
-the picture shows what its author could have seen when writing the entry.
+A plot spec carries its series and a time axis in hours before the entry that
+attaches it, resolved from that entry's ``when`` against the same anchor the
+telemetry is synthesized against. The seeder draws it with
+:func:`osprey.simulation.plots.render_plot_spec` at the entry's real timestamp,
+so the picture shows the dates the entry was written on.
 
-The output is deterministic: draws come from fixed seeds and keyed series, the
-time axis is relative, and the PNGs are re-encoded without text chunks, so a
-re-run on the same library versions rewrites identical bytes.
+Every picture states only what an operator's strip-chart export would: device
+and quantity names, units, and the data. Nothing on it points at a finding.
+
+The output is deterministic: draws come from fixed seeds and keyed series, and
+the PNG is re-encoded without text chunks, so a re-run on the same library
+versions rewrites identical bytes.
 """
 
 from __future__ import annotations
 
-import io
 import json
+import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -43,8 +49,9 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SIMULATION_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 
-#: The scenario start every time series is drawn against. Any instant gives the
-#: same event shapes; a fixed one keeps the keyed noise and texture reproducible.
+#: The scenario start every time series is synthesized against. Any instant
+#: gives the same event shapes relative to an entry; a fixed one keeps the keyed
+#: noise and texture reproducible.
 ANCHOR = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 
 #: Span of every time-series picture, ending at its entry's time.
@@ -56,15 +63,16 @@ KICKS_URAD = np.linspace(-40.0, 40.0, 9)
 #: Seed of the BPM read noise in the bump test.
 BUMP_NOISE_SEED = 17
 
-#: Pixel size of every picture (figure inches at 100 dpi).
-FIGSIZE = (8.0, 4.5)
-DPI = 100
-
-CAVITY01_TEMPERATURE = "SR:RF:CAVITY:01:TEMPERATURE:RB"
+CAVITY_TEMPERATURES = ("SR:RF:CAVITY:01:TEMPERATURE:RB", "SR:RF:CAVITY:02:TEMPERATURE:RB")
 
 BPM_POLARITY_PLOT = "plots/corrector_bump_test.png"
-RF_THERMAL_PLOT = "plots/cavity_temperatures_week.png"
-NOMINAL_PLOT = "plots/orbit_rms_week.png"
+RF_THERMAL_SPEC = "plots/cavity_temperatures.json"
+NOMINAL_SPEC = "plots/orbit_rms.json"
+
+#: Decimals kept in a spec's numbers: far below the noise drawn, and it keeps
+#: the bundle files small.
+_HOURS_DECIMALS = 4
+_VALUE_DECIMALS = 3
 
 
 @dataclass(frozen=True)
@@ -77,15 +85,6 @@ class BumpTest:
     model_slopes: tuple[float, ...]
     readings_um: tuple[tuple[float, ...], ...]
     reversed_bpms: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class Trend:
-    """Named series on one shared time axis: hours before ``end``."""
-
-    end: datetime
-    hours: tuple[float, ...]
-    series: dict[str, tuple[float, ...]]
 
 
 def _read_json(path: Path) -> dict:
@@ -160,50 +159,49 @@ def bump_test(simulation_dir: Path) -> BumpTest:
     )
 
 
-def _engine(simulation_dir: Path, scenario: str, state_dir: Path):
+def _synthesize(simulation_dir: Path, scenario: str, channels: list[str], times: list[datetime]):
+    """Synthesize ``channels`` at ``times`` with ``scenario`` active.
+
+    The engine runs on a copy of the simulation tree without its narratives:
+    loading a logbook checks the plot specs it names, which are what this
+    script is about to write, and telemetry never depends on a narrative.
+    """
     from osprey.simulation.engine import SimulationEngine
 
-    engine = SimulationEngine.from_file(simulation_dir / "machine.json", state_dir=state_dir)
-    engine.set_active_scenarios([scenario], anchor=ANCHOR)
-    return engine
-
-
-def _synthesize(simulation_dir: Path, scenario: str, channels: list[str], times: list[datetime]):
-    with tempfile.TemporaryDirectory() as state_dir:
-        engine = _engine(simulation_dir, scenario, Path(state_dir))
+    with tempfile.TemporaryDirectory() as scratch:
+        telemetry = Path(scratch) / "simulation"
+        shutil.copytree(
+            simulation_dir, telemetry, ignore=shutil.ignore_patterns("logbook.json", "plots")
+        )
+        engine = SimulationEngine.from_file(
+            telemetry / "machine.json", state_dir=Path(scratch) / "state"
+        )
+        engine.set_active_scenarios([scenario], anchor=ANCHOR)
         return {pv: np.asarray(engine.synthesize_series(pv, times)) for pv in channels}
 
 
-def entry_time(simulation_dir: Path, scenario: str, plot: str) -> datetime:
-    """When the entry attaching ``plot`` was written, resolved against :data:`ANCHOR`.
+def entry_time(simulation_dir: Path, scenario: str, spec: str) -> datetime:
+    """When the entry attaching plot spec ``spec`` was written, resolved against :data:`ANCHOR`.
 
-    The entry is found by the picture its ``attachments`` names, so a picture
-    moved to another entry moves its window with it.
+    The entry is found by the spec its ``attachments`` names, so a spec moved
+    to another entry moves its window with it.
     """
     from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
     entries = _read_json(simulation_dir / "scenarios" / scenario / "logbook.json")
     for entry in entries:
-        if any(item.get("path") == plot for item in entry.get("attachments", [])):
+        if any(item.get("plot") == spec for item in entry.get("attachments", [])):
             when = entry["when"]
-            spec = RelativeTimestamp(
+            relative = RelativeTimestamp(
                 days_ago=int(when["days_ago"]), time=dtime.fromisoformat(when["time"])
             )
-            return resolve_relative_timestamp(spec, ANCHOR)
-    raise ValueError(f"no {scenario} logbook entry attaches {plot}")
+            return resolve_relative_timestamp(relative, ANCHOR)
+    raise ValueError(f"no {scenario} logbook entry attaches {spec}")
 
 
 def _week_before(end: datetime, step: timedelta) -> list[datetime]:
     count = int(WINDOW / step)
     return [end - WINDOW + step * i for i in range(count + 1)]
-
-
-def _trend(end: datetime, times: list[datetime], series: dict[str, np.ndarray]) -> Trend:
-    return Trend(
-        end=end,
-        hours=tuple((t - end).total_seconds() / 3600.0 for t in times),
-        series={name: tuple(float(v) for v in values) for name, values in series.items()},
-    )
 
 
 def event_instant(event: dict) -> datetime:
@@ -213,37 +211,47 @@ def event_instant(event: dict) -> datetime:
     return datetime.fromtimestamp(anchored_instant(event, ANCHOR.timestamp(), UTC), UTC)
 
 
-def excursion_peaks(simulation_dir: Path, end: datetime) -> list[tuple[float, float]]:
-    """``(hours before end, peak temperature)`` of each CAVITY01 excursion in the window.
+def _plot_spec(
+    filename: str,
+    title: str,
+    ylabel: str,
+    end: datetime,
+    times: list[datetime],
+    series: dict[str, np.ndarray],
+    ylim: tuple[float, float] | None = None,
+) -> dict:
+    """A plot spec of ``series`` on ``times``, its axis counted back from ``end``."""
+    hours = [round((end - t).total_seconds() / 3600.0, _HOURS_DECIMALS) + 0.0 for t in times]
+    spec: dict = {
+        "filename": filename,
+        "title": title,
+        "ylabel": ylabel,
+        "hours_before": hours,
+        "series": [
+            {"label": label, "values": [round(float(v), _VALUE_DECIMALS) for v in values]}
+            for label, values in series.items()
+        ],
+    }
+    if ylim is not None:
+        spec["ylim"] = list(ylim)
+    return spec
 
-    Read from the rf-thermal scenario's spike events on the channel: the
-    machine file's baseline plus the spike amplitude, at the spike's instant.
-    """
-    baseline = float(
-        _read_json(simulation_dir / "machine.json")["channels"][CAVITY01_TEMPERATURE]["value"]
-    )
-    spec = _read_json(simulation_dir / "scenarios/rf-thermal/scenario.json")
-    events = next(a["events"] for a in spec["archiver"] if a["channel"] == CAVITY01_TEMPERATURE)
-    peaks = []
-    for event in events:
-        if event["shape"] != "spike":
-            continue
-        at = event_instant(event)
-        if end - WINDOW <= at <= end:
-            peaks.append(
-                ((at - end).total_seconds() / 3600.0, baseline + float(event["amplitude"]))
-            )
-    return peaks
 
-
-def cavity_temperatures(simulation_dir: Path, end: datetime) -> Trend:
-    """Both cavity temperatures over the week up to ``end``, under rf-thermal."""
+def cavity_temperatures_spec(simulation_dir: Path, end: datetime) -> dict:
+    """Both cavity temperatures, every 10 minutes over the week up to ``end``, under rf-thermal."""
     times = _week_before(end, timedelta(minutes=10))
-    channels = [CAVITY01_TEMPERATURE, "SR:RF:CAVITY:02:TEMPERATURE:RB"]
-    return _trend(end, times, _synthesize(simulation_dir, "rf-thermal", channels, times))
+    synthesized = _synthesize(simulation_dir, "rf-thermal", list(CAVITY_TEMPERATURES), times)
+    return _plot_spec(
+        "cavity_temperatures.png",
+        "CAVITY01 / CAVITY02 body temperature",
+        "°C",
+        end,
+        times,
+        {pv.split(":")[2] + pv.split(":")[3]: synthesized[pv] for pv in CAVITY_TEMPERATURES},
+    )
 
 
-def orbit_rms_week(simulation_dir: Path, end: datetime) -> Trend:
+def orbit_rms_spec(simulation_dir: Path, end: datetime) -> dict:
     """RMS over all ring BPMs, per plane, hourly across the week up to ``end`` (µm)."""
     times = _week_before(end, timedelta(hours=1))
     channels = _read_json(simulation_dir / "machine.json")["channels"]
@@ -257,125 +265,66 @@ def orbit_rms_week(simulation_dir: Path, end: datetime) -> Trend:
         series = _synthesize(simulation_dir, "nominal", pvs, times)
         stacked = np.vstack([series[pv] for pv in pvs]) * 1e6
         rms[plane] = np.sqrt(np.mean(stacked**2, axis=0))
-    return _trend(end, times, rms)
-
-
-def _figure():
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    plt.rcdefaults()
-    return plt
-
-
-def _save(fig, path: Path) -> None:
-    """Write ``fig`` as a palette PNG with no text chunks."""
-    from PIL import Image
-
-    buffer = io.BytesIO()
-    fig.savefig(buffer, format="png", dpi=DPI, metadata={"Software": None})
-    buffer.seek(0)
-    with Image.open(buffer) as image:
-        flat = image.convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    out = io.BytesIO()
-    flat.save(out, format="PNG", optimize=True)
-    path.write_bytes(out.getvalue())
+    return _plot_spec("orbit_rms.png", "SR orbit RMS", "µm", end, times, rms, ylim=(0.0, 20.0))
 
 
 def draw_bump_test(test: BumpTest, path: Path) -> None:
-    plt = _figure()
-    fig, axes = plt.subplots(2, 3, figsize=FIGSIZE, sharex=True)
-    for ax, bpm, slope, readings in zip(
-        axes.flat, test.bpms, test.model_slopes, test.readings_um, strict=True
-    ):
-        flipped = bpm in test.reversed_bpms
-        ax.plot(KICKS_URAD, slope * KICKS_URAD, "--", color="0.45", lw=1, label="model")
-        ax.plot(
-            KICKS_URAD,
-            readings,
-            "o",
-            ms=4,
-            color="tab:red" if flipped else "tab:blue",
-            label="measured",
-        )
-        title = f"{bpm}: moves opposite to model" if flipped else bpm
-        ax.set_title(title, fontsize=9, color="tab:red" if flipped else "black")
-        ax.grid(alpha=0.3)
-        ax.tick_params(labelsize=8)
-    for ax in axes[1]:
-        ax.set_xlabel(f"{test.corrector} kick (µrad)", fontsize=8)
-    for ax in axes[:, 0]:
-        ax.set_ylabel("Horizontal reading (µm)", fontsize=8)
-    axes.flat[0].legend(fontsize=7, loc="upper left")
-    sector = test.sector.removeprefix("SECT")
-    fig.suptitle(
-        f"Corrector bump test, sector {sector}: BPM readings vs {test.corrector} kick",
-        fontsize=10,
-    )
-    fig.tight_layout()
-    _save(fig, path)
-    plt.close(fig)
+    """One panel per sector BPM, all drawn alike: model slope dashed, readings as dots."""
+    from matplotlib import style
+
+    from osprey.simulation.plots import DPI, FIGSIZE, figure_png
+
+    with style.context("default"):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        fig = Figure(figsize=FIGSIZE, dpi=DPI)
+        FigureCanvasAgg(fig)
+        axes = fig.subplots(2, 3, sharex=True)
+        for ax, bpm, slope, readings in zip(
+            axes.flat, test.bpms, test.model_slopes, test.readings_um, strict=True
+        ):
+            ax.plot(KICKS_URAD, slope * KICKS_URAD, "--", color="0.45", lw=1, label="model")
+            ax.plot(KICKS_URAD, readings, "o", ms=4, color="C0", label="measured")
+            ax.set_title(bpm, fontsize=9)
+            ax.grid(alpha=0.3)
+            ax.tick_params(labelsize=8)
+        for ax in axes[1]:
+            ax.set_xlabel(f"{test.corrector} kick (µrad)", fontsize=8)
+        for ax in axes[:, 0]:
+            ax.set_ylabel("X (µm)", fontsize=8)
+        axes.flat[0].legend(fontsize=7, loc="best")
+        fig.suptitle(f"{test.corrector} bump test, horizontal", fontsize=10)
+        fig.tight_layout()
+        data = figure_png(fig)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
 
 
-def draw_cavity_temperatures(trend: Trend, peaks: list[tuple[float, float]], path: Path) -> None:
-    plt = _figure()
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    days = np.asarray(trend.hours) / 24.0
-    colors = {"01": "tab:red", "02": "tab:blue"}
-    for pv, values in trend.series.items():
-        number = pv.split(":")[3]
-        ax.plot(days, values, color=colors.get(number, "black"), lw=1.0, label=f"CAVITY{number}")
-    cavity1 = np.asarray(trend.series[CAVITY01_TEMPERATURE])
-    for at, peak in peaks:
-        ax.annotate(
-            f"peak {peak:.1f} °C",
-            (at / 24.0, peak),
-            xytext=(0, 8),
-            textcoords="offset points",
-            ha="center",
-            fontsize=8,
-        )
-    ax.set_xlabel("Days before this entry")
-    ax.set_ylabel("Cavity body temperature (°C)")
-    ax.set_title("RF cavity body temperatures, the week before this entry")
-    ax.set_ylim(24.0, float(cavity1.max()) + 2.0)
-    ax.grid(alpha=0.3)
-    ax.legend(loc="upper left", fontsize=8)
-    fig.tight_layout()
-    _save(fig, path)
-    plt.close(fig)
+def write_spec(spec: dict, path: Path) -> None:
+    """Write ``spec`` as JSON: one key per line, each array on one line."""
+    from osprey.simulation.machine import parse_plot_spec
+
+    parse_plot_spec(spec, str(path))
+    lines = []
+    for key, value in spec.items():
+        if key == "series":
+            items = ",\n".join(f"    {json.dumps(s, ensure_ascii=False)}" for s in value)
+            lines.append(f'  "series": [\n{items}\n  ]')
+        else:
+            lines.append(f"  {json.dumps(key)}: {json.dumps(value, ensure_ascii=False)}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{\n" + ",\n".join(lines) + "\n}\n", encoding="utf-8")
 
 
-def draw_orbit_rms(trend: Trend, path: Path) -> None:
-    plt = _figure()
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    days = np.asarray(trend.hours) / 24.0
-    for plane, color, label in (("X", "tab:blue", "horizontal"), ("Y", "tab:green", "vertical")):
-        values = np.asarray(trend.series[plane])
-        ax.plot(days, values, color=color, lw=1.2, label=f"{label} (max {values.max():.1f} µm)")
-    ax.set_xlabel("Days before this entry")
-    ax.set_ylabel("Closed-orbit RMS over all 72 ring BPMs (µm)")
-    ax.set_title("Closed-orbit RMS, the week before this entry (hourly)")
-    ax.set_ylim(0.0, 20.0)
-    ax.grid(alpha=0.3)
-    ax.legend(loc="upper left", fontsize=8)
-    fig.tight_layout()
-    _save(fig, path)
-    plt.close(fig)
+def write_rf_thermal(simulation_dir: Path, path: Path) -> None:
+    end = entry_time(simulation_dir, "rf-thermal", RF_THERMAL_SPEC)
+    write_spec(cavity_temperatures_spec(simulation_dir, end), path)
 
 
-def draw_rf_thermal(simulation_dir: Path, path: Path) -> None:
-    end = entry_time(simulation_dir, "rf-thermal", RF_THERMAL_PLOT)
-    trend = cavity_temperatures(simulation_dir, end)
-    draw_cavity_temperatures(trend, excursion_peaks(simulation_dir, end), path)
-
-
-def draw_nominal(simulation_dir: Path, path: Path) -> None:
-    end = entry_time(simulation_dir, "nominal", NOMINAL_PLOT)
-    draw_orbit_rms(orbit_rms_week(simulation_dir, end), path)
+def write_nominal(simulation_dir: Path, path: Path) -> None:
+    end = entry_time(simulation_dir, "nominal", NOMINAL_SPEC)
+    write_spec(orbit_rms_spec(simulation_dir, end), path)
 
 
 def main(argv: list[str]) -> int:
@@ -385,11 +334,11 @@ def main(argv: list[str]) -> int:
         scenarios / "bpm-polarity" / BPM_POLARITY_PLOT: lambda p: draw_bump_test(
             bump_test(simulation_dir), p
         ),
-        scenarios / "rf-thermal" / RF_THERMAL_PLOT: lambda p: draw_rf_thermal(simulation_dir, p),
-        scenarios / "nominal" / NOMINAL_PLOT: lambda p: draw_nominal(simulation_dir, p),
+        scenarios / "rf-thermal" / RF_THERMAL_SPEC: lambda p: write_rf_thermal(simulation_dir, p),
+        scenarios / "nominal" / NOMINAL_SPEC: lambda p: write_nominal(simulation_dir, p),
     }
-    for path, draw in outputs.items():
-        draw(path)
+    for path, write in outputs.items():
+        write(path)
         print(f"wrote {path.relative_to(simulation_dir)} ({path.stat().st_size // 1024} KB)")
     return 0
 
