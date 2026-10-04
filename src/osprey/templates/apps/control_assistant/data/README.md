@@ -19,7 +19,6 @@ data/
 │   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
 ├── channel_limits.json                    # Per-channel write limits
 ├── machine_state_channels.json            # Address list reconciled against the VA manifest
-├── demo_machine.ttl                       # Knowledge-graph corpus (graph paradigm)
 ├── ariel/
 │   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
 │   └── README.md                         # Vocabulary format walkthrough
@@ -41,8 +40,9 @@ the build writes at its own path; nothing is flattened. The render drops the
 the same channel namespace as a file. All three describe addresses in the
 `RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD` grammar. The mode's fourth value,
 `graph`, is not one of them: it answers from the facility knowledge graph
-rather than a channel database. Its corpus is `demo_machine.ttl` in this
-directory, seeded into the `services.graphdb` store.
+rather than a channel database. Its corpus is `data/graph/facility.ttl`, the
+graph view the build writes from `facility/`, seeded into the
+`services.graphdb` store.
 
 ### `in_context` — flat structure
 
