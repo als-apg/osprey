@@ -74,7 +74,10 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
             "data/graph/facility.ttl",
             "data/simulator/addresses.json",
             "data/simulator/decks/SR.json",
+            "data/simulator/scenarios.json",
+            "data/simulator/seeds.json",
             "data/simulator/served_models.json",
+            "data/simulator/variables.json",
             FACILITY_FILE,
         ]
 
