@@ -279,6 +279,8 @@ config:
   # Models the simulator serves, named from data/facility/models.yaml. null
   # serves every model; [texture] serves no physics.
   simulation.models: null
+  # Seconds between the simulator's ticks; must be greater than 0.
+  simulation.tick_s: 1.0
   # The channel finder is file-backed and needs no standing service, so
   # `osprey web` runs it with zero `osprey up`. Nothing to deploy.
   deployed_services: []

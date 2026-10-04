@@ -923,6 +923,25 @@ def _simulation_models_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _simulation_tick_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The simulator tick period every preset states.
+
+    Each preset states ``simulation.tick_s: 1.0``, so every document a cell
+    renders carries the leaf. The fixtures were frozen before the key existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="simulation.tick_s", fixture=ABSENT, live=1.0)
+        for document in documents
+    )
+
+
 def _dispatcher_name_deltas() -> tuple[Delta, ...]:
     """The facility name the dispatcher dashboard shows.
 
@@ -1198,6 +1217,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         Delta(document="root", path="approval.tools.entry_create", fixture="always", live=ABSENT),
         *_rail_tool_deltas("root"),
         *_simulation_models_deltas("root"),
+        *_simulation_tick_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
     + _facility_name_deltas()
@@ -1207,6 +1227,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _fuzzy_threshold_deltas("root")
     + _embedding_input_limit_deltas("root")
     + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
     + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _facility_name_deltas()
@@ -1214,6 +1235,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
     + _standalone_picker_deltas()
     + _in_context_index_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
@@ -1222,6 +1244,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
     + _standalone_picker_deltas()
     + _hierarchical_index_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
@@ -1230,6 +1253,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
     + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
     + _standalone_picker_deltas()
     + _middle_layer_index_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
@@ -1255,6 +1279,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
@@ -1282,6 +1307,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
@@ -1309,6 +1335,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
@@ -1336,6 +1363,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas(),

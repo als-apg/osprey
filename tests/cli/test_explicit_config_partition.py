@@ -359,9 +359,10 @@ def test_root_render_is_partitioned_between_its_sources(
     # keyword block gains its `fuzzy_threshold`, the fuzzy-fallback floor,
     # which was a number fixed in the keyword module; and control-assistant
     # gains the readiness-probe bound, which was a constant when the freeze ran;
-    # and every preset gains `simulation.models`, which did not exist when the
-    # freeze ran either; and every preset that reaches no machine gains
-    # `web.control_target_picker`, which did not exist when the freeze ran.
+    # and every preset gains `simulation.models` and `simulation.tick_s`, which
+    # did not exist when the freeze ran either; and every preset that reaches no
+    # machine gains `web.control_target_picker`, which did not exist when the
+    # freeze ran.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -388,6 +389,8 @@ def test_root_render_is_partitioned_between_its_sources(
         expected_gain = expected_gain | {"control_system.target_switch.probe_timeout_s"}
     if "simulation.models" in config:
         expected_gain = expected_gain | {"simulation.models"}
+    if "simulation.tick_s" in config:
+        expected_gain = expected_gain | {"simulation.tick_s"}
     if "web.control_target_picker" in config:
         expected_gain = expected_gain | {"web.control_target_picker"}
     assert missing == expected_gain, (
