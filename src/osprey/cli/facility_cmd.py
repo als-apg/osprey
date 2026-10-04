@@ -17,10 +17,12 @@ sources under ``data/facility/imported/mml/`` and seeds each authored file that
 does not exist yet. An authored record source merges against the layer's
 records, so the verb stops before it reads an export while one is present and
 prints the ``rm`` line of each: every file of ``records/`` and ``decks/``,
-``models.yaml``, and each of ``seeds.yaml``, ``limits.yaml``, ``identity.yaml``,
-``measurement/`` and ``scenarios/*.yaml`` that does not open with the layer's own
-header line.
-``fixes.yaml``, ``classes.yaml`` and ``knowledge/`` are never in the way.
+``models.yaml``, and each of ``seeds.yaml``, ``limits.yaml``, ``identity.yaml``
+and ``measurement/`` that does not open with the layer's own header line.
+``fixes.yaml``, ``classes.yaml``, ``scenarios/`` and ``knowledge/`` are never in
+the way. After the import it prints an ``rm`` line, on stderr, for each scenario
+file without the layer's header line that names something the imported facility
+does not have, and deletes none.
 ``--print-exporter`` prints the MATLAB exporter the layer ships and needs
 neither a repo nor an export.
 
@@ -189,9 +191,8 @@ def _authored_record_sources(facility_dir: Path) -> list[Path]:
     """The authored files that would merge against the mml layer's records, sorted.
 
     Every file of ``records/`` and ``decks/`` and ``models.yaml`` count
-    whatever they hold; ``seeds.yaml``, ``limits.yaml``, ``identity.yaml``, the
-    files of ``measurement/`` and each ``scenarios/*.yaml`` count unless the mml
-    layer seeded them.
+    whatever they hold; ``seeds.yaml``, ``limits.yaml``, ``identity.yaml`` and
+    the files of ``measurement/`` count unless the mml layer seeded them.
     """
     from osprey.facility.layers.mml.seed import (
         IDENTITY_FILE,
@@ -210,7 +211,6 @@ def _authored_record_sources(facility_dir: Path) -> list[Path]:
         if (facility_dir / name).is_file()
     ]
     seedable += _files(facility_dir / MEASUREMENT_DIR)
-    seedable += sorted((facility_dir / _SCENARIOS_DIR).glob("*.yaml"))
     found += [path for path in seedable if not _mml_seeded(path)]
     return sorted(found)
 
@@ -258,7 +258,8 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     beside it. Exits 1 and writes no record while the mapping is a draft, has
     an undecided slot, has the wrong structure or fails its check, while
     an authored record source is present, or while the profile does not
-    resolve.
+    resolve. After the import it lists each scenario file that names
+    something the facility no longer has, as rm lines, and deletes nothing.
     """
     import shlex
 
@@ -266,6 +267,7 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     from osprey.facility.layers.mml.importer import MappingProblems
     from osprey.facility.layers.mml.importer import import_mml as run_import
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
+    from osprey.facility.validate import stale_scenarios
 
     repo_root = find_repo_root(repo)
     try:
@@ -291,3 +293,16 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
         mapping = _shown(facility_dir / MAPPING_FILE, repo_root)
         fail(f"{mapping} is not a valid mapping document.", str(error))
         ctx.exit(1)
+
+    stale = sorted(
+        path
+        for path in (
+            facility_dir / _SCENARIOS_DIR / f"{name}.yaml"
+            for name in stale_scenarios(facility_dir, project_name=repo_root.name)
+        )
+        if not _mml_seeded(path)
+    )
+    if stale:
+        click.echo("these scenario files name channels that no longer exist:", err=True)
+        for path in stale:
+            click.echo(f"  rm {shlex.quote(_shown(path, repo_root))}", err=True)

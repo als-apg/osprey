@@ -30,6 +30,18 @@ EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_e
 #: The stop's first line, with the count of the files it then names.
 STOP = "import mml: authored-present: {} {}"
 
+#: The header line of the scenario files a clean import leaves stale.
+STALE = "these scenario files name channels that no longer exist:"
+
+#: The demo scenarios that name a channel or model the synthetic export lacks.
+DEMO_STALE = (
+    "bpm-polarity.yaml",
+    "orm-dual-fault.yaml",
+    "rf-thermal-live.yaml",
+    "rf-thermal.yaml",
+    "vacuum-burst.yaml",
+)
+
 
 def _stop(count: int) -> str:
     return STOP.format(count, "file" if count == 1 else "files")
@@ -118,6 +130,8 @@ def test_an_authored_tree_stops_the_import_and_names_each_file(repo: Path) -> No
         *(f"rm {path}" for path in removals),
     ]
     assert "data/facility/records/channels.yaml" in removals
+    assert sorted((_facility(repo) / "scenarios").glob("*.yaml"))
+    assert [path for path in removals if path.startswith("data/facility/scenarios/")] == []
     assert removals == sorted(removals)
     assert all((repo / path).is_file() for path in removals)
     assert result.stdout == ""
@@ -196,31 +210,64 @@ def test_a_limits_file_under_the_layer_header_is_not_refused(cleared: Path) -> N
     assert limits.read_text(encoding="utf-8") == f"{HEADER}\nrecords: []\n"
 
 
-def test_a_scenario_without_the_layer_header_is_refused_and_a_headed_one_is_not(
+def test_the_import_lists_each_demo_scenario_it_leaves_stale_and_deletes_none(
     cleared: Path,
 ) -> None:
-    scenarios = _facility(cleared) / "scenarios"
-    scenarios.mkdir(exist_ok=True)
-    headed = scenarios / "readout.yaml"
-    headed.write_text(f"{HEADER}\nfaults: {{}}\n", encoding="utf-8")
-    authored = scenarios / "drift.yaml"
-    authored.write_text("description: An authored scenario.\n", encoding="utf-8")
-
-    refused = _import(cleared)
-
-    assert refused.exit_code == 1
-    assert refused.stderr.splitlines() == [
-        "import mml: authored-present: 1 file",
-        "rm data/facility/scenarios/drift.yaml",
-    ]
-    assert not (_facility(cleared) / LAYER_DIR / "channels.yaml").exists()
-
     pytest.importorskip("at")
-    authored.unlink()
-    for _ in range(2):
-        accepted = _import(cleared)
-        assert accepted.exit_code == 0, accepted.output
-        assert headed.read_text(encoding="utf-8") == f"{HEADER}\nfaults: {{}}\n"
+    scenarios = _facility(cleared) / "scenarios"
+    before = _snapshot(scenarios)
+    assert sorted(before) == sorted([*DEMO_STALE, "nominal.yaml"])
+
+    first = _import(cleared)
+
+    assert first.exit_code == 0, first.output
+    assert first.stderr == (
+        f"{STALE}\n"
+        "  rm data/facility/scenarios/bpm-polarity.yaml\n"
+        "  rm data/facility/scenarios/orm-dual-fault.yaml\n"
+        "  rm data/facility/scenarios/rf-thermal-live.yaml\n"
+        "  rm data/facility/scenarios/rf-thermal.yaml\n"
+        "  rm data/facility/scenarios/vacuum-burst.yaml\n"
+    )
+    after = _snapshot(scenarios)
+    assert {name: after[name] for name in before} == before
+    assert "readout.yaml" not in first.stderr
+
+    second = _import(cleared)
+
+    assert second.exit_code == first.exit_code
+    assert second.stderr == first.stderr
+
+
+def _without_the_stale_demo(repo: Path) -> Path:
+    scenarios = _facility(repo) / "scenarios"
+    for name in DEMO_STALE:
+        (scenarios / name).unlink()
+    return scenarios
+
+
+def test_a_headed_scenario_is_never_listed(cleared: Path) -> None:
+    scenarios = _without_the_stale_demo(cleared)
+    (scenarios / "drift.yaml").write_text(
+        f"{HEADER}\noverrides:\n  NO:SUCH:CHANNEL: 1.0\n", encoding="utf-8"
+    )
+    pytest.importorskip("at")
+
+    result = _import(cleared)
+
+    assert result.exit_code == 0, result.output
+    assert STALE not in result.stderr
+
+
+def test_an_authored_scenario_that_resolves_is_never_listed(cleared: Path) -> None:
+    scenarios = _without_the_stale_demo(cleared)
+    (scenarios / "plain.yaml").write_text("description: An authored scenario.\n", encoding="utf-8")
+    pytest.importorskip("at")
+
+    result = _import(cleared)
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr == ""
 
 
 @pytest.mark.parametrize("text", ["records: []\n", ""], ids=["no-header", "empty"])

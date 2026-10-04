@@ -62,6 +62,7 @@ __all__ = [
     "schema_document",
     "signal_roles",
     "sort_errors",
+    "stale_scenarios",
     "stating_files",
     "validate",
     "vocabulary",
@@ -867,6 +868,57 @@ class _References:
                 yield from self._missing(
                     "measurement", model, files, f"instruments.{role}", "channel", address
                 )
+
+
+def stale_scenarios(facility_dir: Path, *, project_name: str) -> list[str]:
+    """The scenarios that name something the facility does not have, sorted.
+
+    A scenario counts when the reference stage finds a channel or model it
+    names missing (``reference-missing``), or when a fault it keys under an
+    engine model is neither a channel nor one of that engine's variables
+    (``engine-invalid``). Both are the build's own checks, run over the tree
+    as it stands.
+
+    Args:
+        facility_dir: The ``data/facility`` directory.
+        project_name: The project's name, as the build is given it.
+
+    Returns:
+        Each such scenario's name. Empty when the tree does not load or
+        combine, since the build then stops on that first. Only the reference
+        stage counts when a model states an engine no plug-in is registered
+        under, since the build then stops on the missing engine.
+    """
+    from importlib import metadata
+
+    from osprey.facility.scenarios import check_scenario_engines
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    loaded = load_sources(facility_dir)
+    if loaded.errors:
+        return []
+    combined = combine(loaded.sources)
+    if combined.errors:
+        return []
+    names = {
+        error.record_id
+        for error in check_references(loaded.sources, combined)
+        if error.record_kind == "scenario" and error.kind == "reference-missing"
+    }
+    document = schema_document(combined.document, loaded.sources, project_name=project_name)
+    registered = metadata.entry_points(group=ENTRY_POINT_GROUP).names
+    engines = {
+        str(model["engine"])
+        for model in document.get("models") or []
+        if isinstance(model, dict) and "engine" in model
+    }
+    if engines <= set(registered):
+        names |= {
+            error.record_id
+            for error in check_scenario_engines(document)
+            if error.kind == "engine-invalid"
+        }
+    return sorted(names)
 
 
 def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
