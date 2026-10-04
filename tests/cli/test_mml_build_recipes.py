@@ -203,9 +203,6 @@ SEED_INVALID = re.compile(
     r"fix: .*widen the limits record$"
 )
 
-#: The response-check line of the synthetic tree's one model.
-SYNTHETIC_RESPONSE_LINES = ("response check SR: model BPMx/HC inside band 1.000 (pass at 0.99)",)
-
 #: The first words of every line the response check prints.
 RESPONSE_CHECK = "response check "
 
@@ -387,12 +384,17 @@ def expected_seed_stops(tree: str) -> frozenset[str]:
 
 def expected_response_lines(tree: str) -> tuple[str, ...]:
     """The response-check lines a fixture tree's clean ``facility validate`` prints."""
-    from tests.facility.test_response_check import NSLS2_LINES, NSLS2_LTB_LEFT_OUT, SPEAR3_LINE
+    from tests.facility.test_response_check import (
+        NSLS2_LINES,
+        NSLS2_LTB_LEFT_OUT,
+        SPEAR3_LINE,
+        SYNTHETIC_LINE,
+    )
 
     return {
         "nsls2": (NSLS2_LINES[0], NSLS2_LTB_LEFT_OUT, NSLS2_LINES[1]),
         "spear3": (SPEAR3_LINE,),
-        "synthetic": SYNTHETIC_RESPONSE_LINES,
+        "synthetic": (SYNTHETIC_LINE,),
     }[tree]
 
 
