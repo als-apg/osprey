@@ -17,6 +17,7 @@ Postgres dependency and runs in the fast suite.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -63,7 +64,7 @@ def _activate(project: Path, monkeypatch, names: list[str]) -> None:
 
 def _stub_ariel(monkeypatch, *, existing: int) -> dict:
     """Stub ARIEL's database calls; return what the seeder was asked to write."""
-    seen: dict = {"seeded": None, "pictures": None, "counted": 0, "mirrored": 0}
+    seen: dict = {"seeded": None, "pictures": None, "bytes": None, "counted": 0, "mirrored": 0}
 
     async def _count(_config_dict):
         seen["counted"] += 1
@@ -72,6 +73,11 @@ def _stub_ariel(monkeypatch, *, existing: int) -> dict:
     async def _seed(_config_dict, entries, _progress=None, *, pictures=None):
         seen["seeded"] = entries
         seen["pictures"] = pictures
+        # Read while seeding runs: a drawn picture's file lives only that long.
+        seen["bytes"] = {
+            entry_id: [path.read_bytes() for path in paths]
+            for entry_id, paths in (pictures or {}).items()
+        }
         return len(entries)
 
     async def _resync(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync, whose caller names rebuild and progress
@@ -300,3 +306,62 @@ def test_a_project_without_a_machine_model_activates_nothing(tmp_path):
     from osprey.simulation.apply import activate_default_scenarios
 
     assert activate_default_scenarios({"ariel": ARIEL_CONFIG}, tmp_path) == ()
+
+
+_PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x00\x00\x00\x00"
+    b":~\x9bU\x00\x00\x00\nIDATx\x9cc`\x00\x00\x00\x02\x00\x01H\xaf\xa4q\x00\x00\x00\x00IEND"
+    b"\xaeB`\x82"
+)
+
+
+def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
+    """A demo narrative of one entry carrying a plot spec and a shipped picture."""
+    bundle = tmp_path / "data" / "narratives" / "drift"
+    (bundle / "plots").mkdir(parents=True)
+    (bundle / "plots" / "shipped.png").write_bytes(_PNG_1X1)
+    spec = {
+        "filename": "orbit_rms.png",
+        "title": "SR orbit RMS",
+        "ylabel": "µm",
+        "hours_before": [48.0, 24.0, 0.0],
+        "series": [{"label": "X", "values": [10.0, 11.0, 10.5]}],
+    }
+    (bundle / "plots" / "orbit_rms.json").write_text(json.dumps(spec))
+    entry = {
+        "entry_id": "E1",
+        "when": {"days_ago": 3, "time": "10:00:00"},
+        "author": "ops",
+        "title": "Orbit check",
+        "text": "Attached: orbit RMS X, past two days.",
+        "attachments": [{"plot": "plots/orbit_rms.json"}, {"path": "plots/shipped.png"}],
+    }
+    (bundle / "logbook.json").write_text(json.dumps([entry]))
+    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": "data/narratives"}}
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
+    return config, tmp_path
+
+
+def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeypatch):
+    """The drawn picture shows the dates of the entry it is attached to: the spec
+    drawn at the seeded row's timestamp, handed over in the entry's own order."""
+    from osprey.simulation.machine import load_narratives
+    from osprey.simulation.plots import render_plot_spec
+
+    config, project = _plot_spec_project(tmp_path)
+    seen = _stub_ariel(monkeypatch, existing=0)
+
+    assert seed_active_logbook(config, project, config["ariel"]) == 1
+
+    (row,) = seen["seeded"]
+    (entry,) = load_narratives(project / "data" / "narratives")["drift"]
+    spec, shipped = entry.attachments
+    drawn_path, shipped_path = seen["pictures"]["E1"]
+    assert (drawn_path.name, shipped_path) == ("orbit_rms.png", shipped)
+    drawn_bytes, shipped_bytes = seen["bytes"]["E1"]
+    assert row["timestamp"].tzinfo is not None
+    assert drawn_bytes == render_plot_spec(spec, row["timestamp"])
+    assert shipped_bytes == _PNG_1X1
+    # The drawn file was scratch for the seed only; nothing is left behind.
+    assert not drawn_path.exists()
+    assert not list((project / "data").rglob("orbit_rms.png"))

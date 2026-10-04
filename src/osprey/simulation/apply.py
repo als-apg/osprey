@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -45,7 +46,7 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.simulation.archiver_seed import SeedKnobs
-    from osprey.simulation.machine import BpmErrorSpec, Scenario, ScenarioLogEntry
+    from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario, ScenarioLogEntry
 
 logger = get_logger("simulation_apply")
 
@@ -244,8 +245,8 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            entries, pictures = seed_payload(engine.active_logbook(), t0)
-            seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
+            with seed_payload(engine.active_logbook(), t0) as (entries, pictures):
+                seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
             logger.info("No 'ariel' config in project; skipped logbook seeding")
@@ -457,8 +458,8 @@ async def seed_narrative_if_empty(
 
     if await cli_operations.logbook_entry_count(ariel_config) > 0:
         return 0
-    entries, pictures = seed_payload(logbook, anchor)
-    seeded = await cli_operations.seed_logbook_entries(ariel_config, entries, pictures=pictures)
+    with seed_payload(logbook, anchor) as (entries, pictures):
+        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries, pictures=pictures)
     await _export_qmd_mirror(ariel_config)
     return seeded
 
@@ -1837,22 +1838,49 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
     }
 
 
+@contextmanager
 def seed_payload(
     logbook: Sequence[ScenarioLogEntry], anchor: datetime
-) -> tuple[list[EnhancedLogbookEntry], dict[str, tuple[Path, ...]]]:
+) -> Iterator[tuple[list[EnhancedLogbookEntry], dict[str, tuple[Path, ...]]]]:
     """What seeding writes for bundle entries: the rows, and each row's picture files.
+
+    A shipped picture is handed over as its bundle file. A plot spec is drawn
+    (:func:`~osprey.simulation.plots.render_plot_spec`) with its last point at
+    the entry's resolved timestamp, so its time axis shows that entry's dates,
+    and is handed over as a file named by the spec's ``filename`` in a
+    temporary directory that lives exactly as long as this context. Seed
+    inside the ``with`` block.
 
     Args:
         logbook: Bundle entries, in the order they are seeded.
         anchor: The instant their relative timestamps resolve against.
 
-    Returns:
-        The converted entries, and the picture files keyed by entry id (entries
-        without pictures are absent from the mapping).
+    Yields:
+        The converted entries, and the picture files keyed by entry id, in each
+        entry's own order (entries without pictures are absent from the mapping).
     """
     entries = [_to_enhanced_entry(entry, anchor) for entry in logbook]
-    pictures = {entry.entry_id: entry.attachments for entry in logbook if entry.attachments}
-    return entries, pictures
+    with tempfile.TemporaryDirectory(prefix="osprey-seed-pictures-") as scratch:
+        pictures: dict[str, tuple[Path, ...]] = {}
+        for index, (entry, row) in enumerate(zip(logbook, entries, strict=True)):
+            if entry.attachments:
+                drawn = Path(scratch) / str(index)
+                pictures[entry.entry_id] = tuple(
+                    _picture_file(item, row["timestamp"], drawn) for item in entry.attachments
+                )
+        yield entries, pictures
+
+
+def _picture_file(item: Path | PlotSpec, timestamp: datetime, directory: Path) -> Path:
+    """A shipped picture as is; a plot spec drawn at ``timestamp`` into ``directory``."""
+    if isinstance(item, Path):
+        return item
+    from osprey.simulation.plots import render_plot_spec
+
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / item.filename
+    path.write_bytes(render_plot_spec(item, timestamp))
+    return path
 
 
 async def _seed_logbook(
