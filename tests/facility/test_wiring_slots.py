@@ -192,6 +192,32 @@ class TestStops:
             "from; fix: name an element or slices for the record, or leave the channel unwired"
         ]
 
+    def test_a_stop_on_a_fix_added_record_names_fixes_yaml(self, tmp_path):
+        files = _files()
+        files["fixes.yaml"] = {
+            "schema": "osprey.facility.fixes/1",
+            "fixes": [
+                {
+                    "op": "add",
+                    "kind": "wiring",
+                    "id": "SR/K",
+                    "record": {"address": "K", "engine": ENGINE},
+                    "why": "Not exported.",
+                }
+            ],
+        }
+        result = _run(tmp_path, files)
+        assert result.failed == "wiring"
+        assert [(e.kind, e.record_id, e.sources) for e in result.errors] == [
+            ("engine-invalid", "SR/K", ("fixes.yaml",))
+        ]
+
+    def test_a_stop_on_a_models_yaml_record_names_models_yaml(self, tmp_path):
+        result = _run(tmp_path, _files({"address": "K", "engine": ENGINE}))
+        assert [(e.kind, e.record_id, e.sources) for e in result.errors] == [
+            ("engine-invalid", "SR/K", ("models.yaml",))
+        ]
+
     def test_the_other_records_are_still_filled(self, tmp_path):
         result = _run(tmp_path, _files({"address": "K", "engine": ENGINE}))
         records = _records(result)
