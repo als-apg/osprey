@@ -20,6 +20,7 @@ from tests.e2e.sdk_helpers import (
     is_claude_code_available,
     render_dir,
 )
+from tests.facility.served_tree import mock_config, served_tree
 
 # Dedicated, preset-decoupled limits DB for the write-safety scenarios. The
 # generic safety e2e must not depend on any preset's production
@@ -57,6 +58,31 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     limits = config["control_system"]["limits_checking"]
     limits["database_path"] = str(SAFETY_LIMITS_DB)
     limits["mode"] = "optional"
+    config_path.write_text(yaml.dump(config, default_flow_style=False))
+
+
+#: The setpoints the safety scenarios write, and the channels they only read.
+#: The read-only readback in :data:`SAFETY_LIMITS_DB` is served as a readback.
+SAFETY_SETPOINTS = (
+    "MAG:HCM01:CURRENT:SP",
+    "SR:DIAG:TEMP:01:TEMPERATURE:SP",
+    "SR:RANDOM:UNLISTED",
+)
+SAFETY_READINGS = ("SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB")
+
+
+def _serve_safety_channels(repo: Path, root: Path) -> None:
+    """Point the render's mock connector at a tree serving the scenarios' channels.
+
+    The tree is built under *root* and holds every channel a safety scenario
+    reads or writes; the ``mock`` block names its simulator view, so a block
+    copied from it serves the same channels.
+    """
+    view = served_tree(root, SAFETY_SETPOINTS, SAFETY_READINGS)
+    config_path = render_dir(repo) / "config.yml"
+    config = yaml.safe_load(config_path.read_text())
+    connector = config["control_system"]["connector"]
+    connector["mock"] = mock_config(view, **(connector.get("mock") or {}))
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
@@ -116,6 +142,7 @@ def safety_project(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety")
     repo = init_project(tmp, "safety-test-project", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     _point_at_safety_limits_db(repo)
     return repo
 
@@ -136,6 +163,7 @@ def safety_project_writes_off(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-writes-off")
     repo = init_project(tmp, "safety-writes-off", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["control_system"]["writes_enabled"] = False
@@ -186,6 +214,7 @@ def safety_project_mixed_render(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-mixed-render")
     repo = init_project(tmp, "safety-mixed-render", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     section = config["control_system"]
@@ -211,6 +240,7 @@ def safety_project_selective(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-selective")
     repo = init_project(tmp, "safety-selective", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["approval"] = {
@@ -241,6 +271,7 @@ def safety_project_default_policy_always(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-default-always")
     repo = init_project(tmp, "safety-default-always", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["approval"] = {"enabled": True, "default_policy": "always"}
