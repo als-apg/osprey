@@ -35,8 +35,9 @@ DEFAULT_SCENARIO = "nominal"
 
 # Non-position keys required per event shape. Position is validated
 # separately: exactly one of 'at' (window fraction), 'at_offset' (seconds
-# relative to scenario-activation time), or 'at_time' (daily 'HH:MM:SS'
-# wall-clock recurrence; step/spike only); ramps need the matching
+# relative to scenario-activation time), 'at_time' (daily 'HH:MM:SS'
+# wall-clock recurrence; step/spike only) or 'at_when' ({days_ago, time}, the
+# logbook's own relative timestamp; step/spike only); ramps need the matching
 # 'until'/'until_offset' flavor.
 _EVENT_VALUE_KEYS = {
     "step": ("to",),
@@ -654,16 +655,20 @@ def load_scenario_bundles(
     return scenarios
 
 
-def _parse_relative_timestamp(prefix: str, raw: Any) -> RelativeTimestamp:
-    """Parse a ``{days_ago, time}`` relative timestamp (reuses at_time rules)."""
+def _parse_relative_timestamp(prefix: str, raw: Any, key: str = "when") -> RelativeTimestamp:
+    """Parse a ``{days_ago, time}`` relative timestamp (reuses at_time rules).
+
+    ``key`` names the value the way its author wrote it: a logbook entry's
+    ``when`` or an event's ``at_when``.
+    """
     if not isinstance(raw, dict):
-        raise ValueError(f"{prefix}: 'when' must be a mapping with 'days_ago' and 'time'")
+        raise ValueError(f"{prefix}: {key!r} must be a mapping with 'days_ago' and 'time'")
     days_ago = raw.get("days_ago")
     if isinstance(days_ago, bool) or not isinstance(days_ago, int) or days_ago < 0:
         raise ValueError(f"{prefix}: 'days_ago' must be a non-negative integer, got {days_ago!r}")
     raw_time = raw.get("time")
     return RelativeTimestamp(
-        days_ago=days_ago, time=_validate_at_time(prefix, raw_time, subject="'when.time'")
+        days_ago=days_ago, time=_validate_at_time(prefix, raw_time, subject=f"'{key}.time'")
     )
 
 
@@ -795,22 +800,26 @@ def _require_event_number(
 
 def _validate_position_keys(prefix: str, event: dict[str, Any], shape: str) -> None:
     """Validate event position-key *presence*: exactly one of ``at`` / ``at_offset``
-    / ``at_time``, plus the ramp until-key pairing (no ``at_time``, no mixing of
-    fraction and offset flavors, matching until key present)."""
+    / ``at_time`` / ``at_when``, plus the ramp until-key pairing (no ``at_time`` or
+    ``at_when``, no mixing of fraction and offset flavors, matching until key
+    present)."""
     has_at = "at" in event
     has_offset = "at_offset" in event
     has_time = "at_time" in event
-    if has_at + has_offset + has_time != 1:
+    has_when = "at_when" in event
+    if has_at + has_offset + has_time + has_when != 1:
         raise ValueError(
             f"{prefix}: event requires exactly one of 'at' (window fraction), "
-            f"'at_offset' (seconds relative to scenario activation), or "
-            f"'at_time' (daily 'HH:MM:SS' wall-clock time)"
+            f"'at_offset' (seconds relative to scenario activation), "
+            f"'at_time' (daily 'HH:MM:SS' wall-clock time), or "
+            f"'at_when' ({{days_ago, time}} relative to scenario activation)"
         )
     if shape == "ramp":
-        if has_time:
-            raise ValueError(
-                f"{prefix}: 'ramp' events do not support 'at_time' (use 'step' or 'spike')"
-            )
+        for key in ("at_time", "at_when"):
+            if key in event:
+                raise ValueError(
+                    f"{prefix}: 'ramp' events do not support {key!r} (use 'step' or 'spike')"
+                )
         if (has_at and "until_offset" in event) or (has_offset and "until" in event):
             raise ValueError(
                 f"{prefix}: 'ramp' event must not mix fraction and offset position keys"
@@ -868,6 +877,8 @@ def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> 
         _require_event_number(prefix, event, "at", 0.0, 1.0)
     elif "at_offset" in event:
         _require_event_number(prefix, event, "at_offset")
+    elif "at_when" in event:
+        _parse_relative_timestamp(prefix, event["at_when"], key="at_when")
     else:
         _validate_at_time(prefix, event["at_time"], subject="event key 'at_time'")
     if shape == "ramp":

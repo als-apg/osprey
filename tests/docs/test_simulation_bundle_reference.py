@@ -128,7 +128,7 @@ def test_the_page_names_the_loaders_vocabulary() -> None:
     for shape, value_keys in _EVENT_VALUE_KEYS.items():
         vocabulary.add(shape)
         vocabulary.update(value_keys)
-    vocabulary.update({"at", "at_offset", "at_time", "until", "until_offset"})
+    vocabulary.update({"at", "at_offset", "at_time", "at_when", "until", "until_offset"})
     vocabulary.update(_TEXTURE_KEYS)
     vocabulary.update(_TEXTURE_KINDS)
     vocabulary.update(_ATTACHMENT_KEYS)

@@ -590,11 +590,14 @@ class SimulationEngine:
         over the synthesized series of their referenced channels, so derived
         channels show correlated history.
 
-        Event positioning has three flavors: ``at`` places an event at a fixed
+        Event positioning has four flavors: ``at`` places an event at a fixed
         fraction of whatever window is requested, while ``at_offset`` (with
         ``until_offset`` for ramps) anchors it in wall-clock time, in seconds
         relative to the apply-time anchor T0 (the ``anchor=`` line in the state
-        file, falling back to its mtime; negative = past). ``at_time``
+        file, falling back to its mtime; negative = past). ``at_when``
+        (``{days_ago, time}``; step/spike only) anchors it on a calendar day
+        before T0's date at a clock time in the facility timezone, as a logbook
+        entry's ``when`` resolves. ``at_time``
         (``"HH:MM:SS"`` in the facility timezone; step/spike only) recurs daily:
         the event fires at that time of
         day on every calendar date inside the requested window. Anchored and

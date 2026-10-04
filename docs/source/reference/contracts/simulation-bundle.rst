@@ -219,6 +219,12 @@ string.
      - Seconds from the apply-time anchor T0, any sign (negative is the past).
        A ramp pairs it with ``until_offset``; a spike's ``width`` is in
        seconds.
+   * - ``at_when``
+     - ``{"days_ago": <int ≥ 0>, "time": "HH:MM:SS"}``, the logbook's own
+       ``when``: the calendar day ``days_ago`` days before T0's date, at
+       ``time``, in the facility time zone. An event and the entry narrating it
+       resolve to one instant whatever time of day T0 falls at. ``step`` and
+       ``spike`` only; a spike's ``width`` is in seconds.
    * - ``at_time``
      - ``"HH:MM:SS"`` with no zone offset, recurring daily: the event fires at
        that time of day on every calendar date inside the window read, in the
@@ -245,8 +251,8 @@ state file the current time.
    The refusal holds on every simulation-backed project, whether or not it has
    a stored archive: a fraction names a position in a reader's window, not an
    instant that can be written. The mock archiver can still draw an ``at``
-   event at read time, but a bundle meant to be applied uses ``at_offset`` or
-   ``at_time``, and the shipped bundles are held to that.
+   event at read time, but a bundle meant to be applied uses ``at_offset``,
+   ``at_when`` or ``at_time``, and the shipped bundles are held to that.
 
 .. _simulation-bundle-physics:
 
@@ -501,14 +507,21 @@ message names.
      - ``Scenario '<name>', channel '<ch>': '<shape>' event missing keys``
    * - Not exactly one position key
      - ``Scenario '<name>', channel '<ch>': event requires exactly one of 'at'``
-   * - Ramp positioned by ``at_time``
+   * - Ramp positioned by ``at_time`` or ``at_when``
      - ``Scenario '<name>', channel '<ch>': 'ramp' events do not support
-       'at_time'``
+       'at_time'`` (or ``'at_when'``)
    * - Ramp mixing fraction and offset keys
      - ``Scenario '<name>', channel '<ch>': 'ramp' event must not mix fraction
        and offset position keys``
    * - ``at_time`` not a string, not a valid time of day, or with a zone offset
      - ``Scenario '<name>', channel '<ch>': event key 'at_time'``
+   * - ``at_when`` not a mapping
+     - ``Scenario '<name>', channel '<ch>': 'at_when' must be a mapping``
+   * - ``at_when`` with a bad ``days_ago``
+     - ``Scenario '<name>', channel '<ch>': 'days_ago' must be a non-negative
+       integer``
+   * - ``at_when`` with a bad ``time``
+     - ``Scenario '<name>', channel '<ch>': 'at_when.time'``
    * - A shape other than ``step`` on a string channel
      - ``Scenario '<name>', channel '<ch>': '<shape>' events are not supported
        on string-valued channels``

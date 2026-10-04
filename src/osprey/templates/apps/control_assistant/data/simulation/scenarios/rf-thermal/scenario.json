@@ -1,36 +1,56 @@
 {
-  "description": "Recurring cavity-1 thermal excursions: body temperature rises, reflected power spikes, and forward power trips from thermal detuning. Cavity 2 shows one minor excursion for contrast.",
+  "description": "Recurring cavity-1 thermal excursions from a partly blocked cooling manifold: three in the week before the investigation, each a body-temperature rise, a reflected-power spike and a forward-power trip from thermal detuning; the last is the beam dump four days ago. Nothing after the manifold repair two days ago, when cavity 1 settles at 26.5 degC. Cavity 2 shows one minor excursion for contrast.",
   "_comment": [
-    "Event positions are anchor-relative (`at_offset`), not window fractions.",
-    "`at_offset` is seconds relative to the scenario-activation anchor T0 (negative = past),",
-    "and for anchored spikes `width` is a Gaussian sigma in SECONDS (not a window fraction).",
-    "The three cavity-01 excursions sit at T0-38h / T0-21h / T0-7h -- inside the operator",
-    "lookback band (-40h..-2h), which is also inside the archiver's dense 48h hot tier, so",
-    "every spike is sampled at the 10 s hot cadence. sigma = 7200 s (2 h) is >= 2x both the",
-    "10 s hot and 60 s tail seed cadences, so the excursions stay resolvable at either.",
-    "Cavity-02's single minor excursion shares the middle anchor (T0-21h) for contrast."
+    "Events are placed with `at_when`, the logbook's own {days_ago, time}, so each",
+    "excursion lands at the clock time the logbook entries narrate.",
+    "Temperature spikes have sigma 2500 s: the trip-day excursion climbs from about",
+    "01:00 to 34.2 degC at 03:05 and is back under 30 degC before 04:30. The",
+    "forward-power trips are deep dips (sigma 1900 s) centred 47.5 min after each",
+    "temperature peak, floored at 0 kW for about 75 min (03:15 to 04:30 on the trip",
+    "day). The step at the repair time is the cooling restored; the override keeps",
+    "the live reading there."
   ],
+  "overrides": {
+    "SR:RF:CAVITY:01:TEMPERATURE:RB": 26.5
+  },
   "archiver": [
     {
       "channel": "SR:RF:CAVITY:01:TEMPERATURE:RB",
       "events": [
         {
           "shape": "spike",
-          "at_offset": -136800,
+          "at_when": {
+            "days_ago": 9,
+            "time": "22:10:00"
+          },
+          "amplitude": 5.6,
+          "width": 2500
+        },
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 7,
+            "time": "15:40:00"
+          },
           "amplitude": 7.0,
-          "width": 7200
+          "width": 2500
         },
         {
           "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": 4.9,
-          "width": 7200
+          "at_when": {
+            "days_ago": 4,
+            "time": "03:05:00"
+          },
+          "amplitude": 7.2,
+          "width": 2500
         },
         {
-          "shape": "spike",
-          "at_offset": -25200,
-          "amplitude": 8.4,
-          "width": 7200
+          "shape": "step",
+          "at_when": {
+            "days_ago": 2,
+            "time": "14:45:00"
+          },
+          "to": 26.5
         }
       ]
     },
@@ -39,21 +59,30 @@
       "events": [
         {
           "shape": "spike",
-          "at_offset": -136800,
+          "at_when": {
+            "days_ago": 9,
+            "time": "22:10:00"
+          },
+          "amplitude": 62.222222,
+          "width": 1800
+        },
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 7,
+            "time": "15:40:00"
+          },
+          "amplitude": 77.777778,
+          "width": 1800
+        },
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 4,
+            "time": "03:05:00"
+          },
           "amplitude": 80.0,
-          "width": 7200
-        },
-        {
-          "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": 56.0,
-          "width": 7200
-        },
-        {
-          "shape": "spike",
-          "at_offset": -25200,
-          "amplitude": 96.0,
-          "width": 7200
+          "width": 1800
         }
       ]
     },
@@ -62,21 +91,30 @@
       "events": [
         {
           "shape": "spike",
-          "at_offset": -136800,
-          "amplitude": -440.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 9,
+            "time": "22:57:30"
+          },
+          "amplitude": -900.0,
+          "width": 1900
         },
         {
           "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": -308.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 7,
+            "time": "16:27:30"
+          },
+          "amplitude": -900.0,
+          "width": 1900
         },
         {
           "shape": "spike",
-          "at_offset": -25200,
-          "amplitude": -528.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 4,
+            "time": "03:52:30"
+          },
+          "amplitude": -900.0,
+          "width": 1900
         }
       ]
     },
@@ -85,67 +123,30 @@
       "events": [
         {
           "shape": "spike",
-          "at_offset": -136800,
+          "at_when": {
+            "days_ago": 9,
+            "time": "22:57:30"
+          },
           "amplitude": -2.4,
-          "width": 7200
+          "width": 1900
         },
         {
           "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": -1.68,
-          "width": 7200
+          "at_when": {
+            "days_ago": 7,
+            "time": "16:27:30"
+          },
+          "amplitude": -2.4,
+          "width": 1900
         },
         {
           "shape": "spike",
-          "at_offset": -25200,
-          "amplitude": -2.88,
-          "width": 7200
-        }
-      ]
-    },
-    {
-      "channel": "SR:RF:CAVITY:01:FREQUENCY:RB",
-      "events": [
-        {
-          "shape": "spike",
-          "at_offset": -136800,
-          "amplitude": -0.001,
-          "width": 7200
-        },
-        {
-          "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": -0.0007,
-          "width": 7200
-        },
-        {
-          "shape": "spike",
-          "at_offset": -25200,
-          "amplitude": -0.0012,
-          "width": 7200
-        }
-      ]
-    },
-    {
-      "channel": "SR:RF:CAVITY:01:TUNER:RB",
-      "events": [
-        {
-          "shape": "spike",
-          "at_offset": -136800,
-          "amplitude": 0.05,
-          "width": 7200
-        },
-        {
-          "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": 0.035,
-          "width": 7200
-        },
-        {
-          "shape": "spike",
-          "at_offset": -25200,
-          "amplitude": 0.06,
-          "width": 7200
+          "at_when": {
+            "days_ago": 4,
+            "time": "03:52:30"
+          },
+          "amplitude": -2.4,
+          "width": 1900
         }
       ]
     },
@@ -154,21 +155,94 @@
       "events": [
         {
           "shape": "spike",
-          "at_offset": -136800,
-          "amplitude": -390.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 9,
+            "time": "22:57:30"
+          },
+          "amplitude": -800.0,
+          "width": 1900
         },
         {
           "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": -273.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 7,
+            "time": "16:27:30"
+          },
+          "amplitude": -800.0,
+          "width": 1900
         },
         {
           "shape": "spike",
-          "at_offset": -25200,
-          "amplitude": -468.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 4,
+            "time": "03:52:30"
+          },
+          "amplitude": -800.0,
+          "width": 1900
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:01:FREQUENCY:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 9,
+            "time": "22:10:00"
+          },
+          "amplitude": -0.00084,
+          "width": 2500
+        },
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 7,
+            "time": "15:40:00"
+          },
+          "amplitude": -0.00105,
+          "width": 2500
+        },
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 4,
+            "time": "03:05:00"
+          },
+          "amplitude": -0.00108,
+          "width": 2500
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:01:TUNER:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 9,
+            "time": "22:10:00"
+          },
+          "amplitude": 0.042,
+          "width": 2500
+        },
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 7,
+            "time": "15:40:00"
+          },
+          "amplitude": 0.0525,
+          "width": 2500
+        },
+        {
+          "shape": "spike",
+          "at_when": {
+            "days_ago": 4,
+            "time": "03:05:00"
+          },
+          "amplitude": 0.054,
+          "width": 2500
         }
       ]
     },
@@ -177,9 +251,12 @@
       "events": [
         {
           "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": 1.75,
-          "width": 7200
+          "at_when": {
+            "days_ago": 7,
+            "time": "15:40:00"
+          },
+          "amplitude": 1.0,
+          "width": 2500
         }
       ]
     },
@@ -188,9 +265,12 @@
       "events": [
         {
           "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": 20.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 7,
+            "time": "15:40:00"
+          },
+          "amplitude": 15.0,
+          "width": 1800
         }
       ]
     },
@@ -199,9 +279,12 @@
       "events": [
         {
           "shape": "spike",
-          "at_offset": -75600,
-          "amplitude": -110.0,
-          "width": 7200
+          "at_when": {
+            "days_ago": 7,
+            "time": "16:27:30"
+          },
+          "amplitude": -80.0,
+          "width": 1900
         }
       ]
     }

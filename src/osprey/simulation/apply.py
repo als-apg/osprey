@@ -320,7 +320,11 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
     engine = SimulationEngine.from_file(
         machine_path, state_dir=resolve_state_dir(config, project_dir)
     )
-    anchor = persisted_scenario_anchor(config, project_dir) or datetime.now(get_facility_timezone())
+    # Read in the facility zone, as the engine reads the same anchor: a logbook
+    # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
+    zone = get_facility_timezone()
+    persisted = persisted_scenario_anchor(config, project_dir)
+    anchor = persisted.astimezone(zone) if persisted is not None else datetime.now(zone)
     return engine.active_logbook(), anchor
 
 
@@ -553,7 +557,8 @@ def _refuse_window_fraction(event: Mapping[str, Any]) -> None:
             f"Archiver event {event!r} is positioned by window fraction ('at'), which "
             f"has no place in stored history — a fraction names a position in the "
             f"reader's window, not an instant. Use 'at_offset' (seconds relative to "
-            f"the activation anchor) instead."
+            f"the activation anchor) or 'at_when' (days and time of day before it) "
+            f"instead."
         )
 
 
@@ -568,7 +573,11 @@ def _require_events(events: Sequence[dict]) -> None:
 
 
 def event_window(
-    events: Sequence[dict], anchor: float, horizon_start: float
+    events: Sequence[dict],
+    anchor: float,
+    horizon_start: float,
+    *,
+    tz: ZoneInfo | None = None,
 ) -> tuple[float, float]:
     """The absolute span one channel's events can affect, in epoch seconds.
 
@@ -592,6 +601,8 @@ def event_window(
         anchor: T0 in epoch seconds.
         horizon_start: Oldest instant the archive covers; clamps a span whose
             event is anchored further back than the archive reaches.
+        tz: Timezone ``at_when`` calendar days are counted in. Defaults to the
+            facility zone, matching where the engine places them.
 
     Returns:
         ``(start, end)`` in epoch seconds. ``end`` is ``anchor`` for anything
@@ -612,7 +623,7 @@ def event_window(
             # A daily time-of-day recurs on every date the archive covers, so
             # the span its values reach over is the archive.
             return horizon_start, anchor
-        at = anchor + float(event["at_offset"])
+        at = _anchored_instant(event, anchor, tz)
         if event["shape"] == "spike":
             width = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
             start, end = min(start, at - width), max(end, at + width)
@@ -647,8 +658,9 @@ def event_subwindows(
         horizon_start: Oldest instant the archive covers. Occurrences are
             clamped to ``[horizon_start, anchor]``, and one that falls entirely
             outside it contributes nothing.
-        tz: Timezone daily ``at_time`` occurrences are placed in. Defaults to
-            the facility zone, matching where the engine places them.
+        tz: Timezone daily ``at_time`` occurrences and ``at_when`` calendar
+            days are placed in. Defaults to the facility zone, matching where
+            the engine places them.
 
     Returns:
         Disjoint ``(start, end)`` pairs, ascending. Empty when every occurrence
@@ -685,7 +697,14 @@ def _event_instants(
         if tz is None:
             tz = get_facility_timezone()
         return daily_occurrences(str(event["at_time"]), _np_array([horizon_start, anchor]), tz)
-    return [anchor + float(event["at_offset"])]
+    return [_anchored_instant(event, anchor, tz)]
+
+
+def _anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float:
+    """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
+    from osprey.simulation.series import anchored_instant
+
+    return anchored_instant(dict(event), anchor, tz if tz is not None else get_facility_timezone())
 
 
 def _merge_intervals(windows: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -797,7 +816,8 @@ def seed_archiver(
         horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
         previous = _ledger_windows(manifest)
         current = {
-            pv: event_window(script, anchor_s, horizon_start) for pv, script in events.items()
+            pv: event_window(script, anchor_s, horizon_start, tz=tz)
+            for pv, script in events.items()
         }
         live = {
             pv: event_subwindows(script, anchor_s, horizon_start, tz=tz)

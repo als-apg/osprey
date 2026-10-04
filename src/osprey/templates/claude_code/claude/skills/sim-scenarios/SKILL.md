@@ -137,14 +137,19 @@ The rules you need to author or apply a bundle:
 
 A scenario's `archiver` entries attach events to a channel's history. Each event
 has a `shape` (`step`, `ramp`, or `spike`) and exactly one positioning style.
-**A shipped or seedable bundle must use `at_offset` or `at_time`** — those are
-the two that name an absolute instant, and only an absolute instant can be
-written into a stored archive.
+**A shipped or seedable bundle must use `at_offset`, `at_when` or `at_time`** —
+those name an absolute instant, and only an absolute instant can be written
+into a stored archive.
 
 - `at_offset` — **seconds relative to the apply-time anchor T0** (negative =
   past); ramps use `until_offset`. Spike `width` is a Gaussian sigma in seconds.
   The style to reach for: an offset becomes an absolute instant the moment the
   anchor is known.
+- `at_when` — the logbook's own `{"days_ago": N, "time": "HH:MM:SS"}`: the
+  calendar day N days before the anchor's date, at that clock time, in the
+  facility time zone. The style to reach for when an event is narrated by a
+  logbook entry: the two resolve to one instant whatever time of day the
+  scenario is applied. `step` and `spike` only. Spike `width` is in seconds.
 - `at_time` — daily wall-clock recurrence (`"HH:MM:SS"`, in the facility time
   zone — `system.timezone`, UTC when unset): the event fires at that time of day
   on every calendar date inside the requested window.
@@ -218,5 +223,6 @@ Do NOT:
 - Restart services after a switch — the engine re-reads the state file
   automatically. The one exception is above: a `physics` block on a VA
   deployment needs `osprey up` to recreate the container
-- Position a new scenario's archiver events with `at` — author `at_offset` (or
-  `at_time`), so the event has a real instant a stored archive can hold
+- Position a new scenario's archiver events with `at` — author `at_offset`,
+  `at_when` or `at_time`, so the event has a real instant a stored archive can
+  hold

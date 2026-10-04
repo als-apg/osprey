@@ -7,7 +7,7 @@
     },
     "author": "M. Chen",
     "title": "Beam dump \u2014 RF CAVITY01 reflected power trip (thermal excursion)",
-    "text": "RF CAVITY01 body temperature climbed to 34.2 deg C over approximately 2 hours starting around 01:00. Normal operating temperature for the cavities is 25-28 deg C. As the cavity detuned due to thermal expansion, reflected power from CAVITY01 increased from the normal 5 kW to over 80 kW before the reflected power interlock tripped at 03:15. Forward power dropped to zero. CAVITY02 was unaffected and continued operating normally at 26.5 deg C. Beam was lost and restored at 04:30 after CAVITY01 temperature returned below 30 deg C. This is the second thermal excursion on CAVITY01 this week \u2014 a similar event occurred a few days ago and reached 34 deg C.",
+    "text": "RF CAVITY01 body temperature climbed to 34.2 deg C over approximately 2 hours starting around 01:00. Normal operating temperature for the cavities is 25-28 deg C. As the cavity detuned due to thermal expansion, reflected power from CAVITY01 increased from the normal 5 kW to over 80 kW before the reflected power interlock tripped at 03:15. Forward power dropped to zero. CAVITY02 was unaffected and continued operating normally at 26.5 deg C. Beam was lost and restored at 04:30 after CAVITY01 temperature returned below 30 deg C. This is the third thermal excursion on CAVITY01 this week \u2014 the previous one, a few days ago, reached 34 deg C.",
     "tags": [
       "beam-dump",
       "rf",

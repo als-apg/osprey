@@ -15,13 +15,12 @@ Signatures pinned (target value -> asserted threshold, with margin):
   sector, leading the runner-up by ~0.7 (assert separation > 0.3 — robust to
   the noise tail, unlike an absolute |r| bound); SR07 spike ~4x baseline;
   DCCT dips ~5 mA.
-- ``rf-thermal``: CAVITY01 temperature excursions at the anchored offsets
-  T0-38h/-21h/-7h (peaks 32-36 degC, assert > 31 over base 27), with the
-  stretch older than T0-48h flat; CAVITY02 stays quiet (~28.5 degC, assert
-  < 29.5, far below the CAVITY01 excursions); CAVITY01 reflected power tracks
-  temperature (r ~= 0.97, assert > 0.8); derived
-  POWER:NET tracks FWD-REV (r ~= 0.998, assert > 0.95); FREQUENCY:RB detunes
-  downward during the excursions.
+- ``rf-thermal``: the story its logbook tells -- three CAVITY01 excursions
+  over 32 degC in the week before the investigation entry, the last the trip
+  four days back (34.2 degC, forward power off 03:15-04:30, reflected power over
+  80 kW), nothing after the repair (26.5 degC); CAVITY02 inside 25-28.5 degC;
+  reflected power tracks temperature (assert r > 0.8); POWER:NET is FWD-REV;
+  FREQUENCY:RB detunes downward during the excursions.
 """
 
 import json
@@ -37,14 +36,6 @@ from tests.simulation.conftest import TEMPLATE_SIM
 # fixture in conftest.py (copies machine.json + the scenarios/ bundle tree).
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
-RF_SERIES_N = 2016  # 7-day window at 5-minute resolution
-
-# rf-thermal's three CAVITY01 excursions, in hours before the scenario-activation
-# anchor T0, and their Gaussian sigma. Mirrors ``rf-thermal/scenario.json``; the
-# tests below read the bundle back rather than trusting these, so a bundle edit
-# that forgets this file fails loudly instead of silently drifting.
-RF_EXCURSION_OFFSETS_H = (-38.0, -21.0, -7.0)
-RF_EXCURSION_SIGMA_S = 7200.0
 
 
 def _window(center: datetime, minutes: int = 10, step_s: int = 1) -> list[datetime]:
@@ -127,92 +118,160 @@ class TestVacuumBurstContract:
 
 
 class TestRfThermalContract:
-    """CAVITY01 thermal excursions drive reflected power, forward trips, detuning.
+    """The rf-thermal telemetry tells the story its logbook entries tell.
 
-    The bundle positions its events with ``at_offset`` — seconds before the
-    scenario-activation anchor T0 — so an excursion sits at a fixed wall-clock
-    time rather than at a fixed fraction of whatever window is queried. The
-    ``engine_factory`` fixture writes ``active_scenarios`` as it builds the
-    engine and the bundle carries no explicit ``anchor=`` line, so T0 is that
-    file's mtime: within a second of ``datetime.now()`` here. The
-    excursion-position windows below are hours wide, which absorbs that.
+    The bundle places its events with ``at_when`` -- the logbook's own
+    ``{days_ago, time}`` -- so every check here resolves both the events and the
+    entries against one explicit anchor and asserts at the instants the entries
+    narrate: three CAVITY01 excursions over 32 degC in the week before the
+    investigation (DEMO-027), the last one the trip of DEMO-026 (a climb from
+    about 01:00 to 34.2 degC, below the 35 degC interlock, reflected power over
+    80 kW, forward power at zero from 03:15 to 04:30, back under 30 degC by
+    04:30), and nothing after the repair of DEMO-028.
     """
 
     CAV = "SR:RF:CAVITY:{:02d}:{}"
+    #: An apply-time anchor in the middle of a working day.
+    T0 = datetime(2026, 6, 13, 9, 30, tzinfo=UTC)
 
-    def _series(self, engine, dev, suffix, n=RF_SERIES_N):
-        """A 7-day window ending now, at 5-minute resolution."""
-        end = datetime.now()
-        ts = [end - timedelta(days=7) + timedelta(minutes=5 * i) for i in range(n)]
-        return np.array(engine.synthesize_series(self.CAV.format(dev, suffix), ts))
+    @pytest.fixture
+    def engine(self, engine_factory):
+        engine = engine_factory("nominal")
+        engine.set_active_scenarios(["rf-thermal"], anchor=self.T0)
+        return engine
 
-    def _hours_before_now(self, n=RF_SERIES_N):
-        """Signed hours-from-now for each sample of ``_series``'s window."""
-        return np.linspace(-7 * 24.0, 0.0, n, endpoint=False)
+    def _zone(self):
+        from osprey.utils.config import get_facility_timezone
 
-    def test_cavity01_excursions_at_anchored_offsets(self, engine_factory):
-        """CAVITY01 temperature peaks > 31 degC (over base 27) at T0-38h/-21h/-7h."""
-        engine = engine_factory("rf-thermal")
-        temp = self._series(engine, 1, "TEMPERATURE:RB")
-        hours = self._hours_before_now(len(temp))
-        for offset_h in RF_EXCURSION_OFFSETS_H:
-            # +/- 3h brackets the 2h-sigma spike without reaching its neighbours,
-            # which sit 15-17h away.
-            window = temp[(hours > offset_h - 3.0) & (hours < offset_h + 3.0)]
-            assert window.max() > 31.0, (
-                f"no CAVITY01 excursion at T0{offset_h:+.0f}h (max {window.max():.2f})"
-            )
+        return get_facility_timezone()
 
-    def test_cavity01_is_flat_before_the_excursion_band(self, engine_factory):
-        """Older than T0-48h, CAVITY01 temperature is quiet baseline + noise.
+    def _entry_time(self, entry_id: str) -> datetime:
+        from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
-        Under the previous window-fraction positioning no part of any window was
-        event-free — the excursions rescaled to whatever span was queried. Anchored
-        offsets confine them to the last 40 hours, so this stretch is genuinely
-        undisturbed, and asserting that is what stops an accidental slide back to
-        fraction semantics from passing silently.
-        """
-        engine = engine_factory("rf-thermal")
-        temp = self._series(engine, 1, "TEMPERATURE:RB")
-        hours = self._hours_before_now(len(temp))
-        quiet = temp[hours < -48.0]
-        assert quiet.max() < 29.0, (
-            f"CAVITY01 temp peak {quiet.max():.2f} older than T0-48h, contract < 29.0 "
-            f"(base 27 + noise); an excursion has leaked outside the anchored band"
+        entries = json.loads((TEMPLATE_SIM / "scenarios/rf-thermal/logbook.json").read_text())
+        when = next(e["when"] for e in entries if e["entry_id"] == entry_id)
+        spec = RelativeTimestamp(
+            days_ago=when["days_ago"], time=datetime.strptime(when["time"], "%H:%M:%S").time()
         )
+        return resolve_relative_timestamp(spec, self.T0.astimezone(self._zone()))
 
-    @pytest.mark.usefixtures("engine_factory")
-    def test_bundle_offsets_match_the_pinned_contract(self):
-        """The shipped bundle carries exactly the offsets/width this file asserts."""
+    def _trip_day(self, hh: int, mm: int) -> datetime:
+        """A clock time on the day DEMO-026 narrates."""
+        return self._entry_time("DEMO-026").replace(hour=hh, minute=mm, second=0)
+
+    def _spikes(self, channel: str) -> list[tuple[datetime, float]]:
+        """``(instant, amplitude)`` of the bundle's spikes on ``channel``."""
+        from osprey.simulation.series import anchored_instant
+
         bundle = json.loads((TEMPLATE_SIM / "scenarios/rf-thermal/scenario.json").read_text())
-        cav01_temp = next(
-            entry
-            for entry in bundle["archiver"]
-            if entry["channel"] == self.CAV.format(1, "TEMPERATURE:RB")
+        events = next(a["events"] for a in bundle["archiver"] if a["channel"] == channel)
+        zone = self._zone()
+        return [
+            (
+                datetime.fromtimestamp(anchored_instant(e, self.T0.timestamp(), zone), UTC),
+                e["amplitude"],
+            )
+            for e in events
+            if e["shape"] == "spike"
+        ]
+
+    def _read(self, engine, dev, suffix, times):
+        return np.array(engine.synthesize_series(self.CAV.format(dev, suffix), times))
+
+    def _span(self, start: datetime, end: datetime, step: timedelta) -> list[datetime]:
+        count = int((end - start) / step)
+        return [start + step * i for i in range(count + 1)]
+
+    def _week_before_investigation(self) -> list[datetime]:
+        end = self._entry_time("DEMO-027")
+        return self._span(end - timedelta(days=7), end, timedelta(minutes=5))
+
+    def test_three_excursions_over_32_in_the_week_before_the_investigation(self, engine):
+        spikes = self._spikes(self.CAV.format(1, "TEMPERATURE:RB"))
+        end = self._entry_time("DEMO-027")
+        inside = [at for at, _ in spikes if end - timedelta(days=7) <= at <= end]
+        assert len(inside) == len(spikes) == 3
+        for at, _amplitude in spikes:
+            near = self._read(
+                engine,
+                1,
+                "TEMPERATURE:RB",
+                self._span(
+                    at - timedelta(minutes=20), at + timedelta(minutes=20), timedelta(minutes=1)
+                ),
+            )
+            assert near.max() > 32.0, f"no CAVITY01 excursion over 32 degC at {at}"
+
+    def test_the_last_excursion_is_the_trip_on_the_reported_night(self, engine):
+        spikes = self._spikes(self.CAV.format(1, "TEMPERATURE:RB"))
+        last, amplitude = max(spikes)
+        assert self._trip_day(1, 0) < last < self._trip_day(3, 15)
+        peak = 27.0 + amplitude
+        assert peak == pytest.approx(34.2, abs=0.05)
+        assert peak < 35.0, "the narrated trip stayed below the thermal interlock"
+
+        temperature = self._read(
+            engine, 1, "TEMPERATURE:RB", [self._trip_day(0, 45), last, self._trip_day(4, 30)]
         )
-        offsets_h = tuple(ev["at_offset"] / 3600.0 for ev in cav01_temp["events"])
-        assert offsets_h == RF_EXCURSION_OFFSETS_H
-        assert {ev["width"] for ev in cav01_temp["events"]} == {RF_EXCURSION_SIGMA_S}
+        assert temperature[0] < 28.5, "the climb starts around 01:00, not before"
+        assert temperature[1] > 33.0
+        assert temperature[2] < 30.0, "below 30 degC again by the 04:30 recovery"
 
-    def test_cavity02_stays_quiet(self, engine_factory):
-        """CAVITY02 temperature stays < 29.5 degC — far below CAVITY01's 32-36 degC excursions."""
-        engine = engine_factory("rf-thermal")
-        temp = self._series(engine, 2, "TEMPERATURE:RB")
-        # Base 26.5 + one minor 1.75-degC event => peak ~28.5; noise can nudge
-        # to ~29.0. 29.5 keeps margin while staying well below CAVITY01
-        # (32-36 degC), so the assertion still fails on genuinely-anomalous
-        # CAVITY02 data.
-        assert temp.max() < 29.5, f"CAVITY02 temp peak {temp.max():.2f}, contract < 29.5"
+    def test_forward_power_is_off_from_0315_to_0430_on_the_trip_night(self, engine):
+        off = self._read(
+            engine,
+            1,
+            "POWER:FWD",
+            self._span(self._trip_day(3, 17), self._trip_day(4, 28), timedelta(minutes=1)),
+        )
+        assert off.max() < 5.0, f"forward power {off.max():.1f} kW during the trip"
+        on = self._read(engine, 1, "POWER:FWD", [self._trip_day(1, 0), self._trip_day(5, 30)])
+        assert on.min() > 400.0
 
-    def test_reflected_power_spikes_with_temperature(self, engine_factory):
-        """CAVITY01 reflected power (POWER:REV) correlates with temperature: r > 0.8 (target ~ 0.96)."""
-        engine = engine_factory("rf-thermal")
-        temp = self._series(engine, 1, "TEMPERATURE:RB")
-        rev = self._series(engine, 1, "POWER:REV")
-        r = np.corrcoef(temp, rev)[0, 1]
+    def test_reflected_power_passes_80_kw_before_the_interlock(self, engine):
+        reflected = self._read(
+            engine,
+            1,
+            "POWER:REV",
+            self._span(self._trip_day(2, 45), self._trip_day(3, 15), timedelta(minutes=1)),
+        )
+        assert reflected.max() > 80.0
+
+    def test_nothing_happens_after_the_repair(self, engine):
+        after = self._span(
+            self._entry_time("DEMO-028") + timedelta(hours=1), self.T0, timedelta(minutes=5)
+        )
+        temperature = self._read(engine, 1, "TEMPERATURE:RB", after)
+        assert temperature.mean() == pytest.approx(26.5, abs=0.1)
+        assert temperature.max() < 27.5
+        assert self._read(engine, 1, "POWER:FWD", after).min() > 400.0
+        live = engine.read(self.CAV.format(1, "TEMPERATURE:RB")).value
+        assert live == pytest.approx(26.5, abs=1.0)
+
+    def test_cavity01_is_flat_before_the_excursion_week(self, engine):
+        end = self._entry_time("DEMO-027") - timedelta(days=7)
+        quiet = self._read(
+            engine,
+            1,
+            "TEMPERATURE:RB",
+            self._span(end - timedelta(days=7), end, timedelta(minutes=5)),
+        )
+        assert quiet.max() < 29.0
+
+    def test_cavity02_stays_inside_its_normal_band(self, engine):
+        """DEMO-026/027: CAVITY02 stays at 25-28 degC; its one bump is minor."""
+        temperature = self._read(engine, 2, "TEMPERATURE:RB", self._week_before_investigation())
+        assert temperature.max() < 28.5, f"CAVITY02 peak {temperature.max():.2f}"
+        assert temperature.min() > 25.0
+
+    def test_reflected_power_spikes_with_temperature(self, engine):
+        times = self._week_before_investigation()
+        temperature = self._read(engine, 1, "TEMPERATURE:RB", times)
+        reflected = self._read(engine, 1, "POWER:REV", times)
+        r = np.corrcoef(temperature, reflected)[0, 1]
         assert r > 0.8, f"TEMP/REV correlation r = {r:.3f}, contract > 0.8"
 
-    def test_net_power_is_fwd_minus_rev(self, engine_factory):
+    def test_net_power_is_fwd_minus_rev(self, engine):
         """POWER:NET is the live expression FWD - REV, proven exactly.
 
         A correlation test on separately-synthesized series cannot falsify a
@@ -222,7 +281,6 @@ class TestRfThermalContract:
         which ``FWD + REV`` could not. The archived NET history is then checked
         to collapse alongside the forward-power trips.
         """
-        engine = engine_factory("rf-thermal")
         fwd_pv = self.CAV.format(1, "POWER:FWD")
         rev_pv = self.CAV.format(1, "POWER:REV")
         net_pv = self.CAV.format(1, "POWER:NET")
@@ -231,19 +289,17 @@ class TestRfThermalContract:
         net = engine.read(net_pv).value
         assert net == pytest.approx(250.0), f"NET={net}, expected FWD-REV=250.0 (not FWD+REV=350)"
 
-        # Archived NET history collapses where forward power trips toward zero.
-        fwd = self._series(engine, 1, "POWER:FWD")
-        net_series = self._series(engine, 1, "POWER:NET")
+        times = self._week_before_investigation()
+        fwd = self._read(engine, 1, "POWER:FWD", times)
+        net_series = self._read(engine, 1, "POWER:NET", times)
         trip = int(np.argmin(fwd))
         assert net_series[trip] < net_series.mean() - 100.0, (
             f"NET at the forward-power trip ({net_series[trip]:.1f}) does not collapse "
             f"below its mean ({net_series.mean():.1f})"
         )
 
-    def test_frequency_detunes_during_excursions(self, engine_factory):
-        """CAVITY01 resonant frequency detunes downward during the thermal excursions."""
-        engine = engine_factory("rf-thermal")
-        freq = self._series(engine, 1, "FREQUENCY:RB")
+    def test_frequency_detunes_during_excursions(self, engine):
+        freq = self._read(engine, 1, "FREQUENCY:RB", self._week_before_investigation())
         assert freq.min() < 499.654 - 0.0005, (
             f"CAVITY01 freq min {freq.min():.6f}, contract < 499.6535"
         )
@@ -263,8 +319,8 @@ class TestEventsFitTheSeedWindow:
     **Anchoring assumption.** Two separate clocks are involved: the deploy-time
     seed anchor and the ``osprey sim apply`` anchor. This property holds only
     because they are one and the same — the seeder records its T0 in the
-    seed-manifest document and scenario activation resolves ``at_offset``
-    against that persisted anchor, not against its own wall clock. If those two
+    seed-manifest document and scenario activation resolves ``at_offset`` and
+    ``at_when`` against that persisted anchor, not against its own wall clock. If those two
     ever drift apart, an event within ``horizon`` of the apply anchor can still
     land outside the seeded span, and this test no longer proves what it claims.
     """
@@ -299,15 +355,15 @@ class TestEventsFitTheSeedWindow:
 
         A fraction-positioned event lands at a fixed *proportion* of whichever
         window is queried, which has no absolute time and so cannot be written
-        into a store. Only ``at_offset`` (anchored) and ``at_time`` (daily
-        recurrence) resolve to real timestamps.
+        into a store. Only ``at_offset`` and ``at_when`` (anchored) and
+        ``at_time`` (daily recurrence) resolve to real timestamps.
         """
         fraction_events = [
             f"{name}/{pv}: at={event['at']}" for name, pv, event in self._events() if "at" in event
         ]
         assert not fraction_events, (
-            "shipped scenario events must be anchored ('at_offset') or daily "
-            f"('at_time'), not window fractions: {fraction_events}"
+            "shipped scenario events must be anchored ('at_offset', 'at_when') or "
+            f"daily ('at_time'), not window fractions: {fraction_events}"
         )
 
     def test_anchored_events_land_inside_the_seed_window(self):
@@ -327,6 +383,32 @@ class TestEventsFitTheSeedWindow:
             assert end <= 0.0, (
                 f"{name}/{pv}: event extends to T0{end:+.0f}s, past the end of the "
                 f"seed window (nothing after T0 is seeded)"
+            )
+
+    def test_calendar_events_land_inside_the_seed_window_at_any_apply_time(self):
+        """Every ``at_when`` event sits inside ``[T0 - horizon, T0]`` whatever T0's clock time.
+
+        An ``at_when`` instant is a calendar day before T0's date at a clock time,
+        so how far back it lands moves with the time of day T0 falls at. The two
+        extremes bound it: T0 just after midnight puts the event closest to T0,
+        T0 just before the next midnight puts it furthest back.
+        """
+        day = 24 * 3600.0
+        calendar = [e for e in self._events() if "at_when" in e[2]]
+        assert calendar, "expected rf-thermal's calendar-placed events; coverage went vacuous"
+        for name, pv, event in calendar:
+            when = event["at_when"]
+            clock = datetime.strptime(when["time"], "%H:%M:%S")
+            clock_s = clock.hour * 3600.0 + clock.minute * 60.0 + clock.second
+            tail = self.SIGMA_MARGIN * float(event.get("width", 0.0))
+            nearest = when["days_ago"] * day - clock_s  # seconds before a T0 at 00:00
+            furthest = nearest + day  # seconds before a T0 at 24:00
+            assert nearest - tail >= 0.0, (
+                f"{name}/{pv}: at_when={when} can reach past T0 (nothing after T0 is seeded)"
+            )
+            assert furthest + tail <= self.SEED_HORIZON_S, (
+                f"{name}/{pv}: at_when={when} can fall before the seed window "
+                f"[T0-{self.SEED_HORIZON_S:.0f}s, T0]"
             )
 
     def test_daily_events_recur_inside_the_seed_window(self):

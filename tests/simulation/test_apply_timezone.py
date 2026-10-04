@@ -85,3 +85,35 @@ def test_default_anchor_seeds_logbook_in_facility_zone(tmp_path, monkeypatch):
     # ...and NOT 03:20 UTC (the pre-fix placement).
     utc = demo026.astimezone(ZoneInfo("UTC"))
     assert (utc.hour, utc.minute) != (3, 20)
+
+
+def test_deploy_time_entries_and_calendar_events_name_one_instant(tmp_path, monkeypatch):
+    """The deploy-time seed reads the persisted anchor in the facility zone.
+
+    The anchor is persisted as an instant; read back in UTC, its calendar date can
+    be a day off the facility's, which would put every entry a day away from the
+    ``at_when`` event narrating the same moment. Pinned on an anchor whose UTC and
+    facility dates differ.
+    """
+    from datetime import UTC, datetime
+
+    from osprey.simulation.apply import active_logbook_entries
+    from osprey.simulation.series import anchored_instant
+
+    project = _make_project(tmp_path)
+
+    async def _no_seed(_ariel_config, entries, _pictures):
+        return len(entries), True
+
+    monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
+    monkeypatch.setattr("osprey.simulation.apply.get_facility_timezone", lambda: LA, raising=False)
+    anchor = datetime(2026, 6, 13, 2, 0, tzinfo=UTC)  # June 12, 19:00 in LA
+    apply_scenarios(project, ["rf-thermal"], now=anchor, seed_archive=False)
+
+    config = yaml.safe_load((project / "config.yml").read_text())
+    entries = {e["entry_id"]: e["timestamp"] for e in active_logbook_entries(config, project)}
+
+    event = {"at_when": {"days_ago": 4, "time": "03:20:00"}}  # DEMO-026's own `when`
+    expected = anchored_instant(event, anchor.timestamp(), LA)
+    assert entries["DEMO-026"].timestamp() == expected
+    assert entries["DEMO-026"].astimezone(LA).day == 8

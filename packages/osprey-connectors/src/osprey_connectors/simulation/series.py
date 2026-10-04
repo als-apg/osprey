@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from osprey_connectors.logger import get_logger
+from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 from osprey_connectors.simulation.expressions import ExpressionError
 
 logger = get_logger("simulation_series")
@@ -261,6 +262,33 @@ def epoch_seconds_array(timestamps: "Sequence[Any]") -> "np.ndarray | None":
     return np.asarray(values, dtype=np.float64)
 
 
+def anchored_instant(event: dict[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float:
+    """Epoch seconds of an event placed relative to the activation anchor.
+
+    ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook's own
+    ``{days_ago, time}``: the calendar day ``days_ago`` days before the anchor's
+    date, at ``time``, both read in ``tz`` (UTC when omitted) -- the same rule a
+    scenario's logbook entries resolve by, so an event and the entry narrating
+    it name one instant.
+
+    Args:
+        event: An event carrying ``at_offset`` or ``at_when``.
+        anchor: The activation anchor T0, in epoch seconds.
+        tz: The facility timezone calendar days are counted in.
+
+    Returns:
+        The event's instant in epoch seconds.
+    """
+    if "at_offset" in event:
+        return anchor + float(event["at_offset"])
+    when = event["at_when"]
+    zone = tz if tz is not None else ZoneInfo("UTC")
+    spec = RelativeTimestamp(
+        days_ago=int(when["days_ago"]), time=dtime.fromisoformat(str(when["time"]))
+    )
+    return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor, zone)).timestamp()
+
+
 def event_positions(
     event: dict[str, Any],
     t_frac: "np.ndarray",
@@ -270,21 +298,19 @@ def event_positions(
 ) -> "list[tuple[np.ndarray, float]]":
     """Coordinate axis and event position(s) for one event.
 
-    Fraction-positioned (``at``) and offset-anchored (``at_offset``) events
-    yield one position, on the normalized window axis and the epoch-seconds
-    axis respectively. Daily ``at_time`` events yield one epoch-seconds
+    Fraction-positioned (``at``) and anchored (``at_offset``, ``at_when``)
+    events yield one position, on the normalized window axis and the
+    epoch-seconds axis respectively. Daily ``at_time`` events yield one epoch-seconds
     position per calendar date whose time-of-day occurrence falls inside the
     window, placed in the facility timezone (``tz``). Returns an empty list
     when an anchored or time-of-day event cannot be placed because the
     timestamps were not convertible to epoch seconds.
     """
-    if "at_offset" in event:
+    if "at_offset" in event or "at_when" in event:
         if t_abs is None:
-            logger.debug(
-                "Skipping offset-anchored event: timestamps not convertible to epoch seconds"
-            )
+            logger.debug("Skipping anchored event: timestamps not convertible to epoch seconds")
             return []
-        return [(t_abs, anchor + float(event["at_offset"]))]
+        return [(t_abs, anchored_instant(event, anchor, tz))]
     if "at_time" in event:
         if t_abs is None:
             logger.debug("Skipping time-of-day event: timestamps not convertible to epoch seconds")

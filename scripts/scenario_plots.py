@@ -207,8 +207,10 @@ def _trend(end: datetime, times: list[datetime], series: dict[str, np.ndarray]) 
 
 
 def event_instant(event: dict) -> datetime:
-    """Where one anchored event of a scenario script sits."""
-    return ANCHOR + timedelta(seconds=float(event["at_offset"]))
+    """Where one anchored event of a scenario script sits, by the engine's own rule."""
+    from osprey.simulation.series import anchored_instant
+
+    return datetime.fromtimestamp(anchored_instant(event, ANCHOR.timestamp(), UTC), UTC)
 
 
 def excursion_peaks(simulation_dir: Path, end: datetime) -> list[tuple[float, float]]:

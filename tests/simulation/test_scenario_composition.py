@@ -32,10 +32,11 @@ def _yesterday_1432_window(minutes: int = 10) -> list[datetime]:
 def _seven_day_window() -> list[datetime]:
     """A 7-day window ending now.
 
-    rf-thermal's excursions are anchored (``at_offset``, hours before the
-    scenario-activation anchor T0), not window fractions, so this window must
-    *end at now* for them to appear in it: the fixture writes ``active_scenarios``
-    as it builds the engine, which puts T0 within a second of now.
+    rf-thermal's excursions are anchored (``at_when``, days and clock times
+    before the scenario-activation anchor T0), not window fractions, so this
+    window must *end at now* for them to appear in it: the fixture writes
+    ``active_scenarios`` as it builds the engine, which puts T0 within a second
+    of now, and the trip four days back always falls inside the week.
     """
     now = datetime.now()
     step = timedelta(days=7) / RF_SERIES_N

@@ -451,6 +451,44 @@ class TestValidatePositionKeys:
         with pytest.raises(ValueError, match=r"missing keys \['until'\]"):
             _validate_position_keys(_PREFIX, {"at": 0.1}, "ramp")
 
+    def test_at_when_is_one_position_key(self):
+        when = {"days_ago": 4, "time": "03:05:00"}
+        _validate_position_keys(_PREFIX, {"at_when": when}, "spike")  # no raise
+        with pytest.raises(ValueError, match="exactly one of"):
+            _validate_position_keys(_PREFIX, {"at_when": when, "at_offset": -60}, "spike")
+
+    def test_ramp_rejects_at_when(self):
+        with pytest.raises(ValueError, match="do not support 'at_when'"):
+            _validate_position_keys(_PREFIX, {"at_when": {"days_ago": 1}}, "ramp")
+
+
+class TestAtWhenEvents:
+    """``at_when`` is validated by the logbook's ``when`` rules, under its own name."""
+
+    @staticmethod
+    def _parse(at_when):
+        event = {"shape": "spike", "at_when": at_when, "amplitude": 1.0, "width": 60.0}
+        scenarios = {"fault": {"archiver": [{"channel": "PV:A", "events": [event]}]}}
+        return parse_machine(_machine(scenarios=scenarios), _PATH)
+
+    def test_a_calendar_event_parses(self):
+        model = self._parse({"days_ago": 4, "time": "03:05:00"})
+        (event,) = model.scenarios["fault"].archiver["PV:A"]
+        assert event["at_when"] == {"days_ago": 4, "time": "03:05:00"}
+
+    @pytest.mark.parametrize(
+        ("at_when", "message"),
+        [
+            ("4 days", "'at_when' must be a mapping"),
+            ({"days_ago": -1, "time": "03:05:00"}, "'days_ago' must be a non-negative integer"),
+            ({"days_ago": 4, "time": "25:00:00"}, "'at_when.time' must be a valid"),
+            ({"days_ago": 4, "time": "03:05:00+02:00"}, "'at_when.time' is local time"),
+        ],
+    )
+    def test_a_malformed_calendar_event_is_refused_by_its_own_name(self, at_when, message):
+        with pytest.raises(ValueError, match=message):
+            self._parse(at_when)
+
 
 class TestParsePhysicsFault:
     def test_absent_block_is_none(self):

@@ -98,6 +98,8 @@ def test_cavity_peaks_are_the_scenarios_spikes_inside_the_window():
             expected.append((hours, baseline + event["amplitude"]))
     peaks = plots.excursion_peaks(SIM, end)
     assert peaks == expected
+    # The investigation entry narrates three excursions in the week before it.
+    assert len(peaks) == 3
 
     trend = plots.cavity_temperatures(SIM, end)
     hours = np.asarray(trend.hours)

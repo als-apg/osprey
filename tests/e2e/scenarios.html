@@ -56,7 +56,7 @@
 <p class="meta">File: <code>tests/e2e/test_rf_cavity_correlation_scenario.py</code> &middot; logbook + telemetry must converge.</p>
 
 <h3>Operator prompt</h3>
-<blockquote>"The beam dumped this morning. Figure out what happened and plot the data."</blockquote>
+<blockquote>"The beam dumped in the early hours four days ago. Figure out what happened and plot the data."</blockquote>
 
 <h3>Required PVs</h3>
 <ul>
@@ -64,17 +64,17 @@
   <li><code>SR:RF:CAVITY:02:*</code> (same fields &mdash; needed for CAVITY01-vs-CAVITY02 contrast)</li>
 </ul>
 
-<h3>Seeded telemetry (window-relative positions)</h3>
+<h3>Seeded telemetry (placed on the logbook's days with <code>at_when</code>)</h3>
 <table>
-  <tr><th>CAVITY01 events</th><td>(0.20, 1.0), (0.55, 0.7), <strong>(0.85, 1.2)</strong> &mdash; three excursions, last worst</td></tr>
-  <tr><th>CAVITY01 temperature</th><td>27.0&nbsp;&deg;C baseline + daily oscillation + envelope &times; 7 &rarr; peaks ~34&nbsp;&deg;C</td></tr>
-  <tr><th>CAVITY01 reflected power</th><td>5&nbsp;kW baseline + envelope &times; 80 &rarr; peaks ~85&nbsp;kW</td></tr>
-  <tr><th>CAVITY01 forward power</th><td>450&nbsp;kW baseline &minus; envelope &times; 440 &rarr; trips to ~0</td></tr>
-  <tr><th>CAVITY01 voltage</th><td>2.5&nbsp;MV baseline &minus; envelope &times; 2.4</td></tr>
-  <tr><th>CAVITY01 frequency</th><td>499.654&nbsp;MHz &minus; envelope &times; 0.001 (thermal detuning)</td></tr>
-  <tr><th>CAVITY02 (stable ref)</th><td>single minor blip (0.55, 0.25) on all fields, baseline ~26.5&nbsp;&deg;C</td></tr>
+  <tr><th>CAVITY01 excursions</th><td>today&minus;9 22:10 (32.6&nbsp;&deg;C), today&minus;7 15:40 (34.0&nbsp;&deg;C), <strong>today&minus;4 03:05 (34.2&nbsp;&deg;C, the trip)</strong></td></tr>
+  <tr><th>CAVITY01 temperature</th><td>27.0&nbsp;&deg;C baseline + 2500&nbsp;s-sigma spikes; 26.5&nbsp;&deg;C from the repair (today&minus;2 14:45) on</td></tr>
+  <tr><th>CAVITY01 reflected power</th><td>5&nbsp;kW baseline, spikes to ~85&nbsp;kW at each temperature peak</td></tr>
+  <tr><th>CAVITY01 forward power</th><td>450&nbsp;kW baseline, floored at 0 for ~75&nbsp;min after each peak (03:15&ndash;04:30 on the trip day)</td></tr>
+  <tr><th>CAVITY01 voltage / klystron</th><td>dip with the forward-power trips</td></tr>
+  <tr><th>CAVITY01 frequency</th><td>499.654&nbsp;MHz, detunes down ~1&nbsp;kHz at each temperature peak</td></tr>
+  <tr><th>CAVITY02 (stable ref)</th><td>one minor bump at today&minus;7 15:40, baseline 26.5&nbsp;&deg;C</td></tr>
 </table>
-<p class="meta">Source: <code>data/simulation/machine.json</code> (<code>rf-thermal</code> scenario; events on the <code>SR:RF:CAVITY:01</code> / <code>SR:RF:KLYSTRON:01</code> channels), synthesized by <code>osprey.simulation.SimulationEngine</code>.</p>
+<p class="meta">Source: <code>data/simulation/scenarios/rf-thermal/scenario.json</code>, synthesized by <code>osprey.simulation.SimulationEngine</code>.</p>
 
 <h3>Seeded logbook (rebased to "now")</h3>
 <table>
