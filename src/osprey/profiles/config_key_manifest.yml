@@ -2950,6 +2950,9 @@ deleted:
   # The worker's device file is the build's Bluesky view; the lane key and its
   # reader both postdate the baseline, so there is no orphan site.
 - services.bluesky.devices_file
+  # The graph search index sits at data/channel_databases/graph.duckdb under the
+  # render, a fixed path every reader resolves; nothing moves it.
+- services.graphdb.index_path
   # ── Leaves removed by derive / consolidate / replace items ──────────
   # These have NO deleted ancestor: the parent block legitimately survives (or
   # survives as a commented override stanza), so only the LEAF is banned. Each
@@ -3004,11 +3007,6 @@ deleted:
 - channel_finder.channel_name_generation.llm_model.provider
 - channel_finder.channel_name_generation.llm_model.model_id
 - channel_finder.channel_name_generation.llm_model.max_tokens
-  # The graph search index sits at data/channel_databases/graph.duckdb under the
-  # render, a fixed path every reader resolves; nothing moves it. No orphan_sites
-  # entry: the key postdates the back-test baseline, so no regex for it can
-  # match there.
-- services.graphdb.index_path
   # Container names and persona projects come from the project name; the
   # knowledge graph's identifiers come from the facility file's identity code.
 - facility.prefix
