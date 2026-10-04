@@ -2,8 +2,7 @@
 
 Turns a :class:`~osprey.services.facility_knowledge.ttl_generator.model.GraphModel`
 plus an :class:`~osprey.services.facility_knowledge.ttl_generator.ontology_map.OntologyMap`
-into a NARAD-convention Turtle file that ``osprey knowledge seed-graph`` can
-import into the graph store.
+into a NARAD-convention Turtle file that the graph store can import.
 
 The output follows the NARAD convention triple-for-triple in *shape* — the
 convention the NARAD prototype ontology defines, which is what the graph tools'
@@ -685,7 +684,7 @@ def serialize_turtle(
     the emitter's import graph.  Identical input always yields identical output,
     byte for byte.
 
-    **Direction provenance.**  ``build-ttl`` knows which rule produced the
+    **Direction provenance.**  The caller knows which rule produced the
     corpus's read/write directions, but the graph agents that later describe the
     corpus run from a different command; the file itself is the only channel
     between them.  A deployment emitting through the library API therefore

@@ -1,8 +1,8 @@
 """Tests for ``osprey knowledge compile-ontology``.
 
 Covers:
-- ``compile-ontology --help`` reads as operator documentation, names both
-  positionals, and names ``build-ttl --ontology`` as the verb to run next.
+- ``compile-ontology --help`` reads as operator documentation and names both
+  positionals.
 - A run against the shipped demo schema writes a table the runtime's own
   ``load_ontology`` reads back, and reports the counts it wrote.
 - ``--check`` agrees with a table this verb just wrote, and writes nothing.
@@ -85,8 +85,8 @@ def compiled_table(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_compile_ontology_help_documents_both_paths_and_the_next_verb() -> None:
-    """The listing shows the verb, and its own help says what it reads, writes and precedes."""
+def test_compile_ontology_help_documents_both_paths() -> None:
+    """The listing shows the verb, and its own help says what it reads and writes."""
     runner = CliRunner()
 
     listing = runner.invoke(knowledge, ["--help"])
@@ -99,10 +99,6 @@ def test_compile_ontology_help_documents_both_paths_and_the_next_verb() -> None:
     assert "SOURCE is the LinkML schema to compile" in flat
     assert "OUTPUT is the JSON table to write" in flat
     assert "--check" in flat
-    # The verb this one stands upstream of, named with the flag that reads the
-    # file it just wrote.
-    assert "osprey knowledge build-ttl" in flat
-    assert "--ontology" in flat
     # Written for operators, not for the framework's authors.
     assert "Claude Code" not in detail.output
 
@@ -113,7 +109,7 @@ def test_compile_ontology_help_documents_both_paths_and_the_next_verb() -> None:
 
 
 def test_compile_ontology_writes_a_table_the_runtime_reads(tmp_path: Path) -> None:
-    """The compiled artifact loads through the same function build-ttl uses."""
+    """The compiled artifact loads through the runtime's own ``load_ontology``."""
     from osprey.services.facility_knowledge.ttl_generator.ontology_map import load_ontology
 
     output = tmp_path / "demo_ontology.json"

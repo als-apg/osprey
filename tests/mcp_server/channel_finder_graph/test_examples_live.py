@@ -30,8 +30,8 @@ through the tool rather than the driver is deliberate: the query gate vets the
 text before the store is dialled, so a catalogue entry the gate would refuse
 fails here rather than in an operator's session.
 
-The corpus is seeded into a wiped store — the sequence ``seed-graph --force``
-performs — and every example runs with its shipped parameter set.  What this
+The corpus is seeded into a wiped store — the sequence ``osprey up`` performs
+on a stamp mismatch — and every example runs with its shipped parameter set.  What this
 file does pin is that the lane ran a non-empty set: a catalogue that declared
 nothing would otherwise pass by running nothing.
 
@@ -127,7 +127,7 @@ def demo_ttl(built_control_assistant: BuiltProject) -> str:
 
 
 def _seed(uri: str, ttl: str, label: str) -> None:
-    """Wipe the store and load *ttl* into it the way ``seed-graph --force`` does.
+    """Wipe the store and load *ttl* into it the way ``osprey up`` replaces a store.
 
     ``wipe`` takes the n10s graph config and the namespace prefixes with the
     data, so the corpus is bootstrapped into a store in the state a fresh

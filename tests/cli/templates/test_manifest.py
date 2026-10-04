@@ -1,8 +1,8 @@
 """Tests for :func:`calculate_file_checksums`'s binary-suffix skip list.
 
 A ``.duckdb`` file is a derived binary artifact that carries its own content
-digest in its ``meta`` table, so checksumming it would turn every
-``osprey knowledge build-index`` into apparent render drift.
+digest in its ``meta`` table, so checksumming it would turn every rebuilt
+index into apparent render drift.
 """
 
 from pathlib import Path

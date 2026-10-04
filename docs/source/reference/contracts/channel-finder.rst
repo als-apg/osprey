@@ -123,8 +123,7 @@ describes the machine. Its contract is the graph schema documented in
 corpus ``osprey build`` writes from the facility file into
 ``data/graph/facility.ttl``. The build writes that path into every rendered
 ``services.graphdb`` block as ``ttl_path`` unless the profile names a corpus of
-its own. Load that corpus into the ``services.graphdb`` store with ``osprey
-knowledge seed-graph``.
+its own. ``osprey up`` loads that corpus into the ``services.graphdb`` store.
 
 The corpus is the source of truth, and two things are built from it. The store
 answers questions about structure — which device an address belongs to, what a
@@ -132,10 +131,9 @@ class is a kind of — and the device card and the agent's Cypher tools read it.
 ``osprey build`` also derives a flat search index from the same file, and every
 render with a ``services.graphdb`` block ships that index as
 ``data/channel_databases/graph.duckdb`` under the render, a fixed path no key
-moves. Nothing parses the corpus while
-the deployment runs; rebuild the index with ``osprey knowledge build-index``
-whenever the corpus changes, and seed the store from the same file so the two
-agree.
+moves. Nothing parses the corpus while the deployment runs; ``osprey build &&
+osprey up`` rebuilds the index and reseeds the store from the same file, so the
+two agree.
 
 The deployment's **channel roster** — the one answer to which channels the
 facility has, and which of them are written — is the facility file

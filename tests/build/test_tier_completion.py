@@ -37,7 +37,6 @@ SELF_EXEMPT: tuple[str, ...] = (
 ALLOWLIST: dict[str, str] = {
     "scripts/facility_demo/fingerprint.py": "7d2",
     "src/osprey/cli/build_cmd.py": "7d",
-    "src/osprey/cli/knowledge_cmd.py": "7e",
     "src/osprey/cli/mml_cmd.py": "7e",
     "src/osprey/cli/templates/scaffolding.py": "7d2",
     "src/osprey/services/channel_finder/__init__.py": "7e",
@@ -52,7 +51,6 @@ ALLOWLIST: dict[str, str] = {
     "tests/build/test_modes.py": "7e",
     "tests/cli/test_build_cmd.py": "7d2",
     "tests/cli/test_build_graph_index.py": "7e",
-    "tests/cli/test_knowledge_build_ttl.py": "7e",
     "tests/cli/test_lifecycle_repo_fixture.py": "7d2",
     "tests/cli/test_mml_build_recipes.py": "7e",
     "tests/cli/test_mml_emit.py": "7e",
@@ -76,7 +74,6 @@ ALLOWLIST: dict[str, str] = {
     "tests/services/facility_knowledge/test_ttl_generator_model.py": "7e",
     "tests/services/facility_knowledge/test_ttl_generator_ontology.py": "7e",
     "tests/simulation/test_seed_logbook_naming.py": "7d2",
-    "tests/templates/test_control_assistant_demo_ttl.py": "7e",
     "tests/templates/test_hierarchical_db_preset_copy.py": "7d2",
     "tests/va/test_build_time_manifest.py": "7d2",
 }

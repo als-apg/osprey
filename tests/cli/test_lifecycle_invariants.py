@@ -413,6 +413,9 @@ _RETIRED_SPELLINGS = {
         r"\bchannel-finder build-database\b"
     ),
     "the deleted `channel-finder generate` verb": re.compile(r"\bchannel-finder generate\b"),
+    "the deleted `knowledge build-ttl` verb": re.compile(r"\bknowledge build-ttl\b"),
+    "the deleted `knowledge seed-graph` verb": re.compile(r"\bknowledge seed-graph\b"),
+    "the deleted `knowledge build-index` verb": re.compile(r"\bknowledge build-index\b"),
 }
 
 #: One line each pattern MUST match, so every pattern proves it still works.
@@ -443,6 +446,9 @@ _RETIRED_SPELLING_EXAMPLES = {
         "osprey channel-finder build-database --csv data/raw/address_list.csv"
     ),
     "the deleted `channel-finder generate` verb": "osprey channel-finder generate --demo",
+    "the deleted `knowledge build-ttl` verb": "osprey knowledge build-ttl data/demo.ttl",
+    "the deleted `knowledge seed-graph` verb": "osprey knowledge seed-graph --force",
+    "the deleted `knowledge build-index` verb": "osprey knowledge build-index --ttl data/demo.ttl",
 }
 
 

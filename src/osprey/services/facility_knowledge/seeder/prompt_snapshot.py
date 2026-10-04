@@ -10,9 +10,8 @@ agent file is baked with the example catalogue its own server serves.
 
 **The seeder owns the baked block, not the build.** ``osprey build`` renders
 the agent prompt before any store exists, so it ships a placeholder that tells
-the agent to call the tools. Whichever verb then touches the store — the
-deploy-time staging step on every ``osprey up``, or ``osprey knowledge
-seed-graph`` — captures the schema *from the live store it just verified* and
+the agent to call the tools. The deploy-time staging step on every ``osprey
+up`` then captures the schema *from the live store it just verified* and
 rewrites the placeholder in every rendered agent file. Sync between prompt and
 store is therefore by construction: the writer of one is the writer of the
 other, stamped with the same seed-marker checksum, and a rebuild that resets
@@ -442,7 +441,7 @@ def render_block(
         "*captured* are this corpus's own; parameters marked *framework "
         "defaults* are the shipped catalogue's and must be swapped for values "
         "from this corpus. It is rewritten whenever the store is seeded or "
-        "re-verified (`osprey up`, `osprey knowledge seed-graph`). If a name "
+        "re-verified (`osprey build && osprey up`). If a name "
         "listed here returns zero rows, or you need vocabulary beyond it, call "
         "`get_schema()` / `example_queries()` — the live store always wins over "
         "this text.",
@@ -564,9 +563,8 @@ def describe_patched(patched: Sequence[Path]) -> str:
 def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
     """Capture the live store's schema and bake it into *render_dir*'s prompts.
 
-    The one entry point both writers share — the deploy-time staging step and
-    the ``seed-graph`` verb — so anything that seeds or re-verifies the store
-    refreshes the prompt with it.
+    The one entry point the deploy-time staging step calls, so anything that
+    seeds or re-verifies the store refreshes the prompt with it.
 
     Args:
         session: An open driver session on the store just seeded or verified.

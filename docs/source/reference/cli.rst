@@ -873,7 +873,7 @@ Options: ``--project PATH``, ``-v, --verbose``
    Finder port); ``--host`` and ``--port`` override them.
 
 A graph-mode project has no channel database file: ``validate`` and ``preview``
-say so and point at ``osprey knowledge seed-graph`` and the ``read_cypher`` tool,
+say so and point at ``osprey build && osprey up`` and the ``read_cypher`` tool,
 and ``--pipeline`` does not offer ``graph`` for the same reason.
 
 .. code-block:: bash
@@ -888,10 +888,12 @@ and ``--pipeline`` does not offer ``graph`` for the same reason.
 osprey knowledge
 ================
 
-Build and load the facility's knowledge material: the OKF bundle of concept
-documents, and the NARAD-convention corpus the graph store holds. An omitted
-``BUNDLE`` comes from ``facility_knowledge.bundle_path`` and an omitted ``TTL``
-from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bundle` and
+Maintain the facility's OKF bundle of concept documents. An omitted ``BUNDLE``
+comes from ``facility_knowledge.bundle_path``. The graph store and the channel
+search index have no verb of their own: ``osprey build`` writes the graph view
+``data/graph/facility.ttl`` and the index from the facility file, and ``osprey
+up`` seeds the store from that view. See
+:doc:`/how-to/facility-knowledge/okf-bundle` and
 :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 ``osprey knowledge regen-index [BUNDLE]``
@@ -903,13 +905,15 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    ``index.md`` against its directory.
 
 ``osprey knowledge seed-from-ttl TTL BUNDLE [--force]``
-   Write stub concept documents into a bundle from a TTL corpus, one per class,
-   for a person to fill in.
+   Write stub concept documents into a bundle from the build's graph view,
+   ``data/graph/facility.ttl`` under the render, one per device, for a person to
+   fill in. Each stub's ``device_id`` is the facility file's device id, so the
+   build links the page to its device.
 
 ``osprey knowledge compile-ontology SOURCE OUTPUT [--check]``
-   Compile an authored LinkML schema into the ontology table ``build-ttl``
-   reads. ``SOURCE`` is the schema, and ``OUTPUT`` the JSON table to write; an
-   existing file is overwritten. The output is deterministic, so compiling an
+   Compile an authored LinkML schema into the ontology table. ``SOURCE`` is
+   the schema, and ``OUTPUT`` the JSON table to write; an existing file is
+   overwritten. The output is deterministic, so compiling an
    unchanged schema twice leaves ``git diff`` silent.
 
    ``--check`` writes nothing. It compares ``OUTPUT`` against a fresh compile of
@@ -917,127 +921,9 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    synonyms and families that differ --- which is what a CI job or a pre-commit
    hook runs to prove a committed table still matches its schema.
 
-``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH] [--section-order A,B,...] [--facility TOKEN]``
-   Derive a NARAD-convention TTL corpus — the file ``seed-graph`` loads — from
-   the project's own channel databases, so the graph store and the channel
-   finder describe the same machine. The corpus carries one device node per
-   device, one binding per address, one class per device family, a read or write
-   direction on every signal, and the prose from both databases on the nodes it
-   describes, which is what lets the corpus be searched by meaning rather than
-   by address alone.
-
-   Two inputs describe the machine:
-
-   ``--channel-db``
-      The **hierarchical**-paradigm database, the one whose addresses are
-      ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``. Its addresses become the
-      devices, bindings and classes, and the text it carries per level becomes
-      ``ringDescription`` / ``systemDescription`` / ``familyDescription`` on
-      devices and ``fieldDescription`` / ``subfieldDescription`` on bindings.
-      Unnamed, it comes from
-      ``channel_finder.pipelines.hierarchical.database.path``, resolved against
-      the ``config.yml`` directory.
-
-      That grammar is the whole of what this verb reads: six levels, in that
-      order, with the device level generated. A hierarchical database built on
-      any other level list --- the shipped
-      ``data/channel_databases/examples/hierarchical_jlab_style.json``, whose
-      levels are ``system, family, sector, device, pv``, is one --- is refused
-      in one line naming the grammar, before a single address is parsed.
-
-   ``--descriptions``
-      The in-context database for the same machine: a flat list of addresses,
-      each with a sentence about that one channel. Those sentences become
-      ``ChannelBinding.description``. Unnamed, it is looked for as
-      ``in_context.json`` beside the file ``--channel-db`` named — which is how
-      the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
-      With no such neighbour the command asks for the flag.
-
-   Four more inputs decide details:
-
-   ``--limits``
-      ``control_system.limits_checking.database_path``, which ``osprey build``
-      sets to the render's ``data/channel_limits.json``. This file is what tells
-      a readback from a setpoint, so the corpus and the write-safety layer agree
-      on which channels are written. With no limits file configured the address
-      grammar decides instead — a ``:SP`` subfield writes, everything else
-      reads. Every run reports which of the two it used.
-
-   ``--ontology``
-      The FAMILY-to-class table, as compiled JSON. Defaults to the demo-machine
-      table shipped with OSPREY; name your own when your device families are not
-      the demo machine's. The table is compiled from an authored LinkML schema
-      (``compile-ontology`` above) rather than written by hand, though a
-      hand-written JSON table is still accepted, so an existing one keeps
-      working untouched.
-
-   ``--section-order``
-      The order the corpus lists the machine's top-level sections in, which
-      decides every device's ordinal and the order the file reads in. Unnamed,
-      it is the order the ``--channel-db`` file's own ``tree`` block lists its
-      top-level tokens in --- a hierarchical database is written in the
-      machine's layout order, and JSON keeps that order. Name your own
-      (``--section-order LINAC,TL,RING``) for a database whose key order
-      carries no meaning; a section neither source names sorts after the ones
-      they do, alphabetically.
-
-   ``--facility``
-      The facility token. Every IRI and identifier the corpus mints embeds it,
-      and each device carries it as ``narad_p:facility``. Unnamed, it is the
-      project's own ``facility.prefix``, and ``demo`` only when no config
-      names one, which is what the shipped demo corpus carries. The token has to be usable inside
-      an identifier: a letter or underscore, then letters, digits and
-      underscores. Every run reports the token it minted with and the ontology
-      table it emitted against, and a run that falls back to ``demo`` against a
-      database that is not the packaged demo one says so.
-
-   The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
-   source tree. A rendered project carries only the index of the paradigm it
-   runs, at ``data/channel_finder/<paradigm>.json``, and no tier tree — so
-   there is no neighbour to find and ``--descriptions`` has to be named there,
-   and ``--channel-db`` too: a hierarchical project's index uses the
-   facility's own levels, not this verb's grammar. A graph-mode project ships
-   no channel database at all, so the command refuses there and says to name
-   the sources with ``--channel-db`` and ``--descriptions``.
-
-   ``OUTPUT`` deliberately does **not** default to
-   ``services.graphdb.ttl_path``: that key usually names a hand-curated corpus,
-   and a bare run of the verb would overwrite it. Point that key at the file you
-   wrote to have every deployment seed it.
-   :doc:`/how-to/facility-knowledge/use-facility-graph` runs the command in a
-   rendered project and in the source tree, and shows what it prints.
-
-``osprey knowledge build-index [--ttl PATH] [--output PATH]``
-   Build the graph channel finder's search index from a TTL corpus. The index
-   is a DuckDB file holding the corpus's channel bindings and its device
-   classes, so a search reads a table instead of parsing Turtle — which is what
-   lets the channel explorer and the agent's keyword tool answer in
-   milliseconds at any corpus size. ``osprey build`` writes it into every
-   render with a graph store; run the verb by hand whenever the corpus changes,
-   and seed the store from the same file so the two describe one machine.
-
-   Unnamed, ``--ttl`` is ``services.graphdb.ttl_path`` — the file
-   ``seed-graph`` loads — and ``--output`` is
-   ``data/channel_databases/graph.duckdb``. Both resolve
-   against the ``config.yml`` directory, so run the command inside the render,
-   or with ``OSPREY_CONFIG`` naming that config. With no corpus configured the
-   command refuses in one sentence and names the key to set. Missing parent
-   directories are created, and an existing index is replaced only once the new
-   one is complete.
-
-   A channel finder already running on the host keeps the index it opened, so
-   restart it to read a rebuilt one. A deployed stack needs nothing: its build
-   writes the index into the image it starts from.
-
-``osprey knowledge seed-graph [TTL] [--force]``
-   Load a TTL corpus into the deployed graph store. ``--force`` wipes the store
-   and imports from scratch, which is what a changed store configuration needs.
-
 .. code-block:: bash
 
-   osprey knowledge build-ttl data/demo_machine.ttl
-   osprey knowledge build-index --ttl data/demo_machine.ttl
-   osprey knowledge seed-graph data/demo_machine.ttl
+   osprey knowledge seed-from-ttl build/data/graph/facility.ttl data/facility/knowledge
    osprey knowledge validate
 
 .. _cli-osprey-mml:

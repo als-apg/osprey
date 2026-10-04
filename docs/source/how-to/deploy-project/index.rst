@@ -110,9 +110,10 @@ Every deploy starts the store ahead of the rest of the stack, bootstraps it, and
 compares the store's seed marker with the digest of ``ttl_path``. A store that
 already holds that corpus is left alone; any other store, an empty one included,
 is wiped and the corpus imported, so a changed corpus reaches the store on the
-next ``osprey up`` with no seeding step. If bootstrapping
-or seeding fails the deploy warns and carries on, naming ``osprey knowledge
-seed-graph`` (see :doc:`/how-to/facility-knowledge/okf-bundle`), the verb that finishes the job by hand.
+next ``osprey up`` with no seeding step. A store whose graph configuration is
+not OSPREY's is replaced the same way. If bootstrapping or seeding fails the
+deploy warns and carries on, naming ``osprey build && osprey up``, which
+finishes the job once the cause is fixed.
 
 To query a graph store this deployment does *not* run, point the block at it
 instead of deploying one — see

@@ -5899,9 +5899,9 @@ def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     artifact of the render: the derived value, ``./data/graph/facility.ttl``,
     is the graph view the build wrote from the facility file, so a facility
     file changed in the profile's data tree reaches the store on the next build
-    like every other rendered artifact. ``osprey knowledge seed-graph`` reads the same key by the same
-    rule; two resolutions of one key would mean the deploy and the verb could
-    seed a store from different files while both reporting success.
+    like every other rendered artifact. The build derives the channel search
+    index from the same key by the same rule; two resolutions of one key would
+    mean the store and the index could come from different files.
 
     :param ttl_path: The configured ``services.graphdb.ttl_path`` value.
     :param project_dir: Root of the built project.
@@ -5957,9 +5957,8 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
 
     * **bootstrap** — always, and idempotent. A store whose graph config is not
       osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
-      is reported and left alone: n10s refuses to re-initialize a configured
-      store, so importing into it would load a corpus under assumptions about the
-      graph's shape that do not hold. Only ``--force`` can resolve that.
+      does not hold this corpus whatever its marker says: n10s refuses to
+      re-initialize a configured store, so it is replaced like a stamp mismatch.
     * **stamp** — the store's ``(:_OspreySeed)`` marker is compared with
       ``ttl_sha256`` of the configured corpus. Equal means the store holds this
       corpus: its data is left as it is and only the prompt snapshot is re-baked.
@@ -6000,19 +5999,12 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
         database=connection.database,
     ) as session:
         bootstrapped = graph_seeder.bootstrap(session)
-        if not bootstrapped.ok:
-            logger.warning(
-                f"The graph store came up, but its {bootstrapped.message}. Nothing was "
-                f"imported, so its contents are whatever was already there. Run "
-                f"`{GRAPHDB_REBUILD_HINT}` from {project_dir} to re-seed it under "
-                f"osprey's settings."
-            )
-            return
-        _report_step("graph store bootstrapped")
+        if bootstrapped.ok:
+            _report_step("graph store bootstrapped")
 
         resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
         digest = graph_seeder.ttl_sha256(text)
-        if graph_seeder.read_marker(session) == digest:
+        if bootstrapped.ok and graph_seeder.read_marker(session) == digest:
             # The normal redeploy path, and silent: the store already holds this
             # corpus. The rendered agent prompt is re-baked regardless, because
             # this deploy's build reset it to the placeholder.

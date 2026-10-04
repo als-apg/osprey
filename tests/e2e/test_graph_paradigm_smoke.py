@@ -22,8 +22,8 @@ Three claims, in the order the chain makes them:
    ``create_project``; this module pins it off the render ``osprey build``
    actually produces, which is a second code path (``regenerate_claude_code``).
 2. **That server talks to a real store.** A throwaway Neo4j 5.26 +
-   neosemantics container, seeded with the shipped demo-machine corpus through
-   ``osprey knowledge seed-graph`` — the container, plugin and seeding recipe
+   neosemantics container, seeded with the shipped demo-machine corpus the way
+   ``osprey up`` seeds it — the container, plugin and seeding recipe
    are imported wholesale from the sibling module rather than restated, so the
    two lanes cannot drift on how a graph store is stood up.
 3. **The agent uses it, unprompted, through the subagent.** One operator-style
@@ -72,12 +72,6 @@ which is why this module, like its sibling, carries **no** module-level
 ``pytestmark``: a blanket ``requires_als_apg`` would skip a half that has
 nothing to do with a model. The live test carries its own gating decorators.
 
-One trap worth naming for anyone running this outside an installed checkout:
-``osprey knowledge seed-graph`` is spawned as a subprocess **with its cwd at
-the render**, so a relative ``PYTHONPATH=src`` does not resolve there and the
-subprocess silently falls back to whatever ``osprey`` the interpreter has
-installed. Point ``PYTHONPATH`` at an absolute ``src`` and the seeding step
-runs the code under test rather than another checkout's.
 """
 
 from __future__ import annotations
@@ -215,9 +209,7 @@ def seeded_graph_paradigm_project(
     try:
         monkeypatch.setenv("GRAPHDB_PASSWORD", GRAPHDB_TEST_PASSWORD)
         _point_project_at_the_store(graph_paradigm_repo, graph_store_port)
-        logger.info(
-            "seed-graph: %s", _seed_demo_corpus(graph_paradigm_repo).strip().replace("\n", " | ")
-        )
+        logger.info("graph seeded: marker %s", _seed_demo_corpus(graph_paradigm_repo))
         yield graph_paradigm_repo
     finally:
         monkeypatch.undo()

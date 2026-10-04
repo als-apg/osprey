@@ -159,8 +159,8 @@ class TestDemoCorpus:
     ):
         """One DEBUG line with the counts and the timing; nothing at INFO.
 
-        The callers own the operator-facing sentence (the build's progress
-        line, the ``build-index`` verb's summary), and a build keeps absolute
+        The caller owns the operator-facing sentence (the build's progress
+        line), and a build keeps absolute
         paths out of its INFO view, so the builder's own line stays at DEBUG.
         """
         builder_logger = "osprey.services.channel_finder.graph_index.builder"

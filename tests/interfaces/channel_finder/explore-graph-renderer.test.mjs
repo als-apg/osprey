@@ -614,7 +614,7 @@ describe('searching', () => {
 });
 
 describe('the informational pane', () => {
-  test('an unseeded store offers the seed command, not an error', async () => {
+  test('an unseeded store offers the rebuild command, not an error', async () => {
     stubDemo(
       searchPayload({
         total: 0,
@@ -622,7 +622,7 @@ describe('the informational pane', () => {
         pages: 0,
         rows: [],
         empty: true,
-        suggestions: ['Seed it with `osprey knowledge seed-graph`.'],
+        suggestions: ['Seed it with `osprey build && osprey up`.'],
       }),
       ontologyPayload({ classes: [], relationship_types: [], empty: true }),
     );
@@ -632,7 +632,7 @@ describe('the informational pane', () => {
 
     const pane = container.querySelector('.explore-unknown--info');
     expect(pane).not.toBeNull();
-    expect(pane?.textContent).toContain('osprey knowledge seed-graph');
+    expect(pane?.textContent).toContain('osprey build && osprey up');
     expect(container.querySelector('#graph-retry')).not.toBeNull();
     // Nothing is drawn, and nothing claims to be broken.
     expect(container.querySelector('.result-table')).toBeNull();

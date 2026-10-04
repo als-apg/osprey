@@ -319,7 +319,7 @@ class TestNodeShapes:
 class TestDirectionSourceHeader:
     """The corpus states where its read/write directions came from, or nothing.
 
-    ``build-ttl`` resolves the directions and the graph agents describe them,
+    The generator resolves the directions and the graph agents describe them,
     but the two run as separate commands: the file is the only channel between
     them, and this one leading comment is what carries the answer.
     """

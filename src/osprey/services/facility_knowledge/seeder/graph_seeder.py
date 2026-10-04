@@ -2,11 +2,9 @@
 
 Pure functions over an already-open neo4j **driver session**.  Nothing here
 reads project config, resolves a TTL path, or decides policy: the connection is
-resolved by :mod:`osprey.deployment.graphdb_service` and the five-state seeding
-vocabulary (seeded / unchanged / differs / unmanaged-partial / overwritten) is
-assembled by the callers — ``osprey knowledge seed-graph`` and the deploy-time
-``_stage_graphdb_store`` staging step — from the primitives below.  Keeping the
-policy out of this module is what lets both consumers behave identically.
+resolved by :mod:`osprey.deployment.graphdb_service` and the seeding policy
+(keep a store whose marker matches, replace any other) is assembled by the
+deploy-time ``_stage_graphdb_store`` staging step from the primitives below.
 
 **neo4j is imported lazily** (inside :func:`open_session`), never at module top,
 mirroring the ``rdflib`` treatment in :mod:`.ttl_seeder`: importing this module
@@ -106,9 +104,7 @@ TERMINATION_OK = "OK"
 SEED_MARKER_LABEL = "_OspreySeed"
 
 #: Operator-facing text for a store whose graph config is not osprey's.
-CONFIG_DRIFT_MESSAGE = (
-    "graph config differs from osprey's canonical settings — re-seed with --force"
-)
+CONFIG_DRIFT_MESSAGE = "graph config differs from osprey's canonical settings"
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +384,9 @@ def bootstrap(session: Session) -> BootstrapResult:
 
     Returns:
         A :class:`BootstrapResult` distinguishing the three config outcomes.
-        Callers should treat :attr:`BootstrapStatus.DIFFERS` as "do not import;
-        tell the operator to re-seed with ``--force``" — see
-        :attr:`BootstrapResult.message`.
+        Callers should treat :attr:`BootstrapStatus.DIFFERS` as "this store
+        does not hold the corpus": wipe it, which removes the config with the
+        data, and bootstrap again before importing.
 
     Raises:
         MissingN10sPluginError: If the store has no ``n10s.*`` procedures —
@@ -453,13 +449,11 @@ def ttl_sha256(text: str) -> str:
 
     The marker's whole job is to answer "is the store already holding *this*
     corpus?", and it can only do that if every consumer computes the digest the
-    same way.  Two consumers write markers — ``osprey knowledge seed-graph`` and
-    the deploy-time ``_stage_graphdb_store`` — and each one reads the other's:
-    a deploy skips seeding a store the verb filled, and the verb reports
-    ``unchanged`` for a store the deploy seeded.  Spelled twice, the two would
-    agree only by coincidence, and a drifting encoding or a stripped newline
-    would make each side see the other's marker as a different corpus and
-    re-seed on sight.
+    same way.  The deploy-time ``_stage_graphdb_store`` writes the marker, and
+    the build's channel search index records the same digest so the health row
+    can compare the two: spelled twice, they would agree only by coincidence,
+    and a drifting encoding or a stripped newline would make one side see the
+    other's digest as a different corpus.
 
     Args:
         text: The Turtle payload, exactly as it will be passed to
@@ -482,7 +476,7 @@ def read_marker(session: Session) -> str | None:
         The stored sha256 hex digest, or ``None`` when no marker exists.  A
         ``None`` marker on a store with a non-zero :func:`resource_count` is the
         unmanaged-partial state — a crashed import or an adopted pre-osprey
-        store — which ``osprey knowledge seed-graph`` refuses without ``--force``.
+        store — which the deploy replaces like any other mismatch.
     """
     record = session.run(_READ_MARKER_CYPHER).single()
     if record is None:
@@ -546,11 +540,11 @@ def import_ttl(session: Session, text: str) -> ImportResult:
 def wipe(session: Session) -> None:
     """Delete every node and relationship in the store.
 
-    This is the first step of every re-seed, a deploy's on a marker mismatch and
-    ``--force``'s alike.  It removes the n10s ``_GraphConfig``/``_NsPrefDef``
-    bookkeeping and the ``(:_OspreySeed)`` marker along with the data, which is
-    exactly why both callers re-run :func:`bootstrap` afterwards rather than
-    going straight to the import.
+    This is the first step of every re-seed, on a marker mismatch and on a
+    graph config that is not osprey's alike.  It removes the n10s
+    ``_GraphConfig``/``_NsPrefDef`` bookkeeping and the ``(:_OspreySeed)``
+    marker along with the data, which is exactly why the caller re-runs
+    :func:`bootstrap` afterwards rather than going straight to the import.
 
     Args:
         session: An open driver session.

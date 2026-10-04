@@ -1,0 +1,1 @@
+`osprey knowledge build-ttl`, `osprey knowledge seed-graph` and `osprey knowledge build-index` are removed. `osprey build` writes the graph view `data/graph/facility.ttl` and the channel search index from the facility file, and `osprey up` seeds the graph store from that view: after a change, run `osprey build && osprey up`.

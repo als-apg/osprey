@@ -489,7 +489,7 @@ class TestEmptyIndex:
         assert all(entries == [] for entries in payload["facets"].values())
         (suggestion,) = payload["suggestions"]
         assert "demo_machine.ttl" in suggestion
-        assert "osprey knowledge build-ttl" in suggestion
+        assert "osprey build && osprey up" in suggestion
 
     def test_an_index_that_binds_something_carries_no_suggestion(self, mixed_index: GraphIndex):
         payload = mixed_index.search(tokens=["no-such-channel"])

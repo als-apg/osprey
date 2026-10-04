@@ -476,19 +476,13 @@ shipping a pipeline with nothing to read — which is why the
 ``channel-finder-standalone`` preset, which ships no such block, cannot run
 this mode.
 
-Load the corpus into the store:
+``osprey up`` loads the build's graph view into the store when the deployment
+runs the store; a store the facility hosts holds whatever the facility loaded
+into it. See :doc:`facility-knowledge/use-facility-graph` for what the graph
+holds.
 
-.. code-block:: bash
-
-   osprey knowledge seed-graph data/demo_machine.ttl
-
-``osprey up`` does that for you when the deployment runs the store; a store the
-facility hosts holds whatever was loaded into it, so seed it deliberately. See
-:doc:`facility-knowledge/use-facility-graph` for what the graph holds and how a corpus is
-generated.
-
-**What the subagent can search** depends on the corpus. On a corpus
-``osprey knowledge build-ttl`` generated — the demo machine — a phrase can be
+**What the subagent can search** depends on the corpus. On the build's graph
+view — written from the facility file — a phrase can be
 matched against the description written for a single channel, against what the
 last two tokens of an address mean, against the prose for a device family, a
 system or a ring, and against the synonyms an operator would say out loud. A
@@ -545,8 +539,8 @@ The badge naming the corpus file and the store it was loaded into, the chips
 naming the tools the OSPREY agent queries that same store with, and the header
 counts of devices, channels, classes, signals and sections read live from the
 store are all unchanged. If the store is unreachable the view says so and
-offers a Retry, and if it is reachable but empty it names the ``osprey
-knowledge seed-graph`` command that fills it. Channel validation is not offered
+offers a Retry, and if it is reachable but empty it names the ``osprey build &&
+osprey up`` command that fills it. Channel validation is not offered
 on this pipeline. The channel-suggestion typeahead in the web panels still
 works in graph mode: ``osprey build`` reads the channel names out of the Turtle
 corpus named by ``services.graphdb.ttl_path`` and writes them into the snapshot

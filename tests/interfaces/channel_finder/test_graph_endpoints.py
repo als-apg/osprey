@@ -35,7 +35,7 @@ from osprey.services.channel_finder.graph_index.builder import (
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
-    BUILD_TTL_COMMAND,
+    REBUILD_COMMAND,
     GraphIndex,
     GraphIndexAbsence,
     open_graph_index,
@@ -358,7 +358,7 @@ class TestEmptyIndex:
         assert data["classes"] == []
         assert data["relationship_types"] == []
         assert data["truncated"] is False
-        assert any(BUILD_TTL_COMMAND in hint for hint in data["suggestions"])
+        assert any(REBUILD_COMMAND in hint for hint in data["suggestions"])
         assert any("small.ttl" in hint for hint in data["suggestions"])
 
     def test_the_empty_answer_blanks_the_class_rows_the_index_still_holds(self, client, tmp_path):
@@ -388,7 +388,7 @@ class TestEmptyIndex:
         assert data["rows"] == []
         assert data["pages"] == 0
         assert data["empty"] is True
-        assert any(BUILD_TTL_COMMAND in hint for hint in data["suggestions"])
+        assert any(REBUILD_COMMAND in hint for hint in data["suggestions"])
         # Emptiness is a fact of the index; the store is never asked.
         assert ctx.empty_checks == 0
 
