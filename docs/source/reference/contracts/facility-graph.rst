@@ -17,21 +17,19 @@ as subject-predicate-object triples — which the neosemantics plugin turns into
 the nodes and relationships a query walks. Four kinds of thing matter to a
 query:
 
-* **Devices** — one node per physical device, carrying ``sourceName``,
-  ``sectionCode``, ``system``, ``sPositionM`` (position along the beamline) and
-  ``ordinalInSection``, plus the prose for the three levels the device sits
-  under: ``ringDescription``, ``systemDescription`` and ``familyDescription``.
+* **Devices** — one node per physical device, carrying ``deviceId``,
+  ``sourceName``, ``system``, ``placePath`` and ``sectionCode``, plus
+  ``sPositionM`` (position along the beamline, in metres), ``lengthM``,
+  ``ordinalInPlace`` and ``ordinalInModel``, each only when the facility file
+  carries it, and the prose for the levels the device sits under:
+  ``familyDescription`` and ``systemDescription``.
 * **Channel bindings** — one node per control system address, carrying
-  ``fullPv``, ``protocol``, ``confidence`` and three texts: ``description`` is
-  the sentence written for that one channel, while ``fieldDescription`` and
-  ``subfieldDescription`` say what the last two tokens of the address mean. A
-  device reaches its bindings over ``HASBINDING``.
+  ``bindingId``, ``fullPv`` and ``description``, the sentence written for that
+  one channel. A device reaches its bindings over ``HASBINDING``.
 * **Signals** — what a binding reads or writes, reached over ``READSSIGNAL`` or
-  ``WRITESSIGNAL``. Exactly one of the two sits on every binding, so the
-  direction of an address is a property of the graph rather than a guess from
-  its name. That is what lets the corpus serve as the deployment's channel
-  roster: on a graph-mode build the queue server's settables and readables are
-  derived from these two predicates
+  ``WRITESSIGNAL``: a setpoint channel writes its signal and a readback channel
+  reads it, as the channel's ``role`` in the facility file says. The queue
+  server's settables and readables come from those same roles
   (:doc:`/how-to/bluesky/write-plans`).
 * **Classes** — the device ontology, linked by ``SUBCLASSOF``. A device is
   typed by ``TYPE``. This is what lets "every magnet" find an ``HCorrector``
@@ -40,9 +38,9 @@ query:
 
 The descriptions are what makes the graph reachable from a phrase rather than
 only from a name: "the magnets that bend the beam" matches text no address
-spells. They sit on bindings rather than on signals because an address is
-ring-qualified and a signal is not — ``SR:MAG:QF:01:CURRENT:SP`` and its
-booster counterpart share one signal node but are described differently.
+spells. They sit on bindings rather than on signals because a description is
+written for one address, while a signal node is shared by every address that
+reads or writes it.
 
 The descriptions and ``system`` come from the facility file, so they are there
 in the build's graph view and not necessarily in a corpus imported straight

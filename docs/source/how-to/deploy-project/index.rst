@@ -85,9 +85,10 @@ Alongside ``postgresql`` and ``openobserve``, the ``control-assistant`` preset
 deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
 graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
 and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an
-operator opens (``http_port_host``), the Turtle corpus to load (``ttl_path``,
-resolved against the ``config.yml`` directory), and the JVM memory the container
-runs with.
+operator opens (``http_port_host``), the corpus the store seeds (``ttl_path``,
+resolved against the ``config.yml`` directory, and filled with the graph view the
+build writes from the facility file, ``data/graph/facility.ttl``, when the block
+does not spell one), and the JVM memory the container runs with.
 
 Two more keys bound what one *query* may cost rather than what the container may
 use: ``query_timeout_s`` (15 seconds by default) is the transaction timeout the
@@ -98,8 +99,8 @@ truncated. The OSPREY agent's graph search reads both, and tells you when a
 result was cut short. Raising them spends the agent's context window rather than
 the store's memory — a few thousand rows crowd out the conversation long before
 they trouble Neo4j. For what the agent does with the store once it is up — the
-query tools, the read-only posture, and how to generate a corpus of your own —
-see :doc:`/how-to/facility-knowledge/use-facility-graph`.
+query tools and the read-only posture — see
+:doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The block carries **no password**, deliberately — the same convention
 ``postgresql`` follows. ``osprey up`` mints ``GRAPHDB_PASSWORD`` into the
@@ -109,8 +110,8 @@ password written into ``config.yml`` would be read by nobody.
 Every deploy starts the store ahead of the rest of the stack, bootstraps it, and
 compares the store's seed marker with the digest of ``ttl_path``. A store that
 already holds that corpus is left alone; any other store, an empty one included,
-is wiped and the corpus imported, so a changed corpus reaches the store on the
-next ``osprey up`` with no seeding step. A store whose graph configuration is
+is wiped and the corpus imported, so a changed facility file reaches the store
+on the next ``osprey build && osprey up`` with no seeding step. A store whose graph configuration is
 not OSPREY's is replaced the same way. If bootstrapping or seeding fails the
 deploy warns and carries on, naming ``osprey build && osprey up``, which
 finishes the job once the cause is fixed.
