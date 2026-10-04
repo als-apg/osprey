@@ -83,6 +83,7 @@ from tests.cli.test_mml_build_recipes import (
     import_facility,
     invoke,
     published,
+    remove_stale_scenarios,
 )
 from tests.cli.test_mml_build_recipes import (
     TestServedFromATwoZeroExport as _BuildCases,
@@ -314,7 +315,8 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     publishes a tree only a real deployment has. Nothing is decided here ---
     each refusal is obeyed as written, and every claim about what came out is
     borrowed from the recipe's own cases. The export enters the facility
-    description before the harvest, and the limits record of every setpoint the
+    description before the harvest, the demo scenarios the import lists as stale
+    are removed exactly as listed, and the limits record of every setpoint the
     first build stops on is widened as that stop names it; which setpoints those
     are is the facility's own fact, so nothing here lists them.
 
@@ -329,7 +331,8 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     cleared = clear_authored(runner, repo, LANE.exports)
-    import_facility(runner, repo, LANE.exports, LANE.facility_mapping)
+    imported = import_facility(runner, repo, LANE.exports, LANE.facility_mapping)
+    remove_stale_scenarios(repo, imported)
     invoke(runner, "mml", "import", *LANE.exports, "--repo", str(repo))
     shutil.copy(LANE.mapping, repo / "data" / "mml" / "mapping.yaml")
 

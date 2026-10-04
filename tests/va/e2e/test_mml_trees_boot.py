@@ -318,11 +318,12 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     The exports enter the facility description before ``mml emit`` runs: the
     stop ``facility import mml`` makes over the preset's authored sources is
     obeyed line by line, the tree's reviewed ``imported/mml/mapping.yaml`` is
-    installed, and every export goes in one call. The first build then stops
-    on a setpoint that starts outside its seeded band; ``facility validate``
-    names every such setpoint, the limits records those lines name are widened
-    in the deployment, never in the fixture, and the set is held against the
-    tree's own.
+    installed, and every export goes in one call. The import lists the demo
+    scenarios it leaves stale, and exactly those are removed. The first build
+    then stops on a setpoint that starts outside its seeded band; ``facility
+    validate`` names every such setpoint, the limits records those lines name
+    are widened in the deployment, never in the fixture, and the set is held
+    against the tree's own.
     """
     recipes = _recipes()
     fixture = recipes.FIXTURES / name
@@ -333,7 +334,8 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     repo = destination / "deployment"
     recipes.invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     recipes.clear_authored(runner, repo, exports)
-    recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
+    imported = recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
+    recipes.remove_stale_scenarios(repo, imported)
     recipes.invoke(runner, "mml", "import", *exports, "--repo", str(repo))
     shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
     recipes.drive_emit(runner, repo)
