@@ -28,8 +28,8 @@ may touch.
 
 .. _config-simulation:
 
-``simulation:`` — which models the simulator serves
-----------------------------------------------------
+``simulation:`` — which models the simulator serves and how fast it ticks
+--------------------------------------------------------------------------
 
 .. list-table::
    :header-rows: 1
@@ -41,6 +41,10 @@ may touch.
      - The models the simulator serves, by name from the facility file's
        ``models.yaml``. ``null`` or absent serves every model; ``[texture]``
        and ``[]`` serve no physics. Every shipped preset sets ``null``.
+   * - ``simulation.tick_s``
+     - Seconds between the simulator's ticks. Absent means ``1.0``; every
+       shipped preset sets ``1.0``. A value at or below ``0`` stops the build
+       with a ``profile-invalid`` line naming the key.
 
 ``texture`` is always served, and always last. A name the facility file does
 not hold stops the build with a ``profile-invalid`` line that lists the valid

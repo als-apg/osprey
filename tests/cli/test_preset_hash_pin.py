@@ -224,29 +224,33 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # container names and persona projects come from the project name. The
     # five `extends` children inherit the change; ariel-standalone and
     # channel-finder-standalone lose only a commented example and stand still.
-    "ariel-standalone": ("sha256:8a35722846d7faa6b5f14512d89f383c33146acb481cb22c82c6f8d0f37c8d37"),
+    # The thirtieth move, and every preset: each states `simulation.tick_s:
+    # 1.0`, the simulator's tick period, whose value is the one the absent key
+    # resolves, so a rebuilt project behaves identically; the digest moves
+    # because the preset now states it.
+    "ariel-standalone": ("sha256:2a55ee7fd7f696a83f62ae2d78e3ed715d108d179ca0b66ec77c186544ae86d4"),
     "channel-finder-standalone": (
-        "sha256:91e29784cba676d47fa479e63bd3ce03cf469d165b8cfd27aad32762e8c7bc87"
+        "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:0b720503973b1a38053c1e11f55608e93ba6f03fac518c24ddba3e92d0cb9608"
+        "sha256:663aac1ad167933c0d17dea2a95bacd2b9082ce89b0827c91d99afb6a5b8e43b"
     ),
     "control-assistant-admin": (
-        "sha256:31b377c70c444106d0289b17276474cb0d6f307f168129c034827a7aa07832ad"
+        "sha256:34c4e0d4032dbbdf5dc9ba16f3867f3b1c163ed8fda1cf316664f9196d50d882"
     ),
     "control-assistant-knowledge": (
-        "sha256:d1d221bb514dc9aa8254d831fb9a35536e37360c19829bfdb42b3bc1df6f514a"
+        "sha256:f3f30c1b2754df8845c344277f980e20127f2ab4288005c33310718a001ec3c5"
     ),
     "control-assistant-logbook": (
-        "sha256:3ddfa8d668be3a06cfda5ccb2892b65503f062a80fa7f196b5012783183a4221"
+        "sha256:080436437e901dcf23c9071f1e500302efe9becf7a6d1767ce39d2d94f1e1536"
     ),
     "control-assistant-readonly": (
-        "sha256:e8fc9bef01920b6741174f07c86d0d7c55d8b285778c13374cc0bfcce7421d45"
+        "sha256:045f15af57ee0a48f57d5df4f7abcac87ecfa19f5d3e8245f0d902de7ec02135"
     ),
     "control-assistant-readwrite": (
-        "sha256:0be7b86d24dc5b9d4b06b3326e82535245f6b2d5b2e74e9c5be85d6a256811a0"
+        "sha256:7fe7c9872738fa3e02a96ca8379c36dbc04751f443b8473569ad8ab1b786c95e"
     ),
-    "hello-world": ("sha256:79ec0599628ed246440d6796191262c6ea844ce92ad2bb2e006b356f3a9a9ee7"),
+    "hello-world": ("sha256:d9328877c94d4e066e6bb98e54f38f9bb2918025928ed37f598141c91082c5d7"),
 }
 
 
