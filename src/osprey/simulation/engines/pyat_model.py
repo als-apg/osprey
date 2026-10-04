@@ -10,7 +10,7 @@ each built from one wiring record by
 
 - the fault state every wired monitor and magnet can carry,
 - the energy knob's coupling to the rigidity-scaled setpoints,
-- and three optics arrays of the solved lattice, computed on read.
+- and the optics arrays of the solved lattice, computed on read.
 
 **Faults are variables, held as state on the element.** Each is named
 ``<address>/<field>`` after the wired address it perturbs, so a fault name is
@@ -42,13 +42,17 @@ for that setpoint: a family supply and a trim on one of its magnets, or the
 two planes of one corrector, are each miscalibrated alone, and a fault on one
 never rescales what another delivers.
 
-**Optics are read-only arrays, computed on read.** ``tunes`` (the two
-fractional transverse tunes), ``beta_at_monitors`` and ``orbit_at_monitors``
-(one ``(x, y)`` row per monitor element, in lattice order) sit beside the
-per-monitor readings. The base class re-reads every read-only output after
-every solve, so a setpoint write would pay for a linear optics pass nobody
-asked for; these three are left out of that re-read and computed together the
-first time one is read after a solve, then served from memory until the next.
+**Optics are read-only arrays, computed on read.** ``tunes`` (the fractional
+tunes: the two transverse ones, and the synchrotron tune third on a deck with
+longitudinal motion), ``chromaticity`` (one per tune), ``beta_at_monitors``
+and ``orbit_at_monitors`` (one ``(x, y)`` row per monitor element, in lattice
+order) sit beside the per-monitor readings. The base class re-reads every
+read-only output after every solve, so a setpoint write would pay for an
+optics pass nobody asked for; these are left out of that re-read. The linear
+ones are computed together the first time one is read after a solve, then
+served from memory until the next. The chromaticity needs a chromatic solve,
+far dearer than the linear pass, so it has a memo of its own and is solved
+only for a read that names it.
 
 Declared defaults are recorded as the retained input values at construction
 but are not written to the lattice, so the lattice boots exactly as handed
@@ -87,6 +91,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "BETA_AT_MONITORS",
+    "CHROMATICITY",
     "FAULT_SEPARATOR",
     "OPTICS_NAMES",
     "ORBIT_AT_MONITORS",
@@ -147,15 +152,24 @@ _FIELDS_IN_READING_UNIT = frozenset({"offset", "noise"})
 # The optics arrays, by name. No separator and no colon, so none of them
 # parses as a fault name or as an address.
 TUNES = "tunes"
+CHROMATICITY = "chromaticity"
 BETA_AT_MONITORS = "beta_at_monitors"
 ORBIT_AT_MONITORS = "orbit_at_monitors"
-OPTICS_NAMES: frozenset[str] = frozenset({TUNES, BETA_AT_MONITORS, ORBIT_AT_MONITORS})
+#: The optics one linear pass computes together.
+LINEAR_OPTICS: frozenset[str] = frozenset({TUNES, BETA_AT_MONITORS, ORBIT_AT_MONITORS})
+OPTICS_NAMES: frozenset[str] = LINEAR_OPTICS | {CHROMATICITY}
 
 FaultVariable = PyATWritableScalarVariable | PyATWritableEnumVariable
 
 # A solve (the simulator's last solution object), and the optics computed for
 # it.
 _OpticsMemo = tuple[Any, dict[str, np.ndarray]]
+_ChromaticityMemo = tuple[Any, np.ndarray]
+
+
+def tune_planes(lattice: at.Lattice) -> int:
+    """How many tunes a lattice has: three with longitudinal motion, else two."""
+    return 3 if lattice.is_6d else 2
 
 
 def _fault_name(address: str, field: str) -> str:
@@ -249,11 +263,16 @@ def _calibration_faults(
     return faults
 
 
-def _optics_variables(monitor_count: int) -> list[PyATReadOnlyNDVariable]:
-    """Declare the optics arrays. Per-monitor arrays hold one ``(x, y)`` row each."""
+def _optics_variables(monitor_count: int, planes: int) -> list[PyATReadOnlyNDVariable]:
+    """Declare the optics arrays.
+
+    The tunes and the chromaticity hold one value per plane; per-monitor
+    arrays hold one ``(x, y)`` row each.
+    """
     per_monitor = (monitor_count, 2)
     return [
-        PyATReadOnlyNDVariable(name=TUNES, shape=(2,)),
+        PyATReadOnlyNDVariable(name=TUNES, shape=(planes,)),
+        PyATReadOnlyNDVariable(name=CHROMATICITY, shape=(planes,)),
         PyATReadOnlyNDVariable(name=BETA_AT_MONITORS, shape=per_monitor, unit="m"),
         PyATReadOnlyNDVariable(name=ORBIT_AT_MONITORS, shape=per_monitor, unit="m"),
     ]
@@ -300,7 +319,7 @@ class PyATLatticeModel(LUMEPyATModel):
 
     Hardware setpoints in, monitor readings out, both in the units the wiring's
     calibrations state -- the conversions live on the variables. Beside them
-    stand the settable fault state of every wired monitor and magnet, and three
+    stand the settable fault state of every wired monitor and magnet, and the
     read-only optics arrays computed on read. One instance owns one lattice for
     its whole lifetime, so sequential writes compose exactly like their
     physical counterparts would, and a seeded fault survives every later write
@@ -360,7 +379,8 @@ class PyATLatticeModel(LUMEPyATModel):
                 f"only readback), a PolynomB or KickAngle setpoint takes "
                 f"{sorted(CALIBRATION_IDENTITY)}"
             )
-        optics = _optics_variables(len(monitors))
+        planes = tune_planes(lattice)
+        optics = _optics_variables(len(monitors), planes)
         _refuse_name_collisions(channels, [*declared, *optics])
         _seed_fault_attributes(lattice, declared)
 
@@ -392,7 +412,9 @@ class PyATLatticeModel(LUMEPyATModel):
         self._monitor_refpts = np.array(
             [self.element_index(element) for element in self._monitor_order], dtype=np.uint32
         )
+        self._planes = planes
         self._optics_memo: _OpticsMemo | None = None
+        self._chromaticity_memo: _ChromaticityMemo | None = None
 
     def _set(self, values: dict[str, Any]) -> None:
         """Apply a batch atomically, its faults before its channel variables.
@@ -431,19 +453,24 @@ class PyATLatticeModel(LUMEPyATModel):
     def _get(self, names: list[str]) -> dict[str, Any]:
         """Return one value per name, in the order asked.
 
-        Optics arrays come from :meth:`_optics`, as copies, so a caller that
-        edits one cannot alter what the next read returns. Everything else is
-        the base class's cached answer.
+        Optics arrays come from :meth:`_optics` and :meth:`_chromaticity`, as
+        copies, so a caller that edits one cannot alter what the next read
+        returns; the chromatic solve runs only when ``names`` holds
+        ``chromaticity``. Everything else is the base class's cached answer.
 
         Raises:
             UnknownElementError: a name is not a variable of this model.
         """
         if OPTICS_NAMES.isdisjoint(names):
             return super()._get(names)
-        optics = self._optics()
+        arrays: dict[str, np.ndarray] = {}
+        if not LINEAR_OPTICS.isdisjoint(names):
+            arrays.update(self._optics())
+        if CHROMATICITY in names:
+            arrays[CHROMATICITY] = self._chromaticity()
         cached = super()._get([name for name in names if name not in OPTICS_NAMES])
         return {
-            name: optics[name].copy() if name in OPTICS_NAMES else cached[name] for name in names
+            name: arrays[name].copy() if name in OPTICS_NAMES else cached[name] for name in names
         }
 
     def _optics(self) -> dict[str, np.ndarray]:
@@ -464,10 +491,7 @@ class PyATLatticeModel(LUMEPyATModel):
             return self._optics_memo[1]
         _, lattice_data, element_data = at.get_optics(self.lattice, refpts=self._monitor_refpts)
         optics = {
-            # The two transverse tunes. A lattice solved with longitudinal
-            # motion on reports a third, and the synchrotron tune is not a
-            # betatron one -- the array says which two it holds.
-            TUNES: np.array(lattice_data.tune[:2], dtype=np.float64),
+            TUNES: np.array(lattice_data.tune[: self._planes], dtype=np.float64),
             BETA_AT_MONITORS: np.array(element_data.beta, dtype=np.float64),
             ORBIT_AT_MONITORS: np.array(
                 [solution[element] for element in self._monitor_order], dtype=np.float64
@@ -475,3 +499,21 @@ class PyATLatticeModel(LUMEPyATModel):
         }
         self._optics_memo = (solution, optics)
         return optics
+
+    def _chromaticity(self) -> np.ndarray:
+        """The chromaticity of the last solve, solved at most once per solve.
+
+        Keyed on the simulator's last solution exactly as :meth:`_optics` is,
+        and kept apart from it, so a read of the linear optics never pays for
+        the chromatic solve.
+
+        Raises:
+            OrbitSolveError: no solve has succeeded yet.
+        """
+        solution = self.simulator.last_solution
+        if self._chromaticity_memo is not None and self._chromaticity_memo[0] is solution:
+            return self._chromaticity_memo[1]
+        _, lattice_data, _ = at.get_optics(self.lattice, get_chrom=True)
+        chromaticity = np.array(lattice_data.chromaticity[: self._planes], dtype=np.float64)
+        self._chromaticity_memo = (solution, chromaticity)
+        return chromaticity
