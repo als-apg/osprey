@@ -492,7 +492,8 @@ def start_values(
     *,
     readbacks: Mapping[str, str | None] | None = None,
     value_types: Mapping[str, str] | None = None,
-) -> dict[str, float]:
+    shapes: Mapping[str, Iterable[int]] | None = None,
+) -> dict[str, float | list[float]]:
     """Derive each wired channel's operating point from the deck.
 
     A setpoint's value is its first slice's element attribute (the
@@ -502,8 +503,9 @@ def start_values(
     hardware through ``calibration.inverse`` when present, else through the
     algebraic inverse of a ``linear`` curve; with no calibration the physics
     value is the hardware value. A readback takes its paired setpoint's value
-    when that setpoint is in ``wiring``, else zero. Any other record that
-    names no element has no start value in the deck and is left out.
+    when that setpoint is in ``wiring``, else zero; a waveform readback wired
+    to a whole optics output starts as one zero per plane. Any other record
+    that names no element has no start value in the deck and is left out.
 
     Args:
         deck: The lattice file.
@@ -513,18 +515,24 @@ def start_values(
             address of its paired setpoint or ``None``; every other record is
             a setpoint.
         value_types: Each wired channel's ``value_type``; an address it
-            does not name is float. pyat drives float channels only.
+            does not name is float. pyat drives float channels only, but for
+            a readback wired to a whole optics output.
+        shapes: Each wired waveform channel's ``shape``; a readback wired to
+            a whole optics output is as long as the deck has planes.
 
     Returns:
         ``{address: value}`` sorted by address.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` naming the wiring id for the
-            first record, in record order, whose channel is not float (raised
-            before the deck is read); for an element absent from or repeated
-            in the deck (an ``ElementStop``), an unreadable attribute, or a
-            setpoint's or monitor's (a record whose engine block names an
-            ``axis``) table calibration without an inverse or linear gain of 0.
+            first record, in record order, whose channel is a non-float
+            setpoint, or a non-float readback that is not a waveform reading
+            an optics output (raised before the deck is read); for an element
+            absent from or repeated in the deck (an ``ElementStop``), an
+            unreadable attribute, or a setpoint's or monitor's (a record whose
+            engine block names an ``axis``) table calibration without an
+            inverse or linear gain of 0; for a waveform readback that names an
+            ``axis`` or ``index``, or whose shape is not the deck's planes.
     """
     del settings
     readbacks = readbacks or {}
@@ -533,7 +541,8 @@ def start_values(
     for record in records:
         address = field(record, "address")
         value_type = value_types.get(address, "float")
-        if value_type != "float":
+        whole = value_type == "waveform" and address in readbacks and _reads_an_output(record)
+        if value_type != "float" and not whole:
             raise _stop(
                 deck,
                 field(record, "id") or address,
@@ -541,8 +550,17 @@ def start_values(
                 f"{address} is {value_type}; pyat drives float channels only",
                 "wire a float channel, or leave the channel unwired",
             )
+    from osprey.simulation.engines.pyat_model import tune_planes
+
     loaded = _load(deck)
-    values: dict[str, float] = {}
+    planes = tune_planes(loaded.lattice)
+    whole_outputs: set[str] = set()
+    for record in records:
+        address = field(record, "address")
+        if value_types.get(address, "float") == "waveform":
+            _check_whole_output(record, (shapes or {}).get(address, ()), deck, planes)
+            whole_outputs.add(address)
+    values: dict[str, float | list[float]] = {}
     pending: list[str] = []
     for record in records:
         address = field(record, "address")
@@ -559,8 +577,46 @@ def start_values(
         values[address] = _hardware(physics, field(record, "calibration"), deck, record_id)
     for address in pending:
         pair = readbacks[address]
-        values[address] = values.get(pair, 0.0) if pair is not None else 0.0
+        if address in whole_outputs:
+            values[address] = [0.0] * planes
+        else:
+            values[address] = values.get(pair, 0.0) if pair is not None else 0.0
     return dict(sorted(values.items()))
+
+
+def _reads_an_output(record: Any) -> bool:
+    """Whether a record reads an optics output: no element, an optics attribute."""
+    return (
+        field(record, "element") is None
+        and not field(record, "slices")
+        and field(field(record, "engine"), "attribute") in OPTICS_ATTRIBUTES
+    )
+
+
+def _check_whole_output(record: Any, shape: Iterable[int], deck: Deck, planes: int) -> None:
+    """Refuse a waveform record that does not read the whole of its optics output.
+
+    A waveform names neither ``axis`` nor ``index``, and its ``shape`` is the
+    deck's number of planes.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the record otherwise.
+    """
+    block = field(record, "engine")
+    axis = field(block, "axis")
+    index = field(block, "index")
+    shape = list(shape)
+    if axis is None and index is None and shape == [planes]:
+        return
+    address = field(record, "address")
+    raise _stop(
+        deck,
+        str(field(record, "id") or address),
+        "wiring",
+        f"{address} is a waveform naming axis {axis!r}, index {index!r} and shape {shape}; "
+        f"a waveform reads the whole of {field(block, 'attribute')} on the deck's {planes} planes",
+        f"wire the waveform with no axis or index and shape [{planes}]",
+    )
 
 
 def plane(wiring_record: Any) -> Literal["x", "y"] | None:
@@ -596,14 +652,23 @@ def _names_element(record: Mapping[str, Any]) -> bool:
     return field(record, "element") is not None or bool(field(record, "slices"))
 
 
-def _optics_source(record: Mapping[str, Any], deck: Deck, planes: int) -> tuple[str, int]:
-    """The optics output and plane an element-free record reads.
+def _is_waveform(record: Mapping[str, Any]) -> bool:
+    return bool(field(record, "value_type") == "waveform")
+
+
+def _optics_source(record: Mapping[str, Any], deck: Deck, planes: int) -> tuple[str, int | None]:
+    """The optics output an element-free record reads, and the plane it reads.
+
+    A scalar record reads one plane, named by exactly one of ``axis`` and
+    ``index``. A ``waveform`` record reads the whole output: it names neither,
+    and its ``shape`` is the output's length; its plane is ``None``.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` naming the record when its
-            engine block names no optics attribute, both or neither of
-            ``axis`` and ``index``, an unknown axis, or a plane the deck does
-            not have.
+            engine block names no optics attribute; a scalar record naming
+            both or neither of ``axis`` and ``index``, an unknown axis, or a
+            plane the deck does not have; a waveform record naming either, or
+            whose shape is not the output's length.
     """
     block = field(record, "engine")
     attribute = field(block, "attribute")
@@ -612,6 +677,9 @@ def _optics_source(record: Mapping[str, Any], deck: Deck, planes: int) -> tuple[
     record_id = str(field(record, "id") or field(record, "address"))
     output = OPTICS_ATTRIBUTES.get(attribute) if isinstance(attribute, str) else None
     planes_text = ", ".join(str(plane) for plane in range(planes))
+    if output is not None and _is_waveform(record):
+        _check_whole_output(record, field(record, "shape") or (), deck, planes)
+        return output, None
     if output is None or (axis is None) == (index is None):
         raise _stop(
             deck,
@@ -667,7 +735,9 @@ def build(
       the same way, so no readback is ever writable;
     * a record naming no element reads one plane of the deck's ``tune`` or
       ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
-      unless its attribute is a deck property such as ``energy``.
+      unless its attribute is a deck property such as ``energy``; a
+      ``value_type: waveform`` record names neither and reads the whole
+      output, read-only, its ``shape`` the deck's number of planes.
 
     The settings' ``solve`` picks the solve: ``periodic`` solves the closed
     orbit; ``single_pass`` tracks one pass through the line from
@@ -706,6 +776,7 @@ def build(
             stable solve, or loses the single-pass particle.
     """
     from osprey.simulation.engines.pyat_model import (
+        ArrayReadbackVariable,
         PyATLatticeModel,
         ReadbackVariable,
         tune_planes,
@@ -731,6 +802,13 @@ def build(
         deck_property = not _names_element(entry) and attribute in DECK_PROPERTIES
         if not _names_element(entry) and not deck_property:
             output, component = _optics_source(entry, deck, planes)
+            if component is None:
+                channels.append(
+                    ArrayReadbackVariable(
+                        name=address, source=output, shape=(planes,), unit=entry.get("unit")
+                    )
+                )
+                continue
             channels.append(
                 ReadbackVariable(
                     name=address, source=output, component=component, unit=entry.get("unit")

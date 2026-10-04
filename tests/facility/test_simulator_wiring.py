@@ -122,3 +122,17 @@ def test_a_model_without_wiring_has_no_entries(demo: FacilityDocument) -> None:
 def test_an_unknown_model_is_refused(demo: FacilityDocument) -> None:
     with pytest.raises(KeyError, match="NOPE"):
         simulator_wiring(demo, "NOPE")
+
+
+def test_a_waveform_channel_s_entry_carries_its_value_type_and_shape(
+    demo: FacilityDocument,
+) -> None:
+    doc = json.loads(json.dumps(demo))
+    (channel,) = [c for c in doc["channels"] if c["id"] == "SR:DIAG:TUNE:X"]
+    channel.update(value_type="waveform", shape=[3])
+    entries = {entry["address"]: entry for entry in simulator_wiring(doc, "SR")}
+    assert (entries["SR:DIAG:TUNE:X"]["value_type"], entries["SR:DIAG:TUNE:X"]["shape"]) == (
+        "waveform",
+        [3],
+    )
+    assert "value_type" not in entries["SR:DIAG:TUNE:Y"]

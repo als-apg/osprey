@@ -310,6 +310,36 @@ class TestOptics:
             build(demo, wiring=[*demo["wiring"], bad])
         assert (caught.value.kind, caught.value.record_id) == ("engine-invalid", "SR/BAD")
 
+    @staticmethod
+    def whole(demo, attribute: str, shape: list[int], **engine: Any) -> dict[str, Any]:
+        return {
+            **entry(demo, TUNE_X),
+            "id": f"{MODEL}/WHOLE",
+            "address": "WHOLE",
+            "engine": {"attribute": attribute, **engine},
+            "value_type": "waveform",
+            "shape": shape,
+        }
+
+    @pytest.mark.parametrize(
+        ("attribute", "output"), [("tune", TUNES), ("chromaticity", CHROMATICITY)]
+    )
+    def test_a_waveform_readback_serves_the_whole_output_read_only(self, demo, attribute, output):
+        model = build(demo, wiring=[*demo["wiring"], self.whole(demo, attribute, [3])])
+        assert model.supported_variables["WHOLE"].read_only
+        values = model.get(["WHOLE", output])
+        assert values["WHOLE"].shape == (3,)
+        np.testing.assert_array_equal(values["WHOLE"], values[output])
+
+    @pytest.mark.parametrize(
+        ("shape", "engine"), [([2], {}), ([3], {"index": 0}), ([3], {"axis": "x"})]
+    )
+    def test_a_waveform_readback_off_the_whole_output_is_refused(self, demo, shape, engine):
+        bad = self.whole(demo, "tune", shape, **engine)
+        with pytest.raises(FacilityBuildError) as caught:
+            build(demo, wiring=[*demo["wiring"], bad])
+        assert (caught.value.kind, caught.value.record_id) == ("engine-invalid", f"{MODEL}/WHOLE")
+
     def test_the_chromatic_solve_runs_only_for_a_read_naming_it(self, demo, monkeypatch):
         model = build(demo)
         chromatic: list[bool] = []

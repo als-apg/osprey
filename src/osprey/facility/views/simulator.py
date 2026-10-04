@@ -38,7 +38,8 @@ plus ``inactive: model not served`` when the render does not serve it.
 
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the channel facts
-the build filled in (direction, unit, default, value_range).
+the build filled in (direction, unit, default, value_range) and, for a
+waveform channel, its ``value_type`` and ``shape``.
 """
 
 from __future__ import annotations
@@ -118,7 +119,9 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
     """The wiring entries of one model, in the facility file's record order.
 
     Each entry holds the keys of ``_WIRING_ENTRY_KEYS`` the wiring record
-    carries and no other; a key the record lacks is absent from its entry.
+    carries, and, where the wired channel is a waveform, the channel's
+    ``value_type`` and ``shape``; a key the record lacks is absent from its
+    entry.
 
     Args:
         facility: The in-memory facility file.
@@ -131,13 +134,28 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
     Raises:
         KeyError: ``facility`` has no model named ``model``.
     """
+    channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
     for entry in facility.get("models", []):
         if entry["name"] == model:
             return [
-                {key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record}
+                {
+                    **{
+                        key: copy.deepcopy(record[key])
+                        for key in _WIRING_ENTRY_KEYS
+                        if key in record
+                    },
+                    **_waveform(channels.get(str(record["address"]), {})),
+                }
                 for record in entry.get("wiring", [])
             ]
     raise KeyError(f"the facility file has no model {model!r}")
+
+
+def _waveform(channel: Mapping[str, Any]) -> dict[str, Any]:
+    """A waveform channel's ``value_type`` and ``shape``; nothing for any other channel."""
+    if channel.get("value_type") != "waveform":
+        return {}
+    return {"value_type": "waveform", "shape": list(channel.get("shape") or [])}
 
 
 def status_address(code: str, model: str) -> str:
