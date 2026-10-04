@@ -150,6 +150,19 @@ def scenario(name: str, body: dict[str, Any]) -> Edit:
     return put(f"scenarios/{name}.yaml", body)
 
 
+#: A second reading of model SR's BPM1, so the monitor is read on both axes.
+BPM1_Y = {"id": "BPM1:Y", "on": {"device": "SR/BPM1"}}
+
+
+def monitor_axes() -> tuple[Edit, ...]:
+    """Read model SR's BPM1 as a monitor on x (BPM1:X) and y (BPM1:Y)."""
+    return (
+        append("records/channels.yaml", BPM1_Y),
+        wiring("SR", 2, engine={"axis": "x"}),
+        wire("SR", {"address": "BPM1:Y", "element": "BPM1", "engine": {"axis": "y"}}),
+    )
+
+
 def _set_slice(where: str, element: str) -> Edit:
     """Point one wired element of model SR at ``element``."""
     if where == "element":
@@ -251,7 +264,8 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("reference_missing__override", "reference-missing", "scenario `overrides` address"),
     ("reference_missing__archiver", "reference-missing", "scenario `archiver` channel"),
     ("reference_missing__fault_model", "reference-missing", "scenario `faults` model key"),
-    ("reference_missing__fault_channel", "reference-missing", "scenario `faults` channel"),
+    ("reference_missing__couple", "reference-missing", "scenario `couple` address"),
+    ("reference_missing__noise", "reference-missing", "scenario `noise` address"),
     (
         "reference_missing__measurement_model",
         "reference-missing",
@@ -291,6 +305,13 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("value_invalid__nominal_waveform", "value-invalid", "coercion refusal: waveform nominal"),
     ("value_invalid__override", "value-invalid", "coercion refusal of a scenario override"),
     ("value_invalid__fault", "value-invalid", "coercion refusal of a fault value"),
+    (
+        "value_invalid__fault_field_unknown",
+        "value-invalid",
+        "a fault field the address does not carry",
+    ),
+    ("value_invalid__fault_field_value", "value-invalid", "coercion refusal of a fault field"),
+    ("value_invalid__roll_y_axis", "value-invalid", "`roll` on a y-axis address"),
     ("value_invalid__options_presence", "value-invalid", "`options` presence wrong"),
     ("value_invalid__shape_presence", "value-invalid", "`shape` presence wrong"),
     ("value_invalid__motion_non_float", "value-invalid", "motion on non-float"),
@@ -314,6 +335,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("seed_invalid__paired_seed", "seed-invalid", "paired seed disagrees"),
     ("seed_invalid__int_nominal", "seed-invalid", "non-integral nominal on an int channel"),
     ("seed_invalid__int_override", "seed-invalid", "non-integral override on an int channel"),
+    ("seed_invalid__fault_out_of_range", "seed-invalid", "a fault out of range"),
     (
         "seed_missing__band_excludes_zero",
         "seed-missing",
@@ -423,6 +445,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "engine_invalid__monitor_linear_gain_zero",
         "engine-invalid",
         "a linear gain of 0 on a monitor",
+    ),
+    (
+        "engine_invalid__scenario_fault_key",
+        "engine-invalid",
+        "a scenario fault key naming no channel and no engine variable",
+    ),
+    (
+        "engine_invalid__scenario_fault_key_nothing_close",
+        "engine-invalid",
+        "a scenario fault key close to no engine variable",
     ),
     ("model_conflict__texture", "model-conflict", "a layer declares a model named texture"),
     (
@@ -848,14 +880,18 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "model optics, which does not exist; fix: add model optics or correct `faults`"
         ),
     ),
-    "reference_missing__fault_channel": (
-        _plain(
-            put("models.yaml", [NO_DECK]), scenario("warm", {"faults": {"optics": {"Q9:RB": 1.0}}})
-        ),
+    "reference_missing__couple": (
+        _plain(scenario("warm", {"couple": {"Q9:RB": [{"driver": "d", "gain": 1.0}]}})),
         (
-            "facility: reference-missing: scenario warm — scenarios/warm.yaml `faults.optics` "
-            "names channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct "
-            "`faults.optics`"
+            "facility: reference-missing: scenario warm — scenarios/warm.yaml `couple` names "
+            "channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct `couple`"
+        ),
+    ),
+    "reference_missing__noise": (
+        _plain(scenario("warm", {"noise": {"Q9:RB": {"noise": 0.0, "noise_abs": 0.1}}})),
+        (
+            "facility: reference-missing: scenario warm — scenarios/warm.yaml `noise` names "
+            "channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct `noise`"
         ),
     ),
     "reference_missing__measurement_model": (
@@ -1068,6 +1104,30 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "float value for `faults.optics.BPM1:X`"
         ),
     ),
+    "value_invalid__fault_field_unknown": (
+        _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": {"BPM1:X": {"tilt": 1.0}}}})),
+        (
+            "facility: value-invalid: scenario warm — faults.SR.BPM1:X.tilt is not a fault field "
+            "of BPM1:X; fix: use one of gain, noise, offset, polarity, roll"
+        ),
+    ),
+    "value_invalid__fault_field_value": (
+        _deck(
+            *monitor_axes(), scenario("warm", {"faults": {"SR": {"BPM1:X": {"offset": "high"}}}})
+        ),
+        (
+            "facility: value-invalid: scenario warm — `faults.SR.BPM1:X.offset`: value 'high' is "
+            "not a valid float: expected a finite int or float; fix: write a float value for "
+            "`faults.SR.BPM1:X.offset`"
+        ),
+    ),
+    "value_invalid__roll_y_axis": (
+        _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": {"BPM1:Y": {"roll": 0.01}}}})),
+        (
+            "facility: value-invalid: scenario warm — faults.SR.BPM1:Y.roll is not a fault field "
+            "of BPM1:Y; fix: move `roll` to BPM1:X, which carries it for BPM1"
+        ),
+    ),
     "value_invalid__options_presence": (
         _plain(update("records/channels.yaml", 2, options=["A", "B"])),
         (
@@ -1233,6 +1293,13 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: seed-invalid: scenario warm — `overrides.T` of int channel T is 1.5, not "
             "integral; fix: write an integral `overrides.T`"
+        ),
+    ),
+    "seed_invalid__fault_out_of_range": (
+        _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": {"BPM1:X": {"gain": 20.0}}}})),
+        (
+            "facility: seed-invalid: scenario warm — `faults.SR.BPM1:X.gain` 20 lies above its "
+            "range [0.1, 10]; fix: write a value inside [0.1, 10]"
         ),
     ),
     "seed_missing__band_excludes_zero": (
@@ -1561,6 +1628,22 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "it has no inverse; fix: give the calibration a non-zero gain"
         ),
     ),
+    "engine_invalid__scenario_fault_key": (
+        _deck(scenario("warm", {"faults": {"SR": {"QF:SP/tilt": 1.0}}})),
+        (
+            "facility: engine-invalid: scenario warm — faults.SR.QF:SP/tilt names no channel and "
+            "no pyat variable; fix: name a channel address or a pyat variable "
+            "(<address>/<field>); closest: QF:SP/cal_offset, QF:SP/cal_factor"
+        ),
+    ),
+    "engine_invalid__scenario_fault_key_nothing_close": (
+        _deck(scenario("warm", {"faults": {"SR": {"ZZZZ": 1.0}}})),
+        (
+            "facility: engine-invalid: scenario warm — faults.SR.ZZZZ names no channel and "
+            "no pyat variable; fix: name a channel address or a pyat variable "
+            "(<address>/<field>)"
+        ),
+    ),
     "model_conflict__texture": (
         _plain(put("models.yaml", [{"name": "texture", "engine": "texture", "wiring": []}])),
         (
@@ -1876,6 +1959,39 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     assert (result.stdout, result.stderr) == ("", CASES[case][1] + "\n")
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("faults", "slot"),
+    [
+        ({"BPM1:X": {"polarity": 0}}, "faults.SR.BPM1:X.polarity"),
+        ({"BPM1:X": {"polarity": 0.5}}, "faults.SR.BPM1:X.polarity"),
+        ({"BPM1:X": {"polarity": -1}}, None),
+        ({"BPM1:X": {"polarity": 1}}, None),
+        ({"BPM1:X/polarity": 0.5}, "faults.SR.BPM1:X/polarity"),
+    ],
+)
+def test_a_fault_polarity_is_one_of_its_options(
+    initialised: Path, tmp_path: Path, faults: dict[str, Any], slot: str | None
+) -> None:
+    repo = tmp_path / PROJECT
+    shutil.copytree(initialised, repo, symlinks=True)
+    _clear_facility_records(repo / "data" / "facility")
+    tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
+    write_tree(repo / "data" / "facility", tree)
+
+    result = run_build(repo)
+
+    if slot is None:
+        assert result.exit_code == 0, result.output
+        return
+    (value,) = (v["polarity"] if isinstance(v, dict) else v for v in faults.values())
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"facility: seed-invalid: scenario warm — `{slot}` {float(value):g} is not one of "
+        "-1, 1; fix: write one of -1, 1\n"
+    )
+
+
 # --- the table and the cases agree -------------------------------------------------
 
 
@@ -1974,6 +2090,14 @@ def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
 
     assert validated.exit_code == 0, validated.output
     assert built.exit_code == 0, built.output
+
+
+def test_a_scenario_keyed_by_an_engine_variable_builds(tmp_path: Path) -> None:
+    pytest.importorskip("at")
+    faults = {"SR": {"QF:SP/cal_factor": 1.1, "BPM1:X": {"offset": 1e-4, "roll": 0.01}}}
+    tree = _deck(*monitor_axes(), scenario("warm", {"faults": faults}))()
+    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+    assert [s["faults"] for s in document["scenarios"]] == [faults]
 
 
 def test_permuted_fixes_build_a_byte_equal_file(tmp_path: Path) -> None:

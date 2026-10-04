@@ -40,6 +40,7 @@ import click
 from osprey.facility import fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, load_sources
 
 __all__ = [
@@ -643,6 +644,14 @@ class _References:
         }[kind]
         return rid in table
 
+    def _known_channel(self, address: str) -> bool:
+        """True for a channel, a channel a fix dropped, or a former address."""
+        return (
+            address in self.index.channels
+            or ("channel", address) in self.dropped
+            or address in self.index.former
+        )
+
     def _missing(
         self,
         record_kind: str,
@@ -818,6 +827,10 @@ class _References:
                     yield from self._missing(
                         "scenario", name, files, "archiver.channel", "channel", entry["channel"]
                     )
+            for slot in ("couple", "noise"):
+                block = scenario.get(slot)
+                for address in sorted(block if isinstance(block, dict) else (), key=str):
+                    yield from self._missing("scenario", name, files, slot, "channel", address)
             faults = scenario.get("faults")
             if not isinstance(faults, dict):
                 continue
@@ -825,8 +838,13 @@ class _References:
                 if not self._exists("model", str(model)):
                     yield from self._missing("scenario", name, files, "faults", "model", model)
                     continue
+                engine = "engine" in self.index.models[str(model)]
                 targets = faults[model]
                 for target in sorted(targets if isinstance(targets, dict) else (), key=str):
+                    if engine and not self._known_channel(str(target)):
+                        # A key naming no channel is an engine variable, which
+                        # the engine check of the compute stage resolves.
+                        continue
                     yield from self._missing(
                         "scenario", name, files, f"faults.{model}", "channel", target
                     )
@@ -883,6 +901,7 @@ class _Records:
         # Channels whose value_type, options or shape is wrong: their values
         # cannot be coerced, so no value rule runs on them.
         self.broken: set[str] = set()
+        self.rosters: dict[str, FaultRoster | None] = {}
 
     def run(self) -> Iterator[FacilityBuildError]:
         from osprey_connectors.simulation.values import coerce
@@ -1348,6 +1367,8 @@ class _Records:
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
+                    if str(address) not in self.index.channels:
+                        continue
                     yield from self._fault(name, files, str(model), str(address), value)
 
     def _fault(
@@ -1367,8 +1388,16 @@ class _Records:
                 )
             return
         if isinstance(value, dict):
+            roster = self._roster(model)
+            if roster is not None:
+                yield from map_fault_errors(name, files, model, address, value, roster)
             return
         yield from self._value("scenario", name, files, slot, address, value)
+
+    def _roster(self, model: str) -> FaultRoster | None:
+        if model not in self.rosters:
+            self.rosters[model] = fault_roster(self.index.models[model], self.index.channels)
+        return self.rosters[model]
 
 
 def paired_nominal_error(
