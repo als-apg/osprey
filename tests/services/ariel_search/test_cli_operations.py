@@ -1331,8 +1331,16 @@ class TestGetStatusModuleHealth:
 
         assert _health(out, "text_embedding")["reason"] == "unreachable"
 
-    async def test_a_synchronously_sleeping_check_returns_within_6_s(self, monkeypatch, tmp_path):
-        """The real qmd_export check runs off the loop, so the 5 s timeout returns."""
+    async def test_a_synchronously_sleeping_check_returns_at_its_timeout(
+        self, monkeypatch, tmp_path
+    ):
+        """The real qmd_export check runs off the loop, so the status timeout returns.
+
+        A check that slept on the loop would hold ``get_status`` for the whole
+        sleep; one that runs off the loop is abandoned at the timeout. The
+        timeout is shortened for the test, and the bound is well below the
+        sleep so a loaded host cannot blur the two.
+        """
         import time
 
         from osprey.services.ariel_search.enhancement.qmd_export.exporter import (
@@ -1343,13 +1351,14 @@ class TestGetStatusModuleHealth:
             time.sleep(30)
 
         monkeypatch.setattr(QmdExportModule, "_mirror_health", staticmethod(slow))
+        monkeypatch.setattr(ops, "_STATUS_HEALTH_TIMEOUT_S", 0.5)
         _patch_service(monkeypatch, _StubService(repository=_status_repo()))
         config = _enable("qmd_export", qmd_export={"mirror_path": str(tmp_path / "m")})
 
         started = time.monotonic()
         out = await ops.get_status(config)
 
-        assert time.monotonic() - started < 6
+        assert time.monotonic() - started < 15
         assert _health(out, "qmd_export") == {
             "reachable": False,
             "reason": "unreachable",

@@ -276,7 +276,7 @@ def test_a_non_boolean_view_switch_is_refused_at_build_naming_the_key(tmp_path):
 
 SHOW_RULE_MAIN = (
     "To show the operator a logbook entry or one of its pictures, call `entry_open` "
-    "yourself with the entry id and, for a picture, the `attachment_id` the subagent reported."
+    "yourself with the entry id and, for a picture, the attachment id the subagent reported."
 )
 SHOW_RULE_ARIEL = (
     "To show the operator an entry or one of its pictures, call `entry_open` with the "

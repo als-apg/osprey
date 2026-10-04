@@ -176,13 +176,18 @@ def test_orbit_rms_stays_inside_the_bpm_texture_envelope():
 
 
 def _decoded(png: bytes) -> tuple[str, tuple[int, int], bytes]:
-    """A PNG's mode, size and raw pixels: what it shows, not how it was compressed."""
+    """A PNG's mode, size and colours: what it shows, not how it was encoded.
+
+    The colours are read as RGB: a palette PNG stores indices into a palette
+    whose order the encoder chooses, so two pictures of the same colours can
+    carry different indices.
+    """
     import io
 
     from PIL import Image
 
     with Image.open(io.BytesIO(png)) as image:
-        return image.mode, image.size, image.tobytes()
+        return image.mode, image.size, image.convert("RGB").tobytes()
 
 
 def test_a_rerun_writes_the_same_bytes(tmp_path):
