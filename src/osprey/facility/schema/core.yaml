@@ -603,6 +603,8 @@ classes:
       name:
         identifier: true
         required: true
+      description:
+        description: What the scenario shows.
       overrides:
         range: Any
         description: "`{<address>: <value>}`, each value of the channel's value_type."
@@ -615,10 +617,33 @@ classes:
         range: Any
         multivalued: true
         list_elements_ordered: true
+        description: >-
+          `[{channel, events}]`, the history each channel's archive shows. An
+          event's `at_offset` is in seconds relative to the moment the scenario
+          is applied (negative is the past), and an anchored spike's `width` is
+          its Gaussian sigma in seconds. An event meant to be sampled densely
+          sits inside the archive's dense tier, with a `width` of at least twice
+          the sampling interval.
       logbook:
         range: Any
         multivalued: true
         list_elements_ordered: true
+      drivers:
+        range: Any
+        description: >-
+          `{<driver>: {kind, amplitude, period_s}}`, slow signals shared by the
+          channels `couple` names, so those channels move together.
+      couple:
+        range: Any
+        description: >-
+          `{<address>: [{driver, gain, gain_wander?}]}`: the channel adds
+          `gain` times each named driver to its value; `gain_wander`
+          `{amplitude, period_s}` lets that gain wax and wane.
+      noise:
+        range: Any
+        description: >-
+          `{<address>: {noise, noise_abs}}`, the channel's noise while the
+          scenario is active, in place of its seed's.
 
   Any:
     class_uri: linkml:Any
