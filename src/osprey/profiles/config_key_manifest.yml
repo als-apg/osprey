@@ -131,22 +131,6 @@ keys:
     default_note: >-
       unset names no application registry, and the framework-only registry is
       used
-  facility:
-    evidence: 'FACILITY_PREFIX_CONFIG_KEY = "facility\.'
-    note: >-
-      Live `prefix` in control_assistant; commented in ariel_standalone and
-      channel_finder_standalone; absent from hello_world. Canonical spelling.
-    default: {}
-  facility.prefix:
-    evidence: 'FACILITY_PREFIX_CONFIG_KEY = "facility\.prefix"'
-    note: >-
-      cli/knowledge_cmd.py reads it as the facility token the knowledge
-      graph's identifiers carry. `control-assistant` ships it live
-      (`facility.prefix: ca`); `ariel-standalone` and
-      `channel-finder-standalone` carry it commented, and `hello-world` omits
-      it. Nothing in the tree validates it: no emptiness, charset or length
-      rule exists in code. See notes.prefix_rule_drift.
-    default: ''
 
   # ── Container runtime / deployment ──────────────────────────────────
   container_runtime:
@@ -3025,6 +3009,9 @@ deleted:
   # entry: the key postdates the back-test baseline, so no regex for it can
   # match there.
 - services.graphdb.index_path
+  # Container names and persona projects come from the project name; the
+  # knowledge graph's identifiers come from the facility file's identity code.
+- facility.prefix
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3054,6 +3041,18 @@ deleted_commented_examples:
 # regex here must match ZERO times under the listed root (failure mode 4).
 # ---------------------------------------------------------------------------
 orphan_sites:
+  facility.prefix:
+  - root: src/osprey/profiles/presets
+    regex: 'facility\.prefix'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the live `facility.prefix: ca` override in control-assistant and the
+      commented examples in the standalone presets. Rooted at the presets so
+      this manifest's own `deleted:` entry is out of scope.
+  - root: src/osprey/deployment/web_terminals
+    regex: 'facility\.prefix'
+    back_test: {base_matches: 3, branch_matches: 0}
+    why: the web-terminal lint and persona readers of the key, and their docstrings.
   approval.tools.channel_limits:
   - root: src/osprey/templates
     regex: '^\s+channel_limits:\s'
@@ -3354,7 +3353,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 341
+  expected_union_size: 339
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3573,25 +3572,6 @@ notes:
       takes a model id the provider serves, spelled as the gateway spells it;
       a vendor-routed id with a '/' is a legitimate value for a gateway that
       serves one.
-  prefix_rule_drift:
-    detail: >-
-      RESOLVED. The only place stating facility.prefix must be lowercase alnum
-      plus hyphens, 2-6 chars, as a hard requirement was the facility-config
-      schema reference, which has been removed along with the rest of the
-      facility-config surface. Nothing enforces that rule and nothing claims it
-      any more: nothing in the tree validates facility.prefix.
-    inert: >-
-      Stronger than unenforced. facility.prefix reaches only the knowledge
-      graph token in cli/knowledge_cmd.py — never a container name, an nginx
-      location key or a URL segment, which is the specific reason usernames and
-      persona names do get the charset regex. There is NO sink at which
-      violating the 2-6/lowercase rule breaks anything.
-    remedy_direction: >-
-      None. Do NOT add a validator, and do NOT let this manifest grow a charset
-      rule for facility.prefix: a new check would reject configurations that
-      work correctly today, converting a cosmetic doc inconsistency into a
-      breaking change. The three presets that carry the key already describe it
-      in prose, and none of them claims a charset or length rule.
   legacy_fixture_out_of_scope:
     path: tests/utils/fixtures/legacy_config_all_deleted_keys.yml
     detail: >-

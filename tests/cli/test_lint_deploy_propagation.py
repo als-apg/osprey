@@ -68,7 +68,7 @@ def runner() -> CliRunner:
 
 
 def _config(**extra: Any) -> dict[str, Any]:
-    return {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS), **extra}
+    return {"modules.web_terminals": dict(WEB_TERMINALS), **extra}
 
 
 def _deploy(**extra: Any) -> Any:

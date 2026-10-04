@@ -342,7 +342,7 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         "set",
         "--repo",
         str(repo),
-        *recipes.served_settings(recipes.facility_prefix(fixture)),
+        *recipes.MIDDLE_LAYER_SETTINGS,
     )
     recipes.invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, _ = recipes.build_past_the_seed_stops(

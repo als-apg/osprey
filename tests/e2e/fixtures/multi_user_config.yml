@@ -29,7 +29,6 @@ container_runtime: docker
 
 facility:
   name: E2E Deploy Lifecycle Fixture
-  prefix: e2e
 
 system:
   timezone: UTC

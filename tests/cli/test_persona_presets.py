@@ -168,10 +168,6 @@ WRITE_TIER_PANELS = ("events", "bluesky")
 # never wholesale-replaces the rendered ``modules`` subtree.
 WEB_TERMINALS_KEY = "modules.web_terminals"
 
-# A valid Docker container/object name: must start with an alphanumeric, then
-# alphanumerics plus `_`, `.`, `-` (see docker/docker daemon name validation).
-DOCKER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
-
 
 def resolve_preset(name: str) -> BuildProfile:
     """Resolve a bundled preset by name, fully merging its ``extends`` chain.
@@ -324,12 +320,10 @@ class TestControlAssistantWebTier:
 
     def test_hosts_its_own_web_tier(self) -> None:
         """The preset carries the web-terminals block plus the web-tier
-        companion keys (``facility.prefix`` for container names,
-        ``deploy.fqdn`` for the landing URL) — the hosting posture the persona
-        family below attaches to."""
+        companion key ``deploy.fqdn`` for the landing URL — the hosting posture
+        the persona family below attaches to."""
         base = resolve_preset("control-assistant")
         assert WEB_TERMINALS_KEY in base.config
-        assert "facility.prefix" in base.config
         assert "deploy.fqdn" in base.config
 
     def test_rendered_config_keeps_sibling_modules(self, tmp_path: Path) -> None:
@@ -594,19 +588,6 @@ class TestControlAssistantWebTier:
             assert ("jupyter" in resolve_preset(name).web_panels) is expected, name
         for name in standalone:
             assert "jupyter" not in resolve_preset(name).web_panels, name
-
-    def test_derived_web_container_names_are_valid_docker_names(self, tmp_path: Path) -> None:
-        """The container names derived from the rendered prefix —
-        ``<prefix>-nginx`` and ``<prefix>-web-<user>`` for the tutorial roster
-        — all match the Docker name grammar (start alphanumeric, no leading
-        dash). An empty prefix renders leading-dash names like ``-nginx``,
-        which Docker rejects and ``osprey up`` fails the web stack on.
-        """
-        rendered = _render_config_overrides(tmp_path, {"system": {}})
-        prefix = rendered["facility"]["prefix"]
-        assert isinstance(prefix, str) and prefix != ""
-        for name in (f"{prefix}-nginx", f"{prefix}-web-alice", f"{prefix}-web-bob"):
-            assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
 
     def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
         """The rendered config passes the exact check ``osprey up`` runs —

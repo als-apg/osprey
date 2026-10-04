@@ -194,7 +194,6 @@ class Lane:
 
     posture: str
     project_name: str
-    prefix: str
     nginx_port: int
     base_ports: dict[str, int]
     users: tuple[dict[str, Any] | str, ...]
@@ -249,7 +248,6 @@ class Lane:
 TOKEN_LANE = Lane(
     posture="token",
     project_name="osprey-e2e-token-multiuser",
-    prefix="authtok",
     nginx_port=19680,
     base_ports={
         "web": 19671,
@@ -267,7 +265,6 @@ TOKEN_LANE = Lane(
 OPEN_LANE = Lane(
     posture="none",
     project_name="osprey-e2e-open-multiuser",
-    prefix="authopen",
     nginx_port=19690,
     base_ports={
         "web": 19691,
@@ -584,7 +581,6 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.prefix": lane.prefix,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],

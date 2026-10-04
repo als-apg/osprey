@@ -128,7 +128,8 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
 #: runs the deployment's main model, and no preset renders the key.
 #: ``facility.name`` and ``facility.ontology`` have no reader: the display name
 #: is the facility identity's and the terminology tables render from the build's
-#: facts, so no preset states either leaf.
+#: facts, so no preset states either leaf. ``facility.prefix`` is deleted:
+#: container names and persona projects come from the project name.
 _RETIRED_SINCE_THE_FREEZE = frozenset(
     {
         "web.docs_url",
@@ -139,6 +140,7 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
         "claude_code.agent_models.logbook-deep-research",
         "facility.name",
         "facility.ontology",
+        "facility.prefix",
     }
 )
 

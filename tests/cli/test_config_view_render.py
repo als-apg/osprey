@@ -204,7 +204,7 @@ class TestTheDefaultsLedger:
         """Unquoted, an empty value would read back as null rather than as ''."""
         loaded = yaml.safe_load(config_cmd._render_defaults_ledger())
 
-        assert loaded["facility.prefix"] == ""
+        assert loaded["images.registry"] == ""
 
     def test_a_required_key_is_marked_rather_than_given_a_value(self):
         """The posture floor has no fallback. Inventing one for this view would

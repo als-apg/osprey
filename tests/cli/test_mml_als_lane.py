@@ -65,7 +65,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.facility.layers.mml.mapping import MAPPING_FILE
@@ -76,9 +75,7 @@ pytest.importorskip("duckdb")
 pytest.importorskip("lume_pyat")
 
 from tests.cli.test_mml_build_recipes import (
-    TestServedFromATwoZeroExport as _BuildCases,
-)
-from tests.cli.test_mml_build_recipes import (
+    MIDDLE_LAYER_SETTINGS,
     build_past_the_seed_stops,
     clear_authored,
     drive_emit,
@@ -86,7 +83,9 @@ from tests.cli.test_mml_build_recipes import (
     import_facility,
     invoke,
     published,
-    served_settings,
+)
+from tests.cli.test_mml_build_recipes import (
+    TestServedFromATwoZeroExport as _BuildCases,
 )
 from tests.cli.test_mml_chain import (
     ALS_EXPORT_ENV,
@@ -254,18 +253,6 @@ pytestmark = [
 ]
 
 
-def _mapping_token() -> str:
-    """The container-name prefix the reviewed mapping implies.
-
-    The same value the recipe's ``facility_prefix`` computes, read off the
-    mapping this lane installs: the token names the facility, and lowercase is
-    what survives Docker object names.
-    """
-    assert LANE is not None
-    document = yaml.safe_load(LANE.mapping.read_text(encoding="utf-8"))
-    return str(document["facility"]["token"]).lower()
-
-
 def _borrowed(cases: type, parameter: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The cases of *cases* this lane can feed, and the ones it cannot.
 
@@ -347,7 +334,7 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     shutil.copy(LANE.mapping, repo / "data" / "mml" / "mapping.yaml")
 
     emitted, rounds = drive_emit(runner, repo)
-    invoke(runner, "set", "--repo", str(repo), *served_settings(_mapping_token()))
+    invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, build = build_past_the_seed_stops(runner, repo)

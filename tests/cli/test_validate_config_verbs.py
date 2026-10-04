@@ -242,7 +242,7 @@ def test_validate_still_runs_the_deploy_config_lint(
         root,
         {
             "name": "Demo Facility",
-            "config": {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS)},
+            "config": {"modules.web_terminals": dict(WEB_TERMINALS)},
         },
     )
     monkeypatch.chdir(root)

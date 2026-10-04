@@ -1075,6 +1075,26 @@ def _facility_ontology_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _facility_prefix_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The container-name prefix the control-assistant preset no longer states.
+
+    Container names and persona projects come from the project name, so no
+    preset states ``facility.prefix`` and no document carries the key. The
+    fixtures were frozen while the preset still stated one.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="facility.prefix", fixture="ca", live=ABSENT)
+        for document in documents
+    )
+
+
 def _in_context_index_deltas(*documents: str) -> tuple[Delta, ...]:
     """The in_context database the build writes from the tagged channels.
 
@@ -1255,6 +1275,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
@@ -1282,6 +1303,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
@@ -1309,6 +1331,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
@@ -1336,6 +1359,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatcher_name_deltas()
     + _devices_file_deltas()
     + _facility_ontology_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()

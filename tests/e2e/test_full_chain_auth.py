@@ -752,7 +752,6 @@ def _profile_edits() -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.prefix": PREFIX,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],

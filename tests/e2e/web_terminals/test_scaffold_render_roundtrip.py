@@ -57,14 +57,11 @@ def _env_map(env_list: list) -> dict[str, str]:
 def _sample_config() -> dict:
     """A self-contained config exercising the web_terminals stanza: the base
     ports/users/landing-groups shape of a ``modules.web_terminals`` block, plus
-    the deploy/facility/registry sections ``render_web_terminals()`` reads. The roster uses the explicit
-    ``{name, index}`` form — the lint-clean identity form the
+    the deploy/registry sections ``render_web_terminals()`` reads. The roster
+    uses the explicit ``{name, index}`` form — the lint-clean identity form the
     ``bare_list_port_drift_risk`` warning steers legacy bare-string lists
     toward."""
     return {
-        "facility": {
-            "prefix": "dls",
-        },
         "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},

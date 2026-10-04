@@ -89,11 +89,6 @@ default_panel: ariel
 # `provider:` / `model:` above), the panel selection (from `web_panels:` /
 # `default_panel:`), and every host port.
 config:
-  # ── Facility ───────────────────────────────────────────────────────────────
-  # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
-  # Only the multi-user web-terminal stack reads it.
-  # facility.prefix: ex
-
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.

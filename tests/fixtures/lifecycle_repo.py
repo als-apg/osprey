@@ -1168,9 +1168,6 @@ config:
   # `modules.web_terminals.enabled: false` to have `osprey up` deploy backend
   # services only.
   #
-  # Short prefix for the web container names (`<prefix>-nginx`, `<prefix>-web-
-  # <user>`). Must start with a letter or digit. Use your facility's initials.
-  facility.prefix: ca
   # The hostname people open in a browser. 127.0.0.1 is your own machine; set
   # your real hostname to reach it from anywhere else.
   deploy.fqdn: 127.0.0.1

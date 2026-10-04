@@ -577,7 +577,6 @@ def _delta_repo(tmp_path: Path, *, admin_access: Any) -> dict[str, Any]:
     if admin_access is not None:
         carol["access"] = admin_access
     return {
-        "facility.prefix": "ca",
         "claude_code.permissions.deny": [SETUP_TOOL],
         "web.config_panel.enabled": False,
         "modules.web_terminals": {
@@ -839,7 +838,6 @@ def _rendered_repo(tmp_path: Path, *, admin_config: dict[str, Any], access: Any)
     if access is not None:
         carol["access"] = access
     return {
-        "facility": {"prefix": "ca"},
         # The deploy config's own posture is the BASELINE every persona is judged
         # against, so the floor has to be here for there to be a tier split at
         # all — which is exactly what a rendered control-assistant project has.
@@ -916,7 +914,6 @@ def _registry_repo(tmp_path: Path, *, access: Any) -> dict[str, Any]:
         carol["access"] = access
     (tmp_path / "build").mkdir(exist_ok=True)
     return {
-        "facility": {"prefix": "ca"},
         "claude_code": {"permissions": {"deny": [SETUP_TOOL]}},
         "web": {"config_panel": {"enabled": False}},
         "modules": {

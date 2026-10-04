@@ -2,9 +2,8 @@
 
 This pins the recipe the install skill hands an operator who starts from
 ``hello-world`` and adopts ``control-assistant``'s web-terminal stack: splice the
-block in, strip what the base cannot serve, set the prefix, emit the persona
-deltas, prune the catalog and the panels, pull the knowledge bundle, validate,
-build. Scripted end to end so the reference stays executable — a step that stops
+block in, strip what the base cannot serve, emit the persona deltas, prune the
+catalog and the panels, pull the knowledge bundle, validate, build. Scripted end to end so the reference stays executable — a step that stops
 working fails here rather than in an interview.
 
 Several of those steps exist only because a delta authored against
@@ -16,9 +15,6 @@ web-terminal block alone does not build:
   ``web.config_panel.enabled`` sit outside the block in the preset; without them
   the shared ``logbook`` and ``knowledge`` cards resolve as privileged and
   validation refuses.
-* **facility.prefix.** The preset names one and ``hello-world`` does not, so the
-  web container names render as ``-nginx`` and validation refuses. The recipe
-  sets it early, which is what lets validation pass from the splice onward.
 * **Panels the host lacks.** The write-armed deltas name ``events`` and
   ``bluesky``, which need service blocks this deployment has no reason to
   deploy, so the whole ``web_panels`` key comes out of those two files.
@@ -88,9 +84,6 @@ HOST_WEB_PANELS = ["okf"]
 
 #: Where the pulled knowledge bundle lands, relative to the repo root.
 BUNDLE_PATH = "data/facility/knowledge"
-
-#: The prefix the web container names are built from.
-FACILITY_PREFIX = "demo"
 
 #: Directory ``osprey build`` seeds in the *source* zone, one per roster entry.
 CONTEXT_DIRNAME = "web-terminal-context"
@@ -225,8 +218,6 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
 
     splice_web_terminal_stack(repo_root)
 
-    invoke(runner, "set", "--repo", str(repo_root), f"config.facility.prefix={FACILITY_PREFIX}")
-
     # The recipe claims validation is green from here on, before a single
     # persona has been emitted. Recorded rather than asserted through `invoke`,
     # so the test that owns the claim is the one that reports it.
@@ -272,10 +263,10 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
 def test_the_spliced_profile_validates_before_any_persona_is_emitted(
     built_repo: dict[str, Any],
 ) -> None:
-    """``facility.prefix`` is set with the splice, not at the end.
+    """Validation passes from the splice onward, not only at the end.
 
-    That ordering is the whole point: it makes "validate after every change"
-    true for every later step instead of only the last one.
+    That is what makes "validate after every change" true for every later step
+    instead of only the last one.
     """
     result: Result = built_repo["spliced_validate"]
 

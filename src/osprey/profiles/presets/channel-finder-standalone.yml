@@ -97,11 +97,6 @@ default_panel: channel-finder
 # channel-finder pipeline block (from `channel_finder_mode:`), the panel
 # selection (from `web_panels:` / `default_panel:`), and every host port.
 config:
-  # ── Facility ───────────────────────────────────────────────────────────────
-  # Short prefix for container names (`<prefix>-nginx`, `<prefix>-web-<user>`).
-  # Only the multi-user web-terminal stack reads it.
-  # facility.prefix: ex
-
   # ── Channel finder ─────────────────────────────────────────────────────────
   # The pipeline itself is derived from `channel_finder_mode:` above. What is
   # left to configure here is optional, so it ships commented out.

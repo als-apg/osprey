@@ -141,9 +141,8 @@ def test_build_renders_a_project_for_every_persona_delta(built_repo):
         connector = rendered["control_system"]["connector"]
         assert connector["virtual_accelerator"]["writes_enabled"] is writes_enabled
         assert rendered["modules"]["web_terminals"]["enabled"] is False
-        # From the root profile: the facility identity, the connector the
-        # deployment runs, the data tree the agent reads, its conventions.
-        assert rendered["facility"]["prefix"] == "ca"
+        # From the root profile: the connector the deployment runs, the data
+        # tree the agent reads, its conventions.
         assert rendered["control_system"]["type"] == "virtual_accelerator"
         assert (project / "data" / "channel_limits.json").is_file()
         assert (project / ".claude" / "rules" / "facility.md").is_file()

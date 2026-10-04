@@ -1,0 +1,1 @@
+The `facility.prefix` config key is removed. Container names and persona projects come from the project name, and the knowledge graph's identifiers from the facility file's identity code; a profile that still sets the key loads unchanged.

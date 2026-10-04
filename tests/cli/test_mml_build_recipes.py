@@ -91,10 +91,6 @@ INDEX_DUCKDB_PATH = "data/channel_finder/middle_layer.duckdb"
 #: corpus (``data/Quokka.ttl``) and the ontology schema.
 TOKEN = "Quokka"
 
-#: The container-name prefix the recipes state. Lowercase on purpose: it
-#: reaches Docker object names, which the token's capital would not survive.
-PREFIX = "quokka"
-
 BUNDLE_PATH = "data/facility/knowledge"
 ONTOLOGY_PATH = "data/facility_ontology.json"
 DATABASE_PATH = "data/channel_databases/middle_layer.json"
@@ -123,7 +119,6 @@ MIDDLE_LAYER_SETTINGS = (
     "config.claude_code.servers.channel-finder.enabled=true",
     f"config.facility_knowledge.bundle_path={BUNDLE_PATH}",
     f"config.facility.ontology={ONTOLOGY_PATH}",
-    f"config.facility.prefix={PREFIX}",
 )
 
 #: The graph paradigm card: the corpus path replaces the whole channel-finder
@@ -134,7 +129,6 @@ GRAPH_SETTINGS = (
     f"config.services.graphdb.ttl_path=./data/{TOKEN}.ttl",
     f"config.facility_knowledge.bundle_path={BUNDLE_PATH}",
     f"config.facility.ontology={ONTOLOGY_PATH}",
-    f"config.facility.prefix={PREFIX}",
 )
 
 
@@ -509,28 +503,6 @@ def drive_emit(runner: CliRunner, repo: Path) -> tuple[Result, tuple[tuple[str, 
     raise AssertionError(f"emit never accepted the tree; it refused over {rounds}")
 
 
-def served_settings(prefix: str) -> tuple[str, ...]:
-    """The middle-layer paradigm card, spelled for one fixture's own facility.
-
-    Derived from the card above rather than retyped, so a key added there
-    reaches every recipe that states the paradigm.
-    """
-    return tuple(
-        f"config.facility.prefix={prefix}" if line.startswith("config.facility.prefix=") else line
-        for line in MIDDLE_LAYER_SETTINGS
-    )
-
-
-def facility_prefix(fixture: Path) -> str:
-    """The container-name prefix a fixture's reviewed mapping implies.
-
-    Read off the mapping rather than listed per fixture: the token names the
-    facility, and lowercase is what survives Docker object names.
-    """
-    document = yaml.safe_load((fixture / "mapping.yaml").read_text(encoding="utf-8"))
-    return str(document["facility"]["token"]).lower()
-
-
 def env_values(repo: Path) -> dict[str, str]:
     """The deployment ``.env`` the build appended its derived keys to."""
     from osprey.utils.dotenv import parse_dotenv_file
@@ -734,7 +706,7 @@ def served_repo(
     shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
 
     emitted, rounds = drive_emit(runner, repo)
-    invoke(runner, "set", "--repo", str(repo), *served_settings(facility_prefix(fixture)))
+    invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, build = build_past_the_seed_stops(

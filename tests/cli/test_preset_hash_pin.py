@@ -219,27 +219,32 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # it writes from the facility file. A rebuilt project seeds its store from
     # that view, so the advisory firing is correct. The five `extends` children
     # inherit control-assistant's change; the other two stand still.
+    # The twenty-ninth move, and control-assistant's family alone: the root
+    # preset stops stating `facility.prefix`, whose last reader is gone —
+    # container names and persona projects come from the project name. The
+    # five `extends` children inherit the change; ariel-standalone and
+    # channel-finder-standalone lose only a commented example and stand still.
     "ariel-standalone": ("sha256:8a35722846d7faa6b5f14512d89f383c33146acb481cb22c82c6f8d0f37c8d37"),
     "channel-finder-standalone": (
         "sha256:91e29784cba676d47fa479e63bd3ce03cf469d165b8cfd27aad32762e8c7bc87"
     ),
     "control-assistant": (
-        "sha256:522e94b5a950981b5cb4c19b186c9611a602f4a69771c36b75049d1ca3fd1c60"
+        "sha256:0b720503973b1a38053c1e11f55608e93ba6f03fac518c24ddba3e92d0cb9608"
     ),
     "control-assistant-admin": (
-        "sha256:6bca4b0ad047b31e99eaaf1ac39f263bc25f27e2d05fe655765514a61de979b4"
+        "sha256:31b377c70c444106d0289b17276474cb0d6f307f168129c034827a7aa07832ad"
     ),
     "control-assistant-knowledge": (
-        "sha256:481d40e687dc05367a5bbff54549b28bb732a4ba05f78facaa15051d4975105d"
+        "sha256:d1d221bb514dc9aa8254d831fb9a35536e37360c19829bfdb42b3bc1df6f514a"
     ),
     "control-assistant-logbook": (
-        "sha256:a935813f0be93b49a7e03e6d179b008fc5dcbc752a360be25ef13a2f11e29900"
+        "sha256:3ddfa8d668be3a06cfda5ccb2892b65503f062a80fa7f196b5012783183a4221"
     ),
     "control-assistant-readonly": (
-        "sha256:bff845a8c5e10b7f42880a623a77ce7ae5c9f4707d97934f6136d27a2e1d2293"
+        "sha256:e8fc9bef01920b6741174f07c86d0d7c55d8b285778c13374cc0bfcce7421d45"
     ),
     "control-assistant-readwrite": (
-        "sha256:e5f111d02d0a91a14b566ef4b28f3172e253390cf86f9c2ed2d0f2405c96d09c"
+        "sha256:0be7b86d24dc5b9d4b06b3326e82535245f6b2d5b2e74e9c5be85d6a256811a0"
     ),
     "hello-world": ("sha256:79ec0599628ed246440d6796191262c6ea844ce92ad2bb2e006b356f3a9a9ee7"),
 }
