@@ -68,7 +68,7 @@ from osprey_connectors.simulation.series import epoch_seconds_array
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pymongo.collection import Collection
 
-logger = get_logger("archiver_seed")
+logger = get_logger("archive")
 
 __all__ = [
     "MANIFEST_ID",

@@ -29,8 +29,8 @@ from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.manifest.standin_defaults import parse_standin_default
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
-from osprey.simulation.archiver_seed import synthesize_documents
 from osprey.simulation.engine import SimulationEngine
+from osprey_connectors.simulation.archive import synthesize_documents
 
 #: Whole seconds, so the instants the seed stores and the ones the bridge is
 #: clocked at are the same float.

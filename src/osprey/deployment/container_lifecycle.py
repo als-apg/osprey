@@ -5075,7 +5075,7 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
         addresses in it, so the recorded fingerprint describes what the store
         actually holds rather than what the spec asked for.
     :returns: ``(value_transform, transform_fingerprint)`` for
-        :func:`~osprey_connectors.simulation.archiver_seed.seed_base`, both
+        :func:`~osprey_connectors.simulation.archive.seed_base`, both
         ``None`` when the archive is not the stand-in's or the stand-in perturbs
         none of the seeded channels — in which case the seed and its fingerprint
         are byte-identical to a deployment without one.
@@ -5387,7 +5387,7 @@ def _wait_for_archiver_store(
 
 
 def _seed_progress_reporter():
-    """A :func:`~osprey.simulation.archiver_seed.seed_base` progress callback.
+    """A :func:`~osprey_connectors.simulation.archive.seed_base` progress callback.
 
     Each firing becomes a step line under the verb's open phase, so a first
     deploy's multi-minute seed reports as it goes instead of stalling silently.
@@ -5478,7 +5478,7 @@ def _stage_archiver_store(
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
-    from osprey.simulation.archiver_seed import (
+    from osprey_connectors.simulation.archive import (
         SeedKnobs,
         SeedState,
         compare_fingerprint,

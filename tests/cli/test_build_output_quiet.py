@@ -350,7 +350,7 @@ class TestLoggerArchiverSeedQuiet:
         write — the arithmetic is covered by the archiver seed suite, and what
         is under test here is only the level the summary goes out at.
         """
-        from osprey.simulation.archiver_seed import SeedKnobs, seed_base
+        from osprey_connectors.simulation.archive import SeedKnobs, seed_base
 
         knobs = SeedKnobs(
             retention_days=1, hot_span_hours=1, hot_cadence_sec=600, tail_cadence_sec=3600

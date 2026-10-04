@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     MANIFEST_ID,
     SeedKnobs,
