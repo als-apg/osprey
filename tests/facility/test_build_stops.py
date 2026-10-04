@@ -532,6 +532,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a persona on a VA target sets `simulation.models`",
     ),
     ("profile_invalid__tier", "profile-invalid", "a profile `tier` field"),
+    (
+        "profile_invalid__simulation_tick_s",
+        "profile-invalid",
+        "a `simulation.tick_s` at or below zero",
+    ),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -1845,6 +1850,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "from the profile"
         ),
     ),
+    "profile_invalid__simulation_tick_s": (
+        _plain(),
+        (
+            "facility: profile-invalid: path simulation.tick_s — simulation.tick_s must be a "
+            "number of seconds greater than 0 (got 0); fix: set `simulation.tick_s` to a "
+            "number of seconds greater than 0"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -1895,6 +1908,13 @@ def _spell_tier(repo: Path) -> None:
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
+def _set_tick_zero(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data.setdefault("config", {})["simulation.tick_s"] = 0
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
 def _persona_serves_models(repo: Path) -> None:
     persona = repo / "personas" / "reader.yml"
     persona.parent.mkdir(parents=True, exist_ok=True)
@@ -1912,6 +1932,7 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__unknown_served_model": _serve_unknown_model,
     "profile_invalid__persona_served_models": _persona_serves_models,
     "profile_invalid__tier": _spell_tier,
+    "profile_invalid__simulation_tick_s": _set_tick_zero,
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
