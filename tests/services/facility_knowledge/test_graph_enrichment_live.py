@@ -18,7 +18,8 @@ sit between the two claims and neither is visible from the TTL:
   That is a real migration with a real failure mode, and it is only observable
   against a live n10s.
 
-So this lane seeds the shipped corpus through the seeder API and asks the
+So this lane seeds the graph view the control-assistant build writes through
+the seeder API and asks the
 questions in Cypher.  It is separate from ``tests/integration/test_graphdb_store.py``
 — which pins the corpus's verified node counts — because it owns a different
 claim (the *enrichment* is reachable) and because its tests wipe the store
@@ -42,12 +43,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tests._builds import BuiltProject
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
@@ -67,26 +68,26 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # Subjects the assertions name
 # ---------------------------------------------------------------------------
 
-#: A demo binding whose three description predicates are all populated, chosen
-#: because it is a setpoint: the subfield description is the one that says
-#: "read-write", so a wrong-subfield regression reads as wrong prose here.
+#: A demo binding chosen because it is a setpoint: its description is the one
+#: that says "setpoint", so prose attached to the wrong channel reads as wrong
+#: prose here.
 DEMO_BINDING_PV = "SR:MAG:DIPOLE:01:CURRENT:SP"
 
 #: A demo device, addressed the way the shipped Cypher examples address one.
 DEMO_DEVICE_NAME = "BPM01"
-DEMO_DEVICE_SECTION = "SR"
+DEMO_DEVICE_SECTION = "SECT1"
 
-#: The SYSTEM token that device carries.  Diagnostics rather than magnets on
-#: purpose: SYSTEM is the one address token that is *not* recoverable from the
-#: device's class, so a device whose system and family disagree is the case that
-#: proves the token was emitted rather than inferred.
-DEMO_DEVICE_SYSTEM = "DIAG"
+#: The SYSTEM token that device carries.  A monitor on purpose: SYSTEM is the
+#: one token that is *not* recoverable from the device's class, so a device
+#: whose system and class name nothing in common is the case that proves the
+#: token was emitted rather than inferred.
+DEMO_DEVICE_SYSTEM = "SR"
 
 _SEMANTICS = "https://narad.example.org/schema/shared_semantics/"
 
 #: A demo ontology class carrying several synonyms.
 DEMO_MULTI_LABEL_CLASS = f"{_SEMANTICS}BeamPositionMonitor"
-DEMO_MULTI_LABEL_SYNONYM = "bpm"
+DEMO_MULTI_LABEL_SYNONYM = "BPM"
 
 #: A demo ontology class carrying exactly **one** synonym.  Load-bearing: a
 #: single-valued property is where ARRAY and OVERWRITE produce the same *content*
@@ -112,33 +113,29 @@ LEGACY_GRAPH_CONFIG: dict[str, Any] = {
 # Cypher
 # ---------------------------------------------------------------------------
 
-#: Do *all* bindings carry the three description predicates, or only the one the
-#: point assertion names?  ``count(expr)`` skips nulls, so four numbers that agree
-#: is the whole "every description predicate is queryable" claim in one row.
+#: Do *all* bindings carry the description predicate, or only the one the point
+#: assertion names?  ``count(expr)`` skips nulls, so two numbers that agree is
+#: the whole "every description is queryable" claim in one row.
 BINDING_DESCRIPTION_COVERAGE = """
 MATCH (b:ChannelBinding)
 RETURN count(b)                       AS total,
-       count(b.description)           AS described,
-       count(b.fieldDescription)      AS field_described,
-       count(b.subfieldDescription)   AS subfield_described
+       count(b.description)           AS described
 """
 
 BINDING_DESCRIPTIONS = """
 MATCH (b:ChannelBinding {fullPv: $pv})
-RETURN b.description         AS description,
-       b.fieldDescription    AS field_description,
-       b.subfieldDescription AS subfield_description
+RETURN b.description         AS description
 """
 
-#: A device is a resource carrying at least one binding — the same definition the
-#: store's own count query uses.
+#: A device is a resource carrying at least one binding and a ``deviceId`` — a
+#: place that carries channels of its own is a binding owner but no device.
 DEVICE_DESCRIPTION_COVERAGE = """
 MATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding)
+WHERE d.deviceId IS NOT NULL
 WITH DISTINCT d
 RETURN count(d)                     AS total,
        count(d.familyDescription)   AS family_described,
        count(d.systemDescription)   AS system_described,
-       count(d.ringDescription)     AS ring_described,
        count(d.system)              AS with_system
 """
 
@@ -146,8 +143,7 @@ DEVICE_DETAIL = """
 MATCH (d:Resource {sourceName: $name, sectionCode: $section})
 RETURN d.system              AS system,
        d.familyDescription   AS family_description,
-       d.systemDescription   AS system_description,
-       d.ringDescription     AS ring_description
+       d.systemDescription   AS system_description
 """
 
 #: The question the prose was added to answer: find channels by what they do
@@ -164,11 +160,8 @@ RETURN count(b) AS n
 SIGNAL_DESCRIPTION_LEAK = """
 MATCH (s:SemanticSignal)
 WHERE s.description IS NOT NULL
-   OR s.fieldDescription IS NOT NULL
-   OR s.subfieldDescription IS NOT NULL
    OR s.familyDescription IS NOT NULL
    OR s.systemDescription IS NOT NULL
-   OR s.ringDescription IS NOT NULL
 RETURN count(s) AS n
 """
 
@@ -206,16 +199,10 @@ def enrichment_store_uri(graphdb_plugin_dir: Path) -> Iterator[str]:
 
 
 @pytest.fixture(scope="module")
-def demo_ttl() -> str:
-    """The generated demo corpus, read the way installed code reads it."""
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    return resource.read_text(encoding="utf-8")
+def demo_ttl(built_control_assistant: BuiltProject) -> str:
+    """The graph view the control-assistant build writes, as the seeder reads it."""
+    view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+    return view.read_text(encoding="utf-8")
 
 
 @pytest.fixture
@@ -318,18 +305,18 @@ def _assert_alt_labels(value: Any, *, subject: str, expected: str) -> None:
 def test_the_demo_corpus_answers_description_and_system_questions(
     clean_store: Any, demo_ttl: str
 ) -> None:
-    """Seed the generated demo corpus and ask it everything the enrichment added.
+    """Seed the build's graph view and ask it everything the enrichment added.
 
     One test over one seeded store rather than five over five, deliberately: the
     corpus takes tens of seconds to import and every assertion below is a
     question about the *same* graph, so splitting them would re-seed the same
-    2.7 MB per question and prove nothing extra.
+    1.8 MB per question and prove nothing extra.
     """
     session = clean_store
     _seed(session, demo_ttl, "demo")
     census = _ttl_census(demo_ttl)
 
-    # --- Every binding carries all three description predicates -------------
+    # --- Every binding carries its description -----------------------------
     bindings = _row(session, BINDING_DESCRIPTION_COVERAGE)
     total = bindings["total"]
     assert total == census["bindings"], (
@@ -340,22 +327,19 @@ def test_the_demo_corpus_answers_description_and_system_questions(
     assert bindings["described"] == total, (
         f"{total - bindings['described']} of {total} bindings have no description"
     )
-    assert bindings["field_described"] == total
-    assert bindings["subfield_described"] == total
 
     # --- and a named one carries the prose an operator would recognise ------
     detail = _row(session, BINDING_DESCRIPTIONS, pv=DEMO_BINDING_PV)
-    for key in ("description", "field_description", "subfield_description"):
-        value = detail[key]
-        assert isinstance(value, str) and value.strip(), (
-            f"{DEMO_BINDING_PV} came back with {key}={value!r}"
-        )
+    value = detail["description"]
+    assert isinstance(value, str) and value.strip(), (
+        f"{DEMO_BINDING_PV} came back with description={value!r}"
+    )
     assert "dipole" in detail["description"].lower()
-    assert "read-write" in detail["subfield_description"].lower(), (
-        "the subfield description of a setpoint is what tells a reader the channel is writable"
+    assert "setpoint" in detail["description"].lower(), (
+        "the description of a setpoint is what tells a reader the channel is writable"
     )
 
-    # --- Every device carries its three descriptions and its SYSTEM token ---
+    # --- Every device carries its two descriptions and its SYSTEM token -----
     devices = _row(session, DEVICE_DESCRIPTION_COVERAGE)
     device_total = devices["total"]
     assert device_total == census["devices"], (
@@ -363,7 +347,6 @@ def test_the_demo_corpus_answers_description_and_system_questions(
     )
     assert devices["family_described"] == device_total
     assert devices["system_described"] == device_total
-    assert devices["ring_described"] == device_total
     assert devices["with_system"] == device_total, (
         f"{device_total - devices['with_system']} of {device_total} devices carry "
         "no system token, so a question scoped to one system cannot be answered"
@@ -371,7 +354,7 @@ def test_the_demo_corpus_answers_description_and_system_questions(
 
     device = _row(session, DEVICE_DETAIL, name=DEMO_DEVICE_NAME, section=DEMO_DEVICE_SECTION)
     assert device["system"] == DEMO_DEVICE_SYSTEM
-    for key in ("family_description", "system_description", "ring_description"):
+    for key in ("family_description", "system_description"):
         value = device[key]
         assert isinstance(value, str) and value.strip(), (
             f"{DEMO_DEVICE_SECTION}/{DEMO_DEVICE_NAME} came back with {key}={value!r}"
