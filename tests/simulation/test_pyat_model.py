@@ -26,6 +26,7 @@ from osprey.simulation.engines import pyat_model  # noqa: E402
 from osprey.simulation.engines.pyat_faults import supply_attribute  # noqa: E402
 from osprey.simulation.engines.pyat_model import (  # noqa: E402
     BETA_AT_MONITORS,
+    CHROMATICITY,
     ORBIT_AT_MONITORS,
     TUNES,
     PyATLatticeModel,
@@ -167,7 +168,7 @@ class TestFaultRoster:
     def test_derived_names_are_the_faults_and_the_optics(self, model):
         channels = {record["address"] for record in wiring()}
         assert model.derived_names == frozenset(model.supported_variables) - channels
-        assert {TUNES, BETA_AT_MONITORS, ORBIT_AT_MONITORS} <= model.derived_names
+        assert {TUNES, CHROMATICITY, BETA_AT_MONITORS, ORBIT_AT_MONITORS} <= model.derived_names
 
     def test_faults_sit_on_the_element_attributes_at_identity(self, model):
         monitor = model.simulator.element("BPM_01")
@@ -355,3 +356,28 @@ class TestOptics:
         tunes = model.get([TUNES])[TUNES]
         tunes[:] = 0.0
         assert np.all(model.get([TUNES])[TUNES] != 0.0)
+
+    def test_the_chromaticity_matches_a_chromatic_optics_pass(self, model):
+        _, lattice_data, _ = at.get_optics(model.lattice, get_chrom=True)
+        values = model.get([CHROMATICITY])
+        assert values[CHROMATICITY].shape == (2,)
+        np.testing.assert_allclose(values[CHROMATICITY], lattice_data.chromaticity, atol=1e-9)
+
+    def test_the_chromatic_solve_runs_once_per_solve_and_only_when_named(self, model, monkeypatch):
+        chromatic: list[bool] = []
+        real = at.get_optics
+
+        def counting(*args: Any, **kwargs: Any) -> Any:
+            chromatic.append(bool(kwargs.get("get_chrom", False)))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(pyat_model.at, "get_optics", counting)
+        model.set({"HCOR:01:SP": 1.0})
+        model.get([TUNES, BETA_AT_MONITORS, ORBIT_AT_MONITORS, "BPM:01:X"])
+        assert chromatic == [False]
+        model.get([CHROMATICITY])
+        model.get([CHROMATICITY, TUNES])
+        assert chromatic == [False, True]
+        model.set({"HCOR:01:SP": 2.0})
+        model.get([CHROMATICITY])
+        assert chromatic == [False, True, True]
