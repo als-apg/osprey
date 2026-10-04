@@ -1759,10 +1759,12 @@ def _graph_index_target(
     knowledge`` verbs and the deploy's seeding step apply, which is what keeps
     the build writing the index where every reader afterwards looks.
 
-    The three answers that are not a target are facts rather than failures. A
-    project with no corpus staged is a legal project: it keeps its device card
-    from the store it dials. So each returns ``None`` after saying which key
-    left it there, and the build carries on.
+    A render with no ``services.graphdb`` block has no graph store and no
+    index to miss, so it returns ``None`` and says nothing. The three other
+    answers that are not a target are facts rather than failures. A project
+    with no corpus staged is a legal project: it keeps its device card from the
+    store it dials. So each returns ``None`` after saying which key left it
+    there, and the build carries on.
 
     Args:
         render_dir: The render's own directory, holding its ``config.yml``.
@@ -1795,7 +1797,10 @@ def _graph_index_target(
         _fact_once(f"No channel search index: the services.graphdb block cannot be read ({error}).")
         return None
 
-    ttl_path = settings.ttl_path if settings is not None else None
+    if settings is None:
+        return None
+
+    ttl_path = settings.ttl_path
     if ttl_path is None:
         _fact_once(
             "No channel search index: services.graphdb.ttl_path names no corpus to derive one from."

@@ -264,6 +264,18 @@ def test_a_corpus_that_is_not_staged_is_a_fact_and_no_file(tmp_path: Path) -> No
     assert "facility.ttl" in printed
 
 
+def test_a_render_without_a_graph_store_says_nothing_about_the_index(tmp_path: Path) -> None:
+    """A project with no ``services.graphdb`` block has no index to miss."""
+    from tests._builds import init_project, run_build
+
+    repo = init_project(tmp_path, "hello-world", "hello")
+
+    result = run_build(repo)
+
+    assert result.exit_code == 0, result.output
+    assert "No channel search index" not in " ".join(result.output.split())
+
+
 @pytest.mark.real_graph_index
 def test_a_corpus_that_is_not_turtle_warns_and_the_build_still_succeeds(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
