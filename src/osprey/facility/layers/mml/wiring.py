@@ -20,9 +20,10 @@ model is served and its wiring records, in the shape an authored
       energy_scaling: none | brho
 
 One record is written per supply: the address a device of the family answers
-on through its wired field. A setpoint that reads back on another address of
-its family's ``Monitor`` field wires that address too, with the same element,
-engine block and calibration. Records are sorted by address and share no
+on through its wired field. Each device of a supply that reads back on
+another address of its family's ``Monitor`` field wires that address too, with
+the same element or slices, engine block and calibration, so every readback
+of a wired supply follows it. Records are sorted by address and share no
 object, so the file they are written to repeats each value in full.
 
 Rules of the derivation:
@@ -263,7 +264,7 @@ def _records(
             model.raw, family, {model.raw: facts}, answers, devices=view.n_devices
         )
         _require_devices(family, view, block)
-        for address, served, body in _family_records(
+        for address, readbacks, body in _family_records(
             family, wiring, view, block, entries, device_ids.get(family), endpoints
         ):
             for piece in _elements(body):
@@ -274,9 +275,7 @@ def _records(
                         f"family {written[key]} and family {family}"
                     )
                 written[key] = family
-            for claimed in (address, served):
-                if claimed is None:
-                    continue
+            for claimed in (address, *readbacks):
                 if claimed in wired:
                     raise ValueError(
                         f"address {claimed} is wired by family {wired[claimed][0]} "
@@ -310,8 +309,11 @@ def _family_records(
     entries: Sequence[decks.ElementBinding],
     ids: Sequence[str] | None,
     endpoints: Map[str, Sequence[str]],
-) -> list[tuple[str, str | None, dict[str, Any]]]:
-    """One family's records: per supply its address, its readback and the record body.
+) -> list[tuple[str, list[str], dict[str, Any]]]:
+    """One family's records: per supply its address, its readbacks and the record body.
+
+    A supply's readbacks are the ``Monitor`` addresses its devices read back
+    on, each device's own, other than the supply's address.
 
     Raises:
         ValueError: The family carries no channel of its wired field, a driven
@@ -340,23 +342,25 @@ def _family_records(
         if address is not None and (kind == _ENERGY or device in elements):
             supplies.setdefault(address, []).append(device)
 
-    records: list[tuple[str, str | None, dict[str, Any]]] = []
+    records: list[tuple[str, list[str], dict[str, Any]]] = []
+    monitor = view.fields.get(MONITOR_FIELD)
     for address, members in supplies.items():
         body = _supply_record(family, kind, engine, wiring, view, block, elements, members)
         if kind != _ENERGY:
             shared = len(endpoints.get(address, ())) > 1
             body = _stated(body, ids if shared else None)
-        served = None
-        if kind != _MONITOR:
-            served = _first_address(view.fields.get(MONITOR_FIELD), members[0])
-        if served == address:
-            served = None
-        if served is not None and "inverse" not in body["calibration"]:
-            raise ValueError(
-                f"family {family} device {members[0] + 1}: serves its readback "
-                f"on {served} and states no monitor_inverse"
-            )
-        records.append((address, served, body))
+        readbacks: list[str] = []
+        for member in members if kind != _MONITOR else ():
+            served = _first_address(monitor, member)
+            if served is None or served == address or served in readbacks:
+                continue
+            if "inverse" not in body["calibration"]:
+                raise ValueError(
+                    f"family {family} device {member + 1}: serves its readback "
+                    f"on {served} and states no monitor_inverse"
+                )
+            readbacks.append(served)
+        records.append((address, readbacks, body))
     return records
 
 

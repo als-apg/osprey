@@ -161,9 +161,15 @@ def test_every_wiring_record_equals_the_emitted_binding_for_its_address(
         if _names_element(record)
     }
 
-    assert sorted(wiring) == sorted(emitted)
-    for address, record in wiring.items():
-        binding = emitted[address]
+    assert set(emitted) <= set(wiring)
+    for extra in sorted(set(wiring) - set(emitted)):
+        body = {key: value for key, value in wiring[extra].items() if key != "address"}
+        assert any(
+            body == {key: value for key, value in wiring[address].items() if key != "address"}
+            for address in emitted
+        ), extra
+    for address, binding in emitted.items():
+        record = wiring[address]
         engine, calibration = record["engine"], record["calibration"]
         assert _slices(record)[0][0] == binding["element"], address
         assert engine.get("attribute", engine.get("axis")) == binding["attribute"], address
@@ -231,6 +237,16 @@ def test_the_spear3_energy_knob_drives_the_deck_energy_through_its_energy_table(
         table["energy_at_nominal"] * 1e9,
     )
     assert current == pytest.approx(table["I_nom"], rel=1e-3)
+
+
+def test_every_member_s_readback_of_a_shared_supply_follows_it(tmp_path: Path) -> None:
+    facility = _facility(tmp_path, "spear3")
+    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
+    wiring = {record["address"]: record for record in _models(facility)[STORAGE]["wiring"]}
+    supply = wiring["11G-QSS1:CurrSetpt"]
+    assert len(supply["slices"]) == 2
+    for readback in ("11G-QSS1:Curr1", "11G-QSS2:Curr1"):
+        assert wiring[readback] == {**supply, "address": readback}
 
 
 def test_every_wired_element_is_in_the_written_deck_exactly_once(imported: Path) -> None:
