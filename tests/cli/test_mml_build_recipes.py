@@ -1170,6 +1170,7 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert (facility / "classes.yaml").is_file()
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
 
+    @pytest.mark.parametrize("served_repo", ["spear3", "synthetic"], indirect=True)
     def test_the_build_stops_on_each_setpoint_outside_its_band_until_it_is_widened(
         self, served_repo: dict
     ) -> None:
@@ -1187,6 +1188,18 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert named and named <= expected
         assert len(served_repo["remedied"]) == len(expected)
         assert set(served_repo["remedied"]) == expected
+
+    @pytest.mark.parametrize("served_repo", ["nsls2"], indirect=True)
+    def test_a_tree_whose_export_starts_every_setpoint_inside_its_band_builds_at_once(
+        self, served_repo: dict
+    ) -> None:
+        """No seed stop, and the remedy widens nothing."""
+        stopped = served_repo["stopped"]
+
+        assert not expected_seed_stops(served_repo["fixture"])
+        assert stopped.exit_code == 0, stopped.output
+        assert not seed_stops(stopped.stderr)
+        assert served_repo["remedied"] == ()
 
     @pytest.mark.parametrize("served_repo", ["synthetic"], indirect=True)
     def test_the_synthetic_harvest_stops_on_its_one_planted_corrector(
