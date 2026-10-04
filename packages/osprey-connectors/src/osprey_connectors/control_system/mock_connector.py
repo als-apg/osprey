@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
-    from osprey_connectors.simulation import SimulationEngine
+    from osprey_connectors.simulation.engine import SimulationEngine
 
 from osprey_connectors.channel_taxonomy import classify_channel
 from osprey_connectors.config import get_facility_timezone
@@ -27,7 +27,7 @@ from osprey_connectors.control_system.base import (
     values_match,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation import engine_serves
+from osprey_connectors.simulation.engine import engine_serves
 
 logger = get_logger("mock_connector")
 
@@ -87,7 +87,7 @@ class MockConnector(ControlSystemConnector):
             logger.debug("Mock connector: limits validator initialized")
 
         # Optional data-driven simulation engine (machine file)
-        from osprey_connectors.simulation import engine_from_connector_config
+        from osprey_connectors.simulation.engine import engine_from_connector_config
 
         self._sim_engine = engine_from_connector_config(config)
 

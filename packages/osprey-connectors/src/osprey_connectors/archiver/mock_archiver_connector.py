@@ -20,15 +20,14 @@ from osprey_connectors.archiver._timerange import (
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation import engine_serves
-from osprey_connectors.simulation.engine import resolve_simulation_file
+from osprey_connectors.simulation.engine import engine_serves, resolve_simulation_file
 from osprey_connectors.simulation.procedural import generate_series
 from osprey_connectors.simulation.series import epoch_seconds_array
 
 if TYPE_CHECKING:
     import numpy as np
 
-    from osprey_connectors.simulation import SimulationEngine
+    from osprey_connectors.simulation.engine import SimulationEngine
 
 logger = get_logger("mock_archiver_connector")
 
@@ -159,7 +158,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         # Optional data-driven simulation engine (machine file), derived from
         # the control-system config when this section does not name one.
-        from osprey_connectors.simulation import engine_from_connector_config
+        from osprey_connectors.simulation.engine import engine_from_connector_config
 
         self._sim_engine = engine_from_connector_config(_with_derived_simulation_file(config))
 

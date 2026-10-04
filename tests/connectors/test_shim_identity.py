@@ -160,7 +160,9 @@ def test_simulation_core_shims_preserve_module_identity():
     import osprey_connectors.simulation.engine
 
     assert osprey.simulation.engine is osprey_connectors.simulation.engine
-    assert osprey.simulation.SimulationEngine is osprey_connectors.simulation.SimulationEngine
+    assert (
+        osprey.simulation.SimulationEngine is osprey_connectors.simulation.engine.SimulationEngine
+    )
 
 
 def test_connector_shims_preserve_module_identity():

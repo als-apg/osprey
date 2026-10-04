@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from osprey_connectors.simulation import coerce, zero
+from osprey_connectors.simulation.values import coerce, zero
 
 ENUM = ["OFF", "ON", "FAULT"]
 
