@@ -163,3 +163,43 @@ def test_the_built_measured_tune_starts_from_a_waveform_of_its_shape(tmp_path: P
 
     assert record["default"] == [0.0, 0.0, 0.0]
     assert values.coerce(record["default"], "waveform", None, [3]) is not None
+
+
+async def test_the_mock_serves_measured_tune_as_the_deck_s_tunes(tmp_path: Path) -> None:
+    import numpy as np
+
+    from osprey.facility.build import build_facility
+    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.simulator import simulator_wiring
+    from osprey.simulation.engines import pyat as engine
+    from osprey_connectors.control_system.mock_connector import MockConnector
+    from osprey_connectors.simulation.composite import STATUS_OK
+    from tests.facility._mml_built import WIDENED, widen
+    from tests.facility.served_tree import MOCK_RENDER_CONFIG, mock_config
+
+    facility = _facility(tmp_path)
+    import_mml([EXPORT], facility)
+    widen(facility, WIDENED["spear3"])
+    document = build_facility(facility, project_name="demo")
+    render = tmp_path / "build"
+    render.mkdir()
+    render_facility_outputs(render, document, MOCK_RENDER_CONFIG, facility)
+    (model,) = [entry for entry in document["models"] if entry["name"] == MODEL]
+    built = engine.build(
+        MODEL, simulator_wiring(document, MODEL), facility / model["deck"], model.get("settings")
+    )
+    expected = at.get_optics(built.lattice.deepcopy(), get_chrom=False)[1].tune
+
+    connector = MockConnector()
+    await connector.connect(mock_config(render / "data" / "simulator", response_delay_ms=0))
+    try:
+        assert connector._composite.status(MODEL) == STATUS_OK
+        reading = await connector.read_channel("MeasTune")
+    finally:
+        await connector.disconnect()
+
+    served = np.asarray(reading.value)
+    assert served.shape == (3,)
+    assert np.all(np.isfinite(served))
+    assert served == pytest.approx(expected, abs=1e-12)
+    assert reading.metadata.alarm_severity is None
