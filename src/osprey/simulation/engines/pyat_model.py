@@ -288,7 +288,8 @@ class ReadbackVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
 
     Attributes:
         source: A setpoint's address, read back through the setpoint's own
-            calibration at the hardware value it holds; ``tunes`` or
+            calibration at the hardware value it holds (a deck property's
+            setpoint, such as the energy knob, at that value itself); ``tunes`` or
             ``chromaticity``, read at ``component``; or ``None`` for a
             readback with nothing to follow, which reads ``default_value``.
         component: The plane of ``tunes`` or ``chromaticity``; ``None``
@@ -325,7 +326,11 @@ def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> N
             plane the deck does not have, or ``tunes``/``chromaticity`` on a
             single-pass model.
     """
-    setpoints = {variable.name for variable in channels if isinstance(variable, CalibratedSetpoint)}
+    setpoints = {
+        variable.name
+        for variable in channels
+        if isinstance(variable, (CalibratedSetpoint, EnergyVariable))
+    }
     for variable in channels:
         if not isinstance(variable, ReadbackVariable) or variable.source is None:
             continue
@@ -514,6 +519,9 @@ class PyATLatticeModel(LUMEPyATModel):
             for variable in channels
             if isinstance(variable, CalibratedSetpoint)
         }
+        self._knobs: frozenset[str] = frozenset(
+            variable.name for variable in channels if isinstance(variable, EnergyVariable)
+        )
         self._optics_memo: _OpticsMemo | None = None
         self._chromaticity_memo: _ChromaticityMemo | None = None
 
@@ -596,6 +604,8 @@ class PyATLatticeModel(LUMEPyATModel):
             return float(readback.default_value or 0.0)
         if readback.source in PLANE_OPTICS:
             return float(arrays[readback.source][readback.component])
+        if readback.source in self._knobs:
+            return float(self._inputs[readback.source])
         setpoint = self._setpoints[readback.source]
         return setpoint.readback(self._inputs[readback.source])
 

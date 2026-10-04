@@ -240,6 +240,39 @@ class TestReadbacks:
         assert model.get([CORRECTOR_READBACK])[CORRECTOR_READBACK] == 1.5
 
 
+class TestDeckProperties:
+    #: A dipole supply's current to the deck energy in eV, one way on both axes.
+    CURVE = {"table": {"grid": [0.0, 500.0, 1000.0], "values": [0.0, 1.5e9, 3.0e9]}}
+
+    def knob(self, demo, address: str, direction: str) -> dict[str, Any]:
+        return {
+            "id": f"{MODEL}/{address}",
+            "address": address,
+            "engine": {"attribute": "energy"},
+            "calibration": {"curve": self.CURVE, "energy_scaling": "none"},
+            "direction": direction,
+            "default": 1000.0 * at.load_lattice(str(demo["deck"])).energy / 3.0e9,
+        }
+
+    def test_an_energy_readback_is_read_only_and_tracks_the_energy_setpoint(self, demo):
+        setpoint = self.knob(demo, "BEND:SP", "write")
+        readback = self.knob(demo, "BEND:RB", "read")
+        model = build(demo, wiring=[*demo["wiring"], setpoint, readback])
+        assert model.supported_variables["BEND:RB"].read_only
+        assert not model.supported_variables["BEND:SP"].read_only
+        assert model.get(["BEND:RB"])["BEND:RB"] == pytest.approx(setpoint["default"], rel=1e-12)
+        model.set({"BEND:SP": setpoint["default"] * 1.001})
+        assert model.get(["BEND:RB"])["BEND:RB"] == pytest.approx(
+            setpoint["default"] * 1.001, rel=1e-12
+        )
+
+    def test_an_energy_readback_with_no_setpoint_reads_its_default(self, demo):
+        readback = {**self.knob(demo, "BEND:RB", "read"), "default": 42.0}
+        model = build(demo, wiring=[*demo["wiring"], readback])
+        assert model.supported_variables["BEND:RB"].read_only
+        assert model.get(["BEND:RB"])["BEND:RB"] == 42.0
+
+
 class TestOptics:
     def test_tunes_and_chromaticity_are_the_decks_at_1e_9(self, demo):
         model = build(demo)
