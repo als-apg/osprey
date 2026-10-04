@@ -1,9 +1,8 @@
 """Channel-finder view parity against the frozen pre-LINE goldens.
 
-The goldens under ``tests/facility/golden/`` are captured from the demo's
-committed sources by ``scripts/facility_demo/fingerprint.py`` (the limits
-golden by ``scripts/facility_demo/_limits.py``); each names the command that
-rewrites it in its ``_reproduce`` line. This module's loader
+The goldens under ``tests/facility/golden/`` were captured from the demo's
+committed sources. Each states in its ``_reproduce`` line the command that
+rewrites it, or that it is frozen and none does. This module's loader
 reads them, and the tests below hold the frozen invariants every later
 comparison relies on: the fingerprint's size, role split and pinned sha256,
 the in_context size, the standalone address set, the limits projection and

@@ -1,8 +1,8 @@
-"""The demo generator's ``seeds.yaml`` against the machine file and the nominal goldens.
+"""The demo's committed ``seeds.yaml`` against the machine file and the nominal goldens.
 
-``scripts/facility_demo/generate.py`` writes one seed per channel that moves,
-is clamped, or starts at a value no model computes. These tests read the seeds
-back from the YAML the generator writes and hold them to the demo's machine
+The demo commits one seed per channel that moves, is clamped, or starts at a
+value no model computes. These tests read the seeds as the facility loader
+parses them and hold them to the demo's machine
 file, to the procedural taxonomy's classes, and to the per-address nominal and
 sigma the mock and the virtual accelerator serve, as the goldens capture them
 (``tests/facility/golden/nominal_mock.json`` and ``nominal_va.json``).
@@ -21,15 +21,13 @@ import pytest
 
 from tests.facility.test_generator_records import (
     CA_DATA,
+    FACILITY_TREE,
     REPO_ROOT,
-    generated,
-    generated_files,
-    generator,
+    committed,
     records_by_id,
 )
 
 MACHINE_JSON = CA_DATA / "simulation/machine.json"
-SR_DECK = CA_DATA / "facility/decks/SR.json"
 GOLDEN = REPO_ROOT / "tests/facility/golden"
 
 #: A seed's value tolerance against a golden.
@@ -71,19 +69,19 @@ def golden(substrate: str) -> dict[str, dict[str, float]]:
 
 def seeds() -> dict[str, dict[str, Any]]:
     """``seeds.yaml`` as the facility loader parses it."""
-    document: dict[str, dict[str, Any]] = generated("seeds.yaml")
+    document: dict[str, dict[str, Any]] = committed("seeds.yaml")
     return document
 
 
 def channels() -> dict[str, dict[str, Any]]:
-    """The generated channel records keyed by id."""
+    """The committed channel records keyed by id."""
     return records_by_id("channel")
 
 
 @cache
 def wired() -> frozenset[str]:
-    """Every address the generated model wires."""
-    return frozenset(r["address"] for m in generated("models.yaml") for r in m["wiring"])
+    """Every address the committed model wires."""
+    return frozenset(r["address"] for m in committed("models.yaml") for r in m["wiring"])
 
 
 def value_type(address: str) -> str:
@@ -196,15 +194,6 @@ def test_channels_absent_from_the_machine_file_fall_into_three_classes() -> None
     assert [seeds()[a] for a in setpoints] == [{"nominal": 5000.0}] * 6
 
 
-def test_procedural_motion_is_for_float_readbacks_only() -> None:
-    procedural = generator()._seeds._procedural_seed
-    absent = sorted(set(channels()) - set(machine()) - ADDITIONS)
-    readbacks = [a for a in absent if value_type(a) == "float" and role(a) == "readback"]
-    assert all("noise" in procedural(a, channels()[a]) for a in readbacks)
-    as_int = [procedural(a, {**channels()[a], "value_type": "int"}) for a in readbacks]
-    assert [seed for seed in as_int if "noise" in seed] == []
-
-
 def test_noise_counts() -> None:
     noisy = [a for a, seed in seeds().items() if "noise" in seed]
     from_machine = [a for a in noisy if a in machine()]
@@ -251,42 +240,12 @@ def test_bool_labels_follow_both_goldens() -> None:
 FLOAT_READBACK = {"value_type": "float", "role": "readback"}
 
 
-@pytest.mark.parametrize(
-    ("entry", "channel", "refusal"),
-    [
-        (
-            {"value": 1.0, "texture": {"kind": "step", "amplitude": 1.0, "period_s": 1.0}},
-            FLOAT_READBACK,
-            "is not wander",
-        ),
-        ({"expr": "ch('A') + ch('B')"}, FLOAT_READBACK, "is not a difference"),
-        ({"value": 2}, {"value_type": "bool", "role": "readback"}, "is not 0 or 1"),
-        ({"value": 1.0, "noise": 0.1}, {"value_type": "float", "role": "setpoint"}, "motion on"),
-        ({"noise_abs": 0.1}, FLOAT_READBACK, "no value and no expression"),
-    ],
-)
-def test_malformed_machine_entries_are_refused(
-    entry: dict[str, Any], channel: dict[str, Any], refusal: str
-) -> None:
-    module = generator()._seeds
-    with pytest.raises(module._records.RecordsError, match=refusal):
-        module._machine_seed("X:Y", entry, channel, wired=False)
-
-
-def test_a_machine_channel_with_no_record_is_refused() -> None:
-    module = generator()._seeds
-    with pytest.raises(module._records.RecordsError, match="channels with no record"):
-        module.build_seeds([], [])
-
-
-def test_written_tree_passes_every_build_stage(tmp_path: Path) -> None:
+def test_committed_tree_passes_every_build_stage(tmp_path: Path) -> None:
     pytest.importorskip("at")
     from osprey.facility.build import LATER_STAGES
     from osprey.facility.validate import run_stages
 
-    assert generator().main(["--out", str(tmp_path)]) == 0
-    assert (tmp_path / "seeds.yaml").read_text(encoding="utf-8") == generated_files()["seeds.yaml"]
-    (tmp_path / "decks").mkdir()
-    shutil.copyfile(SR_DECK, tmp_path / "decks/SR.json")
-    report = run_stages(tmp_path, project_name="ca", later=LATER_STAGES)
+    tree = tmp_path / "facility"
+    shutil.copytree(FACILITY_TREE, tree)
+    report = run_stages(tree, project_name="ca", later=LATER_STAGES)
     assert report.errors == []

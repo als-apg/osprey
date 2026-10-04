@@ -1,7 +1,7 @@
 """The presets' committed ``data/facility/`` trees.
 
-The demo generator writes one tree into the control-assistant preset and the
-two standalone presets. The three committed trees are byte-equal except the
+The control-assistant preset and the two standalone presets commit one demo
+tree each. The three committed trees are byte-equal except the
 standalones' ``identity.yaml``, which adds the facility name, and the files
 only the control-assistant preset carries. Hello-world's tree is hand-authored
 and holds the channels its tutorial names.
@@ -18,7 +18,6 @@ import pytest
 
 from osprey.facility.build import build_facility
 from osprey.facility.sources import read_yaml
-from tests.facility.test_generator_records import generated_files
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APPS = REPO_ROOT / "src/osprey/templates/apps"
@@ -63,15 +62,6 @@ def built_control_assistant_facility() -> dict[str, Any]:
     """The control-assistant tree's facility file."""
     document: dict[str, Any] = build_facility(CONTROL_ASSISTANT, project_name="ca")
     return document
-
-
-def test_control_assistant_tree_is_the_generator_output() -> None:
-    committed = tree(CONTROL_ASSISTANT)
-    generated = {rel: text.encode("utf-8") for rel, text in generated_files().items()}
-    assert {rel: committed[rel] for rel in generated if rel in committed} == generated
-    assert {rel for rel in set(committed) - set(generated) if not rel.startswith("knowledge/")} == {
-        "decks/SR.json"
-    }
 
 
 @pytest.mark.parametrize("name", sorted(STANDALONES))

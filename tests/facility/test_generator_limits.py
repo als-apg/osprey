@@ -1,10 +1,10 @@
-"""The demo generator's ``limits.yaml`` and ``measurement/SR.yaml``.
+"""The demo's committed ``limits.yaml`` and ``measurement/SR.yaml``.
 
 The demo limits three setpoints, each record teaching one shape, and leaves
 every other channel to the deployment's limits mode. Its measurement file
 names the deck machine's family groups and instruments and pyAML's step and
 settle keys. These tests read both files back as the facility loader parses
-them and hold them to the generated records and the limits golden.
+them and hold them to the committed records and the limits golden.
 """
 
 from __future__ import annotations
@@ -18,10 +18,9 @@ from typing import Any
 from osprey.facility.sources import slot_names
 from tests.facility.test_cf_view_parity import load_golden
 from tests.facility.test_generator_records import (
-    GENERATOR,
     REPO_ROOT,
-    generated,
-    generated_files,
+    committed,
+    committed_files,
     records_by_id,
     wired_devices,
 )
@@ -84,7 +83,7 @@ def limits_module() -> ModuleType:
 
 def measurement() -> dict[str, Any]:
     """``measurement/SR.yaml`` as the loader parses it."""
-    document: dict[str, Any] = generated("measurement/SR.yaml")
+    document: dict[str, Any] = committed("measurement/SR.yaml")
     return document
 
 
@@ -92,11 +91,11 @@ def measurement() -> dict[str, Any]:
 
 
 def test_limits_hold_exactly_the_three_teaching_records() -> None:
-    assert generated("limits.yaml") == {"records": TEACHING_RECORDS}
+    assert committed("limits.yaml") == {"records": TEACHING_RECORDS}
 
 
 def test_each_limits_record_sits_under_its_comment() -> None:
-    lines = generated_files()["limits.yaml"].splitlines()
+    lines = committed_files()["limits.yaml"].splitlines()
     starts = [index for index, line in enumerate(lines) if line.startswith("- address: ")]
     assert len(starts) == 3
     for start, record in zip(starts, TEACHING_RECORDS, strict=True):
@@ -122,7 +121,7 @@ def test_limits_golden_holds_the_three_resolved_rows() -> None:
     assert golden["channels"] == RESOLVED_ROWS
 
 
-def test_limits_golden_resolves_the_generated_records() -> None:
+def test_limits_golden_resolves_the_committed_records() -> None:
     module = limits_module()
     roles = {
         address: record.get("role", "readback")
@@ -130,7 +129,7 @@ def test_limits_golden_resolves_the_generated_records() -> None:
     }
     resolved = {
         record["address"]: module.resolve(record, roles[record["address"]])
-        for record in generated("limits.yaml")["records"]
+        for record in committed("limits.yaml")["records"]
     }
     assert resolved == load_golden("limits.json")["channels"]
 
@@ -164,7 +163,7 @@ def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member() -
     for role, group_id in named.items():
         machine, _, family = group_id.partition("/")
         assert machine == "SR" and family, f"{role}: {group_id} is not an SR/<family> group"
-        assert group_id in groups, f"{role}: {group_id} is not a generated group"
+        assert group_id in groups, f"{role}: {group_id} is not a committed group"
         assert set(groups[group_id]["members"]) & wired, f"{role}: {group_id} has no wired member"
 
 
@@ -199,6 +198,5 @@ def test_measurement_carries_every_pyaml_step_and_settle_key() -> None:
     }
 
 
-def test_generator_writes_both_files() -> None:
-    assert GENERATOR.is_file()
-    assert {"limits.yaml", "measurement/SR.yaml"} <= set(generated_files())
+def test_the_tree_commits_both_files() -> None:
+    assert {"limits.yaml", "measurement/SR.yaml"} <= set(committed_files())
