@@ -35,7 +35,6 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
-from osprey.services.virtual_accelerator.manifest.build import LIMITS_FILENAME
 from tests.services.channel_finder.graph_index import corpora
 
 #: Where a render's index goes: the fixed path under the render.
@@ -72,7 +71,6 @@ def _graph_repo(
     (data / "simulation").mkdir(parents=True)
     (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
     (data / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
-    (data / LIMITS_FILENAME).write_text("{}\n")
     (data / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     if corpus is not None:
         (data / "facility.ttl").write_text(corpus, encoding="utf-8")

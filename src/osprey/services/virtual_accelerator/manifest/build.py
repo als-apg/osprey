@@ -860,18 +860,14 @@ def _finish_manifest(
 def _roster_missing_sources(paths: ManifestPaths) -> list[Path]:
     """The per-tree files a roster-sourced manifest still needs, when absent.
 
-    The facility file enumerates the channels, but the scenario seed, the
-    machine-state list and the drive limits are one-per-tree sources every
-    manifest ships beside -- the container refuses to boot without
-    ``machine.json``, and a manifest without ``channel_limits.json`` beside it
-    is the silent unbounded-setpoint state the paradigm path refuses too.
+    The facility file enumerates the channels, but the scenario seed and the
+    machine-state list are one-per-tree sources every manifest ships beside --
+    the container refuses to boot without ``machine.json``. The drive limits
+    are not a source: the render's limits view supplies them.
     """
-    missing = [
-        path
-        for path in (paths.machine_json, paths.machine_state_channels, paths.channel_limits)
-        if not path.is_file()
+    return [
+        path for path in (paths.machine_json, paths.machine_state_channels) if not path.is_file()
     ]
-    return missing
 
 
 def _echo_entry(
@@ -1007,7 +1003,7 @@ def _prepare_roster_manifest(roster, paths: ManifestPaths) -> PreparedManifest |
             paths, exc, tree=f"the data tree {paths.data_root}"
         ) from exc
 
-    return PreparedManifest(manifest=manifest, limits_source=paths.channel_limits)
+    return PreparedManifest(manifest=manifest)
 
 
 @dataclass(frozen=True)
@@ -1028,7 +1024,6 @@ class PreparedManifest:
     """
 
     manifest: dict
-    limits_source: Path
     model_sources: tuple[Path, ...] = ()
 
 
@@ -1064,7 +1059,7 @@ def prepare_project_manifest(
         The prepared manifest, or ``None`` when this tree cannot back one: it
         stages no paradigm database at this tier, the databases it stages name
         no channel, every one of them is present and unreadable, it is missing
-        the scenario seed, the machine-state list, the drive limits or the
+        the scenario seed, the machine-state list or the
         lattice its bindings point into, or the databases it does stage
         disagree. :func:`manifest_gap_reason` says
         which, in the words the refusal is written in. A caller deploying a
@@ -1100,11 +1095,6 @@ def prepare_project_manifest(
         return None
 
     missing = paths.missing_sources()
-    if not paths.channel_limits.is_file():
-        # Drive limits ship beside the manifest or the VA enforces none at
-        # all -- generating one without the other is exactly the silent
-        # unbounded-setpoint state this must never produce.
-        missing.append(paths.channel_limits)
     if missing:
         logger.debug(
             "Virtual-accelerator manifest not generated from %s: missing %s",
@@ -1157,7 +1147,6 @@ def prepare_project_manifest(
     model_files = (paths.lattice_json, paths.va_bindings)
     return PreparedManifest(
         manifest=manifest,
-        limits_source=paths.channel_limits,
         # Read off the required sources rather than re-deciding which model
         # files a tree carries, so what ships beside the manifest is exactly
         # what the build just refused to go without.
@@ -1225,8 +1214,6 @@ def manifest_gap_reason(data_root: Path, tier: int, *, config: dict | None = Non
             f"({', '.join(sorted(paths.absent_paradigms))} are all absent)"
         )
     missing = paths.missing_sources()
-    if not paths.channel_limits.is_file():
-        missing.append(paths.channel_limits)
     if missing:
         return "missing " + ", ".join(str(path.relative_to(data_root)) for path in missing)
 
@@ -1318,10 +1305,9 @@ def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -
     from beside it. The limits file is copied rather than bind-mounted
     single-file, which fails at container init.
 
-    The limits copy is taken from the built project when it has one (so any
-    facility overlay applied to ``data/channel_limits.json`` is what the VA
-    enforces), falling back to the source tree the manifest was prepared
-    from.
+    The drive limits are the render's limits view, ``data/channel_limits.json``,
+    which the render writes from ``facility/limits.yaml`` before this runs, so
+    the VA enforces exactly the bands the project's own safety layer does.
 
     The lattice and the bindings are copied byte for byte: the digest recorded
     for the lattice when it was emitted is the digest of these bytes, so
@@ -1330,14 +1316,19 @@ def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -
 
     Returns:
         The path the manifest was written to.
+
+    Raises:
+        BuildProfileError: if the render holds no limits view to copy.
     """
+    limits_view = project_data_dir / LIMITS_FILENAME
+    if not limits_view.is_file():
+        raise BuildProfileError(
+            f"virtual-accelerator drive limits are missing: {limits_view} is not written. "
+            "The render writes it from facility/limits.yaml before the manifest."
+        )
     simulation_dir = project_data_dir / "simulation"
     simulation_dir.mkdir(parents=True, exist_ok=True)
-
-    limits_source = project_data_dir / LIMITS_FILENAME
-    if not limits_source.is_file():
-        limits_source = prepared.limits_source
-    shutil.copy2(limits_source, simulation_dir / LIMITS_FILENAME)
+    shutil.copy2(limits_view, simulation_dir / LIMITS_FILENAME)
 
     for source in prepared.model_sources:
         destination = simulation_dir / source.name

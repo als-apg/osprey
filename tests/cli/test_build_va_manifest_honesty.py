@@ -38,10 +38,7 @@ from osprey.cli.build_profile_schema import VAConfig
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.templates.manager import TemplateManager
 from osprey.errors import BuildProfileError
-from osprey.services.virtual_accelerator.manifest.build import (
-    LIMITS_FILENAME,
-    prepare_project_manifest,
-)
+from osprey.services.virtual_accelerator.manifest.build import prepare_project_manifest
 from osprey.services.virtual_accelerator.manifest.paths import (
     DEFAULT_TIER,
     PACKAGE_PATHS,
@@ -64,8 +61,7 @@ def _plain_reporter():
 def _facility_tree(root: Path) -> Path:
     """Copy the bundled sources into ``root`` as a standalone facility tree."""
     paths = ManifestPaths(data_root=PACKAGE_PATHS.data_root, tier=DEFAULT_TIER)
-    sources = [*paths.required_sources, paths.channel_limits]
-    for source in sources:
+    for source in paths.required_sources:
         destination = root / source.relative_to(PACKAGE_PATHS.data_root)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
@@ -611,18 +607,6 @@ def test_an_empty_database_beside_a_model_is_credited_with_the_models_channels(t
     assert metadata["machine_state_reconciliation"]["invalid"]
 
 
-def test_a_tree_missing_its_drive_limits_refuses(tmp_path):
-    """Limits and manifest ship together: a manifest alone accepts any setpoint."""
-    root = _facility_tree(tmp_path / "limitless" / "data")
-    (root / LIMITS_FILENAME).unlink()
-
-    assert prepare_project_manifest(root, DEFAULT_TIER) is None
-    with pytest.raises(BuildProfileError) as excinfo:
-        _report(_shared(tmp_path), _profile(), root, None)
-
-    assert LIMITS_FILENAME in str(excinfo.value)
-
-
 # --- nothing said when no accelerator is deployed ---------------------------
 
 
@@ -980,7 +964,6 @@ def _graph_repo(
     (data / "simulation").mkdir(parents=True)
     (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
     (data / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
-    (data / LIMITS_FILENAME).write_text("{}\n")
     (data / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (data / "facility.ttl").write_text(_GRAPH_CORPUS)
     if tree is not None:
