@@ -16,8 +16,10 @@ sees named is exactly what they can pull.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
+
+from .templates.shared_data import SHARED_DATA_FILENAME, shared_data_files
 
 # ---------------------------------------------------------------------------
 # Catalog: what a template offers
@@ -29,7 +31,7 @@ from typing import Literal
 #: bundled MCP server ships its own ``__init__.py`` and is content — so these
 #: names are dropped at the root only.
 _ROOT_ONLY_EXCLUDED_SUFFIXES: tuple[str, ...] = (".j2",)
-_ROOT_ONLY_EXCLUDED_NAMES: frozenset[str] = frozenset({"__init__.py"})
+_ROOT_ONLY_EXCLUDED_NAMES: frozenset[str] = frozenset({"__init__.py", SHARED_DATA_FILENAME})
 
 
 def list_pullable_paths(app_root: Path, subtree: str | None = None) -> list[str]:
@@ -91,6 +93,14 @@ def list_pullable_paths(app_root: Path, subtree: str | None = None) -> list[str]
                 files.append(relative)
 
     visit(app_root)
+    # The files the template takes from another one, listed where they land.
+    for relative in shared_data_files(app_root):
+        files.append(f"data/{relative}")
+        for parent in PurePosixPath(relative).parents:
+            if parent.name and f"data/{parent.as_posix()}/" not in directories:
+                directories.append(f"data/{parent.as_posix()}/")
+    if any(entry.startswith("data/") for entry in files) and "data/" not in directories:
+        directories.append("data/")
     directories.sort()
     files.sort()
 
@@ -214,9 +224,12 @@ def plan_pull(
     # no-op for the entire command, so it is reported as a refusal instead.
     only_one = len(candidates) == 1
 
+    shared = {
+        f"data/{relative}": source for relative, source in shared_data_files(app_root).items()
+    }
     actions: list[PullAction] = []
     for relative in candidates:
-        source = app_root / relative
+        source = shared.get(relative, app_root / relative)
         target = repo_root / relative
 
         if not with_content and _is_knowledge_content(relative):

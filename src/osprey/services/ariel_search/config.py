@@ -1026,6 +1026,11 @@ class ARIELConfig:
             ``entry_url`` emitted); a deployment sets it in its profile's
             ``config:`` block, where the presets that ship an ``ariel:`` block
             carry it as a commented example.
+        demo_narrative: Optional directory of scenario narratives a deployment
+            with no simulation seeds into its empty logbook. Read by the deploy
+            and ``osprey ariel quickstart`` through
+            ``osprey.simulation.apply.demo_narrative_logbook``, NOT parsed by
+            ``from_dict``.
     """
 
     database: DatabaseConfig

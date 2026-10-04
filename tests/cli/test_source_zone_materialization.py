@@ -664,11 +664,16 @@ def test_data_tree_is_byte_identical_to_the_bundle(
 
     The sole exception is build exhaust the wheel does not ship either
     (``_EXCLUDED_DATA_SUBTREES``), so that a source checkout which has run the
-    benchmarks materializes the same tree a wheel install does.
+    benchmarks materializes the same tree a wheel install does. The files a
+    bundle takes from another one (``shared_data.yml``) arrive unchanged too,
+    where it declares them.
     """
+    from pathlib import PurePath
+
     from osprey.cli.build_cmd import _profile_data_bundle
     from osprey.cli.profile_cmd import _EXCLUDED_DATA_SUBTREES
     from osprey.cli.templates.manager import TemplateManager
+    from osprey.cli.templates.shared_data import shared_data_files
 
     target = tmp_path / "p-facility"
     assert _new(runner, target, preset).exit_code == 0
@@ -679,15 +684,19 @@ def test_data_tree_is_byte_identical_to_the_bundle(
     bundle = _profile_data_bundle(resolved)
     source = TemplateManager().template_root / "apps" / bundle / "data"
 
+    shared = {Path(rel): src for rel, src in shared_data_files(source.parent).items()}
+
     copied = sorted(p.relative_to(target / "data") for p in (target / "data").rglob("*"))
-    original = sorted(
+    own = {
         rel
         for rel in (p.relative_to(source) for p in source.rglob("*"))
         if not any(rel.parts[: len(excluded)] == excluded for excluded in _EXCLUDED_DATA_SUBTREES)
-    )
+    }
+    shared_dirs = {Path(parent) for rel in shared for parent in PurePath(rel).parents}
+    original = sorted(own | set(shared) | (shared_dirs - {Path(".")}))
     assert copied == original
     for rel in original:
-        src, dst = source / rel, target / "data" / rel
+        src, dst = shared.get(rel, source / rel), target / "data" / rel
         if src.is_file():
             assert src.read_bytes() == dst.read_bytes(), rel
 

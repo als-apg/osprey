@@ -28,11 +28,12 @@ from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation.engine import (
     ACTIVE_SCENARIOS_FILENAME,
+    DEFAULT_SCENARIO,
     SimulationEngine,
     resolve_active_scenarios,
     resolve_state_dir,
 )
-from osprey.simulation.machine import parse_machine, read_machine_json
+from osprey.simulation.machine import load_narratives, parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
@@ -47,6 +48,10 @@ if TYPE_CHECKING:
     from osprey.simulation.machine import BpmErrorSpec, Scenario, ScenarioLogEntry
 
 logger = get_logger("simulation_apply")
+
+#: The ``ariel:`` key naming a directory of scenario narratives a deployment
+#: with no simulation seeds into its empty logbook.
+DEMO_NARRATIVE_KEY = "demo_narrative"
 
 _T = TypeVar("_T")
 
@@ -392,16 +397,84 @@ async def _export_qmd_mirror(ariel_config: dict) -> None:
     await run_qmd_resync(ariel_config, rebuild=True)
 
 
+def demo_narrative_logbook(
+    ariel_config: Mapping[str, Any], config_dir: Path | None = None
+) -> list[ScenarioLogEntry]:
+    """Every entry of the scenario narratives ``ariel.demo_narrative`` names.
+
+    The key names a directory laid out like a simulation ``scenarios/`` tree:
+    one subdirectory per scenario, each with a ``logbook.json`` and the pictures
+    its entries attach. Only the narratives are read (see
+    :func:`~osprey.simulation.machine.load_narratives`), so a deployment with no
+    simulation can document the same incidents a simulated one does. ``nominal``
+    comes first and the rest follow by name, the order a composed active set
+    narrates in.
+
+    Args:
+        ariel_config: The ``ariel:`` config section.
+        config_dir: Directory holding the ``config.yml`` the section came from;
+            the relative path resolves against its project root (see
+            :func:`~osprey.utils.config_paths.resolve_config_relative_path`).
+
+    Returns:
+        The entries, or ``[]`` when the key is unset.
+
+    Raises:
+        ValueError: If the directory is missing or a narrative in it is malformed.
+    """
+    from osprey.utils.config_paths import resolve_config_relative_path
+
+    raw = ariel_config.get(DEMO_NARRATIVE_KEY)
+    if not raw:
+        return []
+    directory = resolve_config_relative_path(str(raw), config_dir)
+    if not directory.is_dir():
+        raise ValueError(f"ariel.{DEMO_NARRATIVE_KEY} names {directory}, which is not a directory")
+    narratives = load_narratives(directory)
+    order = sorted(narratives, key=lambda name: (name != DEFAULT_SCENARIO, name))
+    return [entry for name in order for entry in narratives[name]]
+
+
+async def seed_narrative_if_empty(
+    ariel_config: dict, logbook: Sequence[ScenarioLogEntry], anchor: datetime
+) -> int:
+    """Seed ``logbook``, with its pictures, into a logbook that has no entries yet.
+
+    Strictly additive: a logbook with anything in it is left exactly as it is,
+    because a deploy or a setup command has no licence to delete entries anyone
+    wrote. The markdown mirror is rewritten after a seed (see
+    :func:`_export_qmd_mirror`).
+
+    Args:
+        ariel_config: ARIEL config section with its DSN resolved.
+        logbook: The entries to seed.
+        anchor: The instant their relative timestamps resolve against.
+
+    Returns:
+        The number of entries seeded; ``0`` when the logbook already held entries.
+    """
+    from osprey.services.ariel_search import cli_operations
+
+    if await cli_operations.logbook_entry_count(ariel_config) > 0:
+        return 0
+    entries, pictures = seed_payload(logbook, anchor)
+    seeded = await cli_operations.seed_logbook_entries(ariel_config, entries, pictures=pictures)
+    await _export_qmd_mirror(ariel_config)
+    return seeded
+
+
 def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> int:
-    """Write the active narrative into a logbook that has none. Returns entries seeded.
+    """Write the deployment's narrative into a logbook that has none. Returns entries seeded.
 
     The counterpart of :func:`seed_archiver` for the other half of a simulated
     world: a deployment whose archive is full while its logbook is empty documents
-    a machine nobody can read about. Called by the deploy, which is why it is
-    strictly additive where :func:`apply_scenarios`' own seeding purges first — an
-    operator asking for a scenario is asking for that narrative and no other, but
-    a deploy is asking for the stack to come up and has no licence to delete
-    entries anyone wrote.
+    a machine nobody can read about. A simulation-backed project narrates its
+    active scenarios; any other project narrates ``ariel.demo_narrative``
+    (:func:`demo_narrative_logbook`) when it names one. Called by the deploy,
+    which is why it is strictly additive where :func:`apply_scenarios`' own
+    seeding purges first — an operator asking for a scenario is asking for that
+    narrative and no other, but a deploy is asking for the stack to come up and
+    has no licence to delete entries anyone wrote.
 
     So it writes only into an EMPTY logbook. A logbook with anything in it is left
     exactly as it is; the operator's route to a clean reseed remains
@@ -418,19 +491,10 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
     """
     logbook, anchor = _active_narrative(config, project_dir)
     if not logbook:
+        logbook = demo_narrative_logbook(ariel_config, _config_file(project_dir).parent)
+    if not logbook:
         return 0
-    entries, pictures = seed_payload(logbook, anchor)
-
-    async def _seed_if_empty() -> int:
-        from osprey.services.ariel_search import cli_operations
-
-        if await cli_operations.logbook_entry_count(ariel_config) > 0:
-            return 0
-        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries, pictures=pictures)
-        await _export_qmd_mirror(ariel_config)
-        return seeded
-
-    return _run_coro(_seed_if_empty)
+    return _run_coro(lambda: seed_narrative_if_empty(ariel_config, logbook, anchor))
 
 
 def archiver_store_config(config: dict, project_dir: Path) -> dict | None:

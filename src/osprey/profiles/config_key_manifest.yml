@@ -1966,14 +1966,30 @@ keys:
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
-  ariel.ingestion: {covered-by: ariel, default: n/a}
+  ariel.demo_narrative:
+    evidence: 'DEMO_NARRATIVE_KEY = "demo_narrative"'
+    note: >-
+      A directory of scenario narratives (one subdirectory per scenario, each a
+      logbook.json and the pictures it attaches) that `osprey up` seeds into an
+      empty logbook of a deployment with no simulation, and `osprey ariel
+      quickstart` seeds and enhances. Live in ariel-standalone, whose init
+      materializes it from the control-assistant scenario bundles.
+    default: null
+  ariel.ingestion:
+    rendered: false
+    covered-by: ariel
+    note: >-
+      Named only in the commented guidance the presets and the ingestion how-to
+      carry: where a deployment's entries come from is facility content.
+    default: n/a
   ariel.ingestion.adapter:
+    rendered: false
     covered-by: ariel.ingestion
     default: no-fallback
     default_note: >-
       config load refuses an ingestion block that names no adapter -- there is no
       adapter registered under a generic name to fall back to
-  ariel.ingestion.source_url: {evidence: 'source_url', default: null}
+  ariel.ingestion.source_url: {rendered: false, evidence: 'source_url', default: null}
   ariel.ingestion.verify_ssl:
     rendered: false
     evidence: 'data\.get\("verify_ssl", True\)'
@@ -3466,7 +3482,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 369
+  expected_union_size: 367
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

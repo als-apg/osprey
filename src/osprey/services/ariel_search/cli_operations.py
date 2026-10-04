@@ -2707,7 +2707,11 @@ async def run_quickstart(
         elif progress:
             progress("  Tables: already up to date")
 
-        if not config.ingestion or not config.ingestion.source_url:
+        if (not config.ingestion or not config.ingestion.source_url) and config_dict.get(
+            "demo_narrative"
+        ):
+            count, enhanced_count = await _quickstart_narrative(config_dict, progress)
+        elif not config.ingestion or not config.ingestion.source_url:
             if progress:
                 progress("\nNo ingestion source configured. Skipping data ingestion.")
         else:
@@ -2770,6 +2774,39 @@ async def run_quickstart(
         migrations_applied=migrations_applied,
         enabled_search=enabled_search,
     )
+
+
+async def _quickstart_narrative(config_dict: dict, progress: _ProgressCb) -> tuple[int, int]:
+    """Seed ``ariel.demo_narrative`` into an empty logbook, then enhance what it holds.
+
+    The narrative is written the way a deploy writes it -- rows and pictures,
+    no enhancement (see :func:`~osprey.simulation.apply.seed_narrative_if_empty`)
+    -- so a quickstart after an ``osprey up`` that already seeded it finds the
+    entries in place and adds none. The enhancement pass that follows is what
+    the quickstart adds over the deploy: embeddings for semantic and hybrid
+    search, and captions where a vision model answers.
+
+    Returns:
+        ``(entries seeded, entries the enhancement pass processed)``.
+    """
+    from datetime import datetime
+
+    from osprey.simulation.apply import demo_narrative_logbook, seed_narrative_if_empty
+    from osprey.utils.config import get_facility_timezone
+
+    logbook = demo_narrative_logbook(config_dict)
+    if progress:
+        progress(f"Seeding the demo narrative from: {config_dict['demo_narrative']}")
+    seeded = await seed_narrative_if_empty(
+        config_dict, logbook, datetime.now(get_facility_timezone())
+    )
+    if progress:
+        if seeded:
+            progress(f"  Entries: {seeded} seeded")
+        else:
+            progress("  Entries: the logbook already holds entries; none added")
+    enhanced = await run_enhance(config_dict, None, False, max(len(logbook), 1), progress)
+    return seeded, enhanced.entries_processed
 
 
 async def get_purge_info(config_dict: dict) -> PurgeInfo:

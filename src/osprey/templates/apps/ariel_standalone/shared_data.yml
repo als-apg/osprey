@@ -1,0 +1,15 @@
+# What this template's data/ tree takes from the control-assistant template, so
+# the source keeps one copy of each file (see osprey/cli/templates/shared_data.py).
+
+# The demo machine the knowledge graph is seeded from.
+- from: control_assistant
+  source: demo_machine.ttl
+  target: demo_machine.ttl
+
+# The logbook narrative of every control-assistant scenario, with the pictures
+# its entries attach -- narrative only: no scenario.json, no telemetry. Seeded
+# by `osprey up` and `osprey ariel quickstart` through `ariel.demo_narrative`.
+- from: control_assistant
+  source: simulation/scenarios
+  target: logbook_seed
+  include: ["*/logbook.json", "*/plots/*"]

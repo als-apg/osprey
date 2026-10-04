@@ -112,8 +112,9 @@ reasoning over results delegated to the OSPREY agent layer.
 
             osprey up -d
 
-         Once the containers are running, connect to PostgreSQL, run database
-         migrations, then ingest the demo logbook data and generate embeddings:
+         ``osprey up`` creates the schema and seeds the demo logbook. Then
+         generate its embeddings (and picture captions, where a vision model
+         answers):
 
          .. code-block:: bash
 
@@ -233,7 +234,7 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    * - Command
      - Description
    * - ``quickstart``
-     - Quick setup: migrate, ingest demo data, and enable search
+     - Quick setup: migrate, load the demo logbook, and enable search
    * - ``status``
      - Show ARIEL service status
    * - ``search``

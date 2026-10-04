@@ -232,10 +232,15 @@ config:
   # ariel.web.host: 127.0.0.1
   # ariel.web.port: <a port outside this deployment's block>
   # ariel.web.auto_launch: true
-  # Where entries come from. The bundle ships a demo logbook; for production
-  # point adapter and source_url at your logbook system and run
-  # `osprey ariel ingest`.
-  ariel.ingestion.adapter: generic_json
+  # The demo narrative: the logbook entries of every control-assistant scenario,
+  # with the pictures they attach. `osprey up` seeds it into an empty logbook and
+  # `osprey ariel quickstart` adds embeddings and captions. Remove the key to
+  # start from an empty logbook.
+  ariel.demo_narrative: data/logbook_seed
+  # Where your own entries come from: point an adapter and source_url at your
+  # logbook system and run `osprey ariel ingest` (see the data-ingestion guide).
+  # ariel.ingestion.adapter: generic_json
+  # ariel.ingestion.source_url: https://logbook.example.org/api/entries
   # Largest file one entry may attach, in MB. Attachments are stored as rows in
   # the same Postgres the logbook lives in, so this number is a storage
   # decision in both directions.
@@ -247,7 +252,6 @@ config:
   # search and entry results. false hides both from agents and leaves the web
   # panel unchanged.
   ariel.attachments.view.enabled: true
-  ariel.ingestion.source_url: data/logbook_seed/demo_logbook.json
   # TLS on the logbook fetch. Verification is ON — an ingest that cannot verify
   # the logbook's certificate fails rather than trusting whatever answered.
   # Two ways out, in order of preference: name your site CA's PEM with

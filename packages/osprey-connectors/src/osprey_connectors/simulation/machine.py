@@ -655,22 +655,49 @@ def load_scenario_bundles(
         except json.JSONDecodeError as exc:
             raise ValueError(f"Scenario bundle {name!r}: invalid scenario.json: {exc}") from exc
 
-        logbook: tuple[ScenarioLogEntry, ...] = ()
-        logbook_file = bundle / "logbook.json"
-        if logbook_file.is_file():
-            try:
-                raw_logbook = json.loads(logbook_file.read_text())
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"Scenario bundle {name!r}: invalid logbook.json: {exc}") from exc
-            if not isinstance(raw_logbook, list):
-                raise ValueError(f"Scenario bundle {name!r}: logbook.json must be a JSON array")
-            logbook = tuple(_parse_log_entry(name, entry, bundle) for entry in raw_logbook)
-
+        logbook = _read_logbook(bundle) if (bundle / "logbook.json").is_file() else ()
         scenarios[name] = _parse_scenario_spec(name, spec, channels, logbook=logbook)
 
     if DEFAULT_SCENARIO not in scenarios:
         scenarios[DEFAULT_SCENARIO] = _default_nominal()
     return scenarios
+
+
+def load_narratives(scenarios_dir: Path) -> dict[str, tuple[ScenarioLogEntry, ...]]:
+    """Read only the logbook narratives of a ``scenarios/``-style directory.
+
+    Each immediate subdirectory holding a ``logbook.json`` contributes its
+    entries, validated exactly as :func:`load_scenario_bundles` validates them
+    (pictures included); its ``scenario.json``, if any, is not read, so a
+    narrative needs no machine model and no channels to be loaded.
+
+    Args:
+        scenarios_dir: Directory of scenario subdirectories.
+
+    Returns:
+        Scenario name -> its entries, in directory-name order; subdirectories
+        without a ``logbook.json`` are absent.
+
+    Raises:
+        ValueError: If a ``logbook.json`` is malformed.
+    """
+    return {
+        bundle.name: _read_logbook(bundle)
+        for bundle in sorted(p for p in scenarios_dir.iterdir() if p.is_dir())
+        if (bundle / "logbook.json").is_file()
+    }
+
+
+def _read_logbook(bundle: Path) -> tuple[ScenarioLogEntry, ...]:
+    """Parse and validate one bundle's ``logbook.json``."""
+    name = bundle.name
+    try:
+        raw_logbook = json.loads((bundle / "logbook.json").read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Scenario bundle {name!r}: invalid logbook.json: {exc}") from exc
+    if not isinstance(raw_logbook, list):
+        raise ValueError(f"Scenario bundle {name!r}: logbook.json must be a JSON array")
+    return tuple(_parse_log_entry(name, entry, bundle) for entry in raw_logbook)
 
 
 def _parse_relative_timestamp(prefix: str, raw: Any, key: str = "when") -> RelativeTimestamp:

@@ -810,6 +810,64 @@ class TestRunQuickstart:
         assert "  Tables: already up to date" in messages
         assert fake_pool.closed
 
+    async def test_a_demo_narrative_is_seeded_then_enhanced_instead_of_ingested(
+        self, monkeypatch, fake_pool
+    ):
+        """No ingestion source and an ``ariel.demo_narrative``: the narrative goes in
+        the way a deploy writes it, then the enhancement pass adds what it lacks."""
+        import osprey.simulation.apply as apply_mod
+
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_adapter(monkeypatch, AssertionError("adapter must not be built"))
+        calls: dict = {}
+
+        monkeypatch.setattr(apply_mod, "demo_narrative_logbook", lambda config: ["E1", "E2", "E3"])
+
+        async def _seed(config, logbook, anchor):
+            calls["seeded"] = (config["demo_narrative"], list(logbook), anchor.tzinfo)
+            return len(logbook)
+
+        async def _enhance(_config, module, force, limit, _progress=None, **_kwargs):
+            calls["enhance"] = (module, force, limit)
+            return ops.EnhanceResult(entries_processed=3, module_names=["text_embedding"])
+
+        monkeypatch.setattr(apply_mod, "seed_narrative_if_empty", _seed)
+        monkeypatch.setattr(ops, "run_enhance", _enhance)
+
+        messages: list[str] = []
+        result = await ops.run_quickstart(
+            {**_DB, "demo_narrative": "data/logbook_seed"}, source=None, progress=messages.append
+        )
+
+        assert calls["seeded"][:2] == ("data/logbook_seed", ["E1", "E2", "E3"])
+        assert calls["seeded"][2] is not None
+        assert calls["enhance"] == (None, False, 3)
+        assert (result.count, result.enhanced_count) == (3, 3)
+        assert "  Entries: 3 seeded" in messages
+
+    async def test_an_explicit_source_wins_over_the_demo_narrative(
+        self, monkeypatch, fake_pool, mock_repository
+    ):
+        import osprey.simulation.apply as apply_mod
+
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_adapter(monkeypatch, _Adapter([{"entry_id": "E1"}]))
+        _patch_enhancers(monkeypatch, [])
+        _patch_service(monkeypatch, _StubService(mock_repository, mock_repository.pool))
+
+        async def _never(*_args, **_kwargs):
+            raise AssertionError("the narrative must not be seeded over an explicit source")
+
+        monkeypatch.setattr(apply_mod, "seed_narrative_if_empty", _never)
+
+        result = await ops.run_quickstart(
+            {**_DB, "demo_narrative": "data/logbook_seed"}, source="file:///entries.json"
+        )
+
+        assert result.count == 1
+
     async def test_applied_migrations_are_reported_as_created(self, monkeypatch, fake_pool):
         _patch_pool(monkeypatch, fake_pool)
         _patch_migrations(monkeypatch, applied=["core_schema", "text_embedding"])

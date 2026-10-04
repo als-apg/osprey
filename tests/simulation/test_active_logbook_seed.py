@@ -182,6 +182,46 @@ def test_seed_active_logbook_is_a_no_op_without_a_machine_model(tmp_path, monkey
     assert seen["seeded"] is None
 
 
+def _narrative_project(tmp_path: Path) -> tuple[dict, Path]:
+    """A project with no simulation whose ``ariel.demo_narrative`` names the bundles."""
+    shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "data" / "narratives")
+    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": "data/narratives"}}
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
+    return config, tmp_path
+
+
+def test_a_project_without_a_simulation_seeds_its_demo_narrative(tmp_path, monkeypatch):
+    """Every narrative in the named directory, nominal first, pictures handed over."""
+    config, project = _narrative_project(tmp_path)
+    seen = _stub_ariel(monkeypatch, existing=0)
+
+    seeded = seed_active_logbook(config, project, config["ariel"])
+
+    ids = [entry["entry_id"] for entry in seen["seeded"]]
+    assert seeded == len(ids) == 25 + 3 + 1
+    assert ids[:25] == [f"DEMO-{i:03d}" for i in range(1, 26)]
+    assert ids[25:] == ["DEMO-031", "DEMO-026", "DEMO-027", "DEMO-028"]  # bpm-polarity, rf-thermal
+    assert sorted(seen["pictures"]) == ["DEMO-011", "DEMO-027", "DEMO-031"]
+    assert seen["mirrored"] == 1
+
+
+def test_a_demo_narrative_is_never_seeded_over_existing_entries(tmp_path, monkeypatch):
+    config, project = _narrative_project(tmp_path)
+    seen = _stub_ariel(monkeypatch, existing=4)
+
+    assert seed_active_logbook(config, project, config["ariel"]) == 0
+    assert seen["seeded"] is None
+
+
+def test_a_missing_demo_narrative_directory_is_named(tmp_path):
+    import pytest
+
+    from osprey.simulation.apply import demo_narrative_logbook
+
+    with pytest.raises(ValueError, match="not a directory"):
+        demo_narrative_logbook({"demo_narrative": "data/nowhere"}, tmp_path)
+
+
 def _state_file(project: Path) -> Path:
     from osprey.simulation.engine import ACTIVE_SCENARIOS_FILENAME, resolve_state_dir
 

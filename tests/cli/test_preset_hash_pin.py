@@ -186,7 +186,15 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # on already-deployed projects is the correct signal. The five `extends`
     # children inherit them; channel-finder-standalone and hello-world stand
     # still.
-    "ariel-standalone": ("sha256:ee029542c99d48bf38333f4d345820a09c1a1854a2154069a1bf97bba78e202f"),
+    # The twenty-fourth move, and ariel-standalone alone: it states
+    # `ariel.demo_narrative: data/logbook_seed` in place of its demo ingestion
+    # block (`ariel.ingestion.adapter` / `source_url`, now commented examples),
+    # so its deploy seeds the control-assistant scenario narratives, pictures
+    # included, instead of ingesting a copied JSON file. A rebuilt project seeds
+    # a different demo logbook, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. Every other preset
+    # stands still.
+    "ariel-standalone": ("sha256:2619aa34aef8aa2f1812f3f5fc321fb437aca6ca8809a9be99efce4d371e569c"),
     "channel-finder-standalone": (
         "sha256:7bec034ab9e5ae0c11d79df9cf294075e9c38c66bc7251ab9246a684165c9ee5"
     ),
