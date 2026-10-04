@@ -32,7 +32,7 @@ Layout
        <name>/
          scenario.json          overrides, archiver events, physics (required)
          logbook.json           the scenario's logbook narrative (optional)
-         <any subpath>          pictures logbook entries attach (optional)
+         <any subpath>          pictures and plot specs logbook entries attach (optional)
 
 - A scenario is an immediate *subdirectory* of ``scenarios/``, and the
   directory name is the scenario name. Files directly inside ``scenarios/`` are
@@ -324,14 +324,49 @@ A JSON array of entries, each a mapping:
        so it can overwrite the ``title``, ``tags``, ``categories`` and
        ``loto_tag`` stored there.
    * - ``attachments``
-     - List, default empty. Each item is ``{"path": "<relative path>"}`` with
-       no other key, naming a ``.png``, ``.jpg``, ``.jpeg``, ``.gif`` or
-       ``.webp`` file inside the scenario directory whose bytes are that
-       format.
+     - List, default empty, in the order the entry shows its pictures. Each
+       item holds exactly one key. ``{"path": "<relative path>"}`` names a
+       shipped picture: a ``.png``, ``.jpg``, ``.jpeg``, ``.gif`` or ``.webp``
+       file inside the scenario directory whose bytes are that format.
+       ``{"plot": "<relative path>"}`` names a plot spec: a ``.json`` file
+       inside the scenario directory holding a valid spec (below). No two
+       pictures of one entry share a file name.
 
 ``when`` resolves to the calendar day ``days_ago`` days before T0, at ``time``,
 in T0's time zone. A ``days_ago: 0`` entry whose ``time`` is later than T0 lands
 in the future.
+
+A plot spec is a time-series picture drawn when its entry is seeded, so its
+time axis shows the dates that entry resolves to. It carries its own data and
+needs no machine model, so a narrative seeded without a simulation draws it
+too. The schema is closed:
+
+.. list-table:: Plot spec
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Key
+     - Rule
+   * - ``filename``
+     - Required. A ``.png`` file name with no directory: the name the drawn
+       picture is stored under.
+   * - ``title``, ``ylabel``
+     - Strings, required. The figure title and the y-axis label.
+   * - ``hours_before``
+     - Required. The shared time axis: at least two finite numbers,
+       non-increasing, ending at ``0``, each the hours before the entry's
+       instant.
+   * - ``series``
+     - Required. A non-empty list of ``{"label": <non-empty string>,
+       "values": [<finite number>, ...]}``, one ``values`` element per
+       ``hours_before`` point; ``label`` is unique and names the line in the
+       legend.
+   * - ``ylim``
+     - Optional ``[low, high]`` with ``low < high``; absent fits the data.
+
+The picture is 800 × 450 pixels: each series is a line on matplotlib's default
+colour cycle, with a legend, a light grid and date ticks read in T0's time zone,
+the axis ending at the entry's instant. Nothing else is drawn on it.
 
 Applying scenarios purges the logbook and reseeds it from every active
 scenario's entries in activation order, ``nominal`` first. Entries are upserted
@@ -340,7 +375,10 @@ entry is kept. Seeding needs an ``ariel:`` block in the project config; without
 one it is skipped, and ``--no-seed-logbook`` or ``--no-seed`` skips it too.
 
 Each picture an entry attaches is stored in ARIEL's own attachment store and
-linked on the entry, with the rendition ``attachment_view`` returns. Seeding runs
+linked on the entry, with the rendition ``attachment_view`` returns. A plot spec
+is drawn first, ending at the entry's resolved timestamp, so a picture of the
+week before an entry carries that week's dates whatever T0 is; the bundle never
+holds the drawn file. Seeding runs
 no enhancement module, so a picture's caption, and with it the entry's
 searchability by what the picture shows, arrives only once ``osprey ariel
 enhance`` or the ingestion poller runs with a vision model configured.
@@ -499,14 +537,35 @@ message names.
    * - ``attachments`` not a list, or an item not a mapping
      - ``Scenario '<name>' logbook entry '<id>': 'attachments' must be a list``
        (or ``each attachment must be a mapping``)
-   * - An attachment with a key other than ``path``
+   * - An attachment with a key other than ``path`` or ``plot``
      - ``Scenario '<name>' logbook entry '<id>': attachment has unknown keys``
-   * - Attachment ``path`` empty or not a string
+   * - An attachment with both ``path`` and ``plot``, or neither
+     - ``Scenario '<name>' logbook entry '<id>': an attachment names exactly one
+       of 'path' or 'plot'``
+   * - Attachment ``path`` or ``plot`` empty or not a string
      - ``Scenario '<name>' logbook entry '<id>': attachment 'path' must be a
-       non-empty string``
-   * - Attachment ``path`` absolute or leaving the scenario directory
+       non-empty string`` (or ``attachment 'plot'``)
+   * - Attachment ``path`` or ``plot`` absolute or leaving the scenario
+       directory
      - ``Scenario '<name>' logbook entry '<id>': attachment path '<path>' must
        be relative to the scenario directory``
+   * - Two pictures of one entry with the same file name
+     - ``Scenario '<name>' logbook entry '<id>': two attachments are both
+       named '<file>'``
+   * - Plot spec not a ``.json`` file
+     - ``Scenario '<name>' logbook entry '<id>': plot spec '<path>' must be a
+       .json file``
+   * - Plot spec file missing
+     - ``Scenario '<name>' logbook entry '<id>': plot spec '<path>' not found``
+   * - Plot spec not valid JSON
+     - ``Scenario '<name>' logbook entry '<id>': plot spec '<path>' is not
+       valid JSON``
+   * - Plot spec breaking its schema (not an object, a key unknown or missing,
+       a value of the wrong type, ``hours_before`` too short, increasing or not
+       ending at ``0``, a series of the wrong length or a repeated label, a bad
+       ``ylim``)
+     - ``Scenario '<name>' logbook entry '<id>': plot spec '<path>':`` followed
+       by the rule broken, for example ``'hours_before' must end at 0``
    * - Attachment suffix not a picture format
      - ``Scenario '<name>' logbook entry '<id>': attachment '<path>' is not a
        picture``
