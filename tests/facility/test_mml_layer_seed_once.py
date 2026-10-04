@@ -525,6 +525,25 @@ def test_a_single_pass_model_measures_orbit_response_at_most(tmp_path: Path) -> 
     assert "instruments" not in document
 
 
+def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Path) -> None:
+    document = _load(spear3 / "measurement" / "StorageRing.yaml")
+    assert document["instruments"]["tune"] == "MeasTune"
+    assert document["groups"]["quad"] == "QF"
+    assert document["kinds"] == ["orm", "dispersion", "trm"]
+
+
+def test_the_import_names_the_families_a_group_role_was_not_seeded_from(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _import(tmp_path, "spear3")
+    lines = [line for line in capsys.readouterr().out.splitlines() if "seeded from" in line]
+    assert lines == [
+        "measurement StorageRing: quad seeded from QF; also wired: QD, QFC, QDX, QFX, QDY, "
+        "QFY, QDZ, QFZ, Q9S",
+        "measurement StorageRing: sext seeded from SF; also wired: SD, SFM, SDM",
+    ]
+
+
 # --- scenarios/readout.yaml ---------------------------------------------------------
 
 #: Millimetres per metre: the spear3 monitors publish in mm, the deck solves in m.
