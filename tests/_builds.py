@@ -2,16 +2,21 @@
 
 ``built_control_assistant`` is the one real ``osprey build --skip-deps`` of the
 control-assistant preset that the facility and build tests read. It is
-session-scoped, so a run builds it once per process; a module that uses it
-carries ``xdist_group("built_control_assistant")``, so under ``--dist
-loadgroup`` every such module lands on one worker and the build runs once per
-run.
+session-scoped, and under xdist the workers of one run share it: the first
+worker to ask builds it under the run's base temp directory, holding a lock, and
+every later worker reads that build, so the build runs once per run whichever
+groups its readers sit in.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import pickle
+import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -107,15 +112,34 @@ class BuiltProject:
         return document
 
 
-@pytest.fixture(scope="session")
-def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> Iterator[BuiltProject]:
-    """The control-assistant preset, initialised and built once per process.
+#: Under xdist, the file in the run's shared base temp directory that names the
+#: built repo and holds its render outputs.
+SHARED_BUILD_RECORD = "built-ca.pickle"
 
-    Tests read it and never write to it.
+
+@contextmanager
+def _exclusive(lock_path: Path) -> Iterator[None]:
+    """Hold an exclusive advisory lock on ``lock_path`` for the block."""
+    with lock_path.open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def build_control_assistant(parent: Path) -> BuiltProject:
+    """Initialise and build the control-assistant preset under ``parent``.
+
+    Args:
+        parent: The directory the repo is created in.
+
+    Returns:
+        The built repo and what each render's facility outputs were.
     """
     from osprey.facility import render
 
-    repo = init_project(tmp_path_factory.mktemp("built-ca"), "control-assistant", "demo")
+    repo = init_project(parent, "control-assistant", "demo")
     built = BuiltProject(repo)
     real = render.render_facility_outputs
 
@@ -135,4 +159,24 @@ def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> Iterato
         patch.setattr(render, "render_facility_outputs", spy)
         result = run_build(repo)
     assert result.exit_code == 0, result.output
-    yield built
+    return built
+
+
+@pytest.fixture(scope="session")
+def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
+    """The control-assistant preset, initialised and built once per run.
+
+    Tests read it and never write to it. Outside xdist the session builds it;
+    under xdist the workers share one build in the run's base temp directory.
+    """
+    if os.environ.get("PYTEST_XDIST_WORKER") is None:
+        return build_control_assistant(tmp_path_factory.mktemp("built-ca"))
+    shared = tmp_path_factory.getbasetemp().parent
+    record = shared / SHARED_BUILD_RECORD
+    with _exclusive(shared / f"{SHARED_BUILD_RECORD}.lock"):
+        if record.is_file():
+            repo, outputs = pickle.loads(record.read_bytes())
+            return BuiltProject(repo, outputs)
+        built = build_control_assistant(Path(tempfile.mkdtemp(prefix="built-ca-", dir=shared)))
+        record.write_bytes(pickle.dumps((built.repo, built.outputs)))
+        return built
