@@ -22,10 +22,6 @@ if TYPE_CHECKING:
 
     from tests._builds import BuiltProject
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
-pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
-
 _NARAD_P = "https://narad.example.org/property/"
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 _OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"

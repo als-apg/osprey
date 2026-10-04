@@ -155,7 +155,6 @@ def test_zero_tagged_channels_stop_with_view_unsupported(tmp_path: Path) -> None
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_demo_index_holds_the_569_golden_rows(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:

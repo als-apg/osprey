@@ -573,7 +573,6 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_every_demo_group_is_a_family(
     built_control_assistant: BuiltProject,
 ) -> None:
@@ -605,7 +604,6 @@ def test_every_demo_group_is_a_family(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_demo_bpm_family_has_one_field_per_today_s_leaf(
     built_control_assistant: BuiltProject,
 ) -> None:
@@ -625,7 +623,6 @@ def test_the_demo_bpm_family_has_one_field_per_today_s_leaf(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_a_demo_field_takes_its_own_machine_s_family_sentence(
     built_control_assistant: BuiltProject,
 ) -> None:
@@ -644,7 +641,6 @@ def test_a_demo_field_takes_its_own_machine_s_family_sentence(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_demo_database_holds_a_row_per_channel_and_family(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:

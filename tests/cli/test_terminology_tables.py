@@ -117,10 +117,6 @@ FROM_THE_BUILD = "read from this facility's build"
 
 _SECTION_HEADING = "## Channel Database Terminology"
 
-# The real-build cases read the session's one control-assistant build, so they
-# share its worker and the build runs once per run.
-_SHARES_THE_BUILD = pytest.mark.xdist_group("built_control_assistant")
-
 
 def _demo_facts_path(built: Any) -> Path:
     """The facts file of the session's control-assistant build."""
@@ -177,7 +173,6 @@ def _project(
 # ---------------------------------------------------------------------------
 
 
-@_SHARES_THE_BUILD
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
 def test_every_alias_and_family_reaches_the_table(tmp_path, built_control_assistant, mode):
     """The table's content is the build's facts, class by class.
@@ -211,7 +206,6 @@ def test_every_alias_and_family_reaches_the_table(tmp_path, built_control_assist
 _FAMILY_TOKEN = re.compile(r"`(?P<family>[^`]+)`(?: \(System (?P<system>[^)]+)\))?")
 
 
-@_SHARES_THE_BUILD
 def test_every_middle_layer_family_cell_names_a_family_of_the_index(
     tmp_path, built_control_assistant
 ):
@@ -272,7 +266,6 @@ def test_a_class_with_no_family_or_alias_still_has_a_row(tmp_path, mode):
     assert ZERO_CLASS_LINE not in section
 
 
-@_SHARES_THE_BUILD
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
 def test_the_table_says_it_was_read_from_the_build(tmp_path, built_control_assistant, mode):
     """An operator reading the prompt is told where the vocabulary came from."""
@@ -383,7 +376,6 @@ def test_the_partial_source_spells_no_device_token_and_no_config_key(mode):
     assert "`facility." not in source, f"_terminology/{mode}.md.j2 names a config key"
 
 
-@_SHARES_THE_BUILD
 @pytest.mark.parametrize("partial", PARTIALS)
 @pytest.mark.parametrize("facts_of", ("demo", "zero classes"))
 def test_no_partial_names_a_protocol_word(built_control_assistant, partial, facts_of):
@@ -405,7 +397,6 @@ def test_no_partial_names_a_protocol_word(built_control_assistant, partial, fact
     )
 
 
-@_SHARES_THE_BUILD
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
 def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_control_assistant, mode):
     """``osprey scaffold diff agents/channel-finder`` finds nothing to report.

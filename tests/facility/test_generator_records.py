@@ -36,9 +36,6 @@ VOCABULARY = REPO_ROOT / "src/osprey/facility/schema/_generated/vocabulary.json"
 
 _NARAD_PROPERTY = "https://narad.example.org/property/"
 
-#: The module reads the session's one control-assistant build.
-pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
-
 #: The general quantity roles the demo's channels need beyond the seed roles.
 NEW_ROLES = frozenset(
     {

@@ -25,9 +25,7 @@ from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 from tests._builds import BuiltProject, init_project
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
-pytestmark = [pytest.mark.slow, pytest.mark.xdist_group("built_control_assistant")]
+pytestmark = [pytest.mark.slow]
 
 #: One repo name for both builds: an identity without a ``name`` takes it.
 REPO = "demo"

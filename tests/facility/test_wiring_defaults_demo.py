@@ -17,9 +17,7 @@ import pytest
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
-pytestmark = [pytest.mark.slow, pytest.mark.xdist_group("built_control_assistant")]
+pytestmark = [pytest.mark.slow]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VA_BINDINGS = (

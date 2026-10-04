@@ -123,10 +123,7 @@ def test_an_unknown_kind_is_refused() -> None:
         graph_iri.iri("demo", "magnet", "A")
 
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_every_demo_iri_decodes_to_its_raw_id(built_control_assistant: BuiltProject) -> None:
     facility = built_control_assistant.facility
     code = facility["identity"]["code"]

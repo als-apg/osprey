@@ -508,7 +508,6 @@ class TestClosedIndex:
             index.search()
 
 
-@pytest.mark.xdist_group("built_control_assistant")
 class TestDemoCorpusTiming:
     """The build's graph view, on the budget the flat index exists to hold."""
 

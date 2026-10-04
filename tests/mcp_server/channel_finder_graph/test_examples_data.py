@@ -46,10 +46,6 @@ from osprey.mcp_server.graph.tools.examples_data import ExampleQuery
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
-pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
-
 # ---------------------------------------------------------------------------
 # The corpus: the graph view the control-assistant build writes.
 # ---------------------------------------------------------------------------

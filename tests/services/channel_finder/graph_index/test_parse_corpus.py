@@ -52,9 +52,6 @@ DEMO_PLACE_BOUND = frozenset(
     {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 )
 
-#: The module reads the session's one control-assistant build.
-pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
-
 
 def _rows_by_pv(parsed: ParsedCorpus) -> dict[str, BindingRow]:
     rows = {row.full_pv: row for row in parsed.binding_rows}

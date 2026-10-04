@@ -241,10 +241,7 @@ def test_the_graph_view_is_always_written() -> None:
     assert view.written_when(ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[]))
 
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 class TestTheBuiltGraph:
     @pytest.fixture(scope="class")
     def text(self, built_control_assistant: BuiltProject) -> str:

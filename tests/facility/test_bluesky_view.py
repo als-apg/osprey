@@ -173,7 +173,6 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_demo_view_holds_every_setpoint_and_readback(
     built_control_assistant: BuiltProject,
 ) -> None:

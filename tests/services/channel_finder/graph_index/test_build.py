@@ -51,9 +51,6 @@ DEMO_SIGNALS = 31
 #: asks the store for its section count.
 DEMO_SECTIONS = 15
 
-#: The module reads the session's one control-assistant build.
-pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
-
 
 @pytest.fixture(scope="module")
 def demo_path(built_control_assistant: BuiltProject) -> Path:

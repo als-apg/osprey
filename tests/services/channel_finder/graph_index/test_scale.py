@@ -69,11 +69,9 @@ from osprey.services.channel_finder.graph_index.reader import (
 )
 from osprey.services.channel_finder.graph_index.taxonomy import class_name
 
-#: The module reads the session's one control-assistant build.
 pytestmark = [
     pytest.mark.slow,
     pytest.mark.channel_finder_benchmark,
-    pytest.mark.xdist_group("built_control_assistant"),
 ]
 
 logger = logging.getLogger(__name__)
