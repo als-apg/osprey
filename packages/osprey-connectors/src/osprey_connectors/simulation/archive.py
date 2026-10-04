@@ -40,43 +40,71 @@ This module never imports ``pymongo``: the functions that talk to a store take
 a collection handle their caller opened. That keeps an optional dependency
 optional, and leaves the grid, the fingerprint and the synthesis — the parts
 worth reasoning about — pure and testable with no store at all.
+
+**The archive composite.** :func:`build` reads a simulator view's history
+through a composite of its own, built at the start state of one active
+scenario set: the set's active writes, never a session write. The composite is
+read once, one solve per physics model, and :class:`ArchiveComposite` then
+computes every timestamp from those held values: the active scenarios'
+archiver events, then the texture's drift, couplings and keyed noise, the
+physics engine's readout and the clamp, as the composite serves them. Samples are in the wire representation, so a ``bool`` or ``enum``
+channel archives its option index. ``lume`` is imported inside :func:`build`
+only.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from osprey_connectors.logger import get_logger
+from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.engine import SimulationEngine, engine_serves
 from osprey_connectors.simulation.procedural import (
     DEFAULT_NOISE_LEVEL,
     baseline_value,
     generate_series,
 )
-from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.series import (
+    apply_events,
+    epoch_seconds_array,
+    event_positions,
+)
+from osprey_connectors.simulation.state import (
+    ACTIVE_SCENARIOS_FILENAME,
+    resolve_active_scenarios,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from zoneinfo import ZoneInfo
+
     from pymongo.collection import Collection
+
+    from osprey_connectors.simulation.composite import Composite
 
 logger = get_logger("archive")
 
 __all__ = [
+    "ARCHIVE_INSTANCES",
     "MANIFEST_ID",
     "SEED_SCHEMA_VERSION",
+    "ArchiveComposite",
     "FingerprintComparison",
     "SeedKnobs",
     "SeedReport",
     "SeedState",
+    "build",
     "compare_fingerprint",
     "oldest_sample",
     "prepare_collection",
@@ -268,6 +296,233 @@ class SeedReport:
             f"seeded {self.documents:,} documents x {self.channels:,} channels "
             f"({span}) in {self.elapsed_s:.1f}s"
         )
+
+
+# ---------------------------------------------------------------------------
+# The archive composite
+# ---------------------------------------------------------------------------
+
+#: The serving instances an archive composite is built for.
+ARCHIVE_INSTANCES = ("virtual_accelerator",)
+
+_VIEW_VARIABLES = "variables.json"
+_VIEW_ADDRESSES = "addresses.json"
+_VIEW_SCENARIOS = "scenarios.json"
+_STEP = "step"
+
+
+class ArchiveComposite:
+    """A simulator view's history for one active scenario set.
+
+    Every sample is a pure function of the channel, its held value at the
+    start state, the active scenarios and the epoch time, so two windows that
+    share a timestamp agree on it.
+
+    Args:
+        channels: Each channel's record in ``variables.json``, by address.
+        held: Each channel's held value at the start state, in its stored
+            representation.
+        events: The active scenarios' archiver events, by address.
+        composite: The composite at the start state, whose readings every
+            float channel carries.
+        anchor_s: The epoch seconds an ``at_offset`` event is placed from.
+        tz: The zone a daily ``at_time`` event is placed in.
+        state: The directory holding ``composite``'s active set, kept as long
+            as the archive is.
+    """
+
+    def __init__(
+        self,
+        channels: Mapping[str, Mapping[str, Any]],
+        held: Mapping[str, Any],
+        events: Mapping[str, list[dict[str, Any]]],
+        composite: Composite,
+        *,
+        anchor_s: float,
+        tz: ZoneInfo | None,
+        state: tempfile.TemporaryDirectory[str] | None = None,
+    ) -> None:
+        self._channels = dict(channels)
+        self._held = dict(held)
+        self._events = {address: list(scripts) for address, scripts in events.items()}
+        self._composite = composite
+        self._state = state
+        self._anchor_s = anchor_s
+        self._tz = tz
+
+    @property
+    def addresses(self) -> list[str]:
+        """The archived channel addresses, sorted."""
+        return sorted(self._channels)
+
+    def held(self, address: str) -> Any:
+        """A channel's held value at the start state, in its stored representation.
+
+        Raises:
+            KeyError: ``address`` is not a channel of the view.
+        """
+        self._require(address)
+        return self._held[address]
+
+    def series(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[Any]:
+        """One channel's samples at absolute epoch seconds, in the wire representation.
+
+        A ``float`` channel holds its start-state value, moved by the active
+        scenarios' archiver events, and reads that level as the composite
+        serves it: a moving channel with its motion, its engine's readout and
+        its clamp, a physics setpoint as it is. Any other channel holds its start-state value, moved only
+        by ``step`` events; a ``bool`` or ``enum`` sample is its option index.
+
+        Args:
+            address: A channel address of the view.
+            t_s: Epoch seconds, ascending.
+
+        Returns:
+            One sample per timestamp.
+
+        Raises:
+            KeyError: ``address`` is not a channel of the view.
+        """
+        self._require(address)
+        times = np.asarray(t_s, dtype=np.float64).reshape(-1)
+        count = len(times)
+        if count == 0:
+            return []
+        channel = self._channels[address]
+        value_type = channel.get("value_type") or channel_values.DEFAULT_VALUE_TYPE
+        events = self._events.get(address, [])
+        if value_type == "float":
+            levels = {
+                name: self._level(name, times) for name in self._composite.readout_group(address)
+            }
+            read = self._composite.readings(levels, times)[address]
+            return [float(value) for value in read]
+        stored = self._stepped(channel, self._held[address], events, times)
+        return [self._wire(channel, value) for value in stored]
+
+    def _require(self, address: str) -> None:
+        if address not in self._channels:
+            raise KeyError(f"{address} is not a channel of the simulator view")
+
+    def _level(self, address: str, times: np.ndarray) -> np.ndarray:
+        """A float channel's start-state value moved by its archiver events."""
+        count = len(times)
+        start = np.full(count, float(self._held[address]), dtype=np.float64)
+        events = self._events.get(address, [])
+        return apply_events(start, events, count, times, self._anchor_s, self._tz)
+
+    def _stepped(
+        self,
+        channel: Mapping[str, Any],
+        held: Any,
+        events: Sequence[Mapping[str, Any]],
+        times: np.ndarray,
+    ) -> list[Any]:
+        """A non-float channel's stored values: its held value, then each ``step`` event's ``to``."""
+        stored = [held] * len(times)
+        fractions = np.linspace(0.0, 1.0, len(times))
+        for event in events:
+            if event.get("shape") != _STEP:
+                continue
+            target = channel_values.coerce(
+                event["to"], channel.get("value_type"), channel.get("options"), channel.get("shape")
+            )
+            for axis, at in event_positions(
+                dict(event), fractions, times, self._anchor_s, self._tz
+            ):
+                for index in np.flatnonzero(axis >= at):
+                    stored[int(index)] = target
+        return stored
+
+    @staticmethod
+    def _wire(channel: Mapping[str, Any], value: Any) -> Any:
+        """A stored value as the wire carries it: a label as its option index."""
+        value_type = channel.get("value_type")
+        if value_type in ("bool", "enum"):
+            options = channel.get("options") or channel_values.DEFAULT_BOOL_OPTIONS
+            return list(options).index(value)
+        return value
+
+
+def build(
+    view: Path | str,
+    active_set: Sequence[str],
+    *,
+    instance: str = "virtual_accelerator",
+    anchor_s: float | None = None,
+) -> ArchiveComposite:
+    """Build the archive composite of a simulator view at one active set's start state.
+
+    The view's composite is built once at the set's start state and read once,
+    one solve per physics model; no session write and no writes journal is
+    read. A set whose scenarios write one target twice is archived without its
+    scenarios, as the composite serves it.
+
+    Args:
+        view: The simulator view, ``<render>/data/simulator``.
+        active_set: The active scenario names; ``nominal`` is always active.
+        instance: The serving instance the archive stands for, one of
+            :data:`ARCHIVE_INSTANCES`.
+        anchor_s: The epoch seconds the set was applied at, from which an
+            ``at_offset`` event is placed; ``None`` is the time of the build.
+
+    Returns:
+        The archive composite.
+
+    Raises:
+        ValueError: ``instance`` is not one of :data:`ARCHIVE_INSTANCES`.
+        RuntimeError: A physics model fails to build or read at the start
+            state; the message names it and its engine's error.
+    """
+    if instance not in ARCHIVE_INSTANCES:
+        raise ValueError(f"instance is {instance!r}; use one of {list(ARCHIVE_INSTANCES)}")
+    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.simulation.composite import STATUS_OK, Composite
+
+    view_dir = Path(view)
+    variables = json.loads((view_dir / _VIEW_VARIABLES).read_text(encoding="utf-8"))
+    addresses = json.loads((view_dir / _VIEW_ADDRESSES).read_text(encoding="utf-8"))
+    scenarios = {
+        str(scenario["name"]): scenario
+        for scenario in json.loads((view_dir / _VIEW_SCENARIOS).read_text(encoding="utf-8"))[
+            "scenarios"
+        ]
+    }
+    records = {str(channel["address"]): channel for channel in variables["channels"]}
+    archived = sorted(str(address) for address in addresses["channels"])
+    names = resolve_active_scenarios([name for name in active_set if name in scenarios])
+
+    state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
+    (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
+        "".join(f"{name}\n" for name in names), encoding="utf-8"
+    )
+    composite = Composite(view_dir, state_dir=state.name, instance=instance, model_log=False)
+    held = composite.held(archived)
+    failed = {
+        model: status
+        for model in composite.models
+        if (status := composite.status(model)) != STATUS_OK
+    }
+    if failed:
+        state.cleanup()
+        raise RuntimeError(
+            "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
+        )
+
+    events: dict[str, list[dict[str, Any]]] = {}
+    for name in composite.active:
+        for entry in scenarios.get(name, {}).get("archiver") or []:
+            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
+
+    return ArchiveComposite(
+        {address: records[address] for address in archived},
+        held,
+        {address: scripts for address, scripts in events.items() if address in records},
+        composite,
+        anchor_s=time.time() if anchor_s is None else float(anchor_s),
+        tz=get_facility_timezone(),
+        state=state,
+    )
 
 
 # ---------------------------------------------------------------------------
