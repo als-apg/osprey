@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from osprey.facility.errors import FacilityBuildError
-from osprey.simulation.engines.calibration import Linear, Table, curve_from_record, evaluate, field
+from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
 
 if TYPE_CHECKING:
     import numpy as np
@@ -414,32 +414,35 @@ def _read_element(loaded: _Loaded, deck: Deck, record: Any, record_id: str) -> f
     return value / weight
 
 
-def _hardware(physics: float, calibration: Any, deck: Deck, record_id: str) -> float:
-    if calibration is None:
-        return physics
-    inverse = curve_from_record(field(calibration, "inverse"))
-    if inverse is not None:
-        return evaluate(inverse, physics)
+#: What a monitor's and a setpoint's way back to hardware units serves, as a
+#: stop names it.
+_SERVE_READING = "serve the reading"
+_DERIVE_START = "derive the start value"
+
+
+def _hardware(
+    physics: float, calibration: Any, deck: Deck, record_id: str, purpose: str = _DERIVE_START
+) -> float:
     curve = curve_from_record(field(calibration, "curve"))
-    if isinstance(curve, Table):
-        raise _stop(
-            deck,
-            record_id,
-            "wiring",
-            "a table calibration has no inverse to derive the start value",
-            "add calibration.inverse",
-        )
-    if isinstance(curve, Linear):
-        if curve.gain == 0.0:
+    inverse = curve_from_record(field(calibration, "inverse"))
+    try:
+        return to_hardware(curve, inverse, physics)
+    except NoInverse as missing:
+        if missing.reason == "table":
             raise _stop(
                 deck,
                 record_id,
                 "wiring",
-                "the linear calibration's gain is 0, so it has no inverse",
-                "give the calibration a non-zero gain",
-            )
-        return (physics - curve.offset) / curve.gain
-    return physics
+                f"a table calibration has no inverse to {purpose}",
+                "add calibration.inverse",
+            ) from None
+        raise _stop(
+            deck,
+            record_id,
+            "wiring",
+            "the linear calibration's gain is 0, so it has no inverse",
+            "give the calibration a non-zero gain",
+        ) from None
 
 
 def start_values(
@@ -479,8 +482,9 @@ def start_values(
         FacilityBuildError: ``engine-invalid`` naming the wiring id for the
             first record, in record order, whose channel is not float (raised
             before the deck is read); for an element absent from or repeated
-            in the deck (an ``ElementStop``), an unreadable attribute, a table
-            calibration without an inverse, or a linear gain of 0.
+            in the deck (an ``ElementStop``), an unreadable attribute, or a
+            setpoint's or monitor's (a record whose engine block names an
+            ``axis``) table calibration without an inverse or linear gain of 0.
     """
     del settings
     readbacks = readbacks or {}
@@ -502,11 +506,13 @@ def start_values(
     pending: list[str] = []
     for record in records:
         address = field(record, "address")
+        record_id = field(record, "id") or address
+        if field(field(record, "engine"), "axis") is not None:
+            _hardware(0.0, field(record, "calibration"), deck, record_id, _SERVE_READING)
         pair = readbacks.get(address)
         if address in readbacks and pair != address:
             pending.append(address)
             continue
-        record_id = field(record, "id") or address
         physics = _read_element(loaded, deck, record, record_id)
         if physics is None:
             continue

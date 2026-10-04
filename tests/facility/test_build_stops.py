@@ -407,6 +407,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "engine-invalid",
         "a non-float channel wired to an engine-pyat model",
     ),
+    (
+        "engine_invalid__monitor_table_without_inverse",
+        "engine-invalid",
+        "a calibration table without `inverse` on a monitor",
+    ),
+    (
+        "engine_invalid__monitor_linear_gain_zero",
+        "engine-invalid",
+        "a linear gain of 0 on a monitor",
+    ),
     ("model_conflict__texture", "model-conflict", "a layer declares a model named texture"),
     (
         "model_conflict__status_address",
@@ -1493,6 +1503,34 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: wiring SR/BPM1:X — BPM1:X is int; pyat drives float "
             "channels only; fix: wire a float channel, or leave the channel unwired"
+        ),
+    ),
+    "engine_invalid__monitor_table_without_inverse": (
+        _deck(
+            wiring(
+                "SR",
+                2,
+                engine={"axis": "x"},
+                calibration={"curve": {"table": {"grid": [-1.0, 1.0], "values": [-1e-3, 1e-3]}}},
+            )
+        ),
+        (
+            "facility: engine-invalid: wiring SR/BPM1:X — a table calibration has no inverse to "
+            "serve the reading; fix: add calibration.inverse"
+        ),
+    ),
+    "engine_invalid__monitor_linear_gain_zero": (
+        _deck(
+            wiring(
+                "SR",
+                2,
+                engine={"axis": "x"},
+                calibration={"curve": {"linear": {"gain": 0.0, "offset": 0.0}}},
+            )
+        ),
+        (
+            "facility: engine-invalid: wiring SR/BPM1:X — the linear calibration's gain is 0, so "
+            "it has no inverse; fix: give the calibration a non-zero gain"
         ),
     ),
     "model_conflict__texture": (
