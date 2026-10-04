@@ -370,3 +370,22 @@ def test_a_coupled_served_channel_moves_by_its_coupling():
     moved = model.motion("P:SERVED:RB", np.array([T0]), base=9.0)[0]
 
     assert moved == pytest.approx(seed_only + 1.5 * _driver_at(T0))
+
+
+def test_active_writes_are_the_start_state_a_reset_returns_to():
+    model = _model()
+    model.set({"T:LONE:SP": 4.0})
+
+    model.set_active({"T:HEAT:SP": 33.0, "T:LOCKED:SP": 0.5})
+
+    assert model.get(["T:HEAT:SP", "T:HEAT:RB", "T:LOCKED:SP", "T:LONE:SP"]) == {
+        "T:HEAT:SP": 33.0,
+        "T:HEAT:RB": 33.0,
+        "T:LOCKED:SP": 0.5,
+        "T:LONE:SP": 0.0,
+    }
+    model.set({"T:HEAT:SP": 12.0})
+    model.reset()
+    assert model.get("T:HEAT:SP") == 33.0
+    model.set_active({})
+    assert model.get("T:HEAT:SP") == 20.0

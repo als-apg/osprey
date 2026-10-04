@@ -148,6 +148,7 @@ class TextureModel(LUMEModel):
         self._held: dict[str, Any] = {}
         self._couple: dict[str, list[Mapping[str, Any]]] = {}
         self._noise: dict[str, Mapping[str, Any]] = {}
+        self._active: dict[str, Any] = {}
         self.reset()
 
     @staticmethod
@@ -213,8 +214,30 @@ class TextureModel(LUMEModel):
         return self._variables
 
     def reset(self) -> None:
-        """Return every texture-owned channel to its nominal."""
+        """Return every texture-owned channel to its nominal, then apply the active writes."""
         self._held = {address: self._nominals[address] for address in self._variables}
+        self._hold(self._active)
+
+    def set_active(self, writes: Mapping[str, Any]) -> None:
+        """Make the active scenarios' writes the start state, and reset to it.
+
+        An active write is held whether or not its channel is settable, and a
+        setpoint's write echoes into its readback as a set does.
+
+        Args:
+            writes: Values by texture-owned address; empty for none.
+
+        Raises:
+            ValueError: A value is refused for its channel's value_type; the
+                model keeps its earlier start state and held values.
+        """
+        previous, held = self._active, self._held
+        self._active = dict(writes)
+        try:
+            self.reset()
+        except ValueError:
+            self._active, self._held = previous, held
+            raise
 
     def held(self, names: Sequence[str]) -> dict[str, Any]:
         """Each channel's held value, without motion or clamp.
@@ -365,6 +388,10 @@ class TextureModel(LUMEModel):
         return outputs
 
     def _set(self, values_by_name: dict[str, Any]) -> None:
+        self._hold(values_by_name)
+
+    def _hold(self, values_by_name: Mapping[str, Any]) -> None:
+        """Hold coerced values and their echoes; nothing is held when one is refused."""
         coerced = {
             name: self._coerce(name, value.tolist() if isinstance(value, np.ndarray) else value)
             for name, value in values_by_name.items()
