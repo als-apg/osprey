@@ -411,6 +411,7 @@ Two places read the index and get the same list:
 * **The channel finder's web view.** Its search results, its ontology and
   statistics panels and its channel list all come from the index. The device
   card is the exception: it reads the store, a single keyed lookup.
+
 The virtual accelerator does not read the index either: its channel manifest
 is built from the facility file's channels, the same source as the queue
 server's device file. ``osprey build`` writes the worker's device file from the
