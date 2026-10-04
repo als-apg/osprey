@@ -84,6 +84,7 @@ from osprey_connectors.simulation.archive import (
 )
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+from tests._simulator_view import write_scenarios_view
 
 # ---------------------------------------------------------------------------
 # The world under test
@@ -507,9 +508,11 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     scenarios = root / "data" / "simulation" / "scenarios"
     scenarios.mkdir(parents=True)
     (root / "data" / "simulation" / "machine.json").write_text(json.dumps(_machine()))
-    for name, bundle in (("rf-thermal", _rf_thermal()), ("cavity-trip", _cavity_trip())):
+    bundles = {"rf-thermal": _rf_thermal(), "cavity-trip": _cavity_trip()}
+    for name, bundle in bundles.items():
         (scenarios / name).mkdir()
         (scenarios / name / "scenario.json").write_text(json.dumps(bundle))
+    write_scenarios_view(root, bundles)
 
     password_env = "ARCHIVER_WORLD_MONGO_PASSWORD"
     config = {
@@ -843,9 +846,11 @@ class TestRetention:
         # past its expiry, so the protection it writes is the only thing
         # standing between those documents and the sweeper.
         expired_offset = -(KNOBS.retention_s - self.AGE_S // 2)
+        aged = _aged_rf_thermal(expired_offset)
         world.root.joinpath("data/simulation/scenarios/rf-thermal/scenario.json").write_text(
-            json.dumps(_aged_rf_thermal(expired_offset))
+            json.dumps(aged)
         )
+        write_scenarios_view(world.root, {"rf-thermal": aged, "cavity-trip": _cavity_trip()})
         result = world.apply(["rf-thermal"], at=anchor)
         assert result.archiver.skipped is None
         assert result.archiver.updated > 0

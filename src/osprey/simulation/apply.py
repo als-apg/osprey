@@ -15,6 +15,7 @@ on demand via ``osprey sim apply``.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -26,24 +27,26 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.simulation.engine import (
-    ACTIVE_SCENARIOS_FILENAME,
-    SimulationEngine,
-    resolve_active_scenarios,
-    resolve_state_dir,
-)
+from osprey.simulation.engine import SimulationEngine
 from osprey.simulation.machine import parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
 from osprey_connectors.simulation.engine import resolve_simulation_file
+from osprey_connectors.simulation.state import (
+    ACTIVE_SCENARIOS_FILENAME,
+    parse_active_state,
+    resolve_active_scenarios,
+)
+from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
     from zoneinfo import ZoneInfo
 
+    from osprey.facility.scenarios import ScenarioLogEntry
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
-    from osprey.simulation.machine import BpmErrorSpec, Scenario, ScenarioLogEntry
+    from osprey.simulation.machine import BpmErrorSpec, Scenario
     from osprey_connectors.simulation.archive import SeedKnobs
 
 logger = get_logger("simulation_apply")
@@ -218,7 +221,7 @@ def apply_scenarios(
         "`sim apply` only applies to simulation-backed projects (guards a real DB).",
     )
     engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
+        machine_path, state_dir=resolve_simulation_state_dir(config, project_dir)
     )
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
@@ -239,7 +242,11 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            entries = [_to_enhanced_entry(e, t0) for e in engine.active_logbook()]
+            # The engine's entries carry the fields of ScenarioLogEntry, one for one.
+            entries = [
+                _to_enhanced_entry(e, t0)  # type: ignore[arg-type]
+                for e in engine.active_logbook()
+            ]
             seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
@@ -249,7 +256,7 @@ def apply_scenarios(
     # event scripts the engine now holds (see :func:`seed_archiver`).
     archiver = None
     if seed_archive:
-        archiver = seed_archiver(project_dir, config, engine, machine_path, list(names), t0)
+        archiver = seed_archiver(project_dir, config, engine, list(names), t0)
 
     return ApplyResult(active=active, logbook_seeded=seeded, purged=purged, archiver=archiver)
 
@@ -285,6 +292,39 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
+def _simulator_view(project_dir: Path) -> Path:
+    """The simulator view of *project_dir*'s render, ``<render>/data/simulator``.
+
+    A deployment repo keeps its render under ``build/``, beside the rendered
+    ``config.yml``; a container's project directory is the render itself.
+    """
+    rendered = rendered_config_path(project_dir)
+    render = rendered.parent if rendered.is_file() else project_dir
+    return render / "data" / "simulator"
+
+
+def _view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
+    """The scenarios the simulator view lists, by name; ``None`` without a view."""
+    from osprey.facility.views.simulator import SCENARIOS_FILE
+
+    path = _simulator_view(project_dir) / SCENARIOS_FILE
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} is not valid JSON: {exc}") from None
+    return {str(scenario["name"]): scenario for scenario in document["scenarios"]}
+
+
+def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | None]:
+    """The scenario names and anchor the project's state file records."""
+    path = resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME
+    if not path.is_file():
+        return [], None
+    return parse_active_state(path.read_text(encoding="utf-8"))
+
+
 def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogbookEntry]:
     """The logbook entries the project's ALREADY-active scenarios narrate.
 
@@ -294,24 +334,37 @@ def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogb
     the entries land where the telemetry that accompanies them already is — a
     fresh anchor would slide the narrative to a T0 nobody asked for.
 
+    The entries are the ``logbook`` blocks of the simulator view's scenarios, in
+    active-set order; a state-file name the view does not list is skipped.
+
     Args:
         config: The project's loaded ``config.yml``.
         project_dir: Root of the built project.
 
     Returns:
-        The entries, or ``[]`` when the project is not simulation-backed — a
-        project with no machine model narrates nothing, which is a normal
+        The entries, or ``[]`` when the render carries no simulator view — a
+        project with no simulated scenarios narrates nothing, which is a normal
         configuration and not a fault.
     """
-    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
-    if machine_path is None or not machine_path.is_file():
+    from osprey.facility.scenarios import scenario_logbook
+
+    scenarios = _view_scenarios(project_dir)
+    if scenarios is None:
         return []
 
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
-    )
+    names: list[str] = []
+    for name in _active_state(config, project_dir)[0]:
+        if name in scenarios:
+            names.append(name)
+        else:
+            logger.warning(f"Unknown scenario {name!r} in the active set; ignoring")
     anchor = persisted_scenario_anchor(config, project_dir) or datetime.now(get_facility_timezone())
-    return [_to_enhanced_entry(entry, anchor) for entry in engine.active_logbook()]
+    return [
+        _to_enhanced_entry(entry, anchor)
+        for name in resolve_active_scenarios(names)
+        if name in scenarios
+        for entry in scenario_logbook(scenarios[name])
+    ]
 
 
 async def _export_qmd_mirror(ariel_config: dict) -> None:
@@ -460,15 +513,10 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         which case there is no established timeline to preserve and a fresh
         anchor is the right answer.
     """
-    state_dir = resolve_state_dir(config, project_dir)
-    path = state_dir / ACTIVE_SCENARIOS_FILENAME
-    if not path.is_file():
-        return None
-    # The engine's own parser, not a second one: the anchor line's format
-    # (and its naive-value timezone rule) is the engine's to define, and a
-    # copy here would be free to drift from the file the engine actually
-    # reads. This is the one reader of it outside the engine.
-    _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
+    # The state file's one parser, shared with every reader of the active set,
+    # so the anchor line's format and its naive-value timezone rule cannot
+    # differ between the file the simulator reads and the anchor read here.
+    _names, anchor_epoch = _active_state(config, project_dir)
     if anchor_epoch is not None:
         return datetime.fromtimestamp(anchor_epoch, UTC)
     return None
@@ -512,26 +560,41 @@ def archiver_collection(store: dict):
         client.close()
 
 
-def active_archiver_events(machine_path: Path, names: Sequence[str]) -> dict[str, list[dict]]:
+def active_archiver_events(project_dir: Path, names: Sequence[str]) -> dict[str, list[dict]]:
     """The composed archiver event scripts of an active set, by channel.
 
-    Read straight from the machine model rather than from a live engine: this
-    is the same route :func:`compute_scenario_physics_env` takes, and it keeps
-    the rewrite decidable before anything is activated — so the CLI can tell a
-    user what is about to change while an abort still leaves the project
-    untouched.
+    Read from the ``archiver`` blocks of the simulator view's scenarios rather
+    than from a live simulator, so the rewrite is decidable before anything is
+    activated — the CLI can tell a user what is about to change while an abort
+    still leaves the project untouched.
+
+    Args:
+        project_dir: Root of the built project.
+        names: The requested scenario names.
+
+    Returns:
+        Each channel's events, in active-set order.
+
+    Raises:
+        ValueError: If the render carries no simulator view, or a requested
+            scenario is not in it.
     """
-    model = parse_machine(read_machine_json(machine_path), machine_path)
+    scenarios = _view_scenarios(project_dir)
+    if scenarios is None:
+        raise ValueError(
+            f"No simulator view in {_simulator_view(project_dir)}. Run 'osprey build'."
+        )
 
     resolved = resolve_active_scenarios(names)
-    unknown = [name for name in resolved if name not in model.scenarios]
+    # The first name is the always-active baseline, which a facility need not state.
+    unknown = [name for name in resolved[1:] if name not in scenarios]
     if unknown:
-        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(model.scenarios)}")
+        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(scenarios)}")
 
     events: dict[str, list[dict]] = {}
     for name in resolved:
-        for pv, script in model.scenarios[name].archiver.items():
-            events.setdefault(pv, []).extend(script)
+        for entry in scenarios.get(name, {}).get("archiver") or []:
+            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
     return events
 
 
@@ -697,7 +760,6 @@ def seed_archiver(
     project_dir: Path,
     config: dict,
     engine: SimulationEngine,
-    machine_path: Path,
     names: Sequence[str],
     anchor: datetime,
 ) -> ArchiverSeedResult:
@@ -739,7 +801,6 @@ def seed_archiver(
         project_dir: Root of the built project; supplies ``.env`` and the store.
         config: The project's loaded ``config.yml``.
         engine: The engine, already activated on the new set.
-        machine_path: The machine model, for reading the composed event scripts.
         names: The requested scenario names.
         anchor: The apply-time anchor T0 — the *same* instant that was written
             into the scenario state file. It has to be: the engine resolves
@@ -771,7 +832,7 @@ def seed_archiver(
     # An empty script is not a window: it names a channel the scenario mentions
     # and then leaves alone, and asking for its span would invert one.
     events = {
-        pv: script for pv, script in active_archiver_events(machine_path, names).items() if script
+        pv: script for pv, script in active_archiver_events(project_dir, names).items() if script
     }
     tz = get_facility_timezone()
 
@@ -851,12 +912,12 @@ def _missing_password_message(project_dir: Path, store: dict) -> str:
 def preflight_archive_rewrite(
     project_dir: Path,
     config: dict,
-    machine_path: Path,
+    machine_path: Path,  # noqa: ARG001 - the CLI passes it; the events come from the view
     names: Sequence[str],
 ) -> dict | None:
     """Decide the archive rewrite *before* anything has been activated.
 
-    :func:`active_archiver_events` is readable straight from the machine model,
+    :func:`active_archiver_events` is readable straight from the simulator view,
     with no engine and no store, precisely so this is possible — and this is the
     caller that uses it. Every refusal :func:`seed_archiver` can raise before it
     touches a document (an event positioned by window fraction, a store whose
@@ -870,7 +931,7 @@ def preflight_archive_rewrite(
     Args:
         project_dir: Root of the built project.
         config: The project's loaded ``config.yml``.
-        machine_path: The machine model.
+        machine_path: The machine model the caller validated the set against.
         names: The requested scenario names.
 
     Returns:
@@ -878,12 +939,13 @@ def preflight_archive_rewrite(
         archive and there is nothing to rewrite.
 
     Raises:
-        ValueError: If a scenario name is unknown, or an active scenario
-            positions an archiver event by window fraction.
+        ValueError: If the render carries no simulator view, a scenario name
+            is unknown, or an active scenario positions an archiver event by
+            window fraction.
         RuntimeError: If the store is configured but its password is not in the
             project's ``.env``.
     """
-    for script in active_archiver_events(machine_path, names).values():
+    for script in active_archiver_events(project_dir, names).values():
         for event in script:
             _refuse_window_fraction(event)
 
@@ -1665,7 +1727,7 @@ def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> bool:
 
 
 def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogbookEntry:
-    """Convert a bundle :class:`ScenarioLogEntry` to an ``EnhancedLogbookEntry``.
+    """Convert a scenario's :class:`ScenarioLogEntry` to an ``EnhancedLogbookEntry``.
 
     Mirrors ``GenericJSONAdapter._convert_entry`` field mapping so seeded entries
     are indistinguishable from ingested ones: ``raw_text`` is title + body, and

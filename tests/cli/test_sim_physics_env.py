@@ -34,6 +34,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
+from tests._simulator_view import write_scenarios_view
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
@@ -86,7 +87,9 @@ def _stage_deployment(tmp_path: Path, config: dict, *, with_model: bool = True) 
             json.dumps({"channels": _CHANNELS, "scenarios": _SCENARIOS})
         )
 
-    stub_build(repo, config=yaml.safe_dump(config))
+    build = stub_build(repo, config=yaml.safe_dump(config))
+    if with_model:
+        write_scenarios_view(build, _SCENARIOS)
     return repo
 
 

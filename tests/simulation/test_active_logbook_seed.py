@@ -27,20 +27,22 @@ from osprey.simulation.apply import (
     apply_scenarios,
     seed_active_logbook,
 )
+from tests._simulator_view import facility_scenarios, write_scenarios_view
 
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
+TEMPLATE_DATA = (
+    Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
 )
+TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
 
 ARIEL_CONFIG = {"database": {"uri": "postgresql://unused-mocked/none"}}
 
 
 def _make_project(tmp_path: Path) -> Path:
-    """Stage a sim-backed project with `rf-thermal` already active."""
+    """Stage a sim-backed project and its simulator view."""
     sim_dst = tmp_path / "data" / "simulation"
     sim_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(TEMPLATE_SIM, sim_dst)
+    write_scenarios_view(tmp_path, facility_scenarios(TEMPLATE_DATA / "facility" / "scenarios"))
     config = {
         "control_system": {
             "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
@@ -99,6 +101,31 @@ def test_active_logbook_entries_follow_the_active_scenarios(tmp_path, monkeypatc
     # Assert
     assert entries, "the active scenario narrates entries, so some must be built"
     assert all(entry["timestamp"].tzinfo is not None for entry in entries)
+    ids = [entry["entry_id"] for entry in entries]
+    assert "DEMO-026" in ids, "rf-thermal's own narrative is part of the active set's"
+
+
+def test_active_logbook_entries_are_the_view_s_logbook_blocks(tmp_path, monkeypatch):
+    """The entries come from the simulator view: a narrative only the view states
+    is the one that is seeded."""
+    # Arrange
+    project = _make_project(tmp_path)
+    _activate(project, monkeypatch, ["rf-thermal"])
+    config = yaml.safe_load((project / "config.yml").read_text())
+    entry = {
+        "entry_id": "VIEW-1",
+        "when": {"days_ago": 1, "time": "02:00:00"},
+        "author": "View",
+        "title": "Stated in the view",
+        "text": "Only the simulator view carries this entry.",
+    }
+    write_scenarios_view(project, {"nominal": {}, "rf-thermal": {"logbook": [entry]}})
+
+    # Act
+    entries = active_logbook_entries(config, project)
+
+    # Assert
+    assert [e["entry_id"] for e in entries] == ["VIEW-1"]
 
 
 def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch):
@@ -141,9 +168,9 @@ def test_seed_active_logbook_never_overwrites_an_existing_logbook(tmp_path, monk
     assert seen["mirrored"] == 0
 
 
-def test_seed_active_logbook_is_a_no_op_without_a_machine_model(tmp_path, monkeypatch):
-    """A project with no simulation has no narrative to seed, which is a normal
-    configuration and not a fault."""
+def test_seed_active_logbook_is_a_no_op_without_a_simulator_view(tmp_path, monkeypatch):
+    """A project with no simulated scenarios has no narrative to seed, which is a
+    normal configuration and not a fault."""
     # Arrange
     (tmp_path / "config.yml").write_text(yaml.safe_dump({"ariel": ARIEL_CONFIG}))
     config = yaml.safe_load((tmp_path / "config.yml").read_text())
