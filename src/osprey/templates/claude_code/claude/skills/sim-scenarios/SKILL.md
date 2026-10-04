@@ -53,7 +53,10 @@ Run `osprey sim status`, or read the plain-text state file
 (`simulation/active_scenarios` under the agent-data root — `agent_data.base_dir`
 in config.yml — kept out of the build-owned `data/` tree). It holds one scenario
 name per line (plus an optional `anchor=<ISO8601>` metadata line). `nominal` is
-always implicitly active. A missing file means only `nominal` is active.
+always implicitly active. A missing file means the deployment never chose a set:
+`osprey up` then activates the machine's `default_scenarios` (a list in
+`machine.json`; none means `nominal` alone) and seeds their history and
+narrative.
 
 ## Switch / compose scenarios
 

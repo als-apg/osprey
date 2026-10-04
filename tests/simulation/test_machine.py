@@ -462,6 +462,32 @@ class TestValidatePositionKeys:
             _validate_position_keys(_PREFIX, {"at_when": {"days_ago": 1}}, "ramp")
 
 
+class TestDefaultScenarios:
+    """``default_scenarios`` names the set a deployment that never chose starts in."""
+
+    def test_absent_means_nominal_alone(self):
+        assert parse_machine(_machine(), _PATH).default_scenarios == ()
+
+    def test_names_are_kept_in_order_once(self):
+        model = parse_machine(_machine(default_scenarios=["fault", "fault"]), _PATH)
+        assert model.default_scenarios == ("fault",)
+
+    def test_names_are_resolved_at_activation_not_at_load(self):
+        """A machine file read without its scenario tree is still a channel model."""
+        model = parse_machine(_machine(default_scenarios=["ghost"]), _PATH)
+        assert model.default_scenarios == ("ghost",)
+
+    @pytest.mark.parametrize("raw", ["fault", [1], [""]])
+    def test_a_malformed_list_is_refused(self, raw):
+        with pytest.raises(ValueError, match="must be a list of scenario names"):
+            parse_machine(_machine(default_scenarios=raw), _PATH)
+
+    def test_the_shipped_machine_starts_in_rf_thermal(self):
+        machine_path = _TEMPLATE_SIM / "machine.json"
+        model = parse_machine(json.loads(machine_path.read_text()), machine_path)
+        assert model.default_scenarios == ("rf-thermal",)
+
+
 class TestAtWhenEvents:
     """``at_when`` is validated by the logbook's ``when`` rules, under its own name."""
 

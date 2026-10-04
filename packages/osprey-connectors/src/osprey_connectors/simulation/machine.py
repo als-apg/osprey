@@ -191,12 +191,17 @@ class Scenario:
 
 @dataclass(frozen=True)
 class ParsedMachine:
-    """Validated machine model: metadata, channels, and scenarios."""
+    """Validated machine model: metadata, channels, and scenarios.
+
+    ``default_scenarios`` is the set a deployment activates when it has never
+    activated one (``nominal`` stays implicit); empty means ``nominal`` alone.
+    """
 
     name: str
     description: str
     channels: dict[str, SimChannel]
     scenarios: dict[str, Scenario]
+    default_scenarios: tuple[str, ...] = ()
 
 
 def read_machine_json(machine_path: Path) -> Any:
@@ -245,7 +250,20 @@ def parse_machine(machine: Any, machine_path: Path) -> ParsedMachine:
         description=str(machine.get("description", "")),
         channels=channels,
         scenarios=scenarios,
+        default_scenarios=_parse_default_scenarios(machine.get("default_scenarios", [])),
     )
+
+
+def _parse_default_scenarios(raw: Any) -> tuple[str, ...]:
+    """Validate ``default_scenarios`` as a list of scenario names.
+
+    The names are resolved when the set is activated, exactly as ``osprey sim
+    apply`` resolves its arguments, not here: a ``machine.json`` read without
+    its ``scenarios/`` tree is still a valid channel model.
+    """
+    if not isinstance(raw, list) or not all(isinstance(name, str) and name for name in raw):
+        raise ValueError(f"'default_scenarios' must be a list of scenario names, got {raw!r}")
+    return tuple(dict.fromkeys(raw))
 
 
 def _parse_channel(pv: str, spec: Any) -> SimChannel:

@@ -898,8 +898,9 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     (``control_system.connector.mock``). The mock archiver derives its own copy
     from there, so a second declaration would be a divergence waiting to
     happen. No ``active_scenarios`` state file ships in ``data/``: the active
-    set is runtime state under ``_agent_data/simulation/``, and its absence
-    already means "nominal only".
+    set is runtime state under ``_agent_data/simulation/``, and the first deploy
+    writes it from the machine's ``default_scenarios`` (``rf-thermal``, the
+    incident the getting-started tutorial walks through).
     """
     import json
 
@@ -913,12 +914,17 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     machine = json.loads(machine_path.read_text(encoding="utf-8"))
     assert "channels" in machine
     assert "scenarios" not in machine, "scenarios moved to bundle tree, not the machine file"
+    assert machine["default_scenarios"] == ["rf-thermal"]
 
     # Self-contained scenario bundles (telemetry + optional logbook).
     for name in ("nominal", "vacuum-burst", "rf-thermal"):
         assert (sim_dir / "scenarios" / name / "scenario.json").exists(), f"{name} bundle missing"
     assert (sim_dir / "scenarios" / "nominal" / "logbook.json").exists()
     assert (sim_dir / "scenarios" / "rf-thermal" / "logbook.json").exists()
+    # The pictures logbook entries attach ship with their bundles.
+    assert (
+        sim_dir / "scenarios" / "rf-thermal" / "plots" / "cavity_temperatures_week.png"
+    ).exists()
     # vacuum-burst is telemetry-only by design (no logbook narrative).
     assert not (sim_dir / "scenarios" / "vacuum-burst" / "logbook.json").exists()
 

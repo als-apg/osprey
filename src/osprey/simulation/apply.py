@@ -285,6 +285,45 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
+def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[str, ...]:
+    """Activate the machine's ``default_scenarios`` on a deployment that never chose a set.
+
+    A deployment with no scenario state has never been told which world to run,
+    and the machine model it ships names the one it should start in. That set is
+    activated exactly as ``osprey sim apply`` would, physics block and anchor
+    included, but without seeding: the deploy seeds the archive and the logbook
+    in their own stages, each of which reads the set written here. Once any set
+    has been activated -- by this, or by ``osprey sim apply`` naming any set at
+    all -- the state file exists and this does nothing again.
+
+    Args:
+        config: The project's loaded ``config.yml``.
+        project_dir: The deployment repo root.
+
+    Returns:
+        The activated set (``nominal`` first), or ``()`` when nothing was
+        activated: the project is not simulation-backed, a set is already
+        active, or the machine names no defaults.
+
+    Raises:
+        ValueError: If a default names a scenario the bundle does not define, or
+            the defaults do not compose -- the refusals ``osprey sim apply``
+            gives the same set.
+    """
+    project_dir = Path(project_dir)
+    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
+    if machine_path is None or not machine_path.is_file():
+        return ()
+    if (resolve_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
+        return ()
+    defaults = parse_machine(read_machine_json(machine_path), machine_path).default_scenarios
+    if not defaults:
+        return ()
+    render_scenario_physics_env(project_dir, defaults)
+    result = apply_scenarios(project_dir, defaults, seed_logbook=False, seed_archive=False)
+    return result.active
+
+
 def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogbookEntry]:
     """The logbook entries the project's ALREADY-active scenarios narrate.
 

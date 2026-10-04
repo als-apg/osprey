@@ -180,3 +180,83 @@ def test_seed_active_logbook_is_a_no_op_without_a_machine_model(tmp_path, monkey
     # Assert
     assert seeded == 0
     assert seen["seeded"] is None
+
+
+def _state_file(project: Path) -> Path:
+    from osprey.simulation.engine import ACTIVE_SCENARIOS_FILENAME, resolve_state_dir
+
+    config = yaml.safe_load((project / "config.yml").read_text())
+    return resolve_state_dir(config, project) / ACTIVE_SCENARIOS_FILENAME
+
+
+def test_a_deployment_that_never_chose_starts_in_the_machines_default_set(tmp_path):
+    """The shipped machine names rf-thermal; a deploy with no scenario state
+    activates it, anchored, and the deploy-time seed then narrates it."""
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
+    assert not _state_file(project).exists()
+
+    config = yaml.safe_load((project / "config.yml").read_text())
+    active = activate_default_scenarios(config, project)
+
+    assert active == ("nominal", "rf-thermal")
+    assert "anchor=" in _state_file(project).read_text()
+    config = yaml.safe_load((project / "config.yml").read_text())
+    ids = {entry["entry_id"] for entry in active_logbook_entries(config, project)}
+    assert {"DEMO-001", "DEMO-026", "DEMO-027", "DEMO-028"} <= ids
+    assert "DEMO-031" not in ids
+
+
+def test_a_chosen_set_is_never_replaced_by_the_default(tmp_path, monkeypatch):
+    """`osprey sim apply` means exactly the set it names, nominal alone included."""
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
+    _activate(project, monkeypatch, ["nominal"])
+    before = _state_file(project).read_text()
+    config = yaml.safe_load((project / "config.yml").read_text())
+
+    assert activate_default_scenarios(config, project) == ()
+    assert _state_file(project).read_text() == before
+
+
+def test_a_machine_without_defaults_activates_nothing(tmp_path):
+    import json
+
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
+    machine_path = project / "data" / "simulation" / "machine.json"
+    machine = json.loads(machine_path.read_text())
+    del machine["default_scenarios"]
+    machine_path.write_text(json.dumps(machine))
+    config = yaml.safe_load((project / "config.yml").read_text())
+
+    assert activate_default_scenarios(config, project) == ()
+    assert not _state_file(project).exists()
+
+
+def test_a_default_naming_an_unknown_scenario_is_refused_like_sim_apply(tmp_path):
+    import json
+
+    import pytest
+
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
+    machine_path = project / "data" / "simulation" / "machine.json"
+    machine = json.loads(machine_path.read_text())
+    machine["default_scenarios"] = ["ghost"]
+    machine_path.write_text(json.dumps(machine))
+    config = yaml.safe_load((project / "config.yml").read_text())
+
+    with pytest.raises(ValueError, match="ghost"):
+        activate_default_scenarios(config, project)
+    assert not _state_file(project).exists()
+
+
+def test_a_project_without_a_machine_model_activates_nothing(tmp_path):
+    from osprey.simulation.apply import activate_default_scenarios
+
+    assert activate_default_scenarios({"ariel": ARIEL_CONFIG}, tmp_path) == ()

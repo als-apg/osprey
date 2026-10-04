@@ -5440,7 +5440,14 @@ def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
 
 
 def _stage_archiver_store(
-    config, compose_files, env, project_dir, *, keep_base=False, provider=None
+    config,
+    compose_files,
+    env,
+    project_dir,
+    *,
+    keep_base=False,
+    provider=None,
+    scenarios_activated=False,
 ) -> None:
     """Start the archiver store on its own and seed its base history.
 
@@ -5460,6 +5467,10 @@ def _stage_archiver_store(
       what the profile asks for. Report what changed, then rebuild — unless
       ``keep_base`` says to leave it alone.
 
+    Whatever the base, the active scenarios' event windows are re-applied onto a
+    rebuilt one, and onto a matching one when this deploy has just activated the
+    machine's default scenarios (which that base has never seen).
+
     Both rebuild paths quiesce the recorder first. It is one operation — stop the
     writer, drop the collection, rebuild it, re-apply the active scenarios — and
     splitting it by state would leave the mismatch path stopping a writer the
@@ -5475,6 +5486,8 @@ def _stage_archiver_store(
     :param provider: The compose provider this deploy resolved, so the staging
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
+    :param scenarios_activated: Whether this deploy just activated the machine's
+        default scenarios (see :func:`_activate_default_scenarios`).
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
@@ -5549,6 +5562,10 @@ def _stage_archiver_store(
 
         if comparison.state is SeedState.MATCH:
             _report_step("archive already seeded, skipping the base seed")
+            if scenarios_activated:
+                # Rare enough (once per deployment) that holding this idle
+                # client across the rewrite costs nothing worth restructuring for.
+                _reapply_active_scenarios(config, project_dir, engine)
             return
 
         if comparison.state is SeedState.MISMATCH:
@@ -5721,7 +5738,9 @@ def _migrate_ariel_store(ariel_config: dict) -> None:
     asyncio.run(run_migrate(ariel_config))
 
 
-def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None) -> None:
+def _stage_ariel_store(
+    config, compose_files, env, project_dir, *, provider=None, scenarios_activated=()
+) -> None:
     """Start ARIEL's store, create its schema, and seed a first narrative.
 
     The logbook counterpart of :func:`_stage_archiver_store`, and staged ahead of
@@ -5753,6 +5772,10 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
     :param provider: The compose provider this deploy resolved, so the staging
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
+    :param scenarios_activated: The scenario set this deploy just activated as
+        the machine's default, empty when it activated none. A logbook that
+        already holds entries keeps them, and the warning names the command that
+        brings in that set's narrative.
     """
     if not _ariel_store_deployed(config):
         return
@@ -5802,6 +5825,43 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         return
     if seeded:
         _report_step(f"logbook seeded: {seeded} entries")
+    elif scenarios_activated:
+        from osprey.simulation.engine import DEFAULT_SCENARIO
+
+        faults = " ".join(name for name in scenarios_activated if name != DEFAULT_SCENARIO)
+        logger.warning(
+            f"This deploy activated the default scenarios {list(scenarios_activated)!r}, but "
+            f"the logbook already holds entries, so their narrative was not added. Run "
+            f"`osprey sim apply {faults}` from {project_dir} to reseed it."
+        )
+
+
+def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, ...]:
+    """Activate the machine's default scenarios when the deployment never chose a set.
+
+    Run before the archiver and ARIEL stages, which then seed the history and the
+    narrative of the set written here. Never fatal: a deployment whose defaults
+    cannot be activated still comes up on ``nominal``, and the warning names the
+    command that activates them.
+
+    :param config: Raw deploy config.
+    :param project_dir: The deployment repo root.
+    :returns: The activated set, or ``()`` when nothing was activated.
+    """
+    from osprey.simulation.apply import activate_default_scenarios
+
+    try:
+        active = activate_default_scenarios(config, project_dir)
+    except Exception as exc:  # reported, never fatal (see docstring)
+        logger.warning(
+            f"The machine's default scenarios could not be activated, so this deployment "
+            f"runs `nominal` only. Run `osprey sim apply <names>` from {project_dir} to "
+            f"choose a set. Cause: {exc}"
+        )
+        return ()
+    if active:
+        _report_step(f"scenarios active by default: {', '.join(active)}")
+    return active
 
 
 # ---------------------------------------------------------------------------
@@ -6806,6 +6866,11 @@ def _start_stack(
     # No-op unless this project deploys the store itself. Anchored on the repo
     # root: the single root `.env` is the secret store the seeder authenticates
     # from, and every compose invocation on this path reads it with --env-file.
+    # A deployment that never chose a scenario set starts in the one its machine
+    # model names, activated before the two stages below so the archive and the
+    # logbook are seeded with that set's history and narrative.
+    activated = _activate_default_scenarios(config, Path(repo_root))
+
     if _archiver_store_deployed(config):
         _stage_archiver_store(
             config,
@@ -6814,6 +6879,7 @@ def _start_stack(
             Path(repo_root),
             keep_base=keep_archiver_base,
             provider=provider,
+            scenarios_activated=bool(activated),
         )
 
     # Same placement and the same reason for ARIEL's store: the schema has to
@@ -6821,7 +6887,14 @@ def _start_stack(
     # it. Ordered AFTER the archiver so the logbook is seeded against a machine
     # whose history is already in place — the two halves of one narrative, in the
     # order they document each other.
-    _stage_ariel_store(config, compose_files, env, Path(repo_root), provider=provider)
+    _stage_ariel_store(
+        config,
+        compose_files,
+        env,
+        Path(repo_root),
+        provider=provider,
+        scenarios_activated=activated,
+    )
 
     # And the graph store, on the same placement and for the same reason: the
     # corpus has to be in the graph before the surfaces that query it start, and

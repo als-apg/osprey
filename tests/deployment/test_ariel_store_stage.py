@@ -207,3 +207,37 @@ def test_an_unreachable_store_warns_and_leaves_the_deploy_standing(
     # Assert
     assert "osprey ariel quickstart" in caplog.text
     assert ariel_stubs["migrated"] == []
+
+
+@pytest.mark.usefixtures("ariel_stubs")
+def test_defaults_activated_over_a_full_logbook_say_how_to_bring_their_narrative_in(
+    tmp_path, monkeypatch, caplog
+):
+    """A logbook with entries is never rewritten by a deploy, so a default set the
+    deploy just activated cannot add its entries; the warning names the command."""
+    from osprey.simulation import apply as apply_mod
+
+    monkeypatch.setattr(apply_mod, "seed_active_logbook", lambda *a: 0)
+
+    with caplog.at_level("WARNING"):
+        container_lifecycle._stage_ariel_store(
+            ARIEL_CONFIG,
+            ["compose.yml"],
+            {},
+            tmp_path,
+            scenarios_activated=("nominal", "rf-thermal"),
+        )
+
+    assert "osprey sim apply rf-thermal" in caplog.text
+
+
+@pytest.mark.usefixtures("ariel_stubs")
+def test_a_full_logbook_with_nothing_activated_stays_quiet(tmp_path, monkeypatch, caplog):
+    from osprey.simulation import apply as apply_mod
+
+    monkeypatch.setattr(apply_mod, "seed_active_logbook", lambda *a: 0)
+
+    with caplog.at_level("WARNING"):
+        _stage(ARIEL_CONFIG, tmp_path)
+
+    assert "osprey sim apply" not in caplog.text
