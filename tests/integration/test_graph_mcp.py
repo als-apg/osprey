@@ -19,7 +19,7 @@ rests on:
 
 One store, seeded once per module with the graph view the control-assistant
 build writes (``data/graph/facility.ttl``) through the same primitives
-``osprey knowledge seed-graph`` uses.
+``osprey up`` uses.
 
 Skips are loud and only ever about the host.  If Docker is not reachable the
 whole module skips with that reason; if Docker *is* reachable every test here
@@ -142,8 +142,8 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
     """Start a store, seed it through the real seeder, and yield it watched.
 
     Seeding goes through :mod:`~osprey.services.facility_knowledge.seeder.graph_seeder`
-    rather than raw Cypher because that is the path ``osprey knowledge
-    seed-graph`` takes — including ``write_marker``, which is what puts the
+    rather than raw Cypher because that is the path ``osprey up`` takes —
+    including ``write_marker``, which is what puts the
     ``_OspreySeed`` bookkeeping node in the store that ``get_schema`` then has
     to hide. The seeder takes a raw driver session, so its calls run inside
     the store's watch: a seeding step that gets no answer fails naming this

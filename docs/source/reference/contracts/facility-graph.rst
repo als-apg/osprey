@@ -44,9 +44,9 @@ spells. They sit on bindings rather than on signals because an address is
 ring-qualified and a signal is not — ``SR:MAG:QF:01:CURRENT:SP`` and its
 booster counterpart share one signal node but are described differently.
 
-The descriptions and ``system`` come from the generator, so they are there in a
-corpus ``build-ttl`` produced — the demo machine — and not necessarily in one
-imported straight from a facility's own export. On such a corpus the way in is
+The descriptions and ``system`` come from the facility file, so they are there
+in the build's graph view and not necessarily in a corpus imported straight
+from a facility's own export. On such a corpus the way in is
 a name, an ``altLabel``, a section or a class.
 
 Three spelling rules come from neosemantics and catch out anyone writing Cypher
@@ -94,9 +94,9 @@ fewest turns:
    notes). It does not dial the store, so a successful reply says nothing about
    whether the graph is up.
 
-In a deployed project the agent rarely needs the first two: whichever verb
-seeds or re-verifies the store — the staging step inside every ``osprey up``,
-or ``osprey knowledge seed-graph`` — captures the live store's schema (property
+In a deployed project the agent rarely needs the first two: the staging step
+inside every ``osprey up``, which seeds or re-verifies the store, captures the
+live store's schema (property
 lists complete, not sampled) together with the curated examples, and bakes them
 into the rendered ``facility-knowledge-graph`` agent prompt, stamped with the
 seed marker's checksum. Each example's parameters are marked in the block as

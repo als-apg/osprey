@@ -15,8 +15,8 @@ quality thresholds.
 Three of the four paradigms read a database file the build renders beside the
 config, so a lane is one ``init_project`` call. The fourth, ``graph``, searches
 a Neo4j store, so its lane stands one up: a throwaway container on a random
-port, the render pointed at it, and the shipped corpus seeded through ``osprey
-knowledge seed-graph``. The store recipe is the shared one in
+port, the render pointed at it, and the shipped corpus seeded the way ``osprey
+up`` seeds it. The store recipe is the shared one in
 ``tests/_graphdb_container.py``; the pair of helpers that point a build at a
 store and seed it comes from ``tests/e2e/test_graph_mcp_smoke.py``. That lane
 therefore skips — loudly, with its reason — on a host with no Docker daemon,
@@ -79,8 +79,8 @@ PERFECT_THRESHOLD = 0.80
 # agent and never with the judge. It is an id the lane's provider serves.
 JUDGE_MODEL = "claude-sonnet-5"
 
-#: Channel bindings in the shipped demo corpus — what ``osprey knowledge
-#: seed-graph`` puts in the store and what the graph lane's census must find.
+#: Channel bindings in the shipped demo corpus — what ``osprey up`` puts in
+#: the store and what the graph lane's census must find.
 #: The same 2,908 addresses the facility file's channels hold, which is what makes
 #: the four lanes comparable: one corpus, four ways of searching it.
 #: ``tests/templates/test_control_assistant_demo_ttl.py`` owns the corpus-side
@@ -335,7 +335,7 @@ def graph_bench_project(
         monkeypatch.setenv("GRAPHDB_PASSWORD", GRAPHDB_TEST_PASSWORD)
         _assert_graph_pipeline_is_rendered(repo)
         _point_project_at_the_store(repo, graph_bench_store_port)
-        logger.info("seed-graph: %s", _seed_demo_corpus(repo).strip().replace("\n", " | "))
+        logger.info("graph seeded: marker %s", _seed_demo_corpus(repo))
         yield repo
     finally:
         monkeypatch.undo()

@@ -14,7 +14,7 @@ Each starter file carries one of five provenances, and the ledger records which:
 | ported | the facility's own file, copied in unchanged |
 | stated | written from the user's own words, marked `status: unverified` |
 | derived | distilled from a source the user named, marked `status: unverified`, carrying `source: <path>`; no fact in it that is not in that source |
-| built | produced by an OSPREY verb from facility input (`knowledge build-ttl`, `seed-from-ttl`, a build's seeded directories) |
+| built | produced by an OSPREY verb from facility input (`seed-from-ttl`, a build's graph view and seeded directories) |
 
 There is no sixth. Do not fill a missing value with a plausible one, and do not
 derive from a document the user did not name. A thing with no source gets no file.
@@ -126,19 +126,18 @@ through OSPREY verbs — nothing in it is typed by the agent.
 | Source named | Chain | Lands as |
 | --- | --- | --- |
 | Documents (a wiki export, operations manuals, design reports) | One `derived` stub per subsystem, device or procedure the documents describe, filed under the matching OKF directory; then `regen-index` and `validate` | `derived`, this facility |
-| An IOC database or a channel database already in OSPREY's format | Copy in unchanged, then `osprey knowledge build-ttl data/<facility>.ttl --channel-db <hierarchical.json> --descriptions <in_context.json> --facility <prefix>`; set `config.services.graphdb.ttl_path=./data/<facility>.ttl`. `--facility` is required here: its default is `demo`, and it is stamped into every IRI the corpus mints. `--ontology` defaults to the demo machine's family-to-class table; a facility whose device families differ compiles its own with `osprey knowledge compile-ontology` and names it | `ported` (the database), `built` (the TTL) |
-| That TTL corpus, for the graph | After `osprey up`: `osprey knowledge seed-graph` loads it into the store; `osprey knowledge build-index` derives the search index | `built` |
-| That TTL corpus, for the OKF bundle | `osprey knowledge seed-from-ttl data/<facility>.ttl data/facility/knowledge` writes one device stub per device node (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
+| An IOC database or a channel database already in OSPREY's format | Copy in unchanged. The graph corpus is not derived from it: it is the build's graph view, written from the facility file | `ported` |
+| The build's graph view, for the graph | `osprey build && osprey up`: the build writes `data/graph/facility.ttl` and the search index from the facility file, and `osprey up` seeds the store from that view | `built` |
+| The build's graph view, for the OKF bundle | `osprey knowledge seed-from-ttl build/data/graph/facility.ttl data/facility/knowledge` writes one device stub per device, its `device_id` the facility file's device id (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
 | A MATLAB Middle Layer the facility runs | The chain in §3.1: pull the exporter, the user exports, `osprey mml import`, `osprey mml map`, review, `osprey mml emit`, and `osprey mml verify` for a 2.0 export. One pass writes the channel database, the ontology, the OKF pages and the TTL corpus | `stated` (the mapping), `built` (everything emitted) |
 | A lattice file | Copy in unchanged under `data/lattice/`; the SIMULATION area's keys bind it | `ported` |
 | A logbook export | The LOGBOOK feature port for the keys, then `osprey ariel ingest -s <file or URL> -a <adapter>` once the service is up; `-a` takes the adapter names `--help` lists | `ported` |
 
 Read each verb's `--help` before running it; the option names above are the
 ones the installed version printed when this file was written, and the verb
-wins. `build-ttl` needs both databases of one machine named explicitly in a
-deployment repo — it defaults to the reference deployment's paths otherwise.
+wins.
 
-A harvest that cannot run yet (no `osprey up` for `seed-graph`, a source the
+A harvest that cannot run yet (no `osprey up` yet, a source the
 user has not exported) is a Deferred entry with the exact command, not a
 skipped row. Empty placeholders are the skeleton from §1, `services.graphdb`
 without `ttl_path` (the comment: "remove the key to bring the store up
@@ -251,8 +250,7 @@ The PARADIGM card, in the grammar of `references/cards.md`, with one question af
  │            config.claude_code.servers.channel-finder.enabled=true    │
  │ needs      channel-finder on the profile's agents list               │
  │ reads      the graph store, seeded from data/<token>.ttl             │
- │ then       osprey build, osprey up, osprey knowledge seed-graph,     │
- │            osprey knowledge build-index                              │
+ │ then       osprey build, osprey up                                   │
  └──────────────────────────────────────────────────────────────────────┘
 ```
 

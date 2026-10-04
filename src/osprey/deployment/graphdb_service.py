@@ -227,9 +227,10 @@ GRAPHDB_HTTP_PORT_CONFIG_KEY = "services.graphdb.http_port_host"
 GRAPHDB_REBUILD_HINT = "osprey build && osprey up"
 
 #: Config key naming the Turtle corpus the store is seeded from and the search
-#: index is derived from. Spelled once, because the surfaces that send an operator to it -- the ``build-index``
-#: verb, the finder's 503 and the agent tool's refusal -- are in three
-#: packages, and three private copies of one key agree only by coincidence.
+#: index is derived from. Spelled once, because the surfaces that read it or
+#: send an operator to it -- the build, the finder's 503 and the agent tool's
+#: refusal -- are in three packages, and three private copies of one key agree
+#: only by coincidence.
 GRAPHDB_TTL_PATH_CONFIG_KEY = "services.graphdb.ttl_path"
 
 #: A JVM memory size: digits with an optional unit suffix, as Neo4j's own
@@ -375,8 +376,7 @@ def resolve_graph_index_path(
     """Return the absolute path of this project's graph search index.
 
     THE one resolver for that path. The build step that writes the index, the
-    ``osprey knowledge build-index`` verb, the web app's lifespan, the agent's
-    keyword tool and the health row that compares the index against the
+    web app's lifespan, the agent's keyword tool and the health row that compares the index against the
     store's seed marker all go through it, so the build writes the index where
     every reader looks for it.
 

@@ -571,7 +571,7 @@ def config_needs_graphdb_password(config: Any) -> bool:
     a queue start.
 
     The blast radius bounds the decision: the store holds a disposable mirror of
-    a Turtle corpus, re-seedable from it with ``osprey knowledge seed-graph``, so
+    a Turtle corpus, re-seeded from it by ``osprey build && osprey up``, so
     the worst case is corpus integrity rather than facility data or hardware.
     This predicate is consequently **never** gated on write posture — doing so
     would leave the read-only operator terminal, the very tier the graph search

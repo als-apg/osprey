@@ -78,9 +78,8 @@ RING = "SR"
 # instead of silently going ungenerated.
 #
 # ``graph`` is the deliberate exclusion: there is no generated graph database.
-# A graph store is seeded from the facility corpus TTL (``osprey knowledge
-# build-ttl`` then ``osprey knowledge seed-graph``), not grown from the facility
-# spec into a JSON file, so this pipeline has nothing to emit for it and the
+# A graph store is seeded from the build's graph view (``osprey build && osprey
+# up``), not grown from the facility spec into a JSON file, so this pipeline has nothing to emit for it and the
 # cross-paradigm identity gate below has nothing to compare. Graph's equivalent
 # guarantee is the corpus-vs-database PV-set equality asserted by
 # ``tests/services/facility_knowledge/test_demo_ttl_consistency.py``.

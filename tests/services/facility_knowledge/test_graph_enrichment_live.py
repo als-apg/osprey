@@ -14,9 +14,9 @@ sit between the two claims and neither is visible from the TTL:
 * **A store that is already configured keeps its old config.**  n10s refuses to
   re-initialize one, so changing the canonical dict does not reconfigure the
   graph an operator already has: :func:`~...graph_seeder.bootstrap` reports
-  ``DIFFERS`` and the operator has to come back through
-  ``osprey knowledge seed-graph --force``.  That is a real migration with a real
-  failure mode, and it is only observable against a live n10s.
+  ``DIFFERS`` and the next ``osprey up`` wipes the store and seeds it again.
+  That is a real migration with a real failure mode, and it is only observable
+  against a live n10s.
 
 So this lane seeds the shipped corpus through the seeder API and asks the
 questions in Cypher.  It is separate from ``tests/integration/test_graphdb_store.py``
@@ -25,8 +25,8 @@ claim (the *enrichment* is reachable) and because its tests wipe the store
 between steps, which would strand that module's session-scoped fixture.
 
 Each test starts from a wiped store and seeds the corpus itself — which is also
-the sequence ``seed-graph --force`` performs, so the wipe is under test rather
-than around it.
+the sequence ``osprey up`` performs on a stamp mismatch, so the wipe is under
+test rather than around it.
 
 The container recipe (pinned image, n10s jar from the pinned release or
 ``OSPREY_TEST_N10S_JAR``, APOC copied out of the image) comes from
@@ -273,7 +273,7 @@ def _ttl_census(ttl: str) -> dict[str, int]:
 
 
 def _seed(session: Any, ttl: str, label: str) -> None:
-    """Bootstrap a wiped store and import *ttl* into it, as ``seed-graph`` does."""
+    """Bootstrap a wiped store and import *ttl* into it, as ``osprey up`` does."""
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
     result = graph_seeder.bootstrap(session)
@@ -434,7 +434,7 @@ def _legacy_bootstrap(session: Any) -> None:
         ).consume()
 
 
-def test_a_legacy_store_is_reported_then_recovered_by_force(
+def test_a_legacy_store_is_reported_then_recovered_by_a_reseed(
     clean_store: Any, demo_ttl: str
 ) -> None:
     """Walk a pre-change store through the whole migration and back.
@@ -466,16 +466,16 @@ def test_a_legacy_store_is_reported_then_recovered_by_force(
 
     # --- 2. bootstrap() reports the drift instead of re-initializing -------
     # n10s hard-refuses to re-initialize a configured store, so this is the only
-    # thing bootstrap *can* do: an operator has to come back through --force.
+    # thing bootstrap *can* do; the deploy then wipes the store and seeds again.
     drifted = graph_seeder.bootstrap(session)
     assert drifted.status is graph_seeder.BootstrapStatus.DIFFERS, drifted.message
     assert not drifted.ok
     assert "handleMultival" in drifted.differing_keys, (
         f"the reported drift was {drifted.differing_keys}, which does not name the key that changed"
     )
-    assert "--force" in drifted.message
+    assert graph_seeder.CONFIG_DRIFT_MESSAGE in drifted.message
 
-    # --- 3. The --force path: wipe, re-init, re-import ---------------------
+    # --- 3. The reseed: wipe, re-init, re-import ---------------------------
     graph_seeder.wipe(session)
     assert graph_seeder.resource_count(session) == 0
     assert graph_seeder.read_marker(session) is None

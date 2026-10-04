@@ -965,8 +965,8 @@ config:
   # exists and is non-empty, so until then it is legitimately unhealthy. Scale
   # it with the corpus: too short reports a working container as failed.
   # services.qmd.first_index_grace: 3600
-  # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
-  # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
+  # Neo4j graph store holding a DISPOSABLE mirror of the build's graph view.
+  # The facility file stays the source of truth and `osprey build && osprey up`
   # rebuilds the graph from it. It answers the multi-hop questions keyword and
   # semantic search cannot, and it is what the channel finder reads when
   # `channel_finder_mode:` selects the graph paradigm.

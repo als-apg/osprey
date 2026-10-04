@@ -20,7 +20,7 @@ refuses at deploy time — but it is logged at warning level rather than swallow
 because an operator who typed the key meant to have a store and would otherwise
 see only "not configured" for what is really a typo. The third state, configured
 but *empty*, is not a failure at all: :meth:`GraphContext.is_empty` answers it so
-the caller can name ``osprey knowledge seed-graph`` instead of returning zero
+the caller can name ``osprey build && osprey up`` instead of returning zero
 rows that read as "the data is wrong".
 
 Failing fast

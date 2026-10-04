@@ -197,7 +197,7 @@ class TestEmptyIndex:
         assert payload["empty"] is True
         (suggestion,) = payload["suggestions"]
         assert "demo_machine.ttl" in suggestion
-        assert "osprey knowledge build-ttl" in suggestion
+        assert "osprey build && osprey up" in suggestion
 
     def test_the_ontology_it_does_declare_is_still_answered(self, empty_index: GraphIndex):
         # The corpus declares a class tree and binds no device to it. The tree

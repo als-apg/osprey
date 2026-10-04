@@ -223,7 +223,7 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
   corpus was ever loaded, so counting ``(:Resource)`` specifically is what keeps
   an empty graph from reading as a populated one; a count of zero warns and
-  names ``osprey knowledge seed-graph`` as the remedy. The agent's own graph
+  names ``osprey build && osprey up`` as the remedy. The agent's own graph
   tools report the same degraded states from the inside — see
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared

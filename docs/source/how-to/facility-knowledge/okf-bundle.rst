@@ -230,10 +230,10 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides six operations from the
-      terminal — three that manage an OKF bundle, one that loads the deployed
-      graph store, one that generates the corpus it loads, and one that compiles
-      the ontology table that generation reads.
+      The ``osprey knowledge`` command group provides four operations from the
+      terminal — three that manage an OKF bundle and one that compiles the
+      ontology table.  The graph store has no verb of its own: ``osprey up``
+      seeds it from the build's graph view (see :doc:`../deploy-project/index`).
 
       .. code-block:: console
 
@@ -246,11 +246,9 @@ Working with a Bundle
            --help  Show this message and exit.
 
          Commands:
-           build-ttl         Derive a NARAD-convention TTL corpus from the channel...
            compile-ontology  Compile an authored LinkML schema into the ontology...
            regen-index       Regenerate index.md files throughout an OKF bundle.
-           seed-from-ttl     Seed OKF stub documents from a NARAD/als-ontology TTL...
-           seed-graph        Load a NARAD/als-ontology TTL into the deployed graph...
+           seed-from-ttl     Seed OKF stub documents from the build's graph view.
            validate          Validate all OKF documents in a bundle.
 
       **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
@@ -292,12 +290,12 @@ Working with a Bundle
       regenerating fails validation.  The command exits 0 on a clean bundle, 1
       if any file fails.
 
-      **seed-from-ttl** — seeds one OKF stub document per device node in a
-      NARAD/als-ontology Turtle file:
+      **seed-from-ttl** — seeds one OKF stub document per device of the build's
+      graph view, ``data/graph/facility.ttl`` under the render:
 
       .. code-block:: console
 
-         $ osprey knowledge seed-from-ttl devices.ttl data/facility/knowledge
+         $ osprey knowledge seed-from-ttl build/data/graph/facility.ttl data/facility/knowledge
 
       Idempotency rules applied per stub:
 
@@ -316,52 +314,16 @@ Working with a Bundle
          ``--force`` overwrites existing stubs.  Omit it to protect hand-edited
          documents.
 
-      Each stub carries a ``device_id`` key in its frontmatter. Under
-      ``data/facility/knowledge``, that key links the page to a facility device:
+      Each stub carries a ``device_id`` key in its frontmatter: the facility
+      file's device id. Under ``data/facility/knowledge``, that key links the
+      page to a facility device:
       ``osprey build`` warns, once per page, when the value is no device id in
       ``facility.json``, and goes on building. A page without the key is not
       linked and never warns.
 
-      **seed-graph** — loads the same kind of TTL file into the deployed graph
-      store.  The two seeding verbs are worth telling apart: **seed-graph seeds
-      the deployed graph store; seed-from-ttl builds an OKF document bundle.**
-      One corpus, two destinations.
-
-      .. code-block:: console
-
-         $ osprey knowledge seed-graph                 # uses services.graphdb.ttl_path
-         $ osprey knowledge seed-graph devices.ttl     # or name the file
-
-      It is safe to re-run.  A store that already holds this exact file reports
-      ``unchanged`` and is left alone; a store holding a different corpus, or
-      data OSPREY did not seed, is refused rather than overwritten, and
-      ``--force`` wipes it and imports from scratch.  The seed marker is written
-      only after the import succeeds, so a run that dies partway is caught as
-      ``unmanaged-partial`` on the next one instead of passing for a good seed.
-
-      The deploy already runs this for you whenever the store's marker differs
-      from the corpus (see :doc:`../deploy-project/index`); you need the verb
-      when that step warned.  For the full list of outcomes and flags, see
-      ``osprey knowledge seed-graph --help``.
-
-      **build-ttl** — generates the corpus ``seed-graph`` loads, deriving it
-      from the project's own channel databases so the graph and the channel
-      finder describe the same machine:
-
-      .. code-block:: console
-
-         $ osprey knowledge build-ttl data/demo_machine.ttl \
-             --channel-db data/channel_databases/hierarchical.json \
-             --descriptions <your in-context database>
-
-      The flags, their defaults and what each one decides are in
-      :ref:`osprey knowledge <cli-osprey-knowledge>`, and
-      :doc:`use-facility-graph` runs the command in both a rendered project and
-      the OSPREY source tree.
-
       **compile-ontology** — turns the LinkML schema where a facility authors its
-      device vocabulary into the ontology table ``build-ttl`` reads. Requires the
-      ``knowledge`` extra:
+      device vocabulary into the ontology table. Requires the ``knowledge``
+      extra:
 
       .. code-block:: console
 

@@ -303,8 +303,7 @@ def resolve_and_assign(
 ) -> tuple[GraphModel, DirectionReport]:
     """Resolve the limits file and annotate *model* in one call.
 
-    This is the shape the ``osprey knowledge build-ttl`` verb wants: one call
-    that yields the annotated model plus the line to print.
+    One call that yields the annotated model plus the line to print.
 
     Args:
         model: The model to annotate.

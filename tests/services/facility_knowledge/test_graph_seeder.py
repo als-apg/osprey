@@ -248,11 +248,11 @@ class TestBootstrapConfigGate:
         assert result.status is BootstrapStatus.DIFFERS
         assert result.differing_keys == ("handleRDFTypes",)
 
-    def test_drift_message_tells_the_operator_to_force(self):
+    def test_drift_message_names_the_differing_keys(self):
         session = FakeSession({_SHOW: _config_rows({"handleVocabUris": "IGNORE"})})
         message = bootstrap(session).message
         assert CONFIG_DRIFT_MESSAGE in message
-        assert "--force" in message
+        assert "--force" not in message
         assert "handleVocabUris" in message
 
     def test_multival_prop_list_as_a_list_is_not_drift(self):
@@ -402,13 +402,12 @@ class TestSeedMarker:
 
 
 class TestTtlDigest:
-    """The marker's identity is computed in one place, for both writers.
+    """The marker's identity is computed in one place, for every reader.
 
-    ``osprey knowledge seed-graph`` and the deploy-time ``_stage_graphdb_store``
-    each write markers and each read the other's.  Spelled separately, the two
+    The deploy-time ``_stage_graphdb_store`` writes the marker and the build's
+    channel search index records the same digest.  Spelled separately, the two
     would agree only by coincidence: one side normalizing differently would see
-    the other's marker as a different corpus and re-seed a store that is already
-    correct.
+    the other's digest as a different corpus.
     """
 
     def test_the_digest_is_sha256_over_the_utf8_text(self):
@@ -441,22 +440,17 @@ class TestTtlDigest:
 
         assert ttl_sha256(text) == hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def test_both_marker_writers_use_this_one_helper(self):
-        """The duplication this helper closed. Grep-level, deliberately: the two
-        call sites live in modules whose imports are lazy, so an assertion about
-        their behaviour would have to boot a deploy or a CLI to see it."""
+    def test_the_marker_writer_and_the_index_builder_use_this_one_helper(self):
+        """Grep-level, deliberately: both call sites import it lazily, so an
+        assertion about their behaviour would have to boot a deploy or a build
+        to see it."""
         from pathlib import Path
 
-        import osprey.cli.knowledge_cmd as knowledge_cmd
         import osprey.deployment.container_lifecycle as container_lifecycle
+        import osprey.services.channel_finder.graph_index.builder as builder
 
-        for module in (knowledge_cmd, container_lifecycle):
+        for module in (container_lifecycle, builder):
             assert "ttl_sha256" in Path(module.__file__).read_text(encoding="utf-8")
-
-        # Negative check only where the duplicate actually lived. Asserting the
-        # absence of an inline digest across container_lifecycle would fail on
-        # any unrelated sha256 that module grows for its own reasons.
-        assert "hashlib" not in Path(knowledge_cmd.__file__).read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

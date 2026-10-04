@@ -6,7 +6,7 @@ driver or the store.
 
 Every query is written against the shape neosemantics produces from a
 NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
-``osprey knowledge seed-graph`` loads:
+``osprey up`` loads from the build's graph view:
 
 * node labels are the RDF class local names — ``:Resource`` on every node,
   plus ``:ChannelBinding``, ``:Class``, and one device-class label per device;

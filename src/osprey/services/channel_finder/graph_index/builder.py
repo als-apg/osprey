@@ -682,9 +682,9 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
     }
 
     report = build_from_rows(parsed.binding_rows, parsed.class_rows, index_path, meta)
-    # DEBUG: the callers own the operator-facing line (the build's progress
-    # line names the corpus, the ``build-index`` verb prints its own summary),
-    # and a build keeps absolute paths out of its INFO view.
+    # DEBUG: the caller owns the operator-facing line (the build's progress
+    # line names the corpus), and a build keeps absolute paths out of its INFO
+    # view.
     logger.debug(
         "Built the channel search index at %s in %.2f s: %d bindings, %d devices, "
         "%d classes, %d signals, %d sections (corpus %s).",

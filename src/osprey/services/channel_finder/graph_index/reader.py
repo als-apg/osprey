@@ -40,12 +40,12 @@ AbsenceReason = Literal["missing", "unreadable", "schema_mismatch"]
 #: The ``meta`` row, selected by name in :data:`~.schema.META_KEYS` order.
 _META_SELECT = f"SELECT {', '.join(META_KEYS)} FROM meta"
 
-#: Command that regenerates the Turtle corpus an index is built from, named in
-#: the suggestion an index that binds nothing carries. Spelled here rather than
-#: imported from :mod:`osprey.deployment.graphdb_service`: the health check
-#: imports this module on paths where pulling the deployment package into the
-#: process would be the regression.
-BUILD_TTL_COMMAND = "osprey knowledge build-ttl"
+#: Command that rebuilds the graph view an index is built from, and the index
+#: with it, named in the suggestion an index that binds nothing carries. Spelled
+#: here rather than imported from :mod:`osprey.deployment.graphdb_service`: the
+#: health check imports this module on paths where pulling the deployment
+#: package into the process would be the regression.
+REBUILD_COMMAND = "osprey build && osprey up"
 
 #: The two edge types a binding reaches its signal through, as n10s imports the
 #: corpus's predicates and as the ``edges`` column spells them.
@@ -419,14 +419,13 @@ class GraphIndex:
 
         An index with a ``meta`` row and no bindings is not a broken file: it
         is a corpus that describes an ontology and no devices, so the remedy is
-        to regenerate the corpus rather than to touch the deployment. The
+        to give the facility file channels and rebuild. The
         sentence names the file the index was built from, because a project
         with several corpora needs to know which one came back empty.
         """
         return [
             f"The index was built from {self.meta.corpus_filename}, which binds no "
-            f"channels. Regenerate the corpus with `{BUILD_TTL_COMMAND}` and build "
-            "the index again."
+            f"channels. Add channels to the facility file, then run `{REBUILD_COMMAND}`."
         ]
 
     def search(

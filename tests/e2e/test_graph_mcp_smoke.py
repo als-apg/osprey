@@ -28,8 +28,8 @@ What the fixture stands up, and why each piece is shaped the way it is:
   override, exactly as ``tests/e2e/claude_code/conftest.py`` repoints the
   limits database. That the render carries ``graph`` at all is not assumed:
   :func:`_assert_graph_is_rendered` pins it before anything is patched.
-* **The corpus, seeded through the shipped verb.** ``osprey knowledge
-  seed-graph`` against the rendered project, so the graph the agent queries got
+* **The corpus, seeded the way ``osprey up`` seeds it.** The deploy's own
+  staging step against the rendered project, so the graph the agent queries got
   there by the same path an operator's would — including the ``_OspreySeed``
   marker.
 
@@ -73,11 +73,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import shutil
-import subprocess
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -320,7 +317,7 @@ def _point_project_at_the_store(repo: Path, port: int) -> None:
     graphdb = config["services"]["graphdb"]
     assert graphdb.get("ttl_path"), (
         "control_assistant's services.graphdb block declares no ttl_path, so "
-        "`osprey knowledge seed-graph` has no corpus to load"
+        "`osprey up` has no corpus to load"
     )
     graphdb["port_host"] = port
     config_path.write_text(
@@ -335,37 +332,31 @@ def _point_project_at_the_store(repo: Path, port: int) -> None:
 
 
 def _seed_demo_corpus(repo: Path) -> str:
-    """Seed the store through ``osprey knowledge seed-graph``; return its report.
+    """Seed the store the way ``osprey up`` does; return the seed marker's digest.
 
-    The shipped verb, run as a subprocess against the rendered project, rather
-    than the seeder primitives directly: the point is that the corpus reached
-    the store by the path an operator's would, resolving ``ttl_path`` against
-    the config file's own directory and dialing the address the patched config
-    names. A non-zero exit fails here rather than as a mysterious empty graph
+    The deploy's own staging step, ``_bootstrap_and_seed_graphdb``, run against
+    the rendered project once the store answers, rather than the seeder
+    primitives directly: the point is that the corpus reached the store by the
+    path an operator's would, resolving ``ttl_path`` against the config file's
+    own directory and dialing the address the patched config names. A store
+    left without a marker fails here rather than as a mysterious empty graph
     three minutes and one LLM call later.
     """
-    config_path = render_dir(repo) / "config.yml"
-    env = dict(os.environ)
-    env["CONFIG_FILE"] = str(config_path)
-    env["OSPREY_CONFIG"] = str(config_path)
-    env["GRAPHDB_PASSWORD"] = GRAPHDB_TEST_PASSWORD
+    from osprey.deployment import container_lifecycle
+    from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    result = subprocess.run(
-        [sys.executable, "-m", "osprey.cli.main", "knowledge", "seed-graph"],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(render_dir(repo)),
-        timeout=600,
-    )
-    assert result.returncode == 0, (
-        f"osprey knowledge seed-graph failed (exit {result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr[-4000:]}"
-    )
-    assert "triples loaded" in result.stdout, (
-        f"seed-graph reported no import; the store may be empty:\n{result.stdout}"
-    )
-    return result.stdout
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    connection = container_lifecycle._graphdb_connection(config, repo)
+    container_lifecycle._bootstrap_and_seed_graphdb(config, repo, connection)
+    with graph_seeder.open_session(
+        connection.uri,
+        connection.username,
+        connection.password,
+        database=connection.database,
+    ) as session:
+        marker = graph_seeder.read_marker(session)
+    assert marker, "the deploy's staging step left no seed marker; the store may be empty"
+    return marker
 
 
 @pytest.fixture(scope="module")
@@ -401,7 +392,7 @@ def graph_project(
         monkeypatch.setenv("GRAPHDB_PASSWORD", GRAPHDB_TEST_PASSWORD)
         _assert_graph_is_rendered(repo)
         _point_project_at_the_store(repo, graph_store_port)
-        logger.info("seed-graph: %s", _seed_demo_corpus(repo).strip().replace("\n", " | "))
+        logger.info("graph seeded: marker %s", _seed_demo_corpus(repo))
         yield repo
     finally:
         monkeypatch.undo()

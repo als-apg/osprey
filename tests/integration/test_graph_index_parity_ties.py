@@ -169,8 +169,8 @@ def ties_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
     is already there, and a second corpus in the demo store would move every
     count the module beside this one asserts.
 
-    The seeding goes through the real seeder, which is the path ``osprey
-    knowledge seed-graph`` takes. It yields the store watched: a seeding step
+    The seeding goes through the real seeder, which is the path ``osprey up``
+    takes. It yields the store watched: a seeding step
     that gets no answer fails at once, and a later read that gets none waits
     for the store to answer again, failing naming this store and the state its
     container was in only when it does not.

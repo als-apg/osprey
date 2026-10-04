@@ -14,7 +14,7 @@ way a facility is installed:
 * nothing is lost between the export and the artifacts — the channel strings
   the reviewer's answers keep, the corpus's ``fullPv`` literals and the channel
   database's channels are one set, and the binding count agrees between the
-  corpus, the judged census and ``knowledge build-index``;
+  corpus and the judged census;
 * every mapped family arrives in all three places a deployment reads it (the
   channel database, the corpus as a class-typed device population, and an OKF
   family page), carrying the prose and the types the agent answers from;
@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -632,20 +631,6 @@ def _full_pvs(graph: Graph) -> list[str]:
     return [str(value) for value in graph.objects(None, URIRef(f"{NARAD_P}fullPv"))]
 
 
-def _build_index_counts(ttl: Path, output: Path) -> dict[str, int]:
-    """Run ``knowledge build-index`` on a corpus and read back what it reports."""
-    result = _run("knowledge", "build-index", "--ttl", str(ttl), "--output", str(output))
-    # Rich wraps the report line at the console width; the counts survive the
-    # wrap, the line breaks do not.
-    flat = " ".join(result.output.split())
-    counts = {}
-    for name in ("bindings",):
-        match = re.search(rf"([\d,]+) {name}", flat)
-        assert match, f"build-index reported no {name} count:\n{result.output}"
-        counts[name] = int(match.group(1).replace(",", ""))
-    return counts
-
-
 def _binding_field(graph: Graph, binding: URIRef) -> str:
     """The field name a binding's ``bindingId`` ends in.
 
@@ -887,11 +872,6 @@ class TestZeroLoss:
 
         assert len(_bindings(chain.graph)) == expected
         assert len(_full_pvs(chain.graph)) == expected
-
-    def test_build_index_counts_the_same_bindings(self, chain: Chain, tmp_path: Path) -> None:
-        counts = _build_index_counts(chain.ttl, tmp_path / "index.json")
-
-        assert counts["bindings"] == _census_bindings(chain.root, chain.mapping)
 
     def test_the_profile_lists_every_shared_pv_with_all_its_owners(self, chain: Chain) -> None:
         shared = {
@@ -1453,8 +1433,6 @@ def test_the_als_export_chains_to_its_pinned_counts(tmp_path: Path) -> None:
     assert _census_bindings(chain.root, chain.mapping) == ALS_BINDINGS
     assert len(_bindings(chain.graph)) == ALS_BINDINGS
     assert len(_kept_addresses(chain.ao, chain.document)) == ALS_DISTINCT_PVS
-    counts = _build_index_counts(chain.ttl, tmp_path / "index.json")
-    assert counts == {"bindings": ALS_BINDINGS}
     for record in chain.passes:
         assert record.duck["channels"] == ALS_DISTINCT_PVS
         assert record.duck["systems"] == len(chain.mapping.section_order)
