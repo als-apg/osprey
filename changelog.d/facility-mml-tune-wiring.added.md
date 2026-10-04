@@ -12,13 +12,13 @@ member's readback of a shared supply; wires a family with no stated hardware
 nominal from the deck where neither a turning conversion nor a series needs
 the nominal; carries a device's polarity on its slice where the deck holds the
 other sign; and seeds `scenarios/readout.yaml` once from the export's monitor
-readout, naming each readout it cannot carry. A monitor's gain and offset that
-the export's conversion holds are served through the wiring, so the Middle
-Layer's correction, Gain x (Raw - Offset), gives back the model's position; a
-gain or offset the conversion is not seen to hold is not carried. The draft mapping proposes the
-energy knob, a correcting dipole string and the cavity, and a signal role for
-each magnet current and monitor position field; the import writes that role on
-each channel and keys its group's sentence by it. A readback several
-setpoints share pairs none of them.
+readout, naming each readout it cannot carry. A monitor's offset that the
+export's conversion holds is served through the wiring, so the Middle Layer's
+correction, Gain x (Raw - Offset), gives back the model's position; an offset
+the conversion is not seen to hold, and a gain other than 1, is not carried.
+The draft mapping proposes the energy knob, a correcting dipole string and the
+cavity, and a signal role for each magnet current and monitor position field;
+the import writes that role on each channel and keys its group's sentence by
+it. A readback several setpoints share pairs none of them.
 
 A view stop on a record only `fixes.yaml` produced names `fixes.yaml`.
