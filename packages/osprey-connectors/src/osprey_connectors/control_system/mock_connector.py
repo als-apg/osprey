@@ -20,15 +20,34 @@ the texture and one physics child per served model whose engine is not
   write a subscription fires for its channel when the held value changed or
   the channel declares motion.
 
-``lume`` is imported in :meth:`MockConnector.connect` only.
+**Session writes.** Only :meth:`MockConnector.write_channel` journals: after
+the limits validator and a successful put it appends ``[seq, address, value]``
+to ``<simulation state dir>/mock/writes.json``, a document
+``{active_set_sha256, seq, writes}`` updated under ``flock`` on
+``writes.json.lock`` and replaced atomically. Every operation reads the active
+scenario set first, then the journal: when ``seq`` moved, the composite is
+reset and the journal applied as one write, provided every entry is a setpoint
+of the view, writable, inside its band, and was written under the current
+active set; otherwise nothing from it is applied and one line
+``writes journal rejected: <address>: <reason>`` is logged. A reset or a
+change of the active set empties the journal. The journal is the mock's alone:
+no hardware path reads it.
+
+``lume`` and the simulation package are imported when used, never at module import.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import fcntl
+import hashlib
 import inspect
 import json
-from collections.abc import Callable, Mapping
+import math
+import os
+import tempfile
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,9 +69,14 @@ if TYPE_CHECKING:
 logger = get_logger("mock_connector")
 
 __all__ = [
+    "JOURNAL_DIR",
+    "JOURNAL_FILE",
+    "JOURNAL_NOT_UPDATED",
+    "JOURNAL_REJECTED",
     "NO_VIEW_MESSAGE",
     "SIMULATOR_VIEW_SETTING",
     "MockConnector",
+    "active_set_sha256",
     "not_in_facility",
     "simulation_state_dir",
     "simulator_view_dir",
@@ -78,6 +102,20 @@ _VARIABLES_FILE = "variables.json"
 _SEEDS_FILE = "seeds.json"
 _LABELLED = ("bool", "enum")
 _REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
+
+#: The session-writes journal, under the simulation state directory.
+JOURNAL_DIR = "mock"
+JOURNAL_FILE = "writes.json"
+_JOURNAL_LOCK = f"{JOURNAL_FILE}.lock"
+
+#: The line a journal that is not replayed logs, before ``<address>: <reason>``.
+JOURNAL_REJECTED = "writes journal rejected"
+
+#: The line a write the journal could not record logs, before the error.
+JOURNAL_NOT_UPDATED = "writes journal not updated"
+
+#: Why an operation on a connector that is not connected is refused.
+NOT_CONNECTED = "mock connector is not connected"
 
 
 def not_in_facility(address: str) -> str:
@@ -152,6 +190,59 @@ def simulation_state_dir(view: Path) -> Path:
     return resolve_simulation_state_dir(config, root)
 
 
+def active_set_sha256(active: Sequence[str]) -> str:
+    """The digest a journal records for the active scenario set it was written under."""
+    return hashlib.sha256("\n".join(active).encode("utf-8")).hexdigest()
+
+
+class _Journal:
+    """The session-writes journal: read whole, replaced atomically under its lock."""
+
+    def __init__(self, state_dir: Path) -> None:
+        self.path = state_dir / JOURNAL_DIR / JOURNAL_FILE
+        self._lock = self.path.with_name(_JOURNAL_LOCK)
+
+    @contextlib.contextmanager
+    def locked(self) -> Iterator[None]:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._lock, "a", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def read(self) -> tuple[Any, str]:
+        """The parsed document and its text; ``(None, "")`` when there is none."""
+        try:
+            text = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None, ""
+        try:
+            return json.loads(text), text
+        except ValueError:
+            return None, text
+
+    def write(self, document: Mapping[str, Any]) -> None:
+        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=f".{JOURNAL_FILE}.")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(document, handle, sort_keys=True)
+            os.replace(tmp, self.path)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            raise
+
+
+def _seq(document: Any) -> int | None:
+    """A journal document's ``seq``, or ``None`` when it is not a journal."""
+    if not isinstance(document, dict) or not isinstance(document.get("writes"), list):
+        return None
+    seq = document.get("seq")
+    return seq if isinstance(seq, int) and not isinstance(seq, bool) else None
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     return document
@@ -176,6 +267,13 @@ class MockConnector(ControlSystemConnector):
         self._last_held: dict[str, Any] = {}
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_s = 1.0
+        self._channels: frozenset[str] = frozenset()
+        self._journal: _Journal | None = None
+        self._active_sha: str | None = None
+        self._journal_mark: int | str | None = None
+        self._state_file: Path | None = None
+        self._state_mark: int | None = None
+        self._holds_writes = False
 
     async def connect(self, config: dict[str, Any]) -> None:
         """Build the composite of the simulator view and start the tick.
@@ -218,9 +316,18 @@ class MockConnector(ControlSystemConnector):
             for address, seed in seeds.items()
             if seed and (seed.get("noise") or seed.get("drift"))
         )
-        self._composite = Composite(
-            view, state_dir=simulation_state_dir(view), instance="inprocess"
-        )
+        self._channels = frozenset(str(a) for a in addresses["channels"])
+        state_dir = simulation_state_dir(view)
+        self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
+        self._journal = _Journal(state_dir)
+        from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
+
+        self._state_file = state_dir / ACTIVE_SCENARIOS_FILENAME
+        self._state_mark = None
+        self._active_sha = None
+        self._journal_mark = None
+        self._holds_writes = False
+        self._sync()
         self._connected = True
         self._tick_task = asyncio.create_task(self._tick())
         logger.debug(f"Mock connector serving {view}")
@@ -237,8 +344,159 @@ class MockConnector(ControlSystemConnector):
         self._subscriptions.clear()
         self._last_held.clear()
         self._composite = None
+        self._records = {}
+        self._served = frozenset()
+        self._channels = frozenset()
+        self._moving = frozenset()
         self._connected = False
         logger.debug("Mock connector disconnected")
+
+    # -- the journal -----------------------------------------------------------
+
+    def _sync(self) -> None:
+        """Read the active set, then the journal; replay the journal when it moved."""
+        if self._composite is None or self._journal is None:
+            return
+        # The state file is looked at before the composite looks at it, so a
+        # rewrite between the two looks shows here on the next operation.
+        state_mark = self._state_stamp()
+        sha = active_set_sha256(self._composite.active)
+        rebuilt = state_mark != self._state_mark and self._active_sha is not None
+        self._state_mark = state_mark
+        if sha != self._active_sha:
+            changed = self._active_sha is not None
+            self._active_sha = sha
+            if changed:
+                self._holds_writes = False
+                self._truncate()
+                return
+        if rebuilt:
+            # The composite rebuilt from a rewrite of the same set and dropped
+            # the session writes; the journal still holds them.
+            self._holds_writes = False
+            self._journal_mark = None
+        document, text = self._journal.read()
+        seq = _seq(document)
+        mark: int | str = (0 if not text else text) if seq is None else seq
+        if mark == self._journal_mark:
+            return
+        self._journal_mark = mark
+        self._replay(document if seq is not None else None, text)
+
+    def _state_stamp(self) -> int | None:
+        """The ``active_scenarios`` file's mtime, ``None`` when there is none."""
+        if self._state_file is None:
+            return None
+        try:
+            return self._state_file.stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
+
+    def _replay(self, document: Mapping[str, Any] | None, text: str) -> None:
+        """Reset the composite and apply the journal as one write, when it is well formed."""
+        assert self._composite is not None
+        if self._holds_writes:
+            self._composite.reset()
+            self._holds_writes = False
+        if document is None:
+            if text:
+                logger.warning(f"{JOURNAL_REJECTED}: {JOURNAL_FILE}: not a journal")
+            return
+        writes = document["writes"]
+        if not writes:
+            return
+        rejection = self._rejection(document)
+        if rejection is not None:
+            logger.warning(f"{JOURNAL_REJECTED}: {rejection[0]}: {rejection[1]}")
+            return
+        replayed: dict[str, Any] = {}
+        for _seq_no, address, value in sorted(writes, key=lambda entry: entry[0]):
+            replayed[address] = value
+        try:
+            self._composite.set(replayed)
+        except Exception as exc:
+            self._composite.reset()
+            logger.warning(f"{JOURNAL_REJECTED}: {next(iter(replayed))}: {exc}")
+            return
+        self._holds_writes = True
+
+    def _rejection(self, document: Mapping[str, Any]) -> tuple[str, str] | None:
+        """The first address and reason that keep a journal from being replayed."""
+        writes = document["writes"]
+        for entry in writes:
+            if (
+                not isinstance(entry, list)
+                or len(entry) != 3
+                or not isinstance(entry[0], int)
+                or isinstance(entry[0], bool)
+                or not isinstance(entry[1], str)
+            ):
+                return JOURNAL_FILE, f"malformed entry {entry!r}"
+        if document.get("active_set_sha256") != self._active_sha:
+            return writes[0][1], "written under another active scenario set"
+        for _seq_no, address, value in writes:
+            record = self._records.get(address)
+            if record is None or address not in self._channels:
+                return address, "not in build/facility.json"
+            if record.get("role") != "setpoint":
+                return address, "not a setpoint"
+            if record.get("writable") is not True:
+                return address, NOT_WRITABLE
+            band = record.get("value_range")
+            if band:
+                low, high = band
+                number = value if isinstance(value, int | float) else None
+                if (
+                    number is None
+                    or isinstance(number, bool)
+                    or math.isnan(number)
+                    or (low is not None and number < low)
+                    or (high is not None and number > high)
+                ):
+                    return address, f"{value!r} is outside [{low}, {high}]"
+        return None
+
+    def _append(self, address: str, value: Any) -> None:
+        """Append one write the composite took, under the journal's lock."""
+        assert self._journal is not None
+        with self._journal.locked():
+            document, _text = self._journal.read()
+            seq = _seq(document)
+            synced = seq == self._journal_mark or (seq is None and self._journal_mark == 0)
+            writes: list[Any] = []
+            if seq is not None and document.get("active_set_sha256") == self._active_sha:
+                writes = list(document["writes"])
+            seq = (seq or 0) + 1
+            writes.append([seq, address, value])
+            self._journal.write(
+                {"active_set_sha256": self._active_sha, "seq": seq, "writes": writes}
+            )
+        self._holds_writes = True
+        # A journal another process moved since the last look is replayed on
+        # the next operation, this write with it.
+        self._journal_mark = seq if synced else None
+
+    def _truncate(self) -> None:
+        """Empty the journal under its lock, recording the current active set."""
+        assert self._journal is not None
+        with self._journal.locked():
+            document, _text = self._journal.read()
+            seq = (_seq(document) or 0) + 1
+            self._journal.write({"active_set_sha256": self._active_sha, "seq": seq, "writes": []})
+        self._journal_mark = seq
+
+    async def reset(self) -> None:
+        """Return the simulator to its start state and empty the journal.
+
+        Raises:
+            RuntimeError: The connector is not connected.
+        """
+        if self._composite is None:
+            raise RuntimeError(NOT_CONNECTED)
+        self._sync()
+        self._composite.reset()
+        self._holds_writes = False
+        self._truncate()
 
     # -- the view ------------------------------------------------------------
 
@@ -250,7 +508,7 @@ class MockConnector(ControlSystemConnector):
             RuntimeError: The connector is not connected.
         """
         if self._composite is None:
-            raise RuntimeError("mock connector is not connected")
+            raise RuntimeError(NOT_CONNECTED)
         if address not in self._served:
             raise ValueError(not_in_facility(address))
         return self._composite
@@ -322,6 +580,7 @@ class MockConnector(ControlSystemConnector):
             ValueError: The address is not in the built facility file.
         """
         await asyncio.sleep(self._response_delay)
+        self._sync()
         return self._reading(channel_address, held=False)
 
     async def _confirming_read(self, channel_address: str) -> ChannelValue:
@@ -332,6 +591,7 @@ class MockConnector(ControlSystemConnector):
         it here would manufacture a mismatch on every write.
         """
         await asyncio.sleep(self._response_delay)
+        self._sync()
         return self._reading(channel_address, held=True)
 
     def _current_value_reader(self) -> Callable[[str], Any] | None:
@@ -352,7 +612,9 @@ class MockConnector(ControlSystemConnector):
         Raises:
             ValueError: The address is not in the built facility file.
         """
-        return self._metadata(channel_address, self._require(channel_address))
+        composite = self._require(channel_address)
+        self._sync()
+        return self._metadata(channel_address, composite)
 
     async def validate_channel(self, channel_address: str) -> bool:
         """Whether the built facility file holds the address."""
@@ -412,9 +674,13 @@ class MockConnector(ControlSystemConnector):
 
         Raises:
             ChannelLimitsViolationError: If limits validation fails (when enabled)
+            RuntimeError: The connector is not connected.
         """
-        if self._composite is None or channel_address not in self._served:
+        if self._composite is None:
+            raise RuntimeError(NOT_CONNECTED)
+        if channel_address not in self._served:
             return self._refused(channel_address, value, not_in_facility(channel_address))
+        self._sync()
         if self._composite.supported_variables[channel_address].read_only:
             return self._refused(
                 channel_address, value, f"Write to '{channel_address}' refused: {NOT_WRITABLE}"
@@ -467,6 +733,13 @@ class MockConnector(ControlSystemConnector):
                 outcome=WriteOutcome.FAILED,
                 error_message=f"Mock write failed: {e}",
             )
+        try:
+            self._append(channel_address, stored)
+        except OSError as exc:
+            # The composite holds the write; only its survival across
+            # connectors is lost.
+            self._holds_writes = True
+            logger.warning(f"{JOURNAL_NOT_UPDATED}: {exc}")
         await self._notify(before)
 
         if not confirm:
@@ -524,6 +797,7 @@ class MockConnector(ControlSystemConnector):
             ValueError: The address is not in the built facility file.
         """
         self._require(channel_address)
+        self._sync()
         sub_id = f"mock_{channel_address}_{id(callback)}"
         self._subscriptions[sub_id] = (channel_address, callback)
         self._last_held[channel_address] = self._held_value(channel_address)
@@ -569,6 +843,7 @@ class MockConnector(ControlSystemConnector):
         while True:
             await asyncio.sleep(self._tick_s)
             try:
+                self._sync()
                 await self._notify()
             except Exception as exc:
                 logger.warning(f"Mock tick failed: {exc}")
