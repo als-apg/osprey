@@ -25,7 +25,11 @@ from lume_pyat.simulator import PyATSimulator  # noqa: E402
 from osprey.services.virtual_accelerator.lattice.errors import (  # noqa: E402
     bpm_read as reference_bpm_read,
 )
-from osprey.simulation.engines.pyat_faults import magnet_cal, readout  # noqa: E402
+from osprey.simulation.engines.pyat_faults import (  # noqa: E402
+    magnet_cal,
+    readout,
+    supply_attribute,
+)
 from osprey.simulation.engines.pyat_variables import (  # noqa: E402
     EV_PER_GEV,
     variable_from_wiring,
@@ -200,8 +204,8 @@ class TestSupplyCalibration:
             record, deck_energy_gev=deck_energy(simulator), default_value=0.0
         )
         target = simulator.element(element)
-        target.supply_cal_factor = 1.3
-        target.supply_cal_offset = 2.0
+        setattr(target, supply_attribute(address, "cal_factor"), 1.3)
+        setattr(target, supply_attribute(address, "cal_offset"), 2.0)
 
         variable._set(simulator, 300.0)
 

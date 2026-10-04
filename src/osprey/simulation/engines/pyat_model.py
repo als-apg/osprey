@@ -19,9 +19,10 @@ carries ``offset``, ``gain``, ``noise`` and ``polarity`` on its own axis, and a
 monitor carries one ``roll``, on its x-axis readback or its only readback. A
 setpoint on ``PolynomB`` or ``KickAngle`` carries ``cal_factor`` and
 ``cal_offset``. Each fault is bound to an element attribute no pyAT pass
-method reads (``readout_<field>_<axis>``, ``readout_roll``,
-``supply_cal_factor``, ``supply_cal_offset``), so seeding or writing a fault
-changes what the element carries and never the orbit; applying it to a
+method reads (``readout_<field>_<axis>``, ``readout_roll``, and a setpoint's
+:func:`~osprey.simulation.engines.pyat_faults.supply_attribute` pair), so
+seeding or writing a fault changes what the element carries and never the
+orbit; applying it to a
 reading or to a commanded value is the readout's work. A seed is its
 variable's ``default_value`` and is written onto the element from that same
 value, so the two cannot disagree, and :meth:`reset` returns a fault to its
@@ -35,11 +36,11 @@ values; a noise width is a standard deviation and is never negative. A
 displacement, a noise width and a calibration offset are magnitudes asked for
 in the facility's own unit, and carry no other bound.
 
-**One element carries one calibration.** Setpoints that share an element,
-directly or through another setpoint, carry one calibration over all their
-elements, named after the first of them in the order given, and it scales
-them all, which is what a miscalibrated magnet does; an offset that shifts
-them all can only be in one unit, so they must agree on it.
+**Each setpoint carries its own calibration.** A calibration is the supply's,
+so it sits on the first element its setpoint binds, under attributes named
+for that setpoint: a family supply and a trim on one of its magnets, or the
+two planes of one corrector, are each miscalibrated alone, and a fault on one
+never rescales what another delivers.
 
 **Optics are read-only arrays, computed on read.** ``tunes`` (the two
 fractional transverse tunes), ``beta_at_monitors`` and ``orbit_at_monitors``
@@ -70,6 +71,7 @@ from lume_pyat.exceptions import UnknownElementError
 from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
 
+from osprey.simulation.engines.pyat_faults import SUPPLY_IDENTITY, supply_attribute
 from osprey.simulation.engines.pyat_variables import (
     KICK_ATTRIBUTE,
     CalibratedSetpoint,
@@ -98,10 +100,9 @@ FAULT_SEPARATOR = "/"
 #: The engine attributes whose setpoints carry a calibration fault.
 CALIBRATED_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", KICK_ATTRIBUTE})
 
-# Element-attribute prefix per fault kind. No pyAT pass method reads an
-# attribute under either, which is what keeps a fault off the orbit.
+# Element-attribute prefix of a readout fault. No pyAT pass method reads an
+# attribute under it, which is what keeps a fault off the orbit.
 _READOUT_PREFIX = "readout_"
-_SUPPLY_PREFIX = "supply_"
 
 #: The readout fields every monitor readback carries on its own axis, each at
 #: its identity: a monitor that reports the true orbit position exactly.
@@ -119,7 +120,7 @@ _ROLL_UNIT = "rad"
 
 #: The calibration fields a magnet setpoint carries, each at its identity: a
 #: magnet that delivers exactly what it was commanded.
-CALIBRATION_IDENTITY: dict[str, float] = {"cal_factor": 1.0, "cal_offset": 0.0}
+CALIBRATION_IDENTITY: dict[str, float] = SUPPLY_IDENTITY
 
 MIN_MONITOR_GAIN = 0.1
 MAX_MONITOR_GAIN = 10.0
@@ -220,62 +221,28 @@ def _monitor_faults(
 def _calibration_faults(
     channels: Iterable[Variable], seeds: Mapping[str, float]
 ) -> list[FaultVariable]:
-    """Declare one calibration per group of magnet setpoints sharing elements.
-
-    Setpoints that share any element, directly or through another setpoint,
-    form one group. The group's first setpoint in the order given names its
-    calibration, which binds every element of the group.
-
-    Raises:
-        ValueError: the setpoints of one group are commanded in different
-            units.
-    """
-    calibrated = [
-        variable
-        for variable in channels
-        if isinstance(variable, CalibratedSetpoint)
-        and variable.bindings[0].attribute in CALIBRATED_ATTRIBUTES
-    ]
-    # Each group is the positions of its setpoints, in the order given, and
-    # its elements, in the order first bound.
-    groups: list[tuple[list[int], dict[str, None]]] = []
-    for position, variable in enumerate(calibrated):
-        members = [position]
-        elements = dict.fromkeys(binding.element_name for binding in variable.bindings)
-        apart = []
-        for group in groups:
-            if elements.keys().isdisjoint(group[1]):
-                apart.append(group)
-            else:
-                members = [*group[0], *members]
-                elements = {**group[1], **elements}
-        groups = [*apart, (sorted(members), elements)]
-    groups.sort(key=lambda group: group[0][0])
-
+    """Declare each magnet setpoint's own calibration, on its first bound element."""
     faults: list[FaultVariable] = []
-    for members, elements in groups:
-        setpoints = [calibrated[position] for position in members]
-        units = {setpoint.unit for setpoint in setpoints}
-        if len(units) > 1:
-            raise ValueError(
-                f"the setpoints {sorted(setpoint.name for setpoint in setpoints)} share "
-                f"elements of {sorted(elements)} but are commanded in "
-                f"{sorted(unit or '<none>' for unit in units)}; one element carries one "
-                f"calibration, and an offset that shifts them all can only be in one unit"
-            )
-        owner = setpoints[0]
+    for variable in channels:
+        if not (
+            isinstance(variable, CalibratedSetpoint)
+            and variable.bindings[0].attribute in CALIBRATED_ATTRIBUTES
+        ):
+            continue
         for field, identity in CALIBRATION_IDENTITY.items():
-            name = _fault_name(owner.name, field)
+            name = _fault_name(variable.name, field)
             faults.append(
                 PyATWritableScalarVariable(
                     name=name,
                     bindings=[
-                        ElementBinding(element_name=element, attribute=_SUPPLY_PREFIX + field)
-                        for element in elements
+                        ElementBinding(
+                            element_name=variable.bindings[0].element_name,
+                            attribute=supply_attribute(variable.name, field),
+                        )
                     ],
                     default_value=seeds.get(name, identity),
                     value_range=FAULT_BOUNDS.get(field),
-                    unit=owner.unit if field == "cal_offset" else None,
+                    unit=variable.unit if field == "cal_offset" else None,
                     default_validation_config=ConfigEnum.ERROR,
                 )
             )
@@ -366,9 +333,8 @@ class PyATLatticeModel(LUMEPyATModel):
                 ``roll``, all optional), applied once before the boot solve.
 
         Raises:
-            ValueError: a seed names a fault the model does not declare, a
-                fault or optics name is already a channel address, or the
-                setpoints sharing a calibration disagree on their unit.
+            ValueError: a seed names a fault the model does not declare, or a
+                fault or optics name is already a channel address.
             pydantic.ValidationError: a seed lies outside its field's bounds,
                 or a polarity seed is neither of its two values.
             UnknownElementError: a variable binds an element the lattice does

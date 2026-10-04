@@ -11,9 +11,11 @@ roll conventions are pySC's:
 
 **The faults live on the deck elements.** A monitor element carries
 ``readout_<field>_x`` and ``readout_<field>_y`` for ``offset``, ``gain``,
-``noise`` and ``polarity``, and one ``readout_roll``; a magnet element carries
-``supply_cal_factor`` and ``supply_cal_offset``. An attribute the element does
-not carry is its identity value, so an unseeded deck reads and writes exactly.
+``noise`` and ``polarity``, and one ``readout_roll``. A magnet setpoint's
+supply calibration sits on the first element it binds, under attributes named
+for the setpoint (:func:`supply_attribute`), so setpoints that share an
+element each keep their own. An attribute the element does not carry is its
+identity value, so an unseeded deck reads and writes exactly.
 
 **The reading is split from the solve.** A monitor variable returns the solved
 truth; :func:`readout` turns truth -- plus whatever beam motion the caller has
@@ -38,9 +40,11 @@ READOUT_IDENTITY: dict[str, float] = {
     "noise": 0.0,
 }
 
-#: The supply calibration attributes, each with the value it reads when absent.
-SUPPLY_CAL_FACTOR = "supply_cal_factor"
-SUPPLY_CAL_OFFSET = "supply_cal_offset"
+#: The supply calibration fields a magnet setpoint carries, each at its
+#: identity: a supply that delivers exactly what it was commanded.
+SUPPLY_IDENTITY: dict[str, float] = {"cal_factor": 1.0, "cal_offset": 0.0}
+
+_SUPPLY_PREFIX = "supply_"
 
 #: The subkey that makes a reading's noise stream its own.
 NOISE_SUBKEY = b":readout_noise"
@@ -126,18 +130,35 @@ def magnet_cal(setpoint: float, *, factor: float = 1.0, offset: float = 0.0) -> 
     return setpoint * factor + offset
 
 
-def supply_calibration(element: Any) -> dict[str, float]:
-    """:func:`magnet_cal`'s ``factor`` and ``offset`` as ``element`` holds them.
+def supply_attribute(setpoint: str, field: str) -> str:
+    """The element attribute that holds one field of a setpoint's supply calibration.
+
+    No pyAT pass method reads it, so a calibration on the element never moves
+    the orbit by itself.
 
     Args:
-        element: A deck element.
+        setpoint: The setpoint's address.
+        field: ``cal_factor`` or ``cal_offset``.
+
+    Returns:
+        ``supply_<field>[<setpoint>]``.
+    """
+    return f"{_SUPPLY_PREFIX}{field}[{setpoint}]"
+
+
+def supply_calibration(element: Any, setpoint: str) -> dict[str, float]:
+    """:func:`magnet_cal`'s ``factor`` and ``offset`` for one setpoint, as ``element`` holds them.
+
+    Args:
+        element: The deck element the setpoint's calibration sits on.
+        setpoint: The setpoint's address.
 
     Returns:
         The two keywords, each at identity where the element carries none.
     """
     return {
-        "factor": float(getattr(element, SUPPLY_CAL_FACTOR, 1.0)),
-        "offset": float(getattr(element, SUPPLY_CAL_OFFSET, 0.0)),
+        keyword: float(getattr(element, supply_attribute(setpoint, field), SUPPLY_IDENTITY[field]))
+        for keyword, field in (("factor", "cal_factor"), ("offset", "cal_offset"))
     }
 
 
@@ -237,10 +258,10 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
 
 __all__ = [
     "READOUT_IDENTITY",
-    "SUPPLY_CAL_FACTOR",
-    "SUPPLY_CAL_OFFSET",
+    "SUPPLY_IDENTITY",
     "bpm_read",
     "magnet_cal",
     "readout",
+    "supply_attribute",
     "supply_calibration",
 ]

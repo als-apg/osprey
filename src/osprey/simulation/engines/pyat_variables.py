@@ -326,13 +326,14 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
     def _physics(self, simulator: PyATSimulator, value: float) -> float:
         """The physics value ``value`` is worth at the lattice's present energy.
 
-        The supply calibration of the first bound element acts on the
-        commanded value first: a miscalibrated supply delivers a different
-        hardware value, which the record's own calibration then converts. An
-        element carrying none delivers what was commanded.
+        This setpoint's own supply calibration, held on its first bound
+        element, acts on the commanded value first: a miscalibrated supply
+        delivers a different hardware value, which the record's own
+        calibration then converts. A setpoint whose element carries none
+        delivers what was commanded.
         """
         element = simulator.element(self.bindings[0].element_name)
-        delivered = magnet_cal(value, **supply_calibration(element))
+        delivered = magnet_cal(value, **supply_calibration(element, self.name))
         return to_physics(self.calibration, delivered) * self._rigidity_factor(simulator)
 
     def _rigidity_factor(self, simulator: PyATSimulator) -> float:
