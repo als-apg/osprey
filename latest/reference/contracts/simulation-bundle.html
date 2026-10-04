@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 03, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
   </head>
   
   
@@ -579,7 +579,8 @@ channel whose baseline is <code class="docutils literal notranslate"><span class
 names such channels once in its log. That is a warning, not a refusal.</p>
 <p>A live read of a numeric channel starts from its effective value: a value
 written during the session, else the active scenario’s override, else the
-baseline. It then adds the texture, applies the relative noise, adds the
+baseline. It then adds the texture and any shared-driver couplings
+(<a class="reference internal" href="#simulation-bundle-drivers"><span class="std std-ref">Shared drivers</span></a>), applies the relative noise, adds the
 absolute noise, and clamps into <code class="docutils literal notranslate"><span class="pre">min</span></code>/<code class="docutils literal notranslate"><span class="pre">max</span></code>. The clamp applies to what is
 read out, never to what is stored: overrides and writes are kept as given.
 Synthesized archiver history builds on the baseline and the active scenario’s
@@ -640,11 +641,15 @@ defaults to an empty list (<a class="reference internal" href="#simulation-bundl
 <td><p>Deploy-time lattice faults for the Virtual Accelerator
 (<a class="reference internal" href="#simulation-bundle-physics"><span class="std std-ref">physics</span></a>).</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">drivers</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code>, <code class="docutils literal notranslate"><span class="pre">noise</span></code></p></td>
+<td><p>Shared slow causes that several channels follow, and per-channel noise
+replacements (<a class="reference internal" href="#simulation-bundle-drivers"><span class="std std-ref">Shared drivers</span></a>).</p></td>
+</tr>
 </tbody>
 </table>
 </div>
-<p>Every channel named under <code class="docutils literal notranslate"><span class="pre">overrides</span></code> or <code class="docutils literal notranslate"><span class="pre">archiver</span></code> must be defined in
-<code class="docutils literal notranslate"><span class="pre">machine.json</span></code>. Unrecognised keys are ignored, so a note to the reader can sit
+<p>Every channel named under <code class="docutils literal notranslate"><span class="pre">overrides</span></code>, <code class="docutils literal notranslate"><span class="pre">archiver</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code> or <code class="docutils literal notranslate"><span class="pre">noise</span></code>
+must be defined in <code class="docutils literal notranslate"><span class="pre">machine.json</span></code>. Unrecognised keys are ignored, so a note to the reader can sit
 in a key of its own such as <code class="docutils literal notranslate"><span class="pre">_comment</span></code>. The type of an override is not checked
 against the channel’s: a number overriding a string-valued channel loads, and
 keeping the two consistent is the author’s responsibility.</p>
@@ -737,6 +742,69 @@ instant that can be written. The mock archiver can still draw an <code class="do
 event at read time, but a bundle meant to be applied uses <code class="docutils literal notranslate"><span class="pre">at_offset</span></code> or
 <code class="docutils literal notranslate"><span class="pre">at_time</span></code>, and the shipped bundles are held to that.</p>
 </div>
+</section>
+<section id="shared-drivers">
+<span id="simulation-bundle-drivers"></span><h2>Shared drivers<a class="headerlink" href="#shared-drivers" title="Link to this heading">#</a></h2>
+<p>Every channel’s texture and noise are keyed to that channel alone, so any two
+channels are uncorrelated. A scenario gives channels a common cause with three
+optional blocks:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;drivers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;cav01-thermal&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;wander&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;amplitude&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;period_s&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span><span class="p">}},</span>
+<span class="w">  </span><span class="nt">&quot;couple&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;SR:RF:CAVITY:01:TEMPERATURE:RB&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;driver&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cav01-thermal&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;gain&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">}],</span>
+<span class="w">    </span><span class="nt">&quot;SR:RF:CAVITY:01:POWER:REV&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="nt">&quot;driver&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;cav01-thermal&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;gain&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">2.5</span><span class="p">,</span>
+<span class="w">       </span><span class="nt">&quot;gain_wander&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;amplitude&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.8</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;period_s&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">900</span><span class="p">}}</span>
+<span class="w">    </span><span class="p">]</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;noise&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;SR:RF:CAVITY:01:POWER:REV&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;noise&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;noise_abs&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.75</span><span class="p">}}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Rule</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">drivers</span></code></p></td>
+<td><p>Mapping of driver name to <code class="docutils literal notranslate"><span class="pre">{&quot;kind&quot;,</span> <span class="pre">&quot;amplitude&quot;,</span> <span class="pre">&quot;period_s&quot;}</span></code>, all
+required, the same closed keys and rules as a channel’s <code class="docutils literal notranslate"><span class="pre">texture</span></code>.
+A driver is the same <code class="docutils literal notranslate"><span class="pre">wander</span></code> stack, keyed by the driver’s name
+instead of a channel’s, so it is a pure function of epoch time and
+every channel coupled to it sees the same value at the same instant.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">couple</span></code></p></td>
+<td><p>Mapping of channel name to a non-empty list of couplings
+<code class="docutils literal notranslate"><span class="pre">{&quot;driver&quot;,</span> <span class="pre">&quot;gain&quot;,</span> <span class="pre">&quot;gain_wander&quot;}</span></code>. <code class="docutils literal notranslate"><span class="pre">driver</span></code> must be declared in
+the same scenario’s <code class="docutils literal notranslate"><span class="pre">drivers</span></code> and appear once per channel; <code class="docutils literal notranslate"><span class="pre">gain</span></code>
+is a number in the channel’s units per unit of driver (negative
+anti-correlates). The optional <code class="docutils literal notranslate"><span class="pre">gain_wander</span></code> is
+<code class="docutils literal notranslate"><span class="pre">{&quot;amplitude&quot;,</span> <span class="pre">&quot;period_s&quot;}</span></code>, both greater than 0: the gain becomes
+<code class="docutils literal notranslate"><span class="pre">gain</span> <span class="pre">*</span> <span class="pre">(1</span> <span class="pre">+</span> <span class="pre">wander(t))</span></code>, keyed by channel and driver, so how
+strongly the channel follows the driver drifts over time.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">noise</span></code></p></td>
+<td><p>Mapping of channel name to <code class="docutils literal notranslate"><span class="pre">{&quot;noise&quot;,</span> <span class="pre">&quot;noise_abs&quot;}</span></code> (at least one,
+each ≥ 0), replacing the machine file’s value of that term while the
+scenario is active.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A coupled channel adds the sum of <code class="docutils literal notranslate"><span class="pre">gain</span> <span class="pre">*</span> <span class="pre">driver(t)</span></code> after its texture and
+before its noise, in live reads and in synthesized history alike, so history
+synthesized at a timestamp carries the same coupled term a live read at that
+timestamp does. Couplings and noise replacements are not seen through an
+<code class="docutils literal notranslate"><span class="pre">expr</span></code> reference on a live read (like texture) and do not reach a channel
+whose level the Virtual Accelerator’s lattice model owns, such as a BPM
+readback. On the Virtual Accelerator they reach the channels it serves from the
+engine; a readback that echoes its setpoint shows them only in history.</p>
 </section>
 <section id="physics">
 <span id="simulation-bundle-physics"></span><h2><code class="docutils literal notranslate"><span class="pre">physics</span></code><a class="headerlink" href="#physics" title="Link to this heading">#</a></h2>
@@ -831,8 +899,8 @@ one it is skipped, and <code class="docutils literal notranslate"><span class="p
 <span id="simulation-bundle-composition"></span><h2>Composition<a class="headerlink" href="#composition" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always active and always first. The other names keep the order
 given, with duplicates dropped.</p>
-<p>A scenario <em>touches</em> every channel it names under <code class="docutils literal notranslate"><span class="pre">overrides</span></code> and every
-channel it names in an <code class="docutils literal notranslate"><span class="pre">archiver</span></code> entry; an entry whose <code class="docutils literal notranslate"><span class="pre">events</span></code> list is
+<p>A scenario <em>touches</em> every channel it names under <code class="docutils literal notranslate"><span class="pre">overrides</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code>
+or <code class="docutils literal notranslate"><span class="pre">noise</span></code> and every channel it names in an <code class="docutils literal notranslate"><span class="pre">archiver</span></code> entry; an entry whose <code class="docutils literal notranslate"><span class="pre">events</span></code> list is
 empty <strong>still touches its channel</strong>. No two active scenarios may touch one
 channel. Because <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always active, a channel <code class="docutils literal notranslate"><span class="pre">nominal</span></code> touches is
 off limits to every other scenario.</p>
@@ -972,6 +1040,30 @@ message names.</p>
 </tr>
 <tr class="row-even"><td><p>A <code class="docutils literal notranslate"><span class="pre">corrector_gain</span></code> factor not a number</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">physics:</span> <span class="pre">corrector_gain['&lt;id&gt;']</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>A <code class="docutils literal notranslate"><span class="pre">drivers</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code> or <code class="docutils literal notranslate"><span class="pre">noise</span></code> block not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">'drivers'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code> (or <code class="docutils literal notranslate"><span class="pre">'couple'</span></code>,
+<code class="docutils literal notranslate"><span class="pre">'noise'</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p>A driver entry malformed: not a mapping, unknown or missing key,
+<code class="docutils literal notranslate"><span class="pre">kind</span></code> not <code class="docutils literal notranslate"><span class="pre">wander</span></code>, <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> or <code class="docutils literal notranslate"><span class="pre">period_s</span></code> not greater
+than 0</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">driver</span> <span class="pre">'&lt;id&gt;'</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Couple for an undefined or string-valued channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">couple</span> <span class="pre">for</span> <span class="pre">unknown</span> <span class="pre">channel</span></code> (or <code class="docutils literal notranslate"><span class="pre">couple</span> <span class="pre">for</span>
+<span class="pre">string-valued</span> <span class="pre">channel</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p>Couple entry malformed: empty list, unknown or missing key, unknown
+driver, a driver twice, <code class="docutils literal notranslate"><span class="pre">gain</span></code> not a number, bad <code class="docutils literal notranslate"><span class="pre">gain_wander</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">couple['&lt;ch&gt;']</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Noise replacement for an undefined or string-valued channel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">noise</span> <span class="pre">override</span> <span class="pre">for</span> <span class="pre">unknown</span> <span class="pre">channel</span></code> (or <code class="docutils literal notranslate"><span class="pre">for</span>
+<span class="pre">string-valued</span> <span class="pre">channel</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p>Noise replacement malformed: unknown key, empty, negative value</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;':</span> <span class="pre">noise['&lt;ch&gt;']</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>Logbook entry not a mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook:</span> <span class="pre">each</span> <span class="pre">entry</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
@@ -1240,6 +1332,7 @@ why.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenario-json"><code class="docutils literal notranslate"><span class="pre">scenario.json</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#event-scripts">Event scripts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shared-drivers">Shared drivers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#physics"><code class="docutils literal notranslate"><span class="pre">physics</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logbook-json"><code class="docutils literal notranslate"><span class="pre">logbook.json</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#composition">Composition</a></li>
