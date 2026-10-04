@@ -48,7 +48,11 @@ never rescales what another delivers.
 tunes: the two transverse ones, and the synchrotron tune third on a deck with
 longitudinal motion), ``chromaticity`` (one per tune), ``beta_at_monitors``
 and ``orbit_at_monitors`` (one ``(x, y)`` row per monitor element, in lattice
-order) sit beside the per-monitor readings. The base class re-reads every
+order) sit beside the per-monitor readings. A ``single_pass`` model solves a
+line by one tracked pass from its ``twiss_in``
+(:class:`~osprey.simulation.engines.pyat_single_pass.SinglePassSimulator`); a
+line has no tunes, so it declares neither ``tunes`` nor ``chromaticity``, and
+its orbit and beta functions are the ones that pass solved. The base class re-reads every
 read-only output after every solve, so a setpoint write would pay for an
 optics pass nobody asked for; these are left out of that re-read. The linear
 ones are computed together the first time one is read after a solve, then
@@ -78,7 +82,9 @@ from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
 from pydantic import ConfigDict
 
+from osprey.simulation.engines.pyat import SOLVES
 from osprey.simulation.engines.pyat_faults import SUPPLY_IDENTITY, supply_attribute
+from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
 from osprey.simulation.engines.pyat_variables import (
     KICK_ATTRIBUTE,
     CalibratedSetpoint,
@@ -164,6 +170,9 @@ LINEAR_OPTICS: frozenset[str] = frozenset({TUNES, BETA_AT_MONITORS, ORBIT_AT_MON
 OPTICS_NAMES: frozenset[str] = LINEAR_OPTICS | {CHROMATICITY}
 #: The optics arrays a readback reads one plane of.
 PLANE_OPTICS: frozenset[str] = frozenset({TUNES, CHROMATICITY})
+
+#: The two solves: a closed orbit, and one tracked pass through a line.
+PERIODIC, SINGLE_PASS = SOLVES
 
 FaultVariable = PyATWritableScalarVariable | PyATWritableEnumVariable
 
@@ -269,16 +278,24 @@ def _calibration_faults(
     return faults
 
 
-def _optics_variables(monitor_count: int, planes: int) -> list[PyATReadOnlyNDVariable]:
+def _optics_variables(monitor_count: int, planes: int, solve: str) -> list[PyATReadOnlyNDVariable]:
     """Declare the optics arrays.
 
-    The tunes and the chromaticity hold one value per plane; per-monitor
-    arrays hold one ``(x, y)`` row each.
+    The tunes and the chromaticity hold one value per plane, and only a
+    periodic model declares them; per-monitor arrays hold one ``(x, y)`` row
+    each.
     """
     per_monitor = (monitor_count, 2)
+    planar = (
+        [
+            PyATReadOnlyNDVariable(name=TUNES, shape=(planes,)),
+            PyATReadOnlyNDVariable(name=CHROMATICITY, shape=(planes,)),
+        ]
+        if solve == PERIODIC
+        else []
+    )
     return [
-        PyATReadOnlyNDVariable(name=TUNES, shape=(planes,)),
-        PyATReadOnlyNDVariable(name=CHROMATICITY, shape=(planes,)),
+        *planar,
         PyATReadOnlyNDVariable(name=BETA_AT_MONITORS, shape=per_monitor, unit="m"),
         PyATReadOnlyNDVariable(name=ORBIT_AT_MONITORS, shape=per_monitor, unit="m"),
     ]
@@ -320,19 +337,25 @@ class ReadbackVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
         )
 
 
-def _check_readbacks(channels: Iterable[Variable], planes: int) -> None:
+def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> None:
     """Refuse a readback whose source the model does not serve.
 
     Raises:
         ValueError: a readback names a source that is neither a setpoint
-            among ``channels`` nor ``tunes``/``chromaticity``, or an optics
-            plane the deck does not have.
+            among ``channels`` nor ``tunes``/``chromaticity``, an optics
+            plane the deck does not have, or ``tunes``/``chromaticity`` on a
+            single-pass model.
     """
     setpoints = {variable.name for variable in channels if isinstance(variable, CalibratedSetpoint)}
     for variable in channels:
         if not isinstance(variable, ReadbackVariable) or variable.source is None:
             continue
         if variable.source in PLANE_OPTICS:
+            if solve != PERIODIC:
+                raise ValueError(
+                    f"readback {variable.name} reads {variable.source}; a single_pass model "
+                    "serves no tunes or chromaticity"
+                )
             if variable.component is None or not 0 <= variable.component < planes:
                 raise ValueError(
                     f"readback {variable.name} reads {variable.source} plane "
@@ -400,6 +423,8 @@ class PyATLatticeModel(LUMEPyATModel):
         *,
         faults: Mapping[str, float] | None = None,
         element_misalignments: Mapping[str, Mapping[str, float]] | None = None,
+        solve: str = PERIODIC,
+        twiss_in: Mapping[str, np.ndarray] | None = None,
     ) -> None:
         """Adopt the wired variables, declare their faults, and solve once.
 
@@ -417,17 +442,29 @@ class PyATLatticeModel(LUMEPyATModel):
             element_misalignments: Element ``FamName`` -> kwargs for
                 :func:`~lume_pyat.utils.apply_misalignment` (``dx``/``dy``/
                 ``roll``, all optional), applied once before the boot solve.
+            solve: ``periodic`` solves the closed orbit; ``single_pass``
+                tracks one pass through a line from ``twiss_in``.
+            twiss_in: pyAT's initial conditions, as ``prepare`` normalises
+                them; read by a ``single_pass`` model only.
 
         Raises:
-            ValueError: a seed names a fault the model does not declare, or a
-                fault or optics name is already a channel address.
+            ValueError: a seed names a fault the model does not declare, a
+                fault or optics name is already a channel address, ``solve``
+                is neither of its two values, a ``single_pass`` model has no
+                ``twiss_in``, or a single-pass readback reads the tunes or
+                the chromaticity.
             pydantic.ValidationError: a seed lies outside its field's bounds,
                 or a polarity seed is neither of its two values.
             UnknownElementError: a variable binds an element the lattice does
                 not have.
             OrbitSolveError: the lattice as handed over, with its
-                misalignments, has no stable closed orbit.
+                misalignments, has no stable closed orbit, or loses the
+                single-pass particle.
         """
+        if solve not in SOLVES:
+            raise ValueError(f"solve is {solve!r}; use {' or '.join(SOLVES)}")
+        if solve == SINGLE_PASS and twiss_in is None:
+            raise ValueError("a single_pass model needs twiss_in")
         channels = list(channels)
         seeds = dict(faults or {})
         for variable in channels:
@@ -447,25 +484,29 @@ class PyATLatticeModel(LUMEPyATModel):
                 f"{sorted(CALIBRATION_IDENTITY)}"
             )
         planes = tune_planes(lattice)
-        _check_readbacks(channels, planes)
-        optics = _optics_variables(len(monitors), planes)
+        _check_readbacks(channels, planes, solve)
+        optics = _optics_variables(len(monitors), planes, solve)
         _refuse_name_collisions(channels, [*declared, *optics])
         _seed_fault_attributes(lattice, declared)
 
         # lume's ActionVariable is a union of hinting stubs in lume/actions.py
         # that no variable class inherits.
         variables: list[ActionVariable[PyATSimulator]] = [*channels, *declared, *optics]  # type: ignore[list-item]
-        super().__init__(
-            simulator=PyATSimulator(
-                lattice,
-                element_misalignments=(
-                    None
-                    if element_misalignments is None
-                    else {name: dict(kwargs) for name, kwargs in element_misalignments.items()}
-                ),
-            ),
-            action_variables=variables,
+        misalignments = (
+            None
+            if element_misalignments is None
+            else {name: dict(kwargs) for name, kwargs in element_misalignments.items()}
         )
+        simulator = (
+            PyATSimulator(lattice, element_misalignments=misalignments)
+            if solve == PERIODIC
+            else SinglePassSimulator(
+                lattice,
+                twiss_in=twiss_in,  # type: ignore[arg-type]
+                element_misalignments=misalignments,
+            )
+        )
+        super().__init__(simulator=simulator, action_variables=variables)
 
         #: The variables this model declares that no channel addresses: the
         #: faults and the optics.
@@ -473,6 +514,9 @@ class PyATLatticeModel(LUMEPyATModel):
             variable.name for variable in (*declared, *optics)
         )
         self._fault_names: frozenset[str] = frozenset(fault.name for fault in declared)
+        #: ``periodic`` or ``single_pass``.
+        self.solve: str = solve
+        self._optics_names: frozenset[str] = frozenset(variable.name for variable in optics)
 
         # Sorted by lattice index, so row i of every per-monitor optics array
         # is the i-th monitor along the lattice.
@@ -543,7 +587,7 @@ class PyATLatticeModel(LUMEPyATModel):
             UnknownElementError: a name is not a variable of this model.
         """
         readbacks = {name: self._readbacks[name] for name in names if name in self._readbacks}
-        wanted = {name for name in names if name in OPTICS_NAMES}
+        wanted = {name for name in names if name in self._optics_names}
         wanted.update(
             readback.source for readback in readbacks.values() if readback.source in PLANE_OPTICS
         )
@@ -555,11 +599,11 @@ class PyATLatticeModel(LUMEPyATModel):
         if CHROMATICITY in wanted:
             arrays[CHROMATICITY] = self._chromaticity()
         cached = super()._get(
-            [name for name in names if name not in OPTICS_NAMES and name not in readbacks]
+            [name for name in names if name not in wanted and name not in readbacks]
         )
         values: dict[str, Any] = {}
         for name in names:
-            if name in OPTICS_NAMES:
+            if name in wanted:
                 values[name] = arrays[name].copy()
             elif name in readbacks:
                 values[name] = self._readback(readbacks[name], arrays)
@@ -586,19 +630,31 @@ class PyATLatticeModel(LUMEPyATModel):
         object, not merely its ``id``, so it cannot be freed and its id handed
         to a later solve.
 
+        A single-pass model's beta functions are the ones its solve
+        propagated from ``twiss_in``, and it has no tunes.
+
         Raises:
             OrbitSolveError: no solve has succeeded yet.
         """
         solution = self.simulator.last_solution
         if self._optics_memo is not None and self._optics_memo[0] is solution:
             return self._optics_memo[1]
+        orbit = np.array([solution[element] for element in self._monitor_order], dtype=np.float64)
+        if self.solve == SINGLE_PASS:
+            optics = {
+                BETA_AT_MONITORS: np.array(
+                    [solution.beta[element] for element in self._monitor_order],  # type: ignore[attr-defined]
+                    dtype=np.float64,
+                ),
+                ORBIT_AT_MONITORS: orbit,
+            }
+            self._optics_memo = (solution, optics)
+            return optics
         _, lattice_data, element_data = at.get_optics(self.lattice, refpts=self._monitor_refpts)
         optics = {
             TUNES: np.array(lattice_data.tune[: self._planes], dtype=np.float64),
             BETA_AT_MONITORS: np.array(element_data.beta, dtype=np.float64),
-            ORBIT_AT_MONITORS: np.array(
-                [solution[element] for element in self._monitor_order], dtype=np.float64
-            ),
+            ORBIT_AT_MONITORS: orbit,
         }
         self._optics_memo = (solution, optics)
         return optics

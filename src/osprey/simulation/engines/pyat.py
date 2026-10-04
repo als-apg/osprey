@@ -652,6 +652,10 @@ def build(
       ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
       unless its attribute is a deck property such as ``energy``.
 
+    The settings' ``solve`` picks the solve: ``periodic`` solves the closed
+    orbit; ``single_pass`` tracks one pass through the line from
+    ``twiss_in`` and serves no tunes or chromaticity.
+
     The model drives its own copy of the deck, so the deck a later call loads
     is never the one a model has written to. Every other key of ``active``
     is a fault seed, ``<address>/<field>``, written onto its element before the
@@ -677,11 +681,12 @@ def build(
             refuses, or for a record naming no element that reads no plane of
             the tunes or the chromaticity.
         ValueError: an entry cannot be built as a variable, a default or an
-            active value lies outside its ``value_range``, or a key of
-            ``active`` names no setpoint and no fault of the model.
+            active value lies outside its ``value_range``, a key of
+            ``active`` names no setpoint and no fault of the model, or a
+            ``single_pass`` model wires a tune or chromaticity record.
         pydantic.ValidationError: a fault seed lies outside its bounds.
         OrbitSolveError: the deck, or the deck at the active scenario, has no
-            stable solve.
+            stable solve, or loses the single-pass particle.
     """
     from osprey.simulation.engines.pyat_model import (
         PyATLatticeModel,
@@ -690,7 +695,7 @@ def build(
     )
     from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
 
-    prepare(deck, settings, model=model)
+    prepared = prepare(deck, settings, model=model)
     lattice = _load(deck).lattice.deepcopy()
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     planes = tune_planes(lattice)
@@ -736,7 +741,9 @@ def build(
             channels.append(variable)
 
     faults = {name: float(value) for name, value in active.items() if name not in writes}
-    built = PyATLatticeModel(lattice, channels, faults=faults)
+    built = PyATLatticeModel(
+        lattice, channels, faults=faults, solve=prepared.solve, twiss_in=prepared.twiss_in
+    )
     built.reset()
     return built
 
