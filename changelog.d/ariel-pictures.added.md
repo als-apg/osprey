@@ -10,6 +10,8 @@ the query text. The agent's `attachment_view` tool returns one stored picture.
 The `control-assistant` and `ariel-standalone` presets turn all three on; each
 picture module runs when its server and model answer and is otherwise skipped,
 with `osprey ariel status` naming the skipped module and why.
+A simulation scenario's logbook entries can carry pictures (`attachments`), and
+three of the control-assistant demo entries now do.
 
 Upgrade notes: an existing `profile.yml` does not gain the new keys, so the
 picture modules stay off until they are added (`osprey validate` lists them as

@@ -7,9 +7,75 @@ straight from the parsed bundles (no DB), so a misfiled entry or a malformed
 relative timestamp is caught here rather than in the expensive e2e judge layer.
 """
 
+import json
+import struct
 from datetime import time as dtime
 
+import pytest
+from PIL import Image
+
+from osprey.simulation.machine import parse_machine
 from osprey.utils.relative_time import RelativeTimestamp
+from tests.simulation.conftest import TEMPLATE_SIM
+
+#: Upper bound on a shipped picture: the bundle travels in every wheel and image.
+_MAX_PICTURE_BYTES = 80 * 1024
+
+
+def _shipped_pictures() -> dict[str, tuple]:
+    """Entry id -> picture paths, for every shipped entry that carries pictures."""
+    machine_path = TEMPLATE_SIM / "machine.json"
+    parsed = parse_machine(json.loads(machine_path.read_text()), machine_path)
+    return {
+        entry.entry_id: entry.attachments
+        for scenario in parsed.scenarios.values()
+        for entry in scenario.logbook
+        if entry.attachments
+    }
+
+
+def _png_chunk_types(data: bytes) -> list[bytes]:
+    chunks, offset = [], 8
+    while offset < len(data):
+        (length,) = struct.unpack(">I", data[offset : offset + 4])
+        chunks.append(data[offset + 4 : offset + 8])
+        offset += 12 + length
+    return chunks
+
+
+class TestShippedPictures:
+    def test_the_pictured_entries(self):
+        pictures = _shipped_pictures()
+        assert {entry_id: [p.name for p in paths] for entry_id, paths in pictures.items()} == {
+            "DEMO-011": ["orbit_rms_week.png"],
+            "DEMO-027": ["cavity_temperatures_week.png"],
+            "DEMO-031": ["corrector_bump_test.png"],
+        }
+
+    @pytest.mark.parametrize("entry_id", ["DEMO-011", "DEMO-027", "DEMO-031"])
+    def test_each_picture_is_a_small_clean_png(self, entry_id):
+        for path in _shipped_pictures()[entry_id]:
+            data = path.read_bytes()
+            assert len(data) < _MAX_PICTURE_BYTES, f"{path.name} is {len(data)} bytes"
+            with Image.open(path) as image:
+                image.verify()
+                assert image.format == "PNG"
+            text_chunks = {b"tEXt", b"iTXt", b"zTXt", b"tIME"} & set(_png_chunk_types(data))
+            assert not text_chunks, f"{path.name} carries metadata chunks {text_chunks}"
+
+    def test_the_reversed_bpm_is_named_only_in_the_picture(self):
+        spec = json.loads((TEMPLATE_SIM / "scenarios/bpm-polarity/scenario.json").read_text())
+        reversed_bpms = [
+            name for name, err in spec["physics"]["bpm_errors"].items() if err["polarity"] == -1
+        ]
+        entries = json.loads((TEMPLATE_SIM / "scenarios/bpm-polarity/logbook.json").read_text())
+        for entry in entries:
+            words = " ".join([entry["title"], entry["text"], *entry["tags"]]).upper()
+            for name in reversed_bpms:
+                number = name.removeprefix("BPM")
+                assert name not in words.replace(" ", "")
+                assert f"BPM {number}" not in words
+                assert f"BPM {int(number)}" not in words
 
 
 class TestLogbookOwnership:

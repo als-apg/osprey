@@ -610,6 +610,82 @@ class TestLogbookTimeRefusal:
         assert "at_time" not in str(info.value)
 
 
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+
+
+class TestLogbookAttachments:
+    """An entry's ``attachments`` names pictures inside its scenario directory."""
+
+    @staticmethod
+    def _bundle(tmp_path: Path, attachments, files: dict[str, bytes] | None = None) -> Path:
+        bundle = tmp_path / "scenarios" / "fault"
+        bundle.mkdir(parents=True)
+        (bundle / "scenario.json").write_text("{}")
+        for rel, data in (files or {}).items():
+            (bundle / rel).parent.mkdir(parents=True, exist_ok=True)
+            (bundle / rel).write_bytes(data)
+        entry = {
+            "entry_id": "E1",
+            "when": {"days_ago": 1, "time": "08:00:00"},
+            "author": "a",
+            "title": "t",
+            "text": "x",
+            "attachments": attachments,
+        }
+        (bundle / "logbook.json").write_text(json.dumps([entry]))
+        return bundle
+
+    def _load_error(self, tmp_path: Path) -> str:
+        with pytest.raises(ValueError) as info:
+            load_scenario_bundles(tmp_path / "scenarios", {})
+        return str(info.value)
+
+    def test_picture_resolves_to_a_file_in_the_bundle(self, tmp_path):
+        bundle = self._bundle(tmp_path, [{"path": "plots/a.png"}], {"plots/a.png": _PNG})
+        entry = load_scenario_bundles(tmp_path / "scenarios", {})["fault"].logbook[0]
+        assert entry.attachments == ((bundle / "plots" / "a.png").resolve(),)
+
+    def test_entry_without_attachments_carries_none(self, tmp_path):
+        bundle = self._bundle(tmp_path, [])
+        raw = json.loads((bundle / "logbook.json").read_text())
+        del raw[0]["attachments"]
+        (bundle / "logbook.json").write_text(json.dumps(raw))
+        entry = load_scenario_bundles(tmp_path / "scenarios", {})["fault"].logbook[0]
+        assert entry.attachments == ()
+
+    def test_unknown_key_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "a.png", "caption": "orbit"}], {"a.png": _PNG})
+        message = self._load_error(tmp_path)
+        assert "Scenario 'fault' logbook entry 'E1'" in message
+        assert "unknown keys ['caption']" in message
+
+    def test_missing_file_names_the_path(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "plots/gone.png"}])
+        message = self._load_error(tmp_path)
+        assert "'plots/gone.png' not found" in message
+
+    def test_non_image_suffix_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "notes.txt"}], {"notes.txt": b"hello"})
+        assert "'notes.txt' is not a picture" in self._load_error(tmp_path)
+
+    def test_image_suffix_without_image_data_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "fake.png"}], {"fake.png": b"not a png at all"})
+        assert "'fake.png' does not hold .png image data" in self._load_error(tmp_path)
+
+    @pytest.mark.parametrize("rel", ["../outside.png", "/etc/outside.png"])
+    def test_path_outside_the_bundle_is_refused(self, tmp_path, rel):
+        (tmp_path / "scenarios").mkdir()
+        (tmp_path / "scenarios" / "outside.png").write_bytes(_PNG)
+        self._bundle(tmp_path, [{"path": rel}])
+        assert "must be relative to the scenario directory" in self._load_error(tmp_path)
+
+    @pytest.mark.parametrize("raw", ["a.png", {"path": "a.png"}])
+    def test_attachments_must_be_a_list_of_mappings(self, tmp_path, raw):
+        self._bundle(tmp_path, raw if isinstance(raw, dict) else [raw], {"a.png": _PNG})
+        message = self._load_error(tmp_path)
+        assert "'attachments' must be a list" in message or "must be a mapping" in message
+
+
 class TestReadMachineJson:
     def test_syntax_error_names_the_file_and_position(self, tmp_path):
         path = tmp_path / "machine.json"

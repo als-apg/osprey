@@ -1010,6 +1010,46 @@ class TestSeedLogbookEntries:
         )
         repo.fail_ingestion_run.assert_not_awaited()
 
+    async def test_pictures_are_stored_natively_and_linked_on_their_entry(
+        self, monkeypatch, tmp_path
+    ):
+        """Each picture goes through the native store after its row exists, and the
+        row is written again carrying the returned items; other rows are untouched."""
+        import osprey.services.ariel_search.attachments as attachments
+
+        repo = MagicMock()
+        repo.start_ingestion_run = AsyncMock(return_value="run-3")
+        repo.upsert_entry = AsyncMock()
+        repo.complete_ingestion_run = AsyncMock()
+        repo.fail_ingestion_run = AsyncMock()
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        stored: list[tuple[str, str, str | None, bytes]] = []
+
+        async def _store(repository, entry_id, *, filename, declared_mime, data):
+            assert repository is repo
+            stored.append((entry_id, filename, declared_mime, data))
+            return {"url": f"/api/attachments/att-{len(stored)}", "type": declared_mime}
+
+        monkeypatch.setattr(attachments, "store_native_attachment", _store)
+        picture = tmp_path / "trend.png"
+        picture.write_bytes(b"\x89PNG\r\n\x1a\nbody")
+        entries = [
+            {"entry_id": "E1", "attachments": []},
+            {"entry_id": "E2", "attachments": []},
+        ]
+
+        count = await ops.seed_logbook_entries(dict(_DB), entries, pictures={"E2": [picture]})
+
+        assert count == 2
+        assert stored == [("E2", "trend.png", "image/png", picture.read_bytes())]
+        written = [call.args[0] for call in repo.upsert_entry.await_args_list]
+        assert [(w["entry_id"], w["attachments"]) for w in written] == [
+            ("E1", []),
+            ("E2", []),
+            ("E2", [{"url": "/api/attachments/att-1", "type": "image/png"}]),
+        ]
+        assert entries[1]["attachments"] == []  # the caller's record is not mutated
+
     async def test_upsert_failure_marks_run_failed_and_reraises(self, monkeypatch):
         repo = MagicMock()
         repo.start_ingestion_run = AsyncMock(return_value="run-2")

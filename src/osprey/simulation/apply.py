@@ -239,8 +239,8 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            entries = [_to_enhanced_entry(e, t0) for e in engine.active_logbook()]
-            seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries))
+            entries, pictures = seed_payload(engine.active_logbook(), t0)
+            seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
             logger.info("No 'ariel' config in project; skipped logbook seeding")
@@ -303,15 +303,25 @@ def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogb
         project with no machine model narrates nothing, which is a normal
         configuration and not a fault.
     """
+    logbook, anchor = _active_narrative(config, project_dir)
+    return [_to_enhanced_entry(entry, anchor) for entry in logbook]
+
+
+def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLogEntry], datetime]:
+    """The ALREADY-active scenarios' bundle entries and the anchor they resolve against.
+
+    See :func:`active_logbook_entries`; the entries are empty when the project
+    is not simulation-backed.
+    """
     machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
     if machine_path is None or not machine_path.is_file():
-        return []
+        return [], datetime.now(get_facility_timezone())
 
     engine = SimulationEngine.from_file(
         machine_path, state_dir=resolve_state_dir(config, project_dir)
     )
     anchor = persisted_scenario_anchor(config, project_dir) or datetime.now(get_facility_timezone())
-    return [_to_enhanced_entry(entry, anchor) for entry in engine.active_logbook()]
+    return engine.active_logbook(), anchor
 
 
 async def _export_qmd_mirror(ariel_config: dict) -> None:
@@ -363,16 +373,17 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
         The number of entries seeded; ``0`` when the project narrates none, or
         when the logbook already holds entries.
     """
-    entries = active_logbook_entries(config, project_dir)
-    if not entries:
+    logbook, anchor = _active_narrative(config, project_dir)
+    if not logbook:
         return 0
+    entries, pictures = seed_payload(logbook, anchor)
 
     async def _seed_if_empty() -> int:
         from osprey.services.ariel_search import cli_operations
 
         if await cli_operations.logbook_entry_count(ariel_config) > 0:
             return 0
-        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries)
+        seeded = await cli_operations.seed_logbook_entries(ariel_config, entries, pictures=pictures)
         await _export_qmd_mirror(ariel_config)
         return seeded
 
@@ -1670,6 +1681,8 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
     Mirrors ``GenericJSONAdapter._convert_entry`` field mapping so seeded entries
     are indistinguishable from ingested ones: ``raw_text`` is title + body, and
     title/tags/categories/loto_tag plus any ``extra`` ride in ``metadata``.
+    ``attachments`` starts empty: the entry's pictures are stored and linked by
+    the seeder once the row exists (see :func:`seed_payload`).
     """
     timestamp = resolve_relative_timestamp(entry.when, now)
     if entry.title and entry.text:
@@ -1701,8 +1714,28 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
     }
 
 
+def seed_payload(
+    logbook: Sequence[ScenarioLogEntry], anchor: datetime
+) -> tuple[list[EnhancedLogbookEntry], dict[str, tuple[Path, ...]]]:
+    """What seeding writes for bundle entries: the rows, and each row's picture files.
+
+    Args:
+        logbook: Bundle entries, in the order they are seeded.
+        anchor: The instant their relative timestamps resolve against.
+
+    Returns:
+        The converted entries, and the picture files keyed by entry id (entries
+        without pictures are absent from the mapping).
+    """
+    entries = [_to_enhanced_entry(entry, anchor) for entry in logbook]
+    pictures = {entry.entry_id: entry.attachments for entry in logbook if entry.attachments}
+    return entries, pictures
+
+
 async def _seed_logbook(
-    ariel_config: dict, entries: list[EnhancedLogbookEntry]
+    ariel_config: dict,
+    entries: list[EnhancedLogbookEntry],
+    pictures: Mapping[str, Sequence[Path]],
 ) -> tuple[int, bool]:
     """Migrate, purge, then seed the ARIEL logbook. Returns (seeded, purged).
 
@@ -1717,6 +1750,6 @@ async def _seed_logbook(
 
     await run_migrate(ariel_config)
     await execute_purge(ariel_config, embeddings_only=False)
-    seeded = await seed_logbook_entries(ariel_config, entries)
+    seeded = await seed_logbook_entries(ariel_config, entries, pictures=pictures)
     await _export_qmd_mirror(ariel_config)
     return seeded, True

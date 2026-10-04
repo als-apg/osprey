@@ -54,7 +54,7 @@ def _make_project(tmp_path: Path) -> Path:
 def _activate(project: Path, monkeypatch, names: list[str]) -> None:
     """Activate scenarios the way an operator would, without touching a database."""
 
-    async def _no_seed(_ariel_config, _entries):
+    async def _no_seed(_ariel_config, _entries, _pictures):
         return 0, False
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
@@ -63,14 +63,15 @@ def _activate(project: Path, monkeypatch, names: list[str]) -> None:
 
 def _stub_ariel(monkeypatch, *, existing: int) -> dict:
     """Stub ARIEL's database calls; return what the seeder was asked to write."""
-    seen: dict = {"seeded": None, "counted": 0, "mirrored": 0}
+    seen: dict = {"seeded": None, "pictures": None, "counted": 0, "mirrored": 0}
 
     async def _count(_config_dict):
         seen["counted"] += 1
         return existing
 
-    async def _seed(_config_dict, entries, _progress=None):
+    async def _seed(_config_dict, entries, _progress=None, *, pictures=None):
         seen["seeded"] = entries
+        seen["pictures"] = pictures
         return len(entries)
 
     async def _resync(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync, whose caller names rebuild and progress
@@ -120,6 +121,30 @@ def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch)
     # markdown mirror the qmd sidecar indexes -- hybrid search would answer an
     # empty index while keyword search worked.
     assert seen["mirrored"] == 1
+
+
+def test_seed_active_logbook_hands_over_each_entrys_pictures(tmp_path, monkeypatch):
+    """The pictures a bundle entry names travel with it into the seed, keyed by the
+    entry they belong to, as files inside the project's own scenario tree."""
+    # Arrange
+    project = _make_project(tmp_path)
+    _activate(project, monkeypatch, ["rf-thermal"])
+    config = yaml.safe_load((project / "config.yml").read_text())
+    seen = _stub_ariel(monkeypatch, existing=0)
+
+    # Act
+    seed_active_logbook(config, project, ARIEL_CONFIG)
+
+    # Assert
+    pictures = seen["pictures"]
+    assert {entry_id: [p.name for p in paths] for entry_id, paths in pictures.items()} == {
+        "DEMO-011": ["orbit_rms_week.png"],
+        "DEMO-027": ["cavity_temperatures_week.png"],
+    }
+    scenarios = (project / "data" / "simulation" / "scenarios").resolve()
+    assert all(p.is_file() and p.is_relative_to(scenarios) for ps in pictures.values() for p in ps)
+    # The row itself is written bare; the seeder links the stored pictures.
+    assert all(entry["attachments"] == [] for entry in seen["seeded"])
 
 
 def test_seed_active_logbook_never_overwrites_an_existing_logbook(tmp_path, monkeypatch):

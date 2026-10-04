@@ -32,6 +32,7 @@ Layout
        <name>/
          scenario.json          overrides, archiver events, physics (required)
          logbook.json           the scenario's logbook narrative (optional)
+         <any subpath>          pictures logbook entries attach (optional)
 
 - A scenario is an immediate *subdirectory* of ``scenarios/``, and the
   directory name is the scenario name. Files directly inside ``scenarios/`` are
@@ -314,6 +315,11 @@ A JSON array of entries, each a mapping:
      - Mapping, default empty. Merged into the stored entry's metadata last,
        so it can overwrite the ``title``, ``tags``, ``categories`` and
        ``loto_tag`` stored there.
+   * - ``attachments``
+     - List, default empty. Each item is ``{"path": "<relative path>"}`` with
+       no other key, naming a ``.png``, ``.jpg``, ``.jpeg``, ``.gif`` or
+       ``.webp`` file inside the scenario directory whose bytes are that
+       format.
 
 ``when`` resolves to the calendar day ``days_ago`` days before T0, at ``time``,
 in T0's time zone. A ``days_ago: 0`` entry whose ``time`` is later than T0 lands
@@ -324,6 +330,12 @@ scenario's entries in activation order, ``nominal`` first. Entries are upserted
 by ``entry_id``, so when two active scenarios reuse an id only the later one's
 entry is kept. Seeding needs an ``ariel:`` block in the project config; without
 one it is skipped, and ``--no-seed-logbook`` or ``--no-seed`` skips it too.
+
+Each picture an entry attaches is stored in ARIEL's own attachment store and
+linked on the entry, with the rendition ``attachment_view`` returns. Seeding runs
+no enhancement module, so a picture's caption, and with it the entry's
+searchability by what the picture shows, arrives only once ``osprey ariel
+enhance`` or the ingestion poller runs with a vision model configured.
 
 .. _simulation-bundle-composition:
 
@@ -461,6 +473,26 @@ message names.
        null``
    * - ``extra`` not a mapping
      - ``Scenario '<name>' logbook entry '<id>': 'extra' must be a mapping``
+   * - ``attachments`` not a list, or an item not a mapping
+     - ``Scenario '<name>' logbook entry '<id>': 'attachments' must be a list``
+       (or ``each attachment must be a mapping``)
+   * - An attachment with a key other than ``path``
+     - ``Scenario '<name>' logbook entry '<id>': attachment has unknown keys``
+   * - Attachment ``path`` empty or not a string
+     - ``Scenario '<name>' logbook entry '<id>': attachment 'path' must be a
+       non-empty string``
+   * - Attachment ``path`` absolute or leaving the scenario directory
+     - ``Scenario '<name>' logbook entry '<id>': attachment path '<path>' must
+       be relative to the scenario directory``
+   * - Attachment suffix not a picture format
+     - ``Scenario '<name>' logbook entry '<id>': attachment '<path>' is not a
+       picture``
+   * - Attachment file missing
+     - ``Scenario '<name>' logbook entry '<id>': attachment file '<path>' not
+       found``
+   * - Attachment bytes not the suffix's format
+     - ``Scenario '<name>' logbook entry '<id>': attachment '<path>' does not
+       hold``
    * - Event not a mapping
      - ``Scenario '<name>', channel '<ch>': event must be a mapping``
    * - Unknown ``shape``

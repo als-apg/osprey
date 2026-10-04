@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -2920,6 +2920,8 @@ async def seed_logbook_entries(
     config_dict: dict,
     entries: list[EnhancedLogbookEntry],
     progress: _ProgressCb = None,
+    *,
+    pictures: Mapping[str, Sequence[Path]] | None = None,
 ) -> int:
     """Bulk-upsert pre-built logbook entries into the ARIEL database.
 
@@ -2930,24 +2932,48 @@ async def seed_logbook_entries(
     semantic enrichment is left to an optional follow-up. Migrations must
     already have run (call :func:`run_migrate` first).
 
+    Pictures are stored the way a natively written entry stores them
+    (:func:`~osprey.services.ariel_search.attachments.store_native_attachment`),
+    so each is copied with its viewable rendition and linked on the entry the
+    moment seeding returns. No caption or picture-embedding module runs here.
+
     Args:
         config_dict: ARIEL config dict (``ARIELConfig.from_dict`` shape).
         entries: Fully-built :class:`EnhancedLogbookEntry` records to upsert.
         progress: Optional progress callback.
+        pictures: Picture files to attach, keyed by entry id.
 
     Returns:
         The number of entries seeded.
     """
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.attachments import (
+        guess_mime_type,
+        store_native_attachment,
+    )
 
     config = _ariel_config(config_dict)
     service = await create_ariel_service(config)
+    pictures = pictures or {}
     count = 0
     async with service:
         run_id = await service.repository.start_ingestion_run("Simulation")
         try:
             for entry in entries:
                 await service.repository.upsert_entry(entry)
+                files = pictures.get(entry["entry_id"], ())
+                if files:
+                    infos = [
+                        await store_native_attachment(
+                            service.repository,
+                            entry["entry_id"],
+                            filename=path.name,
+                            declared_mime=guess_mime_type(path.name),
+                            data=path.read_bytes(),
+                        )
+                        for path in files
+                    ]
+                    await service.repository.upsert_entry({**entry, "attachments": infos})
                 count += 1
                 if count % 100 == 0 and progress:
                     progress(f"  Seeded {count} entries...")

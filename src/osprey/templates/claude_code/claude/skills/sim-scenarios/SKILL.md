@@ -190,13 +190,23 @@ lands at a recent, deterministic position:
   "title": "...",
   "text": "...",
   "tags": ["rf", "temperature"],
-  "categories": ["Operations"]
+  "categories": ["Operations"],
+  "attachments": [{ "path": "plots/cavity_temperatures_week.png" }]
 }
 ```
 
 `when` resolves against the same apply-time anchor as the telemetry, so logbook
 and archiver data share one clock. A scenario with no narrative (pure telemetry)
 simply omits `logbook.json`.
+
+`attachments` is optional: each item is `{"path": ...}` and nothing else, naming
+a PNG, JPEG, GIF or WebP file by its path relative to the scenario directory.
+Loading refuses an unknown key, a path outside the directory, a missing file,
+or a file that is not a picture. Seeding stores each picture on its entry, ready
+for `attachment_view`; it runs no caption or picture-embedding module, so the
+picture is found by its caption only after `osprey ariel enhance` (or the
+ingestion poller) runs with a vision model configured. Keep a fact the picture
+shows out of the entry text when the point is that only the picture says it.
 
 ## Anti-patterns
 

@@ -51,6 +51,20 @@ _EVENT_VALUE_KEYS = {
 _TEXTURE_KEYS = ("kind", "amplitude", "period_s")
 _TEXTURE_KINDS = ("wander",)
 
+# Logbook attachment-item schema: closed, like events and textures.
+_ATTACHMENT_KEYS = ("path",)
+
+# Picture formats a logbook attachment may name: suffix -> accepted file
+# signatures as (byte offset, magic bytes).
+_IMAGE_SIGNATURES: dict[str, tuple[tuple[int, bytes], ...]] = {
+    ".png": ((0, b"\x89PNG\r\n\x1a\n"),),
+    ".jpg": ((0, b"\xff\xd8\xff"),),
+    ".jpeg": ((0, b"\xff\xd8\xff"),),
+    ".gif": ((0, b"GIF87a"), (0, b"GIF89a")),
+    ".webp": ((8, b"WEBP"),),
+}
+_SIGNATURE_BYTES = 16
+
 # Cap on channel names listed in the aggregated dead-noise warning.
 _DEAD_NOISE_EXAMPLES = 5
 
@@ -102,6 +116,10 @@ class ScenarioLogEntry:
     Single source of truth for both the ARIEL DB seed (via ``apply``) and the
     fast per-scenario unit tests, so the telemetry overlay and its narrative
     ship together in one bundle.
+
+    ``attachments`` are the picture files the entry carries, as absolute paths
+    inside the bundle directory; each was checked at load time to exist and to
+    be an image.
     """
 
     entry_id: str
@@ -113,6 +131,7 @@ class ScenarioLogEntry:
     categories: tuple[str, ...]
     loto_tag: str | None
     extra: dict[str, Any]
+    attachments: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -591,8 +610,9 @@ def load_scenario_bundles(
     Each immediate subdirectory is a bundle named after the directory: a
     required ``scenario.json`` (``description`` plus optional ``overrides`` /
     ``archiver``, same schema as an inline scenario) and an optional
-    ``logbook.json`` (a JSON array of entries with relative timestamps). A
-    default ``nominal`` is injected if no ``nominal/`` bundle exists.
+    ``logbook.json`` (a JSON array of entries with relative timestamps, each
+    optionally naming pictures inside the bundle). A default ``nominal`` is
+    injected if no ``nominal/`` bundle exists.
 
     Args:
         scenarios_dir: The ``scenarios/`` directory (sibling of the machine file).
@@ -625,7 +645,7 @@ def load_scenario_bundles(
                 raise ValueError(f"Scenario bundle {name!r}: invalid logbook.json: {exc}") from exc
             if not isinstance(raw_logbook, list):
                 raise ValueError(f"Scenario bundle {name!r}: logbook.json must be a JSON array")
-            logbook = tuple(_parse_log_entry(name, entry) for entry in raw_logbook)
+            logbook = tuple(_parse_log_entry(name, entry, bundle) for entry in raw_logbook)
 
         scenarios[name] = _parse_scenario_spec(name, spec, channels, logbook=logbook)
 
@@ -647,8 +667,12 @@ def _parse_relative_timestamp(prefix: str, raw: Any) -> RelativeTimestamp:
     )
 
 
-def _parse_log_entry(scenario_name: str, raw: Any) -> ScenarioLogEntry:
-    """Parse and validate one logbook entry from a bundle's logbook.json."""
+def _parse_log_entry(scenario_name: str, raw: Any, bundle: Path) -> ScenarioLogEntry:
+    """Parse and validate one logbook entry from a bundle's logbook.json.
+
+    ``bundle`` is the scenario directory the entry's attachment paths resolve
+    against.
+    """
     prefix = f"Scenario {scenario_name!r} logbook"
     if not isinstance(raw, dict):
         raise ValueError(f"{prefix}: each entry must be a mapping")
@@ -687,7 +711,58 @@ def _parse_log_entry(scenario_name: str, raw: Any) -> ScenarioLogEntry:
         categories=_str_tuple("categories"),
         loto_tag=loto_tag,
         extra=dict(extra),
+        attachments=_parse_log_attachments(entry_prefix, raw.get("attachments", []), bundle),
     )
+
+
+def _parse_log_attachments(prefix: str, raw: Any, bundle: Path) -> tuple[Path, ...]:
+    """Resolve a logbook entry's ``attachments`` list to picture files in the bundle.
+
+    Each item is ``{"path": "<relative path>"}`` and nothing else. The path is
+    relative to the bundle directory and must stay inside it, name an existing
+    file with an image suffix, and start with that image format's signature, so
+    a misnamed or missing picture is a load error rather than a seed failure.
+    """
+    if not isinstance(raw, list):
+        raise ValueError(f"{prefix}: 'attachments' must be a list, got {raw!r}")
+    root = bundle.resolve()
+    paths: list[Path] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError(f"{prefix}: each attachment must be a mapping, got {item!r}")
+        unknown = sorted(set(item) - set(_ATTACHMENT_KEYS))
+        if unknown:
+            raise ValueError(f"{prefix}: attachment has unknown keys {unknown}")
+        rel = item.get("path")
+        if not isinstance(rel, str) or not rel:
+            raise ValueError(f"{prefix}: attachment 'path' must be a non-empty string, got {rel!r}")
+        path = (root / rel).resolve()
+        if Path(rel).is_absolute() or not path.is_relative_to(root):
+            raise ValueError(
+                f"{prefix}: attachment path {rel!r} must be relative to the scenario directory"
+            )
+        signatures = _IMAGE_SIGNATURES.get(path.suffix.lower())
+        if signatures is None:
+            raise ValueError(
+                f"{prefix}: attachment {rel!r} is not a picture "
+                f"(accepted: {', '.join(sorted(_IMAGE_SIGNATURES))})"
+            )
+        if not path.is_file():
+            raise ValueError(f"{prefix}: attachment file {rel!r} not found at {path}")
+        with path.open("rb") as handle:
+            head = handle.read(_SIGNATURE_BYTES)
+        if not any(_matches_signature(head, sig) for sig in signatures):
+            raise ValueError(
+                f"{prefix}: attachment {rel!r} does not hold {path.suffix.lower()} image data"
+            )
+        paths.append(path)
+    return tuple(paths)
+
+
+def _matches_signature(head: bytes, signature: tuple[int, bytes]) -> bool:
+    """Whether ``head`` carries ``signature`` (an ``(offset, bytes)`` pair)."""
+    offset, magic = signature
+    return head[offset : offset + len(magic)] == magic
 
 
 def _require_event_number(

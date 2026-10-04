@@ -147,3 +147,50 @@ def test_reapply_is_idempotent(tmp_path, database_url):
 
     entries = asyncio.run(_fetch(database_url))
     assert len(entries) == 28  # no duplication across re-applies
+
+
+async def _pictures(database_url: str, entry_id: str) -> tuple[list, list, list]:
+    """``(entry attachments JSONB, copy rows, renditions)`` for one seeded entry."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.database import create_connection_pool
+    from osprey.services.ariel_search.database.repository import ARIELRepository
+
+    config = ARIELConfig.from_dict({"database": {"uri": database_url}})
+    pool = await create_connection_pool(config.database)
+    try:
+        repository = ARIELRepository(pool, config)
+        entry = await repository.get_entry(entry_id)
+        rows = await repository.get_copy_rows(entry_id)
+        renditions = [await repository.get_rendition(row["attachment_id"]) for row in rows]
+    finally:
+        await pool.close()
+    assert entry is not None, f"{entry_id} was not seeded"
+    return list(entry["attachments"]), rows, renditions
+
+
+def test_seeded_pictures_are_copied_with_a_viewable_rendition(tmp_path, database_url):
+    """A bundle entry's picture is in the store, linked on the entry and viewable as
+    soon as apply returns -- no enhancement pass runs in between."""
+    project = _make_project(tmp_path, database_url)
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+
+    items, rows, renditions = asyncio.run(_pictures(database_url, "DEMO-027"))
+
+    assert len(items) == len(rows) == 1
+    (row,) = rows
+    assert row["copy_status"] == "copied", row
+    assert items[0]["url"] == f"/api/attachments/{row['attachment_id']}"
+    assert items[0]["filename"] == "cavity_temperatures_week.png"
+    assert renditions[0] is not None
+
+    bare, bare_rows, _ = asyncio.run(_pictures(database_url, "DEMO-026"))
+    assert bare == [] and bare_rows == []
+
+
+def test_reapply_replaces_pictures_rather_than_piling_them_up(tmp_path, database_url):
+    project = _make_project(tmp_path, database_url)
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+
+    items, rows, _ = asyncio.run(_pictures(database_url, "DEMO-027"))
+    assert len(items) == len(rows) == 1

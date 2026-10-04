@@ -11,6 +11,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
+| `scenario_plots.py` | Redraw the pictures the control-assistant demo scenarios attach to logbook entries | ~5 s | After changing a scenario or machine definition a picture is derived from |
 | `cli_tool_inventory.py` | CLI tool inventory of each pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` or the `claude-agent-sdk` pin |
 
 ## Scripts
