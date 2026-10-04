@@ -40,6 +40,21 @@ class TestMockConnector:
         assert connector._connected is False
 
     @pytest.mark.asyncio
+    async def test_a_disconnected_mock_serves_no_address(self, tmp_path, monkeypatch):
+        """After disconnect no address validates and a write says it is not connected."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        connector = MockConnector()
+        await connector.connect(mock_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0))
+        assert await connector.validate_channel("A:SP") is True
+
+        await connector.disconnect()
+
+        assert await connector.validate_channel("A:SP") is False
+        with pytest.raises(RuntimeError) as refusal:
+            await connector.write_channel("A:SP", 1.0)
+        assert str(refusal.value) == "mock connector is not connected"
+
+    @pytest.mark.asyncio
     async def test_connect_without_a_built_view_is_refused(self, tmp_path, monkeypatch):
         """No view named and none beside a loaded config: connect says to build."""
         monkeypatch.chdir(tmp_path)
