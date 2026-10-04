@@ -278,9 +278,8 @@ drives because your export said so and you agreed. Two documents are what you
 read to agree: the **VA MAP card**, which the OSPREY agent draws while you are
 deciding, and ``VA-REPORT.md``, which ``verify`` writes once the model exists.
 
-**Import brings the lattice in.** Run ``mml_export.m`` 2.1.0 once per sub-machine
-as before. It now writes six files rather than two, and naming the ``ao.json``
-imports all six:
+**Import brings the lattice in.** Run ``mml_export.m`` 2.1.0 once per sub-machine.
+It writes six files, and naming the ``ao.json`` imports all six:
 
 .. code-block:: bash
 
@@ -434,10 +433,11 @@ Graph Pipeline
 ==============
 
 Searches the facility knowledge graph instead of a channel database. A
-graph-mode project ships no channel database: the corpus describes the machine,
-and the channel finder subagent finds addresses either by keyword lookup in the
-search index the build derives from that corpus, or by writing read-only Cypher
-against the seeded ``graphdb`` store.
+graph-mode project ships no channel database: ``osprey build`` writes the graph
+view ``data/graph/facility.ttl`` from the facility file, and the channel finder
+subagent finds addresses either by keyword lookup in the search index the build
+writes from that view, or by writing read-only Cypher against the ``graphdb``
+store seeded from it.
 
 **How it works:** five tools, served under the ``channel-finder`` name like
 every other pipeline's. ``capabilities`` reports how addresses are spelled and
@@ -482,11 +482,10 @@ into it. See :doc:`facility-knowledge/use-facility-graph` for what the graph
 holds.
 
 **What the subagent can search** depends on the corpus. On the build's graph
-view — written from the facility file — a phrase can be
-matched against the description written for a single channel, against what the
-last two tokens of an address mean, against the prose for a device family, a
-system or a ring, and against the synonyms an operator would say out loud. A
-corpus imported from a facility export may carry less prose: there the way in
+view a phrase can be matched against the description written for a single
+channel, against the prose for a device family or a system, and against the
+synonyms an operator would say out loud. A corpus the profile names in place of
+the view (``services.graphdb.ttl_path``) may carry less prose: there the way in
 is a name, an alternate name, a section or a device class.
 
 ``validate`` and ``preview`` have no channel database to open on this pipeline,
@@ -542,9 +541,8 @@ store are all unchanged. If the store is unreachable the view says so and
 offers a Retry, and if it is reachable but empty it names the ``osprey build &&
 osprey up`` command that fills it. Channel validation is not offered
 on this pipeline. The channel-suggestion typeahead in the web panels still
-works in graph mode: ``osprey build`` reads the channel names out of the Turtle
-corpus named by ``services.graphdb.ttl_path`` and writes them into the snapshot
-the panels use.
+works in graph mode: ``osprey build`` reads the channel names from the facility
+file and writes them into the snapshot the panels use.
 
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to
