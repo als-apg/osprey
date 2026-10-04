@@ -43,7 +43,7 @@ from lume.variables import (
 
 from osprey_connectors.simulation import series, values
 
-__all__ = ["TEXTURE_OWNER", "TextureModel"]
+__all__ = ["TEXTURE_OWNER", "TextureModel", "channel_variable"]
 
 #: The ``owner`` the simulator view writes for a channel no model wires.
 TEXTURE_OWNER = "texture"
@@ -91,6 +91,53 @@ def _linear_terms(linear: Mapping[str, Any]) -> list[tuple[str, float]]:
         coefficient = term["coefficient"] if isinstance(term, Mapping) else term
         terms.append((str(address), float(coefficient)))
     return terms
+
+
+def channel_variable(channel: Mapping[str, Any], nominal: Any) -> Variable:
+    """The LUME variable of one channel of the view's ``variables.json``.
+
+    A setpoint the view marks writable is settable; every other channel is
+    read-only. ``value_type`` picks the class: an ``EnumVariable`` over the
+    channel's labels for ``bool`` and ``enum``, a ``StrVariable`` for
+    ``string``, an ``NDVariable`` of the channel's ``shape`` for
+    ``waveform``, an ``IntVariable`` for ``int`` and a ``ScalarVariable``
+    otherwise, each bounded by the view's ``value_range``.
+
+    Args:
+        channel: The channel's record in ``variables.json``.
+        nominal: Its start value, in its stored representation.
+
+    Returns:
+        The variable, named by the channel's address.
+    """
+    address = str(channel["address"])
+    read_only = not (channel.get("role") == _SETPOINT and channel.get("writable") is True)
+    value_type = _channel_value_type(channel)
+    unit = channel.get("unit")
+    if value_type in ("bool", "enum"):
+        options = list(channel.get("options") or values.DEFAULT_BOOL_OPTIONS)
+        return EnumVariable(
+            name=address, options=options, default_value=nominal, read_only=read_only
+        )
+    if value_type == "string":
+        return StrVariable(name=address, default_value=nominal, read_only=read_only)
+    if value_type == "waveform":
+        shape = tuple(int(size) for size in channel["shape"])
+        return NDVariable(
+            name=address,
+            shape=shape,
+            default_value=np.asarray(nominal, dtype=np.float64).reshape(shape),
+            unit=unit,
+            read_only=read_only,
+        )
+    variable_class = IntVariable if value_type == "int" else ScalarVariable
+    return variable_class(
+        name=address,
+        default_value=nominal,
+        value_range=_value_range(channel),
+        unit=unit,
+        read_only=read_only,
+    )
 
 
 class TextureModel(LUMEModel):
@@ -142,8 +189,7 @@ class TextureModel(LUMEModel):
             self._nominals[readback] = self._coerce(readback, self._nominals[setpoint])
         start = {address: self._weighted_sum(address, self._nominals) for address in owned}
         self._variables: dict[str, Variable] = {
-            address: self._variable(address, self._channels[address], start[address])
-            for address in owned
+            address: channel_variable(self._channels[address], start[address]) for address in owned
         }
         self._held: dict[str, Any] = {}
         self._couple: dict[str, list[Mapping[str, Any]]] = {}
@@ -177,35 +223,6 @@ class TextureModel(LUMEModel):
             return self._coerce(address, wiring_default)
         return values.zero(
             _channel_value_type(channel), channel.get("options"), channel.get("shape")
-        )
-
-    def _variable(self, address: str, channel: Mapping[str, Any], nominal: Any) -> Variable:
-        read_only = not (channel.get("role") == _SETPOINT and channel.get("writable") is True)
-        value_type = _channel_value_type(channel)
-        unit = channel.get("unit")
-        if value_type in ("bool", "enum"):
-            options = list(channel.get("options") or values.DEFAULT_BOOL_OPTIONS)
-            return EnumVariable(
-                name=address, options=options, default_value=nominal, read_only=read_only
-            )
-        if value_type == "string":
-            return StrVariable(name=address, default_value=nominal, read_only=read_only)
-        if value_type == "waveform":
-            shape = tuple(int(size) for size in channel["shape"])
-            return NDVariable(
-                name=address,
-                shape=shape,
-                default_value=np.asarray(nominal, dtype=np.float64).reshape(shape),
-                unit=unit,
-                read_only=read_only,
-            )
-        variable_class = IntVariable if value_type == "int" else ScalarVariable
-        return variable_class(
-            name=address,
-            default_value=nominal,
-            value_range=_value_range(channel),
-            unit=unit,
-            read_only=read_only,
         )
 
     @property
