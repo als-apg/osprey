@@ -40,6 +40,7 @@ from osprey.mcp_server.control_system.server_context import (
 )
 from osprey.stores.artifact_store import get_artifact_store
 from osprey_connectors import control_context
+from tests.facility.served_tree import served_tree
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 #: A PID no kernel hands out — ``os.kill(pid, 0)`` reports it gone. Stands in
@@ -71,10 +72,14 @@ def archiver_project(tmp_path, monkeypatch):
     Both the server context and ``target_banner``'s baseline resolution read
     ``./config.yml``, so one file answers for both. ``epics`` rather than
     ``virtual_accelerator`` because a VA deployment paired with a mock archiver
-    is the one pairing the server context refuses outright.
+    is the one pairing the server context refuses outright. The project is the
+    render of a built tree holding ``SR:DCCT``, so the archiver finds the
+    simulator view at ``data/simulator`` beside its config. Returns the test
+    root, which the artifact store's saved files are relative to.
     """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
+    project = served_tree(tmp_path, readings=["SR:DCCT"]).parent.parent
+    monkeypatch.chdir(project)
+    (project / "config.yml").write_text(
         yaml.dump({"archiver": {"type": "mock_archiver"}, "control_system": {"type": "epics"}})
     )
     initialize_server_context()

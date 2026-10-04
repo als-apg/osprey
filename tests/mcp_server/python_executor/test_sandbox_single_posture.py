@@ -58,6 +58,7 @@ import yaml
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from tests._control_context_fixtures import write_control_context
+from tests.facility.served_tree import mock_config, served_tree
 
 #: Absent from the limits database on purpose: the posture is the only thing
 #: that can decide this write. Free of ``:SP``/``:SET``, which the mock mirrors
@@ -126,6 +127,10 @@ PROBE_SCRIPT = textwrap.dedent(
 def _write_deployment(root: Path) -> Path:
     """Write a VA-permissive / live-strict deployment under *root*.
 
+    Both connector blocks serve one built tree holding the probed channel, a
+    writable setpoint, so the substituted mock answers the write either posture
+    lets through.
+
     ``control_system.type`` is ``epics``, so ``resolve_target`` answers ``live``
     with the baseline type — a type with no ``limits_checking`` block of its own,
     which is what makes it inherit the strict deployment-wide pair. ``va`` always
@@ -140,6 +145,7 @@ def _write_deployment(root: Path) -> Path:
         encoding="utf-8",
     )
 
+    view = served_tree(root / "served", [UNLISTED_CHANNEL])
     config = {
         "project_root": str(root),
         "agent_data": {"base_dir": "var/agent_data"},
@@ -154,12 +160,14 @@ def _write_deployment(root: Path) -> Path:
                 "database_path": "limits.json",
             },
             "connector": {
-                "virtual_accelerator": {
-                    "limits_checking": {
+                "epics": mock_config(view),
+                "virtual_accelerator": mock_config(
+                    view,
+                    limits_checking={
                         "enabled": True,
                         "mode": "optional",
-                    }
-                }
+                    },
+                ),
             },
         },
     }

@@ -11,7 +11,10 @@ replaces an existing registration). The result is two genuinely different
 targets, each with its own connector block and probe channel, neither of which
 touches Channel Access.
 
-That variant serves two channels with behaviour the tests need and a mock
+Both blocks serve one simulator view, built once per process by
+:func:`served_view` and holding every address a child here reads or writes.
+
+That variant answers two channels with behaviour the tests need and a mock
 cannot give them: :data:`REFUSE_CHANNEL` raises, and :data:`SLOW_CHANNEL`
 blocks for far longer than any drain deadline. It also runs the EPICS gateway
 selection — the same rule, reading the same per-type write posture, installing
@@ -27,8 +30,12 @@ the directory.
 """
 
 import asyncio
+import atexit
 import contextlib
+import functools
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -40,6 +47,7 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import EPICS
 from tests._control_context_fixtures import write_control_context
+from tests.facility.served_tree import mock_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
@@ -55,6 +63,12 @@ LIVE_PROBE = "SR:BEAM:CURRENT"
 VA_PROBE = "VA:BEAM:CURRENT"
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"
+
+#: The setpoints a child here writes: one on the live target, one on the simulator.
+SERVED_SETPOINTS = ("SR:CORR:1:SP", "VA:CORR:1:SP")
+#: The addresses a child here only reads, the fixture's two behaviour channels
+#: among them.
+SERVED_READINGS = (LIVE_PROBE, VA_PROBE, REFUSE_CHANNEL, SLOW_CHANNEL)
 
 #: Tight enough that a hang fails the test rather than the run.
 SPAWN_TIMEOUT_S = 30.0
@@ -176,6 +190,24 @@ except Exception:  # a child that cannot register it fails loudly in the test
 '''
 
 
+@functools.cache
+def served_view() -> Path:
+    """The simulator view every target block here serves, built once per process.
+
+    The children read the view from their ``connect()`` settings, so one view
+    on disk serves every manager this process builds; it is removed when the
+    process exits.
+    """
+    root = Path(tempfile.mkdtemp(prefix="switch_served_"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    return served_tree(root, SERVED_SETPOINTS, SERVED_READINGS)
+
+
+def _served_block(**settings):
+    """A target's connector block serving :func:`served_view`."""
+    return mock_config(served_view(), **settings)
+
+
 def raw_config(
     *,
     live_probe=LIVE_PROBE,
@@ -185,8 +217,8 @@ def raw_config(
     live_type=SERVED_LIVE_TYPE,
 ):
     """A config with a servable block for each target."""
-    live_block = {"response_delay_ms": 1, "noise_level": 0.0}
-    va_block = {"response_delay_ms": 1, "noise_level": 0.0}
+    live_block = _served_block(response_delay_ms=1)
+    va_block = _served_block(response_delay_ms=1)
     if live_probe:
         live_block["probe_channel"] = live_probe
     if va_probe:
@@ -234,13 +266,8 @@ def gateway_config(
     gateways = {"write_access": {"address": GATEWAY_HOST, "port": DEAD_WRITE_PORT}}
     if read_gateway:
         gateways["read_only"] = {"address": GATEWAY_HOST, "port": read_port}
-    live_block = {
-        "response_delay_ms": 1,
-        "noise_level": 0.0,
-        "probe_channel": LIVE_PROBE,
-        "gateways": gateways,
-    }
-    va_block = {"response_delay_ms": 1, "noise_level": 0.0, "probe_channel": VA_PROBE}
+    live_block = _served_block(response_delay_ms=1, probe_channel=LIVE_PROBE, gateways=gateways)
+    va_block = _served_block(response_delay_ms=1, probe_channel=VA_PROBE)
     if va_gateways:
         va_block["gateways"] = {
             "read_only": {"address": GATEWAY_HOST, "port": VA_READ_GATEWAY_PORT},

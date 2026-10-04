@@ -46,6 +46,7 @@ from osprey.mcp_server.control_system.error_handling import connector_error_hand
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from tests.facility.served_tree import mock_config, served_tree
 from tests.mcp_server._raising_connector import (
     BLOCKED_CHANNEL,
     BLOCKED_MESSAGE,
@@ -198,7 +199,11 @@ async def limits_pair(tmp_path):
             "mode": "exclusive",
             "on_violation": "error",
         },
-        "connector": {MOCK_TYPE: {"response_delay_ms": 0, "noise_level": 0.0}},
+        "connector": {
+            MOCK_TYPE: mock_config(
+                served_tree(tmp_path / "served", [BOUNDED_CHANNEL]), response_delay_ms=0
+            )
+        },
     }
     config_file = _write_config(tmp_path, control_system)
     process, proxy = await _spawn(control_system, config_file, tmp_path)
