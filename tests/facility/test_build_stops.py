@@ -33,6 +33,7 @@ from osprey.facility.views import VIEWS
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
+    LINE_TWISS,
     QUAD,
     READING,
     SETTING,
@@ -359,6 +360,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("engine_missing__no_plugin", "engine-missing", "no plug-in"),
     ("engine_invalid__single_pass_twiss", "engine-invalid", "`single_pass` without `twiss_in`"),
     ("engine_invalid__twiss_length", "engine-invalid", "wrong `twiss_in` length"),
+    ("engine_invalid__periodic_twiss", "engine-invalid", "`twiss_in` on a periodic model"),
     (
         "engine_invalid__frozen_cavity",
         "engine-invalid",
@@ -1413,6 +1415,17 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: model LINE — settings key pyat.twiss_in.beta must be 2 "
             "finite numbers; fix: give twiss_in.beta 2 numbers"
+        ),
+    ),
+    "engine_invalid__periodic_twiss": (
+        _deck(
+            on_model(
+                "SR", lambda record: record.update(settings={"pyat": {"twiss_in": LINE_TWISS}})
+            )
+        ),
+        (
+            "facility: engine-invalid: model SR — settings key pyat.twiss_in is set on a periodic "
+            "model; fix: remove twiss_in or set solve to single_pass"
         ),
     ),
     "engine_invalid__frozen_cavity": (
