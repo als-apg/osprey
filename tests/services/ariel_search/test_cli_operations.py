@@ -319,9 +319,29 @@ class TestGetStatus:
         assert out["status"] == "error"
         assert "boom-ingestion" in out["message"]
 
-    async def test_registered_module_with_no_rows_reports_zeros(self, monkeypatch):
-        """One table over every registered module, whether the store knows it or not."""
+    async def test_registered_module_with_no_rows_owes_every_entry(self, monkeypatch):
+        """One table over every registered module, whether the store knows it or not.
+
+        A module that has never run has written no status key, so every entry is
+        still pending for it: the same count a module that processed one entry
+        reports as the rest, never a zero that reads as "nothing to do".
+        """
         repo = _status_repo(stats={"total_entries": 3})
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["enhancement_modules"]["text_embedding"] == {
+            "enabled": False,
+            "complete": 0,
+            "failed": 0,
+            "pending": 3,
+            "gave_up": 0,
+        }
+
+    async def test_registered_module_on_an_empty_store_reports_zeros(self, monkeypatch):
+        """No entries, nothing owed: a never-run module reads all zeros."""
+        repo = _status_repo(stats={"total_entries": 0})
         _patch_service(monkeypatch, _StubService(repository=repo))
 
         out = await ops.get_status(dict(_DB))

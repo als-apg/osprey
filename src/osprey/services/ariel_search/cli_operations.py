@@ -374,15 +374,18 @@ def vocabulary_status(config_dict: dict, config_dir: Path | None = None) -> dict
 _EMPTY_MODULE_COUNTS = {"complete": 0, "failed": 0, "pending": 0, "gave_up": 0}
 
 
-def _module_counts(entry: object) -> dict[str, int]:
+def _module_counts(entry: object, total_entries: int = 0) -> dict[str, int]:
     """Return the ``{complete, failed, pending, gave_up}`` counts carried by *entry*.
 
-    A module the store has never seen has no entry at all, and reads as zeros —
-    the count of rows it has produced, which is what "never seen" means. Only
-    marker modules carry ``gave_up``; every other module reads it as 0.
+    ``pending`` means the entries the module has not completed, which includes
+    every entry that carries no status key for it. A module the store has never
+    seen has no entry at all, so it still owes the whole logbook: it reads as
+    ``pending = total_entries`` and zeros elsewhere, exactly as a module that
+    has processed one entry reads ``total_entries - 1``. Only marker modules
+    carry ``gave_up``; every other module reads it as 0.
     """
     if not isinstance(entry, dict):
-        return dict(_EMPTY_MODULE_COUNTS)
+        return {**_EMPTY_MODULE_COUNTS, "pending": int(total_entries)}
     return {key: int(entry.get(key, 0)) for key in _EMPTY_MODULE_COUNTS}
 
 
@@ -655,7 +658,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                 "enhancement_modules": {
                     name: {
                         "enabled": config.is_enhancement_module_enabled(name),
-                        **_module_counts(stats.get(name)),
+                        **_module_counts(stats.get(name), stats.get("total_entries", 0)),
                         **({"health": health[name]} if name in health else {}),
                     }
                     for name in registered
