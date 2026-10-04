@@ -25,6 +25,16 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   each declared branch ahead of the classes that extend it.
 * ``identity.yaml``: the mapping's ``facility:`` block, which is then removed
   from ``mapping.yaml``; every other line of the mapping stays as written.
+* ``scenarios/readout.yaml``: the readout the export states for each device's
+  ``Monitor`` reading, as a scenario a deployer applies by choice (:func:`_readout`).
+  A value at its identity (gain 1, offset 0, roll 0, crunch 0, polarity 1) is
+  not written. A gain and an offset the family's ``monitor_inverse`` is seen
+  to hold are served through the wiring's calibration and not written; any
+  other gain or offset is not carried. Every other value is written as
+  ``faults.<model>.<readback address>.<field>`` where the model's engine
+  declares that fault for its wiring. What is not carried is named in one
+  line per family,
+  ``import mml: readout not carried: <model>: family <family> (<fields>)``.
 
 When ``limits.yaml`` exists, each record whose band differs from the export's
 is reported and left as it is.
@@ -32,6 +42,7 @@ is reported and left as it is.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,6 +69,7 @@ __all__ = [
     "IDENTITY_FILE",
     "LIMITS_FILE",
     "MEASUREMENT_DIR",
+    "READOUT_FILE",
     "SEEDS_FILE",
     "TUNING",
     "Seeded",
@@ -69,6 +81,7 @@ __all__ = [
 HEADER = "# Seeded once by the mml import; edit this file by hand."
 
 LIMITS_FILE = "limits.yaml"
+READOUT_FILE = "scenarios/readout.yaml"
 SEEDS_FILE = "seeds.yaml"
 CLASSES_FILE = "classes.yaml"
 IDENTITY_FILE = "identity.yaml"
@@ -96,6 +109,26 @@ _RANGE_KEY = "Range"
 
 #: What a nominal's ``units`` reads when it is not a hardware value.
 _PHYSICS_UNITS = "physics"
+
+#: Each readout field the export states, at its identity.
+_READOUT_IDENTITY: dict[str, float] = {
+    "gain": 1.0,
+    "offset": 0.0,
+    "roll": 0.0,
+    "crunch": 0.0,
+    "polarity": 1.0,
+}
+
+#: The readout fields the Middle Layer corrects a reading by, Gain x (Raw - Offset),
+#: which the export's conversion of the reading already holds.
+_CONVERSION_FIELDS = frozenset({"gain", "offset"})
+
+#: The tolerance an inverse's offset matches a stated offset to.
+_OFFSET_REL_TOL = 1.0e-9
+_OFFSET_ABS_TOL = 1.0e-12
+
+#: The family field whose readout block the scenario carries.
+_MONITOR_FIELD = "Monitor"
 
 #: The mapping key that holds the identity block.
 _FACILITY_KEY = "facility"
@@ -192,6 +225,17 @@ def seed_once(
             continue
         document = _measurement(model, entry, mapping, carried.get(model.raw, set()), claims)
         seeded.written.append(_write(path, document))
+
+    readout = facility_dir / READOUT_FILE
+    if not readout.exists():
+        faults, carried_not = _readout(exports, mapping, models, views)
+        if faults:
+            document = {
+                "description": "The monitor readout the MML export states.",
+                "faults": faults,
+            }
+            seeded.written.append(_write(readout, document))
+        seeded.lines.extend(carried_not)
 
     classes = facility_dir / CLASSES_FILE
     if not classes.exists():
@@ -432,6 +476,129 @@ def _measurement(
         document["instruments"] = instruments
     document.update(TUNING)
     return document
+
+
+# -- readout ------------------------------------------------------------------
+
+
+def _readout(
+    exports: Exports,
+    mapping: Mapping,
+    models: list[dict[str, Any]],
+    views: Sequence[FamilyView],
+) -> tuple[dict[str, dict[str, dict[str, float]]], list[str]]:
+    """The export's readout values as scenario faults, and a line per family it cannot carry.
+
+    The Middle Layer corrects a reading as Gain x (Raw - Offset), the offset
+    in the reading's hardware units. A served reading is the model's position
+    through the family's ``monitor_inverse``, so a gain and an offset that
+    inverse holds are applied once already and written nowhere else
+    (:func:`_in_conversion`); a gain or an offset it is not seen to hold is
+    not carried, since applying it again or not at all cannot be told apart.
+
+    Every other value is carried on the readback address of its device's
+    ``Monitor`` field where the model's engine declares that field as a fault
+    of that address
+    (:func:`~osprey.simulation.engines.pyat_faults.fault_variables`): a
+    monitor reading takes its polarity, and its element's roll sits on the
+    x-axis reading only.
+
+    Returns:
+        ``{model: {address: {field: value}}}``, every level sorted, and the
+        lines, in import order.
+    """
+    from osprey.simulation.engines.pyat_faults import fault_variables
+
+    wiring = {str(entry.get("name")): entry.get("wiring") or [] for entry in models}
+    rosters = {
+        name: {(slot.address, slot.field) for slot in fault_variables(records).values()}
+        for name, records in wiring.items()
+    }
+    faults: dict[str, dict[str, dict[str, float]]] = {}
+    lines: list[str] = []
+    for view in views:
+        model = mapping.models.get(view.system)
+        block = exports.va.get(view.system)
+        families = block.get("families") if isinstance(block, dict) else None
+        family = families.get(view.raw_name) if isinstance(families, dict) else None
+        stated = (family.get(_MONITOR_FIELD) or {}) if isinstance(family, dict) else {}
+        values = stated.get("readout") if isinstance(stated, dict) else None
+        monitor = view.fields.get(_MONITOR_FIELD)
+        if model is None or not isinstance(values, dict) or monitor is None:
+            continue
+        roster = rosters.get(model.name, set())
+        converted = _in_conversion(stated, values, view.n_devices)
+        dropped: set[str] = set()
+        for name, row in values.items():
+            identity = _READOUT_IDENTITY.get(name)
+            if isinstance(row, (list, tuple)) and len(row) != view.n_devices:
+                dropped.add(name)
+                continue
+            for device in range(view.n_devices):
+                value = _per_device(row, device, view.n_devices)
+                if value is None or value == identity:
+                    continue
+                if name in _CONVERSION_FIELDS:
+                    if not converted:
+                        dropped.add(name)
+                    continue
+                address = _device_address(monitor, device)
+                if address is None or (address, name) not in roster:
+                    dropped.add(name)
+                    continue
+                faults.setdefault(model.name, {}).setdefault(address, {})[name] = value
+        if dropped:
+            lines.append(
+                f"import mml: readout not carried: {model.name}: family {view.raw_name} "
+                f"({', '.join(sorted(dropped))})"
+            )
+    ordered = {
+        name: {address: dict(sorted(by[address].items())) for address in sorted(by)}
+        for name, by in sorted(faults.items())
+    }
+    return ordered, lines
+
+
+def _in_conversion(stated: dict[str, Any], values: dict[str, Any], devices: int) -> bool:
+    """Whether a family's ``monitor_inverse`` is seen to hold its stated readout offset.
+
+    It is when the inverse is linear, the family states a non-zero offset, and
+    every device's inverse offset is that device's stated offset: the inverse
+    then serves Raw = Offset + (position / Gain), the reading the Middle
+    Layer's correction turns back into the position. A family stating no
+    offset gives no such evidence.
+    """
+    inverse = stated.get("monitor_inverse")
+    offsets = values.get("offset")
+    if not isinstance(inverse, dict) or inverse.get("kind") != "linear" or offsets is None:
+        return False
+    seen = False
+    for device in range(devices):
+        offset = _per_device(offsets, device, devices)
+        held = _per_device(inverse.get("offset"), device, devices)
+        if offset is None or held is None:
+            return False
+        if not math.isclose(held, offset, rel_tol=_OFFSET_REL_TOL, abs_tol=_OFFSET_ABS_TOL):
+            return False
+        seen = seen or offset != 0.0
+    return seen
+
+
+def _per_device(row: Any, device: int, devices: int) -> float | None:
+    """One device's finite value of a per-device row, a scalar broadcast to every device."""
+    if isinstance(row, (list, tuple)):
+        return exported_number(row[device]) if len(row) == devices else None
+    return exported_number(row)
+
+
+def _device_address(fld: FieldView, device: int) -> str | None:
+    """The address one device answers on through a field, or ``None``."""
+    for key in fld.keys:
+        slots = fld.slots(key)
+        address = _text(slots[device]) if device < len(slots) else None
+        if address is not None:
+            return address
+    return None
 
 
 # -- classes ------------------------------------------------------------------

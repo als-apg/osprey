@@ -27,7 +27,7 @@ from osprey.facility.layers.mml.importer import (
     write_records,
 )
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-from osprey.facility.layers.mml.seed import HEADER, TUNING, band
+from osprey.facility.layers.mml.seed import HEADER, READOUT_FILE, TUNING, band
 from osprey.facility.validate import known_classes, run_stages
 
 at = pytest.importorskip("at")
@@ -169,6 +169,7 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
         "seeds.yaml": "{}\n",
         "classes.yaml": "- {class: SkewQuadrupole, parent: Quadrupole}\n",
         "measurement/SR.yaml": "kinds: []\n",
+        "scenarios/readout.yaml": "faults: {}\n",
     }
     for name, text in authored.items():
         (facility / name).parent.mkdir(parents=True, exist_ok=True)
@@ -522,6 +523,105 @@ def test_a_single_pass_model_measures_orbit_response_at_most(tmp_path: Path) -> 
     assert document["kinds"] == []
     assert document["groups"] == {"hcor": "HCM", "vcor": "VCM", "quad": "Q"}
     assert "instruments" not in document
+
+
+# --- scenarios/readout.yaml ---------------------------------------------------------
+
+#: Millimetres per metre: the spear3 monitors publish in mm, the deck solves in m.
+MM_PER_M = 1000.0
+
+
+def _readout_rows(facility: Path) -> dict[str, dict[str, float]]:
+    document = _load(facility / READOUT_FILE)
+    assert list(document) == ["description", "faults"]
+    (rows,) = document["faults"].values()
+    return rows
+
+
+def test_the_spear3_offsets_are_in_the_conversion_and_seed_no_scenario(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facility = _import(tmp_path, "spear3")
+    assert not [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
+    assert not (facility / READOUT_FILE).exists()
+
+
+def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_position(
+    tmp_path: Path,
+) -> None:
+    from osprey.facility.views.simulator import simulator_wiring
+    from osprey.simulation.engines import pyat as engine
+
+    va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))
+    ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text("utf-8"))
+    stated = {
+        address: (gain, offset)
+        for family in ("BPMx", "BPMy")
+        for address, gain, offset in zip(
+            ao[family]["Monitor"]["ChannelNames"],
+            va["families"][family]["Monitor"]["readout"]["gain"],
+            va["families"][family]["Monitor"]["readout"]["offset"],
+            strict=True,
+        )
+    }
+    assert sum(offset != 0 for _, offset in stated.values()) == 107
+
+    facility = _import(tmp_path, "spear3")
+    _widen(facility, WIDENED["spear3"])
+    document = build_facility(facility, project_name="demo")
+    (model,) = [entry for entry in document["models"] if entry["name"] == "StorageRing"]
+    wiring = simulator_wiring(document, model["name"])
+    deck = facility / model["deck"]
+    monitors = {
+        record["address"]: record
+        for record in wiring
+        if "axis" in record["engine"] and "attribute" not in record["engine"]
+    }
+    assert set(stated) <= set(monitors)
+    assert {monitors[address]["unit"] for address in stated} == {"mm"}
+
+    seeded = _readout_rows(facility) if (facility / READOUT_FILE).exists() else {}
+    applied = {
+        f"{address}/{name}": value
+        for address, fields in seeded.items()
+        for name, value in fields.items()
+    }
+
+    def read(records: list[dict[str, Any]], active: dict[str, float]) -> dict[str, float]:
+        built = engine.build(model["name"], records, deck, model.get("settings"), active)
+        return engine.readout(built, built.get(sorted(stated)), 0)
+
+    raw = read(wiring, applied)
+    position = read(
+        [
+            {key: value for key, value in record.items() if key != "calibration"}
+            if record["address"] in monitors
+            else record
+            for record in wiring
+        ],
+        {},
+    )
+    # The Middle Layer corrects a reading as Gain x (Raw - Offset); with whatever
+    # readout the import seeded applied, the served reading carries the offset once.
+    for address, (gain, offset) in stated.items():
+        corrected = gain * (raw[address] - offset)
+        assert corrected == pytest.approx(MM_PER_M * position[address], abs=1e-9)
+
+
+def test_a_readout_the_engine_cannot_carry_is_named_and_not_written(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facility = _import(tmp_path, "synthetic")
+    lines = [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
+    # The quokka conversions hold neither the stated gain nor the stated offset.
+    assert lines == [
+        "import mml: readout not carried: SR: family BPMx (crunch, gain, offset)",
+        "import mml: readout not carried: SR: family BPMy (crunch, gain, roll)",
+    ]
+    rows = _readout_rows(facility)
+    assert rows
+    assert {field for fields in rows.values() for field in fields} == {"roll"}
+    assert not [address for address in rows if "Y" in address]
 
 
 # --- classes.yaml -------------------------------------------------------------------
