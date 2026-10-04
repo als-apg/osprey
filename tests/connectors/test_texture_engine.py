@@ -285,3 +285,88 @@ def test_reset_returns_every_channel_to_its_nominal():
     model.reset()
 
     assert model.get(["T:HEAT:SP", "T:HEAT:RB"]) == {"T:HEAT:SP": 20.0, "T:HEAT:RB": 20.0}
+
+
+def _coupled_model(couple: dict[str, Any], noise: dict[str, Any] | None = None) -> TextureModel:
+    variables, seeds = _view()
+    variables["channels"] += [_channel("T:A"), _channel("T:B")]
+    seeds["seeds"]["T:A"] = {"nominal": 1.0}
+    seeds["seeds"]["T:B"] = {"nominal": 2.0}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model.set_motion(couple, noise or {})
+    return model
+
+
+_DRIVE = {"kind": "wander", "amplitude": 1.0, "period_s": 300.0}
+
+
+def _driver_at(t_s: float) -> float:
+    return float(series.wander(series.driver_key_bytes("d1"), np.array([t_s]), 1.0, 300.0)[0])
+
+
+def test_channels_coupled_to_one_driver_move_by_their_gains():
+    model = _coupled_model(
+        {
+            "T:A": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}],
+            "T:B": [{"driver": "d1", "gain": 2.5, "drive": _DRIVE}],
+        }
+    )
+
+    reads = model.get(["T:A", "T:B"])
+
+    assert reads["T:A"] == pytest.approx(1.0 + 0.5 * _driver_at(T0))
+    assert reads["T:B"] == pytest.approx(2.0 + 2.5 * _driver_at(T0))
+    assert _driver_at(T0) != 0.0
+
+
+def test_a_gain_wander_coupling_differs_from_the_plain_one():
+    wander = {"amplitude": 0.8, "period_s": 900.0}
+    plain = _coupled_model({"T:A": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]})
+    waxing = _coupled_model(
+        {"T:A": [{"driver": "d1", "gain": 0.5, "gain_wander": wander, "drive": _DRIVE}]}
+    )
+    envelope = series.wander(
+        series.channel_key_bytes("T:A") + b":gain_wander:d1", np.array([T0]), 0.8, 900.0
+    )[0]
+
+    assert waxing.get("T:A") != plain.get("T:A")
+    assert waxing.get("T:A") == pytest.approx(1.0 + 0.5 * (1.0 + envelope) * _driver_at(T0))
+
+
+def test_a_zero_noise_replacement_silences_a_seeded_channel():
+    model = _coupled_model({}, {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}})
+    drift = series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
+
+    assert model.get("T:NOISY") == pytest.approx(10.0 + drift)
+
+
+def test_a_noise_replacement_scales_the_value_then_adds_its_absolute_term():
+    model = _coupled_model({}, {"T:A": {"noise": 0.1, "noise_abs": 0.2}})
+    key = series.channel_key_bytes("T:A")
+    counter = np.array([round(T0 * 1000)])
+    relative = series.keyed_normals(key + b":noise", counter)[0]
+    absolute = series.keyed_normals(key + b":noise_abs", counter)[0]
+
+    assert model.get("T:A") == pytest.approx(1.0 * (1.0 + 0.1 * relative) + 0.2 * absolute)
+
+
+def test_an_empty_motion_restores_the_seed_motion():
+    model = _coupled_model(
+        {"T:NOISY": [{"driver": "d1", "gain": 3.0, "drive": _DRIVE}]},
+        {"T:NOISY": {"noise": 0.0, "noise_abs": 0.0}},
+    )
+    moved = model.get("T:NOISY")
+
+    model.set_motion({}, {})
+
+    assert model.get("T:NOISY") == pytest.approx(_model().get("T:NOISY"))
+    assert moved != model.get("T:NOISY")
+
+
+def test_a_coupled_served_channel_moves_by_its_coupling():
+    model = _coupled_model({"P:SERVED:RB": [{"driver": "d1", "gain": 1.5, "drive": _DRIVE}]})
+    seed_only = _model().motion("P:SERVED:RB", np.array([T0]))[0]
+
+    moved = model.motion("P:SERVED:RB", np.array([T0]), base=9.0)[0]
+
+    assert moved == pytest.approx(seed_only + 1.5 * _driver_at(T0))

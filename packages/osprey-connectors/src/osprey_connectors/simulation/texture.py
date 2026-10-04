@@ -6,7 +6,7 @@ channel whose ``owner`` is ``texture`` or names a model the view marks
 unserved, and the MOTION (keyed noise and drift) and clamp of every channel
 the view declares, so a served model's readbacks can carry the same motion.
 
-A texture channel reads ``clamp(held + noise(t) + drift(t))``. ``held`` starts
+A texture channel reads ``clamp(held + drift(t) + couplings(t) + noise(t))``. ``held`` starts
 at the channel's nominal: the seed's ``nominal``, else the unserved model's
 wiring ``default``, else the zero of the channel's ``value_type``. A paired readback
 starts at its setpoint's nominal. A ``linear`` channel holds the weighted sum
@@ -14,6 +14,13 @@ of its inputs' held values, a ``linear`` input counting as its own sum. Noise an
 are pure functions of the address and the epoch millisecond, so a live read
 and an archived sample at the same instant agree. Writing a setpoint holds the
 value and echoes it into the readback its ``pair`` names.
+
+The active scenarios add motion through :meth:`TextureModel.set_motion`: a
+coupled channel adds ``gain * (1 + gain_wander(t)) * driver(t)`` per coupling,
+where every channel coupled to one driver sees the same ``driver(t)``, and a
+noise replacement stands in for the seed's noise while it is held: its
+relative ``noise`` scales ``held + drift + couplings``, then its ``noise_abs``
+is added.
 """
 
 from __future__ import annotations
@@ -43,6 +50,9 @@ TEXTURE_OWNER = "texture"
 
 _SETPOINT = "setpoint"
 _MS_PER_S = 1000.0
+_GAIN_WANDER_SUBKEY = b":gain_wander:"
+_RELATIVE_NOISE_SUBKEY = b":noise"
+_ABSOLUTE_NOISE_SUBKEY = b":noise_abs"
 _INT_UNBOUNDED = 2**63 - 1
 
 
@@ -136,6 +146,8 @@ class TextureModel(LUMEModel):
             for address in owned
         }
         self._held: dict[str, Any] = {}
+        self._couple: dict[str, list[Mapping[str, Any]]] = {}
+        self._noise: dict[str, Mapping[str, Any]] = {}
         self.reset()
 
     @staticmethod
@@ -231,35 +243,101 @@ class TextureModel(LUMEModel):
             for source, coefficient in _linear_terms(linear)
         )
 
-    def motion(self, address: str, t_s: Any) -> np.ndarray:
-        """The keyed noise plus drift of a channel at absolute epoch seconds.
+    def set_motion(
+        self,
+        couple: Mapping[str, Sequence[Mapping[str, Any]]],
+        noise: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        """Hold the active scenarios' motion until the next call.
+
+        Args:
+            couple: Couplings by address, each ``{driver, gain, gain_wander?,
+                drive}``: ``drive`` is the driver's ``{kind, amplitude,
+                period_s}`` and ``gain_wander`` an optional ``{amplitude,
+                period_s}``. Empty for no coupling.
+            noise: Noise replacements by address, each ``{noise, noise_abs}``;
+                a key it lacks is zero. Empty for the seeds' noise.
+        """
+        self._couple = {str(address): list(terms) for address, terms in couple.items()}
+        self._noise = {str(address): dict(entry) for address, entry in noise.items()}
+
+    def motion(self, address: str, t_s: Any, base: Any = 0.0) -> np.ndarray:
+        """The motion of a channel at absolute epoch seconds.
+
+        Drift, then the held couplings, then noise: the seed's keyed noise, or
+        the held replacement's relative term on ``base`` plus drift plus
+        couplings and its absolute term. Every term is a pure function of the
+        address and the epoch time.
 
         Args:
             address: Any address the view declares.
             t_s: Epoch seconds; any shape.
+            base: The value the motion is added to, which a relative noise
+                term scales; a scalar or an array shaped like ``t_s``.
 
         Returns:
             A float64 array with the shape of ``t_s``; zero for a channel
-            without a seed, without noise and drift, or not of type float.
+            without motion or not of type float.
         """
         times = np.asarray(t_s, dtype=np.float64)
         flat = times.reshape(-1)
         total = np.zeros(flat.shape, dtype=np.float64)
         channel = self._channels.get(address)
-        seed = self._seeds.get(address)
-        if channel is None or seed is None or not _is_float(channel):
+        if channel is None or not _is_float(channel):
             return total.reshape(times.shape)
+        seed = self._seeds.get(address) or {}
         key = series.channel_key_bytes(address)
-        sigma = seed.get("noise")
-        if sigma:
-            counters_ms = np.rint(flat * _MS_PER_S).astype(np.int64)
-            total = total + float(sigma) * series.keyed_normals(key, counters_ms)
         drift = seed.get("drift")
         if drift:
             total = total + series.wander(
                 key, flat, float(drift["amplitude"]), float(drift["period_s"])
             )
+        for coupling in self._couple.get(address, ()):
+            total = total + self._coupling(address, coupling, flat)
+        counters_ms = np.rint(flat * _MS_PER_S).astype(np.int64)
+        replacement = self._noise.get(address)
+        if replacement is None:
+            sigma = seed.get("noise")
+            if sigma:
+                total = total + float(sigma) * series.keyed_normals(key, counters_ms)
+            return total.reshape(times.shape)
+        relative = float(replacement.get("noise") or 0.0)
+        absolute = float(replacement.get("noise_abs") or 0.0)
+        if relative:
+            scaled = np.asarray(base, dtype=np.float64).reshape(-1) + total
+            total = total + scaled * relative * series.keyed_normals(
+                key + _RELATIVE_NOISE_SUBKEY, counters_ms
+            )
+        if absolute:
+            total = total + absolute * series.keyed_normals(
+                key + _ABSOLUTE_NOISE_SUBKEY, counters_ms
+            )
         return total.reshape(times.shape)
+
+    @staticmethod
+    def _coupling(address: str, coupling: Mapping[str, Any], times: np.ndarray) -> np.ndarray:
+        """``gain * (1 + gain_wander(t)) * driver(t)`` of one coupling."""
+        driver = str(coupling["driver"])
+        drive = coupling["drive"]
+        signal = series.wander(
+            series.driver_key_bytes(driver),
+            times,
+            float(drive["amplitude"]),
+            float(drive["period_s"]),
+        )
+        gain: Any = float(coupling["gain"])
+        envelope = coupling.get("gain_wander")
+        if envelope:
+            gain = gain * (
+                1.0
+                + series.wander(
+                    series.channel_key_bytes(address) + _GAIN_WANDER_SUBKEY + driver.encode(),
+                    times,
+                    float(envelope["amplitude"]),
+                    float(envelope["period_s"]),
+                )
+            )
+        return np.asarray(gain * signal, dtype=np.float64)
 
     def clamp(self, address: str, value: float) -> float:
         """Clamp a float into the seed's ``clamp`` band; a null side is unbounded."""
@@ -275,7 +353,9 @@ class TextureModel(LUMEModel):
             held = self._held_value(name)
             channel = self._channels[name]
             if _is_float(channel):
-                outputs[name] = self.clamp(name, float(held) + float(self.motion(name, t_s)))
+                outputs[name] = self.clamp(
+                    name, float(held) + float(self.motion(name, t_s, base=float(held)))
+                )
             elif _channel_value_type(channel) == "waveform":
                 outputs[name] = np.asarray(held, dtype=np.float64).reshape(
                     tuple(int(size) for size in channel["shape"])
