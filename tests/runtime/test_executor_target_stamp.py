@@ -33,6 +33,7 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import state_dir_under
+from tests.facility.served_tree import mock_config, served_tree
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -169,20 +170,37 @@ def markers_in(root: Path) -> list[dict[str, Any]]:
     ]
 
 
-#: A deployment that has both a simulated baseline and one real machine, so
-#: 'va' and 'live' each resolve to exactly one connector block.
-CONTROL_SYSTEM_SECTION = {
-    "type": "mock",
-    "connector": {
-        "mock": {"response_delay_ms": 0},
-        "epics": {"timeout_s": 1.0},
-        "virtual_accelerator": {"timeout_s": 9.0},
-    },
-}
+#: The addresses the write-pin cases write.
+WRITTEN = ("TEST:PV", "TEST:PV1", "TEST:PV2")
 
-#: A development checkout that has never named a real machine: 'live' has no
-#: answer here, which is what resolve_target refuses on.
-MOCK_ONLY_SECTION = {"type": "mock", "connector": {"mock": {}}}
+
+@pytest.fixture
+def view(tmp_path):
+    """The simulator view the mock block serves, holding :data:`WRITTEN`."""
+    return served_tree(tmp_path / "served", WRITTEN)
+
+
+def _control_system_section(view: Path) -> dict[str, Any]:
+    """A deployment that has both a simulated baseline and one real machine.
+
+    'va' and 'live' each resolve to exactly one connector block.
+    """
+    return {
+        "type": "mock",
+        "connector": {
+            "mock": mock_config(view, response_delay_ms=0),
+            "epics": {"timeout_s": 1.0},
+            "virtual_accelerator": {"timeout_s": 9.0},
+        },
+    }
+
+
+def _mock_only_section(view: Path) -> dict[str, Any]:
+    """A development checkout that has never named a real machine.
+
+    'live' has no answer here, which is what resolve_target refuses on.
+    """
+    return {"type": "mock", "connector": {"mock": mock_config(view)}}
 
 
 def _section_reader(section):
@@ -195,14 +213,15 @@ def _section_reader(section):
 
 
 @pytest.fixture
-def deployment_config(monkeypatch):
+def deployment_config(monkeypatch, view):
     """Serve one control_system section to both halves of the stamp.
 
     Host and sandbox deliberately read the same function, so a target the host
     stamps is a target the sandbox can build.
     """
     monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value", _section_reader(CONTROL_SYSTEM_SECTION)
+        "osprey_connectors.config.get_config_value",
+        _section_reader(_control_system_section(view)),
     )
 
 
@@ -352,7 +371,7 @@ class TestStampApplication:
             assert name not in env
 
     def test_live_on_a_deployment_without_a_real_machine_is_not_stamped(
-        self, state_root, monkeypatch
+        self, state_root, monkeypatch, view
     ):
         """A target the sandbox could not build is declined here, not there.
 
@@ -362,7 +381,7 @@ class TestStampApplication:
         the run on the baseline, which is what it was on before any of this.
         """
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value", _section_reader(_mock_only_section(view))
         )
         write_record(state_root, target="live", generation=1)
         env: dict[str, str] = {}
@@ -371,10 +390,10 @@ class TestStampApplication:
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
 
-    def test_va_is_stamped_on_that_same_deployment(self, state_root, monkeypatch):
+    def test_va_is_stamped_on_that_same_deployment(self, state_root, monkeypatch, view):
         """Only the unresolvable half is declined: 'va' resolves everywhere."""
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value", _section_reader(_mock_only_section(view))
         )
         write_record(state_root, target="va", generation=1)
         env: dict[str, str] = {}
@@ -412,14 +431,14 @@ class TestLaunchPostureStamp:
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
 
-    def test_an_unstamped_run_is_still_pinned(self, state_root, monkeypatch):
+    def test_an_unstamped_run_is_still_pinned(self, state_root, monkeypatch, view):
         """A target the run cannot be placed on: routing names go, the pin stays.
 
         It names every target, because a run that cannot say which machine it is
         about must not be the one run a narrowing fails to reach.
         """
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value", _section_reader(_mock_only_section(view))
         )
         write_record(state_root, target="live", generation=1, posture={"live": "sandbox"})
         env: dict[str, str] = {}
@@ -788,7 +807,7 @@ class TestSandboxRouting:
         assert _FakeConnector.last_config == {"timeout_s": 1.0}
 
     @pytest.mark.usefixtures("clear_stamp", "fake_registry", "clear_runtime_state")
-    def test_unstamped_resolution_is_unchanged(self):
+    def test_unstamped_resolution_is_unchanged(self, view):
         """No stamp means the factory loads the section itself, as it always did."""
         import osprey.runtime as runtime
 
@@ -796,7 +815,7 @@ class TestSandboxRouting:
 
         asyncio.run(runtime._get_connector())
 
-        assert _FakeConnector.last_config == {"response_delay_ms": 0}
+        assert _FakeConnector.last_config == mock_config(view, response_delay_ms=0)
 
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_blank_stamp_counts_as_absent(self, monkeypatch):
@@ -807,7 +826,7 @@ class TestSandboxRouting:
         assert runtime._target_connector_config() is None
 
     @pytest.mark.usefixtures("clear_runtime_state")
-    def test_unresolvable_live_target_refuses_rather_than_falling_back(self, monkeypatch):
+    def test_unresolvable_live_target_refuses_rather_than_falling_back(self, monkeypatch, view):
         """A deployment that never named its real machine gets an error, not the mock.
 
         The host declines to stamp this combination in the first place (see
@@ -816,7 +835,7 @@ class TestSandboxRouting:
         """
         monkeypatch.setenv("OSPREY_CONTROL_TARGET", "live")
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value", _section_reader(_mock_only_section(view))
         )
 
         import osprey.runtime as runtime
