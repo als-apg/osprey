@@ -1236,8 +1236,22 @@ class _Records:
     # --- wiring --------------------------------------------------------------------
 
     def _wiring(self) -> Iterator[FacilityBuildError]:
-        for _model, entry in self.index.wiring:
+        from osprey.simulation.engines.pyat import OPTICS_ATTRIBUTES
+
+        for model, entry in self.index.wiring:
             wid = str(entry.get("id"))
+            if _single_pass(self.index.models[model]) and _reads_plane_optics(
+                entry, OPTICS_ATTRIBUTES
+            ):
+                yield self._error(
+                    "engine-invalid",
+                    "wiring",
+                    wid,
+                    stating_files(entry, "engine"),
+                    f"{entry.get('address')}: a single_pass model serves no tunes or chromaticity",
+                    "remove the record from the model's wiring",
+                )
+                continue
             slices = entry.get("slices")
             if "element" in entry and slices is not None:
                 yield self._error(
@@ -1380,6 +1394,21 @@ def paired_nominal_error(
         record_kind="channel",
         detail=f"`nominal` {nominal} differs from its setpoint {setpoint}'s {theirs}",
     )
+
+
+def _single_pass(model: Mapping[str, Any]) -> bool:
+    """True when a model's ``pyat`` settings solve one pass through a line."""
+    settings = model.get("settings")
+    block = settings.get("pyat") if isinstance(settings, dict) else None
+    return isinstance(block, dict) and block.get("solve") == "single_pass"
+
+
+def _reads_plane_optics(entry: Mapping[str, Any], attributes: Iterable[str]) -> bool:
+    """True when a wiring entry names no element and reads one of ``attributes``."""
+    if entry.get("element") is not None or entry.get("slices"):
+        return False
+    engine = entry.get("engine")
+    return isinstance(engine, dict) and engine.get("attribute") in set(attributes)
 
 
 def _options_problem(value_type: str, options: Any) -> str | None:
