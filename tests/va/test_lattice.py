@@ -5,9 +5,10 @@ that reads it. This one does not: it runs the whole ``osprey mml`` chain --
 import, map, emit -- over a committed 2.0 export fixture, and serves the tree
 that run wrote. What it pins is the seam between the two halves of this
 repository, which neither half can check alone: the deck the emit lane saved,
-the bindings it derived against that deck, the scenario seed and the write
-bands it wrote beside them, and the channel namespace the manifest generator
-builds from all of it, are one accelerator that the virtual accelerator boots.
+the bindings it derived against that deck, the scenario seed it wrote beside
+them, the limits view staged at the served root, and the channel namespace the
+manifest generator builds from all of it, are one accelerator that the virtual
+accelerator boots.
 
 Three properties of that seam, each of which has been wrong before:
 
@@ -39,7 +40,7 @@ from osprey.services.virtual_accelerator.bindings import BindingsDocument, load_
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel, UnknownDeviceError
-from tests.va._served_tree import SYNTHETIC_EXPORT, emit_served_tree
+from tests.va._served_tree import SYNTHETIC_EXPORT, emit_served_tree, limits_view
 
 pytest.importorskip("linkml_runtime")
 
@@ -77,7 +78,9 @@ class TestTheEmittedTreeBootsAModel:
 
     def test_the_run_wrote_every_file_the_model_reads(self, paths: ManifestPaths) -> None:
         assert paths.missing_sources() == []
-        assert paths.channel_limits.is_file()
+        # The write bands are the limits view of the repo's own facility tree,
+        # staged where a build stages it; the emit run writes none.
+        assert paths.channel_limits.read_bytes() == limits_view(paths.data_root.parent).read_bytes()
 
     def test_every_binding_of_the_document_became_a_variable(
         self, booted: PyATRingModel, document: BindingsDocument

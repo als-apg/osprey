@@ -71,14 +71,17 @@ change what a matrix measured years ago says.
 
 The report this writes, ``data/mml/VA-REPORT.md``, is a reviewer's document:
 where the matrix came from, how much of it agrees, and every entry that does
-not -- plus the two things the emit lane had to decide quietly, the bands a
-nominal widened and the nominals the model only seeds.
+not -- plus the two things the export leaves to be decided quietly, the bands
+a nominal widened and the nominals the model only seeds.
 """
 
 from __future__ import annotations
 
+import json
 import math
+import tempfile
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.virtual_accelerator.bindings import load_bindings
@@ -93,7 +96,6 @@ from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Callable, Iterable, Mapping, Sequence
-    from pathlib import Path
 
     from osprey.services.mml.emit.va import (
         CalibrationTrim,
@@ -658,7 +660,8 @@ def verify(
         judged_va: Each family's ``va.json`` block in the judged device order,
             keyed the same way; the energy family's table is read off it.
         seeds: What the machine emitter read, for the report to list.
-        bands: What the limits emitter derived, for the widened ones.
+        bands: Every coupled setpoint's band, derived from the export; the
+            model boots inside them, and the report lists the widened ones.
         trims: What the bindings emitter cut back, for the report to name.
         supplies: The supplies feeding a string of magnets, for the same.
         markers: What the addressing pass served as plain markers, for the
@@ -689,12 +692,12 @@ def verify(
     document = load_bindings(ManifestPaths(data_root=data_dir).va_bindings)
     grain = {view.raw_name: view for view in views if view.system == system}
     by_family, shared = _bindings_by_device(document, grain, verdicts, system)
-    model = PyATRingModel(data_dir, model_channels(document))
-
-    swept = {
-        key: _sweep(model, by_family, key, group, grain, judged_va)
-        for key, group in _grouped(blocks, verdicts, by_family, system).items()
-    }
+    with tempfile.TemporaryDirectory(prefix="osprey-verify-") as boot:
+        model = PyATRingModel(_boot_tree(data_dir, bands, Path(boot)), model_channels(document))
+        swept = {
+            key: _sweep(model, by_family, key, group, grain, judged_va)
+            for key, group in _grouped(blocks, verdicts, by_family, system).items()
+        }
 
     drafts: list[_Draft] = []
     for block in blocks:
@@ -728,6 +731,28 @@ def verify(
         monitors=monitors,
         cavity=cavity,
     )
+
+
+def _boot_tree(data_dir: Path, bands: Sequence[ChannelBand], root: Path) -> Path:
+    """A served tree under *root*: the emitted model, banded by *bands*.
+
+    The model reads its write bands from ``channel_limits.json`` beside the
+    emitted ``simulation/`` documents. An emitted tree carries no such file --
+    a deployment's bands are the records of its ``facility/limits.yaml`` -- so
+    the bands derived from the export are written here, and the tree's own
+    ``simulation/`` is linked in unchanged.
+    """
+    paths = ManifestPaths(data_root=root)
+    paths.lattice_json.parent.symlink_to(
+        ManifestPaths(data_root=data_dir).lattice_json.parent.resolve(),
+        target_is_directory=True,
+    )
+    document = {
+        band.address: {"writable": True, "min_value": band.min_value, "max_value": band.max_value}
+        for band in bands
+    }
+    paths.channel_limits.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
+    return root
 
 
 # --- the exported document -------------------------------------------------

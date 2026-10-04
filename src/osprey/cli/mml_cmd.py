@@ -29,8 +29,7 @@ a mapping the check rejects.
 
 A 2.0 export carries a virtual accelerator as well, and ``emit`` writes the
 files a served one boots from: the saved deck, the bindings that say what each
-coupled address does to it, the two starting-state documents and the write
-bands. A 1.0 tree says in one line that the lane was skipped and is otherwise
+coupled address does to it and the two starting-state documents. A 1.0 tree says in one line that the lane was skipped and is otherwise
 untouched. The lane's own pre-flight sits beside the judgment one, so a tree
 it cannot serve is refused with nothing written.
 
@@ -55,7 +54,6 @@ from .repo_resolver import find_repo_root, repo_option
 if TYPE_CHECKING:  # the services stay out of the runtime import graph
     from osprey.services.mml.emit.va import (
         CalibrationTrim,
-        ChannelBand,
         LaneFindings,
         NominalSeed,
     )
@@ -737,10 +735,6 @@ _VA_SCENARIOS = Path("simulation") / "scenarios"
 #: The scenario keys, besides ``overrides``, whose mapping is keyed by channel.
 _SCENARIO_CHANNEL_MAPPINGS = ("couple", "noise")
 
-#: The write-safety bands, under ``data/``. The file is shared with the
-#: facility, so the lane states only the addresses its own bindings name.
-_VA_LIMITS = Path("channel_limits.json")
-
 
 @dataclass(frozen=True)
 class _VALane:
@@ -951,7 +945,7 @@ def emit_cmd(duckdb_path: str | None, repo: Path | None) -> None:
 
     # -- virtual accelerator ----------------------------------------------------
     if lane is not None:
-        _emit_va(lane, data, mapping, ctx, _channel_addresses(db))
+        _emit_va(lane, data, mapping, ctx)
     else:
         _sweep_served_model(data)
 
@@ -1530,46 +1524,34 @@ def _sweep_served_model(data: Path) -> None:
         )
 
 
-def _emit_va(
-    lane: _VALane, data: Path, mapping, ctx, channel_addresses: Sequence[str]
-) -> tuple[tuple[NominalSeed, ...], tuple[ChannelBand, ...]]:
+def _emit_va(lane: _VALane, data: Path, mapping, ctx) -> tuple[NominalSeed, ...]:
     """Write the virtual-accelerator artifacts, and return what a report reads.
 
     The order the texts are rendered in is what each one names: the deck first,
-    because the bindings stamp its digest; then the bindings, which the bands
-    are derived from; the two starting-state documents; and the bands last. The
-    digest is taken over the deck's text rather than over a file, so nothing is
-    written until every refusal is known: a band a person's own file states
-    differently stops the run with not one artifact of this lane's on the tree.
+    because the bindings stamp its digest; then the bindings and the two
+    starting-state documents. The digest is taken over the deck's text rather
+    than over a file, so nothing is written until every refusal is known.
 
     Args:
         lane: What the pre-flight decided this tree serves.
         data: The deployment's ``data/`` directory.
         mapping: The parsed mapping, read for the prose each channel carries.
         ctx: The provenance of this emit run; the deck's digest lands on it.
-        channel_addresses: Every address the channel database carries, which
-            is what a tree with no bands of its own is stated over.
 
     Returns:
-        One row per nominal read and one per coupled setpoint banded, for the
-        run's report to list.
+        One row per nominal read, for the run's report to list.
 
     Raises:
         click.ClickException: A file could not be written, or the export and
             the mapping do not fit the deck.
     """
-    import json
-
     from osprey.services.mml.canonical import write_if_changed
     from osprey.services.mml.emit.va import (
-        UnbandedSetpointError,
         emit_bindings,
-        emit_channel_limits,
         emit_lattice,
         emit_machine,
         emit_state_channels,
     )
-    from osprey.services.virtual_accelerator.bindings import parse_bindings
 
     def _disagrees(exc: Exception) -> click.ClickException:
         return click.ClickException(
@@ -1600,39 +1582,6 @@ def _emit_va(
     except ValueError as exc:
         raise _disagrees(exc) from exc
 
-    limits_path = data / _VA_LIMITS
-    existing = None
-    if limits_path.is_file():
-        try:
-            existing = json.loads(limits_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise click.ClickException(
-                f"Cannot read {limits_path} ({exc}); fix it or remove it and emit again."
-            ) from exc
-    try:
-        limits_text, bands = emit_channel_limits(
-            existing,
-            parse_bindings(json.loads(bindings_text)).bindings,
-            channel_addresses,
-            ctx,
-            views=lane.views,
-            system=lane.system,
-        )
-    except UnbandedSetpointError as exc:
-        raise click.ClickException(f"{exc} No virtual-accelerator file was written.") from exc
-    except ValueError as exc:
-        raise _disagrees(exc) from exc
-
-    refused = [band for band in bands if band.refused]
-    if refused:
-        for band in refused:
-            report(f"{band.address}: {band.refused}")
-        raise click.ClickException(
-            f"{_count(len(refused), 'band')} in {limits_path} that this command did not write "
-            "state a coupled setpoint differently; no virtual-accelerator file was written, so "
-            "fix the file or remove those entries, then run osprey mml emit again."
-        )
-
     # The deck keeps its own writer: identical bytes leave the file, and its
     # modification time, exactly as they were.
     try:
@@ -1645,14 +1594,13 @@ def _emit_va(
         (data / _VA_STAMPED[0], bindings_text),
         (data / _VA_STAMPED[1], machine_text),
         (data / _VA_STAMPED[2], state_text),
-        (limits_path, limits_text),
     )
     for path, text in written:
         _write_text(path, text)
         report(f"Wrote {path}.")
     for line in _va_lane_lines(lane, findings):
         report(line)
-    return seeds, bands
+    return seeds
 
 
 def _va_lane_lines(lane: _VALane, findings: LaneFindings) -> list[str]:
@@ -1711,28 +1659,6 @@ def _va_lane_lines(lane: _VALane, findings: LaneFindings) -> list[str]:
         if not lane.monitors:
             lines.append(f"{lane.system} is served reading no beam position anywhere.")
     return lines
-
-
-def _channel_addresses(db: dict) -> list[str]:
-    """Every address the emitted channel database carries, in document order.
-
-    Read off the database rather than the export, so the bands a tree with no
-    file of its own is stated over cover exactly the channels it serves.
-    """
-    from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
-
-    return [
-        slot
-        for system in db.values()
-        if isinstance(system, dict)
-        for family in system.values()
-        if isinstance(family, dict)
-        for field in family.values()
-        if isinstance(field, dict)
-        for key in CHANNEL_KEYS
-        for slot in (field.get(key) or ())
-        if isinstance(slot, str) and slot
-    ]
 
 
 def _demo_offenders(root: Path, tiers: Path, bundle: Path) -> str | None:
@@ -1852,13 +1778,12 @@ def _count(n: int, singular: str, plural: str | None = None) -> str:
 
 
 #: What an emitted tree must carry for a model to be built over it, under
-#: ``data/``. The deck and the bindings describe the ring; the nominals and the
-#: bands are what the model boots in.
+#: ``data/``. The deck and the bindings describe the ring; the nominals are what
+#: the model boots at.
 _VA_SERVED = (
     _VA_LATTICE,
     _VA_BINDINGS,
     _VA_MACHINE,
-    _VA_LIMITS,
 )
 
 
@@ -1871,12 +1796,10 @@ def verify_cmd(repo: Path | None) -> None:
     entry of the matrix could be compared: a deployment asked for evidence is
     told it has none rather than sent on to osprey build.
     """
-    import json
-
     from osprey.services.mml.canonical import AO_FILENAME
     from osprey.services.mml.emit.context import build_context
     from osprey.services.mml.emit.va import (
-        emit_channel_limits,
+        channel_bands,
         emit_machine,
         lane_findings,
     )
@@ -1907,16 +1830,12 @@ def verify_cmd(repo: Path | None) -> None:
     except OSError as exc:
         raise click.ClickException(f"Cannot read the emit inputs ({exc}).") from exc
 
-    limits_path = data / _VA_LIMITS
     try:
         bindings = load_bindings(data / _VA_BINDINGS)
-        existing = json.loads(limits_path.read_text(encoding="utf-8"))
         _text, seeds = emit_machine(
             lane.verdicts, lane.views, lane.judged_va, mapping, ctx, lane.element_bindings
         )
-        _limits, bands = emit_channel_limits(
-            existing, bindings.bindings, (), ctx, views=lane.views, system=lane.system
-        )
+        bands = channel_bands(bindings.bindings, views=lane.views, system=lane.system)
         findings = lane_findings(
             lane.verdicts,
             lane.views,
@@ -1930,7 +1849,7 @@ def verify_cmd(repo: Path | None) -> None:
             "run osprey mml emit again."
         ) from exc
     except OSError as exc:
-        raise click.ClickException(f"Cannot read {limits_path} ({exc}).") from exc
+        raise click.ClickException(f"Cannot read {data / _VA_BINDINGS} ({exc}).") from exc
 
     try:
         result = verify(

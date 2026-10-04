@@ -16,16 +16,16 @@ mapping of the ``repo`` fixture is filled the way the map tests fill a
 skeleton, so no case here rests on which judgments a committed fixture
 happens to answer.
 
-The virtual-accelerator lane has its own class. A 2.0 tree gets five more
+The virtual-accelerator lane has its own class. A 2.0 tree gets four more
 files, the three the lane owns whole opening with the provenance stamp and the
 bindings naming the digest of the deck the same run saved; a 1.0 tree gets one
 line saying the lane was skipped, not a single file, and the ring it was
 serving removed, because a harvest that describes no machine leaves none to
 serve. Its refusals stop the run with nothing written: a deck that was never
 imported, a mapping deciding nothing about the exported virtual accelerator, an
-answer the deck refuses, a hand-authored starting-state file that carries no
-stamp, and a band a person's own ``channel_limits.json`` already states
-differently.
+answer the deck refuses, and a hand-authored starting-state file that carries
+no stamp. The lane writes no write-safety database: a deployment's bands are
+the records of its ``facility/limits.yaml``.
 
 Scenario bundles are held against the machine the deployment serves, which is
 the document the simulation resolves them against: the one this run is about to
@@ -38,16 +38,12 @@ can resolve is kept whoever wrote it, and an empty directory is kept.
 Four more classes ask of that lane what a file on a served tree is for. Every
 2.0 export the repo commits runs the whole lane and re-runs it byte-identically,
 discovered from the fixtures rather than listed here, so a tree committed later
-is covered the day it lands. Each of the five documents is then read back
+is covered the day it lands. Each of the four documents is then read back
 through the code that reads it in production -- ``at.load_lattice``,
-``load_bindings``, ``parse_machine`` beside ``load_machine_json_channels``,
-``load_machine_state_candidate_addresses`` and the limits validator -- and
-across documents, because the bindings, the seed and the write bands only
-describe one machine if they name the same addresses. A facility's own write
-bands survive the lane whole: what it never stamped comes back exactly as it
-was, what it stamped is re-derived without losing the keys the lane does not
-own, and the addresses of the channel database are not swept into a file the
-facility already keeps. And every refusal leaves the tree byte-for-byte as it
+``load_bindings``, ``parse_machine`` beside ``load_machine_json_channels`` and
+``load_machine_state_candidate_addresses`` -- and across documents, because
+the bindings and the seed only describe one machine if they name the same
+addresses. And every refusal leaves the tree byte-for-byte as it
 found it, measured over the whole tree rather than a list of names.
 
 
@@ -90,7 +86,6 @@ from osprey.services.virtual_accelerator.manifest.loaders import (
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.bindings import build_action_variables
 from osprey.simulation.machine import parse_machine
-from osprey_connectors.control_system.limits_validator import LimitsValidator
 from tests.cli.test_mml_map import _fill
 from tests.templates.mml_export_contract import EXPORTER_VERSION
 
@@ -633,20 +628,14 @@ SYNTHETIC = FIXTURES / "synthetic" / "quokka.sr.ao.json"
 #: The system that export imports as, and the deck named after it.
 SYNTHETIC_SYSTEM = "SR"
 
-#: One coupled setpoint of that export, whose family the lane bands from its
-#: own ``Range``: the address a facility's own band can disagree on.
-SYNTHETIC_BANDED = "QK:QF:1:CUR:SP"
-
 #: Where the lane's artifacts land, relative to the repo root. The deck and the
 #: bindings sit under ``simulation/``, which is what the build copies into the
-#: served tree; the machine-state list and the write bands are read from
-#: ``data/`` itself.
+#: served tree; the machine-state list is read from ``data/`` itself.
 VA_ARTIFACTS = (
     "data/simulation/lattice.json",
     "data/simulation/va_bindings.json",
     "data/simulation/machine.json",
     "data/machine_state_channels.json",
-    "data/channel_limits.json",
 )
 
 #: The three documents the lane owns whole, which open with the provenance
@@ -825,11 +814,9 @@ def _va_files(repo: Path) -> dict[str, bytes]:
     return {name: (repo / name).read_bytes() for name in VA_ARTIFACTS if (repo / name).is_file()}
 
 
-def _assert_wrote_no_va(repo: Path, *, except_for: str | None = None) -> None:
-    """No artifact of the lane's is on the tree, bar one the facility wrote itself."""
+def _assert_wrote_no_va(repo: Path) -> None:
+    """No artifact of the lane's is on the tree."""
     for name in VA_ARTIFACTS:
-        if name == except_for:
-            continue
         assert not (repo / name).is_file(), f"{name} was written"
 
 
@@ -881,13 +868,25 @@ def _database_only_addresses(repo: Path) -> list[str]:
     name something that reads as a channel of this facility and still has
     nothing on the machine to resolve against.
     """
-    from osprey.cli.mml_cmd import _channel_addresses
+    from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
 
     database = json.loads(
         (repo / "data" / "channel_databases" / "middle_layer.json").read_text(encoding="utf-8")
     )
+    addresses = [
+        slot
+        for system in database.values()
+        if isinstance(system, dict)
+        for family in system.values()
+        if isinstance(family, dict)
+        for field in family.values()
+        if isinstance(field, dict)
+        for key in CHANNEL_KEYS
+        for slot in (field.get(key) or ())
+        if isinstance(slot, str) and slot
+    ]
     served = set(_machine_channels(repo))
-    return [address for address in _channel_addresses(database) if address not in served]
+    return [address for address in addresses if address not in served]
 
 
 def _emitted_tree() -> None:
@@ -911,7 +910,7 @@ def _served_scenario(repo: Path, name: str) -> Path:
 
 
 class TestVirtualAcceleratorLane:
-    """``emit`` on a 2.0 tree: the five files a served virtual accelerator boots from."""
+    """``emit`` on a 2.0 tree: the four files a served virtual accelerator boots from."""
 
     def test_the_va_lane_writes_every_artifact_the_served_tree_reads(self, va_repo: Path) -> None:
         result = _emit()
@@ -922,6 +921,13 @@ class TestVirtualAcceleratorLane:
             assert (va_repo / name).is_file(), f"{name} was not written"
             assert name.rsplit("/", 1)[-1] in result.output
         assert "osprey build" in result.output.strip().splitlines()[-1]
+
+    def test_the_va_lane_writes_no_limits_database(self, va_repo: Path) -> None:
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        assert not (va_repo / "data" / "channel_limits.json").exists()
+        assert "channel_limits.json" not in result.output
 
     def test_the_va_documents_the_lane_owns_open_with_the_provenance_stamp(
         self, va_repo: Path
@@ -1404,62 +1410,6 @@ class TestVirtualAcceleratorLane:
         _assert_wrote_nothing(va_repo)
         _assert_wrote_no_va(va_repo)
 
-    def test_a_driven_device_the_export_does_not_band_refuses_the_va_lane(
-        self, va_repo: Path
-    ) -> None:
-        # The lane names the device it would drive unbanded, writes none of its
-        # five files, and serves no band of its own in their place.
-        export = va_repo / "data" / "mml" / "ao.json"
-        document = json.loads(export.read_text(encoding="utf-8"))
-        setpoint = document[SYNTHETIC_SYSTEM]["QF"]["Setpoint"]
-        rows = len(setpoint["ChannelNames"])
-        setpoint["Range"] = [["NaN", "NaN"]] + [[0, 200]] * (rows - 1)
-        export.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-
-        result = _emit()
-
-        assert result.exit_code != 0
-        assert "Traceback" not in result.output
-        assert f"{SYNTHETIC_SYSTEM}.QF device 1 ({SYNTHETIC_BANDED})" in result.output
-        assert "[NaN, NaN]" in result.output
-        assert "map --check" not in result.output
-        _assert_wrote_no_va(va_repo)
-
-    def test_a_hand_banded_setpoint_refuses_the_va_lane_and_names_the_address(
-        self, va_repo: Path
-    ) -> None:
-        # The band the facility wrote itself disagrees with the one this
-        # setpoint's family is banded from, and is the last thing the lane can
-        # learn: every text is rendered before it is known. So it is the one
-        # refusal that proves the rest -- the deck included -- reaches the tree
-        # only once the whole lane holds, and reaches it again on no re-run.
-        theirs = {"min_value": -1.5, "max_value": 1.5, "writable": True}
-        limits = va_repo / "data" / "channel_limits.json"
-        limits.parent.mkdir(parents=True, exist_ok=True)
-        limits.write_text(json.dumps({SYNTHETIC_BANDED: theirs}, indent=2) + "\n", encoding="utf-8")
-        facility = limits.read_bytes()
-
-        result = _emit()
-
-        assert result.exit_code != 0
-        assert "Traceback" not in result.output
-        assert SYNTHETIC_BANDED in result.output
-        assert limits.read_bytes() == facility
-        _assert_wrote_no_va(va_repo, except_for="data/channel_limits.json")
-
-        again = _emit()
-
-        assert again.exit_code != 0
-        assert limits.read_bytes() == facility
-        _assert_wrote_no_va(va_repo, except_for="data/channel_limits.json")
-
-
-#: The address of the one entry below planted by a facility that this export
-#: knows nothing about: it is not in the channel database, so a lane that swept
-#: the database into a file it does not own would still leave it alone, while a
-#: lane that rewrote the file whole would drop it.
-FACILITY_ONLY = "ZZ:OTHER:1:CUR:SP"
-
 
 def _json(repo: Path, name: str) -> dict:
     return json.loads((repo / name).read_text(encoding="utf-8"))
@@ -1562,7 +1512,7 @@ class TestEveryCommittedTwoZeroTree:
         # so an empty one would pass the file in silence rather than fail it.
         assert TWO_ZERO_TREES, "no fixture export carries a *.va.json sibling"
 
-    def test_the_lane_writes_the_five_artifacts_a_served_tree_boots_from(
+    def test_the_lane_writes_the_four_artifacts_a_served_tree_boots_from(
         self, one_emit: _OneEmit
     ) -> None:
         result = one_emit.result
@@ -1578,7 +1528,7 @@ class TestEveryCommittedTwoZeroTree:
         result = _emit()
 
         assert result.exit_code == 0, result.output
-        # The whole tree, not just the lane's five: an emit of unchanged inputs
+        # The whole tree, not just the lane's four: an emit of unchanged inputs
         # is what a deployment re-runs, and a byte that moves is a diff a
         # facility has to read.
         assert _tree(two_zero_repo) == first
@@ -1651,32 +1601,6 @@ class TestEachDocumentThroughItsOwnReader:
         assert all(
             document[address]["label"] and document[address]["group"] for address in candidates
         )
-
-    def test_the_write_bands_load_through_the_limits_validator(self, one_emit: _OneEmit) -> None:
-        assert one_emit.result.exit_code == 0
-
-        limits = one_emit.repo / "data" / "channel_limits.json"
-        database, raw = LimitsValidator._load_limits_database(str(limits))
-        assert set(database) == set(raw)
-        # Exactly the addresses the bindings drive may be written, and the file
-        # this lane created states every one of its entries itself.
-        assert LimitsValidator.writable_addresses(limits) == frozenset(
-            setpoints(_bindings(one_emit.repo))
-        )
-        assert all(entry["_provenance"] == _stamp(one_emit.repo) for entry in raw.values())
-        # A blank device slot stays blank in the channel database rather than
-        # compacting the list; a blank is not an address and never gets a band.
-        assert all(address.strip() for address in raw)
-
-    def test_the_write_bands_carry_no_stamp_of_their_own_above_the_entries(
-        self, one_emit: _OneEmit
-    ) -> None:
-        # The file is shared with the facility, so the lane states each entry it
-        # owns and never the document.
-        assert one_emit.result.exit_code == 0
-
-        document = _json(one_emit.repo, "data/channel_limits.json")
-        assert [key for key in document if key.startswith("_")] == []
 
     def test_the_state_list_can_name_a_monitor_the_starting_state_holds_no_value_for(
         self, va_repo: Path
@@ -1816,97 +1740,6 @@ class TestTheMonitorReadoutReachesTheBindingsAndChangesNothing:
         assert moved, "no carried correction would change a reading if applied twice"
 
 
-class TestTheFacilitysOwnWriteBandsSurviveTheLane:
-    """``channel_limits.json`` is shared, so the lane edits its own entries only."""
-
-    def _plant(self, repo: Path, document: dict) -> Path:
-        limits = repo / "data" / "channel_limits.json"
-        limits.parent.mkdir(parents=True, exist_ok=True)
-        limits.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-        return limits
-
-    def test_everything_the_lane_does_not_own_comes_back_exactly_as_it_was(
-        self, va_repo: Path
-    ) -> None:
-        theirs = {
-            "_comment": "written by the facility, not by osprey",
-            "defaults": {"writable": True, "confirm": False},
-            FACILITY_ONLY: {"min_value": -3.0, "max_value": 3.0, "confirm": True},
-        }
-        limits = self._plant(va_repo, theirs)
-
-        result = _emit()
-
-        assert result.exit_code == 0, result.output
-        merged = json.loads(limits.read_text(encoding="utf-8"))
-        assert {key: merged[key] for key in theirs} == theirs
-        # Metadata first, then ``defaults``, then the addresses sorted.
-        assert list(merged)[:2] == ["_comment", "defaults"]
-        addresses = [key for key in merged if not key.startswith("_") and key != "defaults"]
-        assert addresses == sorted(addresses)
-        # Only the addresses the bindings name are added: sweeping the channel
-        # database into a facility's file would newly block writes it allows.
-        document = _bindings(va_repo)
-        owned = {binding.setpoint_address for binding in document.bindings}
-        owned |= {
-            binding.readback_address for binding in document.bindings if binding.readback_address
-        }
-        assert set(addresses) - {FACILITY_ONLY} <= owned
-        assert set(setpoints(document)) <= set(addresses)
-
-    def test_a_band_this_lane_stamped_before_is_re_derived_and_keeps_the_rest(
-        self, va_repo: Path
-    ) -> None:
-        assert _emit().exit_code == 0
-        band = _json(va_repo, "data/channel_limits.json")[SYNTHETIC_BANDED]
-
-        stale = dict(band, min_value=-99.0, max_value=99.0, confirm=True, max_step=0.5)
-        stale["_provenance"] = "exporter=mml_export 2.0.0 ao_sha256=old mapping_sha256=old"
-        self._plant(va_repo, {SYNTHETIC_BANDED: stale})
-        result = _emit()
-
-        assert result.exit_code == 0, result.output
-        again = _json(va_repo, "data/channel_limits.json")[SYNTHETIC_BANDED]
-        assert again["min_value"] == band["min_value"]
-        assert again["max_value"] == band["max_value"]
-        assert again["_provenance"] == _stamp(va_repo)
-        # The keys the lane does not own survive the re-derivation.
-        assert again["confirm"] is True
-        assert again["max_step"] == 0.5
-
-    def test_an_unstamped_band_that_agrees_is_left_untouched_and_unstamped(
-        self, va_repo: Path
-    ) -> None:
-        assert _emit().exit_code == 0
-        band = _json(va_repo, "data/channel_limits.json")[SYNTHETIC_BANDED]
-        theirs = {key: value for key, value in band.items() if key != "_provenance"}
-
-        self._plant(va_repo, {SYNTHETIC_BANDED: theirs})
-        result = _emit()
-
-        assert result.exit_code == 0, result.output
-        # Nothing to refuse and nothing to correct, so the entry is copied
-        # across as it stands -- a stamp here would claim a band the lane did
-        # not write.
-        assert _json(va_repo, "data/channel_limits.json")[SYNTHETIC_BANDED] == theirs
-
-    def test_a_merged_file_re_emits_byte_identically(self, va_repo: Path) -> None:
-        limits = self._plant(
-            va_repo,
-            {
-                "_comment": "written by the facility, not by osprey",
-                FACILITY_ONLY: {"min_value": -3.0, "max_value": 3.0},
-            },
-        )
-        assert _emit().exit_code == 0
-        first = limits.read_bytes()
-
-        result = _emit()
-
-        assert result.exit_code == 0, result.output
-        assert limits.read_bytes() == first
-
-
 def _unanswer_a_slot(repo: Path) -> None:
     document = _document(repo)
     document["virtual_accelerator"]["families"]["SEPTUM"]["slot"]["answer"] = None
@@ -1931,16 +1764,6 @@ def _plant_an_unstamped_starting_state(repo: Path) -> None:
     hand_written = repo / "data" / "simulation" / "machine.json"
     hand_written.parent.mkdir(parents=True, exist_ok=True)
     hand_written.write_text('{"channels": {}}\n', encoding="utf-8")
-
-
-def _plant_a_band_of_their_own(repo: Path) -> None:
-    limits = repo / "data" / "channel_limits.json"
-    limits.parent.mkdir(parents=True, exist_ok=True)
-    limits.write_text(
-        json.dumps({SYNTHETIC_BANDED: {"min_value": -1.5, "max_value": 1.5, "writable": True}})
-        + "\n",
-        encoding="utf-8",
-    )
 
 
 class TestNothingReachesTheTreeUntilEveryRefusalIsKnown:
@@ -1975,38 +1798,6 @@ class TestNothingReachesTheTreeUntilEveryRefusalIsKnown:
         # before the first lane writes, so nothing of any lane is on the tree.
         assert _tree(va_repo) == before
 
-    def test_a_band_refusal_keeps_the_va_off_the_tree_but_not_the_lanes_before_it(
-        self, va_repo: Path
-    ) -> None:
-        # A band a facility states itself is the one refusal that cannot be
-        # reached in the pre-flight: it is known only once all five VA
-        # documents are rendered, and by then the channel database, the
-        # ontology, the knowledge pages and the corpus of the same run are on
-        # the tree. So the VA lane withholds its own five files and says
-        # exactly that, and what the lanes before it wrote stays written.
-        _plant_a_band_of_their_own(va_repo)
-        before = _tree(va_repo)
-
-        result = _emit()
-
-        assert result.exit_code != 0
-        assert "Traceback" not in result.output
-        _assert_wrote_no_va(va_repo, except_for="data/channel_limits.json")
-        written = set(_tree(va_repo)) - set(before)
-        assert written, "the lanes before the VA lane wrote nothing at all"
-        assert not written & set(VA_ARTIFACTS)
-        assert "no virtual-accelerator file was written" in result.output
-
-    def test_a_second_refused_run_leaves_the_tree_the_first_one_left(self, va_repo: Path) -> None:
-        _plant_a_band_of_their_own(va_repo)
-        assert _emit().exit_code != 0
-        before = _tree(va_repo)
-
-        result = _emit()
-
-        assert result.exit_code != 0
-        assert _tree(va_repo) == before
-
 
 class TestTheProvenanceOfOneEmitRun:
     """One run, one stamp: the inputs it read and the deck it saved."""
@@ -2015,9 +1806,6 @@ class TestTheProvenanceOfOneEmitRun:
         assert _emit().exit_code == 0
 
         stamps = {_json(va_repo, name)["_provenance"] for name in VA_STAMPED}
-        stamps |= {
-            entry["_provenance"] for entry in _json(va_repo, "data/channel_limits.json").values()
-        }
         assert stamps == {_stamp(va_repo)}
 
     def test_a_mapping_the_run_reads_differently_restamps_every_document(
