@@ -53,11 +53,11 @@ def _bundle_data_root(bundle: str = "control_assistant") -> Path:
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
+    """``create_project`` plus the steps a real build takes next.
 
     A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, writes
+    the facility views, and regenerates ``.claude/`` from the finished config. The template carries
     only derived and profile-field-derived keys, so a fixture that stops after
     the render holds half a config — the declarative half is the preset's, and
     the artifacts rendered before it landed do not know about the deployment's
@@ -67,6 +67,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     """
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
+    from tests._facility_file import write_facility_views
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
@@ -77,6 +78,9 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     manager.generate_manifest(
         project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
     )
+    # The build writes the facility views before its last render, so the
+    # agent facts name the models the render serves.
+    write_facility_views(project, bundle)
     # The build's last render, and the one that ships: `create_project` wrote
     # `.claude/` from a config.yml that did not yet carry the preset's block.
     manager.regenerate_claude_code(project)
