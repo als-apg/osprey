@@ -14,12 +14,11 @@ APOC): ``(:Resource)-[:HASBINDING]->(:ChannelBinding)``, a device typed by
 ``(:Resource)-[:TYPE]->(:Class)`` with ``:Class`` nodes chained by
 ``[:SUBCLASSOF]``, and a binding reaching its meaning through
 ``(:ChannelBinding)-[:READSSIGNAL|WRITESSIGNAL]->(:SemanticSignal)``. Devices
-carry ``uri``, ``sourceName``, ``sectionCode``, ``system``, ``rawType``,
-``sPositionM``, ``ordinalInSection``, ``systemDescription``,
-``familyDescription`` and ``ringDescription``; bindings carry ``fullPv``,
-``description``, ``fieldDescription``, ``subfieldDescription``, ``protocol``
-and ``confidence``; signals carry ``uri`` and ``label``; classes carry ``uri``
-and a list-valued ``altLabel``. Every node also wears n10s's ``Resource``
+carry ``uri``, ``sourceName``, ``sectionCode``, ``placePath``, ``system``,
+``rawType``, ``sPositionM``, ``ordinalInPlace``, ``systemDescription`` and
+``familyDescription``; a place carries ``placePath`` and ``sectionCode``;
+bindings carry ``fullPv`` and ``description``; signals carry ``uri`` and
+``label``; classes carry ``uri`` and a list-valued ``altLabel``. Every node also wears n10s's ``Resource``
 label, which is why nothing below matches on node labels.
 """
 

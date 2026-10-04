@@ -28,7 +28,6 @@ import pytest
 from rdflib import Graph, Literal, URIRef
 from rdflib.compare import isomorphic
 
-from osprey.mcp_server.graph.tools.examples_data import EXAMPLE_QUERIES
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
 from osprey.services.facility_knowledge.ttl_generator import direction, emitter, model
 from osprey.services.facility_knowledge.ttl_generator.ontology_map import (
@@ -601,42 +600,6 @@ class TestShippedDemoMachine:
         assert (_sem("Dipole"), magnet) in edges
         assert (_sem("HCorrector"), _sem("Corrector")) in edges
         assert (_sem("Corrector"), magnet) in edges
-
-    @pytest.mark.parametrize("example", EXAMPLE_QUERIES, ids=lambda ex: ex.key)
-    def test_demo_parameters_exist_in_the_generated_corpus(
-        self, real_graph: Graph, example: object
-    ) -> None:
-        """Every ``$parameter`` value the demo corpus advertises must be real.
-
-        An example whose parameter names a device, section, PV or class that the
-        generated corpus does not hold would return zero rows — the failure mode
-        this test exists to catch.
-        """
-        params = example.parameters  # type: ignore[attr-defined]
-        rdf_type = URIRef(f"{emitter.RDF_NS}type")
-        for name, value in params.items():
-            if name == "section":
-                assert (None, _prop("sectionCode"), Literal(value)) in real_graph
-            elif name == "name":
-                assert (None, _prop("sourceName"), Literal(value)) in real_graph
-            elif name == "pv":
-                assert (None, _prop("fullPv"), Literal(value)) in real_graph
-            elif name in {"class_uri", "root_uri"}:
-                assert (URIRef(value), rdf_type, URIRef(emitter.OWL_CLASS)) in real_graph
-            else:  # pragma: no cover - a new parameter kind needs a rule here
-                pytest.fail(f"example {example.key} has an unhandled parameter {name!r}")
-
-    def test_q3_device_and_q6_pv_are_connected(self, real_graph: Graph) -> None:
-        """q3 names DIPOLE01/SR and q6 names its setpoint — they must be one device."""
-        device = URIRef(model.device_iri("SR", "DIPOLE01"))
-        binding = URIRef(model.binding_iri("SR", "DIPOLE01", "CURRENT", "SP"))
-        assert (device, _prop("hasBinding"), binding) in real_graph
-        assert (
-            binding,
-            _prop("fullPv"),
-            Literal("SR:MAG:DIPOLE:01:CURRENT:SP"),
-        ) in real_graph
-        assert (binding, _prop("writesSignal"), None) in real_graph
 
     def test_ontology_covers_every_family_in_the_database(self, ontology: OntologyMap) -> None:
         raw = json.loads(_TIER3_HIERARCHICAL.read_text(encoding="utf-8"))

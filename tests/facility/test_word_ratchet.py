@@ -100,7 +100,6 @@ ALLOWLIST: dict[str, str] = {
     "src/osprey/mcp_server/channel_finder_hierarchical/tools/build_channels.py": "rename:12",
     "src/osprey/mcp_server/channel_finder_hierarchical/tools/get_options.py": "rename:12",
     "src/osprey/mcp_server/channel_finder_middle_layer/tools/list_families.py": "rename:12",
-    "src/osprey/mcp_server/graph/tools/examples_data.py": "rename:12",
     "src/osprey/mcp_server/phoebus/plt_generator.py": "rename:12",
     "src/osprey/mcp_server/workspace/tools/artifact_register.py": "rename:12",
     "src/osprey/mcp_server/workspace/tools/setup.py": "rename:12",

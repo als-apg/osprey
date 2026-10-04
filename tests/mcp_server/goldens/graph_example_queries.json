@@ -2,7 +2,7 @@
   "count": 9,
   "examples": [
     {
-      "cypher": "MATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding)\nWITH DISTINCT d\nRETURN [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       count(d) AS device_count\nORDER BY device_count DESC, device_class\nLIMIT 100",
+      "cypher": "// A place carries the channels on it too; only a device carries rawType.\nMATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding)\nWHERE d.rawType IS NOT NULL\nWITH DISTINCT d\nRETURN [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       count(d) AS device_count\nORDER BY device_count DESC, device_class\nLIMIT 100",
       "description": "How many devices of each concrete kind the graph holds — Quadrupoles, BPMs, valves and so on — counted from the class label each device node carries. Run this first on an unfamiliar corpus: it is the fastest picture of what the facility is made of, and the row count tells you how many distinct device classes are in play. Only devices that have at least one channel binding are counted, so the total matches the number of devices an operator can actually address. Takes no parameters.",
       "key": "q1a",
       "parameters": {},
@@ -27,21 +27,21 @@
       "title": "Every device of a class, including its subclasses"
     },
     {
-      "cypher": "MATCH (d:Resource)\nWHERE d.sectionCode = $section\nRETURN d.sourceName AS device,\n       [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sPositionM AS s_m,\n       d.ordinalInSection AS ordinal\nORDER BY s_m, ordinal, device\nLIMIT 200",
-      "description": "Lists the devices in a single section in the order the beam meets them, which is the sequence operators reason in when they talk about a region of the machine. Rows are ordered by longitudinal position (``sPositionM``) where the corpus records it and fall back to the device's ordinal within the section where it does not, so the ordering is meaningful on a corpus that records only ordinals.\n\n$section — the section code to walk, exactly as the corpus spells it (a transfer line, a ring, a sector). Values come from the ``section`` column of q1c.",
+      "cypher": "// The place itself carries the section code too; only a device carries rawType.\nMATCH (d:Resource)\nWHERE d.sectionCode = $section AND d.rawType IS NOT NULL\nRETURN d.sourceName AS device,\n       [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sPositionM AS s_m,\n       d.ordinalInPlace AS ordinal\nORDER BY s_m, ordinal, device\nLIMIT 200",
+      "description": "Lists the devices in a single section in the order the beam meets them, which is the sequence operators reason in when they talk about a region of the machine. Rows are ordered by longitudinal position (``sPositionM``), ties broken by the device's ordinal within its place (``ordinalInPlace``). A device the corpus gives no position comes last, with both columns empty.\n\n$section — the section code to walk, exactly as the corpus spells it (a transfer line, a sector). Values come from the ``section`` column of q1c.",
       "key": "q2",
       "parameters": {
-        "section": "SR"
+        "section": "SECT1"
       },
       "title": "Walk one section in beamline order"
     },
     {
-      "cypher": "MATCH (d:Resource {sourceName: $name, sectionCode: $section})-[:HASBINDING]->(b:ChannelBinding)\nOPTIONAL MATCH (b)-[:READSSIGNAL]->(rs)\nOPTIONAL MATCH (b)-[:WRITESSIGNAL]->(ws)\nRETURN b.fullPv AS pv,\n       last(split(coalesce(rs.uri, ws.uri), \"/\")) AS signal,\n       CASE WHEN ws IS NULL THEN \"read\" ELSE \"write\" END AS direction,\n       b.confidence AS confidence\nORDER BY pv\nLIMIT 200",
-      "description": "The channel-finding query: given a device, return every process variable bound to it, the semantic signal each one carries, whether it is read or written, and how confident the binding is. Use it to go from a device an operator named to the addresses a control-system connector can actually talk to.\n\n$name — the device's source name as the corpus records it.\n$section — the section that device sits in. Both are needed because a source name can repeat across sections.",
+      "cypher": "MATCH (d:Resource {sourceName: $name, sectionCode: $section})-[:HASBINDING]->(b:ChannelBinding)\nOPTIONAL MATCH (b)-[:READSSIGNAL]->(rs)\nOPTIONAL MATCH (b)-[:WRITESSIGNAL]->(ws)\nRETURN b.fullPv AS pv,\n       last(split(coalesce(rs.uri, ws.uri), \"/\")) AS signal,\n       CASE WHEN ws IS NULL THEN \"read\" ELSE \"write\" END AS direction\nORDER BY pv\nLIMIT 200",
+      "description": "The channel-finding query: given a device, return every process variable bound to it, the semantic signal each one carries, and whether it is read or written. Use it to go from a device an operator named to the addresses a control-system connector can actually talk to.\n\n$name — the device's source name as the corpus records it.\n$section — the section that device sits in. Both are needed because a source name can repeat across sections.",
       "key": "q3",
       "parameters": {
         "name": "DIPOLE01",
-        "section": "SR"
+        "section": "SECT1"
       },
       "title": "Every PV of one device, split by direction"
     },
@@ -69,7 +69,7 @@
       "title": "Read/write split across all bindings"
     },
     {
-      "cypher": "MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})\nRETURN b.fullPv AS pv,\n       collect(DISTINCT d.sectionCode) AS sections,\n       collect(DISTINCT d.sourceName) AS devices,\n       count(DISTINCT d) AS device_count\nLIMIT 5",
+      "cypher": "// A place carries the channels on it too; only a device carries rawType.\nMATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})\nWHERE d.rawType IS NOT NULL\nRETURN b.fullPv AS pv,\n       collect(DISTINCT d.sectionCode) AS sections,\n       collect(DISTINCT d.sourceName) AS devices,\n       count(DISTINCT d) AS device_count\nLIMIT 5",
       "description": "Which devices are bound to a given process variable. Normally the answer is one, and the query doubles as a reverse lookup from an address back to the device that owns it. More than one device on the row is the interesting case: it means those devices share a single control endpoint — magnets on a common power supply, for instance — so writing that address moves all of them at once. The generated demo corpus has no shared PVs by construction, so ``device_count`` is always 1 there; a facility corpus built from real wiring can have them.\n\n$pv — the full process-variable address to look up, exactly as the corpus records it in ``fullPv``. Addresses come from q3.",
       "key": "q6",
       "parameters": {

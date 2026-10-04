@@ -225,10 +225,9 @@ nothing matched.
 
 **By description.** Where the corpus carries free text, search it first — it is
 written in the operator's language rather than in naming-convention tokens. On a
-binding, `description` describes the individual signal and `fieldDescription` /
-`subfieldDescription` the group it belongs to. On a device,
-`familyDescription`, `systemDescription` and `ringDescription` describe what
-kind of thing it is and where it lives. Match case-insensitively, e.g.
+binding, `description` describes the individual signal. On a device,
+`familyDescription` and `systemDescription` describe what kind of thing it is
+and where it lives. Match case-insensitively, e.g.
 `WHERE toLower(b.description) CONTAINS $term`.
 
 **By name and class.** `sourceName` and `sectionCode` identify a device

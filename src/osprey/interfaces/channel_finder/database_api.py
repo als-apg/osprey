@@ -767,8 +767,7 @@ def _read_graph_ontology(index: GraphIndex) -> dict[str, Any]:
 def _device_signal_groups(groups: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Reduce a device's signal groups to what the device card draws.
 
-    The store hands back more than the card shows — a binding's protocol and
-    the confidence it was matched with — so those are dropped here. The signal
+    Each binding keeps its address, its signal edges and its description. The
     edges travel on untouched: the card derives direction from them exactly as
     the result table does, which is why the two cannot disagree.
 
@@ -787,8 +786,6 @@ def _device_signal_groups(groups: Iterable[Mapping[str, Any]]) -> list[dict[str,
                     "fullPv": binding.get("fullPv"),
                     "edges": list(binding.get("edges") or []),
                     "description": binding.get("description"),
-                    "subfieldDescription": binding.get("subfieldDescription"),
-                    "fieldDescription": binding.get("fieldDescription"),
                 }
                 for binding in group.get("bindings") or []
             ],
@@ -974,10 +971,9 @@ async def _read_graph_device(ctx: Any, *, uri: str) -> Any:
         "section": row.get("section"),
         "system": row.get("system"),
         "sPositionM": row.get("sPositionM"),
-        "ordinalInSection": row.get("ordinalInSection"),
+        "ordinalInPlace": row.get("ordinalInPlace"),
         "systemDescription": row.get("systemDescription"),
         "familyDescription": row.get("familyDescription"),
-        "ringDescription": row.get("ringDescription"),
         "signals": _device_signal_groups(row.get("signals") or []),
     }
 

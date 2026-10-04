@@ -256,10 +256,9 @@ class TestDemoDeviceRow:
             "section",
             "system",
             "sPositionM",
-            "ordinalInSection",
+            "ordinalInPlace",
             "systemDescription",
             "familyDescription",
-            "ringDescription",
             "signals",
         }
         group = row["signals"][0]

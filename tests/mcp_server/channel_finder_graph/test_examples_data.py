@@ -27,15 +27,15 @@ Four properties are asserted:
   list in the store, so no query may compare ``altLabel`` as a scalar; and there
   is no ``:Device`` label in the projection, so no query may ask for one.
 
-The demo corpus is read as the file that ships, prose included: the examples
-that search descriptions are held to the same coverage as the rest, because the
-corpus they search carries the predicates.
+The demo corpus is the graph view the control-assistant build writes, prose
+included: the examples that search descriptions are held to the same coverage
+as the rest, because the corpus they search carries the predicates.
 """
 
 from __future__ import annotations
 
 import re
-from importlib.resources import files
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -43,22 +43,25 @@ from osprey.mcp_server.channel_finder_graph.tools.examples_data import EXAMPLE_Q
 from osprey.mcp_server.graph.gate import vet_query
 from osprey.mcp_server.graph.tools.examples_data import ExampleQuery
 
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
+
+# xdist_group("built_control_assistant"): every module reading the session's one
+# control-assistant build shares a worker, so the build runs once per run.
+pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
+
 # ---------------------------------------------------------------------------
-# The corpora, read from the packaged artifacts the seeder actually loads.
+# The corpus: the graph view the control-assistant build writes.
 # ---------------------------------------------------------------------------
 
-_CORPUS_FILE = ("apps", "control_assistant", "data", "demo_machine.ttl")
 
+@pytest.fixture(scope="module")
+def corpus_text(built_control_assistant: BuiltProject) -> str:
+    """Return the Turtle source of the built demo corpus."""
+    from osprey.facility.views.graph import GRAPH_FILE
 
-def _corpus_text() -> str:
-    """Return the Turtle source of the shipped corpus."""
-    path = files("osprey.templates")
-    for part in _CORPUS_FILE:
-        path = path.joinpath(part)
+    path = built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
     return path.read_text(encoding="utf-8")
-
-
-CORPUS_TEXT = _corpus_text()
 
 
 # ---------------------------------------------------------------------------
@@ -77,17 +80,14 @@ CORPUS_PREDICATES: dict[str, str] = {
     "WRITESSIGNAL": "narad_p:writesSignal",
     # Structural properties.
     "fullPv": "narad_p:fullPv",
-    "confidence": "narad_p:confidence",
+    "rawType": "narad_p:rawType",
     "sourceName": "narad_p:sourceName",
     "sectionCode": "narad_p:sectionCode",
     "system": "narad_p:system",
     # Prose the corpus carries about an address, a device or a system.
     "description": "narad_p:description",
-    "fieldDescription": "narad_p:fieldDescription",
-    "subfieldDescription": "narad_p:subfieldDescription",
     "familyDescription": "narad_p:familyDescription",
     "systemDescription": "narad_p:systemDescription",
-    "ringDescription": "narad_p:ringDescription",
     # Operator vocabulary.
     "altLabel": "skos:altLabel",
 }
@@ -137,10 +137,12 @@ def _predicates_in(cypher: str) -> set[str]:
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_every_predicate_a_query_uses_exists_in_the_corpus(query: ExampleQuery) -> None:
+def test_every_predicate_a_query_uses_exists_in_the_corpus(
+    query: ExampleQuery, corpus_text: str
+) -> None:
     for token in sorted(_predicates_in(query.cypher)):
         spelling = CORPUS_PREDICATES[token]
-        assert spelling in CORPUS_TEXT, (
+        assert spelling in corpus_text, (
             f"{query.key} reads {token!r} but the corpus has no {spelling}; "
             f"either the corpus is missing it or the example must not use it"
         )
@@ -166,12 +168,12 @@ def test_every_token_a_query_uses_is_a_known_predicate(query: ExampleQuery) -> N
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
-def test_every_parameter_value_occurs_in_the_corpus(query: ExampleQuery) -> None:
+def test_every_parameter_value_occurs_in_the_corpus(query: ExampleQuery, corpus_text: str) -> None:
     """A parameter the corpus has never seen makes an example return nothing."""
     for name, value in sorted(query.parameters.items()):
         if not isinstance(value, str):
             continue
-        assert value in CORPUS_TEXT, f"{query.key}.{name} = {value!r} is not in the corpus"
+        assert value in corpus_text, f"{query.key}.{name} = {value!r} is not in the corpus"
 
 
 # ---------------------------------------------------------------------------
@@ -314,17 +316,15 @@ def test_the_catalogue_composes_hardware_and_signal_filters() -> None:
     The q39/q0 benchmark failures: a description-substring search returns every
     sibling binding of a device, because golden/offset/position prose all carry
     the plane word. The composed example is the exact shape the prompt demands
-    and no exemplar showed: class synonym for the device, field/subfield
-    meaning for the signal kind.
+    and no exemplar showed: class synonym for the device, two phrases that
+    must both occur in the description for the signal kind.
     """
     composed = _by_key("by_class_and_signal")
 
     assert "altLabel" in composed.cypher, "the hardware filter comes from the ontology"
-    assert "fieldDescription" in composed.cypher and "subfieldDescription" in composed.cypher, (
-        "the signal filter must hold on the field and subfield meanings, not the description"
-    )
-    assert "b.description" not in composed.cypher, (
-        "the point of this example is to NOT match the sibling-blind description prose"
+    assert composed.cypher.count("toLower(b.description) CONTAINS") == 2, (
+        "the signal filter must hold two phrases on the same description, so a "
+        "plane word alone cannot return the sibling bindings"
     )
 
 

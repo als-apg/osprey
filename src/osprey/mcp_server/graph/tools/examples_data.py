@@ -13,8 +13,11 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
   ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``;
 * property names keep their ``narad_p:`` local spelling — ``.uri``, ``.fullPv``,
-  ``.sourceName``, ``.sectionCode``, ``.sPositionM``, ``.ordinalInSection``,
-  ``.confidence``.
+  ``.sourceName``, ``.sectionCode``, ``.rawType``, ``.sPositionM``,
+  ``.ordinalInPlace``;
+* a place that channels sit on is a ``:Resource`` with ``HASBINDING`` edges
+  too, so a query that means devices keeps the rows whose ``.rawType`` is set,
+  which only a device carries.
 
 Those uppercase relationship names belong to the *graph projection* only. The
 Turtle corpus itself spells them ``narad_p:hasBinding`` and friends.
@@ -81,7 +84,9 @@ _Q1A = ExampleQuery(
         "of devices an operator can actually address. Takes no parameters."
     ),
     cypher="""
+// A place carries the channels on it too; only a device carries rawType.
 MATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding)
+WHERE d.rawType IS NOT NULL
 WITH DISTINCT d
 RETURN [l IN labels(d) WHERE l <> "Resource"][0] AS device_class,
        count(d) AS device_count
@@ -150,25 +155,26 @@ _Q2 = ExampleQuery(
         "Lists the devices in a single section in the order the beam meets "
         "them, which is the sequence operators reason in when they talk about a "
         "region of the machine. Rows are ordered by longitudinal position "
-        "(``sPositionM``) where the corpus records it and fall back to the "
-        "device's ordinal within the section where it does not, so the ordering "
-        "is meaningful on a corpus that records only ordinals.\n"
+        "(``sPositionM``), ties broken by the device's ordinal within its place "
+        "(``ordinalInPlace``). A device the corpus gives no position comes last, "
+        "with both columns empty.\n"
         "\n"
         "$section — the section code to walk, exactly as the corpus spells it "
-        "(a transfer line, a ring, a sector). Values come from the ``section`` "
-        "column of q1c."
+        "(a transfer line, a sector). Values come from the ``section`` column "
+        "of q1c."
     ),
     cypher="""
+// The place itself carries the section code too; only a device carries rawType.
 MATCH (d:Resource)
-WHERE d.sectionCode = $section
+WHERE d.sectionCode = $section AND d.rawType IS NOT NULL
 RETURN d.sourceName AS device,
        [l IN labels(d) WHERE l <> "Resource"][0] AS device_class,
        d.sPositionM AS s_m,
-       d.ordinalInSection AS ordinal
+       d.ordinalInPlace AS ordinal
 ORDER BY s_m, ordinal, device
 LIMIT 200
 """.strip(),
-    parameters={"section": "SR"},
+    parameters={"section": "SECT1"},
 )
 
 _Q3 = ExampleQuery(
@@ -176,9 +182,8 @@ _Q3 = ExampleQuery(
     title="Every PV of one device, split by direction",
     description=(
         "The channel-finding query: given a device, return every process "
-        "variable bound to it, the semantic signal each one carries, whether it "
-        "is read or written, and how confident the binding is. Use it to go "
-        "from a device an operator named to the addresses a control-system "
+        "variable bound to it, the semantic signal each one carries, and whether "
+        "it is read or written. Use it to go from a device an operator named to the addresses a control-system "
         "connector can actually talk to.\n"
         "\n"
         "$name — the device's source name as the corpus records it.\n"
@@ -191,12 +196,11 @@ OPTIONAL MATCH (b)-[:READSSIGNAL]->(rs)
 OPTIONAL MATCH (b)-[:WRITESSIGNAL]->(ws)
 RETURN b.fullPv AS pv,
        last(split(coalesce(rs.uri, ws.uri), "/")) AS signal,
-       CASE WHEN ws IS NULL THEN "read" ELSE "write" END AS direction,
-       b.confidence AS confidence
+       CASE WHEN ws IS NULL THEN "read" ELSE "write" END AS direction
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"name": "DIPOLE01", "section": "SR"},
+    parameters={"name": "DIPOLE01", "section": "SECT1"},
 )
 
 _Q4B = ExampleQuery(
@@ -288,7 +292,9 @@ _Q6 = ExampleQuery(
         "corpus records it in ``fullPv``. Addresses come from q3."
     ),
     cypher="""
+// A place carries the channels on it too; only a device carries rawType.
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})
+WHERE d.rawType IS NOT NULL
 RETURN b.fullPv AS pv,
        collect(DISTINCT d.sectionCode) AS sections,
        collect(DISTINCT d.sourceName) AS devices,
