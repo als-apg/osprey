@@ -1860,10 +1860,14 @@ async def _seed_logbook(
     entries: list[EnhancedLogbookEntry],
     pictures: Mapping[str, Sequence[Path]],
 ) -> tuple[int, bool]:
-    """Migrate, purge, then seed the ARIEL logbook. Returns (seeded, purged).
+    """Migrate, purge, migrate again, then seed the ARIEL logbook. Returns (seeded, purged).
 
     Migrate first so the schema exists before the purge truncates it; purge so
     the seeded narrative is the only narrative (no stale incident bleed-through).
+    The purge drops the text and image embedding tables, and a running ingest
+    watcher only re-migrates while it has busy migrations to retry, so a second
+    migrate recreates them here: picture and vector search work on the reseeded
+    logbook without a manual ``osprey ariel migrate``.
     """
     from osprey.services.ariel_search.cli_operations import (
         execute_purge,
@@ -1873,6 +1877,7 @@ async def _seed_logbook(
 
     await run_migrate(ariel_config)
     await execute_purge(ariel_config, embeddings_only=False)
+    await run_migrate(ariel_config)
     seeded = await seed_logbook_entries(ariel_config, entries, pictures=pictures)
     await _export_qmd_mirror(ariel_config)
     return seeded, True

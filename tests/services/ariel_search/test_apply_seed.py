@@ -149,6 +149,57 @@ def test_reapply_is_idempotent(tmp_path, database_url):
     assert len(entries) == 28  # no duplication across re-applies
 
 
+async def _embedding_tables(database_url: str) -> set[str]:
+    """Every text and image embedding table currently in the store."""
+    from osprey.services.ariel_search.config import DatabaseConfig
+    from osprey.services.ariel_search.database import create_connection_pool
+    from osprey.services.ariel_search.database.repository import image_embedding_table_names
+
+    pool = await create_connection_pool(DatabaseConfig(uri=database_url))
+    try:
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_name LIKE 'text_embeddings_%'"
+            )
+            tables = {row[0] for row in await cur.fetchall()}
+            tables.update(await image_embedding_table_names(cur))
+    finally:
+        await pool.close()
+    return tables
+
+
+def test_apply_leaves_the_embedding_tables_in_place(tmp_path, database_url):
+    """The purge inside apply drops every embedding table; apply migrates again
+    afterwards, so vector and picture search work on the reseeded logbook without
+    a manual ``osprey ariel migrate`` (a running ingest watcher never recreates
+    them on its own)."""
+    from osprey.services.ariel_search.database.migrations import image_table_name
+    from tests.services.ariel_search.llama_stub import MODEL as IMAGE_MODEL
+
+    project = _make_project(tmp_path, database_url)
+    config = yaml.safe_load((project / "config.yml").read_text())
+    config["ariel"]["enhancement_modules"] = {
+        "text_embedding": {
+            "enabled": True,
+            "models": [{"name": "nomic-embed-text", "dimension": 768}],
+        },
+        "image_embedding": {
+            "enabled": True,
+            "provider": {"name": "llama-cpp", "base_url": "http://127.0.0.1:9"},
+            "model": IMAGE_MODEL,
+            "dimensions": 1024,
+        },
+    }
+    (project / "config.yml").write_text(yaml.safe_dump(config))
+
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+
+    tables = asyncio.run(_embedding_tables(database_url))
+    assert image_table_name(IMAGE_MODEL, 1024) in tables
+    assert any(table.startswith("text_embeddings_") for table in tables), tables
+
+
 async def _pictures(database_url: str, entry_id: str) -> tuple[list, list, list]:
     """``(entry attachments JSONB, copy rows, renditions)`` for one seeded entry."""
     from osprey.services.ariel_search.config import ARIELConfig
