@@ -13,7 +13,9 @@ one, the agent loads each such model from its copy under
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 from tests._builds import BuiltProject
@@ -71,12 +73,27 @@ def test_the_demo_agent_loads_the_served_deck_and_reads_the_variables_file(
     assert "osprey.simulation" not in text
 
 
+class _TextureOnlyRender(NamedTuple):
+    project: Path
+    warnings: list[str]
+
+
+class _Collect(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(record.getMessage())
+
+
 @pytest.fixture(scope="module")
-def texture_only_render(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def texture_only(tmp_path_factory: pytest.TempPathFactory) -> _TextureOnlyRender:
     """The control-assistant bundle rendered with ``simulation.models: [texture]``.
 
     The facility file still holds the deck-bearing ``SR``; the render serves
-    only ``texture``.
+    only ``texture``, and ``claude_code.agents.pyat-specialist.enabled`` is
+    switched on by hand. The warnings the render logs are collected.
     """
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.cli.templates.manager import TemplateManager
@@ -93,7 +110,13 @@ def texture_only_render(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
     config_update_fields(project / "config.yml", profile.config)
-    config_update_fields(project / "config.yml", {"simulation.models": [TEXTURE]})
+    config_update_fields(
+        project / "config.yml",
+        {
+            "simulation.models": [TEXTURE],
+            "claude_code.agents.pyat-specialist.enabled": True,
+        },
+    )
     manager.generate_manifest(
         project,
         "texture-only",
@@ -102,8 +125,19 @@ def texture_only_render(tmp_path_factory: pytest.TempPathFactory) -> Path:
         artifacts=manager._effective_artifacts(bundle, None),
     )
     write_facility_views(project, bundle)
-    manager.regenerate_claude_code(project)
-    return project
+    collect = _Collect()
+    registry_logger = logging.getLogger("osprey.registry.mcp")
+    registry_logger.addHandler(collect)
+    try:
+        manager.regenerate_claude_code(project)
+    finally:
+        registry_logger.removeHandler(collect)
+    return _TextureOnlyRender(project, collect.lines)
+
+
+@pytest.fixture(scope="module")
+def texture_only_render(texture_only: _TextureOnlyRender) -> Path:
+    return texture_only.project
 
 
 def test_a_texture_only_render_lists_the_deck_model_as_not_served(
@@ -118,3 +152,11 @@ def test_a_texture_only_render_has_no_pyat_specialist(texture_only_render: Path)
     assert not (texture_only_render / AGENT).exists()
     claude_md = (texture_only_render / "CLAUDE.md").read_text(encoding="utf-8")
     assert "pyat-specialist" not in claude_md
+
+
+def test_a_hand_enabled_agent_with_no_served_deck_is_left_out_with_one_line(
+    texture_only: _TextureOnlyRender,
+) -> None:
+    assert not (texture_only.project / AGENT).exists()
+    lines = [line for line in texture_only.warnings if "pyat-specialist" in line]
+    assert lines == ["Agent 'pyat-specialist' is left out: it needs a served model with a deck"]
