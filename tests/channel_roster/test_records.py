@@ -134,11 +134,11 @@ class TestRosterAbsence:
     def test_corrupt_source_names_the_path_and_the_failure(self) -> None:
         absence = RosterAbsence(
             reason=RosterAbsenceReason.CORRUPT_SOURCE,
-            path=Path("/data/demo_machine.ttl"),
+            path=Path("/data/graph/facility.ttl"),
             detail="bad syntax at line 12",
         )
         assert absence.message() == (
-            "The channel roster source at /data/demo_machine.ttl could not be read: "
+            "The channel roster source at /data/graph/facility.ttl could not be read: "
             "bad syntax at line 12."
         )
 

@@ -114,7 +114,7 @@ class TestDefaults:
                         "heap_initial_size": "2G",
                         "heap_max_size": "4G",
                         "pagecache_size": "2G",
-                        "ttl_path": "./data/demo_machine.ttl",
+                        "ttl_path": "./data/graph/facility.ttl",
                     }
                 },
             }
@@ -127,7 +127,7 @@ class TestDefaults:
             heap_initial_size="2G",
             heap_max_size="4G",
             pagecache_size="2G",
-            ttl_path="./data/demo_machine.ttl",
+            ttl_path="./data/graph/facility.ttl",
         )
 
     def test_unknown_keys_are_ignored(self) -> None:
@@ -285,7 +285,7 @@ class TestValidation:
         with pytest.raises(ValueError, match=r"services\.graphdb\.image"):
             resolve_graphdb_service_config({"services": {"graphdb": {"image": bad}}})
 
-    @pytest.mark.parametrize("bad", ["", "   ", 7, True, ["demo_machine.ttl"]])
+    @pytest.mark.parametrize("bad", ["", "   ", 7, True, ["facility.ttl"]])
     def test_bad_ttl_path_raises(self, bad: object) -> None:
         with pytest.raises(ValueError, match=r"services\.graphdb\.ttl_path"):
             resolve_graphdb_service_config({"services": {"graphdb": {"ttl_path": bad}}})
@@ -293,10 +293,10 @@ class TestValidation:
     def test_ttl_path_is_kept_verbatim(self) -> None:
         """Relative stays relative: consumers resolve it against config.yml's directory."""
         resolved = resolve_graphdb_service_config(
-            {"services": {"graphdb": {"ttl_path": " ./data/demo_machine.ttl "}}}
+            {"services": {"graphdb": {"ttl_path": " ./data/graph/facility.ttl "}}}
         )
         assert resolved is not None
-        assert resolved.ttl_path == "./data/demo_machine.ttl"
+        assert resolved.ttl_path == "./data/graph/facility.ttl"
 
 
 class TestGraphIndexPath:

@@ -560,12 +560,12 @@ def test_attached_overrides_keep_the_render_local_keys_of_a_claimed_service() ->
             "services.graphdb.image": "neo4j:5.26-community",
             "services.graphdb.port_host": 10802,
             "services.graphdb.heap_max_size": "1G",
-            "services.graphdb.ttl_path": "./data/demo_machine.ttl",
+            "services.graphdb.ttl_path": "./data/graph/facility.ttl",
             "deployed_services": ["graphdb"],
         }
     )
 
     assert overrides == {
         "deployed_services": [],
-        "services.graphdb.ttl_path": "./data/demo_machine.ttl",
+        "services.graphdb.ttl_path": "./data/graph/facility.ttl",
     }

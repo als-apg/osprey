@@ -33,7 +33,7 @@ _CONTROL_ASSISTANT: dict[str, Any] = {
     "services.qmd.interval": 30,
     "services.graphdb.path": "./services/graphdb",
     "services.graphdb.image": "neo4j:5.26-community",
-    "services.graphdb.ttl_path": "./data/demo_machine.ttl",
+    "services.graphdb.ttl_path": "./data/graph/facility.ttl",
 }
 
 #: Every port the blocks above leave for the layout to fill, as

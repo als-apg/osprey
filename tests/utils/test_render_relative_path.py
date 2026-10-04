@@ -1,7 +1,7 @@
 """``resolve_render_relative_path`` — the one render-anchored config path.
 
 ``services.graphdb.ttl_path`` names an artifact of the render (the
-``data/demo_machine.ttl`` the build assembled), so unlike every other config-relative key it
+``data/graph/facility.ttl`` the build wrote), so unlike every other config-relative key it
 resolves against the ``config.yml`` directory itself, never the project root.
 """
 
@@ -17,13 +17,13 @@ def test_relative_value_resolves_against_the_render_not_the_repo(tmp_path):
     render.mkdir()
     (render / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
 
-    resolved = resolve_render_relative_path("./data/demo_machine.ttl", render)
+    resolved = resolve_render_relative_path("./data/graph/facility.ttl", render)
 
-    assert resolved == (render / "data" / "demo_machine.ttl").resolve()
+    assert resolved == (render / "data" / "graph" / "facility.ttl").resolve()
     # The project-root rule, for the same inputs, would leave the render zone.
     assert (
-        resolve_config_relative_path("./data/demo_machine.ttl", render)
-        == (tmp_path / "data" / "demo_machine.ttl").resolve()
+        resolve_config_relative_path("./data/graph/facility.ttl", render)
+        == (tmp_path / "data" / "graph" / "facility.ttl").resolve()
     )
 
 
@@ -44,8 +44,8 @@ def test_without_config_dir_uses_the_resolved_config_file(tmp_path, monkeypatch)
     monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
 
     assert (
-        resolve_render_relative_path("data/demo_machine.ttl")
-        == (render / "data" / "demo_machine.ttl").resolve()
+        resolve_render_relative_path("data/graph/facility.ttl")
+        == (render / "data" / "graph" / "facility.ttl").resolve()
     )
 
 
@@ -57,6 +57,6 @@ def test_without_any_config_at_all_resolves_against_the_cwd(tmp_path, monkeypatc
     monkeypatch.setattr(config_paths, "resolve_config_dir", lambda: None)
     monkeypatch.chdir(tmp_path)
 
-    resolved = config_paths.resolve_render_relative_path("data/demo_machine.ttl")
+    resolved = config_paths.resolve_render_relative_path("data/graph/facility.ttl")
 
-    assert resolved == (tmp_path / "data" / "demo_machine.ttl").resolve()
+    assert resolved == (tmp_path / "data" / "graph" / "facility.ttl").resolve()
