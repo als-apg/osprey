@@ -66,9 +66,6 @@ SOURCES = MCP_SERVERS + ("ariel_search",)
 #: The source of a rendered file's text; its name is the path under the render root.
 RENDERED = "rendered"
 
-# Each test reading the session's one real build carries
-# xdist_group("built_control_assistant"), so the build runs once per run.
-
 
 def _registered_tools(package: str) -> dict[str, Any]:
     """Registered tools of a FastMCP package, keyed by tool name.
@@ -271,14 +268,12 @@ def test_agent_facing_text_carries_the_ratchet_word_only_where_listed(agent_faci
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_rendered_text_names_no_protocol_word(rendered_texts):
     """The markdown a build renders for the agent names no protocol word or demo address."""
     assert protocol_offenders(rendered_texts) == {}
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_pending_rewording_entries_still_name_a_protocol_word_when_rendered(rendered_texts):
     stale = stale_rewording_entries(rendered_texts, _listed(PENDING_REWORDING, rendered=True))
     assert stale == [], (
@@ -287,7 +282,6 @@ def test_pending_rewording_entries_still_name_a_protocol_word_when_rendered(rend
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_rendered_text_carries_the_ratchet_word_only_where_listed(rendered_texts):
     """A rendered file carrying the word has an entry; an entry's file still carries it."""
     assert ratchet_violations(rendered_texts, _listed(RATCHET_PENDING, rendered=True)) == []

@@ -24,9 +24,7 @@ import pytest
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
-pytestmark = [pytest.mark.slow, pytest.mark.xdist_group("built_control_assistant")]
+pytestmark = [pytest.mark.slow]
 
 #: A header value: the document's name and version 1.
 HEADER = re.compile(r"osprey\.facility\.[a-z_]+/1")

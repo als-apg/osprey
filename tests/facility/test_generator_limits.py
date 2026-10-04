@@ -15,8 +15,6 @@ from functools import cache
 from types import ModuleType
 from typing import Any
 
-import pytest
-
 from osprey.facility.sources import slot_names
 from tests._builds import BuiltProject
 from tests.facility.test_cf_view_parity import load_golden
@@ -158,7 +156,6 @@ def test_measurement_allows_the_five_kinds() -> None:
     ]
 
 
-@pytest.mark.xdist_group("built_control_assistant")
 def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member(
     built_control_assistant: BuiltProject,
 ) -> None:

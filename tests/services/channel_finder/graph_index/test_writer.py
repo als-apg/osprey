@@ -503,7 +503,6 @@ class TestImportIsolation:
         assert graph_index.IndexBuildReport is IndexBuildReport
 
 
-@pytest.mark.xdist_group("built_control_assistant")
 class TestDemoCorpus:
     @pytest.fixture(scope="class")
     def demo(self, built_control_assistant: BuiltProject) -> ParsedCorpus:

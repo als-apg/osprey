@@ -483,7 +483,6 @@ class TestInContextIndexRender:
         return target
 
     @pytest.mark.slow
-    @pytest.mark.xdist_group("built_control_assistant")
     def test_validate_reports_every_row_of_the_index(
         self, runner, tmp_path, built_control_assistant
     ):
@@ -502,7 +501,6 @@ class TestInContextIndexRender:
         assert "Total Channels 569" in printed
 
     @pytest.mark.slow
-    @pytest.mark.xdist_group("built_control_assistant")
     def test_preview_prints_the_rows_of_the_index(self, runner, tmp_path, built_control_assistant):
         index = self._index(built_control_assistant, tmp_path)
         first = json.loads(index.read_text())["channels"][0]["channel"]

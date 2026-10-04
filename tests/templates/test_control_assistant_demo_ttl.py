@@ -21,9 +21,6 @@ from pathlib import Path
 import pytest
 from tests._builds import BuiltProject
 
-#: The module reads the session's one control-assistant build.
-pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
-
 #: NARAD property namespace — the one the emitter binds as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
 

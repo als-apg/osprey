@@ -411,7 +411,6 @@ def test_the_pre_line_copies_describe_three_machines_and_28_families() -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_hierarchical_view_holds_the_pre_line_addresses(
     hierarchical_view: dict[str, Any],
 ) -> None:
@@ -421,7 +420,6 @@ def test_the_hierarchical_view_holds_the_pre_line_addresses(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_middle_layer_view_holds_the_pre_line_addresses(
     middle_layer_view: dict[str, Any],
 ) -> None:
@@ -431,14 +429,12 @@ def test_the_middle_layer_view_holds_the_pre_line_addresses(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_in_context_view_holds_the_golden_addresses(in_context_view: dict[str, Any]) -> None:
     view = {row["address"] for row in in_context_view["channels"]}
     assert view == in_context_golden_addresses()
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_hierarchical_view_keeps_the_machine_and_family_descriptions(
     hierarchical_view: dict[str, Any],
 ) -> None:
@@ -451,7 +447,6 @@ def test_the_hierarchical_view_keeps_the_machine_and_family_descriptions(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_middle_layer_view_keeps_the_machine_and_family_descriptions(
     middle_layer_view: dict[str, Any],
 ) -> None:
@@ -462,7 +457,6 @@ def test_the_middle_layer_view_keeps_the_machine_and_family_descriptions(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_middle_layer_view_keeps_the_system_descriptions_as_families(
     middle_layer_view: dict[str, Any],
 ) -> None:
@@ -473,7 +467,6 @@ def test_the_middle_layer_view_keeps_the_system_descriptions_as_families(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_every_benchmark_target_is_a_tree_leaf_and_a_middle_layer_channel(
     hierarchical_view: dict[str, Any], middle_layer_view: dict[str, Any]
 ) -> None:
@@ -486,7 +479,6 @@ def test_every_benchmark_target_is_a_tree_leaf_and_a_middle_layer_channel(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_every_in_context_benchmark_target_is_an_in_context_row(
     in_context_view: dict[str, Any],
 ) -> None:
@@ -496,7 +488,6 @@ def test_every_in_context_benchmark_target_is_an_in_context_row(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_every_pre_line_family_keeps_its_device_list(middle_layer_view: dict[str, Any]) -> None:
     for system, family, golden in middle_layer_families(pre_line_index("middle_layer")):
         view = middle_layer_view[system][family]["_setup"]["DeviceList"]
@@ -504,7 +495,6 @@ def test_every_pre_line_family_keeps_its_device_list(middle_layer_view: dict[str
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_views_answer_no_fewer_tree_queries_than_the_pre_line_copies(
     hierarchical_view: dict[str, Any], middle_layer_view: dict[str, Any]
 ) -> None:

@@ -92,9 +92,6 @@ EXPECTED_DISTINCT_DEVICE_TEXTS = {
     "systemDescription": 3,
 }
 
-#: The module reads the session's one control-assistant build.
-pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
-
 #: How many members of a set difference a failure message names before eliding.
 _MAX_REPORTED = 20
 

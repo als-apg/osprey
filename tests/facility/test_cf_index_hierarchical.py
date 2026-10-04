@@ -518,7 +518,6 @@ def _leaf_of(document: dict[str, Any], address: str) -> dict[str, Any]:
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_demo_index_holds_every_channel_at_one_depth(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:
@@ -535,7 +534,6 @@ def test_the_demo_index_holds_every_channel_at_one_depth(
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 def test_a_demo_leaf_takes_its_family_sentence(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:

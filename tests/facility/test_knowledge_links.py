@@ -115,7 +115,6 @@ def test_the_page_is_spelled_from_the_profile_data_root(
     assert "data/facility" not in err
 
 
-@pytest.mark.xdist_group("built_control_assistant")
 def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:
@@ -147,7 +146,6 @@ def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
     assert (repo / facility_file).is_file()
 
 
-@pytest.mark.xdist_group("built_control_assistant")
 def test_stubs_seeded_from_the_graph_view_link_held_devices(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:

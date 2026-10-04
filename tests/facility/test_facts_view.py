@@ -39,9 +39,7 @@ from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
-# xdist_group("built_control_assistant"): every module reading the session's one
-# control-assistant build shares a worker, so the build runs once per run.
-pytestmark = [pytest.mark.slow, pytest.mark.xdist_group("built_control_assistant")]
+pytestmark = [pytest.mark.slow]
 
 FACTS = f"data/{FACTS_FILE}"
 PAGE = f"data/{FACTS_PAGE}"

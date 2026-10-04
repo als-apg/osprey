@@ -117,7 +117,6 @@ def test_entries_follow_the_version_sorted_by_address() -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.xdist_group("built_control_assistant")
 class TestTheControlAssistantBuild:
     def test_every_render_carries_the_view(self, built_control_assistant: BuiltProject) -> None:
         expected = json.dumps(limits_document(built_control_assistant.facility), indent=2) + "\n"
@@ -273,7 +272,6 @@ class TestTheBuildDerivesTheDatabasePath:
         assert DATABASE_KEY not in profile.config
 
     @pytest.mark.slow
-    @pytest.mark.xdist_group("built_control_assistant")
     def test_the_built_render_names_the_view(self, built_control_assistant: BuiltProject) -> None:
         import yaml
 
