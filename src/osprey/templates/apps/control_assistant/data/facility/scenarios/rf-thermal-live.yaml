@@ -1,0 +1,39 @@
+description: 'Live thermal wander on cavity 01: one slow cooling-water driver moves body temperature,
+  reflected power, forward power and tuner position together, each with its own readback noise, so a live
+  correlation plot of temperature against reflected power (or tuner) shows a noisy, elongated cloud whose
+  strength drifts over tens of seconds. For correlation demos; it adds no archived excursions (use rf-thermal
+  for those) and does not compose with rf-thermal, which touches the same channels.'
+drivers:
+  cav01-thermal:
+    kind: wander
+    amplitude: 1.0
+    period_s: 300
+couple:
+  SR:RF:CAVITY:01:TEMPERATURE:RB:
+  - driver: cav01-thermal
+    gain: 0.5
+  SR:RF:CAVITY:01:TUNER:RB:
+  - driver: cav01-thermal
+    gain: 0.08
+  SR:RF:CAVITY:01:POWER:REV:
+  - driver: cav01-thermal
+    gain: 2.5
+    gain_wander:
+      amplitude: 0.8
+      period_s: 900
+  SR:RF:CAVITY:01:POWER:FWD:
+  - driver: cav01-thermal
+    gain: 2.5
+noise:
+  SR:RF:CAVITY:01:TEMPERATURE:RB:
+    noise: 0.0
+    noise_abs: 0.03
+  SR:RF:CAVITY:01:TUNER:RB:
+    noise: 0.0
+    noise_abs: 0.004
+  SR:RF:CAVITY:01:POWER:REV:
+    noise: 0.0
+    noise_abs: 0.75
+  SR:RF:CAVITY:01:POWER:FWD:
+    noise: 0.0
+    noise_abs: 0.45

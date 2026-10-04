@@ -31,8 +31,8 @@ VA_BINDINGS = APPS / "control_assistant/data/simulation/va_bindings.json"
 CF_STANDALONE_ADDRESSES = REPO_ROOT / "tests/facility/golden/cf_standalone_addresses.json"
 
 #: The directories only the control-assistant tree carries: its hand-authored
-#: knowledge pages and the measurement file.
-OMITTED = ("knowledge/", "measurement/")
+#: knowledge pages, the measurement file and the scenarios.
+OMITTED = ("knowledge/", "measurement/", "scenarios/")
 
 #: The addresses the hello-world tutorial names.
 HELLO_WORLD_ADDRESSES = [
