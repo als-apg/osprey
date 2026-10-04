@@ -38,6 +38,7 @@ from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import posture_store
 from tests._control_context_fixtures import write_control_context
+from tests.facility.served_tree import mock_config, served_tree
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -75,6 +76,7 @@ def smoke_env(tmp_path, monkeypatch):
     Creates:
       - config.yml with mock connector, limits enabled, selective approval
       - channel_limits.json with test channels
+      - a built tree serving every channel the scenarios read or write
       - _agent_data directory structure, stamped and carrying a control-context
         record — the hooks refuse every write outright without one, so a
         deployment that never wrote it would fail these scenarios at the first
@@ -102,10 +104,18 @@ def smoke_env(tmp_path, monkeypatch):
     limits_path = tmp_path / "channel_limits.json"
     limits_path.write_text(json.dumps(limits_db))
 
+    # The channels the scenarios read and write, served by the mock
+    view = served_tree(
+        tmp_path / "served",
+        [*limits_db, "SR:RANDOM:CHANNEL"],
+        readings=["SR:BEAM:CURRENT"],
+    )
+
     # Main config: writes enabled, limits on, selective approval
     config = {
         "control_system": {
             "type": "mock",
+            "connector": {"mock": mock_config(view)},
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": True,
