@@ -22,6 +22,7 @@ import json
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,15 +30,13 @@ import pytest
 
 pytest.importorskip("at")
 
-from osprey.facility.build import build_facility
+from tests.facility._mml_built import BUILT, TREES, BuiltModel, build_tree
 from tests.facility.test_cf_view_parity import GOLDEN_DIR
-from tests.facility.test_mml_layer_seed_once import (
-    BUILT,
-    TREES,
-    WIDENED,
-    _import,
-    _widen,
-)
+
+# xdist_group("mml_built"): the session ``mml_built`` fixture builds each fixture
+# tree once, and every module reading it shares the group so that one build
+# serves them all on one worker.
+pytestmark = pytest.mark.xdist_group("mml_built")
 
 REPRODUCE = "uv run python -m tests.facility.test_fixture_fingerprints --write"
 DIGEST_OF = (
@@ -117,10 +116,7 @@ def fingerprint(document: dict[str, Any], facility: Path) -> dict[str, Any]:
 
 def build_fingerprint(tree: str, root: Path) -> dict[str, Any]:
     """Import ``tree`` under ``root``, widen its named bands, build and fingerprint it."""
-    facility = _import(root, tree)
-    _widen(facility, WIDENED[tree])
-    document = build_facility(facility, project_name="demo")
-    return fingerprint(document, facility)
+    return fingerprint(*build_tree(tree, root))
 
 
 def _sources(tree: str) -> list[str]:
@@ -154,8 +150,9 @@ def tree(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture(scope="module")
-def built(tree: str, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    return build_fingerprint(tree, tmp_path_factory.mktemp(tree))
+def built(tree: str, mml_built: Callable[[str, str], BuiltModel]) -> dict[str, Any]:
+    model = mml_built(tree, TREES[tree][0])
+    return fingerprint(model.document, model.facility)
 
 
 @pytest.fixture(scope="module")

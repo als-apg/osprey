@@ -3,7 +3,8 @@
 ``build_project`` builds a small project whose ``data/facility/`` a test writes.
 The shared control-assistant build, ``built_control_assistant``, lives in
 ``tests/_builds.py``, beside :class:`BuiltProject`, which the facility modules
-import from here.
+import from here. ``mml_built``, each MML fixture tree built once per session,
+lives in ``tests/facility/_mml_built.py``.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import yaml
 from click.testing import Result
 
 from tests._builds import BuiltProject, init_project, run_build
+from tests.facility._mml_built import mml_built  # noqa: F401 - the session MML builds
 from tests.facility._synthetic_trees import write_tree
 
 __all__ = ["BuiltProject"]
