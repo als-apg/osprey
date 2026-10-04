@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 import pytest
+from tests._builds import BuiltProject
 from tests._facility_file import write_facility_views
 
 from osprey.cli.templates.claude_code import config_derived_context
@@ -55,6 +56,19 @@ def test_served_deck_models_are_the_served_physics_models_with_a_deck(tmp_path: 
 
 def test_a_render_with_no_facts_serves_no_deck(tmp_path: Path) -> None:
     assert config_derived_context({}, tmp_path)["served_deck_models"] == []
+
+
+def test_the_demo_agent_loads_the_served_deck_and_reads_the_variables_file(
+    built_control_assistant: BuiltProject,
+) -> None:
+    text = (built_control_assistant.build_dir / AGENT).read_text(encoding="utf-8")
+
+    assert "`SR`" in text
+    assert "data/simulator/decks/SR.json" in text
+    assert "at.load_lattice(" in text
+    assert "data/simulator/variables.json" in text
+    assert "va_bindings.json" not in text
+    assert "osprey.simulation" not in text
 
 
 @pytest.fixture(scope="module")
