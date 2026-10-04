@@ -57,6 +57,11 @@ from osprey_connectors.simulation.series import (
     string_series,
     wander,
 )
+from osprey_connectors.simulation.state import (
+    ACTIVE_SCENARIOS_FILENAME,
+    resolve_active_scenarios,
+    validate_composition,
+)
 from osprey_connectors.types import MOCK
 from osprey_connectors.workspace import (
     SIMULATION_STATE_DIR_CONFIG_KEY,
@@ -65,8 +70,6 @@ from osprey_connectors.workspace import (
 )
 
 logger = get_logger("simulation_engine")
-
-ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 
 #: Config key naming the state directory explicitly (relative paths resolve
 #: against the project root). Unset — the normal case — puts it under the
@@ -85,26 +88,6 @@ STATE_DIR_NAME = SIMULATION_STATE_DIR_NAME
 #: directory must agree on it, and the latter two must not import numpy through
 #: this module to ask.
 resolve_state_dir = resolve_simulation_state_dir
-
-
-def resolve_active_scenarios(names: Sequence[str]) -> list[str]:
-    """The active scenario set a request for ``names`` really means.
-
-    ``nominal`` is the machine's baseline, not a fault: it is always active, so
-    it is prepended whether or not the caller named it. The rest keep the
-    caller's order and are deduplicated, because activating a scenario twice
-    would compose its physics twice.
-
-    One function for a rule two callers depend on — activation writes the state
-    file from it, and physics-fault rendering derives ``VA_*`` variables from
-    it — so the environment a project is built with and the scenarios its
-    engine runs cannot describe different machines.
-    """
-    resolved: list[str] = [DEFAULT_SCENARIO]
-    for name in names:
-        if name != DEFAULT_SCENARIO and name not in resolved:
-            resolved.append(name)
-    return resolved
 
 
 def default_state_dir() -> Path:
@@ -507,27 +490,20 @@ class SimulationEngine:
         Returns:
             Human-readable problem strings; empty when the set composes cleanly.
         """
-        problems: list[str] = []
-        owner: dict[str, str] = {}
-        for name in names:
-            if name not in self._scenarios:
-                problems.append(f"Unknown scenario {name!r}. Available: {sorted(self._scenarios)}")
-                continue
-            scenario = self._scenarios[name]
-            touched = (
-                set(scenario.overrides)
-                | set(scenario.archiver)
-                | set(scenario.couple)
-                | set(scenario.noise)
-            )
-            for pv in sorted(touched):
-                if pv in owner and owner[pv] != name:
-                    problems.append(
-                        f"Channel {pv!r} is touched by both {owner[pv]!r} and {name!r}; "
-                        f"active scenarios must touch disjoint channel sets"
-                    )
-                else:
-                    owner[pv] = name
+        problems = [
+            f"Unknown scenario {name!r}. Available: {sorted(self._scenarios)}"
+            for name in names
+            if name not in self._scenarios
+        ]
+        view = {
+            name: set(scenario.overrides)
+            | set(scenario.archiver)
+            | set(scenario.couple)
+            | set(scenario.noise)
+            for name, scenario in self._scenarios.items()
+        }
+        known = [name for name in names if name in self._scenarios]
+        problems.extend(str(overlap) for overlap in validate_composition(view, known))
         return problems
 
     def has_channel(self, channel: str) -> bool:
