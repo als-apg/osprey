@@ -1,15 +1,18 @@
-"""The pyat engine's deck-only plug-in contract.
+"""The pyat engine's plug-in contract.
 
 These functions read a deck -- a lattice file pyAT loads with
-``at.load_lattice`` -- and a model's settings and wiring, without building a
-model:
+``at.load_lattice`` -- and a model's settings and wiring:
 
 * :func:`locate` gives an element's entrance and length along the lattice;
 * :func:`prepare` checks the deck against the model's ``pyat`` settings block
   and normalises that block once;
 * :func:`start_values` derives each wired channel's operating point from the
   deck;
-* :func:`plane` says which transverse plane a wiring record drives.
+* :func:`plane` says which transverse plane a wiring record drives;
+* :func:`build` builds the LUME model that serves the wiring;
+* :func:`error_text` gives the one line a failed build or solve reports;
+* :func:`readout` turns solved monitor positions into what each monitor
+  reports.
 
 A wiring record is read by key or by attribute: ``id``, ``address``,
 ``element`` or ``slices`` (each ``element``, ``weight``), the ``engine`` block
@@ -17,8 +20,8 @@ in pyAT's words (``attribute``, ``index``, ``axis``) and ``calibration``
 (``curve``, ``inverse``). Every refusal is a ``FacilityBuildError`` of kind
 ``engine-invalid``. A refusal of an element the deck does not hold exactly
 once is an :class:`ElementStop`, whose ``element`` and ``count`` let the build
-name the wiring record that asked for it. pyAT and numpy are imported on first
-use.
+name the wiring record that asked for it. pyAT, numpy and the LUME packages
+are imported on first use.
 """
 
 from __future__ import annotations
@@ -29,15 +32,28 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
+from osprey.simulation.engines.pyat_faults import readout
 
 if TYPE_CHECKING:
     import numpy as np
+    from lume.model import LUMEModel
 
-__all__ = ["ElementStop", "Prepared", "locate", "plane", "prepare", "start_values"]
+__all__ = [
+    "ElementStop",
+    "Prepared",
+    "build",
+    "error_text",
+    "locate",
+    "plane",
+    "prepare",
+    "readout",
+    "start_values",
+]
 
 #: The keys the ``pyat`` settings block may carry.
 SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev"})
@@ -64,7 +80,16 @@ DECK_PROPERTIES: dict[str, Callable[[Any], float]] = {
     "energy": lambda lattice: float(lattice.energy),
 }
 
+#: The engine-block attributes a record naming no element reads off the
+#: solved deck, each with the optics output it reads one plane of.
+OPTICS_ATTRIBUTES: dict[str, str] = {"tune": "tunes", "chromaticity": "chromaticity"}
+
+#: The ``axis`` words an optics record may name, each with the plane it reads.
+OPTICS_AXES: dict[str, int] = {"x": 0, "y": 1}
+
 Deck = str | os.PathLike[str]
+
+_NOTHING_ACTIVE: Mapping[str, Any] = MappingProxyType({})
 
 
 @dataclass(frozen=True)
@@ -541,3 +566,195 @@ def plane(wiring_record: Any) -> Literal["x", "y"] | None:
     if index == 0:
         return {"PolynomB": "x", "PolynomA": "y"}.get(attribute)  # type: ignore[return-value]
     return None
+
+
+def _target(record: Mapping[str, Any]) -> tuple[Any, ...]:
+    """What a record drives: its element or slices, and its engine attribute and index."""
+    slices = tuple(
+        (field(piece, "element"), field(piece, "weight")) for piece in field(record, "slices") or ()
+    )
+    block = field(record, "engine")
+    return (field(record, "element"), slices, field(block, "attribute"), field(block, "index"))
+
+
+def _names_element(record: Mapping[str, Any]) -> bool:
+    return field(record, "element") is not None or bool(field(record, "slices"))
+
+
+def _optics_source(record: Mapping[str, Any], deck: Deck, planes: int) -> tuple[str, int]:
+    """The optics output and plane an element-free record reads.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the record when its
+            engine block names no optics attribute, both or neither of
+            ``axis`` and ``index``, an unknown axis, or a plane the deck does
+            not have.
+    """
+    block = field(record, "engine")
+    attribute = field(block, "attribute")
+    axis = field(block, "axis")
+    index = field(block, "index")
+    record_id = str(field(record, "id") or field(record, "address"))
+    output = OPTICS_ATTRIBUTES.get(attribute) if isinstance(attribute, str) else None
+    planes_text = ", ".join(str(plane) for plane in range(planes))
+    if output is None or (axis is None) == (index is None):
+        raise _stop(
+            deck,
+            record_id,
+            "wiring",
+            f"the engine block names attribute {attribute!r}, axis {axis!r} and index "
+            f"{index!r}; a record naming no element reads tune or chromaticity on one of "
+            f"axis or index",
+            f"wire attribute tune or chromaticity with axis x or y, or with index {planes_text}",
+        )
+    if axis is not None:
+        if axis not in OPTICS_AXES:
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"the engine block names axis {axis!r}",
+                "name axis x or y",
+            )
+        return output, OPTICS_AXES[axis]
+    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < planes:
+        raise _stop(
+            deck,
+            record_id,
+            "wiring",
+            f"the engine block names index {index!r}; the deck has tune planes {planes_text}",
+            f"name index {planes_text}",
+        )
+    return output, index
+
+
+def build(
+    model: str,
+    wiring: Iterable[Mapping[str, Any]],
+    deck: Deck,
+    settings: Any,
+    active: Mapping[str, Any] = _NOTHING_ACTIVE,
+) -> LUMEModel:
+    """Build the LUME model that serves one model's wiring over its deck.
+
+    Each wiring entry becomes one variable, named by its address:
+
+    * a setpoint (``direction: write``) is written through its calibration,
+      bounded by the entry's ``value_range`` when it carries one; its default
+      is the active value when ``active`` names it, else the entry's
+      ``default``;
+    * a monitor reading (an engine ``axis`` and no ``attribute``) is read off
+      the solved orbit;
+    * a readback naming an element and an engine ``attribute`` reads back the
+      setpoint that drives the same element or slices, attribute and index,
+      or its own ``default`` when no setpoint does;
+    * a record naming no element reads one plane of the deck's ``tune`` or
+      ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
+      unless its attribute is a deck property such as ``energy``.
+
+    The model drives its own copy of the deck, so the deck a later call loads
+    is never the one a model has written to. Every other key of ``active``
+    is a fault seed, ``<address>/<field>``, written onto its element before the
+    model adopts the variables. The model is then reset once -- one batch, one
+    solve -- so the lattice holds every setpoint's default, and a later
+    :meth:`reset` returns to the active scenario rather than to the deck.
+
+    Args:
+        model: The model's name, which a refusal names.
+        wiring: The model's wiring entries, as
+            :func:`~osprey.facility.views.simulator.simulator_wiring` gives
+            them.
+        deck: The lattice file.
+        settings: The model's settings, ``{pyat: {...}}``, or ``None``.
+        active: The active scenario's writes: setpoint address -> hardware
+            value, and fault name -> seed.
+
+    Returns:
+        The model, at the active scenario.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
+            refuses, or for a record naming no element that reads no plane of
+            the tunes or the chromaticity.
+        ValueError: an entry cannot be built as a variable, a default or an
+            active value lies outside its ``value_range``, or a key of
+            ``active`` names no setpoint and no fault of the model.
+        pydantic.ValidationError: a fault seed lies outside its bounds.
+        OrbitSolveError: the deck, or the deck at the active scenario, has no
+            stable solve.
+    """
+    from osprey.simulation.engines.pyat_model import (
+        PyATLatticeModel,
+        ReadbackVariable,
+        tune_planes,
+    )
+    from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
+
+    prepare(deck, settings, model=model)
+    lattice = _load(deck).lattice.deepcopy()
+    deck_energy_gev = float(lattice.energy) / EV_PER_GEV
+    planes = tune_planes(lattice)
+    entries = list(wiring)
+
+    writes = {str(entry["address"]) for entry in entries if entry.get("direction") == "write"}
+    setpoints: dict[tuple[Any, ...], str] = {}
+    for entry in entries:
+        if entry.get("direction") == "write" and _names_element(entry):
+            setpoints.setdefault(_target(entry), str(entry["address"]))
+
+    channels: list[Any] = []
+    for entry in entries:
+        address = str(entry["address"])
+        attribute = field(entry.get("engine"), "attribute")
+        if not _names_element(entry) and attribute not in DECK_PROPERTIES:
+            output, component = _optics_source(entry, deck, planes)
+            channels.append(
+                ReadbackVariable(
+                    name=address, source=output, component=component, unit=entry.get("unit")
+                )
+            )
+            continue
+        if entry.get("direction") == "read" and _names_element(entry) and attribute is not None:
+            source = setpoints.get(_target(entry))
+            channels.append(
+                ReadbackVariable(
+                    name=address,
+                    source=source,
+                    default_value=None if source is not None else float(entry["default"]),
+                    unit=entry.get("unit"),
+                )
+            )
+            continue
+        overrides: dict[str, Any] = {}
+        if address in writes:
+            if "value_range" in entry:
+                overrides["value_range"] = tuple(entry["value_range"])
+            if address in active:
+                overrides["default_value"] = float(active[address])
+        variable = variable_from_wiring(entry, deck_energy_gev=deck_energy_gev, **overrides)
+        if variable is not None:
+            channels.append(variable)
+
+    faults = {name: float(value) for name, value in active.items() if name not in writes}
+    built = PyATLatticeModel(lattice, channels, faults=faults)
+    built.reset()
+    return built
+
+
+def error_text(exc: BaseException) -> str:
+    """The one line a failed build or solve is reported with.
+
+    Args:
+        exc: What the build or the solve raised.
+
+    Returns:
+        An ``OrbitSolveError``'s own message, which names the solve that
+        failed; any other exception's type name and message. Whitespace runs
+        collapse to one space.
+    """
+    from lume_pyat.exceptions import OrbitSolveError
+
+    text = " ".join(str(exc).split())
+    if isinstance(exc, OrbitSolveError) and text:
+        return text
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
