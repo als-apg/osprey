@@ -82,6 +82,7 @@ class TestImports:
             "from osprey.simulation.engines import pyat\n"
             "assert callable(pyat.build) and callable(pyat.error_text)\n"
             "assert callable(pyat.readout)\n"
+            "pyat.fault_variables([{'address': 'X', 'element': 'B', 'engine': {'axis': 'x'}}])\n"
             "loaded = [m for m in sys.modules if m == 'lume' or m.startswith('lume.')]\n"
             "assert not loaded, loaded\n"
         )
@@ -92,6 +93,39 @@ class TestImports:
 
     def test_readout_is_the_fault_readout(self):
         assert engine.readout is pyat_faults.readout
+
+
+class TestFaultVariables:
+    def test_the_roster_is_every_fault_the_built_model_declares(self, demo):
+        model = build(demo)
+        declared = {
+            name: variable
+            for name, variable in model.supported_variables.items()
+            if pyat_faults.FAULT_SEPARATOR in name
+        }
+
+        roster = engine.fault_variables(demo["wiring"])
+
+        assert sorted(roster) == sorted(declared)
+        for name, slot in roster.items():
+            assert name == f"{slot.address}/{slot.field}"
+            bounds = getattr(declared[name], "value_range", None)
+            assert slot.value_range == (None if bounds is None else tuple(bounds))
+            opts = getattr(declared[name], "options", None)
+            assert slot.options == (None if opts is None else tuple(float(o) for o in opts))
+
+    def test_roll_sits_on_the_x_axis_reading(self, demo):
+        roster = engine.fault_variables(demo["wiring"])
+        assert f"{MONITOR_X}/roll" in roster
+        assert "SR:DIAG:BPM:01:POSITION:Y/roll" not in roster
+        assert roster[f"{CORRECTOR}/cal_factor"].value_range == (-5.0, 5.0)
+
+    def test_each_slot_names_the_element_its_address_is_wired_to(self, demo):
+        roster = engine.fault_variables(demo["wiring"])
+        x_element = roster[f"{MONITOR_X}/roll"].element
+        assert x_element is not None
+        assert roster["SR:DIAG:BPM:01:POSITION:Y/offset"].element == x_element
+        assert roster[f"{CORRECTOR}/cal_factor"].element is not None
 
 
 class TestActiveScenario:

@@ -14,7 +14,9 @@ These functions read a deck -- a lattice file pyAT loads with
   response at the wired monitors;
 * :func:`error_text` gives the one line a failed build or solve reports;
 * :func:`readout` turns solved monitor positions into what each monitor
-  reports.
+  reports;
+* :func:`fault_variables` names every fault a model built from a wiring
+  declares, without building it.
 
 A wiring record is read by key or by attribute: ``id``, ``address``,
 ``element`` or ``slices`` (each ``element``, ``weight``), the ``engine`` block
@@ -39,7 +41,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
-from osprey.simulation.engines.pyat_faults import readout
+from osprey.simulation.engines.pyat_faults import fault_variables, readout
 
 if TYPE_CHECKING:
     import numpy as np
@@ -50,6 +52,7 @@ __all__ = [
     "Prepared",
     "build",
     "error_text",
+    "fault_variables",
     "locate",
     "plane",
     "prepare",

@@ -27,7 +27,11 @@ is a pure function of the reading's address and the time it is read at.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from osprey.simulation.engines.calibration import field as _slot
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Mapping
@@ -45,6 +49,35 @@ READOUT_IDENTITY: dict[str, float] = {
 SUPPLY_IDENTITY: dict[str, float] = {"cal_factor": 1.0, "cal_offset": 0.0}
 
 _SUPPLY_PREFIX = "supply_"
+
+#: What separates a wired address from a field in a fault name.
+FAULT_SEPARATOR = "/"
+
+#: The roll a monitor carries once, at its identity.
+ROLL = "roll"
+ROLL_IDENTITY = 0.0
+
+#: The engine attributes whose setpoints carry a calibration fault.
+CALIBRATED_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "KickAngle"})
+
+MIN_MONITOR_GAIN = 0.1
+MAX_MONITOR_GAIN = 10.0
+MAX_MONITOR_ROLL_RAD = 0.1
+#: A factor of -1 is a polarity flip; a magnitude beyond 5x is never a real
+#: calibration error.
+MAX_CALIBRATION_FACTOR = 5.0
+
+#: Fault field -> its inclusive (min, max). A field absent here is bounded by
+#: well-formedness alone.
+FAULT_BOUNDS: dict[str, tuple[float, float]] = {
+    "gain": (MIN_MONITOR_GAIN, MAX_MONITOR_GAIN),
+    "noise": (0.0, math.inf),
+    ROLL: (-MAX_MONITOR_ROLL_RAD, MAX_MONITOR_ROLL_RAD),
+    "cal_factor": (-MAX_CALIBRATION_FACTOR, MAX_CALIBRATION_FACTOR),
+}
+
+#: A polarity is a direction: it lands exactly on one of these two values.
+POLARITY_OPTIONS: tuple[float, float] = (-1.0, 1.0)
 
 #: The subkey that makes a reading's noise stream its own.
 NOISE_SUBKEY = b":readout_noise"
@@ -160,6 +193,81 @@ def supply_calibration(element: Any, setpoint: str) -> dict[str, float]:
         keyword: float(getattr(element, supply_attribute(setpoint, field), SUPPLY_IDENTITY[field]))
         for keyword, field in (("factor", "cal_factor"), ("offset", "cal_offset"))
     }
+
+
+@dataclass(frozen=True)
+class FaultSlot:
+    """One fault a model declares: the wired address it perturbs and the field.
+
+    Attributes:
+        address: The wired address.
+        field: The fault field, such as ``offset`` or ``cal_factor``.
+        value_range: The inclusive ``(min, max)`` a value must lie in, or
+            ``None`` where only well-formedness bounds it.
+        options: The exact values a value must equal one of, or ``None``
+            where the field is not an enumeration.
+        element: The element the address is wired to (its first slice's).
+    """
+
+    address: str
+    field: str
+    value_range: tuple[float, float] | None
+    options: tuple[float, ...] | None = None
+    element: str | None = None
+
+
+def _first_element(record: Any) -> str | None:
+    slices = _slot(record, "slices")
+    element = _slot(slices[0], "element") if slices else _slot(record, "element")
+    return None if element is None else str(element)
+
+
+def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
+    """Every fault a model built from ``wiring`` declares, by fault name.
+
+    A fault name is ``<address>/<field>``. A monitor readback (an engine
+    ``axis`` and no ``attribute``) carries ``offset``, ``gain``, ``noise`` and
+    ``polarity`` on its own axis, the first readback of each element and axis
+    only; each monitor element carries one ``roll``, on its x-axis readback or
+    else its first one. A setpoint (``direction: write``) on ``PolynomB`` or
+    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``. Nothing is
+    imported and no deck is read.
+
+    Args:
+        wiring: The model's wiring records, each with its ``direction``.
+
+    Returns:
+        Fault name -> its slot, sorted by name.
+    """
+    slots: dict[str, FaultSlot] = {}
+    monitors: dict[str, dict[str, str]] = {}
+
+    def declare(address: str, field: str, element: str) -> None:
+        if field == "polarity":
+            slot = FaultSlot(address, field, None, POLARITY_OPTIONS, element)
+        else:
+            slot = FaultSlot(address, field, FAULT_BOUNDS.get(field), element=element)
+        slots[f"{address}{FAULT_SEPARATOR}{field}"] = slot
+
+    for record in wiring:
+        address = str(_slot(record, "address"))
+        block = _slot(record, "engine")
+        attribute = _slot(block, "attribute")
+        axis = _slot(block, "axis")
+        element = _first_element(record)
+        if element is None:
+            continue
+        if attribute is None and axis in _AXES:
+            monitors.setdefault(element, {}).setdefault(str(axis), address)
+        elif _slot(record, "direction") == "write" and attribute in CALIBRATED_ATTRIBUTES:
+            for field in SUPPLY_IDENTITY:
+                declare(address, field, element)
+    for element, axes in monitors.items():
+        for address in axes.values():
+            for field in READOUT_IDENTITY:
+                declare(address, field, element)
+        declare(axes.get("x") or next(iter(axes.values())), ROLL, element)
+    return dict(sorted(slots.items()))
 
 
 def _monitors(model: Any) -> dict[str, dict[str, str]]:
