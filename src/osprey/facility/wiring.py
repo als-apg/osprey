@@ -23,7 +23,7 @@ from typing import Any
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults
-from osprey.facility.validate import Validated, need
+from osprey.facility.validate import Validated, need, stating_files
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
@@ -96,7 +96,7 @@ def _fill_model(
             FacilityBuildError(
                 "engine-missing",
                 model["name"],
-                _sources(model),
+                stating_files(model, None, fallback=_MODELS_FILE),
                 "install the engine's package, or name an engine the environment registers",
                 record_kind="model",
                 detail=f"engine {name} is not registered under {ENTRY_POINT_GROUP}",
@@ -128,7 +128,7 @@ def _fill_model(
                 FacilityBuildError(
                     "engine-invalid",
                     record["id"],
-                    _sources(record),
+                    stating_files(record, None, fallback=_MODELS_FILE),
                     "name an element or slices for the record, or leave the channel unwired",
                     record_kind="wiring",
                     detail=f"{address}: no element to read a start value from",
@@ -160,7 +160,7 @@ def element_stop(
     return FacilityBuildError(
         "wiring-conflict" if count > 1 else "engine-invalid",
         str(record["id"]),
-        _sources(record),
+        stating_files(record, None, fallback=_MODELS_FILE),
         stop.remedy,
         record_kind="wiring",
         detail=f"{stop.detail} of model {model}",
@@ -190,9 +190,3 @@ def _fill_record(
 
 def _role(channel: Mapping[str, Any]) -> str:
     return str(channel.get("role", "readback"))
-
-
-def _sources(record: Mapping[str, Any]) -> list[str]:
-    provenance = record.get("provenance") or {}
-    files = sorted({str(source["file"]) for source in provenance.get("sources", [])})
-    return files or [_MODELS_FILE]
