@@ -175,6 +175,16 @@ def test_orbit_rms_stays_inside_the_bpm_texture_envelope():
         assert 0.0 < values.min() and values.max() < envelope_um
 
 
+def _decoded(png: bytes) -> tuple[str, tuple[int, int], bytes]:
+    """A PNG's mode, size and raw pixels: what it shows, not how it was compressed."""
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(png)) as image:
+        return image.mode, image.size, image.tobytes()
+
+
 def test_a_rerun_writes_the_same_bytes(tmp_path):
     sim = tmp_path / "simulation"
     shutil.copytree(SIM, sim)
@@ -187,8 +197,13 @@ def test_a_rerun_writes_the_same_bytes(tmp_path):
     first = [p.read_bytes() for p in outputs]
     plots.main(["scenario_plots.py", str(sim)])
     assert [p.read_bytes() for p in outputs] == first
-    # The bundle holds exactly what the script writes, byte for byte.
-    assert first == [(SIM / p.relative_to(sim)).read_bytes() for p in outputs]
+    # The bundle holds what the script writes: the specs byte for byte, the
+    # picture pixel for pixel. The PNG compressor's output differs between
+    # platforms while the pixels it encodes do not, so the committed picture
+    # is compared decoded.
+    committed = [(SIM / p.relative_to(sim)).read_bytes() for p in outputs]
+    assert _decoded(first[0]) == _decoded(committed[0])
+    assert first[1:] == committed[1:]
     assert sorted(p.name for p in sim.glob("scenarios/*/plots/*")) == sorted(
         p.name for p in outputs
     )
