@@ -17,8 +17,11 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.machine import DEFAULT_SCENARIO
 
 __all__ = [
@@ -27,6 +30,7 @@ __all__ = [
     "Overlap",
     "format_overlap_record",
     "overlap_record",
+    "parse_active_state",
     "resolve_active_scenarios",
     "validate_composition",
 ]
@@ -36,6 +40,44 @@ ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 
 #: The ``event`` an overlap record carries in a simulator log.
 OVERLAP_EVENT = "scenario-overlap"
+
+logger = get_logger("simulation_state")
+
+
+def parse_active_state(text: str) -> tuple[list[str], float | None]:
+    """The scenario names and the anchor an ``active_scenarios`` file records.
+
+    Blank lines and ``#`` comments are skipped. A ``key=value`` line is
+    metadata, of which only ``anchor=<ISO 8601>`` is read; every other line is
+    a scenario name, kept in file order. A naive anchor is read in the
+    facility timezone; a malformed one is logged and ignored.
+
+    Args:
+        text: The file's contents.
+
+    Returns:
+        The names, and the anchor as epoch seconds or ``None`` when the file
+        records none.
+    """
+    names: list[str] = []
+    anchor_epoch: float | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" in stripped:
+            key, _, value = stripped.partition("=")
+            if key.strip() == "anchor":
+                try:
+                    parsed = datetime.fromisoformat(value.strip())
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=get_facility_timezone())
+                    anchor_epoch = parsed.timestamp()
+                except ValueError:
+                    logger.warning(f"Ignoring malformed anchor in state file: {stripped!r}")
+            continue
+        names.append(stripped)
+    return names, anchor_epoch
 
 
 def resolve_active_scenarios(names: Sequence[str]) -> list[str]:

@@ -16,6 +16,7 @@ from osprey_connectors.simulation.state import (
     Overlap,
     format_overlap_record,
     overlap_record,
+    parse_active_state,
     resolve_active_scenarios,
     validate_composition,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "decode_char_waveform",
     "format_overlap_record",
     "overlap_record",
+    "parse_active_state",
     "resolve_active_scenarios",
     "resolve_tick_s",
     "validate_composition",

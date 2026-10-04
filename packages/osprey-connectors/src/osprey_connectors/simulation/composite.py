@@ -72,6 +72,7 @@ from osprey_connectors.simulation import values
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     overlap_record,
+    parse_active_state,
     resolve_active_scenarios,
     validate_composition,
 )
@@ -182,16 +183,6 @@ def _for_variable(variable: Variable, value: Any) -> Any:
     if isinstance(variable, NDVariable):
         return np.asarray(value, dtype=np.float64).reshape(variable.shape)
     return value
-
-
-def _active_state_names(text: str) -> list[str]:
-    """The scenario names of an ``active_scenarios`` file, skipping metadata and comments."""
-    names: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" not in stripped:
-            names.append(stripped)
-    return names
 
 
 @dataclass
@@ -414,7 +405,7 @@ class Composite(LUMEModel):
                 text = self._state_path.read_text(encoding="utf-8")
             except FileNotFoundError:
                 text = ""
-            for name in _active_state_names(text):
+            for name in parse_active_state(text)[0]:
                 if name in self._scenarios:
                     names.append(name)
                 else:

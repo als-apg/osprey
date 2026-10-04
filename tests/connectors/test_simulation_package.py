@@ -36,6 +36,37 @@ def test_an_unknown_scenario_is_refused_by_name():
         state.validate_composition({"a": {"X"}}, ["a", "c"])
 
 
+def test_the_state_file_parser_reads_names_and_the_anchor():
+    text = "# a comment\n\nanchor=2026-01-01T00:00:00+00:00\nburst\nmode=x\n  late-burst  \n"
+
+    names, anchor = state.parse_active_state(text)
+
+    assert names == ["burst", "late-burst"]
+    assert anchor == 1767225600.0
+
+
+def test_the_state_file_parser_reads_a_naive_anchor_in_the_facility_zone(monkeypatch):
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(state, "get_facility_timezone", lambda: ZoneInfo("America/Los_Angeles"))
+
+    _names, anchor = state.parse_active_state("anchor=2026-01-01T00:00:00\n")
+
+    assert anchor == 1767225600.0 + 8 * 3600
+
+
+def test_the_state_file_parser_ignores_a_malformed_anchor():
+    assert state.parse_active_state("anchor=not-a-time\nburst\n") == (["burst"], None)
+
+
+def test_the_engine_and_the_composite_read_the_state_file_through_one_parser():
+    from osprey_connectors.simulation import composite, engine
+
+    assert engine.parse_active_state is state.parse_active_state
+    assert composite.parse_active_state is state.parse_active_state
+    assert not hasattr(composite, "_active_state_names")
+
+
 def test_overlap_record_prints_its_log_origin():
     overlap = state.Overlap(target="SR:BPM1:X", first="a", second="b")
 
