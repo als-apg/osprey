@@ -57,6 +57,18 @@ def test_system_and_user_text_request():
     assert out["messages"][1] == {"role": "user", "content": "What is a PV?"}
 
 
+def test_a_streamed_request_asks_the_upstream_for_token_usage():
+    """OpenAI-protocol servers report usage on a stream only when asked, and the
+    agent's token accounting comes from that report."""
+    body = {"model": "m", "stream": True, "messages": [{"role": "user", "content": "hi"}]}
+    assert anthropic_to_openai_request(body).body["stream_options"] == {"include_usage": True}
+
+
+def test_a_non_streamed_request_carries_no_stream_options():
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    assert "stream_options" not in anthropic_to_openai_request(body).body
+
+
 def test_system_as_block_list_is_flattened():
     body = {
         "model": "cborg-coder",
