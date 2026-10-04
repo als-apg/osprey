@@ -70,7 +70,10 @@ from tests.integration._graph_oracles import (
     oracle_search,
     shape_id,
 )
-from tests.services.channel_finder.graph_index.test_scale import PARITY_MATRIX
+from tests.services.channel_finder.graph_index.test_scale import (
+    DEMO_EMPTY_SHAPES,
+    PARITY_MATRIX,
+)
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -1166,75 +1169,7 @@ def test_the_demo_corpus_binds_each_address_once(demo_index: Any) -> None:
     assert repeated == [], repeated
 
 
-_BPM = _SEM + "BeamPositionMonitor"
-
-#: Shapes in the graph view's own vocabulary — its systems, a sector section
-#: and its signal names — so each filter axis matches rows on this corpus.
-_VIEW_SHAPES: list[dict[str, Any]] = [
-    {"systems": ["SR"]},
-    {"systems": ["BTS"]},
-    {"systems": ["SR", "BR"]},
-    {"sections": ["SECT1"]},
-    {"sections": ["SECT1"], "systems": ["SR"]},
-    {"cls": MAGNET_CLASS_URI, "sections": ["SECT1"]},
-    {"cls": _BPM, "systems": ["SR"]},
-    {"signals": ["position_x_readback"]},
-    {"signals": ["position_x_readback", "position_y_readback"]},
-    {"signals": ["current_setpoint"], "sections": ["SECT1"]},
-    {"dirs": ["W"], "systems": ["SR"]},
-    {
-        "tokens": ["sr"],
-        "sections": ["SECT1"],
-        "systems": ["SR"],
-        "cls": MAGNET_CLASS_URI,
-        "dirs": ["R"],
-    },
-]
-
-_LANE_SHAPES: list[dict[str, Any]] = PARITY_MATRIX + _VIEW_SHAPES
-
-#: The lane's shapes the graph view answers with nothing: a token nothing
-#: carries, the read-and-write direction, and every shape naming a system code,
-#: a signal name or a section-and-system pairing the view does not carry.
-_EMPTY_ON_THE_VIEW: list[dict[str, Any]] = [
-    {"tokens": ["nothingmatchesthis"]},
-    {"systems": ["MAG"]},
-    {"systems": ["DIAG"]},
-    {"systems": ["VAC"]},
-    {"systems": ["RF"]},
-    {"systems": ["MAG", "DIAG"]},
-    {"sections": ["SR"], "systems": ["MAG"]},
-    {"sections": ["SR"], "systems": ["DIAG"]},
-    {"sections": ["BR"], "systems": ["MAG"]},
-    {"sections": ["BTS"], "systems": ["DIAG"]},
-    {"cls": MAGNET_CLASS_URI, "sections": ["SR"]},
-    {"cls": _BPM, "systems": ["DIAG"]},
-    {"signals": ["bpm_position_x"]},
-    {"signals": ["bpm_position_x", "bpm_position_y"]},
-    {"signals": ["hcm_current_sp"]},
-    {"signals": ["hcm_current_sp"], "sections": ["SR"]},
-    {"dirs": ["RW"]},
-    {"dirs": ["W"], "systems": ["MAG"]},
-    {
-        "tokens": ["sr"],
-        "sections": ["SR"],
-        "systems": ["MAG"],
-        "cls": MAGNET_CLASS_URI,
-        "dirs": ["R"],
-    },
-    {
-        "tokens": ["sr"],
-        "sections": ["SR"],
-        "systems": ["MAG"],
-        "cls": MAGNET_CLASS_URI,
-        "dirs": ["R"],
-        "skip": 50,
-    },
-    {"tokens": ["bpm"], "signals": ["bpm_position_x"], "dirs": ["R"], "page_size": 100},
-]
-
-
-@pytest.mark.parametrize("shape", _LANE_SHAPES, ids=[shape_id(shape) for shape in _LANE_SHAPES])
+@pytest.mark.parametrize("shape", PARITY_MATRIX, ids=[shape_id(shape) for shape in PARITY_MATRIX])
 def test_the_index_answers_what_the_store_answered(
     demo_read: Any, demo_index: Any, shape: dict[str, Any]
 ) -> None:
@@ -1265,10 +1200,10 @@ def test_the_index_answers_what_the_store_answered(
     assert actual["pages"] == (expected["total"] + page_size - 1) // page_size, shape
     assert len(actual["rows"]) <= page_size, shape
 
-    # The lane says which shapes the view answers with nothing. The store has
-    # to agree, or a shape is sitting in the lane looking like coverage while
+    # The matrix says which shapes the view answers with nothing. The store has
+    # to agree, or a shape is sitting in the matrix looking like coverage while
     # matching nothing on either side.
-    assert (expected["total"] == 0) is (shape in _EMPTY_ON_THE_VIEW), shape
+    assert (expected["total"] == 0) is (shape in DEMO_EMPTY_SHAPES), shape
 
 
 def test_the_index_taxonomy_is_the_stores_taxonomy(demo_read: Any, demo_index: Any) -> None:

@@ -21,7 +21,7 @@ Two rules keep the helper honest about where the index goes:
   ``index_path`` key.
 
 Parsing a corpus is the expensive half of a build (about a second and a half
-for the corpus the control-assistant preset ships), so each distinct corpus is
+for the graph view the control-assistant build writes), so each distinct corpus is
 built once per process and copied into place afterwards, keyed on its bytes and
 its filename -- the two things the index records about the corpus it came from.
 
@@ -38,7 +38,10 @@ import tempfile
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
 
 #: Where a build writes the index, relative to the render that holds
 #: ``config.yml`` -- split so a test can join it to a render root rather than
@@ -87,33 +90,28 @@ def build_index_from_ttl(
 
 
 @contextmanager
-def demo_corpus_path() -> Iterator[Path]:
-    """Yield the path of the Turtle corpus OSPREY ships with its demo preset.
+def demo_corpus_path(built: BuiltProject) -> Iterator[Path]:
+    """Yield the path of the graph view the control-assistant build writes.
 
-    A packaged resource, so it is reached through
-    :func:`importlib.resources.as_file` and is only guaranteed to exist for the
-    duration of the ``with`` block.
+    Args:
+        built: The session's control-assistant build
+            (the ``built_control_assistant`` fixture).
     """
-    from importlib.resources import as_file, files
-
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    with as_file(resource) as path:
-        yield path
+    yield built.build_dir / "data" / "graph" / "facility.ttl"
 
 
-def build_demo_index(index_path: Path | str) -> Path:
-    """Build the shipped demo corpus's index at *index_path* and return it.
+def build_demo_index(index_path: Path | str, built: BuiltProject) -> Path:
+    """Build the demo graph view's index at *index_path* and return it.
 
-    The oracle behind every "what the corpus OSPREY ships holds" assertion:
-    2908 channels, 396 of them settable.
+    The oracle behind every "what the demo facility holds" assertion:
+    2912 channels, 396 of them settable.
+
+    Args:
+        index_path: Where the index goes.
+        built: The session's control-assistant build
+            (the ``built_control_assistant`` fixture).
     """
-    with demo_corpus_path() as corpus:
+    with demo_corpus_path(built) as corpus:
         return build_index_from_ttl(corpus, index_path=index_path)
 
 

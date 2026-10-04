@@ -3,9 +3,9 @@
 The rows must reproduce what the n10s-seeded store answers through
 ``GRAPH_SEARCH_CYPHER`` and ``GRAPH_ONTOLOGY_CYPHER``; a parity lane checks that
 against a live store, and these tests pin each rule the parse copies from the
-Cypher on corpora small enough to state the expected rows by hand. The shipped
-demo corpus is then parsed against the counts the store integration tests
-verified against Neo4j.
+Cypher on corpora small enough to state the expected rows by hand. The graph
+view the control-assistant build writes is then parsed against the counts the
+store integration tests verified against Neo4j.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import pytest
+from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
@@ -33,16 +33,27 @@ SEM = corpora.NARAD_SEM
 DEVICE = corpora.DEVICE
 BINDING = corpora.BINDING
 
-#: Store-verified counts for the shipped demo corpus, as
+#: Store-verified counts for the control-assistant build's graph view, as
 #: ``tests/integration/test_graph_mcp.py`` pins them against Neo4j.
-DEMO_DEVICES = 512
-DEMO_BINDINGS = 2908
+#: ``DEMO_DEVICES`` counts every binding owner: the 512 typed devices and the
+#: top place ``SR``, which carries the tune and chromaticity channels itself.
+DEMO_DEVICES = 513
+DEMO_TYPED_DEVICES = 512
+DEMO_BINDINGS = 2912
 DEMO_WRITE_ONLY = 396
 DEMO_READ_ONLY = 2512
 DEMO_MAGNETS = 382
 #: 21 ``owl:Class`` subjects less the ``SemanticSignal`` and ``ChannelBinding``
 #: leaves that pruning drops.
 DEMO_CLASS_COUNT = 19
+#: The channels bound to the top place rather than to a device: no system, no
+#: signal, no class.
+DEMO_PLACE_BOUND = frozenset(
+    {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
+)
+
+#: The module reads the session's one control-assistant build.
+pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
 
 
 def _rows_by_pv(parsed: ParsedCorpus) -> dict[str, BindingRow]:
@@ -56,16 +67,9 @@ def _classes_by_name(parsed: ParsedCorpus) -> dict[str, ClassRow]:
 
 
 @pytest.fixture(scope="module")
-def demo_path():
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    with as_file(resource) as path:
-        yield path
+def demo_path(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 @pytest.fixture(scope="module")
@@ -442,7 +446,7 @@ class TestModuleImport:
         assert "ok" in result.stdout
 
 
-class TestTheShippedDemoCorpus:
+class TestTheBuildsGraphView:
     def test_binding_and_device_counts_match_the_store(self, demo):
         assert len(demo.binding_rows) == DEMO_BINDINGS
         assert len({row.device_uri for row in demo.binding_rows}) == DEMO_DEVICES
@@ -454,22 +458,28 @@ class TestTheShippedDemoCorpus:
         assert (writes, reads) == (DEMO_WRITE_ONLY, DEMO_READ_ONLY)
 
     def test_every_row_invariant(self, demo):
+        place_bound = set()
         for row in demo.binding_rows:
             assert row.haystack == row.haystack.lower()
             assert row.full_pv.lower() in row.haystack
             assert set(row.edges) <= {EDGE_READS, EDGE_WRITES}
             assert row.edges == sorted(row.edges)
-            assert row.section != "" and row.system != ""
-            assert row.section is not None and row.system is not None
+            assert row.section != "" and row.section is not None
             assert len(row.signal_uris) == len(row.signal_names)
             assert row.signal_names == sorted(row.signal_names)
             assert row.class_uris == sorted(row.class_uris)
+            if row.device_name is None:
+                place_bound.add(row.full_pv)
+                assert (row.system, row.edges, row.class_uris) == (None, [], [])
+                continue
+            assert row.system != "" and row.system is not None
             assert row.class_uris, row.full_pv
+        assert place_bound == DEMO_PLACE_BOUND
 
     def test_class_rows_match_the_store(self, demo):
         assert len(demo.class_rows) == DEMO_CLASS_COUNT
         by_name = _classes_by_name(demo)
-        assert by_name["AcceleratorDevice"].rollup_devices == DEMO_DEVICES
+        assert by_name["AcceleratorDevice"].rollup_devices == DEMO_TYPED_DEVICES
         assert by_name["AcceleratorDevice"].direct_devices == 0
         assert by_name["Magnet"].rollup_devices == DEMO_MAGNETS
         assert by_name["Magnet"].parents == [SEM + "AcceleratorDevice"]
@@ -477,8 +487,10 @@ class TestTheShippedDemoCorpus:
         assert [row.name for row in demo.class_rows] == sorted(row.name for row in demo.class_rows)
 
     def test_direct_counts_sum_to_the_rollup_of_the_root(self, demo):
-        assert sum(row.direct_devices for row in demo.class_rows) == DEMO_DEVICES
+        assert sum(row.direct_devices for row in demo.class_rows) == DEMO_TYPED_DEVICES
 
     def test_censuses(self, demo):
-        assert demo.signal_count == 113
-        assert demo.section_codes == frozenset({"SR", "BR", "BTS"})
+        assert demo.signal_count == 31
+        assert demo.section_codes == frozenset(
+            {"SR", "BR", "BTS", *(f"SECT{number}" for number in range(1, 13))}
+        )

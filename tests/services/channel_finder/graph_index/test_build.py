@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import duckdb
 import pytest
+from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
@@ -33,35 +33,32 @@ from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_
 from osprey.services.channel_finder.graph_index.taxonomy import prune_device_taxonomy
 from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 
-#: The shipped demo corpus, as the store counts its populations. ``bindings``,
-#: ``devices`` and ``classes`` are the numbers ``test_parse_corpus.py`` pins
-#: against the parity lane; ``signals`` is what ``GRAPH_SIGNAL_COUNT_CYPHER``
-#: counts, and ``sections`` what ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 2908
-DEMO_DEVICES = 512
+#: The control-assistant build's graph view, as the store counts its
+#: populations. ``bindings``, ``devices`` and ``classes`` are the numbers
+#: ``test_parse_corpus.py`` pins against the parity lane; ``devices`` counts
+#: every binding owner, so the top place ``SR``, which carries the tune and
+#: chromaticity channels itself, is one of the 513; ``signals`` is what
+#: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
+#: ``GRAPH_SECTION_COUNT_CYPHER`` does.
+DEMO_BINDINGS = 2912
+DEMO_DEVICES = 513
 DEMO_CLASSES = 19
-DEMO_SIGNALS = 113
+DEMO_SIGNALS = 31
 
-#: Derived from the corpus (three distinct ``narad_p:sectionCode`` literals),
+#: Derived from the view (fifteen distinct ``narad_p:sectionCode`` literals:
+#: ``SECT1`` to ``SECT12`` and the top-place codes ``SR``, ``BR`` and ``BTS``),
 #: not read off a store-backed assertion -- no census test seeds this corpus and
-#: asks the store for its section count. It is corroborated by the store-backed
-#: search facet in ``tests/integration/test_graph_mcp.py``, which asserts the
-#: seeded demo store answers ``{"SR", "BR", "BTS"}`` for the section facet.
-DEMO_SECTIONS = 3
+#: asks the store for its section count.
+DEMO_SECTIONS = 15
+
+#: The module reads the session's one control-assistant build.
+pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
 
 
 @pytest.fixture(scope="module")
-def demo_path():
-    """The packaged demo corpus, materialised on disk."""
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    with as_file(resource) as path:
-        yield path
+def demo_path(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 def _read(index_path: Path, sql: str) -> list[tuple]:
@@ -88,7 +85,7 @@ def _write(path: Path, text: str, *, crlf: bool = False) -> Path:
 
 
 class TestDemoCorpus:
-    """The shipped corpus, built end to end."""
+    """The build's graph view, indexed end to end."""
 
     @pytest.fixture(scope="class")
     def built(self, demo_path: Path, tmp_path_factory) -> tuple[IndexBuildReport, Path]:
@@ -112,7 +109,7 @@ class TestDemoCorpus:
         assert _meta_row(index_path) == {
             "schema_version": SCHEMA_VERSION,
             "corpus_sha256": ttl_sha256(demo_path.read_text(encoding="utf-8")),
-            "corpus_filename": "demo_machine.ttl",
+            "corpus_filename": "facility.ttl",
             "binding_count": DEMO_BINDINGS,
             "device_count": DEMO_DEVICES,
             "class_count": DEMO_CLASSES,
@@ -170,8 +167,8 @@ class TestDemoCorpus:
         records = [record for record in caplog.records if record.name == builder_logger]
         assert [record.levelno for record in records] == [logging.DEBUG], records
         line = records[0].getMessage()
-        assert "2908 bindings" in line
-        assert "512 devices" in line
+        assert "2912 bindings" in line
+        assert "513 devices" in line
         assert " s: " in line, line
 
     def test_the_package_exports_the_entry_point_lazily(self):

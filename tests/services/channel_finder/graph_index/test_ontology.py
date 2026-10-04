@@ -44,7 +44,7 @@ def _meta(parsed: ParsedCorpus, **overrides: object) -> dict:
     """The ``meta`` mapping a corpus build states for *parsed*."""
     values = {
         "corpus_sha256": "c" * 64,
-        "corpus_filename": "demo_machine.ttl",
+        "corpus_filename": "facility.ttl",
         "binding_count": len(parsed.binding_rows),
         "device_count": len({row.device_uri for row in parsed.binding_rows}),
         "class_count": len(parsed.class_rows),
@@ -196,7 +196,7 @@ class TestEmptyIndex:
 
         assert payload["empty"] is True
         (suggestion,) = payload["suggestions"]
-        assert "demo_machine.ttl" in suggestion
+        assert "facility.ttl" in suggestion
         assert "osprey build && osprey up" in suggestion
 
     def test_the_ontology_it_does_declare_is_still_answered(self, empty_index: GraphIndex):

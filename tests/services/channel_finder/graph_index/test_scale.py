@@ -44,12 +44,12 @@ from __future__ import annotations
 
 import logging
 import time
-from importlib.resources import as_file, files
 from pathlib import Path
 from statistics import median
 from typing import Any
 
 import pytest
+from tests._builds import BuiltProject
 
 from osprey.services.channel_finder.graph_index.builder import (
     CALLER_META_KEYS,
@@ -69,7 +69,12 @@ from osprey.services.channel_finder.graph_index.reader import (
 )
 from osprey.services.channel_finder.graph_index.taxonomy import class_name
 
-pytestmark = [pytest.mark.slow, pytest.mark.channel_finder_benchmark]
+#: The module reads the session's one control-assistant build.
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.channel_finder_benchmark,
+    pytest.mark.xdist_group("built_control_assistant"),
+]
 
 logger = logging.getLogger(__name__)
 
@@ -355,9 +360,10 @@ _DEMO_CLASS_ROOT = _ROOT
 
 #: Every filter shape the parity lane replays against the store and against
 #: the index, and the shapes this module times over the demo corpus. The values
-#: are the demo machine's own: sections ``SR``/``BR``/``BTS``, systems
-#: ``MAG``/``DIAG``/``VAC``/``RF``, classes from the ``narad`` shared
-#: semantics, and signal names the demo bindings actually carry.
+#: are the graph view's own: systems ``SR``/``BR``/``BTS``, the sector section
+#: ``SECT1`` and the top-place codes (a device placed directly on ``SR`` carries
+#: section ``SR``), classes from the ``narad`` shared semantics, signal names
+#: the view's channels carry, and tokens its addresses and descriptions hold.
 #:
 #: Imported by the parity lane as::
 #:
@@ -384,57 +390,57 @@ PARITY_MATRIX: list[dict[str, Any]] = [
     {"tokens": ["readback"]},
     {"tokens": ["nothingmatchesthis"]},
     # -- one section (which also excludes every device placed nowhere) -----
+    {"sections": ["SECT1"]},
     {"sections": ["SR"]},
     {"sections": ["BR"]},
     {"sections": ["BTS"]},
-    {"sections": ["SR", "BR"]},
-    {"sections": ["SR"], "skip": 50},
+    {"sections": ["SECT1", "BR"]},
+    {"sections": ["SECT1"], "skip": 50},
     # -- one system --------------------------------------------------------
-    {"systems": ["MAG"]},
-    {"systems": ["DIAG"]},
-    {"systems": ["VAC"]},
-    {"systems": ["RF"]},
-    {"systems": ["MAG", "DIAG"]},
+    {"systems": ["SR"]},
+    {"systems": ["BR"]},
+    {"systems": ["BTS"]},
+    {"systems": ["SR", "BR"]},
     # -- section and system together ---------------------------------------
-    {"sections": ["SR"], "systems": ["MAG"]},
-    {"sections": ["SR"], "systems": ["DIAG"]},
-    {"sections": ["BR"], "systems": ["MAG"]},
-    {"sections": ["BTS"], "systems": ["DIAG"]},
+    {"sections": ["SECT1"], "systems": ["SR"]},
+    {"sections": ["SR"], "systems": ["SR"]},
+    {"sections": ["BR"], "systems": ["BR"]},
+    {"sections": ["BTS"], "systems": ["BTS"]},
     # -- class filters, which roll their subclasses up ---------------------
     {"cls": _DEMO_CLASS_ROOT},
     {"cls": _DEMO_CLASS_MAGNET},
     {"cls": _DEMO_CLASS_BPM},
-    {"cls": _DEMO_CLASS_MAGNET, "sections": ["SR"]},
-    {"cls": _DEMO_CLASS_BPM, "systems": ["DIAG"]},
+    {"cls": _DEMO_CLASS_MAGNET, "sections": ["SECT1"]},
+    {"cls": _DEMO_CLASS_BPM, "systems": ["SR"]},
     # -- signal filters ----------------------------------------------------
-    {"signals": ["bpm_position_x"]},
-    {"signals": ["bpm_position_x", "bpm_position_y"]},
-    {"signals": ["hcm_current_sp"]},
-    {"signals": ["hcm_current_sp"], "sections": ["SR"]},
+    {"signals": ["position_x_readback"]},
+    {"signals": ["position_x_readback", "position_y_readback"]},
+    {"signals": ["current_setpoint"]},
+    {"signals": ["current_setpoint"], "sections": ["SECT1"]},
     # -- direction filters -------------------------------------------------
     {"dirs": ["R"]},
     {"dirs": ["W"]},
     {"dirs": ["RW"]},
     {"dirs": ["none"]},
     {"dirs": ["R", "W"]},
-    {"dirs": ["W"], "systems": ["MAG"]},
+    {"dirs": ["W"], "systems": ["SR"]},
     # -- everything at once, and page two of it ----------------------------
     {
         "tokens": ["sr"],
-        "sections": ["SR"],
-        "systems": ["MAG"],
+        "sections": ["SECT1"],
+        "systems": ["SR"],
         "cls": _DEMO_CLASS_MAGNET,
         "dirs": ["R"],
     },
     {
         "tokens": ["sr"],
-        "sections": ["SR"],
-        "systems": ["MAG"],
+        "sections": ["SECT1"],
+        "systems": ["SR"],
         "cls": _DEMO_CLASS_MAGNET,
         "dirs": ["R"],
         "skip": 50,
     },
-    {"tokens": ["bpm"], "signals": ["bpm_position_x"], "dirs": ["R"], "page_size": 100},
+    {"tokens": ["bpm"], "signals": ["position_x_readback"], "dirs": ["R"], "page_size": 100},
 ]
 
 #: Twenty shapes over the synthetic machine, whose facet values are its own.
@@ -467,17 +473,17 @@ SCALE_SHAPES: list[dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 
 
-#: The shapes the *demo* corpus answers with nothing, and legitimately so: a
-#: token no binding carries, and the two directions the demo machine happens
-#: not to use (every demo binding either reads or writes, never both, and none
-#: is unconnected). They stay in the matrix because a parity lane has to prove
-#: the two backends agree about emptiness too. Every *other* shape must match
+#: The shapes the graph view answers with nothing, and legitimately so: a
+#: token no binding carries, and the read-and-write direction, which no channel
+#: of the view takes (each one either reads or writes; only the top place's
+#: four tune and chromaticity channels name no signal, so ``none`` matches
+#: them). They stay in the matrix because a parity lane has to prove the two
+#: backends agree about emptiness too. Every *other* shape must match
 #: something -- a class URI or a signal name typed wrong would otherwise sit in
 #: the matrix looking like coverage while testing nothing.
 DEMO_EMPTY_SHAPES: list[dict[str, Any]] = [
     {"tokens": ["nothingmatchesthis"]},
     {"dirs": ["RW"]},
-    {"dirs": ["none"]},
 ]
 
 
@@ -565,20 +571,18 @@ def _report(label: str, timings: list[float]) -> tuple[float, float, float]:
 
 
 @pytest.fixture(scope="module")
-def demo_build(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, float]:
+def demo_path(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+
+
+@pytest.fixture(scope="module")
+def demo_build(demo_path: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, float]:
     """The demo index, built once for the module, and how long the build took."""
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
     index_path = tmp_path_factory.mktemp("demo") / "graph.duckdb"
-    with as_file(resource) as path:
-        started = time.perf_counter()
-        build_graph_index(path, index_path)
-        elapsed = time.perf_counter() - started
+    started = time.perf_counter()
+    build_graph_index(demo_path, index_path)
+    elapsed = time.perf_counter() - started
     return index_path, elapsed
 
 
@@ -708,24 +712,16 @@ class TestHundredThousandBindings:
 
 
 # ---------------------------------------------------------------------------
-# The shipped demo corpus, over the parity matrix
+# The build's graph view, over the parity matrix
 # ---------------------------------------------------------------------------
 
 
 class TestDemoCorpusOverTheParityMatrix:
-    """The corpus a deployment actually ships, over every shape parity replays."""
+    """The corpus a deployment's build actually writes, over every shape parity replays."""
 
     @pytest.fixture(scope="class")
-    def demo_text(self) -> str:
-        resource = (
-            files("osprey.templates")
-            .joinpath("apps")
-            .joinpath("control_assistant")
-            .joinpath("data")
-            .joinpath("demo_machine.ttl")
-        )
-        with as_file(resource) as path:
-            return path.read_text(encoding="utf-8")
+    def demo_text(self, demo_path: Path) -> str:
+        return demo_path.read_text(encoding="utf-8")
 
     def test_parsing_the_demo_corpus_alone_stays_inside_its_budget(self, demo_text: str):
         started = time.perf_counter()
@@ -763,10 +759,10 @@ class TestDemoCorpusOverTheParityMatrix:
     def test_every_shape_in_the_matrix_matches_something_real(self, demo_index_path: Path):
         """A shape that matches nothing by accident is coverage that is not there.
 
-        Every filter value in the matrix is spelled the way the demo corpus
-        spells it, so every shape but the three deliberately empty ones has to
+        Every filter value in the matrix is spelled the way the graph view
+        spells it, so every shape but the two deliberately empty ones has to
         come back with rows. This is what catches a class URI or a signal name
-        that drifts when the demo corpus is regenerated.
+        that drifts when the view's vocabulary changes.
         """
         with _open(demo_index_path) as index:
             empty = [shape for shape in PARITY_MATRIX if index.search(**shape)["total"] == 0]
