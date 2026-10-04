@@ -17,8 +17,9 @@ sources under ``data/facility/imported/mml/`` and seeds each authored file that
 does not exist yet. An authored record source merges against the layer's
 records, so the verb stops before it reads an export while one is present and
 prints the ``rm`` line of each: every file of ``records/`` and ``decks/``,
-``models.yaml``, and each of ``seeds.yaml``, ``limits.yaml``, ``identity.yaml``
-and ``measurement/`` that does not open with the layer's own header line.
+``models.yaml``, and each of ``seeds.yaml``, ``limits.yaml``, ``identity.yaml``,
+``measurement/`` and ``scenarios/*.yaml`` that does not open with the layer's own
+header line.
 ``fixes.yaml``, ``classes.yaml`` and ``knowledge/`` are never in the way.
 ``--print-exporter`` prints the MATLAB exporter the layer ships and needs
 neither a repo nor an export.
@@ -148,6 +149,9 @@ def import_group() -> None:
 _RECORD_FILES = ("models.yaml",)
 _RECORD_DIRS = ("decks",)
 
+#: The directory of scenario sources, relative to ``data/facility/``.
+_SCENARIOS_DIR = "scenarios"
+
 
 def _main_profile(repo_root: Path) -> tuple[LoadedProfile, tuple[Path, ...]]:
     """The repo's resolved main profile and the overlays it was resolved with."""
@@ -185,8 +189,9 @@ def _authored_record_sources(facility_dir: Path) -> list[Path]:
     """The authored files that would merge against the mml layer's records, sorted.
 
     Every file of ``records/`` and ``decks/`` and ``models.yaml`` count
-    whatever they hold; ``seeds.yaml``, ``limits.yaml``, ``identity.yaml`` and
-    the files of ``measurement/`` count unless the mml layer seeded them.
+    whatever they hold; ``seeds.yaml``, ``limits.yaml``, ``identity.yaml``, the
+    files of ``measurement/`` and each ``scenarios/*.yaml`` count unless the mml
+    layer seeded them.
     """
     from osprey.facility.layers.mml.seed import (
         IDENTITY_FILE,
@@ -205,6 +210,7 @@ def _authored_record_sources(facility_dir: Path) -> list[Path]:
         if (facility_dir / name).is_file()
     ]
     seedable += _files(facility_dir / MEASUREMENT_DIR)
+    seedable += sorted((facility_dir / _SCENARIOS_DIR).glob("*.yaml"))
     found += [path for path in seedable if not _mml_seeded(path)]
     return sorted(found)
 
