@@ -58,7 +58,7 @@ NSLS2_LINES = [
     "response check StorageRing: model BPMx/HCM inside band 1.000 (pass at 0.99)",
 ]
 NSLS2_LTB_LEFT_OUT = (
-    "response check LTB: left out 24 rows (24 unwired, 0 no width, 0 unsolved)"
+    "response check LTB: left out 24 rows (24 unwired, 0 no width, 0 unsolved, 0 table calibration)"
 )
 SYNTHETIC_LINE = "response check SR: model BPMx/HC inside band 1.000 (pass at 0.99)"
 
@@ -378,7 +378,8 @@ def test_the_left_out_line_counts_each_reason() -> None:
 
     assert check.lines == [
         "response check SR: model BPMx/HCM inside band 1.000 (pass at 0.99)",
-        "response check SR: left out 5 rows (3 unwired, 1 no width, 1 unsolved)",
+        "response check SR: left out 5 rows "
+        "(3 unwired, 1 no width, 1 unsolved, 0 table calibration)",
     ]
 
 
@@ -526,3 +527,30 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
         "response check StorageRing: measured BPMx/HCM median ratio "
     )
     assert sum((block.left_out for block in blocks), LeftOut()) == LeftOut(unsolved=2)
+
+
+def test_a_monitor_with_a_table_calibration_is_left_out_and_counted(synthetic: Path) -> None:
+    """The reading is carried into physics by one slope, which only a straight line has."""
+    facility = _facility(synthetic)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "SR")
+    address = "QK:BPMx:1:CUR:RB"
+    record = next(record for record in model["wiring"] if record["address"] == address)
+    record["calibration"] = {
+        "curve": {"table": {"grid": [-1000.0, 0.0, 1000.0], "values": [-1.0, 0.0, 1.0]}},
+        "inverse": {"table": {"grid": [-1.0, 0.0, 1.0], "values": [-1000.0, 0.0, 1000.0]}},
+        "energy_scaling": "none",
+    }
+
+    blocks = compare(facility, document, model)
+
+    assert [block.name for block in blocks if block.monitor_family == "BPMx"] == [
+        "BPMx/HC",
+        "BPMx/VC",
+    ]
+    assert all(entry.monitor_address != address for block in blocks for entry in block.entries)
+    assert sum((block.left_out for block in blocks), LeftOut()) == LeftOut(table_calibration=2)
+    assert ModelCheck("SR", judge(blocks), LeftOut(table_calibration=2)).lines[1] == (
+        "response check SR: left out 2 rows "
+        "(0 unwired, 0 no width, 0 unsolved, 2 table calibration)"
+    )
