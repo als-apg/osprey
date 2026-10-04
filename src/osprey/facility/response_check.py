@@ -29,8 +29,12 @@ the model.
 side; each row is matched to the device carrying that ``DeviceList`` and to
 that device's wiring record of the family's engine words. A row the export
 marks ``Status`` 0, a row no wired device answers to, a column with no finite
-width and a column whose sweep leaves the deck without a finite orbit are left
-out of the comparison.
+width and a column whose sweep leaves the deck without a solve are left out of
+the comparison. Each corrector is swept on its own through the engine's
+response matrix, rows matched by the readback addresses it returns, and its
+hardware entries are carried into the export's physics units through the two
+records' calibrations, so one unsolvable corrector leaves its column out and
+the rest are still judged.
 
 **Reversed columns are set aside.** Inside a judged block, a corrector whose
 entries above the floor disagree in sign on more than half of its compared
@@ -44,7 +48,7 @@ the sign agrees on at least 0.95 of the entries above the floor. Either way a
 judged block needs one entry above the floor. A model passes when every judged
 block of its export passes, and the line names the block nearest its bar.
 
-pyAT and numpy are imported inside the functions that solve.
+The engine is imported inside the function that solves.
 """
 
 from __future__ import annotations
@@ -633,157 +637,63 @@ def _plane(engine: Any) -> str | None:
 # -- the model ---------------------------------------------------------------
 
 
-def _curve(record: Mapping[str, Any], name: str) -> Any:
-    from osprey.simulation.engines.calibration import curve_from_record
+def _physics_span(record: Mapping[str, Any], held: float, width: float) -> float:
+    """The physics distance between ``held + width/2`` and ``held - width/2``."""
+    from osprey.simulation.engines.calibration import curve_from_record, to_physics
 
-    return curve_from_record((record.get("calibration") or {}).get(name))
-
-
-def _to_physics(record: Mapping[str, Any], hardware: float) -> float:
-    from osprey.simulation.engines.calibration import evaluate
-
-    curve = _curve(record, "curve")
-    return hardware if curve is None else evaluate(curve, hardware)
+    curve = curve_from_record((record.get("calibration") or {}).get("curve"))
+    return to_physics(curve, held + 0.5 * width) - to_physics(curve, held - 0.5 * width)
 
 
-def _to_hardware(record: Mapping[str, Any], physics: float) -> float:
-    """A physics reading in hardware units: the stated inverse, else a line's own."""
-    from osprey.simulation.engines.calibration import Linear, evaluate
+def _monitor_gain(record: Mapping[str, Any]) -> float:
+    """A monitor's physics reading per hardware unit, where a centred beam reads.
 
-    inverse = _curve(record, "inverse")
-    if inverse is not None:
-        return evaluate(inverse, physics)
-    curve = _curve(record, "curve")
-    if isinstance(curve, Linear) and curve.gain != 0.0:
-        return (physics - curve.offset) / curve.gain
-    return physics
+    Exact for a linear calibration, whose slope is the same everywhere.
+    """
+    from osprey.simulation.engines.calibration import curve_from_record, to_hardware
 
-
-def _slices(record: Mapping[str, Any]) -> list[tuple[str, float]]:
-    """Each deck element a record drives, with the share of the value it takes."""
-    slices = record.get("slices")
-    if slices:
-        return [
-            (piece["element"], 1.0 if piece.get("weight") is None else float(piece["weight"]))
-            for piece in slices
-        ]
-    element = record.get("element")
-    return [(element, 1.0)] if element is not None else []
+    calibration = record.get("calibration") or {}
+    curve = curve_from_record(calibration.get("curve"))
+    if curve is None:
+        return 1.0
+    centred = to_hardware(curve, curve_from_record(calibration.get("inverse")), 0.0)
+    step = 1.0e-6 * max(1.0, abs(centred))
+    return _physics_span(record, centred, step) / step
 
 
-class _Deck:
-    """One model's deck, driven one corrector at a time and left as it was found."""
+def _response(
+    deck: Path,
+    wiring: Sequence[Mapping[str, Any]],
+    settings: Any,
+    address: str,
+    width: float,
+    span: float,
+) -> dict[str, float] | None:
+    """One corrector's response on every wired monitor, by monitor address.
 
-    def __init__(self, path: Path, settings: Any, monitors: Iterable[Mapping[str, Any]]) -> None:
-        import at
+    The engine's response matrix states hardware readback per hardware
+    setpoint; each entry is carried into physics reading per physics unit of
+    the corrector through the monitor's calibration and the corrector's
+    physics ``span`` over its hardware ``width``.
 
-        from osprey.simulation.engines.pyat import prepare
+    Returns:
+        The response, or ``None`` when the sweep leaves the deck without a
+        solve.
+    """
+    from lume_pyat.exceptions import OrbitSolveError
 
-        self._lattice = at.load_lattice(str(path))
-        self._prepared = prepare(path, settings)
-        names: dict[str, list[int]] = {}
-        for index, element in enumerate(self._lattice):
-            names.setdefault(element.FamName, []).append(index)
-        self._index = {name: found[0] for name, found in names.items() if len(found) == 1}
-        self._monitors = [
-            record
-            for record in monitors
-            if record.get("element") in self._index
-            and (record.get("engine") or {}).get("axis") in _COORDINATE
-        ]
-        self._refpts = sorted({self._index[record["element"]] for record in self._monitors})
-        self._measured: dict[tuple[str, float], dict[str, float] | None] = {}
+    from osprey.simulation.engines.pyat import response_matrix
 
-    def response(self, actuator: Mapping[str, Any], width: float) -> dict[str, float] | None:
-        """One corrector's response on every wired monitor, by monitor address.
-
-        Returns:
-            Physics reading per physics unit of the corrector, or ``None``
-            where the record drives no deck element, both arms are one physics
-            value, or an arm has no finite orbit.
-        """
-        key = (str(actuator.get("address")), width)
-        if key not in self._measured:
-            self._measured[key] = self._sweep(actuator, width)
-        return self._measured[key]
-
-    def _sweep(self, actuator: Mapping[str, Any], width: float) -> dict[str, float] | None:
-        import numpy as np
-
-        engine = actuator.get("engine") or {}
-        attribute, position = engine.get("attribute"), engine.get("index")
-        pieces = [
-            (self._lattice[self._index[element]], weight)
-            for element, weight in _slices(actuator)
-            if element in self._index
-        ]
-        if attribute is None or not pieces or len(pieces) != len(_slices(actuator)):
-            return None
-        held = float(actuator.get("default") or 0.0)
-        physics = [_to_physics(actuator, held + arm) for arm in (0.5 * width, -0.5 * width)]
-        span = physics[0] - physics[1]
-        if span == 0.0 or not math.isfinite(span):
-            return None
-        stated = [np.array(getattr(element, attribute), dtype=float) for element, _ in pieces]
-        arms: list[dict[str, float]] = []
-        try:
-            for value in physics:
-                for (element, weight), original in zip(pieces, stated, strict=True):
-                    driven = original.copy()
-                    if position is None:
-                        driven = np.asarray(value * weight, dtype=float)
-                    else:
-                        driven[int(position)] = value * weight
-                    setattr(element, attribute, driven)
-                readings = self._readings()
-                if readings is None:
-                    return None
-                arms.append(readings)
-        except (AttributeError, IndexError, TypeError, ValueError):
-            return None
-        finally:
-            for (element, _), original in zip(pieces, stated, strict=True):
-                setattr(element, attribute, original)
-        high, low = arms
-        return {address: (high[address] - low[address]) / span for address in high}
-
-    def _orbit(self) -> Any:
-        """The orbit at every wired monitor, ``None`` where the deck has none."""
-        import warnings
-
-        import at
-        import numpy as np
-
-        prepared = self._prepared
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=at.AtWarning)
-            try:
-                if prepared.solve == "single_pass":
-                    twiss = prepared.twiss_in or {}
-                    start = np.zeros(6)
-                    start[:] = twiss.get("closed_orbit", start)
-                    tracked = self._lattice.track(
-                        start.reshape(6, 1), nturns=1, refpts=self._refpts
-                    )[0]
-                    orbit = tracked[:, 0, :, 0].T
-                else:
-                    _, orbit = self._lattice.find_orbit(refpts=self._refpts)
-            except at.AtError:
-                return None
-        return orbit if np.all(np.isfinite(orbit)) else None
-
-    def _readings(self) -> dict[str, float] | None:
-        """Every wired monitor's reading in the export's physics units."""
-        orbit = self._orbit()
-        if orbit is None:
-            return None
-        row = {index: position for position, index in enumerate(self._refpts)}
-        readings: dict[str, float] = {}
-        for record in self._monitors:
-            coordinate = _COORDINATE[record["engine"]["axis"]]
-            position = float(orbit[row[self._index[record["element"]]], coordinate])
-            readings[record["address"]] = _to_physics(record, _to_hardware(record, position))
-        return readings
+    try:
+        rows, matrix = response_matrix(deck, wiring, settings, [address], {address: width})
+    except OrbitSolveError:
+        return None
+    per_hardware = width / span
+    monitors = {str(record["address"]): record for record in wiring}
+    return {
+        row: float(matrix[index, 0]) * _monitor_gain(monitors[row]) * per_hardware
+        for index, row in enumerate(rows)
+    }
 
 
 # -- the comparison ----------------------------------------------------------
@@ -828,7 +738,21 @@ def compare(
         wired = wiring.get(family)
         return None if wired is None else _plane(wired.engine)
 
-    deck: _Deck | None = None
+    swept: dict[tuple[str, float], dict[str, float] | None] = {}
+
+    def sweep(address: str, width: float, span: float) -> dict[str, float] | None:
+        key = (address, width)
+        if key not in swept:
+            swept[key] = _response(
+                facility_dir / model["deck"],
+                list(model.get("wiring", [])),
+                model.get("settings"),
+                address,
+                width,
+                span,
+            )
+        return swept[key]
+
     drafts: list[Block] = []
     for block in blocks:
         monitor_family = _word(_side(block, "monitor").get("family"))
@@ -838,17 +762,16 @@ def compare(
         rows = _kept_rows(block, "monitor", records(monitor_family, "read"))
         columns = _kept_rows(block, "actuator", records(actuator_family, "write"))
         if rows and columns and "deck" in model and _well_shaped(block):
-            if deck is None:
-                monitors = [
-                    record
-                    for record in model.get("wiring", [])
-                    if record.get("direction") == "read"
-                ]
-                deck = _Deck(facility_dir / model["deck"], model.get("settings"), monitors)
             widths = _widths(block)
             for column, actuator in columns.items():
                 width = widths[column] if column < len(widths) else None
-                measured = None if width is None else deck.response(actuator, width)
+                # A filled setpoint's default is the deck's own value, the one
+                # response_matrix steps about.
+                held = float(actuator.get("default") or 0.0)
+                span = math.nan if width is None else _physics_span(actuator, held, width)
+                if width is None or not math.isfinite(span) or span == 0.0:
+                    continue
+                measured = sweep(str(actuator["address"]), width, span)
                 if measured is None:
                     continue
                 for row, monitor in rows.items():

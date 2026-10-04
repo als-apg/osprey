@@ -421,32 +421,41 @@ def test_a_column_half_flipped_is_not_reversed() -> None:
 # --- the solve ----------------------------------------------------------------------
 
 
-def test_a_single_pass_model_is_tracked_from_its_initial_orbit(tmp_path: Path) -> None:
-    """A kick ahead of a two-metre drift moves the monitor by two metres per radian."""
-    deck = tmp_path / "line.json"
-    at.Lattice(
-        [
-            at.Corrector("HC", 0.0, [0.0, 0.0]),
-            at.Drift("D", 2.0),
-            at.Monitor("BPM"),
-        ],
-        energy=1.0e9,
-        periodicity=1,
-    ).save(str(deck))
-    settings = {"pyat": {"solve": "single_pass", "twiss_in": {"beta": [1, 1], "alpha": [0, 0]}}}
-    linear = {"curve": {"linear": {"gain": 1.0e-3, "offset": 0.0}}}
-    monitors = [
-        {"address": "BPM:X", "element": "BPM", "engine": {"axis": "x"}, "calibration": linear},
-        {"address": "BPM:Y", "element": "BPM", "engine": {"axis": "y"}, "calibration": linear},
-    ]
-    kick = {
-        "address": "HC:SP",
-        "element": "HC",
-        "engine": {"attribute": "KickAngle", "index": 0},
-        "calibration": {"curve": {"linear": {"gain": 1.0e-4, "offset": 0.0}}},
-        "default": 0.0,
-    }
+def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
+    spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first sweep's solve is refused; every other column is still judged."""
+    from lume_pyat.exceptions import OrbitSolveError
+    from lume_pyat.simulator import PyATSimulator
 
-    measured = response_check._Deck(deck, settings, monitors).response(kick, 0.5)
+    original = PyATSimulator.solve
+    calls = {"count": 0}
 
-    assert measured == pytest.approx({"BPM:X": 2.0, "BPM:Y": 0.0})
+    def solve(self: Any) -> Any:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OrbitSolveError("closed orbit solve raised AtError: lost")
+        return original(self)
+
+    monkeypatch.setattr(PyATSimulator, "solve", solve)
+    facility = _facility(spear3)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "StorageRing")
+
+    blocks = compare(facility, document, model)
+
+    def measured(block: Block, unsolved: str = "") -> list[tuple[str, str, float]]:
+        return [
+            (entry.monitor_address, entry.actuator_address, entry.model_value)
+            for entry in block.entries
+            if entry.actuator_address != unsolved
+        ]
+
+    unsolved = spear3_blocks[0].entries[0].actuator_address
+    assert [block.name for block in blocks] == [block.name for block in spear3_blocks]
+    for block, whole in zip(blocks, spear3_blocks, strict=True):
+        assert measured(block) == measured(whole, unsolved), block.name
+    assert len(measured(blocks[0])) < len(measured(spear3_blocks[0]))
+    assert ModelCheck("StorageRing", judge(blocks)).line.startswith(
+        "response check StorageRing: measured BPMx/HCM median ratio "
+    )
