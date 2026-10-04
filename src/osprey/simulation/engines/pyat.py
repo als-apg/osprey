@@ -662,7 +662,9 @@ def build(
       the solved orbit;
     * a readback naming an element and an engine ``attribute`` reads back the
       setpoint that drives the same element or slices, attribute and index,
-      or its own ``default`` when no setpoint does;
+      or its own ``default`` when no setpoint does; a readback of a deck
+      property such as ``energy`` reads back the setpoint of that property
+      the same way, so no readback is ever writable;
     * a record naming no element reads one plane of the deck's ``tune`` or
       ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
       unless its attribute is a deck property such as ``energy``.
@@ -719,14 +721,15 @@ def build(
     writes = {str(entry["address"]) for entry in entries if entry.get("direction") == "write"}
     setpoints: dict[tuple[Any, ...], str] = {}
     for entry in entries:
-        if entry.get("direction") == "write" and _names_element(entry):
+        if entry.get("direction") == "write":
             setpoints.setdefault(_target(entry), str(entry["address"]))
 
     channels: list[Any] = []
     for entry in entries:
         address = str(entry["address"])
         attribute = field(entry.get("engine"), "attribute")
-        if not _names_element(entry) and attribute not in DECK_PROPERTIES:
+        deck_property = not _names_element(entry) and attribute in DECK_PROPERTIES
+        if not _names_element(entry) and not deck_property:
             output, component = _optics_source(entry, deck, planes)
             channels.append(
                 ReadbackVariable(
@@ -734,7 +737,9 @@ def build(
                 )
             )
             continue
-        if entry.get("direction") == "read" and _names_element(entry) and attribute is not None:
+        if entry.get("direction") == "read" and (
+            deck_property or (_names_element(entry) and attribute is not None)
+        ):
             source = setpoints.get(_target(entry))
             channels.append(
                 ReadbackVariable(
