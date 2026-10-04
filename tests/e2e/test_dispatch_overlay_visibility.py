@@ -18,8 +18,8 @@ hollow/degraded worker could not satisfy:
   * an OVERLAY SKILL (``skills/facility-marker`` -> rendered to
     ``build/.claude/skills/facility-marker``) that is NOT an OSPREY built-in,
     whose instructions produce an observable marker token;
-  * ``data/channel_limits.json`` overwritten with a small fixture carrying a
-    distinctive sentinel value, which the render copies to ``build/data/``;
+  * ``data/overlay_visibility.json``, a small fixture carrying a distinctive
+    sentinel value, which the render copies verbatim to ``build/data/``;
   * a custom ``overlay-visibility`` trigger that routes to the worker, invokes
     the overlay skill, and carries a ``surface_prompt`` fragment.
 
@@ -31,8 +31,8 @@ in-container) then proves, deterministically:
       references facility-marker, and OVERLAY_MARKER (a token that exists only
       inside the baked-in skill file) surfaces in the run;
   (b) the render's ``data/`` was read AND present -> a ``Read`` tool-call
-      references channel_limits.json, and DATA_SENTINEL (a token that exists only
-      inside the baked-in data file) surfaces in the run;
+      references overlay_visibility.json, and DATA_SENTINEL (a token that exists
+      only inside the baked-in data file) surfaces in the run;
   (c) the ``surface_prompt`` reached the agent -> the surface token surfaces (the
       surface fragment instructs the agent to emit it, so the token appearing is
       the observable proof the fragment landed in the system prompt).
@@ -111,6 +111,10 @@ WORKER_DISPATCH_DIR = f"{WORKER_AGENT_DATA}/dispatch"
 OVERLAY_TRIGGER = "overlay-visibility"
 OVERLAY_MARKER = "OVERLAY_MARKER_OK"  # produced only by the overlay skill
 DATA_SENTINEL = "CHANLIM_SENTINEL_7F3A"  # lives only in the render's data/ file
+# The profile ``data/`` file carrying the sentinel. No build view writes this
+# name and no reserved path pattern covers it, so the build copies it verbatim
+# from the source zone into ``build/data/``.
+DATA_FILE = "overlay_visibility.json"
 SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt lands
 
 pytestmark = [
@@ -157,8 +161,8 @@ _OVERLAY_SKILL_MD = f"""\
 name: facility-marker
 description: >
   Facility-specific end-to-end visibility check. When invoked, read the render's
-  channel-limits data file and save a report proving the overlay skill and the
-  data bundle are both reachable in the running worker container.
+  overlay-visibility data file and save a report proving the overlay skill and
+  the data bundle are both reachable in the running worker container.
 allowed-tools: Read, mcp__osprey_workspace__artifact_register
 ---
 
@@ -166,7 +170,7 @@ allowed-tools: Read, mcp__osprey_workspace__artifact_register
 
 When this skill is invoked, do exactly the following, in order:
 
-1. Read the file `build/data/channel_limits.json` from the working directory.
+1. Read the file `build/data/{DATA_FILE}` from the working directory.
 2. Note the value of its top-level `_sentinel` field.
 3. Save a short markdown report using the workspace artifact tool
    (`mcp__osprey_workspace__artifact_register`) with `content` (inline markdown)
@@ -179,14 +183,12 @@ When this skill is invoked, do exactly the following, in order:
 4. Confirm the artifact you created.
 """
 
-# Small, known-content replacement for the render's data/ file. The sentinel is a
-# distinctive value that appears NOWHERE else, so its presence in the persisted
-# artifact is proof the in-container data/ file was actually read.
+# Small, known-content data/ file for the render. The sentinel is a distinctive
+# value that appears NOWHERE else, so its presence in the persisted artifact is
+# proof the in-container data/ file was actually read.
 _DATA_FIXTURE = {
     "_sentinel": DATA_SENTINEL,
-    "defaults": {"writable": True},
-    "E2E:MAG:01:CURRENT:SP": {"min_value": 1.0, "max_value": 2.0},
-    "E2E:MAG:02:CURRENT:SP": {"min_value": 3.0, "max_value": 4.0},
+    "note": "End-to-end fixture: proves the render's data/ bundle reaches the worker.",
 }
 
 # The surface fragment is a system-prompt addition. It is written so that its
@@ -207,7 +209,7 @@ _OVERLAY_TRIGGER_ENTRY = {
     "action": {
         "prompt": (
             "Invoke the facility-marker skill now using the Skill tool, and follow "
-            "its steps exactly: read the file build/data/channel_limits.json from "
+            f"its steps exactly: read the file build/data/{DATA_FILE} from "
             "the working directory, then save a markdown report via the workspace "
             "artifact_register tool. Do not skip any step."
         ),
@@ -253,7 +255,7 @@ def _mutate_source(repo: Path) -> None:
     renders every one of the three into the places the deploy reads them:
 
       * ``skills/<name>/`` -> ``build/.claude/skills/<name>/`` (convention dir);
-      * ``data/`` -> ``build/data/``;
+      * ``data/<DATA_FILE>`` -> ``build/data/<DATA_FILE>``;
       * ``triggers.yml`` (named by the profile's ``dispatch.triggers``) ->
         ``build/triggers.yml`` AND the copy under
         ``build/services/event_dispatcher/`` that the dispatcher container
@@ -268,7 +270,7 @@ def _mutate_source(repo: Path) -> None:
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     skill_path.write_text(_OVERLAY_SKILL_MD, encoding="utf-8")
 
-    data_path = repo / "data" / "channel_limits.json"
+    data_path = repo / "data" / DATA_FILE
     data_path.parent.mkdir(parents=True, exist_ok=True)
     data_path.write_text(json.dumps(_DATA_FIXTURE, indent=2), encoding="utf-8")
 
@@ -347,6 +349,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
+
+    # The render half of the claim, checked before the image build: the data
+    # fixture must sit in build/data/ verbatim. A miss here is a render failure,
+    # never an image one, and it surfaces in seconds rather than after the
+    # image build.
+    rendered_data = repo / "build" / "data" / DATA_FILE
+    assert rendered_data.is_file(), (
+        f"osprey build did not copy data/{DATA_FILE} into build/data/; "
+        "the profile's data/ bundle is missing from the render"
+    )
+    assert DATA_SENTINEL in rendered_data.read_text(encoding="utf-8"), (
+        f"build/data/{DATA_FILE} does not carry {DATA_SENTINEL!r}; "
+        "the build did not copy the source data/ file verbatim"
+    )
 
     # The repo root's .env is the deployment's whole secret store — the file the
     # worker's env_file (compose template) delivers to the container so
@@ -699,7 +715,7 @@ def test_overlay_skill_and_data_visible_in_worker() -> None:
           and OVERLAY_MARKER (a token that exists ONLY in the baked-in skill file)
           surfaces in the run — proving the overlay was present AND loaded;
       (b) the render's data/ was read -> a ``Read`` tool-call references
-          channel_limits.json, and its result carries DATA_SENTINEL (a token that
+          overlay_visibility.json, and its result carries DATA_SENTINEL (a token that
           exists ONLY in the baked-in data file) — proving data/ was present and read;
       (c) surface_prompt landed  -> the SURFACE token (which the surface fragment
           instructs the agent to emit) surfaces in the run.
@@ -778,17 +794,18 @@ def test_overlay_skill_and_data_visible_in_worker() -> None:
     )
 
     # (b) The render's data/ read AND present. The Read tool-call proves the agent read
-    #     channel_limits.json; DATA_SENTINEL (a token that lives ONLY in the baked-in
+    #     DATA_FILE; DATA_SENTINEL (a token that lives ONLY in the baked-in
     #     data file) surfacing proves the file was physically present and its content
     #     was returned to the agent.
-    read_calls = _tool_calls_referencing(tool_calls, "Read", "channel_limits.json")
+    read_calls = _tool_calls_referencing(tool_calls, "Read", DATA_FILE)
     assert read_calls, (
-        "no Read tool-call referencing 'channel_limits.json' was recorded; the "
+        f"no Read tool-call referencing {DATA_FILE!r} was recorded; the "
         f"rendered data/ file was not read.\n{diag}"
     )
     assert DATA_SENTINEL in haystack, (
         f"data sentinel {DATA_SENTINEL!r} (present only in the baked-in data file) did "
-        f"not surface; build/data/channel_limits.json was not readable in-container.\n{diag}"
+        f"not surface in what the agent read; build/data/{DATA_FILE} was absent "
+        f"in-container or was not the baked-in file.\n{diag}"
     )
 
     # (c) surface_prompt landed. The fragment instructs the agent to emit the SURFACE
