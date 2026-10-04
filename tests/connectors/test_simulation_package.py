@@ -145,3 +145,20 @@ def test_an_int_array_decodes_to_the_first_nul():
     assert decode_char_waveform(np.array(raw, dtype=np.int8)) == "BEAM ON"
     assert decode_char_waveform(np.array([0xC3, 0xA9, 0xFF], dtype=np.uint8)) == "é�"
     assert decode_char_waveform(np.array([-61, -87], dtype=np.int8)) == "é"
+
+
+def _lume_base_pins(pyproject) -> list[str]:
+    import tomllib
+
+    dependencies = tomllib.loads(pyproject.read_text())["project"]["dependencies"]
+    return [d for d in dependencies if d.replace(" ", "").startswith("lume-base")]
+
+
+def test_the_connectors_package_pins_lume_base_as_the_root_does():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    connectors = _lume_base_pins(root / "packages" / "osprey-connectors" / "pyproject.toml")
+
+    assert connectors == _lume_base_pins(root / "pyproject.toml")
+    assert len(connectors) == 1 and "==" in connectors[0]

@@ -4978,6 +4978,7 @@ wheels = [
 name = "osprey-connectors"
 source = { editable = "packages/osprey-connectors" }
 dependencies = [
+    { name = "lume-base" },
     { name = "numpy" },
     { name = "p4p" },
     { name = "pandas" },
@@ -4991,6 +4992,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "lume-base", specifier = "==0.5.0" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "p4p", specifier = ">=4.2" },
     { name = "pandas", specifier = ">=2.2.3" },
