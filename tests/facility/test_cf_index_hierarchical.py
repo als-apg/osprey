@@ -594,3 +594,32 @@ def test_a_hierarchical_build_writes_the_index(tmp_path: Path) -> None:
     index = repo / "build" / "data" / "channel_finder" / HIERARCHICAL_FILE
     assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
     assert "view hierarchical not written" not in built.output
+
+
+@pytest.mark.parametrize(
+    ("stated_in", "sources"),
+    [("fixes.yaml", ("fixes.yaml",)), ("records/channels.yaml", ("records/channels.yaml",))],
+)
+def test_a_view_stop_names_the_file_that_states_its_record(
+    tmp_path: Path, stated_in: str, sources: tuple[str, ...]
+) -> None:
+    from osprey.facility.build import build_facility
+    from osprey.facility.combine import FIXES_HEADER
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.views.channel_finder import hierarchical_document
+    from tests.facility._synthetic_trees import plain_tree, write_tree
+
+    tree = plain_tree()
+    channel = {"id": "_LAB:TEMP"}
+    if stated_in == "fixes.yaml":
+        fix = {"op": "add", "kind": "channel", "id": channel["id"], "record": {}, "why": "A lab."}
+        tree["fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": [fix]}
+    else:
+        tree["records/channels.yaml"].append(channel)
+    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+
+    with pytest.raises(FacilityBuildError) as caught:
+        hierarchical_document(document)
+
+    assert (caught.value.kind, caught.value.record_id) == ("view-unsupported", "_LAB:TEMP")
+    assert caught.value.sources == sources

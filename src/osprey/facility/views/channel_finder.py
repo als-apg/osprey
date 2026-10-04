@@ -254,21 +254,17 @@ def hierarchical_selected(inputs: ViewInputs) -> bool:
     return _pipeline_mode(inputs) == HIERARCHICAL_MODE
 
 
-def _record_sources(record: Mapping[str, Any]) -> list[str]:
-    provenance = record.get("provenance") or {}
-    return sorted({str(source["file"]) for source in provenance.get("sources", [])})
-
-
 def _unsupported(
     record: Mapping[str, Any], record_kind: str, detail: str, remedy: str
 ) -> Exception:
     """The ``view-unsupported`` stop naming one facility record."""
     from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.validate import stating_files
 
     return FacilityBuildError(
         "view-unsupported",
         str(record["id"]),
-        _record_sources(record),
+        stating_files(record, None),
         remedy,
         record_kind=record_kind,
         detail=detail,
