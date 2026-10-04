@@ -8,6 +8,10 @@
  *   origin) opens that panel in the workspace at the linked URL, fragment
  *   included. Any other http(s) link opens in a new tab without an opener;
  *   a link of any other scheme does nothing.
+ * - A root panel link (`/panel/<id>…` with no prefix) is this hub's panel too:
+ *   a tool spells a panel route without knowing the mount the hub serves
+ *   under, so the hub supplies its prefix. Another mount's panel
+ *   (`/u/bob/panel/<id>` seen from `/u/alice`) stays a new tab.
  */
 
 /**
@@ -43,6 +47,12 @@ export function classifyAgentLink(href, ctx) {
   const m = new RegExp(`^${escapeRegExp(ctx.prefix)}/panel/([^/]+)(?:/.*)?$`).exec(u.pathname);
   if (m && ctx.isHostedPanel(m[1])) {
     return { kind: 'panel', panel: m[1], url: u.pathname + u.search + u.hash };
+  }
+  if (ctx.prefix) {
+    const root = /^\/panel\/([^/]+)(?:\/.*)?$/.exec(u.pathname);
+    if (root && ctx.isHostedPanel(root[1])) {
+      return { kind: 'panel', panel: root[1], url: ctx.prefix + u.pathname + u.search + u.hash };
+    }
   }
   return { kind: 'window', url: u.href };
 }
