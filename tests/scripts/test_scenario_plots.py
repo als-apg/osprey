@@ -29,7 +29,9 @@ _SPEC = importlib.util.spec_from_file_location(
 )
 assert _SPEC is not None and _SPEC.loader is not None
 plots = importlib.util.module_from_spec(_SPEC)
-# Registered before it runs: its dataclasses resolve their module by name.
+# import-time required because scripts/ is not a package: scenario_plots.py is
+# loaded by path and registered in sys.modules before exec so its dataclasses
+# can resolve cls.__module__.
 sys.modules[_SPEC.name] = plots
 _SPEC.loader.exec_module(plots)
 
