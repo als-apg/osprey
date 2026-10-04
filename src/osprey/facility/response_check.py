@@ -32,11 +32,17 @@ marks ``Status`` 0 is the export's own exclusion and is not compared. A row no
 wired device answers to, a column with no finite width and a column whose
 sweep leaves the deck without a solve are left out of the comparison too, and
 ``validate`` then prints a second line for the model, naming how many rows the
-check left out and why. Each corrector is swept on its own
-through the engine's response matrix, rows matched by the readback addresses
-it returns, and its hardware entries are carried into the export's physics
-units through the two records' calibrations, so one unsolvable corrector
-leaves its column out and the rest are still judged.
+check left out and why. Each corrector is swept on its own through the engine's
+response matrix, rows matched by the readback addresses it returns, and its
+hardware entries are carried into the export's physics units through the two
+records' calibrations, so one unsolvable corrector leaves its column out and
+the rest are still judged.
+
+**The monitor conversion is exact for linear calibrations only.** A monitor's
+entries are carried into physics units by the one slope its calibration has
+where a centred beam reads. A straight line has that slope everywhere; a table
+does not, so a monitor whose calibration is a table is left out of the
+comparison and counted on the second line.
 
 **Reversed columns are set aside.** Inside a judged block, a corrector whose
 entries above the floor disagree in sign on more than half of its compared
@@ -250,22 +256,26 @@ class LeftOut:
         no_width: Corrector rows with no finite sweep width, or whose width
             spans no physics distance through the corrector's calibration.
         unsolved: Corrector rows whose sweep leaves the deck without a solve.
+        table_calibration: Monitor rows whose calibration is a table, which
+            no single slope converts.
     """
 
     unwired: int = 0
     no_width: int = 0
     unsolved: int = 0
+    table_calibration: int = 0
 
     @property
     def total(self) -> int:
         """Every row left out."""
-        return self.unwired + self.no_width + self.unsolved
+        return self.unwired + self.no_width + self.unsolved + self.table_calibration
 
     def __add__(self, other: LeftOut) -> LeftOut:
         return LeftOut(
             self.unwired + other.unwired,
             self.no_width + other.no_width,
             self.unsolved + other.unsolved,
+            self.table_calibration + other.table_calibration,
         )
 
 
@@ -513,7 +523,8 @@ class ModelCheck:
         return [
             self.line,
             f"response check {self.model}: left out {left.total} rows ({left.unwired} unwired, "
-            f"{left.no_width} no width, {left.unsolved} unsolved)",
+            f"{left.no_width} no width, {left.unsolved} unsolved, "
+            f"{left.table_calibration} table calibration)",
         ]
 
 
@@ -711,10 +722,18 @@ def _physics_span(record: Mapping[str, Any], held: float, width: float) -> float
     return to_physics(curve, held + 0.5 * width) - to_physics(curve, held - 0.5 * width)
 
 
+def _table_calibrated(record: Mapping[str, Any]) -> bool:
+    """Whether a record's hardware-to-physics curve is a table."""
+    from osprey.simulation.engines.calibration import Table, curve_from_record
+
+    return isinstance(curve_from_record((record.get("calibration") or {}).get("curve")), Table)
+
+
 def _monitor_gain(record: Mapping[str, Any]) -> float:
     """A monitor's physics reading per hardware unit, where a centred beam reads.
 
-    Exact for a linear calibration, whose slope is the same everywhere.
+    Exact for a linear calibration, whose slope is the same everywhere; a
+    table-calibrated monitor is never converted.
     """
     from osprey.simulation.engines.calibration import curve_from_record, to_hardware
 
@@ -743,8 +762,8 @@ def _response(
     physics ``span`` over its hardware ``width``.
 
     Returns:
-        The response, or ``None`` when the sweep leaves the deck without a
-        solve.
+        The response on every monitor whose calibration is not a table, or
+        ``None`` when the sweep leaves the deck without a solve.
     """
     from lume_pyat.exceptions import OrbitSolveError
 
@@ -759,6 +778,7 @@ def _response(
     return {
         row: float(matrix[index, 0]) * _monitor_gain(monitors[row]) * per_hardware
         for index, row in enumerate(rows)
+        if not _table_calibrated(monitors[row])
     }
 
 
@@ -828,6 +848,10 @@ def compare(
         rows, left_rows = _kept_rows(block, "monitor", records(monitor_family, "read"))
         columns, left_columns = _kept_rows(block, "actuator", records(actuator_family, "write"))
         left_out = left_rows + left_columns
+        tabled = [row for row, monitor in rows.items() if _table_calibrated(monitor)]
+        for row in tabled:
+            del rows[row]
+        left_out += LeftOut(table_calibration=len(tabled))
         if rows and columns and "deck" in model and _well_shaped(block):
             widths = _widths(block)
             for column, actuator in columns.items():
