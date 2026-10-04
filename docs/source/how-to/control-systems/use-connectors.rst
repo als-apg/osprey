@@ -12,9 +12,10 @@ and its connector block, not of code.
 One API, whatever the machine
 -----------------------------
 
-The Python API is the same for every connector. The mock connector answers for
-**any** channel name without hardware access, which is what makes it the
-development and R&D default:
+The Python API is the same for every connector. The mock connector serves the
+addresses of the built facility file without hardware access, which is what
+makes it the development and R&D default. Run ``osprey build`` first; the mock
+refuses an address outside the facility file:
 
 .. code-block:: python
 
@@ -22,18 +23,17 @@ development and R&D default:
 
    register_builtin_connectors()   # registers the built-in names; idempotent
 
-   # Create mock connector - works with ANY channel names
+   # Create mock connector - serves the addresses of the built facility file
    connector = await ConnectorFactory.create_control_system_connector({
        'type': 'mock',
        'connector': {
            'mock': {
-               'response_delay_ms': 10,
-               'noise_level': 0.01
+               'response_delay_ms': 10
            }
        }
    })
 
-   channel_value = await connector.read_channel('ANY:MADE:UP:NAME')
+   channel_value = await connector.read_channel('SR:BEAM:CURRENT')
    print(f"Value: {channel_value.value} {channel_value.metadata.units}")
 
    # A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer
@@ -61,15 +61,15 @@ Pick a control system
    .. tab-item:: Mock
       :sync: mock
 
-      The default. Synthetic values for any channel name, no hardware or
-      network access required:
+      The default. Serves the addresses of the built facility file, no
+      hardware or network access required:
 
       .. code-block:: yaml
 
          control_system:
            type: mock
            connector:
-             mock: { response_delay_ms: 10, noise_level: 0.01 }
+             mock: { response_delay_ms: 10 }
 
    .. tab-item:: EPICS
       :sync: epics
@@ -317,7 +317,8 @@ independently of the control system:
    .. tab-item:: Mock
       :sync: mock
 
-      Synthetic history for any channel — the development default:
+      History for the addresses of the built facility file — the development
+      default:
 
       .. code-block:: yaml
 
