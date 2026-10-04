@@ -1,7 +1,7 @@
-"""Agentic e2e: the logbook agent reads an attached plot and reports what it shows.
+"""Agentic e2e: the logbook agent finds an answer in an attached plot unprompted.
 
 One agent run against a deployment built from the control-assistant preset
-unchanged. The logbook it searches is a pgvector test container holding one
+unchanged. The question never mentions a plot or picture. The logbook it searches is a pgvector test container holding one
 entry whose only attachment is a plot. The plot carries the nonsense token
 ``QX-7713`` in its pixels and nowhere else: not in the entry's text, not in
 the stored filename, not in the PNG's metadata. An answer that names the token
@@ -79,11 +79,11 @@ DETAILS = (
     "corrector study. The trend is in the attached plot."
 )
 
-PROMPT = (
-    "Find the logbook entry about the sector 9 horizontal orbit drift study. "
-    "It has a plot attached. Look at the plot and tell me what it shows, "
-    "including the run identifier printed on it."
-)
+#: A neutral question: it names no plot, picture or attachment, and the run
+#: identifier it asks for is only in the plot's pixels. The lane has no caption
+#: model, so the agent must decide on its own, from the attachment summary
+#: (``viewable: true``, no caption), that the picture is worth a look.
+PROMPT = "What is the run identifier of the sector 9 horizontal orbit drift study in the logbook?"
 
 LOGBOOK_SUBAGENT = "logbook-search"
 VIEW_TOOL = "mcp__ariel__attachment_view"
@@ -298,7 +298,7 @@ async def test_agent_reads_the_attached_plot(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The logbook agent opens the plot with attachment_view and reports its token."""
+    """Asked a neutral question, the logbook agent opens the plot and reports its token."""
     provider = e2e_provider()
     if not _effective_supports_images(provider):
         pytest.skip(f"provider {provider} does not carry images on its route")
