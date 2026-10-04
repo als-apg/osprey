@@ -94,11 +94,9 @@ resolve_state_dir = resolve_simulation_state_dir
 def default_state_dir() -> Path:
     """Resolve the state directory from the ambient config.
 
-    For callers holding neither a project root nor a loaded config — the mock
-    connectors, which are constructed from an already-scoped config sub-dict.
-    Callers that do have them (the ``sim`` CLI,
-    :func:`osprey.simulation.apply.apply_scenarios`, the VA entrypoint) pass
-    ``state_dir`` explicitly instead of relying on this.
+    For callers holding neither a project root nor a loaded config. Callers that
+    do have them (the ``sim`` CLI, :func:`osprey.simulation.apply.apply_scenarios`,
+    the VA entrypoint) pass ``state_dir`` explicitly instead of relying on this.
     """
     try:
         from osprey_connectors.config import get_config_builder
@@ -898,41 +896,6 @@ class SimulationEngine:
             series = np.clip(series, channel.min_value, channel.max_value)
         cache[pv] = series
         return series
-
-
-def engine_from_connector_config(config: dict[str, Any]) -> SimulationEngine | None:
-    """Load a SimulationEngine from a connector config dict, if configured.
-
-    Mirrors ``LimitsValidator.from_config()`` path resolution: a relative
-    ``simulation_file`` path is anchored at the configured project root. The
-    scenario state file is resolved from the same ambient config (see
-    :func:`default_state_dir`), so a connector reads the state the ``sim`` CLI
-    writes.
-
-    Args:
-        config: Connector-scoped config dict (the connector receives the
-            already-scoped sub-dict, so the key is just ``simulation_file``).
-
-    Returns:
-        The engine, or None when no ``simulation_file`` is configured.
-    """
-    sim_file = config.get("simulation_file")
-    if not sim_file:
-        return None
-    path = Path(sim_file).expanduser()
-    if not path.is_absolute():
-        try:
-            from osprey_connectors.config import get_config_value
-
-            project_root = get_config_value("project_root", None)
-        except (FileNotFoundError, KeyError, RuntimeError):
-            project_root = None
-        if project_root:
-            path = Path(project_root) / path
-            logger.debug(f"Resolved simulation file path: {path}")
-    engine = SimulationEngine.from_file(path)
-    logger.info(f"Simulation engine {engine.name!r} active (machine file: {path})")
-    return engine
 
 
 def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:

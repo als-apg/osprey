@@ -8,7 +8,6 @@ time-series to the mock control-system and archiver connectors.
 from osprey_connectors.simulation.engine import (
     SimReading,
     SimulationEngine,
-    engine_from_connector_config,
     engine_serves,
 )
 from osprey_connectors.simulation.expressions import ExpressionError
@@ -19,6 +18,5 @@ __all__ = [
     "ExpressionError",
     "SimReading",
     "SimulationEngine",
-    "engine_from_connector_config",
     "engine_serves",
 ]

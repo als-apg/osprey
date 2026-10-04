@@ -1,8 +1,9 @@
 """
 Mock archiver connector for development and testing.
 
-Generates synthetic time-series data for any channel address.
-Ideal for R&D and development without archiver access.
+Serves the history of the addresses in the built simulator view, read from the
+archive composite (:func:`osprey_connectors.simulation.archive.build`) at the
+active scenario set. An address outside the view is refused.
 
 """
 
@@ -19,108 +20,41 @@ from osprey_connectors.archiver._timerange import (
 )
 from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.control_system.mock_connector import (
+    SIMULATOR_VIEW_SETTING,
+    not_in_facility,
+    simulation_state_dir,
+    simulator_view_dir,
+)
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.engine import engine_serves, resolve_simulation_file
-from osprey_connectors.simulation.procedural import generate_series
 from osprey_connectors.simulation.series import epoch_seconds_array
 
 if TYPE_CHECKING:
-    import numpy as np
-
-    from osprey_connectors.simulation.engine import SimulationEngine
+    from osprey_connectors.simulation.archive import ArchiveComposite
 
 logger = get_logger("mock_archiver_connector")
-
-ARCHIVER_KEY = "archiver.mock_archiver.simulation_file"
-
-
-def _anchor(path: Path, project_root: Path | None) -> Path:
-    """Anchor a relative path at the project root, mirroring the engine loader."""
-    if path.is_absolute() or project_root is None:
-        return path
-    return project_root / path
-
-
-def _control_system_simulation_file() -> tuple[Path | None, Path | None]:
-    """Resolve the control-system-side simulation file for the active connector.
-
-    Returns ``(machine_path, project_root)``; both are None when no project
-    config is reachable (a bare connector constructed in tests, for instance).
-    """
-    from osprey_connectors.config import get_config_value, load_config
-
-    try:
-        config = load_config()
-        project_root = get_config_value("project_root", None)
-    except (FileNotFoundError, IsADirectoryError, KeyError, RuntimeError, ValueError) as e:
-        logger.debug(f"No project config available to derive a simulation file: {e}")
-        return None, None
-
-    root = Path(project_root) if project_root else None
-    machine_path, _active_type, _type_key, _mock_key = resolve_simulation_file(
-        config, root or Path()
-    )
-    return machine_path, root
-
-
-def _with_derived_simulation_file(config: dict[str, Any]) -> dict[str, Any]:
-    """Fill in ``simulation_file`` from the control-system side when unset.
-
-    The mock archiver has no machine model of its own — it synthesizes history
-    from the same file the live connector serves, so a project that declares the
-    path under both sections is one edit away from archived history that
-    contradicts live reads. When the archiver block omits ``simulation_file`` it
-    is derived from ``control_system.connector.<type>.simulation_file`` through
-    the resolver the ``sim`` CLI already shares. An explicit archiver-side value
-    still wins; when the two disagree, the divergence is reported.
-
-    Returns the connector config, with ``simulation_file`` filled in when it was
-    derived. The input dict is never mutated.
-    """
-    own = config.get("simulation_file")
-    derived, project_root = _control_system_simulation_file()
-
-    if derived is None:
-        return config
-
-    if not own:
-        logger.debug(f"Derived {ARCHIVER_KEY} from the control-system config: {derived}")
-        return {**config, "simulation_file": str(derived)}
-
-    own_path = _anchor(Path(str(own)).expanduser(), project_root)
-    if own_path != derived:
-        logger.warning(
-            f"{ARCHIVER_KEY} ({own_path}) differs from the control-system simulation "
-            f"file ({derived}); the archiver value wins, so archived history will not "
-            f"match live reads. Remove {ARCHIVER_KEY} to derive it."
-        )
-    return config
 
 
 class MockArchiverConnector(ArchiverConnector):
     """
-    Mock archiver for development - generates synthetic time-series data.
-
-    This connector simulates an archiver system without requiring real
-    archiver access. It generates realistic time-series data for any channel.
+    Mock archiver for development - the history of the built simulator view.
 
     Features:
-    - Accepts any channel address
-    - Generates realistic time series with texture and noise
+    - Serves the addresses of the built simulator view and refuses any other
     - Values are a pure function of (channel, absolute timestamp), so two
       overlapping windows agree on every timestamp they share
-    - Configurable sampling rate and noise level
+    - Follows the active scenario set, rebuilt when it changes
+    - Configurable sampling rate
     - Returns pandas DataFrames matching real archiver format
 
     Example:
         >>> config = {
         >>>     'sample_rate_hz': 1.0,
-        >>>     'noise_level': 0.01
         >>> }
         >>> connector = MockArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     channels=['BEAM:CURRENT'],
+        >>>     channels=['SR:DIAG:BPM:01:POSITION:X'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )
@@ -128,25 +62,25 @@ class MockArchiverConnector(ArchiverConnector):
 
     def __init__(self):
         self._connected = False
-        self._sim_engine: SimulationEngine | None = None
+        self._archive: ArchiveComposite | None = None
+        self._view: Path | None = None
+        self._state_file: Path | None = None
+        self._state_signature: tuple[int, int] | None = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
-        Initialize mock archiver.
+        Build the archive composite of the simulator view.
 
         Args:
             config: Configuration with keys:
                 - sample_rate_hz: Sampling rate (default: 1.0)
-                - noise_level: Relative noise level (default: 0.1)
-                - simulation_file: Optional path to a machine.json driving the
-                  data-driven simulation engine (relative paths resolve against
-                  the project root). Engine-known channels are synthesized from
-                  the machine model; without it, every channel goes through the
-                  shared procedural generator
-                  (:mod:`osprey_connectors.simulation.procedural`), whose baselines are the
-                  ones the Virtual Accelerator serves. Unset, it is derived from
-                  the control system's own ``simulation_file`` so live reads and
-                  archived history come from one machine model.
+                - simulator_view: The view directory to serve; absent serves
+                  ``data/simulator/`` beside the loaded config.
+
+        Raises:
+            ValueError: ``sample_rate_hz`` is not greater than zero.
+            RuntimeError: There is no built simulator view, or a physics model
+                fails to build at the start state.
         """
         # A zero or negative rate would divide by zero later; reject it at
         # configuration time.
@@ -154,20 +88,62 @@ class MockArchiverConnector(ArchiverConnector):
         if sample_rate_hz <= 0:
             raise ValueError(f"sample_rate_hz must be > 0 (got {sample_rate_hz})")
         self._sample_rate_hz = sample_rate_hz
-        self._noise_level = config.get("noise_level", 0.1)
 
-        # Optional data-driven simulation engine (machine file), derived from
-        # the control-system config when this section does not name one.
-        from osprey_connectors.simulation.engine import engine_from_connector_config
+        from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 
-        self._sim_engine = engine_from_connector_config(_with_derived_simulation_file(config))
+        self._view = simulator_view_dir(config.get(SIMULATOR_VIEW_SETTING))
+        self._state_file = simulation_state_dir(self._view) / ACTIVE_SCENARIOS_FILENAME
+        self._rebuild()
 
         self._connected = True
-        logger.debug("Mock archiver connector initialized")
+        logger.debug(f"Mock archiver connector serving {self._view}")
+
+    def _signature(self) -> tuple[int, int] | None:
+        if self._state_file is None:
+            return None
+        try:
+            stat = self._state_file.stat()
+        except FileNotFoundError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
+    def _rebuild(self) -> None:
+        """Build the archive composite at the active set the state file names."""
+        from osprey_connectors.simulation.archive import build
+        from osprey_connectors.simulation.state import parse_active_state
+
+        assert self._view is not None
+        signature = self._signature()
+        names: list[str] = []
+        anchor_s: float | None = None
+        if signature is not None and self._state_file is not None:
+            try:
+                names, anchor_s = parse_active_state(self._state_file.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                signature = None
+        self._archive = build(self._view, names, anchor_s=anchor_s)
+        self._state_signature = signature
+
+    def _current(self) -> "ArchiveComposite":
+        """The archive composite, rebuilt when the active set changed since the last read."""
+        if self._archive is None:
+            raise RuntimeError("mock archiver is not connected")
+        if self._signature() != self._state_signature:
+            self._rebuild()
+        assert self._archive is not None
+        return self._archive
+
+    def _require(self, channels: list[str]) -> "ArchiveComposite":
+        archive = self._current()
+        served = set(archive.addresses)
+        for channel in channels:
+            if channel not in served:
+                raise ValueError(not_in_facility(channel))
+        return archive
 
     async def disconnect(self) -> None:
         """Cleanup mock archiver."""
-        self._sim_engine = None
+        self._archive = None
         self._connected = False
         logger.debug("Mock archiver connector disconnected")
 
@@ -181,10 +157,10 @@ class MockArchiverConnector(ArchiverConnector):
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
-        Generate synthetic historical data.
+        The archived history of channels of the simulator view.
 
         Args:
-            channels: Channel addresses (all accepted)
+            channels: Channel addresses of the simulator view
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling). ``<= 0`` means
@@ -200,9 +176,12 @@ class MockArchiverConnector(ArchiverConnector):
             The canonical long frame — see :meth:`ArchiverConnector.get_data`.
 
         Raises:
-            ValueError: If ``processing`` other than ``"raw"`` is requested for
-                a channel that synthesizes non-numeric values.
+            ValueError: A channel is not in the built facility file, or
+                ``processing`` other than ``"raw"`` is requested for a channel
+                holding non-numeric values.
         """
+        archive = self._require(list(channels))
+
         # long_frame requires a UTC-aware index; a naive start/end means
         # facility wall-clock, as in every other archiver connector.
         start_date, end_date = utc_window(start_date, end_date)
@@ -215,30 +194,19 @@ class MockArchiverConnector(ArchiverConnector):
         num_points = min(int(duration / (effective_precision_ms / 1000.0)), 10000)
         num_points = max(num_points, 10)  # At least 10 points
 
-        # Generate timestamps
         index = pd.date_range(start=start_date, end=end_date, periods=num_points)
 
-        # Generate data for each channel. Channels known to the simulation engine
-        # are synthesized from the machine model; everything else goes through
-        # the shared procedural generator, evaluated at this grid's absolute
-        # timestamps — the same values a store seeded from it holds.
+        # Every sample is evaluated at the grid's absolute timestamps, so a
+        # store seeded from the same archive composite holds the same values.
         t_abs = epoch_seconds_array(index)
         if t_abs is None:  # pragma: no cover - the index above is always datetimes
-            # Refusing beats the alternative the engine can afford: it falls
-            # back to sample-index counters, which is deterministic per window
-            # but not per timestamp — and history that disagrees with a store
-            # seeded from the same generator is the failure this path replaced.
             raise ValueError(f"Cannot derive epoch seconds for the {start_date} to {end_date} grid")
 
         resolved = resolve_processing(processing, precision_ms, start_date)
-        series = {}
-        for channel in channels:
-            values: list[Any] | np.ndarray
-            if engine_serves(self._sim_engine, channel):
-                values = self._sim_engine.synthesize_series(channel, index)
-            else:
-                values = generate_series(channel, t_abs, noise_level=self._noise_level)
-            series[channel] = pd.Series(values, index=index, name=channel)
+        series = {
+            channel: pd.Series(archive.series(channel, t_abs), index=index, name=channel)
+            for channel in channels
+        }
 
         data = aggregate_long_frame(series, resolved)
 
@@ -250,8 +218,12 @@ class MockArchiverConnector(ArchiverConnector):
         return data
 
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
-        """Get mock archiver metadata."""
-        # Mock returns fake metadata indicating "infinite" retention
+        """Mock archiver metadata for a channel of the simulator view.
+
+        Raises:
+            ValueError: The channel is not in the built facility file.
+        """
+        self._require([channel])
         return ArchiverMetadata(
             channel=channel,
             is_archived=True,
@@ -264,5 +236,6 @@ class MockArchiverConnector(ArchiverConnector):
         )
 
     async def check_availability(self, channels: list[str]) -> dict[str, bool]:
-        """Every channel is available in the mock archiver."""
-        return dict.fromkeys(channels, True)
+        """Whether the simulator view holds each channel."""
+        served = set(self._current().addresses)
+        return {channel: channel in served for channel in channels}

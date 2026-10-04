@@ -171,9 +171,9 @@ def _writes_enabled(key, default=None):
 async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     """Drive MockConnector through ``scenario``.
 
-    The store is what the mock confirms against, so "value differs" is a ``_put``
-    that keeps a different number (a clamped setpoint), and "put fails" is a
-    value the store cannot hold. Both mirror the mock's own unit tests.
+    The composite's held value is what the mock confirms against, so "value
+    differs" is a ``_put`` that keeps a different number (a clamped setpoint),
+    and "put fails" is a value the channel cannot hold. Both mirror the mock's own unit tests.
     """
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
@@ -194,7 +194,7 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     if scenario is VALUE_DIFFERS:
 
         def clamping_put(channel_address, _value):
-            connector._state[channel_address] = VALUE_HELD_INSTEAD
+            connector._composite.set({channel_address: VALUE_HELD_INSTEAD})
 
         monkeypatch.setattr(connector, "_put", clamping_put)
 

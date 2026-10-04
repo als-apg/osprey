@@ -45,7 +45,7 @@ def setup_registry(tmp_path, monkeypatch):
         "control_system": {
             "type": "mock",
             "writes_enabled": True,
-            "connector": {"mock": mock_config(view, noise_level=0.0, response_delay_ms=1)},
+            "connector": {"mock": mock_config(view, response_delay_ms=1)},
         }
     }
     config_file.write_text(yaml.dump(config_data))

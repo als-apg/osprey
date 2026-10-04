@@ -37,6 +37,7 @@ from pydantic import ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader, preflight, qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, ConnectorSettable
+from tests.facility.served_tree import served_tree
 
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
@@ -465,7 +466,8 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     The two postures disagree on purpose: the connector block arms writes and
     allows unlisted channels, the deployment-wide keys do neither. Which pair a
     built connector ends up reading is then observable on the connector itself,
-    which is what the degraded lane turns on.
+    which is what the degraded lane turns on. The loaded config sits in the
+    render of a built tree, beside the simulator view the connector serves.
     """
     database = tmp_path / "limits.json"
     database.write_text(
@@ -497,7 +499,10 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "osprey.utils.config.get_config_value",
         lambda key, default=None: values.get(key, default),
     )
-    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: None)
+    render = served_tree(tmp_path / "served", ["SR:MAG:HCM:01:CUR:SP"]).parent.parent
+    monkeypatch.setattr(
+        "osprey.utils.config.default_config_path", lambda: str(render / "config.yml")
+    )
     # The write posture is refused outright in a readonly run, which would make
     # both lanes agree for a reason that has nothing to do with the stamp.
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)

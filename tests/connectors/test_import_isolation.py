@@ -13,16 +13,13 @@ The mock archiver is the one connector that reads project config beyond its
 own block, so it is proven here by an actual ``connect``, not by an import.
 """
 
-import json
 import os
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
-import yaml
-
-from tests.facility.served_tree import mock_config, served_tree
+from tests.facility.served_tree import served_tree
 
 SRC = str(Path(__file__).resolve().parents[2] / "src")
 
@@ -137,54 +134,20 @@ def test_identity_imports_no_osprey_module():
     assert "CLEAN" in result.stdout
 
 
-def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
-    """The mock archiver serves the control-system machine file with ``osprey`` unimportable.
+def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
+    """The mock archiver serves a built simulator view with ``osprey`` unimportable.
 
     A finder at the front of ``sys.meta_path`` refuses ``osprey`` and its
     submodules, because the dev environment has the framework installed and
     no path setting can hide it. The child first proves the finder is live,
-    then connects the archiver against a project config whose control-system
-    block names a relative machine file, and reads the file's constant back.
+    then connects the archiver over the view and reads a channel's history
+    back.
     """
-    root = tmp_path / "project"
-    (root / "data" / "simulation").mkdir(parents=True)
-    (root / "data" / "simulation" / "machine.json").write_text(
-        json.dumps(
-            {
-                "name": "Rig",
-                "description": "Single-channel machine",
-                "channels": {
-                    "T:Q1:CUR:SP": {
-                        "value": 42.0,
-                        "units": "A",
-                        "noise": 0.0,
-                        "description": "Test quad current setpoint",
-                    }
-                },
-                "scenarios": {"nominal": {"description": "All systems nominal."}},
-            }
-        )
-    )
     view = served_tree(tmp_path / "served", ["T:Q1:CUR:SP"])
-    config_path = root / "config.yml"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "project_name": "project",
-                "project_root": str(root),
-                "control_system": {
-                    "type": "mock",
-                    "connector": {
-                        "mock": mock_config(view, simulation_file="data/simulation/machine.json")
-                    },
-                },
-                "archiver": {"type": "mock_archiver"},
-            }
-        )
-    )
     code = textwrap.dedent(
         """
         import asyncio
+        import math
         import sys
         from datetime import datetime
 
@@ -209,15 +172,14 @@ def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
 
         async def main():
             connector = MockArchiverConnector()
-            await connector.connect({})
-            assert connector._sim_engine is not None, "no engine derived"
+            await connector.connect({"simulator_view": sys.argv[1]})
             df = await connector.get_data(
                 channels=["T:Q1:CUR:SP"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
             values = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
-            assert values and all(v == 42.0 for v in values), values
+            assert values and all(math.isfinite(v) for v in values), values
             await connector.disconnect()
 
 
@@ -228,10 +190,10 @@ def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
         """
     )
     result = subprocess.run(
-        [sys.executable, "-c", code],
+        [sys.executable, "-c", code, str(view)],
         capture_output=True,
         text=True,
-        env=dict(os.environ, CONFIG_FILE=str(config_path)),
+        cwd=tmp_path,
     )
     assert result.returncode == 0, result.stderr
     assert "CLEAN" in result.stdout

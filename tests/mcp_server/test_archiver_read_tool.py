@@ -976,9 +976,14 @@ class TestArchiverReadRealMockConnector:
 
         The project is the render of a built tree holding ``SR:DCCT``, so the
         archiver finds the simulator view at ``data/simulator`` beside its
-        config, where a rendered deployment keeps it.
+        config, where a rendered deployment keeps it. Its seed declares noise,
+        so the samples of one bin differ.
         """
-        project = served_tree(tmp_path, readings=["SR:DCCT"]).parent.parent
+        project = served_tree(
+            tmp_path,
+            readings=["SR:DCCT"],
+            channels={"SR:DCCT": {"simulation": {"nominal": 500.0, "noise": 1.0}}},
+        ).parent.parent
         return _wire_archiver_project(project, monkeypatch)
 
     @pytest.mark.usefixtures("archiver_project")

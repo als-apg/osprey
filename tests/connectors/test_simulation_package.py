@@ -1,13 +1,11 @@
 """The simulation package root and its state helpers."""
 
-import json
 import subprocess
 import sys
 
 import pytest
 
 from osprey_connectors.simulation import state, values
-from tests.facility.served_tree import mock_config, served_tree
 
 
 def test_engine_takes_the_state_names_from_the_state_module():
@@ -119,26 +117,6 @@ def test_the_package_root_reexports_the_state_helpers():
         assert getattr(package, name) is getattr(state, name)
     assert package.coerce is values.coerce
     assert not hasattr(package, "SimulationEngine")
-
-
-@pytest.mark.asyncio
-async def test_the_mock_connector_still_connects_on_a_machine_file(tmp_path, monkeypatch):
-    from osprey_connectors.control_system.mock_connector import MockConnector
-    from osprey_connectors.simulation import engine
-
-    monkeypatch.setattr(engine, "default_state_dir", lambda: tmp_path)
-    machine = tmp_path / "machine.json"
-    machine.write_text(
-        json.dumps({"name": "m", "channels": {"A:B": {"value": 1.0, "units": "mm"}}})
-    )
-    view = served_tree(tmp_path / "served", readings=["A:B"])
-    connector = MockConnector()
-    await connector.connect(mock_config(view, response_delay_ms=0, simulation_file=str(machine)))
-    try:
-        assert connector._sim_engine is not None
-        assert connector._sim_engine.has_channel("A:B")
-    finally:
-        await connector.disconnect()
 
 
 @pytest.mark.parametrize("config", [{}, {"simulation": None}, {"simulation": {"models": []}}])

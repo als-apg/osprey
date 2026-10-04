@@ -9,12 +9,9 @@ that forgets a stretch of history — each of them leaves a store that is merely
 surface for the claim, checked end to end against a real MongoDB through the
 same connectors a deployed agent uses.
 
-* **Equivalence.** A value read out of the store equals, bit for bit, the value
-  the mock archiver synthesizes for the same instant — on engine-served channels
-  and on procedural ones, and across the hot/tail boundary where the seed grid
-  changes density. Once a scenario is applied, no sample inside its event window
-  still reads clean: a gap there would be a stretch of calm history sitting
-  inside a fault the agent is being asked to diagnose.
+* **Event windows.** Once a scenario is applied, no sample inside its event
+  window still reads clean: a gap there would be a stretch of calm history
+  sitting inside a fault the agent is being asked to diagnose.
 
 * **Retention.** History ages like history. A forced pass of mongod's own TTL
   sweeper takes the aged samples of *both* tiers and leaves the event windows a
@@ -110,16 +107,14 @@ COMPRESSION = "zstd"
 #: two differently-tuned copies of them.
 NOISE = DEFAULT_NOISE_LEVEL
 
-# Channels the machine model describes: both halves synthesize these through the
+# Channels the machine model describes: the seeder synthesizes these through the
 # engine.
 CAVITY_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"
 CAVITY_POWER = "SR:RF:CAVITY:01:POWER:REV"
 CAVITY_VALID = "SR:RF:CAVITY:01:STATUS:VALID"
 
-# Channels it does not: both halves fall back to the procedural generator on the
-# taxonomy baseline. Neither ends in ``:SP``/``:RB``, so the seeder's
-# boot-value lookup and the mock's baseline-free call resolve to the same
-# number — which is the condition under which the two are comparable at all.
+# Channels it does not: the seeder falls back to the procedural generator on the
+# taxonomy baseline.
 BPM_X = "SR:DIAG:BPM:12:POSITION:X"
 VAC_PRESSURE = "SR:VAC:IP07:PRESSURE"
 READY = "SR:STATUS:READY"
@@ -450,30 +445,6 @@ class World:
         finally:
             await connector.disconnect()
 
-    async def mocked(
-        self, channels, start: datetime, end: datetime, precision_ms: int
-    ) -> pd.DataFrame:
-        """Synthesize the same window through the mock archiver.
-
-        The connector is handed no ``simulation_file``: deriving it from the
-        control-system config is the shipped behaviour, and a test that named
-        the file explicitly would not be reading the same machine model the
-        store was seeded from for the same reason a deployment does.
-        """
-        from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-
-        connector = MockArchiverConnector()
-        await connector.connect({"noise_level": NOISE, "sample_rate_hz": 1.0})
-        try:
-            return await connector.get_data(
-                channels=list(channels),
-                start_date=start,
-                end_date=end,
-                precision_ms=precision_ms,
-            )
-        finally:
-            await connector.disconnect()
-
     def base_values(self, channels, stamps: list[datetime]) -> dict[str, list]:
         """What the archive holds at these instants with no scenario active.
 
@@ -502,7 +473,7 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
 
     Function-scoped on purpose: the scenario state file lives in the project,
     so a shared project would let one test's active set decide what the next
-    test's mock archiver synthesizes.
+    test's seeder writes.
     """
     root = tmp_path / "world"
     scenarios = root / "data" / "simulation" / "scenarios"
@@ -548,9 +519,9 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     (root / "config.yml").write_text(yaml.safe_dump(config))
     (root / ".env").write_text(f"{password_env}={mongo['password']}\n")
 
-    # The mock archiver resolves its machine model, and its scenario state, out
-    # of the ambient project config; the MongoDB connector reads its password
-    # from the environment by name. Both are set the way a deployment sets them.
+    # Applying a scenario resolves the machine model, and its scenario state, out
+    # of the ambient project config; the MongoDB connector reads its password from the
+    # environment by name. Both are set the way a deployment sets them.
     monkeypatch.setenv("CONFIG_FILE", str(root / "config.yml"))
     monkeypatch.setenv(password_env, mongo["password"])
 
@@ -586,31 +557,6 @@ def ttl_sweeper(mongo_client):
 # ---------------------------------------------------------------------------
 
 
-def _aligned(moment: datetime, cadence_s: int) -> datetime:
-    """The seeded timestamp at or before ``moment``."""
-    epoch = moment.timestamp() // cadence_s * cadence_s
-    return datetime.fromtimestamp(epoch, UTC)
-
-
-def _probe(start: datetime, cadence_s: int, intervals: int) -> tuple[datetime, datetime, int]:
-    """A mock query whose own grid lands on seeded timestamps.
-
-    ``MockArchiverConnector`` takes ``int(duration / precision)`` points and
-    spreads them evenly from the window's start to its end, so asking for
-    exactly ``intervals + 1`` points across ``intervals`` cadences puts every
-    one of them on a timestamp the seed grid already holds. The comparison
-    asserts the returned stamps really are that grid, so a change to the mock's
-    arithmetic fails loudly here instead of quietly comparing nothing.
-
-    Returns ``(start, end, precision_ms)``.
-    """
-    duration = intervals * cadence_s
-    precision_ms, remainder = divmod(1000 * duration, intervals + 1)
-    assert remainder == 0, "choose an (intervals, cadence) pair with a whole-ms precision"
-    assert intervals + 1 >= 10, "the mock floors a window at ten points"
-    return start, start + timedelta(seconds=duration), precision_ms
-
-
 def _documents_between(collection, start_s: float, end_s: float) -> list[dict]:
     """Stored samples in a span, ascending, read off the collection directly.
 
@@ -636,92 +582,13 @@ def _series(frame: pd.DataFrame, channel: str) -> pd.Series:
     return pd.Series(rows["value"].to_numpy(), index=pd.DatetimeIndex(rows["timestamp"]))
 
 
-async def _assert_bit_equal(world: World, channels, start, end, precision_ms) -> int:
-    """Every timestamp the mock reports must be in the store, holding its value.
-
-    Returns the number of samples compared, so a caller can refuse a vacuous
-    pass.
-    """
-    stored = await world.stored(channels, start, end)
-    mocked = await world.mocked(channels, start, end, precision_ms)
-
-    compared = 0
-    for channel in channels:
-        stored_series = _series(stored, channel)
-        mocked_series = _series(mocked, channel)
-        assert not mocked_series.empty, f"the mock synthesized nothing for {channel}"
-
-        missing = mocked_series.index.difference(stored_series.index)
-        assert missing.empty, (
-            f"{channel}: the probe grid left the seeded grid at {list(missing)[:3]} — "
-            "the two halves are being compared at instants only one of them has"
-        )
-        np.testing.assert_array_equal(
-            stored_series.loc[mocked_series.index].to_numpy(dtype=float),
-            mocked_series.to_numpy(dtype=float),
-            err_msg=f"{channel}: stored history and synthesized history disagree",
-        )
-        compared += len(mocked_series)
-    return compared
-
-
 # ---------------------------------------------------------------------------
-# 1. Equivalence: the store holds what a query would compute
+# 1. Event windows: an applied scenario reaches every sample it covers
 # ---------------------------------------------------------------------------
 
 
-class TestSeederMockEquivalence:
+class TestEventWindowRewrite:
     """Analog channels only — see :class:`TestServedTypes` for the rest."""
-
-    @pytest.mark.asyncio
-    async def test_the_dense_tier_equals_what_the_mock_synthesizes(self, world):
-        """Inside the hot span, where the store holds a sample every cadence."""
-        world.seed(T0)
-        start = _aligned(T0 - timedelta(minutes=30), KNOBS.hot_cadence_sec)
-
-        compared = await _assert_bit_equal(world, ANALOG, *_probe(start, KNOBS.hot_cadence_sec, 9))
-
-        assert compared == len(ANALOG) * 10
-
-    @pytest.mark.asyncio
-    async def test_the_coarse_tier_equals_what_the_mock_synthesizes(self, world):
-        """Outside the hot span the grid is sparser, and nothing else changes.
-
-        The values are a function of the timestamp alone; a generator that had
-        picked up the sample *rate* anywhere would agree in one tier and not the
-        other.
-        """
-        world.seed(T0)
-        start = _aligned(T0 - timedelta(hours=6), KNOBS.tail_cadence_sec)
-
-        compared = await _assert_bit_equal(world, ANALOG, *_probe(start, KNOBS.tail_cadence_sec, 9))
-
-        assert compared == len(ANALOG) * 10
-
-    @pytest.mark.asyncio
-    async def test_a_window_straddling_the_hot_boundary_equals_it_throughout(self, world):
-        """The seam between the two tiers, checked on the cadence they share.
-
-        The coarse cadence is a whole multiple of the dense one, so coarse
-        timestamps exist on both sides of the boundary and one probe grid spans
-        it. What must not happen is the values changing character where the
-        density does.
-        """
-        world.seed(T0)
-        boundary = T0 - timedelta(seconds=KNOBS.hot_span_s)
-        start = _aligned(boundary - timedelta(seconds=270), KNOBS.tail_cadence_sec)
-        window = _probe(start, KNOBS.tail_cadence_sec, 9)
-
-        compared = await _assert_bit_equal(world, ANALOG, *window)
-
-        assert compared == len(ANALOG) * 10
-        # And the window really did straddle it: the seeded store is denser on
-        # the recent side, which is the whole reason this window is interesting.
-        stored = await world.stored([CAVITY_TEMP], window[0], window[1])
-        stamps = _series(stored, CAVITY_TEMP).index
-        older = stamps[stamps < boundary]
-        newer = stamps[stamps >= boundary]
-        assert len(newer) > len(older) > 0, "the probe did not cross the hot/tail boundary"
 
     @pytest.mark.asyncio
     async def test_no_clean_sample_survives_inside_an_applied_event_window(self, world):
@@ -766,28 +633,10 @@ class TestSeederMockEquivalence:
             f"clean, first at {untouched[0]}"
         )
 
-    @pytest.mark.asyncio
-    async def test_history_outside_the_event_window_is_untouched(self, world):
-        """The other half of the same contract: an event reaches its window and
-        no further, so the store still equals the mock everywhere else."""
-        world.seed(T0)
-        world.apply(["rf-thermal"])
-        start = _aligned(T0 - timedelta(hours=12), KNOBS.tail_cadence_sec)
-
-        compared = await _assert_bit_equal(world, ANALOG, *_probe(start, KNOBS.tail_cadence_sec, 9))
-
-        assert compared == len(ANALOG) * 10
-
 
 class TestServedTypes:
-    """Discrete channels, which are outside the equivalence contract above.
-
-    A ``bi`` record is served — and therefore stored — as a boolean, and the
-    manifest is what says so. The mock archiver has no manifest: it synthesizes
-    from a channel name and a clock, so it cannot know a record type and returns
-    a number for these. That is an accepted divergence, not a defect to assert
-    around, so what gets pinned is the store's side of it.
-    """
+    """Discrete channels: a ``bi`` record is served, and therefore stored, as a
+    boolean, and the manifest is what says so."""
 
     @pytest.mark.asyncio
     async def test_discrete_channels_are_stored_as_the_type_they_are_served_as(self, world):
@@ -800,19 +649,6 @@ class TestServedTypes:
                 f"{channel} is served as a flag; a float here is a value no client "
                 f"could ever have read back"
             )
-
-    @pytest.mark.asyncio
-    async def test_the_mock_cannot_know_a_record_type_and_says_so_in_numbers(self, world):
-        """Documents the divergence rather than papering over it."""
-        world.seed(T0)
-        start = _aligned(T0 - timedelta(minutes=30), KNOBS.hot_cadence_sec)
-        window_start, window_end, precision_ms = _probe(start, KNOBS.hot_cadence_sec, 9)
-
-        frame = await world.mocked([READY], window_start, window_end, precision_ms)
-
-        values = _series(frame, READY)
-        assert not values.empty
-        assert not any(isinstance(value, bool) for value in values)
 
 
 # ---------------------------------------------------------------------------
