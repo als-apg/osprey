@@ -52,6 +52,7 @@ from osprey_connectors.factory import ConnectorFactory, isolated_connector_regis
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import state_dir_under
+from tests.facility.served_tree import mock_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (
     CA_LIVE_TYPE,
@@ -70,6 +71,7 @@ from tests.mcp_server._switch_harness import (
     narrow,
     project_config,
     raw_config,
+    served_view,
     started_on,
 )
 
@@ -2020,7 +2022,7 @@ class TestNonCapableDeploymentIsUntouched:
         raw = {
             "control_system": {
                 "type": "mock",
-                "connector": {"mock": {"response_delay_ms": 1, "noise_level": 0.0}},
+                "connector": {"mock": mock_config(served_view(), response_delay_ms=1)},
             },
             "archiver": {"type": "mongodb_archiver"},
         }
