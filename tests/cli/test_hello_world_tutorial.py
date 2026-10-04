@@ -24,6 +24,7 @@ import yaml
 
 from osprey.cli.build_cmd import _profile_data_bundle
 from tests._builds import BuiltProject, init_project, run_build
+from tests.facility.served_tree import mock_config, served_tree
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -141,14 +142,14 @@ class TestHelloWorldBuildOutput:
 class TestMockConnectorTutorialChannels:
     """Verify MockConnector can read tutorial channel names."""
 
-    async def test_mock_connector_reads_tutorial_channels(self):
+    async def test_mock_connector_reads_tutorial_channels(self, tmp_path: Path):
         """Instantiate MockConnector and read tutorial channels."""
         from osprey.connectors.control_system.mock_connector import MockConnector
 
-        connector = MockConnector()
-        await connector.connect({})
-
         channel_names = ["SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB"]
+        connector = MockConnector()
+        await connector.connect(mock_config(served_tree(tmp_path, readings=channel_names)))
+
         for name in channel_names:
             result = await connector.read_channel(name)
             assert result is not None

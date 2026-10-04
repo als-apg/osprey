@@ -40,6 +40,7 @@ from osprey.connectors.factory import (
     isolated_connector_registries,
     register_builtin_connectors,
 )
+from tests.facility.served_tree import mock_config
 
 # The epics block a scaffolded Control Assistant renders: the app template's
 # own values, verbatim, and the same block
@@ -161,7 +162,9 @@ class TestSwitchingToMockEngagesTheConnector:
         ``project_root`` config value in production, which for a three-zone
         deployment IS the repo root; this test reads build/config.yml directly
         rather than going through the app's config loader, so CWD is the
-        fallback resolution root instead).
+        fallback resolution root instead). For the same reason the block is
+        handed the render's own simulator view, which the loader would find
+        beside build/config.yml.
         """
         _switch_to_mock(runner, scaffolded_repo)
 
@@ -170,6 +173,8 @@ class TestSwitchingToMockEngagesTheConnector:
         assert cs_config["type"] == "mock"
 
         monkeypatch.chdir(scaffolded_repo)
+        render_view = scaffolded_repo / "build" / "data" / "simulator"
+        cs_config["connector"]["mock"] = mock_config(render_view, **cs_config["connector"]["mock"])
         connector = await ConnectorFactory.create_control_system_connector(cs_config)
         try:
             assert isinstance(connector, MockConnector)
