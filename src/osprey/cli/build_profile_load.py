@@ -30,6 +30,7 @@ from osprey.port_layout import (
     resolve_port_base,
 )
 from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
+from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
 from osprey_connectors.types import (
     SET_CONTROL_SYSTEM_TYPES,
     TARGET_STANDIN,
@@ -491,6 +492,29 @@ def _retired_tier_refusal() -> FacilityBuildError:
     )
 
 
+def _check_tick_s(raw: dict[str, Any]) -> None:
+    """Stop a profile whose simulation tick period is not a positive number.
+
+    Args:
+        raw: The resolved raw profile dict.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` naming ``simulation.tick_s``
+            if the value is not a number of seconds greater than zero.
+    """
+    try:
+        resolve_tick_s(_expand_dotted(raw.get("config")))
+    except ValueError as error:
+        raise FacilityBuildError(
+            "profile-invalid",
+            TICK_KEY,
+            ["profile.yml"],
+            f"set `{TICK_KEY}` to a number of seconds greater than 0",
+            record_kind="path",
+            detail=str(error),
+        ) from error
+
+
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """Reject unknown top-level profile keys, naming every one at once.
 
@@ -941,6 +965,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
+    _check_tick_s(raw)
     _apply_connector_shorthand(raw)
     _apply_port_base_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}
