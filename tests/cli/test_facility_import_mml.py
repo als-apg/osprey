@@ -196,6 +196,33 @@ def test_a_limits_file_under_the_layer_header_is_not_refused(cleared: Path) -> N
     assert limits.read_text(encoding="utf-8") == f"{HEADER}\nrecords: []\n"
 
 
+def test_a_scenario_without_the_layer_header_is_refused_and_a_headed_one_is_not(
+    cleared: Path,
+) -> None:
+    scenarios = _facility(cleared) / "scenarios"
+    scenarios.mkdir(exist_ok=True)
+    headed = scenarios / "readout.yaml"
+    headed.write_text(f"{HEADER}\nfaults: {{}}\n", encoding="utf-8")
+    authored = scenarios / "drift.yaml"
+    authored.write_text("description: An authored scenario.\n", encoding="utf-8")
+
+    refused = _import(cleared)
+
+    assert refused.exit_code == 1
+    assert refused.stderr.splitlines() == [
+        "import mml: authored-present: 1 file",
+        "rm data/facility/scenarios/drift.yaml",
+    ]
+    assert not (_facility(cleared) / LAYER_DIR / "channels.yaml").exists()
+
+    pytest.importorskip("at")
+    authored.unlink()
+    for _ in range(2):
+        accepted = _import(cleared)
+        assert accepted.exit_code == 0, accepted.output
+        assert headed.read_text(encoding="utf-8") == f"{HEADER}\nfaults: {{}}\n"
+
+
 @pytest.mark.parametrize("text", ["records: []\n", ""], ids=["no-header", "empty"])
 def test_a_limits_file_without_the_layer_header_is_refused_and_named(
     cleared: Path, text: str
