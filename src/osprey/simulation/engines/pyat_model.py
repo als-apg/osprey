@@ -68,7 +68,6 @@ never touches a control system and never raises ``SystemExit``.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -83,10 +82,18 @@ from lume_pyat.simulator import PyATSimulator
 from pydantic import ConfigDict
 
 from osprey.simulation.engines.pyat import SOLVES
-from osprey.simulation.engines.pyat_faults import SUPPLY_IDENTITY, supply_attribute
+from osprey.simulation.engines.pyat_faults import (
+    CALIBRATED_ATTRIBUTES,
+    FAULT_BOUNDS,
+    FAULT_SEPARATOR,
+    POLARITY_OPTIONS,
+    ROLL,
+    ROLL_IDENTITY,
+    SUPPLY_IDENTITY,
+    supply_attribute,
+)
 from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
 from osprey.simulation.engines.pyat_variables import (
-    KICK_ATTRIBUTE,
     CalibratedSetpoint,
     EnergyVariable,
     MonitorVariable,
@@ -109,12 +116,6 @@ __all__ = [
     "ReadbackVariable",
 ]
 
-#: What separates a wired address from a field in a fault name.
-FAULT_SEPARATOR = "/"
-
-#: The engine attributes whose setpoints carry a calibration fault.
-CALIBRATED_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", KICK_ATTRIBUTE})
-
 # Element-attribute prefix of a readout fault. No pyAT pass method reads an
 # attribute under it, which is what keeps a fault off the orbit.
 _READOUT_PREFIX = "readout_"
@@ -128,33 +129,11 @@ READOUT_IDENTITY: dict[str, float] = {
     "polarity": 1.0,
 }
 
-#: The roll a monitor carries once, at its identity.
-ROLL = "roll"
-ROLL_IDENTITY = 0.0
-_ROLL_UNIT = "rad"
-
 #: The calibration fields a magnet setpoint carries, each at its identity: a
 #: magnet that delivers exactly what it was commanded.
 CALIBRATION_IDENTITY: dict[str, float] = SUPPLY_IDENTITY
 
-MIN_MONITOR_GAIN = 0.1
-MAX_MONITOR_GAIN = 10.0
-MAX_MONITOR_ROLL_RAD = 0.1
-#: A factor of -1 is a polarity flip; a magnitude beyond 5x is never a real
-#: calibration error.
-MAX_CALIBRATION_FACTOR = 5.0
-
-#: Fault field -> its inclusive (min, max). A field absent here is bounded by
-#: well-formedness alone.
-FAULT_BOUNDS: dict[str, tuple[float, float]] = {
-    "gain": (MIN_MONITOR_GAIN, MAX_MONITOR_GAIN),
-    "noise": (0.0, math.inf),
-    ROLL: (-MAX_MONITOR_ROLL_RAD, MAX_MONITOR_ROLL_RAD),
-    "cal_factor": (-MAX_CALIBRATION_FACTOR, MAX_CALIBRATION_FACTOR),
-}
-
-#: A polarity is a direction: it lands exactly on one of these two values.
-POLARITY_OPTIONS: tuple[float, float] = (-1.0, 1.0)
+_ROLL_UNIT = "rad"
 
 #: The readout fields whose magnitude is in the monitor reading's own unit.
 _FIELDS_IN_READING_UNIT = frozenset({"offset", "noise"})
