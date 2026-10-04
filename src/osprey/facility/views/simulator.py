@@ -12,13 +12,20 @@ readers building physics children or selectors skip engine ``texture``.
 is ``<code>:SIM:<model>:STATUS`` for each served physics model and appears in
 no other view. A deck is copied for every model that names one, served or not,
 so a render's deck set does not depend on ``simulation.models``.
+
+``simulator_wiring`` gives one model's wiring entries: each wired address with
+its element (or slices), engine block and calibration, plus the channel facts
+the build filled in (direction, unit, default, value_range).
 """
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
+from typing import Any
 
 from osprey.facility import TEXTURE
+from osprey.facility.build import FacilityDocument
 from osprey.facility.views import ViewInputs, view_bytes
 
 __all__ = [
@@ -27,6 +34,7 @@ __all__ = [
     "DECKS_DIR",
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
+    "simulator_wiring",
     "status_address",
     "write_simulator_view",
 ]
@@ -36,6 +44,46 @@ SERVED_MODELS_SCHEMA = "osprey.facility.served_models/1"
 ADDRESSES_FILE = "addresses.json"
 ADDRESSES_SCHEMA = "osprey.facility.addresses/1"
 DECKS_DIR = "decks"
+
+#: The keys a wiring entry may carry, in emission order.
+_WIRING_ENTRY_KEYS = (
+    "id",
+    "address",
+    "element",
+    "slices",
+    "engine",
+    "calibration",
+    "direction",
+    "unit",
+    "default",
+    "value_range",
+)
+
+
+def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, Any]]:
+    """The wiring entries of one model, in the facility file's record order.
+
+    Each entry holds the keys of ``_WIRING_ENTRY_KEYS`` the wiring record
+    carries and no other; a key the record lacks is absent from its entry.
+
+    Args:
+        facility: The in-memory facility file.
+        model: The model's name.
+
+    Returns:
+        One entry per wiring record of the model; empty for a model without
+        wiring. The entries share no objects with ``facility``.
+
+    Raises:
+        KeyError: ``facility`` has no model named ``model``.
+    """
+    for entry in facility.get("models", []):
+        if entry["name"] == model:
+            return [
+                {key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record}
+                for record in entry.get("wiring", [])
+            ]
+    raise KeyError(f"the facility file has no model {model!r}")
 
 
 def status_address(code: str, model: str) -> str:
