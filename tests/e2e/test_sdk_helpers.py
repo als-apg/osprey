@@ -20,6 +20,7 @@ from tests.e2e.sdk_helpers import (
     TRANSCRIPT_SUBDIR,
     HookEvent,
     _bind_approval_policy,
+    _log_query_timing,
     dump_agent_transcript,
     hook_attachments,
 )
@@ -369,3 +370,64 @@ def test_run_claude_holds_the_first_turn_for_every_mcp_server(tmp_path, monkeypa
     assert seen["MCP_CONNECTION_NONBLOCKING"] == "0"
     assert seen["MCP_CONNECT_TIMEOUT_MS"] == ready_ms
     assert seen["MCP_TIMEOUT"] == ready_ms
+
+
+# ---------------------------------------------------------------------------
+# Per-query timing log for the benchmark matrix. The dashboard reads it to show
+# how long each model takes and how much of that is spent waiting on the model.
+# ---------------------------------------------------------------------------
+
+
+def _timed_result(**overrides):
+    fields = {
+        "duration_ms": 120_000,
+        "duration_api_ms": 96_000,
+        "num_turns": 7,
+        "is_error": False,
+        "usage": {"input_tokens": 41_000, "output_tokens": 3_200},
+    }
+    fields.update(overrides)
+    return SDKWorkflowResult(result=SimpleNamespace(**fields))
+
+
+def test_query_timing_is_inert_when_unarmed(tmp_path, monkeypatch):
+    """No OSPREY_E2E_QUERY_LOG — every non-benchmark run — writes nothing."""
+    monkeypatch.delenv("OSPREY_E2E_QUERY_LOG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    _log_query_timing(_timed_result())
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_query_timing_appends_one_record_per_query(tmp_path, monkeypatch):
+    log = tmp_path / "m__seed1.queries.jsonl"
+    monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(log))
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/e2e/test_x.py::TestX::test_y[case0] (call)")
+    _log_query_timing(_timed_result())
+    _log_query_timing(_timed_result(duration_ms=60_000, usage=None))
+
+    first, second = (json.loads(line) for line in log.read_text().splitlines())
+    assert first == {
+        "test": "tests/e2e/test_x.py::TestX::test_y[case0]",
+        "duration_ms": 120_000,
+        "duration_api_ms": 96_000,
+        "num_turns": 7,
+        "input_tokens": 41_000,
+        "output_tokens": 3_200,
+        "is_error": False,
+    }
+    assert second["duration_ms"] == 60_000
+    assert second["output_tokens"] is None
+
+
+def test_query_timing_skips_a_query_without_a_result(tmp_path, monkeypatch):
+    """A query that never produced a ResultMessage has no timing to record."""
+    log = tmp_path / "q.jsonl"
+    monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(log))
+    _log_query_timing(SDKWorkflowResult())
+    assert not log.exists()
+
+
+def test_query_timing_never_raises(tmp_path, monkeypatch):
+    """Instrumentation must never fail the test it observes."""
+    monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(tmp_path / "missing-dir" / "q.jsonl"))
+    _log_query_timing(_timed_result())

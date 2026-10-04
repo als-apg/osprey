@@ -30,6 +30,7 @@ them by hand.
 | `OSPREY_E2E_BUDGET_SCALE` | multiply per-query `max_budget_usd` (pricier refs need headroom) | `sdk_helpers.e2e_budget_scale` |
 | `OSPREY_E2E_JUDGE_MODEL` / `ALS_APG_BASE_URL` | redirect the LLM judge to a reachable endpoint | `judge.py` |
 | `OSPREY_E2E_LIVE` | append one JSON line per test as it finishes (live dashboard feed) | `conftest.pytest_runtest_logreport` |
+| `OSPREY_E2E_QUERY_LOG` | append one JSON line per agent query: wall time, time waiting on the model, turns, tokens (dashboard latency columns) | `sdk_helpers._log_query_timing` |
 
 All default to inert, so CI behaviour is byte-for-byte unchanged when unset.
 
