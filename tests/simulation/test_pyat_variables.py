@@ -579,6 +579,53 @@ class TestMonitorVariable:
             build(monitor_record())._set(simulator, 1.0)
 
 
+class TestMonitorStartValues:
+    """The build holds a monitor's calibration to the same way back as a setpoint's."""
+
+    @pytest.fixture
+    def deck(self, tmp_path: Path) -> Path:
+        path = tmp_path / "deck.json"
+        at.save_lattice(build_test_lattice(), str(path))
+        return path
+
+    @pytest.mark.parametrize("readbacks", [None, {"DIAG:MONITOR:X": None}])
+    def test_a_table_without_an_inverse_stops(self, deck: Path, readbacks: Any) -> None:
+        from osprey.facility.errors import FacilityBuildError
+        from osprey.simulation.engines import pyat
+
+        record = monitor_record(calibration={"curve": _table([-1.0, 1.0], [-1e-3, 1e-3])})
+        with pytest.raises(FacilityBuildError) as caught:
+            pyat.start_values(deck, [record], {}, readbacks=readbacks)
+        assert (caught.value.kind, caught.value.record_id) == ("engine-invalid", record["id"])
+        assert caught.value.detail == "a table calibration has no inverse to serve the reading"
+        assert caught.value.remedy == "add calibration.inverse"
+
+    def test_a_zero_gain_stops(self, deck: Path) -> None:
+        from osprey.facility.errors import FacilityBuildError
+        from osprey.simulation.engines import pyat
+
+        record = monitor_record(calibration={"curve": _linear(0.0)})
+        with pytest.raises(FacilityBuildError) as caught:
+            pyat.start_values(deck, [record], {}, readbacks={"DIAG:MONITOR:X": None})
+        assert caught.value.detail == "the linear calibration's gain is 0, so it has no inverse"
+
+    @pytest.mark.parametrize(
+        "calibration",
+        [
+            {"curve": _linear(1.0), "energy_scaling": "none"},
+            {"curve": _table([-1.0, 1.0], [-1e-3, 1e-3]), "inverse": _linear(1.0e3)},
+        ],
+    )
+    def test_a_monitor_with_a_way_back_starts_at_zero(
+        self, deck: Path, calibration: dict[str, Any]
+    ) -> None:
+        from osprey.simulation.engines import pyat
+
+        record = monitor_record(calibration=calibration)
+        values = pyat.start_values(deck, [record], {}, readbacks={"DIAG:MONITOR:X": None})
+        assert values == {"DIAG:MONITOR:X": 0.0}
+
+
 class TestEnergyVariable:
     def test_the_nominal_setpoint_leaves_the_deck_energy(self, simulator) -> None:
         build(energy_record())._set(simulator, BEND_NOMINAL)
