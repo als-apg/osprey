@@ -2,13 +2,12 @@
 
 ``emit_machine`` and ``emit_state_channels`` write the two documents a served
 deployment starts from, ``emit_lattice`` saves the deck, ``emit_bindings`` says
-what each coupled address does to it, and ``emit_channel_limits`` says what a
-write to each address may do. So every case here reads the emitted text back
+what each coupled address does to it, and ``channel_bands`` derives the band
+each driven setpoint is held to. So every case here reads the emitted text back
 through the readers that consume it in production -- ``parse_machine`` (the
 simulation engine's own parser), ``load_machine_json_channels``, the
-machine-state loader's key scan, ``load_bindings`` and
-``LimitsValidator._load_limits_database`` -- rather than through assertions on
-a dict the emitter happened to build.
+machine-state loader's key scan and ``load_bindings`` -- rather than through
+assertions on a dict the emitter happened to build.
 
 What is pinned: every hardware nominal reaches its addresses, a family the
 model does not drive is marked ``nominal_seed_only``, a physics-units or
@@ -31,8 +30,8 @@ from osprey.services.mml.emit.va import (
     PROVENANCE_KEY,
     SEED_ONLY_KEY,
     UnbandedSetpointError,
+    channel_bands,
     emit_bindings,
-    emit_channel_limits,
     emit_lattice,
     emit_machine,
     emit_state_channels,
@@ -54,7 +53,6 @@ from osprey.services.mml.mapping.schema import (
 from osprey.services.mml.va.elements import ElementBinding, ElementSlice
 from osprey.services.virtual_accelerator.bindings import Table, load_bindings
 from osprey.services.virtual_accelerator.lattice.calibration import to_hardware, to_physics
-from osprey_connectors.control_system.limits_validator import LimitsValidator
 from osprey_connectors.simulation.machine import parse_machine
 
 SYSTEM = "RING"
@@ -2025,13 +2023,10 @@ def test_bindings_on_a_real_export_collapse_as_the_facility_sampled_it(
     }
 
 
-# --- channel_limits.json -----------------------------------------------------
+# --- the coupled setpoints' bands --------------------------------------------
 #
-# The write-safety database is the one file this lane shares with a facility,
-# so every case here reads the emitted text back through
-# ``LimitsValidator._load_limits_database`` -- the loader that fails a whole
-# file on one key it does not know -- rather than through assertions on a dict
-# the emitter happened to build.
+# ``channel_bands`` derives, in memory, the band each driven setpoint is held
+# to: its family's Setpoint ``Range``, widened to its nominal.
 
 
 def _banded_quad_body(band: object = (0, 200)) -> dict:
@@ -2042,54 +2037,27 @@ def _banded_quad_body(band: object = (0, 200)) -> dict:
     return body
 
 
-def _limits(
+def _bands(
     tmp_path: Path,
     *,
-    existing: dict | None = None,
     views=None,
     judged_va=None,
     verdicts=None,
     elements=None,
-    channel_addresses=(),
     body: dict | None = None,
 ):
-    """Emit channel_limits.json over the quadrupole case, or whatever is passed."""
+    """Derive the bands over the quadrupole case, or whatever is passed."""
     views = [_view("QF", body or _banded_quad_body())] if views is None else views
     _, document = _bindings(
         tmp_path, views=views, judged_va=judged_va, verdicts=verdicts, elements=elements
     )
-    text, bands = emit_channel_limits(
-        existing,
-        document.bindings,
-        channel_addresses,
-        _ctx(tmp_path),
-        views=views,
-        system=SYSTEM,
-    )
-    return json.loads(text), bands, text
-
-
-def _validated(tmp_path: Path, text: str):
-    """Read one emitted document back through the write path's own loader."""
-    path = tmp_path / "channel_limits.json"
-    path.write_text(text)
-    return LimitsValidator._load_limits_database(str(path))
-
-
-def _facility_file(**entries: dict) -> dict:
-    """A limits database a facility authored before the virtual accelerator existed."""
-    document: dict = {
-        "_comment": "the facility's own write-safety database",
-        "defaults": {"writable": False},
+    return {
+        band.address: band for band in channel_bands(document.bindings, views=views, system=SYSTEM)
     }
-    document.update(entries)
-    return document
 
 
-def _limits_from_export(
-    tmp_path: Path, directory: Path, stem: str, system: str, *, existing: dict | None = None
-):
-    """Run the whole VA lane over one export on disk and load what it banded."""
+def _bands_from_export(tmp_path: Path, directory: Path, stem: str, system: str):
+    """Run the whole VA lane over one export on disk and derive its bands."""
     from osprey.services.mml.loaders.mat import load_lattice
     from osprey.services.mml.normalize import normalize_family
     from osprey.services.mml.va.elements import address_elements
@@ -2117,79 +2085,47 @@ def _limits_from_export(
             energy_gev=va["lattice"]["energy_gev"],
         )[0]
     )
-    addresses = set()
-    for view in views.values():
-        for field in view.fields.values():
-            for key in field.keys:
-                for slot in field.slots(key):
-                    if isinstance(slot, str) and slot.strip():
-                        addresses.add(slot.strip())
-    text, bands = emit_channel_limits(
-        existing,
-        load_bindings(bindings_path).bindings,
-        sorted(addresses),
-        ctx,
-        views=list(views.values()),
-        system=system,
+    return channel_bands(
+        load_bindings(bindings_path).bindings, views=list(views.values()), system=system
     )
-    return _validated(tmp_path, text)[0], bands, text
 
 
-class TestChannelLimitsOnATreeItCreates:
-    def test_channel_limits_band_a_coupled_setpoint_from_its_range(self, tmp_path):
-        document, bands, _ = _limits(tmp_path)
-        entry = document["SR:QF:1:SP"]
-        assert (entry["min_value"], entry["max_value"]) == (0, 200)
-        assert entry["writable"] is True
-        assert entry[PROVENANCE_KEY]
-        assert [band.address for band in bands] == ["SR:QF:1:SP", "SR:QF:2:SP"]
+class TestChannelBands:
+    def test_a_coupled_setpoint_is_banded_from_its_range(self, tmp_path):
+        bands = _bands(tmp_path)
+        band = bands["SR:QF:1:SP"]
+        assert (band.min_value, band.max_value) == (0, 200)
+        assert band.family == "QF"
+        assert list(bands) == ["SR:QF:1:SP", "SR:QF:2:SP"]
 
-    def test_channel_limits_leave_every_other_address_unwritable(self, tmp_path):
-        document, _, _ = _limits(tmp_path, channel_addresses=["SR:DCCT:CURRENT"])
-        assert document["SR:QF:1:RB"]["writable"] is False
-        assert document["SR:DCCT:CURRENT"]["writable"] is False
-        assert "min_value" not in document["SR:QF:1:RB"]
+    def test_a_band_the_nominal_sits_outside_is_widened(self, tmp_path):
+        bands = _bands(tmp_path, body=_banded_quad_body((0, 1)))
+        assert bands["SR:QF:1:SP"].max_value == 1.5
+        assert bands["SR:QF:2:SP"].max_value == 2.5
+        assert [band.widened for band in bands.values()] == [True, True]
+        assert [band.nominal for band in bands.values()] == [1.5, 2.5]
 
-    def test_channel_limits_state_one_entry_per_address_the_channel_database_carries(
-        self, tmp_path
-    ):
-        document, _, _ = _limits(tmp_path, channel_addresses=["SR:DCCT:CURRENT", "SR:QF:1:SP", ""])
-        assert sorted(key for key in document if not key.startswith("_")) == [
-            "SR:DCCT:CURRENT",
-            "SR:QF:1:RB",
-            "SR:QF:1:SP",
-            "SR:QF:2:RB",
-            "SR:QF:2:SP",
-        ]
-
-    def test_channel_limits_widen_a_band_the_nominal_sits_outside(self, tmp_path):
-        document, bands, _ = _limits(tmp_path, body=_banded_quad_body((0, 1)))
-        assert document["SR:QF:1:SP"]["max_value"] == 1.5
-        assert document["SR:QF:2:SP"]["max_value"] == 2.5
-        assert [band.widened for band in bands] == [True, True]
-        assert [band.nominal for band in bands] == [1.5, 2.5]
-
-    def test_channel_limits_refuse_a_range_with_an_infinite_edge(self, tmp_path):
+    def test_a_range_with_an_infinite_edge_is_refused(self, tmp_path):
         with pytest.raises(UnbandedSetpointError) as refused:
-            _limits(tmp_path, body=_banded_quad_body(("-Inf", 5)))
+            _bands(tmp_path, body=_banded_quad_body(("-Inf", 5)))
         assert refused.value.address == "SR:QF:1:SP"
         assert refused.value.rows == (["-Inf", 5],)
 
-    def test_channel_limits_keep_a_per_device_range_row_on_its_own_device(self, tmp_path):
-        document, _, _ = _limits(tmp_path, body=_banded_quad_body([[0, 100], [0, 200]]))
-        assert document["SR:QF:1:SP"]["max_value"] == 100
-        assert document["SR:QF:2:SP"]["max_value"] == 200
+    def test_a_per_device_range_row_stays_on_its_own_device(self, tmp_path):
+        bands = _bands(tmp_path, body=_banded_quad_body([[0, 100], [0, 200]]))
+        assert bands["SR:QF:1:SP"].max_value == 100
+        assert bands["SR:QF:2:SP"].max_value == 200
 
-    def test_channel_limits_refuse_a_driven_family_that_states_no_range(self, tmp_path):
+    def test_a_driven_family_that_states_no_range_is_refused(self, tmp_path):
         with pytest.raises(UnbandedSetpointError) as refused:
-            _limits(tmp_path, body=_banded_quad_body(None))
+            _bands(tmp_path, body=_banded_quad_body(None))
         assert (refused.value.family, refused.value.address) == ("QF", "SR:QF:1:SP")
         assert refused.value.rows is None
         assert "states no Setpoint Range" in str(refused.value)
 
-    def test_channel_limits_refuse_a_driven_device_whose_range_row_is_not_finite(self, tmp_path):
+    def test_a_driven_device_whose_range_row_is_not_finite_is_refused(self, tmp_path):
         with pytest.raises(UnbandedSetpointError) as refused:
-            _limits(tmp_path, body=_banded_quad_body([[0, 100], ["NaN", "NaN"]]))
+            _bands(tmp_path, body=_banded_quad_body([[0, 100], ["NaN", "NaN"]]))
         error = refused.value
         assert (error.system, error.family, error.address) == (SYSTEM, "QF", "SR:QF:2:SP")
         assert error.devices == (2,)
@@ -2197,153 +2133,24 @@ class TestChannelLimitsOnATreeItCreates:
         assert f"{SYSTEM}.QF device 2 (SR:QF:2:SP)" in str(error)
         assert "[NaN, NaN]" in str(error)
 
-    def test_channel_limits_leave_a_monitor_family_read_only(self, tmp_path):
+    def test_a_monitor_family_has_no_band(self, tmp_path):
         views = [_view("BPMx", _bpm_body())]
-        document, bands, _ = _limits(
+        bands = _bands(
             tmp_path,
             views=views,
             verdicts={(SYSTEM, "BPMx"): _monitor_verdict()},
             judged_va={(SYSTEM, "BPMx"): _bpm_block()},
             elements=_bpm_elements(),
         )
-        assert document["SR:BPM:1:X"]["writable"] is False
-        assert bands == ()
+        assert bands == {}
 
-    def test_channel_limits_load_through_the_write_safety_validator(self, tmp_path):
-        _, _, text = _limits(tmp_path, channel_addresses=["SR:DCCT:CURRENT"])
-        limits, _raw = _validated(tmp_path, text)
-        band = limits["SR:QF:1:SP"]
-        assert (band.min_value, band.max_value, band.writable) == (0, 200, True)
-        assert limits["SR:DCCT:CURRENT"].writable is False
-
-    def test_channel_limits_are_byte_identical_on_a_second_emit(self, tmp_path):
-        _, _, first = _limits(tmp_path, channel_addresses=["SR:DCCT:CURRENT"])
-        _, _, second = _limits(tmp_path, channel_addresses=["SR:DCCT:CURRENT"])
-        assert first == second
-
-
-class TestChannelLimitsMergeIntoAFacilityFile:
-    def test_channel_limits_merge_leaves_a_foreign_entry_byte_identical(self, tmp_path):
-        foreign = {"min_value": -5, "max_value": 5, "confirm": True, "_note": "signed off"}
-        document, _, _ = _limits(
-            tmp_path,
-            existing=_facility_file(**{"FAC:PS:1:SP": dict(foreign)}),
-            channel_addresses=["SR:DCCT:CURRENT"],
-        )
-        assert json.dumps(document["FAC:PS:1:SP"]) == json.dumps(foreign)
-
-    def test_channel_limits_merge_keeps_the_defaults_block_and_the_file_prose(self, tmp_path):
-        existing = _facility_file()
-        document, _, _ = _limits(tmp_path, existing=existing)
-        assert document["defaults"] == {"writable": False}
-        assert document["_comment"] == existing["_comment"]
-        assert list(document)[:2] == ["_comment", "defaults"]
-
-    def test_channel_limits_merge_states_no_address_the_lane_does_not_own(self, tmp_path):
-        document, _, _ = _limits(
-            tmp_path, existing=_facility_file(), channel_addresses=["SR:DCCT:CURRENT"]
-        )
-        assert "SR:DCCT:CURRENT" not in document
-        assert "SR:QF:1:SP" in document
-        assert "SR:QF:1:RB" in document
-
-    def test_channel_limits_merge_rewrites_only_the_band_of_a_stamped_entry(self, tmp_path):
-        stamped = {
-            PROVENANCE_KEY: "an older run",
-            "writable": True,
-            "confirm": True,
-            "max_step": 0.5,
-            "min_value": -1,
-            "max_value": 1,
-        }
-        document, bands, _ = _limits(
-            tmp_path, existing=_facility_file(**{"SR:QF:1:SP": dict(stamped)})
-        )
-        entry = document["SR:QF:1:SP"]
-        assert (entry["min_value"], entry["max_value"]) == (0, 200)
-        assert (entry["confirm"], entry["max_step"]) == (True, 0.5)
-        assert entry[PROVENANCE_KEY] != "an older run"
-        assert [band.refused for band in bands] == [None, None]
-
-    def test_channel_limits_merge_refuses_a_hand_edited_band(self, tmp_path):
-        hand = {"min_value": -1, "max_value": 1, "writable": True}
-        document, bands, _ = _limits(
-            tmp_path, existing=_facility_file(**{"SR:QF:1:SP": dict(hand)})
-        )
-        assert json.dumps(document["SR:QF:1:SP"]) == json.dumps(hand)
-        refused = [band for band in bands if band.refused]
-        assert [band.address for band in refused] == ["SR:QF:1:SP"]
-        assert PROVENANCE_KEY in refused[0].refused
-
-    def test_channel_limits_merge_refuses_an_unbanded_device_a_hand_band_covers(self, tmp_path):
-        hand = {"min_value": -1, "max_value": 1, "writable": True}
-        with pytest.raises(UnbandedSetpointError) as refused:
-            _limits(
-                tmp_path,
-                existing=_facility_file(**{"SR:QF:2:SP": dict(hand)}),
-                body=_banded_quad_body([[0, 100], ["NaN", "NaN"]]),
-            )
-        assert refused.value.address == "SR:QF:2:SP"
-
-    def test_channel_limits_merge_accepts_a_hand_written_band_that_agrees(self, tmp_path):
-        agrees = {"min_value": 0, "max_value": 200}
-        document, bands, _ = _limits(
-            tmp_path, existing=_facility_file(**{"SR:QF:1:SP": dict(agrees)})
-        )
-        assert json.dumps(document["SR:QF:1:SP"]) == json.dumps(agrees)
-        assert [band.refused for band in bands] == [None, None]
-
-    def test_channel_limits_merge_loads_through_the_write_safety_validator(self, tmp_path):
-        _, _, text = _limits(
-            tmp_path, existing=_facility_file(**{"FAC:PS:1:SP": {"confirm": True}})
-        )
-        limits, raw = _validated(tmp_path, text)
-        assert raw["defaults"] == {"writable": False}
-        assert limits["FAC:PS:1:SP"].writable is False
-        assert limits["SR:QF:1:SP"].writable is True
-
-    def test_channel_limits_merge_is_byte_identical_on_a_second_emit(self, tmp_path):
-        existing = _facility_file(**{"FAC:PS:1:SP": {"confirm": True}})
-        _, _, first = _limits(tmp_path, existing=existing)
-        _, _, second = _limits(tmp_path, existing=json.loads(first))
-        assert first == second
-
-
-class TestChannelLimitsOnTheCommittedExport:
-    """The lane end to end over the only committed 2.0 export."""
-
-    def test_channel_limits_of_the_export_load_through_the_write_safety_validator(self, tmp_path):
-        limits, _bands, _text = _limits_from_export(tmp_path, SYNTHETIC, "quokka.sr", SYSTEM)
-        quad = limits["QK:QF:1:CUR:SP"]
-        assert (quad.min_value, quad.max_value, quad.writable) == (0, 200, True)
-        assert limits["QK:BPMx:1:CUR:RB"].writable is False
-        assert limits["QK:DCCT:1:CUR:RB"].writable is False
-
-    def test_channel_limits_of_the_export_widen_a_band_around_its_nominal(self, tmp_path):
-        _limits_db, bands, _text = _limits_from_export(tmp_path, SYNTHETIC, "quokka.sr", SYSTEM)
+    def test_the_committed_export_widens_a_band_around_its_nominal(self, tmp_path):
+        bands = _bands_from_export(tmp_path, SYNTHETIC, "quokka.sr", SYSTEM)
         widened = {band.address: band for band in bands if band.widened}
         assert widened["QK:HC:1:CUR:SP"].max_value == 1.5
         assert widened["QK:HC:1:CUR:SP"].nominal == 1.5
-
-
-@pytest.mark.parametrize("tree", ["nsls2", "spear3"])
-def test_channel_limits_on_a_real_export_load_through_the_write_safety_validator(tmp_path, tree):
-    """The two committed real trees, once either carries a 2.0 export.
-
-    They hold 1.0 files today, so the lane discovers there is nothing to run
-    against and skips itself; the day a ``va.json`` lands beside them it runs
-    without being edited.
-    """
-    directory = SYNTHETIC.parent / tree
-    exports = sorted(directory.glob("*.va.json"))
-    if not exports:
-        pytest.skip(
-            f"{tree} holds no 2.0 export; re-export it with mml_export 2.0 to run this lane"
-        )
-    stem = exports[0].name[: -len(".va.json")]
-    limits, bands, _text = _limits_from_export(tmp_path, directory, stem, stem.split(".")[1])
-    assert bands
-    assert all(limits[band.address].writable for band in bands if band.refused is None)
+        quad = next(band for band in bands if band.address == "QK:QF:1:CUR:SP")
+        assert (quad.min_value, quad.max_value) == (0, 200)
 
 
 # --- the cavity a cavity-less deck is served ---------------------------------

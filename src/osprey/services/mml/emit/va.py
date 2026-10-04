@@ -116,8 +116,8 @@ __all__ = [
     "NominalSeed",
     "SeriesSupply",
     "UnbandedSetpointError",
+    "channel_bands",
     "emit_bindings",
-    "emit_channel_limits",
     "emit_lattice",
     "emit_machine",
     "emit_state_channels",
@@ -1522,44 +1522,13 @@ def _sampled_row(value: Any, device: int, devices: int, what: str) -> Any:
     return _per_device_entry(value, device, devices, what)
 
 
-# --- the shared channel-limits database --------------------------------------
+# --- the coupled setpoints' bands --------------------------------------------
 #
-# ``data/channel_limits.json`` is not this lane's file. It is the write-safety
-# database every write is validated against, and a facility that already runs
-# one has authored bands this lane knows nothing about. So the lane writes it
-# the way a guest writes in someone else's book: on a tree it creates it states
-# the whole channel set, and on a tree that already carries the file it touches
-# nothing but ``min_value``/``max_value`` on the addresses its own bindings
-# name. Every entry it wrote carries :data:`PROVENANCE_KEY`, which is the whole
-# of how a later run tells its own band from a band a person typed: a stamped
-# entry is re-derived, an unstamped one is copied across unchanged -- key order
-# and all -- so every foreign entry stays byte-identical, and a coupled address
-# whose band a person has since edited is reported for the pre-flight to refuse
-# rather than overwritten.
-#
-# The stamp is per entry and never at the top of the document, unlike the two
-# starting-state files: those the lane owns whole, this one it shares, and a
-# key at the top of a facility's own file is a key the lane does not own. The
-# pre-flight reads the stamp per address for the same reason -- the question it
-# asks is about one band, not about the file.
-#
-# ``LimitsValidator._load_limits_database`` fails the WHOLE file on one entry
-# carrying a key it does not know, which is why the stamp is spelled with a
-# leading underscore: every ``_``-prefixed key is documentation there. So the
-# file this lane writes loads through the validator and through ``catalog.py``
-# alike.
-
-#: The two entry keys this lane owns, and nothing else.
-_MIN_KEY = "min_value"
-_MAX_KEY = "max_value"
-
-#: Whether a write to the address is allowed at all. Written once, when the
-#: lane creates the entry; never touched again, because a facility that turned
-#: an address off meant it.
-_WRITABLE_KEY = "writable"
-
-#: The one functional non-address key of the document, kept verbatim.
-_DEFAULTS_KEY = "defaults"
+# Every setpoint the virtual accelerator drives has a band: its family's
+# Setpoint ``Range``, widened to the device's nominal where the nominal sits
+# outside it. The bands are derived in memory for ``osprey mml verify``, which
+# boots the model inside them and reports the ones a nominal pushed open; the
+# deployment's write-safety bands are the records of ``facility/limits.yaml``.
 
 #: The field key a Middle Layer family states its operating band under, and the
 #: field a coupled setpoint is banded from.
@@ -1632,16 +1601,13 @@ class ChannelBand:
         address: The channel the band applies to.
         family: The family the address belongs to.
         min_value: The bottom of the band. Always stated: a coupled setpoint the
-            export does not band on both edges stops the emit.
+            export does not band on both edges has no band to derive.
         max_value: The top of the band, stated for the same reason.
         nominal: The device's nominal hardware value, for a report to show
             beside a band it widened.
         widened: Whether the nominal sat outside the exported ``Range`` and
             widened the band to include it. The served model refuses to boot on
             a nominal outside its band, so the band gives way -- and says so.
-        refused: Why the band was not written, or ``None`` when it was. Set
-            only for an address the file already bands differently without
-            this lane's stamp: a person's edit, which the pre-flight refuses.
     """
 
     address: str
@@ -1650,54 +1616,24 @@ class ChannelBand:
     max_value: float
     nominal: float | None
     widened: bool
-    refused: str | None = None
 
 
-def emit_channel_limits(
-    existing: dict | None,
-    bindings: Iterable[Binding],
-    channel_addresses: Iterable[str],
-    ctx: EmitContext,
-    *,
-    views: Iterable[FamilyView],
-    system: str,
-) -> tuple[str, tuple[ChannelBand, ...]]:
-    """Build ``channel_limits.json``: what a write to each address may do.
-
-    On a tree that carries no such file, the lane states the whole machine:
-    one entry per address the channel database carries, plus every address the
-    bindings name. A coupled setpoint is writable and banded from its family's
-    Setpoint ``Range``; every other entry -- a readback, a monitor, a channel
-    the virtual accelerator does not drive -- is ``writable: false``.
-
-    On a tree that already carries one, the lane touches only the addresses its
-    own bindings name, and only their bands. ``defaults``, every per-entry
-    ``confirm``, and every entry this lane did not stamp are copied across
-    exactly as they were, so a facility's own file survives the emit. The
-    document's keys are sorted, so a re-emit of an unchanged export produces
-    byte-identical text.
+def channel_bands(
+    bindings: Iterable[Binding], *, views: Iterable[FamilyView], system: str
+) -> tuple[ChannelBand, ...]:
+    """One band per coupled setpoint the bindings drive, sorted by address.
 
     Args:
-        existing: The file already on the tree as plain JSON types, or ``None``
-            when there is none. Never modified.
-        bindings: The bindings this run emitted --
-            :attr:`~osprey.services.virtual_accelerator.bindings.BindingsDocument.bindings`
-            of the document :func:`emit_bindings` just wrote.
-        channel_addresses: Every address the channel database carries. Read on
-            a tree the lane creates and ignored on a merge, where an address
-            the lane does not own is an address it does not state.
-        ctx: The provenance of this emit run; its string is the stamp.
+        bindings: The emitted bindings --
+            :attr:`~osprey.services.virtual_accelerator.bindings.BindingsDocument.bindings`.
         views: The judged family views, in any order -- the operating bands
             and the device each address sits at are read off them, so a
             reviewer's dropped device is already gone from both.
-        system: The raw system token the bindings describe, as
-            :func:`emit_bindings` was given.
+        system: The raw system token the bindings describe.
 
     Returns:
-        The document text, and one :class:`ChannelBand` per coupled setpoint:
-        the band written, with ``widened`` set where the nominal pushed it out
-        and ``refused`` set where a person's own band stands in its place. The
-        refused rows are what the emit pre-flight stops on.
+        One :class:`ChannelBand` per writable bound address, with ``widened``
+        set where the nominal pushed the band out.
 
     Raises:
         UnbandedSetpointError: A coupled setpoint's family states no finite
@@ -1707,98 +1643,20 @@ def emit_channel_limits(
             the devices they were measured for.
     """
     grain = {view.raw_name: view for view in views if view.system == system}
-    banded: dict[str, tuple[float, float, bool, str, float | None]] = {}
-    read_only: list[str] = []
+    banded: dict[str, ChannelBand] = {}
     for binding in bindings:
-        if binding.is_writable:
-            if binding.setpoint_address not in banded:
-                low, high, widened = _setpoint_band(binding, grain.get(binding.family))
-                banded[binding.setpoint_address] = (
-                    low,
-                    high,
-                    widened,
-                    binding.family,
-                    _number(binding.nominal),
-                )
-        else:
-            read_only.append(binding.setpoint_address)
-        if binding.readback_address:
-            read_only.append(binding.readback_address)
-    owned_read_only = [
-        address for address in dict.fromkeys(read_only) if address and address not in banded
-    ]
-
-    if existing is None:
-        document = _created_limits(banded, owned_read_only, channel_addresses, ctx)
-        refusals: dict[str, str] = {}
-    else:
-        document, refusals = _merged_limits(existing, banded, owned_read_only, ctx)
-
-    rows = [
-        ChannelBand(
-            address=address,
-            family=family,
+        if not binding.is_writable or binding.setpoint_address in banded:
+            continue
+        low, high, widened = _setpoint_band(binding, grain.get(binding.family))
+        banded[binding.setpoint_address] = ChannelBand(
+            address=binding.setpoint_address,
+            family=binding.family,
             min_value=low,
             max_value=high,
-            nominal=nominal,
-            widened=widened and address not in refusals,
-            refused=refusals.get(address),
+            nominal=_number(binding.nominal),
+            widened=widened,
         )
-        for address, (low, high, widened, family, nominal) in sorted(banded.items())
-    ]
-    return _text(_ordered_limits(document)), tuple(rows)
-
-
-def _created_limits(
-    banded: dict[str, tuple[float, float, bool, str, float | None]],
-    read_only: Iterable[str],
-    channel_addresses: Iterable[str],
-    ctx: EmitContext,
-) -> dict[str, Any]:
-    """The whole machine, on a tree that carries no limits file yet."""
-    document: dict[str, Any] = {}
-    for address in channel_addresses:
-        if address and address not in banded:
-            document[address] = _read_only_entry(ctx)
-    for address in read_only:
-        document[address] = _read_only_entry(ctx)
-    for address, (low, high, _widened, _family, _nominal) in banded.items():
-        document[address] = _band_entry(ctx, low, high)
-    return document
-
-
-def _merged_limits(
-    existing: dict,
-    banded: dict[str, tuple[float, float, bool, str, float | None]],
-    read_only: Iterable[str],
-    ctx: EmitContext,
-) -> tuple[dict[str, Any], dict[str, str]]:
-    """The facility's own file, with this lane's bands folded into it."""
-    document = dict(existing)
-    refusals: dict[str, str] = {}
-    for address, (low, high, _widened, _family, _nominal) in banded.items():
-        entry = document.get(address)
-        if not isinstance(entry, dict):
-            document[address] = _band_entry(ctx, low, high)
-            continue
-        if PROVENANCE_KEY in entry:
-            document[address] = _restamped(entry, ctx, low, high)
-            continue
-        held = (_number(entry.get(_MIN_KEY)), _number(entry.get(_MAX_KEY)))
-        if (low, high) != held:
-            refusals[address] = (
-                f"{address}: the file bands it {_band_words(*held)} and carries no "
-                f"{PROVENANCE_KEY} stamp, while this export bands it "
-                f"{_band_words(low, high)}; the band was written by hand and is "
-                "left alone"
-            )
-    for address in read_only:
-        entry = document.get(address)
-        if entry is None:
-            document[address] = _read_only_entry(ctx)
-        elif isinstance(entry, dict) and PROVENANCE_KEY in entry:
-            document[address] = _restamped(entry, ctx, None, None)
-    return document, refusals
+    return tuple(banded[address] for address in sorted(banded))
 
 
 def _setpoint_band(binding: Binding, view: FamilyView | None) -> tuple[float, float, bool]:
@@ -1900,50 +1758,3 @@ def _device_indices(field_view: FieldView, address: str) -> list[int]:
             if _address(slot) == address and index not in found:
                 found.append(index)
     return found
-
-
-def _band_entry(ctx: EmitContext, low: float, high: float) -> dict[str, Any]:
-    """A fresh entry for a coupled setpoint: stamped, writable, banded."""
-    return {
-        PROVENANCE_KEY: ctx.provenance_string,
-        _WRITABLE_KEY: True,
-        _MIN_KEY: low,
-        _MAX_KEY: high,
-    }
-
-
-def _read_only_entry(ctx: EmitContext) -> dict[str, Any]:
-    """A fresh entry for an address nothing writes."""
-    return {PROVENANCE_KEY: ctx.provenance_string, _WRITABLE_KEY: False}
-
-
-def _restamped(
-    entry: dict, ctx: EmitContext, low: float | None, high: float | None
-) -> dict[str, Any]:
-    """An entry this lane wrote before, re-derived: the band and the stamp, nothing else."""
-    out = dict(entry)
-    out[PROVENANCE_KEY] = ctx.provenance_string
-    for key, value in ((_MIN_KEY, low), (_MAX_KEY, high)):
-        if value is None:
-            out.pop(key, None)
-        else:
-            out[key] = value
-    return out
-
-
-def _band_words(low: float | None, high: float | None) -> str:
-    """One band, as a refusal names it."""
-    return f"[{'none' if low is None else low}, {'none' if high is None else high}]"
-
-
-def _ordered_limits(document: dict[str, Any]) -> dict[str, Any]:
-    """The document in one deterministic order: metadata, ``defaults``, addresses."""
-    ordered: dict[str, Any] = {
-        key: document[key] for key in sorted(document) if key.startswith("_")
-    }
-    if _DEFAULTS_KEY in document:
-        ordered[_DEFAULTS_KEY] = document[_DEFAULTS_KEY]
-    for key in sorted(document):
-        if not key.startswith("_") and key != _DEFAULTS_KEY:
-            ordered[key] = document[key]
-    return ordered

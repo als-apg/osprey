@@ -18,6 +18,7 @@ invented too; nothing here spells one.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 import yaml
@@ -27,7 +28,7 @@ from osprey.cli.main import cli
 from osprey.services.virtual_accelerator.manifest.paths import DEFAULT_TIER
 from tests.cli.test_mml_map import _fill
 
-__all__ = ["SYNTHETIC_EXPORT", "emit_served_tree"]
+__all__ = ["SYNTHETIC_EXPORT", "emit_served_tree", "limits_view"]
 
 #: The 2.0 export the chain is run over: an invented ring small enough to read
 #: by eye, covering every binding kind and both slice shapes.
@@ -44,7 +45,9 @@ def emit_served_tree(root: Path) -> Path:
     turns the checked mapping into the artifacts a deployment reads. The tier
     directory is staged first, so the channel database lands where the
     manifest generator reads it and the manifest is the one this tree's own
-    namespace produces rather than another tree's.
+    namespace produces rather than another tree's. Last, the limits view of
+    the repo's own ``data/facility`` is staged at the served root, where a
+    build stages it and where the served model reads its write bands.
 
     Args:
         root: An empty directory to build the deployment repository in.
@@ -79,4 +82,24 @@ def emit_served_tree(root: Path) -> Path:
         assert emitted.exit_code == 0, emitted.output
     finally:
         os.chdir(previous)
+    shutil.copyfile(limits_view(root), root / "data" / "channel_limits.json")
     return root / "data"
+
+
+def limits_view(root: Path) -> Path:
+    """Render the limits view of the repo at *root* and return the file.
+
+    The view is rendered from the repo's own ``data/facility`` into a scratch
+    directory beside the repo, never inside it -- the way a build renders it.
+    """
+    from osprey.facility.build import build_facility
+    from osprey.facility.render import render_facility_outputs
+
+    render = root.parent / f"{root.name}.limits"
+    if render.exists():
+        shutil.rmtree(render)
+    render.mkdir(parents=True)
+    facility_dir = root / "data" / "facility"
+    document = build_facility(facility_dir, project_name=root.name)
+    render_facility_outputs(render, document, {}, facility_dir)
+    return render / "data" / "channel_limits.json"

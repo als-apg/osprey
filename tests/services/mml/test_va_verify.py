@@ -60,7 +60,7 @@ from osprey.cli.main import cli
 # the report file on disk come from one run over one tree.
 from osprey.cli.mml_cmd import _parse_mapping_file, _read_import, _va_export, _va_lane
 from osprey.services.mml.emit.context import build_context
-from osprey.services.mml.emit.va import emit_channel_limits, emit_machine
+from osprey.services.mml.emit.va import channel_bands, emit_machine
 from osprey.services.mml.va.verify import (
     FLOOR_FRACTION,
     REPORT_FILENAME,
@@ -144,14 +144,7 @@ def inputs(emitted: Path) -> dict[str, Any]:
     _machine, seeds = emit_machine(
         lane.verdicts, lane.views, lane.judged_va, mapping, ctx, lane.element_bindings
     )
-    _limits, bands = emit_channel_limits(
-        json.loads((data / "channel_limits.json").read_text(encoding="utf-8")),
-        bindings.bindings,
-        (),
-        ctx,
-        views=lane.views,
-        system=lane.system,
-    )
+    bands = channel_bands(bindings.bindings, views=lane.views, system=lane.system)
     return {
         "data": data,
         "system": lane.system,
