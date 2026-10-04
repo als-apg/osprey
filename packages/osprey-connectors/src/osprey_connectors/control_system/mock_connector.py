@@ -1,22 +1,38 @@
-"""
-Mock control system connector for development and testing.
+"""Mock control system connector: the built facility's simulator, in process.
 
-Works with any PV names - generates realistic synthetic data.
-Ideal for R&D and development without control room access.
+The mock serves exactly the channel and status addresses of the simulator view
+``osprey build`` writes at ``data/simulator/`` beside the rendered config,
+through the composite (:class:`~osprey_connectors.simulation.composite.Composite`):
+the texture and one physics child per served model whose engine is not
+``texture``. An address outside the view is refused with
+``<address> is not in build/facility.json``.
 
+* A read carries the composite's value, motion included; a ``bool`` or
+  ``enum`` channel reads as its option index, a waveform as an array of its
+  shape. A channel of a failed model reads with alarm severity 3 (``UDF``).
+* A confirming read carries the held value, without motion.
+* Metadata comes from the channel's record in ``variables.json``: its
+  description, and the unit of its variable.
+* A write to a channel that is not a writable setpoint is refused before
+  anything is put; a write the composite refuses is refused with the
+  composite's text.
+* One tick task runs at ``simulation.tick_s``; after every tick and every
+  write a subscription fires for its channel when the held value changed or
+  the channel declares motion.
+
+``lume`` is imported in :meth:`MockConnector.connect` only.
 """
+
+from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+import inspect
+import json
+from collections.abc import Callable, Mapping
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
-if TYPE_CHECKING:
-    from osprey_connectors.simulation.engine import SimulationEngine
-
-from osprey_connectors.channel_taxonomy import classify_channel
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
@@ -27,171 +43,347 @@ from osprey_connectors.control_system.base import (
     values_match,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.engine import engine_serves
+
+if TYPE_CHECKING:
+    from osprey_connectors.simulation.composite import Composite
 
 logger = get_logger("mock_connector")
 
+__all__ = [
+    "NO_VIEW_MESSAGE",
+    "SIMULATOR_VIEW_SETTING",
+    "MockConnector",
+    "not_in_facility",
+    "simulation_state_dir",
+    "simulator_view_dir",
+]
+
+#: The ``connect()`` setting naming the simulator view directory to serve.
+SIMULATOR_VIEW_SETTING = "simulator_view"
+
+#: Why a mock refuses to connect without a built simulator view.
+NO_VIEW_MESSAGE = "mock connector needs a built simulator view: run osprey build"
+
+#: Why a write to a channel that is not a writable setpoint is refused.
+NOT_WRITABLE = "not a writable setpoint"
+
+#: The alarm a read of a failed model's channel carries.
+UDF_SEVERITY = 3
+UDF_STATUS = "UDF"
+
+_VIEW_RELPATH = ("data", "simulator")
+_RENDERED_CONFIG = "config.yml"
+_ADDRESSES_FILE = "addresses.json"
+_VARIABLES_FILE = "variables.json"
+_SEEDS_FILE = "seeds.json"
+_LABELLED = ("bool", "enum")
+_REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
+
+
+def not_in_facility(address: str) -> str:
+    """The refusal for an address the built facility file does not hold."""
+    return f"{address} is not in build/facility.json"
+
+
+def _loaded_config_path() -> str | None:
+    """The config this process's unqualified lookups read, loading it when none is."""
+    from osprey_connectors.config import default_config_path, get_config_builder
+
+    path = default_config_path()
+    if path is not None:
+        return path
+    try:
+        get_config_builder()
+    except (FileNotFoundError, IsADirectoryError, KeyError, RuntimeError, ValueError):
+        return None
+    return default_config_path()
+
+
+def simulator_view_dir(setting: str | Path | None = None) -> Path:
+    """The simulator view a mock serves.
+
+    Args:
+        setting: The view directory a ``connect()`` call names; ``None`` reads
+            ``data/simulator/`` beside the config this process loaded.
+
+    Returns:
+        The view directory.
+
+    Raises:
+        RuntimeError: There is no view there; the message is
+            :data:`NO_VIEW_MESSAGE`.
+    """
+    if setting:
+        view = Path(setting).expanduser()
+    else:
+        config_path = _loaded_config_path()
+        if config_path is None:
+            raise RuntimeError(NO_VIEW_MESSAGE)
+        view = Path(config_path).parent.joinpath(*_VIEW_RELPATH)
+    if not (view / _ADDRESSES_FILE).is_file():
+        raise RuntimeError(NO_VIEW_MESSAGE)
+    return view
+
+
+def _rendered_config(view: Path) -> tuple[Path, dict[str, Any]]:
+    """The rendered config beside a view, and its contents; empty when there is none."""
+    from osprey_connectors.config import load_project_config
+
+    path = view.parent.parent / _RENDERED_CONFIG
+    if not path.is_file():
+        return path, {}
+    try:
+        return path, load_project_config(path)
+    except Exception as exc:
+        logger.warning(f"cannot read {path} beside the simulator view: {exc}")
+        return path, {}
+
+
+def simulation_state_dir(view: Path) -> Path:
+    """The simulation state directory of the render a view belongs to.
+
+    The directory holding the ``active_scenarios`` file, resolved from the
+    rendered config beside the view as every simulation reader resolves it.
+    """
+    from osprey_connectors.workspace import repo_root_for_config, resolve_simulation_state_dir
+
+    config_path, config = _rendered_config(view)
+    root = Path(str(config.get("project_root") or repo_root_for_config(config_path)))
+    return resolve_simulation_state_dir(config, root)
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return document
+
 
 class MockConnector(ControlSystemConnector):
-    """
-    Mock control system connector for development and testing.
-
-    This connector simulates a control system without requiring real hardware.
-    It generates realistic synthetic data for any PV name, making it ideal
-    for R&D and development when you don't have access to the control room.
-
-    Features:
-    - Accepts any PV name
-    - Generates realistic initial values based on PV naming conventions
-    - Adds configurable noise to simulate real measurements
-    - Maintains state between reads and writes
-    - Simulates readback PVs (e.g., :SP -> :RB)
+    """Serve the built facility's simulator view in process.
 
     Example:
-        >>> config = {
-        >>>     'response_delay_ms': 10,
-        >>>     'noise_level': 0.01,
-        >>> }
         >>> connector = MockConnector()
-        >>> await connector.connect(config)
-        >>> value = await connector.read_channel('BEAM:CURRENT')
-        >>> print(f"Beam current: {value.value} {value.metadata.units}")
+        >>> await connector.connect({"response_delay_ms": 10})
+        >>> value = await connector.read_channel("SR:DIAG:BPM:01:POSITION:X")
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected = False
-        self._state: dict[str, float] = {}
-        self._subscriptions: dict[str, tuple] = {}
-        self._sim_engine: SimulationEngine | None = None
+        self._composite: Composite | None = None
+        self._records: dict[str, Mapping[str, Any]] = {}
+        self._served: frozenset[str] = frozenset()
+        self._moving: frozenset[str] = frozenset()
+        self._subscriptions: dict[str, tuple[str, Callable[[ChannelValue], Any]]] = {}
+        self._last_held: dict[str, Any] = {}
+        self._tick_task: asyncio.Task[None] | None = None
+        self._tick_s = 1.0
 
     async def connect(self, config: dict[str, Any]) -> None:
-        """
-        Initialize mock connector.
+        """Build the composite of the simulator view and start the tick.
 
         Args:
-            config: Configuration with keys:
+            config: Connector settings:
                 - response_delay_ms: Simulated response delay (default: 10)
-                - noise_level: Relative noise level 0-1 (default: 0.01)
-                - simulation_file: Optional path to a machine.json driving the
-                  data-driven simulation engine (relative paths resolve against
-                  the project root). Without it, every PV is served procedurally.
-        """
-        self._response_delay = config.get("response_delay_ms", 10) / 1000.0
-        self._noise_level = config.get("noise_level", 0.01)
+                - simulator_view: The view directory to serve; absent serves
+                  ``data/simulator/`` beside the loaded config.
 
-        # Initialize limits validator for automatic validation and confirm policy
+        Raises:
+            RuntimeError: There is no built simulator view.
+            ValueError: ``simulation.tick_s`` in the rendered config is not a
+                number greater than zero.
+        """
+        from osprey_connectors.simulation import resolve_tick_s
+        from osprey_connectors.simulation.composite import Composite
+
+        self._response_delay = config.get("response_delay_ms", 10) / 1000.0
+
         from osprey_connectors.control_system.limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:
             logger.debug("Mock connector: limits validator initialized")
 
-        # Optional data-driven simulation engine (machine file)
-        from osprey_connectors.simulation.engine import engine_from_connector_config
+        view = simulator_view_dir(config.get(SIMULATOR_VIEW_SETTING))
+        _config_path, rendered = _rendered_config(view)
+        self._tick_s = resolve_tick_s(rendered)
+        addresses = _read_json(view / _ADDRESSES_FILE)
+        variables = _read_json(view / _VARIABLES_FILE)
+        seeds = _read_json(view / _SEEDS_FILE).get("seeds") or {}
 
-        self._sim_engine = engine_from_connector_config(config)
-
+        self._records = {str(channel["address"]): channel for channel in variables["channels"]}
+        self._served = frozenset(
+            [*(str(a) for a in addresses["channels"]), *(str(a) for a in addresses["status"])]
+        )
+        self._moving = frozenset(
+            str(address)
+            for address, seed in seeds.items()
+            if seed and (seed.get("noise") or seed.get("drift"))
+        )
+        self._composite = Composite(
+            view, state_dir=simulation_state_dir(view), instance="inprocess"
+        )
         self._connected = True
-        logger.debug("Mock connector initialized")
+        self._tick_task = asyncio.create_task(self._tick())
+        logger.debug(f"Mock connector serving {view}")
 
     async def disconnect(self) -> None:
-        """Cleanup mock connector."""
-        self._state.clear()
+        """Stop the tick and drop the composite."""
+        if self._tick_task is not None:
+            self._tick_task.cancel()
+            try:
+                await self._tick_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._tick_task = None
         self._subscriptions.clear()
-        self._sim_engine = None
+        self._last_held.clear()
+        self._composite = None
         self._connected = False
         logger.debug("Mock connector disconnected")
+
+    # -- the view ------------------------------------------------------------
+
+    def _require(self, address: str) -> Composite:
+        """The composite, once ``address`` is one it serves.
+
+        Raises:
+            ValueError: ``address`` is not in the view.
+            RuntimeError: The connector is not connected.
+        """
+        if self._composite is None:
+            raise RuntimeError("mock connector is not connected")
+        if address not in self._served:
+            raise ValueError(not_in_facility(address))
+        return self._composite
+
+    def _wire(self, address: str, value: Any) -> Any:
+        """A value as the wire carries it: a label as its index, a waveform as an array."""
+        record = self._records.get(address)
+        if record is None:
+            return value
+        value_type = record.get("value_type")
+        if value_type in _LABELLED:
+            from osprey_connectors.simulation import values
+
+            options = list(record.get("options") or values.DEFAULT_BOOL_OPTIONS)
+            return options.index(value) if value in options else value
+        if value_type == "waveform":
+            import numpy as np
+
+            shape = tuple(int(size) for size in record.get("shape") or ())
+            return np.asarray(value, dtype=np.float64).reshape(shape or (-1,))
+        return value
+
+    def _metadata(self, address: str, composite: Composite) -> ChannelMetadata:
+        """Metadata from the channel record, alarm from the composite's severity."""
+        record = self._records.get(address, {})
+        variable = composite.supported_variables[address]
+        unit = getattr(variable, "unit", None) or record.get("unit") or ""
+        severity = composite.output_severity([address])
+        labels: list[str] | None = None
+        if record.get("value_type") in _LABELLED:
+            from osprey_connectors.simulation import values
+
+            labels = list(record.get("options") or values.DEFAULT_BOOL_OPTIONS)
+        return ChannelMetadata(
+            units=str(unit),
+            timestamp=datetime.now(get_facility_timezone()),
+            description=record.get("description"),
+            alarm_severity=UDF_SEVERITY if address in severity else None,
+            alarm_status=UDF_STATUS if address in severity else None,
+            enum_labels=labels,
+        )
+
+    def _reading(self, address: str, *, held: bool) -> ChannelValue:
+        composite = self._require(address)
+        stored = composite.held([address])[address] if held else composite.get(address)
+        metadata = self._metadata(address, composite)
+        if metadata.enum_labels is not None and stored in metadata.enum_labels:
+            metadata.enum_label = str(stored)
+        return ChannelValue(
+            value=self._wire(address, stored),
+            timestamp=metadata.timestamp or datetime.now(get_facility_timezone()),
+            metadata=metadata,
+        )
+
+    def _held_value(self, address: str) -> Any:
+        composite = self._require(address)
+        return self._wire(address, composite.held([address])[address])
+
+    # -- reads -----------------------------------------------------------------
 
     async def read_channel(
         self,
         channel_address: str,
         timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_channel signature; a mock read never blocks
     ) -> ChannelValue:
-        """
-        Read channel - generates realistic value if not cached.
+        """Read a channel as the simulator serves it, motion included.
 
-        Args:
-            channel_address: Any channel name (mock accepts all names)
-            timeout: Ignored for mock connector
-
-        Returns:
-            ChannelValue with synthetic data
+        Raises:
+            ValueError: The address is not in the built facility file.
         """
-        # Simulate network delay
         await asyncio.sleep(self._response_delay)
-
-        return self._read_value(channel_address, apply_noise=True)
+        return self._reading(channel_address, held=False)
 
     async def _confirming_read(self, channel_address: str) -> ChannelValue:
-        """Read a channel back to confirm a write, without measurement noise.
+        """Read a channel back to confirm a write: the held value, without motion.
 
-        Confirmation reports what the simulated control system *holds*, and the
-        store holds exactly what was put there. The noise ``read_channel``
-        injects models the jitter of measuring a live signal, so applying it
-        here would manufacture a mismatch on every write at any noise level.
+        Confirmation reports what the simulated control system holds; the
+        motion ``read_channel`` adds models measuring a live signal, so adding
+        it here would manufacture a mismatch on every write.
         """
         await asyncio.sleep(self._response_delay)
-
-        return self._read_value(channel_address, apply_noise=False)
-
-    def _read_value(self, channel_address: str, *, apply_noise: bool) -> ChannelValue:
-        """Build the reading for ``channel_address`` from the simulated machine.
-
-        Args:
-            channel_address: Any channel name
-            apply_noise: Whether to add measurement noise to the held value.
-                Engine-served channels carry whatever the machine file makes
-                them report either way.
-
-        Returns:
-            ChannelValue with synthetic data
-        """
-        # Simulation engine serves its channels; unknown PVs fall back to procedural
-        if engine_serves(self._sim_engine, channel_address):
-            reading = self._sim_engine.read(channel_address)
-            now = datetime.now(get_facility_timezone())
-            return ChannelValue(
-                value=reading.value,
-                timestamp=now,
-                metadata=ChannelMetadata(
-                    units=reading.units,
-                    timestamp=now,
-                    description=reading.description,
-                ),
-            )
-
-        # Get or generate initial value
-        if channel_address not in self._state:
-            self._state[channel_address] = self._generate_initial_value(channel_address)
-
-        value = self._state[channel_address]
-        if apply_noise:
-            # Add noise, floored per kind so a 0.0 baseline is not dead-flat.
-            sigma = classify_channel(channel_address).noise_sigma(value, self._noise_level)
-            value = value + np.random.normal(0, sigma)
-
-        return ChannelValue(
-            value=value,
-            timestamp=datetime.now(get_facility_timezone()),
-            metadata=ChannelMetadata(
-                units=self._infer_units(channel_address),
-                timestamp=datetime.now(get_facility_timezone()),
-                description=f"Mock channel: {channel_address}",
-            ),
-        )
+        return self._reading(channel_address, held=True)
 
     def _current_value_reader(self) -> Callable[[str], Any] | None:
-        """What the simulated control system holds, read without noise.
+        """What the simulated control system holds, read without motion."""
+        return self._held_value
 
-        The same store, and the same noise-free reading, that
-        :meth:`_confirming_read` compares a write against: measurement jitter
-        applied here would put a random error on every step size.
+    async def read_multiple_channels(
+        self,
+        channel_addresses: list[str],
+        timeout: float | None = None,
+    ) -> dict[str, ChannelValue]:
+        """Read multiple channels concurrently."""
+        return await self._read_concurrently(channel_addresses, timeout)
+
+    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+        """The channel record's description and its variable's unit.
+
+        Raises:
+            ValueError: The address is not in the built facility file.
         """
+        return self._metadata(channel_address, self._require(channel_address))
 
-        def read_current(channel_address: str) -> Any:
-            return self._read_value(channel_address, apply_noise=False).value
+    async def validate_channel(self, channel_address: str) -> bool:
+        """Whether the built facility file holds the address."""
+        return channel_address in self._served
 
-        return read_current
+    # -- writes ----------------------------------------------------------------
+
+    def _refused(self, address: str, value: Any, message: str) -> ChannelWriteResult:
+        logger.warning(f"Mock write refused: {address}: {message}")
+        return ChannelWriteResult(
+            channel_address=address,
+            value_written=value,
+            outcome=WriteOutcome.REFUSED,
+            refusal_reason=_REFUSED_BY_SIMULATOR,
+            error_message=message,
+        )
+
+    def _coerce(self, address: str, value: Any) -> Any:
+        """``value`` in the stored representation of the channel's ``value_type``.
+
+        Raises:
+            ValueError: The channel cannot hold the value.
+        """
+        from osprey_connectors.simulation import values
+
+        record = self._records[address]
+        if hasattr(value, "tolist"):
+            value = value.tolist()
+        return values.coerce(
+            value, record.get("value_type"), record.get("options"), record.get("shape")
+        )
 
     async def write_channel(
         self,
@@ -200,34 +392,38 @@ class MockConnector(ControlSystemConnector):
         timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.write_channel signature; a mock write never blocks
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
-        """
-        Write a value to a channel, confirming it unless asked not to.
+        """Write a value to a setpoint, confirming it unless asked not to.
 
-        The connector automatically:
-        1. Validates limits (min/max/step/writable) if limits checking enabled
-        2. Resolves the confirmation policy for the channel when ``confirm`` is None
-        3. Puts the value, then re-reads the channel that was written and compares
+        In order: an address outside the view, or a channel that is not a
+        writable setpoint, is refused; the limits are validated; the value is
+        put into the composite, whose refusal is a refusal with its text; the
+        subscriptions fire; the channel is re-read and compared.
 
         Args:
-            channel_address: Any channel name
-            value: Value to write
-            timeout: Ignored for mock connector
+            channel_address: A writable setpoint of the view.
+            value: Value to write.
+            timeout: Ignored for mock connector.
             confirm: Whether to re-read the channel and compare, or ``None`` to
-                resolve the policy for this channel from the limits database
+                resolve the policy for this channel from the limits database.
 
         Returns:
-            ChannelWriteResult carrying the outcome and what the channel was seen
-            to hold. The mock has no alarm metadata to report, so the alarm
-            fields stay ``None``.
+            ChannelWriteResult carrying the outcome and what the channel was
+            seen to hold.
 
         Raises:
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
-        # Step 1: Validate limits (FAIL CLOSED). A limits violation propagates
+        if self._composite is None or channel_address not in self._served:
+            return self._refused(channel_address, value, not_in_facility(channel_address))
+        if self._composite.supported_variables[channel_address].read_only:
+            return self._refused(
+                channel_address, value, f"Write to '{channel_address}' refused: {NOT_WRITABLE}"
+            )
+
+        # Validate limits (FAIL CLOSED). A limits violation propagates
         # unchanged; any other error means the check could not be made, and an
         # unmade check is not permission to write.
         if self._limits_validator:
-            # Import here to avoid circular dependency
             from osprey_connectors.errors import ChannelLimitsViolationError
 
             try:
@@ -240,16 +436,13 @@ class MockConnector(ControlSystemConnector):
             except Exception as e:
                 return self._validation_refusal(channel_address, value, e)
 
-        # Step 2: Resolve the confirmation policy for this channel.
         if confirm is None:
             confirm = self._resolve_confirm(channel_address)
 
-        # Step 3: Put the value into the simulated control system.
-        # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
         try:
-            self._put(channel_address, value)
+            stored = self._coerce(channel_address, value)
         except Exception as e:
             logger.warning(f"Mock write failed for {channel_address}: {e}")
             return ChannelWriteResult(
@@ -259,9 +452,24 @@ class MockConnector(ControlSystemConnector):
                 error_message=f"Mock write failed: {e}",
             )
 
+        before = self._subscribed_held()
+        try:
+            self._put(channel_address, stored)
+        except Exception as e:
+            from lume.exceptions import ReadOnlyError
+
+            if isinstance(e, ValueError | ReadOnlyError):
+                return self._refused(channel_address, value, str(e))
+            logger.warning(f"Mock write failed for {channel_address}: {e}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=f"Mock write failed: {e}",
+            )
+        await self._notify(before)
+
         if not confirm:
-            # Fast path by contract: nothing is read, so the result carries no
-            # observed value — the same reasoning as the EPICS connector.
             logger.debug(f"Mock write (unconfirmed by policy): {channel_address} = {value}")
             return ChannelWriteResult(
                 channel_address=channel_address,
@@ -270,7 +478,6 @@ class MockConnector(ControlSystemConnector):
                 notes="Confirmation not requested (mock)",
             )
 
-        # Step 4: Confirm by re-reading the channel that was written.
         try:
             observed = await self._confirming_read(channel_address)
         except Exception as e:
@@ -283,67 +490,43 @@ class MockConnector(ControlSystemConnector):
                 notes=f"Confirming read raised: {e} (mock)",
             )
 
-        # The mock reports no enum label, so the comparison is the ordinary one.
-        if values_match(value, observed.value):
-            logger.debug(f"Mock write confirmed: {channel_address} = {observed.value}")
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                outcome=WriteOutcome.CONFIRMED,
-                observed_value=observed.value,
-                notes=f"Observed {observed.value}, sent {value} (mock)",
-            )
-
-        logger.warning(
-            f"Mock write mismatch: {channel_address} sent {value}, observed {observed.value}"
+        outcome = (
+            WriteOutcome.CONFIRMED
+            if values_match(value, observed.value, enum_label=observed.metadata.enum_label)
+            else WriteOutcome.MISMATCH
         )
+        if outcome is WriteOutcome.MISMATCH:
+            logger.warning(
+                f"Mock write mismatch: {channel_address} sent {value}, observed {observed.value}"
+            )
         return ChannelWriteResult(
             channel_address=channel_address,
             value_written=value,
-            outcome=WriteOutcome.MISMATCH,
+            outcome=outcome,
             observed_value=observed.value,
+            alarm_status=observed.metadata.alarm_status,
+            alarm_severity=observed.metadata.alarm_severity,
             notes=f"Observed {observed.value}, sent {value} (mock)",
         )
 
     def _put(self, channel_address: str, value: Any) -> None:
-        """Store ``value`` in the simulated control system.
+        """Set ``value`` in the composite; raises whatever the composite raises."""
+        self._require(channel_address).set({channel_address: value})
 
-        Raises whatever the store raises — a value the mock cannot hold is a
-        write the control system did not take.
-        """
-        if engine_serves(self._sim_engine, channel_address):
-            # Engine channels: :SP -> :RB mirroring is handled by expr readbacks
-            # in the machine file, so no string-replace mirroring is needed here.
-            self._sim_engine.write(channel_address, value)
-            return
-
-        self._state[channel_address] = float(value)
-
-        # Update corresponding readback channel (simulate small offset)
-        readback_ch = channel_address.replace(":SP", ":RB").replace(":SET", ":GET")
-        if readback_ch != channel_address:
-            # Simulate small offset between setpoint and readback
-            offset = np.random.normal(0, abs(float(value)) * 0.001)
-            self._state[readback_ch] = float(value) + offset
-
-    async def read_multiple_channels(
-        self,
-        channel_addresses: list[str],
-        timeout: float | None = None,
-    ) -> dict[str, ChannelValue]:
-        """Read multiple channels concurrently."""
-        return await self._read_concurrently(channel_addresses, timeout)
+    # -- subscriptions and the tick ------------------------------------------
 
     async def subscribe(
         self, channel_address: str, callback: Callable[[ChannelValue], None]
     ) -> str:
-        """
-        Subscribe to channel changes.
+        """Subscribe to a channel; the callback fires after a tick or a write.
 
-        Note: Mock connector only triggers callbacks on write_channel calls.
+        Raises:
+            ValueError: The address is not in the built facility file.
         """
+        self._require(channel_address)
         sub_id = f"mock_{channel_address}_{id(callback)}"
         self._subscriptions[sub_id] = (channel_address, callback)
+        self._last_held[channel_address] = self._held_value(channel_address)
         logger.debug(f"Mock subscription created: {sub_id}")
         return sub_id
 
@@ -353,29 +536,39 @@ class MockConnector(ControlSystemConnector):
             del self._subscriptions[subscription_id]
             logger.debug(f"Mock subscription removed: {subscription_id}")
 
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
-        """Get channel metadata (from the simulation engine when available)."""
-        if engine_serves(self._sim_engine, channel_address):
-            reading = self._sim_engine.read(channel_address)
-            return ChannelMetadata(
-                units=reading.units,
-                description=reading.description,
-                timestamp=datetime.now(get_facility_timezone()),
-            )
-        return ChannelMetadata(
-            units=self._infer_units(channel_address),
-            description=f"Mock channel: {channel_address}",
-            timestamp=datetime.now(get_facility_timezone()),
-        )
+    def _subscribed_held(self) -> dict[str, Any]:
+        addresses = sorted({address for address, _ in self._subscriptions.values()})
+        if not addresses or self._composite is None:
+            return {}
+        return {address: self._held_value(address) for address in addresses}
 
-    async def validate_channel(self, channel_address: str) -> bool:  # noqa: ARG002 - ControlSystemConnector.validate_channel signature; every name is valid in mock mode
-        """All channel names are valid in mock mode."""
-        return True
+    async def _notify(self, before: Mapping[str, Any] | None = None) -> None:
+        """Fire each subscription whose channel's held value changed or that moves."""
+        if not self._subscriptions or self._composite is None:
+            return
+        previous = self._last_held if before is None else before
+        now = self._subscribed_held()
+        due = {
+            address
+            for address, value in now.items()
+            if address in self._moving or not values_match(previous.get(address), value)
+        }
+        self._last_held.update(now)
+        for address, callback in list(self._subscriptions.values()):
+            if address not in due:
+                continue
+            try:
+                result = callback(self._reading(address, held=False))
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                logger.warning(f"Mock subscription callback for {address} raised: {exc}")
 
-    def _generate_initial_value(self, channel_name: str) -> float:
-        """Generate a realistic initial value from the shared channel taxonomy."""
-        return classify_channel(channel_name).base_value
-
-    def _infer_units(self, channel_name: str) -> str:
-        """Infer units from the shared channel taxonomy."""
-        return classify_channel(channel_name).units
+    async def _tick(self) -> None:
+        """Every ``tick_s``: fire the subscriptions that are due."""
+        while True:
+            await asyncio.sleep(self._tick_s)
+            try:
+                await self._notify()
+            except Exception as exc:
+                logger.warning(f"Mock tick failed: {exc}")

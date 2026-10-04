@@ -64,7 +64,7 @@ async def test_the_simulator_reads_its_own_store(monkeypatch, tmp_path):
     await connector.connect(
         mock_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
     )
-    connector._state["SIM:CHANNEL:SP"] = CURRENT
+    connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
 
     assert connector._current_value_reader()("SIM:CHANNEL:SP") == CURRENT
 
@@ -163,14 +163,14 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
     await connector.connect(
         mock_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
     )
-    connector._state["SIM:CHANNEL:SP"] = CURRENT
+    connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
     connector._limits_validator = _step_validator("SIM:CHANNEL:SP", max_step=5.0)
 
     with pytest.raises(ChannelLimitsViolationError) as exc:
         await connector.write_channel("SIM:CHANNEL:SP", 90.0)
 
     assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
-    assert connector._state["SIM:CHANNEL:SP"] == CURRENT
+    assert connector._composite.held(["SIM:CHANNEL:SP"])["SIM:CHANNEL:SP"] == CURRENT
 
     await connector.disconnect()
 
@@ -181,13 +181,13 @@ async def test_max_step_lets_a_small_step_through_on_the_simulator(monkeypatch, 
     await connector.connect(
         mock_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
     )
-    connector._state["SIM:CHANNEL:SP"] = CURRENT
+    connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
     connector._limits_validator = _step_validator("SIM:CHANNEL:SP", max_step=5.0)
 
     result = await connector.write_channel("SIM:CHANNEL:SP", 12.0)
 
     assert result.outcome is WriteOutcome.CONFIRMED
-    assert connector._state["SIM:CHANNEL:SP"] == 12.0
+    assert connector._composite.held(["SIM:CHANNEL:SP"])["SIM:CHANNEL:SP"] == 12.0
 
     await connector.disconnect()
 

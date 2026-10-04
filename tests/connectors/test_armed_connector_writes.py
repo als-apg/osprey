@@ -246,7 +246,7 @@ def test_mock_connector_writes_still_work_with_the_block_armed(fakes, monkeypatc
 
     async def main():
         connector = MockConnector()
-        await connector.connect(mock_config(view, response_delay_ms=0, noise_level=0.0))
+        await connector.connect(mock_config(view, response_delay_ms=0))
         result = await connector.write_channel("TEST:CHANNEL:SP", 4.25, confirm=False)
         read = await connector.read_channel("TEST:CHANNEL:SP")
         await connector.disconnect()

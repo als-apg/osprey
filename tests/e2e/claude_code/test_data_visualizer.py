@@ -59,8 +59,8 @@ class TestDataVisualizerAgent:
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'DIAG:BPM[BPM18]:POSITION:X', 'DIAG:BPM[BPM19]:POSITION:X', "
-            "'DIAG:BPM[BPM20]:POSITION:X' over the last 24 hours with "
+            "'SR:DIAG:BPM:18:POSITION:X', 'SR:DIAG:BPM:19:POSITION:X', "
+            "'SR:DIAG:BPM:20:POSITION:X' over the last 24 hours with "
             "processing 'mean' and bin_size 60. "
             "Then delegate to the data-visualizer agent to create an "
             "interactive Plotly scatter plot of BPM18 vs BPM19, colored by "
@@ -185,7 +185,7 @@ class TestDataVisualizerAgent:
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
-            "'DIAG:BPM[BPM18]:POSITION:X' and 'DIAG:BPM[BPM19]:POSITION:X' "
+            "'SR:DIAG:BPM:18:POSITION:X' and 'SR:DIAG:BPM:19:POSITION:X' "
             "over the last 4 hours with processing 'mean' and bin_size 300. "
             "Then delegate to the data-visualizer agent to create an "
             "interactive Plotly line chart of both BPMs over time."

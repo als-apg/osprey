@@ -65,7 +65,7 @@ READINGS = ("SR:BEAM:CURRENT", *(f"SR:BPM:{index}:X" for index in range(6)))
 
 def _control_system(root: Path) -> dict:
     """The mock deployment a child serves, from a tree built under ``root``."""
-    view = served_tree(root, SETPOINTS, READINGS)
+    view = served_tree(root, SETPOINTS, READINGS, channels={"SR:BEAM:CURRENT": {"unit": "mA"}})
     return {
         "type": MOCK_TYPE,
         "writes_enabled": False,

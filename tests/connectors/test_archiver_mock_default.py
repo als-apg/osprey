@@ -22,6 +22,7 @@ from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.connectors import types
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from tests.facility.served_tree import mock_config, served_tree
 
 FACTORY_LOGGER = "connector_factory"
 
@@ -57,6 +58,21 @@ def registered_archivers():
         yield
 
 
+@pytest.fixture
+def rendered_view(tmp_path, monkeypatch):
+    """The render of a built tree as the working directory, its config beside its view.
+
+    A config section that names no view reaches the one beside the loaded
+    config, as a rendered deployment does.
+    """
+    view = served_tree(tmp_path, readings=["BEAM:CURRENT"])
+    render = view.parent.parent
+    (render / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
+    monkeypatch.chdir(render)
+    return view
+
+
+@pytest.mark.usefixtures("rendered_view")
 class TestArchiverTypeFallback:
     @pytest.mark.asyncio
     async def test_empty_config_creates_mock_archiver(self, caplog):
@@ -97,8 +113,11 @@ class TestArchiverTypeFallback:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_explicit_type_is_honoured_without_warning(self, caplog):
-        config = {"type": types.MOCK_ARCHIVER, types.MOCK_ARCHIVER: {"sample_rate_hz": 1.0}}
+    async def test_explicit_type_is_honoured_without_warning(self, caplog, rendered_view):
+        config = {
+            "type": types.MOCK_ARCHIVER,
+            types.MOCK_ARCHIVER: mock_config(rendered_view, sample_rate_hz=1.0),
+        }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
             connector = await ConnectorFactory.create_archiver_connector(config)

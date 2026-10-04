@@ -340,7 +340,10 @@ async def test_none_config_with_unusable_global_config_is_error(
 
 
 async def test_real_mock_archiver_is_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(served_tree(tmp_path, readings=["BEAM:CURRENT"]).parent.parent)
+    """The render of a built tree, its config beside the simulator view the archiver serves."""
+    render = served_tree(tmp_path, readings=["BEAM:CURRENT"]).parent.parent
+    (render / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
+    monkeypatch.chdir(render)
     runtime = HealthRuntime({})
     try:
         ctx = ProbeContext(runtime=runtime, config={"archiver": {"type": "mock_archiver"}})

@@ -47,11 +47,11 @@ class TestConnectorFactory:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_create_mock_archiver_connector(self):
+    async def test_create_mock_archiver_connector(self, tmp_path):
         """Test creating a mock archiver connector."""
         config = {
             "type": "mock_archiver",
-            "mock_archiver": {"sample_rate_hz": 1.0, "noise_level": 0.01},
+            "mock_archiver": mock_config(served_tree(tmp_path), sample_rate_hz=1.0),
         }
 
         connector = await ConnectorFactory.create_archiver_connector(config)
@@ -79,15 +79,17 @@ class TestConnectorFactory:
             connector = await ConnectorFactory.create_control_system_connector(None)
             assert connector is not None
             await connector.disconnect()
-        except (ValueError, ImportError, ConnectionError) as e:
-            # If config loading fails or dependencies are missing, that's OK for this test
-            # We're just checking it gives a reasonable error
+        except (ValueError, ImportError, ConnectionError, RuntimeError) as e:
+            # If config loading fails, dependencies are missing or the mock
+            # has no built view, that's OK for this test. We're just checking
+            # it gives a reasonable error
             error_msg = str(e).lower()
             assert (
                 "unknown control system type" in error_msg
                 or "config" in error_msg
                 or "required" in error_msg
                 or "install" in error_msg
+                or "run osprey build" in error_msg
             )
 
     @pytest.mark.asyncio

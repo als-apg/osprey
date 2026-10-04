@@ -368,7 +368,7 @@ def test_switch_section_does_not_disturb_the_existing_rule_shape():
 _EPICS_BLOCK = {"gateways": {"read_only": {"address": "gw.example.org"}}}
 _DOOCS_BLOCK = {"facility": "XFEL"}
 _VA_BLOCK = {"gateways": {"read_only": {"address": "localhost"}}}
-_MOCK_BLOCK = {"noise_level": 0.0}
+_MOCK_BLOCK = {"response_delay_ms": 0}
 
 #: (label, control_system section, switch-capable?) — shared by the gate test,
 #: the end-to-end render test and the runtime-agreement test, so the three
