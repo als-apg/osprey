@@ -52,7 +52,9 @@ does not carry is removed.
 Nothing is written until every record and every model's wiring is derived, so
 a stop leaves the layer directory as it was.
 
-After the records, :func:`import_mml` seeds the authored files that do not
+The wiring pass's lines are printed once the records are written: one per
+family wired without a stated hardware nominal. After the records,
+:func:`import_mml` seeds the authored files that do not
 exist yet (``limits.yaml``, ``seeds.yaml``, ``measurement/<model>.yaml``,
 ``classes.yaml`` and ``identity.yaml``; :mod:`~osprey.facility.layers.mml.seed`)
 and prints what the seeding reports.
@@ -381,7 +383,7 @@ def _write_records(
     family_ids: dict[str, dict[str, list[str]]] = {system: {} for system in exports.systems}
     for view, slots in zip(views, ids, strict=True):
         family_ids[view.system][view.raw_name] = slots
-    served = _wire(exports, mapping, models, judged, family_ids, owners, channels, answers)
+    served, lines = _wire(exports, mapping, models, judged, family_ids, owners, channels, answers)
 
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
@@ -397,6 +399,8 @@ def _write_records(
         if stale not in decks:
             stale.unlink()
     written.extend(_copy_responses(exports, mapping, layer))
+    for line in lines:
+        click.echo(line)
     return written
 
 
@@ -622,7 +626,7 @@ def _wire(
     owners: dict[str, list[str]],
     channels: dict[str, dict[str, Any]],
     answers: ExportAnswers,
-) -> list[tuple[str, Any]]:
+) -> tuple[list[tuple[str, Any]], list[str]]:
     """Wire every imported model and name its deck and wiring on its entry.
 
     Each entry of ``models`` that has a deck gains ``deck``, the path its
@@ -631,7 +635,8 @@ def _wire(
     are left as they are. Nothing is written here.
 
     Returns:
-        Each wired model's name and the deck it is served, in import order.
+        Each wired model's name and the deck it is served, in import order,
+        and the lines the wiring pass prints.
 
     Raises:
         ImportStop: ``export-invalid``, ``reference-missing`` or
@@ -640,6 +645,7 @@ def _wire(
     from osprey.facility.layers.mml.wiring import wire_model
 
     served: list[tuple[str, Any]] = []
+    lines: list[str] = []
     for entry, system in zip(models, exports.systems, strict=True):
         model = mapping.models[system]
         wired = wire_model(
@@ -661,7 +667,8 @@ def _wire(
             entry["settings"] = settings
         entry["wiring"] = wired.records
         served.append((model.name, wired.deck))
-    return served
+        lines.extend(wired.lines)
+    return served, lines
 
 
 def _twiss_field(data: Any, name: str) -> Any:

@@ -56,8 +56,9 @@ Stops, each an :class:`~osprey.facility.layers.mml.mapping.ImportStop`:
 
 * ``export-invalid``: the export and the mapping or the deck disagree -- the
   mapping wires families and the export saved no deck; a wired family the
-  export places no device of; whatever the deck pass refuses; a driven family
-  with a device that states no hardware nominal; a device stating no
+  export places no device of; whatever the deck pass refuses; a driven device
+  that states no hardware nominal where its sampled conversion turns back or
+  its supply feeds several devices in series; a device stating no
   calibration, or one of another shape than the mapping names; rows that no
   longer line up with the family's devices; an address or an element field two
   records claim.
@@ -72,7 +73,7 @@ import copy
 import math
 from collections.abc import Container, Sequence
 from collections.abc import Mapping as Map
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -143,10 +144,12 @@ class Wired:
             :func:`~osprey.facility.layers.mml.decks.served_deck` returns it;
             every element a record names carries that name exactly once.
         records: The wiring records, sorted by address.
+        lines: What the import prints about the wiring, one line each.
     """
 
     deck: Any
     records: list[dict[str, Any]]
+    lines: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -215,7 +218,8 @@ def wire_model(
         ]
         if unplaced:
             raise ImportStop(EXPORT_INVALID, unplaced)
-        records = _records(model, addressing, facts, views, device_ids, endpoints, answers)
+        lines: list[str] = []
+        records = _records(model, addressing, facts, views, device_ids, endpoints, answers, lines)
         served = decks.served_deck(addressing)
     except MappingError:
         raise
@@ -230,7 +234,7 @@ def wire_model(
                 for address in missing
             ],
         )
-    return Wired(deck=served, records=records)
+    return Wired(deck=served, records=records, lines=lines)
 
 
 def _records(
@@ -241,8 +245,11 @@ def _records(
     device_ids: Map[str, Sequence[str]],
     endpoints: Map[str, Sequence[str]],
     answers: ExportAnswers,
+    lines: list[str],
 ) -> list[dict[str, Any]]:
     """Every wiring record of one model, sorted by address.
+
+    Each family wired without a hardware nominal adds its line to ``lines``.
 
     Raises:
         ValueError: Two records claim one address or one element field, or
@@ -264,9 +271,15 @@ def _records(
             model.raw, family, {model.raw: facts}, answers, devices=view.n_devices
         )
         _require_devices(family, view, block)
-        for address, readbacks, body in _family_records(
+        records, unstated = _family_records(
             family, wiring, view, block, entries, device_ids.get(family), endpoints
-        ):
+        )
+        if unstated:
+            lines.append(
+                f"import mml: nominal not stated: {model.name}: family {family}; "
+                "start value from the deck"
+            )
+        for address, readbacks, body in records:
             for piece in _elements(body):
                 key = (piece, _field_name(body["engine"]))
                 if key in written:
@@ -309,17 +322,27 @@ def _family_records(
     entries: Sequence[decks.ElementBinding],
     ids: Sequence[str] | None,
     endpoints: Map[str, Sequence[str]],
-) -> list[tuple[str, list[str], dict[str, Any]]]:
+) -> tuple[list[tuple[str, list[str], dict[str, Any]]], bool]:
     """One family's records: per supply its address, its readbacks and the record body.
 
     A supply's readbacks are the ``Monitor`` addresses its devices read back
     on, each device's own, other than the supply's address.
 
+    A driven device that states no hardware nominal is wired all the same
+    where nothing hangs on the nominal: the start value comes from the deck.
+    Two things do hang on it, and refuse such a device: a sampled conversion
+    that turns back, whose stretch the operating point picks, and a supply
+    feeding several devices in series, whose shares the nominals set.
+
+    Returns:
+        The records, and whether a device was wired without a nominal.
+
     Raises:
         ValueError: The family carries no channel of its wired field, a driven
-            family has a device with no hardware nominal or serves a readback
-            on an address of its own with no ``monitor_inverse`` stated, or
-            whatever :func:`_supply_record` refuses.
+            device states no hardware nominal where a turning conversion or a
+            series needs it, a device serves a readback on an address of its
+            own with no ``monitor_inverse`` stated, or whatever
+            :func:`_supply_record` refuses.
     """
     engine = wiring.engine
     written = wiring.element_field
@@ -332,8 +355,6 @@ def _family_records(
     kind = _kind(engine)
     devices = view.n_devices
     gap = _nominal_gap(block, written, devices) if kind in _DRIVEN_KINDS else None
-    if gap is not None:
-        raise ValueError(f"family {family} is wired through {written} and the export {gap}")
 
     elements = _element_by_device(view, entries)
     supplies: dict[str, list[int]] = {}
@@ -343,8 +364,16 @@ def _family_records(
             supplies.setdefault(address, []).append(device)
 
     records: list[tuple[str, list[str], dict[str, Any]]] = []
+    unstated = False
     monitor = view.fields.get(MONITOR_FIELD)
     for address, members in supplies.items():
+        if gap is not None and any(
+            _nominal_for(block, written, member, devices, f"family {family}") is None
+            for member in members
+        ):
+            if len(members) > 1 or _turns_back(block, written, members[0], devices, family):
+                raise ValueError(f"family {family} is wired through {written} and the export {gap}")
+            unstated = True
         body = _supply_record(family, kind, engine, wiring, view, block, elements, members)
         if kind != _ENERGY:
             shared = len(endpoints.get(address, ())) > 1
@@ -361,7 +390,20 @@ def _family_records(
                 )
             readbacks.append(served)
         records.append((address, readbacks, body))
-    return records
+    return records, unstated
+
+
+def _turns_back(block: Map[str, Any], written: str, device: int, devices: int, family: str) -> bool:
+    """Whether a device's sampled conversion, either way, turns back on its grid."""
+    where = f"family {family} device {device + 1}"
+    for field_block, key in (
+        (block.get(written), "calibration"),
+        (block.get(MONITOR_FIELD), "monitor_inverse"),
+    ):
+        curve = _curve_for_device(field_block, key, device, devices, where)
+        if isinstance(curve, Table) and _stretches(curve.grid) != [(0, len(curve.grid) - 1)]:
+            return True
+    return False
 
 
 def _supply_record(
