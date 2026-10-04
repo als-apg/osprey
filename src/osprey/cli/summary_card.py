@@ -22,6 +22,7 @@ next are this module's business, not the renderer's.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from osprey.deployment.subprocess_capture import SPOOL_DIR
@@ -45,30 +46,54 @@ _NEXT_STEPS = {
     "stopped": "osprey up -d · osprey status",
 }
 
-#: Where a rendered project keeps the demo scenarios ``osprey sim apply`` reads.
-#: Relative to the build directory, which is the tree the build wrote, not the
-#: repo the operator is standing in.
-_SCENARIOS_DIR = Path("data") / "simulation" / "scenarios"
+#: Where a rendered project keeps its simulator view. Relative to the build
+#: directory, which is the tree the build wrote, not the repo the operator is
+#: standing in.
+_SIMULATOR_VIEW_DIR = Path("data") / "simulator"
 
-#: The command that seeds the demo logbook from those scenarios. Appended to the
-#: ``built`` card's next step, so the one next-step surface carries it instead of
-#: a line of its own.
+#: The command that seeds the demo logbook from the scenarios' logbook
+#: narratives. Appended to the ``built`` card's next step, so the one next-step
+#: surface carries it instead of a line of its own.
 _SEED_DEMO_LOGBOOK = "osprey sim apply nominal"
+
+
+def _scenarios_carry_a_logbook(build: Path) -> bool:
+    """True when the build's ``scenarios.json`` lists a scenario with a logbook.
+
+    A missing or unreadable file answers False: the hint is advice, and a build
+    without the file has nothing for it to seed.
+
+    :param build: The build directory.
+    """
+    from osprey.facility.views.simulator import SCENARIOS_FILE, SCENARIOS_SCHEMA
+
+    try:
+        document = json.loads(
+            (build / _SIMULATOR_VIEW_DIR / SCENARIOS_FILE).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return False
+    if not isinstance(document, dict) or document.get("schema") != SCENARIOS_SCHEMA:
+        return False
+    scenarios = document.get("scenarios")
+    if not isinstance(scenarios, list):
+        return False
+    return any(isinstance(s, dict) and s.get("logbook") for s in scenarios)
 
 
 def _next_step(root: Path, state: str) -> str:
     """What to run next for a deployment in ``state``, rooted at ``root``.
 
-    Fixed per state, with one exception the map cannot hold: a build that
-    rendered demo scenarios can seed its logbook from them, and one that did not
-    must not be told to run a command with nothing to apply. So the answer is
-    read off the rendered tree rather than declared.
+    Fixed per state, with one exception the map cannot hold: a build whose
+    scenarios carry a logbook narrative can seed its logbook from them, and one
+    whose scenarios carry none must not be told to run a command with nothing to
+    seed. So the answer is read off the rendered tree rather than declared.
 
     :param root: The deployment repo. The build it rendered is one directory in.
     :param state: One of ``created``, ``built``, ``running``, ``stopped``
     """
     step = _NEXT_STEPS.get(state, "osprey status")
-    if state == "built" and (root / BUILD_DIR_NAME / _SCENARIOS_DIR).is_dir():
+    if state == "built" and _scenarios_carry_a_logbook(root / BUILD_DIR_NAME):
         return f"{step} · {_SEED_DEMO_LOGBOOK}"
     return step
 
