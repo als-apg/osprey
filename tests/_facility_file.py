@@ -113,3 +113,37 @@ def write_demo_facility_file(render: Path | str) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(_DEMO_BYTES)
     return target
+
+
+def write_facility_views(render: Path | str, bundle: str = "control_assistant") -> list[Path]:
+    """Write the facility outputs a build writes into *render*, from *bundle*'s tree.
+
+    The facility file and every view the render's ``config.yml`` asks for, by
+    the build's own writer, so the render's agent facts name the models its
+    config serves. A bundle that packages no ``data/facility`` tree writes
+    nothing.
+
+    Args:
+        render: The render root, the directory holding ``config.yml``.
+        bundle: The app bundle whose packaged facility tree is built.
+
+    Returns:
+        The files written, sorted.
+    """
+    from importlib.resources import as_file, files
+
+    import yaml
+
+    from osprey.facility.build import build_facility
+    from osprey.facility.render import render_facility_outputs
+
+    render = Path(render)
+    config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8")) or {}
+    resource = files("osprey.templates").joinpath("apps", bundle, "data", "facility")
+    with as_file(resource) as facility_dir:
+        if not facility_dir.is_dir():
+            return []
+        document = build_facility(
+            facility_dir, project_name=str(config.get("project_name", render.name))
+        )
+        return render_facility_outputs(render, document, config, facility_dir)

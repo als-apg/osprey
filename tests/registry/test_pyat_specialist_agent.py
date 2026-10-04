@@ -4,7 +4,8 @@ Verifies that:
 - The agent appears in FRAMEWORK_AGENTS with the correct metadata and a
   ``python`` server dependency.
 - resolve_agents() enables pyat-specialist by default when the python server is
-  resolved, disables it when the python server is disabled, and honors a config
+  resolved and the render serves a deck-bearing model, disables it when the
+  python server is disabled or no served model has a deck, and honors a config
   override.
 - The agent template renders the exact tools/disallowedTools/maxTurns frontmatter
   and the distinctive body behaviors, and produces no output when disabled.
@@ -46,6 +47,7 @@ def _base_ctx(**overrides):
     ctx = {
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
+        "served_deck_models": ["SR"],
     }
     ctx.update(overrides)
     return ctx
@@ -145,6 +147,14 @@ class TestPyatSpecialistAgentResolved:
         servers = resolve_servers(cfg, ctx)
         assert "python" not in {s["name"] for s in servers if s["enabled"]}
         agents = resolve_agents(cfg, ctx, resolved_servers=servers)
+        agent = _get_agent(agents)
+        assert agent["enabled"] is False
+
+    def test_disabled_when_no_served_model_has_a_deck(self):
+        """A render serving no deck-bearing model has nothing for the agent to load."""
+        ctx = _base_ctx(served_deck_models=[])
+        servers = resolve_servers({}, ctx)
+        agents = resolve_agents({}, ctx, resolved_servers=servers)
         agent = _get_agent(agents)
         assert agent["enabled"] is False
 

@@ -958,6 +958,8 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
     ),
     "pyat-specialist": AgentDefinition(
         name="pyat-specialist",
+        # Loads each served model's deck; a render serving none has no agent.
+        condition="served_deck_models",
         server_dependency="python",
         description=(
             "Delegate to this agent when the user needs lattice/optics quantities "

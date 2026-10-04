@@ -251,6 +251,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     # file is read as a facility with no sources, so the facts and the
     # measurement block always come from the one reader.
     facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
+    facility = _read_facility(project_dir)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -315,7 +316,11 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The agent facts the build wrote: the facts page and the channel-finder
         # terminology tables render from them.
         "facility_facts": facility_facts,
-        "middle_layer_families": _middle_layer_families(_read_facility(project_dir)),
+        "middle_layer_families": _middle_layer_families(facility),
+        # The gate for the pyat-specialist agent: a render that serves no model
+        # with a deck has no lattice for it to load. A plain truthiness test,
+        # merged before resolve_agents runs, like the server gates above.
+        "served_deck_models": _served_deck_models(facility_facts, facility),
         "pyaml_view_present": bool(facility_facts["measurement_models"]),
         "measurement": hook_measurement(facility_facts),
         # The interactive deny floor settings.json.j2 renders into
@@ -370,6 +375,31 @@ def _read_facility(project_dir: Path) -> dict[str, Any]:
         logger.warning("The facility file %s could not be read", path, exc_info=True)
         return {}
     return document if isinstance(document, dict) else {}
+
+
+def _served_deck_models(facts: dict[str, Any], facility: dict[str, Any]) -> list[str]:
+    """The models a render serves that the pyat-specialist can load.
+
+    Args:
+        facts: The render's agent facts.
+        facility: The render's facility file (``{}`` when it holds none).
+
+    Returns:
+        The sorted names of the facts' served models, engine other than
+        ``texture``, whose facility-file record names a deck.
+    """
+    from osprey.facility import TEXTURE
+
+    with_deck = {
+        str(model.get("name"))
+        for model in facility.get("models", [])
+        if isinstance(model, dict) and model.get("deck")
+    }
+    return sorted(
+        str(model["name"])
+        for model in facts.get("models", [])
+        if model.get("served") and model.get("engine") != TEXTURE and model["name"] in with_deck
+    )
 
 
 def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str, str | None]]]:

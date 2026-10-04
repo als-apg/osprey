@@ -111,15 +111,19 @@ def _apply_preset_config(manager: TemplateManager, project: Path, preset: str) -
 
     A project's declarative config — its control system, its services, the
     servers it enables — is its preset's, and the framework template renders
-    none of it. So a build overlays the resolved ``config:`` onto config.yml
-    and regenerates ``.claude/`` from the result, and a fixture that stops at
-    the render is holding half a project.
+    none of it. So a build overlays the resolved ``config:`` onto config.yml,
+    writes the facility views and regenerates ``.claude/`` from the result, and
+    a fixture that stops at the render is holding half a project.
     """
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
+    from tests._facility_file import write_facility_views
 
     profile, _profile_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
+    # The build writes the facility views before it regenerates, so the
+    # agent facts name the models the render serves.
+    write_facility_views(project, preset.replace("-", "_"))
     manager.regenerate_claude_code(project)
     return project
 
