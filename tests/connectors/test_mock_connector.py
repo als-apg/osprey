@@ -16,6 +16,7 @@ import pytest
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
+from tests.facility.served_tree import mock_config, served_tree
 
 
 def _config_with_writes_enabled(key, default=None):
@@ -95,18 +96,20 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_and_read_maintains_state(self):
+    async def test_write_and_read_maintains_state(self, tmp_path):
         """Test that mock connector maintains state between writes and reads."""
+        view = served_tree(tmp_path, ["TEST:SETPOINT:SP"])
         connector = MockConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
             await connector.connect(
-                {
-                    "response_delay_ms": 0,
-                    "noise_level": 0.0,  # No noise for exact comparison
-                }
+                mock_config(
+                    view,
+                    response_delay_ms=0,
+                    noise_level=0.0,  # No noise for exact comparison
+                )
             )
 
             # Write a value
@@ -122,14 +125,15 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_creates_readback(self):
+    async def test_write_creates_readback(self, tmp_path):
         """Test that writing to :SP creates corresponding :RB."""
+        view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         connector = MockConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.001})
+            await connector.connect(mock_config(view, response_delay_ms=0, noise_level=0.001))
 
             # Write to setpoint
             sp_name = "MAGNET:CURRENT:SP"
@@ -145,11 +149,12 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_disabled(self):
+    async def test_write_disabled(self, tmp_path):
         """Test that writes are blocked via base class when config says false."""
+        view = served_tree(tmp_path, ["TEST:PV"])
         connector = MockConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             result = await connector.write_channel("TEST:PV", 100.0)
             assert result.outcome is WriteOutcome.REFUSED
@@ -691,15 +696,19 @@ class TestMockWriteConfirmationContract:
     """
 
     @staticmethod
-    async def _connected_mock(monkeypatch, noise_level=0.0):
+    async def _connected_mock(monkeypatch, tmp_path, **settings):
         """A connected mock with writes enabled for the whole test.
 
         The writes_enabled gate is re-read on every write, so the config patch
-        has to outlive connect().
+        has to outlive connect(). The tree serves the setpoints these tests
+        write, the readback one of them mirrors onto.
         """
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        view = served_tree(
+            tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB", "TEST:CHANNEL:SP": None}
+        )
         connector = MockConnector()
-        await connector.connect({"response_delay_ms": 0, "noise_level": noise_level})
+        await connector.connect(mock_config(view, response_delay_ms=0, **settings))
         return connector
 
     @staticmethod
@@ -709,9 +718,9 @@ class TestMockWriteConfirmationContract:
 
         return _read
 
-    async def test_a_write_confirms_against_what_the_store_holds(self, monkeypatch):
+    async def test_a_write_confirms_against_what_the_store_holds(self, monkeypatch, tmp_path):
         """A re-read holding the value sent is ``confirmed``, with no message."""
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_mock(monkeypatch, tmp_path)
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
@@ -725,14 +734,14 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_read_noise_does_not_manufacture_a_mismatch(self, monkeypatch):
+    async def test_read_noise_does_not_manufacture_a_mismatch(self, monkeypatch, tmp_path):
         """A noisy channel still confirms: noise is measurement, not storage.
 
         There is no tolerance to absorb a noise draw, so a confirming read that
         went through ``read_channel`` would report a mismatch on essentially
         every write at the shipped default noise level.
         """
-        connector = await self._connected_mock(monkeypatch, noise_level=0.5)
+        connector = await self._connected_mock(monkeypatch, tmp_path, noise_level=0.5)
 
         for _ in range(5):
             result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
@@ -746,7 +755,7 @@ class TestMockWriteConfirmationContract:
         await connector.disconnect()
 
     async def test_a_perturbed_store_value_is_a_mismatch_without_an_error_message(
-        self, monkeypatch
+        self, monkeypatch, tmp_path
     ):
         """A setpoint the machine did not keep is reported, not tolerated.
 
@@ -754,7 +763,7 @@ class TestMockWriteConfirmationContract:
         — it is reserved for the outcomes that carry something the numbers
         cannot say.
         """
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_mock(monkeypatch, tmp_path)
 
         def _clamping_put(channel_address, _value):
             connector._state[channel_address] = 10.0
@@ -770,9 +779,9 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_confirming_read_that_raises_is_unconfirmed(self, monkeypatch):
+    async def test_confirming_read_that_raises_is_unconfirmed(self, monkeypatch, tmp_path):
         """The value went out but what the channel holds is unknown."""
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_mock(monkeypatch, tmp_path)
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("CA disconnected"))
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
@@ -785,9 +794,9 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_confirm_false_does_not_read(self, monkeypatch):
+    async def test_confirm_false_does_not_read(self, monkeypatch, tmp_path):
         """``unrequested`` is the fast path: a read that would raise is never issued."""
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_mock(monkeypatch, tmp_path)
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, confirm=False)
@@ -798,9 +807,9 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_a_value_the_store_cannot_hold_is_a_failed_write(self, monkeypatch):
+    async def test_a_value_the_store_cannot_hold_is_a_failed_write(self, monkeypatch, tmp_path):
         """The put itself failing is ``failed``: the control system did not take it."""
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_mock(monkeypatch, tmp_path)
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
 
         result = await connector.write_channel("TEST:CHANNEL:SP", "not-a-number")
@@ -811,13 +820,13 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_notes_text_does_not_change_the_outcome(self, monkeypatch):
+    async def test_notes_text_does_not_change_the_outcome(self, monkeypatch, tmp_path):
         """Two confirming reads failing differently classify identically.
 
         The exception text flows into ``notes`` and ``error_message`` and
         nowhere else — the machine-readable verdict must be identical.
         """
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_mock(monkeypatch, tmp_path)
 
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("timeout after 3s"))
         first = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
@@ -839,9 +848,9 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_write_still_mirrors_the_setpoint_onto_its_readback(self, monkeypatch):
+    async def test_write_still_mirrors_the_setpoint_onto_its_readback(self, monkeypatch, tmp_path):
         """The :SP -> :RB mirror is state-store cosmetics and survives untouched."""
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_mock(monkeypatch, tmp_path, noise_level=0.0)
 
         await connector.write_channel("MAGNET:CURRENT:SP", 100.0)
 

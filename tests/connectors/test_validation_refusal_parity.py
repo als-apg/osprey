@@ -21,6 +21,7 @@ import pytest
 
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
+from tests.facility.served_tree import mock_config, served_tree
 
 _DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
 _DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
@@ -52,10 +53,11 @@ class WriteRun:
         self.client_call = client_call
 
 
-async def _run_mock(monkeypatch) -> WriteRun:
+async def _run_mock(monkeypatch, tmp_path) -> WriteRun:
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = MockConnector()
-    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+    await connector.connect(mock_config(view, response_delay_ms=0))
     connector._limits_validator = _broken_validator()
 
     put = MagicMock()
@@ -67,7 +69,7 @@ async def _run_mock(monkeypatch) -> WriteRun:
     return WriteRun(result=result, client_call=put)
 
 
-async def _run_doocs(_monkeypatch) -> WriteRun:
+async def _run_doocs(_monkeypatch, _tmp_path) -> WriteRun:
     doocs4py = MagicMock()
     doocs4py.__version__ = "2.0.0"
     doocs4py.names.return_value = [("FACILITY", "XFEL")]
@@ -89,7 +91,7 @@ async def _run_doocs(_monkeypatch) -> WriteRun:
     return WriteRun(result=result, client_call=doocs4py.set)
 
 
-async def _run_tango(_monkeypatch) -> WriteRun:
+async def _run_tango(_monkeypatch, _tmp_path) -> WriteRun:
     proxy = MagicMock()
     tango = MagicMock()
     tango.__version__ = "10.0.0"
@@ -120,8 +122,8 @@ _DRIVERS = {"mock": _run_mock, "doocs": _run_doocs, "tango": _run_tango}
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("connector_name", list(_DRIVERS), ids=list(_DRIVERS))
-async def test_a_validation_error_refuses_the_write(connector_name, monkeypatch):
-    run = await _DRIVERS[connector_name](monkeypatch)
+async def test_a_validation_error_refuses_the_write(connector_name, monkeypatch, tmp_path):
+    run = await _DRIVERS[connector_name](monkeypatch, tmp_path)
 
     assert run.result.outcome is WriteOutcome.REFUSED
     assert run.result.refusal_reason == "VALIDATION_ERROR"
@@ -130,7 +132,9 @@ async def test_a_validation_error_refuses_the_write(connector_name, monkeypatch)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("connector_name", list(_DRIVERS), ids=list(_DRIVERS))
-async def test_a_validation_error_sends_nothing_to_the_control_system(connector_name, monkeypatch):
-    run = await _DRIVERS[connector_name](monkeypatch)
+async def test_a_validation_error_sends_nothing_to_the_control_system(
+    connector_name, monkeypatch, tmp_path
+):
+    run = await _DRIVERS[connector_name](monkeypatch, tmp_path)
 
     run.client_call.assert_not_called()
