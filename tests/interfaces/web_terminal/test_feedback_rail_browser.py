@@ -305,7 +305,7 @@ def test_utility_labels_fit_their_cells_uncut(tmp_path, chromium_browser):
             page = _open_hub_page(chromium_browser, url)
             try:
                 labels = page.locator("#panel-utility .panel-utility-label")
-                assert labels.count() == 3, "the cluster lost a label"
+                assert labels.count() == 4, "the cluster lost a label"
 
                 overflow = page.evaluate(
                     "() => Array.from("

@@ -1550,11 +1550,17 @@ else:
             return nodeid.split("::", 1)[0]
 
 
+@pytest.hookimpl(optionalhook=True)
 def pytest_xdist_make_scheduler(config, log):
     """Use FileOrGroupScheduling for `--dist loadgroup`, stock xdist otherwise.
 
     Returning None hands the choice back to xdist, leaving the e2e lane's
     `--dist loadfile` and ad-hoc `--dist load`/`worksteal` runs untouched.
+
+    Declared optional because only xdist provides this hook's specification:
+    pytest ends a session over a conftest hook it cannot match to a loaded
+    plugin, so without the declaration a run with xdist disabled or absent
+    would collect nothing at all.
     """
     if FileOrGroupScheduling is None:
         return None

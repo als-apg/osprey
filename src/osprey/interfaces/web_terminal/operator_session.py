@@ -14,6 +14,7 @@ import time
 import uuid
 from collections.abc import Callable
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,9 @@ from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.sdk_context import build_system_prompt
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
+from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.utils.config import get_facility_timezone
 
@@ -376,6 +379,59 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
     if etype == "error" and event.get("error_type") != "AssistantMessageError":
         return True
     return False
+
+
+@dataclass(frozen=True)
+class _AgentTree:
+    """What the chat child had started, read while it was alive."""
+
+    groups: list[ProcessGroup]
+    members: list[ProcessRow]
+
+
+def _read_tree(pid: int) -> _AgentTree:
+    """Read the groups *pid*'s descendants are in and its descendants in the server's group.
+
+    Blocking (it runs ``ps``); must run while *pid* is alive.
+    """
+    return _AgentTree(
+        groups=process_tree.tree_groups(pid),
+        members=process_tree.server_group_members(pid),
+    )
+
+
+def _end_tree(pid: int, tree: _AgentTree) -> None:
+    """End what *tree* found under the chat child *pid*, and log it in one line. Blocking."""
+    ended_groups, surviving_groups = process_tree.end_groups(tree.groups)
+    ended_members, surviving_members = process_tree.end_processes(tree.members)
+    if ended_groups or ended_members:
+        parts = [
+            part
+            for part in (
+                process_tree.describe(ended_groups),
+                process_tree.describe_processes(ended_members),
+            )
+            if part
+        ]
+        logger.info(
+            "Ended %d process group(s) and %d process(es) the chat child %d started: %s",
+            len(ended_groups),
+            len(ended_members),
+            pid,
+            "; ".join(parts),
+        )
+    if surviving_groups or surviving_members:
+        parts = [
+            part
+            for part in (
+                process_tree.describe(surviving_groups),
+                process_tree.describe_processes(surviving_members),
+            )
+            if part
+        ]
+        logger.warning(
+            "Process(es) the chat child %d started survived SIGKILL: %s", pid, "; ".join(parts)
+        )
 
 
 class OperatorSession:
@@ -762,7 +818,13 @@ class OperatorSession:
         await self.stop()
 
     async def stop(self) -> None:
-        """Close the runner and cancel any in-flight response.
+        """End the child and every process descending from it, cancelling any in-flight response.
+
+        That is the runner closed, the groups the agent split off for its
+        commands ended, and its descendants in the server's own group ended
+        one by one; never the server or the server's group. When started
+        processes ignore SIGTERM this blocks a worker thread, off the loop,
+        for up to about ten more seconds. What it ended is in the log line.
 
         The runner keeps the child's process handle after it closes, so a
         caller that has to wait for the child to be *gone* — not merely asked
@@ -777,6 +839,12 @@ class OperatorSession:
         again rather than merely re-read its status.
         """
         await self.cancel()
+
+        # Read while the child is alive and before the runner closes: a process
+        # the agent started in a session of its own keeps its parent link only
+        # until the agent exits.
+        pid = self.pid
+        tree = await asyncio.to_thread(_read_tree, pid) if pid is not None else None
 
         scope = self._agent_scope
         if scope is not None:
@@ -793,8 +861,20 @@ class OperatorSession:
                 logger.warning(
                     "OperatorSession could not signal its lingering child", exc_info=True
                 )
+        if pid is not None and tree is not None and (tree.groups or tree.members):
+            await asyncio.to_thread(_end_tree, pid, tree)
         self._started = False
         logger.info("OperatorSession stopped")
+
+    def started_commands(self) -> list[ProcessGroup]:
+        """The commands the agent started in groups of their own and still running.
+
+        What ending this session would also end, beyond the agent itself and
+        its helpers in the server's group. Empty once the child has exited.
+        Blocking (it runs ``ps``): call it off the loop.
+        """
+        pid = self.pid
+        return process_tree.started_groups(pid) if pid is not None else []
 
     @property
     def _connected_agent(self) -> AgentSession | None:

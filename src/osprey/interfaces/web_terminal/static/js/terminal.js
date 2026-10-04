@@ -1,12 +1,14 @@
 /* OSPREY Web Terminal — Terminal Module */
 
-import { createWebSocket, wsUrl, withPrefix } from './api.js';
+import { WS_CLOSE_STARTED_COMMANDS, createWebSocket, wsUrl, withPrefix } from './api.js';
 import { clearPointer, getPointer, setPointer } from './session-pointer.js';
+import { askAboutStartedCommands } from './started-commands.js';
 import {
   hideHandoffOverlay,
   showHandoffPending,
   showHandoffRefused,
 } from './terminal-handoff.js';
+import { pickUiMode } from '/design-system/js/frame-params.js';
 import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
 /** @type {any} */
@@ -302,15 +304,22 @@ export function initTerminal(containerId) {
  *
  * @param {string|null} sessionId - Session UUID to resume. Null for new session.
  * @param {'new'|'resume'} mode - Whether to start a new session or resume.
- * @param {{ interrupt?: boolean }} [options] - `interrupt` ends the other
- *   view's running turn instead of waiting for it ("Stop and switch now").
- *   Only meaningful on a resume.
+ * @param {{ interrupt?: boolean, endStarted?: boolean }} [options] -
+ *   `interrupt` ends the other view's running turn instead of waiting for it
+ *   ("Stop and switch now"). `endStarted` says the operator agreed that the
+ *   hand-off ends the commands the other view's agent started ("Stop both");
+ *   it rides on this one connection only. Both are only meaningful on a
+ *   resume.
  * @returns {Promise<void>} Settles once this attempt has an answer — attached
  *   (`session_info`), refused, errored, or closed without one — and never
  *   rejects; a caller sequencing a hand-off awaits it so the next surface
  *   cannot ask for the session before the server has seen this one let go.
  */
-export function startTerminal(sessionId = null, mode = 'new', { interrupt = false } = {}) {
+export function startTerminal(
+  sessionId = null,
+  mode = 'new',
+  { interrupt = false, endStarted = false } = {},
+) {
   if (wsConnection) return Promise.resolve();
   if (!term) return Promise.resolve();
   freshStartArmed = false;
@@ -331,12 +340,18 @@ export function startTerminal(sessionId = null, mode = 'new', { interrupt = fals
   if (mode === 'resume' && sessionId) {
     url += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
     if (interrupt) url += '&interrupt=1';
+    if (endStarted) url += '&end_started=1';
     currentSessionId = sessionId;
     // Persist optimistically so a reload mid-connect resumes the same id;
     // the server's answer corrects it — 'session_info' with another id, or
     // 'transcript_missing' — and the 'exit' fallback below covers the rest.
     storeSessionId(sessionId);
   }
+
+  // The list a `handoff_refused` frame carried, for the refusal close that
+  // follows it on this attempt.
+  /** @type {any} */
+  let refusal = null;
 
   // Declared before the call so the handlers below can compare against it;
   // they only ever run once `createWebSocket` has returned.
@@ -405,6 +420,8 @@ export function startTerminal(sessionId = null, mode = 'new', { interrupt = fals
               dropConnection();
               startExpert({ interrupt: true });
             }, { busy: msg.busy === true });
+          } else if (msg.type === 'handoff_refused') {
+            refusal = msg;
           } else if (msg.type === 'session_info') {
             // On resume, msg.session_id is the id ACTUALLY attached, which
             // may differ from the stale id we asked for (the server
@@ -424,6 +441,13 @@ export function startTerminal(sessionId = null, mode = 'new', { interrupt = fals
             // attached to the session.
             hideHandoffOverlay();
             settle();
+            if (endStarted && sessionId && wsConnection === socket) {
+              // The consent was for this hand-off, and a reconnect after a
+              // dropped link must not repeat it.
+              /** @type {NonNullable<typeof wsConnection>} */ (wsConnection).setUrl(
+                wsUrl(`/ws/terminal?session_id=${encodeURIComponent(sessionId)}&mode=resume`) // wsUrl() adds the prefix
+              );
+            }
             if (isStaleResumeMismatch) {
               clearStoredSessionId();
             } else {
@@ -531,6 +555,11 @@ export function startTerminal(sessionId = null, mode = 'new', { interrupt = fals
       // Stated here rather than left to the close above, so the contract does
       // not depend on the order api.js fires the two in.
       settle();
+      if (code === WS_CLOSE_STARTED_COMMANDS) {
+        hideHandoffOverlay();
+        askBeforeEndingStartedCommands(refusal, { sessionId, interrupt });
+        return;
+      }
       showHandoffRefused(code, () => startExpert());
     },
   });
@@ -575,6 +604,28 @@ export function startTerminal(sessionId = null, mode = 'new', { interrupt = fals
   }
 
   return settled;
+}
+
+/**
+ * Ask whether the hand-off may end the commands the other view's agent
+ * started, and act on the answer.
+ *
+ * Stop both asks for the same key again with the operator's consent, keeping
+ * the interrupt the refused attempt carried.
+ *
+ * @param {any} refusal - The `handoff_refused` frame, or null when none arrived.
+ * @param {{ sessionId: string|null, interrupt: boolean }} attempt - The refused attempt.
+ */
+function askBeforeEndingStartedCommands(refusal, attempt) {
+  const key = refusal?.session_id ?? attempt.sessionId;
+  askAboutStartedCommands(Array.isArray(refusal?.commands) ? refusal.commands : [], {
+    onStop: () =>
+      void startTerminal(key, 'resume', { interrupt: attempt.interrupt, endStarted: true }),
+    // Cancel abandons the hand-off and ends nothing: the chat holding the key
+    // keeps it, so a flip goes back to the Simple view, and a switch to
+    // another key re-attaches the terminal this card was on.
+    onCancel: () => (key === loadStoredSessionId() ? pickUiMode('simple') : void startExpert()),
+  });
 }
 
 /**

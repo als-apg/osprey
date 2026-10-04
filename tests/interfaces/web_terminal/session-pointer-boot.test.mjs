@@ -40,6 +40,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   sendPrompt: vi.fn(() => ({ abort: () => {}, aborted: false })),
   interrupt: vi.fn(async () => undefined),
   requestHandoff: vi.fn(async () => ({ state: 'simple', session_id: 'k' })),
+  fetchCommands: vi.fn(async () => []),
 }));
 
 /** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */

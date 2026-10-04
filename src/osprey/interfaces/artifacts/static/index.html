@@ -215,6 +215,11 @@
                 </svg>
               </button>
             </div>
+            <div class="sidebar-pick-bar" id="pick-bar" hidden role="toolbar" aria-label="Selected artifacts">
+              <span class="sidebar-pick-count" id="pick-count"></span>
+              <button class="btn btn-danger" id="pick-delete">Delete</button>
+              <button class="btn" id="pick-clear">Clear</button>
+            </div>
             <div class="sidebar-body" id="sidebar-body">
               <!-- Tree or timeline rendered here -->
             </div>
@@ -256,7 +261,7 @@
            "Results from this session" list (frame 2b). Shown only when
            html[data-ui-mode="simple"]; the browse view (Expert) is the
            default. Both share the same artifact data + session scoping;
-           gallery.js populates this section (renderSimple). -->
+           simple-view.js populates this section. -->
       <section id="view-artifacts-simple">
         <div class="simple-layout">
           <!-- Latest result -->

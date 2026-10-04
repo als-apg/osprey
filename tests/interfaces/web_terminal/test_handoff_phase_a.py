@@ -49,6 +49,7 @@ from tests.interfaces.web_terminal._handoff_harness import (
     make_app,
     pool_pty,
     registry,
+    until,
 )
 
 
@@ -216,20 +217,65 @@ async def test_a_chat_polls_an_attached_pty_every_50ms_for_2s_then_409():
 
 
 async def test_release_pending_is_owner_checked_and_drops_the_reservation():
+    """Only the call that registered the slot releases it: its channel and its task."""
     app = make_app()
     owner = object()
-    await acquire(app, KEY, "simple", owner)
+    plan = await acquire(app, KEY, "simple", owner)
+    assert plan.task is asyncio.current_task()
     assert registry(app).is_reserved(KEY)
+    another_task = asyncio.create_task(asyncio.sleep(0))
+    await another_task
 
-    assert release_pending(app, KEY, object()) is False
+    assert release_pending(app, KEY, object(), task=plan.task) is False
+    assert release_pending(app, KEY, owner, task=another_task) is False
+    assert release_pending(app, KEY, owner, task=None) is False
     assert KEY in get_state(app).pending
     assert registry(app).is_reserved(KEY)
 
-    assert release_pending(app, KEY, owner) is True
+    assert release_pending(app, KEY, owner, task=plan.task) is True
     assert KEY not in get_state(app).pending
     assert not registry(app).is_reserved(KEY)
 
-    assert release_pending(app, KEY, owner) is False
+    assert release_pending(app, KEY, owner, task=plan.task) is False
+
+
+async def test_cancelling_the_first_of_two_same_channel_acquires_keeps_the_second_slot():
+    """A same-channel acquire replaces the slot; the replaced call's exit cannot undo that.
+
+    Both calls hold one channel token. The second overwrites the first's
+    pending record while the first waits in phase (b); the first's
+    cancellation then releases only what it registered, so the second's slot
+    and the reservation stand until the second itself ends.
+    """
+    app = make_app()
+    gates: list[asyncio.Event] = []
+
+    async def gated_wait(_app, _plan):
+        gate = asyncio.Event()
+        gates.append(gate)
+        await gate.wait()
+        return WaitOutcome(REASON_NONE)
+
+    with patch.object(session_handoff, "_wait_for_idle", gated_wait):
+        channel = object()
+        first = asyncio.create_task(acquire(app, KEY, "simple", channel))
+        await until(lambda: len(gates) == 1)
+        second = asyncio.create_task(acquire(app, KEY, "simple", channel))
+        await until(lambda: len(gates) == 2)
+        second_record = get_state(app).pending[KEY]
+        assert second_record.task is second
+
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        assert get_state(app).pending.get(KEY) is second_record
+        assert registry(app).is_reserved(KEY)
+
+        second.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await second
+    assert KEY not in get_state(app).pending
+    assert not registry(app).is_reserved(KEY)
 
 
 async def test_waiting_for_the_lock_is_not_charged_to_the_attach_grace():

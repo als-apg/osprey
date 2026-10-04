@@ -19,7 +19,10 @@ the handler owes the client around that door:
   the client's size by the handler itself;
 - the spawn resumes the key's current transcript when one is on disk and
   starts fresh under the key otherwise;
-- ``switch_session`` to a chat-held key hands off the same way.
+- ``switch_session`` to a chat-held key hands off the same way;
+- a chat whose agent started commands still running refuses the terminal
+  with a ``handoff_refused`` frame naming them and a 4428 close, unless the
+  resume URL carries ``end_started=1``.
 
 Harness as in ``test_ws_resume_confirm.py``: a real app and ``PtyRegistry``
 with ``_spawn_session`` patched to a fake, and a stand-in operator registry
@@ -29,8 +32,8 @@ whose chat pool is the phase (c) fake.
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
+import threading
 import time
 import uuid as uuid_mod
 from contextlib import ExitStack
@@ -42,17 +45,22 @@ import pytest
 from starlette.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
+from osprey.interfaces.web_terminal.process_tree import ProcessGroup
+from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, env_fingerprint
+from osprey.interfaces.web_terminal.routes.websocket import _spawn_pooled_pty
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_handoff import (
+    ERROR_HANDOFF_STARTED_COMMANDS,
     WS_CLOSE_OUTGOING_RUNNING,
     WS_CLOSE_SESSION_ATTACHED,
+    WS_CLOSE_STARTED_COMMANDS,
     HandoffError,
     HandoffState,
     get_state,
 )
 from tests.interfaces.web_terminal._fakes import FakeClock, FakePtySession
 from tests.interfaces.web_terminal._handoff_harness import Chat, ChatPool
+from tests.interfaces.web_terminal._ws import json_frames_until, recv_frame, recv_json
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 
@@ -153,38 +161,36 @@ def _uuid() -> str:
     return str(uuid_mod.uuid4())
 
 
-def _resume_url(session_id: str, *, interrupt: bool = False) -> str:
+def _resume_url(session_id: str, *, interrupt: bool = False, end_started: bool = False) -> str:
     url = f"/ws/terminal?session_id={session_id}&mode=resume"
-    return f"{url}&interrupt=1" if interrupt else url
+    if interrupt:
+        url += "&interrupt=1"
+    if end_started:
+        url += "&end_started=1"
+    return url
+
+
+def _with_started_command(chat: Chat) -> Chat:
+    """*chat* with one command its agent started still running."""
+    chat.running_commands = [
+        ProcessGroup(
+            pgid=4242,
+            members=((4242, 0.0),),
+            label="magnet_scan.py",
+            command="python magnet_scan.py",
+        )
+    ]
+    return chat
 
 
 def _send_resize(ws, cols: int = 80, rows: int = 24) -> None:
     ws.send_json({"type": "resize", "cols": cols, "rows": rows})
 
 
-def _json_frames_until(ws, msg_type: str, max_frames: int = 30) -> list[dict]:
-    """Every JSON frame up to and including the first of *msg_type*."""
-    collected: list[dict] = []
-    for _ in range(max_frames):
-        raw = ws.receive()
-        if raw.get("type") == "websocket.close":
-            raise AssertionError(f"socket closed ({raw.get('code')}) before '{msg_type}'")
-        if "text" in raw:
-            data = json.loads(raw["text"])
-            collected.append(data)
-            if data.get("type") == msg_type:
-                return collected
-    raise AssertionError(f"'{msg_type}' not received; got {[d.get('type') for d in collected]}")
-
-
-def _recv_json(ws, msg_type: str) -> dict:
-    return _json_frames_until(ws, msg_type)[-1]
-
-
 def _sync(ws, session_id: str) -> None:
     """Round-trip through the main loop: a switch to the current key is a no-op answer."""
     ws.send_json({"type": "switch_session", "session_id": session_id})
-    _recv_json(ws, "session_switched")
+    recv_json(ws, "session_switched")
 
 
 def _until(predicate, timeout: float = 3.0) -> None:
@@ -215,7 +221,7 @@ def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(app):
         chat = _chats(app).hold(sid)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            frames = _json_frames_until(ws, "session_info")
+            frames = json_frames_until(ws, "session_info")
 
     assert [f["type"] for f in frames] == ["handoff_pending", "session_info"]
     # An idle chat has no turn to finish: the frame says so, and the client
@@ -236,7 +242,7 @@ def test_a_key_with_no_transcript_starts_fresh_under_the_key(app):
         _chats(app).hold(sid)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
 
     command = spawns[0].command
     assert command[command.index("--session-id") + 1] == sid
@@ -252,7 +258,7 @@ def test_the_spawn_runs_in_the_project_directory(app):
         _chats(app).hold(sid)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
 
     assert spawns[0].cwd == app.state.project_cwd
 
@@ -268,7 +274,7 @@ def test_the_spawn_resumes_the_keys_current_transcript(app, sessions_dir):
         app.state.transcript_map_provisional = False
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
 
     command = spawns[0].command
     assert command[command.index("--resume") + 1] == transcript
@@ -301,11 +307,63 @@ def test_a_spawn_at_capacity_evicts_the_oldest_background_pty_off_the_loop(app, 
         spawns = _patch_spawn(app)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
             assert background not in registry._sessions
             assert len(spawns) == 1 and registry.get_session(sid) is spawns[0].session
 
     assert victim.killed_on_loop is False
+
+
+async def test_a_launch_env_change_kills_the_stale_pty_off_the_loop():
+    """The stale child's kill blocks for seconds, so the spawn path pops it and kills it in a
+    worker thread while the loop keeps serving."""
+
+    class SlowStalePty(ObservedPty):
+        def __init__(self):
+            super().__init__()
+            self.kill_started = threading.Event()
+            self.loop_moved = threading.Event()
+            self.kills = 0
+            self.loop_was_free: bool | None = None
+
+        def terminate(self):
+            self.kills += 1
+            self.kill_started.set()
+            # Blocks until a coroutine on the loop gets to run, or gives up.
+            self.loop_was_free = self.loop_moved.wait(timeout=1.0)
+            super().terminate()
+
+    registry = PtyRegistry(max_background=5)
+    stale = SlowStalePty()
+    registry._sessions["k"] = stale
+    registry._env_fingerprints["k"] = env_fingerprint({"OSPREY_PANEL_TOKEN": "before"})
+    fresh = ObservedPty()
+    registry._spawn_session = lambda *_args, **_kwargs: fresh
+
+    async def note_the_loop_moving():
+        while not stale.kill_started.is_set():
+            await asyncio.sleep(0.005)
+        stale.loop_moved.set()
+
+    watcher = asyncio.create_task(note_the_loop_moving())
+
+    spawned = await _spawn_pooled_pty(
+        registry,
+        "k",
+        ["fake"],
+        rows=24,
+        cols=80,
+        extra_env={"OSPREY_PANEL_TOKEN": "after"},
+        cwd=None,
+    )
+    await asyncio.wait_for(watcher, 2.0)
+
+    assert stale.loop_was_free is True
+    assert stale.kills == 1
+    assert stale.is_alive is False
+    assert spawned is fresh
+    assert registry.get_session("k") is fresh
+    assert registry._env_fingerprints["k"] == env_fingerprint({"OSPREY_PANEL_TOKEN": "after"})
 
 
 def test_a_free_key_gets_no_pending_frame(app, sessions_dir):
@@ -317,7 +375,7 @@ def test_a_free_key_gets_no_pending_frame(app, sessions_dir):
         _chats(app)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            frames = _json_frames_until(ws, "session_info")
+            frames = json_frames_until(ws, "session_info")
 
     assert [f["type"] for f in frames] == ["session_info"]
 
@@ -338,13 +396,13 @@ def test_a_busy_chat_is_waited_on(app):
             _send_resize(ws)
             # Mid-turn: the frame says the wait is real, so the client shows
             # it as one from the first moment.
-            assert _recv_json(ws, "handoff_pending")["busy"] is True
+            assert recv_json(ws, "handoff_pending")["busy"] is True
             time.sleep(0.3)
             assert spawns == []
             assert app.state.operator_registry.chats.get(sid) is chat
 
             chat.is_busy = False
-            assert _recv_json(ws, "session_info")["session_id"] == sid
+            assert recv_json(ws, "session_info")["session_id"] == sid
 
     assert chat.teardowns == 1
     assert len(spawns) == 1
@@ -359,7 +417,7 @@ def test_interrupt_cuts_the_chat_turn_short(app):
         chat = _chats(app).hold(sid, Chat(busy=True))
         with client.websocket_connect(_resume_url(sid, interrupt=True)) as ws:
             _send_resize(ws)
-            assert _recv_json(ws, "session_info")["session_id"] == sid
+            assert recv_json(ws, "session_info")["session_id"] == sid
 
     assert chat.teardowns == 1
     assert len(spawns) == 1
@@ -375,7 +433,7 @@ def test_leaving_during_the_wait_sends_nothing_and_spares_the_chat(app):
         chat = _chats(app).hold(sid, Chat(busy=True))
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "handoff_pending")
+            recv_json(ws, "handoff_pending")
 
         _until(lambda: sid not in get_state(app).pending)
         assert not registry.is_reserved(sid)
@@ -398,11 +456,11 @@ def test_a_newer_terminal_displaces_the_older_one_with_4409(app):
         _chats(app)
         first = stack.enter_context(client.websocket_connect("/ws/terminal"))
         _send_resize(first)
-        sid = _recv_json(first, "session_info")["session_id"]
+        sid = recv_json(first, "session_info")["session_id"]
 
         second = stack.enter_context(client.websocket_connect(_resume_url(sid)))
         _send_resize(second)
-        assert _recv_json(second, "session_info")["session_id"] == sid
+        assert recv_json(second, "session_info")["session_id"] == sid
 
         closed = first.receive()
         assert closed["type"] == "websocket.close"
@@ -424,14 +482,54 @@ def test_an_outgoing_child_that_survives_its_kill_is_refused_with_4503(app):
         chat = _chats(app).hold(sid, Chat(exits=False))
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "handoff_pending")
-            closed = ws.receive()
+            recv_json(ws, "handoff_pending")
+            closed = recv_frame(ws)
 
     assert closed["type"] == "websocket.close"
     assert closed["code"] == WS_CLOSE_OUTGOING_RUNNING
     assert spawns == []
     assert app.state.operator_registry.chats.get(sid) is chat
     assert app.state.pty_registry.get_session(sid) is None
+
+
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_chat_with_started_commands_refuses_the_terminal_with_the_list(app):
+    """The list rides on a ``handoff_refused`` frame; the close code is the question's."""
+    sid = _uuid()
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        chat = _chats(app).hold(sid, _with_started_command(Chat()))
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            frames = json_frames_until(ws, "handoff_refused")
+            closed = recv_frame(ws)
+
+    assert [f["type"] for f in frames] == ["handoff_pending", "handoff_refused"]
+    assert frames[-1] == {
+        "type": "handoff_refused",
+        "error": ERROR_HANDOFF_STARTED_COMMANDS,
+        "session_id": sid,
+        "commands": [{"label": "magnet_scan.py", "command": "python magnet_scan.py"}],
+    }
+    assert closed["type"] == "websocket.close"
+    assert closed["code"] == WS_CLOSE_STARTED_COMMANDS
+    assert chat.teardowns == 0
+    assert spawns == []
+
+
+@pytest.mark.usefixtures("sessions_dir")
+def test_end_started_on_the_resume_url_hands_the_key_off(app):
+    sid = _uuid()
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        chat = _chats(app).hold(sid, _with_started_command(Chat()))
+        with client.websocket_connect(_resume_url(sid, end_started=True)) as ws:
+            _send_resize(ws)
+            info = recv_json(ws, "session_info")
+
+    assert info["session_id"] == sid
+    assert chat.teardowns == 1
+    assert len(spawns) == 1
 
 
 def test_a_handoff_error_is_an_error_frame_and_a_close(app, sessions_dir):
@@ -447,8 +545,8 @@ def test_a_handoff_error_is_an_error_frame_and_a_close(app, sessions_dir):
         _chats(app)
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws)
-            error = _recv_json(ws, "error")
-            assert ws.receive()["type"] == "websocket.close"
+            error = recv_json(ws, "error")
+            assert recv_frame(ws)["type"] == "websocket.close"
 
     assert sid in error["message"]
     assert spawns == []
@@ -467,11 +565,11 @@ def test_a_resize_sent_while_waiting_sizes_the_spawn(app):
         spawns = _patch_spawn(app)
         chat = _chats(app).hold(sid, Chat(busy=True))
         with client.websocket_connect(_resume_url(sid)) as ws:
-            _recv_json(ws, "handoff_pending")
+            recv_json(ws, "handoff_pending")
             _send_resize(ws, cols=132, rows=40)
             time.sleep(0.2)
             chat.is_busy = False
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
 
     assert (spawns[0].rows, spawns[0].cols) == (40, 132)
 
@@ -481,8 +579,17 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, session
     sid = _uuid()
     (sessions_dir / f"{sid}.jsonl").write_text("")
 
-    # ``acquire_surface``'s signature: the websocket route names ``interrupt``.
-    async def spawn_then_linger(app_, key, _surface, channel, *, interrupt=False, spawn=None):  # noqa: ARG001
+    # ``acquire_surface``'s signature: the websocket route names ``interrupt`` and ``end_started``.
+    async def spawn_then_linger(
+        app_,
+        key,
+        _surface,
+        channel,
+        *,
+        interrupt=False,  # noqa: ARG001
+        spawn=None,
+        end_started=False,  # noqa: ARG001
+    ):
         session = await spawn(SimpleNamespace(key=key, resume_id=None, transcript_id=key))
         app_.state.pty_registry.attach_session(key, channel)
         # The door is still busy after the spawn; the client's resize lands now.
@@ -499,7 +606,7 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, session
             time.sleep(0.15)
             assert (spawns[0].rows, spawns[0].cols) == (24, 80)
             _send_resize(ws, cols=132, rows=40)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
             session = spawns[0].session
             assert (session._last_rows, session._last_cols) == (40, 132)
 
@@ -512,11 +619,11 @@ def test_a_reused_pty_is_resized_to_the_clients_size(app):
         _chats(app)
         with client.websocket_connect("/ws/terminal") as ws:
             _send_resize(ws, cols=80, rows=24)
-            sid = _recv_json(ws, "session_info")["session_id"]
+            sid = recv_json(ws, "session_info")["session_id"]
 
         with client.websocket_connect(_resume_url(sid)) as ws:
             _send_resize(ws, cols=100, rows=30)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
             _sync(ws, sid)
             session = spawns[0].session
             assert (session._last_rows, session._last_cols) == (30, 100)
@@ -538,16 +645,41 @@ def test_switching_to_a_chat_held_key_hands_off(app, sessions_dir):
         chat = _chats(app).hold(target)
         with client.websocket_connect(_resume_url(initial)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
 
             ws.send_json({"type": "switch_session", "session_id": target})
-            frames = _json_frames_until(ws, "session_switched")
+            frames = json_frames_until(ws, "session_switched")
 
     assert [f["type"] for f in frames] == ["handoff_pending", "session_switched"]
     assert frames[-1]["session_id"] == target
     assert chat.teardowns == 1
     assert len(spawns) == 2
     assert spawns[1].command[spawns[1].command.index("--session-id") + 1] == target
+
+
+def test_a_switch_to_a_chat_with_started_commands_is_refused_with_the_list(app, sessions_dir):
+    initial, target = _uuid(), _uuid()
+    (sessions_dir / f"{initial}.jsonl").write_text("")
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        chat = _chats(app).hold(target, _with_started_command(Chat()))
+        with client.websocket_connect(_resume_url(initial)) as ws:
+            _send_resize(ws)
+            recv_json(ws, "session_info")
+
+            ws.send_json({"type": "switch_session", "session_id": target})
+            frames = json_frames_until(ws, "handoff_refused")
+            closed = recv_frame(ws)
+
+    assert [f["type"] for f in frames] == ["handoff_pending", "handoff_refused"]
+    assert frames[-1]["session_id"] == target
+    assert frames[-1]["commands"] == [
+        {"label": "magnet_scan.py", "command": "python magnet_scan.py"}
+    ]
+    assert closed["type"] == "websocket.close"
+    assert closed["code"] == WS_CLOSE_STARTED_COMMANDS
+    assert chat.teardowns == 0
+    assert len(spawns) == 1
 
 
 def test_a_switch_whose_spawn_fails_is_an_error_frame_and_a_close(app, sessions_dir):
@@ -561,11 +693,11 @@ def test_a_switch_whose_spawn_fails_is_an_error_frame_and_a_close(app, sessions_
         _chats(app)
         with client.websocket_connect(_resume_url(initial)) as ws:
             _send_resize(ws)
-            _recv_json(ws, "session_info")
+            recv_json(ws, "session_info")
 
             ws.send_json({"type": "switch_session", "session_id": target})
-            error = _recv_json(ws, "error")
-            assert ws.receive()["type"] == "websocket.close"
+            error = recv_json(ws, "error")
+            assert recv_frame(ws)["type"] == "websocket.close"
 
         _until(lambda: target not in get_state(app).pending)
         assert "switch" in error["message"].lower()

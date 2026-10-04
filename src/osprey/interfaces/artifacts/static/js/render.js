@@ -24,6 +24,12 @@ import {
   getSelectedArtifact,
   setSelectedArtifact,
   getFilteredArtifacts,
+  getPickedIds,
+  setPicked,
+  togglePicked,
+  clearPicked,
+  getPickAnchor,
+  setPickAnchor,
 } from "./state.js";
 import {
   typeBadge,
@@ -38,6 +44,34 @@ import {
   artifactPath,
 } from "./types.js";
 
+// ---- Picking several rows ----
+
+/**
+ * The inclusive run of ids between `anchorId` and `targetId`, in list order,
+ * whichever of the two comes first. Just the target when the anchor is not in
+ * the list.
+ * @param {string[]} orderedIds
+ * @param {string} anchorId
+ * @param {string} targetId
+ * @returns {string[]}
+ */
+export function pickRange(orderedIds, anchorId, targetId) {
+  const from = orderedIds.indexOf(anchorId);
+  const to = orderedIds.indexOf(targetId);
+  if (from < 0 || to < 0) return [targetId];
+  return orderedIds.slice(Math.min(from, to), Math.max(from, to) + 1);
+}
+
+/**
+ * The class and ARIA suffix a row template adds for a picked artifact.
+ * @param {any} a
+ * @param {Set<string>} picked
+ * @returns {{cls: string, aria: string}}
+ */
+function pickMarkup(a, picked) {
+  return picked.has(a.id) ? { cls: " picked", aria: ' aria-selected="true"' } : { cls: "", aria: "" };
+}
+
 // ---- Gallery Card HTML (shared by both sidebar modes in gallery layout) ----
 
 /**
@@ -48,8 +82,9 @@ import {
 function galleryCardHtml(a, i) {
   const sel = getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : "";
   const pinnedCls = a.pinned ? " pinned" : "";
+  const pick = pickMarkup(a, getPickedIds());
   return `
-    <div class="gallery-card${sel}${pinnedCls}"
+    <div class="gallery-card${sel}${pinnedCls}${pick.cls}"${pick.aria}
          data-id="${a.id}"
          data-type="${escapeHtml(a.category || a.artifact_type)}"
          style="animation-delay: ${i * 30}ms">
@@ -72,7 +107,7 @@ const chevronSvg = '<svg class="tree-chevron" viewBox="0 0 24 24" fill="none" st
 
 // Session-start timestamp for the tree-mode "new" badge (isNewThisSession
 // compares each artifact's timestamp against this). Computed once at this
-// module's load time, same as gallery.js's own (now-removed) `_sessionStart`
+// module's load time, same as simple-view.js's own `_sessionStart`
 // — both modules load within the same page load, so the sub-millisecond
 // skew between the two is immaterial to the "is this new since I opened the
 // gallery" feature this drives.
@@ -83,6 +118,7 @@ const _sessionStart = new Date().toISOString();
  * @property {(artifact: any) => void} onSelect - fired right after a single-clicked item is marked selected (drives the still-gallery.js-owned setAsFocus POST /api/focus)
  * @property {() => void} onPreviewNeeded - fired once selection actually changes (not on a re-click of the already-selected item), to (re)render the preview pane
  * @property {(artifact: any) => void} onEnterFullscreen - fired on double-click, to enter fullscreen mode for that artifact
+ * @property {() => void} [onPicksChanged] - fired after every render and every Shift/Cmd/Ctrl/plain click, so the pick bar follows the picks
  */
 
 /**
@@ -141,15 +177,32 @@ export function createSidebarRenderer(callbacks) {
           <span>${searchInput && searchInput.value ? "No matches" : "No artifacts yet"}</span>
         </div>
       `;
+      keepShownPicks(filtered);
+      callbacks.onPicksChanged?.();
       return;
     }
 
+    keepShownPicks(filtered);
     if (browseMode === "tree") {
       renderTreeMode(filtered);
     } else {
       renderActivityMode(filtered);
     }
     requestColorPass();
+    callbacks.onPicksChanged?.();
+  }
+
+  /**
+   * Drop picks for rows this render will not show, so a bulk delete never
+   * reaches an artifact the operator cannot see.
+   * @param {any[]} shown
+   */
+  function keepShownPicks(shown) {
+    const picked = getPickedIds();
+    if (picked.size === 0) return;
+    const shownIds = new Set(shown.map((a) => a.id));
+    const kept = [...picked].filter((id) => shownIds.has(id));
+    if (kept.length !== picked.size) setPicked(kept);
   }
 
   // ---- Tree Mode (group by type, pinned promoted to the top) ----
@@ -160,8 +213,9 @@ export function createSidebarRenderer(callbacks) {
    * @returns {string}
    */
   function treeItemHtml(a, i) {
+    const pick = pickMarkup(a, getPickedIds());
     return `
-                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}"
+                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}${pick.cls}"${pick.aria}
                      data-id="${a.id}"
                      style="animation-delay: ${i * 30}ms">
                   ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ""}
@@ -299,8 +353,9 @@ export function createSidebarRenderer(callbacks) {
         html += `</div>`;
       } else {
         group.forEach((a) => {
+          const pick = pickMarkup(a, getPickedIds());
           html += `
-            <div class="timeline-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}"
+            <div class="timeline-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}${pick.cls}"${pick.aria}
                  data-id="${a.id}"
                  data-type="${escapeHtml(a.category || a.artifact_type)}"
                  style="animation-delay: ${itemIndex * 25}ms">
@@ -343,10 +398,56 @@ export function createSidebarRenderer(callbacks) {
 
     // Item click, double-click (fullscreen), drag-and-drop (send to terminal)
     const clickables = ".tree-item, .timeline-item, .gallery-card";
+    const body = sidebarBody;
+
+    /** Reflect the picks on the rendered rows in place and tell the pick bar. */
+    function updatePickClasses() {
+      const picked = getPickedIds();
+      /** @type {NodeListOf<HTMLElement>} */ (body.querySelectorAll(clickables)).forEach((row) => {
+        const on = picked.has(row.dataset.id || "");
+        row.classList.toggle("picked", on);
+        if (on) row.setAttribute("aria-selected", "true");
+        else row.removeAttribute("aria-selected");
+      });
+      callbacks.onPicksChanged?.();
+    }
+
+    /** @returns {string[]} the ids of the rows shown, in sidebar order, skipping collapsed sections */
+    function shownOrder() {
+      return Array.from(/** @type {NodeListOf<HTMLElement>} */ (body.querySelectorAll(clickables)))
+        .filter((row) => !row.closest(".tree-section.collapsed"))
+        .map((row) => row.dataset.id || "");
+    }
+
     sidebarBody.querySelectorAll(clickables).forEach((el) => {
       el.addEventListener("click", (e) => {
         if (/** @type {HTMLElement} */ (e.target).closest(".tree-section-header, .gallery-section-header")) return;
         const id = /** @type {HTMLElement} */ (el).dataset.id;
+        if (!id) return;
+        const mouse = /** @type {MouseEvent} */ (e);
+
+        // Shift-click: pick the run from the anchor to this row; the anchor stays.
+        if (mouse.shiftKey) {
+          window.getSelection()?.removeAllRanges();
+          const anchor = getPickAnchor() ?? getSelectedArtifact()?.id ?? id;
+          setPicked(pickRange(shownOrder(), anchor, id));
+          updatePickClasses();
+          return;
+        }
+
+        // Cmd/Ctrl-click: add or remove this one row; it becomes the anchor.
+        if (mouse.metaKey || mouse.ctrlKey) {
+          const selected = getSelectedArtifact();
+          if (getPickedIds().size === 0 && selected) setPicked([selected.id]);
+          togglePicked(id);
+          setPickAnchor(id);
+          updatePickClasses();
+          return;
+        }
+
+        clearPicked();
+        setPickAnchor(id);
+        updatePickClasses();
         const a = getArtifacts().find((x) => x.id === id);
         if (a) {
           const alreadySelected = getSelectedArtifact()?.id === a.id;

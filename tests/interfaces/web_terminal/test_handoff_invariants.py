@@ -152,8 +152,8 @@ def releases():
     real = session_handoff.release_pending
     taken: list[str] = []
 
-    def release(app, key: str, channel: object) -> bool:
-        done = real(app, key, channel)
+    def release(app, key: str, channel: object, *, task) -> bool:
+        done = real(app, key, channel, task=task)
         if done:
             taken.append(key)
         return done

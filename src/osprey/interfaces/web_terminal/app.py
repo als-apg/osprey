@@ -3013,6 +3013,8 @@ def create_app(
                     getattr(request.app.state, "terminal_user", "")
                 ),
                 "facility_timezone": get_facility_timezone().key,
+                "web_theme_id": getattr(request.app.state, "web_theme_id", "dark"),
+                "web_theme_mode": getattr(request.app.state, "web_theme_mode", None) or "",
                 # activity-strip.js reaches panel-manager.js for the labels it
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.

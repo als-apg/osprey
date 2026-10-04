@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 
@@ -67,12 +68,8 @@ class TestListSessions:
         assert sessions[0].first_message == "Hello, can you help me with beam tuning?"
         assert sessions[0].message_count == 3
 
-    def test_empty_files_are_skipped_and_unparseable_ones_listed(self, tmp_path, monkeypatch):
-        """A zero-byte file is no session; a non-empty unparseable one is listed.
-
-        Unparseable lines still count toward the message total, and with no
-        readable user entry the preview falls back to its placeholder.
-        """
+    def test_files_without_a_readable_record_are_skipped(self, tmp_path, monkeypatch, caplog):
+        """A file no line of which parses as a JSON object is no session."""
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
@@ -82,15 +79,57 @@ class TestListSessions:
         )
         corrupt_id = "corrupt-id-aaaa-bbbb-cccc-dddd"
         (sessions_dir / f"{corrupt_id}.jsonl").write_text("{bad json\n{also bad")
-        (sessions_dir / "empty-id-aaaa-bbbb-cccc-dddddddd.jsonl").write_text("")
+        empty_name = "empty-id-aaaa-bbbb-cccc-dddddddd.jsonl"
+        (sessions_dir / empty_name).write_text("")
 
         discovery = SessionDiscovery("/test")
         monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
 
-        sessions = {s.session_id: s for s in discovery.list_sessions()}
-        assert set(sessions) == {valid_id, corrupt_id}
-        assert sessions[corrupt_id].first_message == "(no user message)"
-        assert sessions[corrupt_id].message_count == 2
+        with caplog.at_level(
+            logging.DEBUG, logger="osprey.interfaces.web_terminal.session_discovery"
+        ):
+            sessions = {s.session_id: s for s in discovery.list_sessions()}
+
+        assert set(sessions) == {valid_id}
+        messages = [r.getMessage() for r in caplog.records]
+        corrupt_logs = [
+            m for m in messages if f"{corrupt_id}.jsonl" in m and "no readable record" in m
+        ]
+        assert len(corrupt_logs) == 1
+        assert not any(empty_name in m for m in messages)
+
+    def test_message_count_counts_only_readable_records(self, tmp_path, monkeypatch):
+        """Unparseable and blank lines are not counted; the readable record is."""
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+
+        mixed_id = "mixed-id-aaaa-bbbb-cccc-dddddddddddd"
+        (sessions_dir / f"{mixed_id}.jsonl").write_text(
+            json.dumps({"type": "user", "message": {"content": "tune the orbit"}})
+            + "\n{bad json\n\n"
+        )
+
+        discovery = SessionDiscovery("/test")
+        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
+
+        sessions = discovery.list_sessions()
+        assert [s.session_id for s in sessions] == [mixed_id]
+        assert sessions[0].message_count == 1
+        assert sessions[0].first_message == "tune the orbit"
+
+    def test_json_values_that_are_not_objects_are_not_records(self, tmp_path, monkeypatch):
+        """A line that parses to a number, string or list is not a transcript record."""
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+
+        (sessions_dir / "scalar-id-aaaa-bbbb-cccc-dddddddddddd.jsonl").write_text(
+            '42\n"text"\n[1, 2]\n'
+        )
+
+        discovery = SessionDiscovery("/test")
+        monkeypatch.setattr(discovery, "_resolve_sessions_dir", lambda: sessions_dir)
+
+        assert discovery.list_sessions() == []
 
     def test_sorted_by_mtime(self, tmp_path, monkeypatch):
         """Sessions are sorted newest-first."""

@@ -71,6 +71,24 @@ def channel_key_bytes(channel: str) -> bytes:
     return hashlib.sha256(channel.encode("utf-8")).digest()
 
 
+def driver_key_bytes(driver: str) -> bytes:
+    """Key for a scenario's shared latent driver, addressed by the driver's name.
+
+    A driver is the common cause behind several channels, so its draws must not
+    depend on which channel asks for them: every channel coupled to the driver
+    evaluates :func:`wander` under this one key and sees the identical value at
+    the same instant. The ``driver:`` namespace keeps a driver that happens to
+    share a channel's name from replaying that channel's own texture stream.
+
+    Args:
+        driver: Driver name, as declared in a scenario's ``drivers`` block.
+
+    Returns:
+        A 32-byte digest usable wherever a ``channel_key`` is expected.
+    """
+    return hashlib.sha256(b"driver:" + driver.encode("utf-8")).digest()
+
+
 def _key_words(channel_key: bytes) -> tuple[np.uint64, np.uint64]:
     """Two uint64 lane keys derived from an arbitrary-length key."""
     digest = hashlib.sha256(channel_key).digest()

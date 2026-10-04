@@ -102,6 +102,78 @@ class TestArtifactEntryAPI:
         assert client.delete(f"/api/artifacts/{entry.id}").status_code == 404
 
 
+class TestBulkDelete:
+    """POST /api/artifacts/delete."""
+
+    def test_bulk_delete_removes_the_listed_ids_and_reports_missing(self, app_client):
+        client, _ = app_client
+        store = client.app.state.artifact_store
+        a = _save_text_artifact(store, title="A")
+        b = _save_text_artifact(store, title="B")
+        keep = _save_text_artifact(store, title="Keep")
+
+        resp = client.post("/api/artifacts/delete", json={"ids": [a.id, b.id, "nope"]})
+        assert resp.status_code == 200
+        assert resp.json() == {"deleted": [a.id, b.id], "missing": ["nope"]}
+        assert client.get(f"/api/artifacts/{a.id}").status_code == 404
+        assert client.get(f"/api/artifacts/{b.id}").status_code == 404
+        assert client.get(f"/api/artifacts/{keep.id}").status_code == 200
+
+    def test_bulk_delete_reports_a_repeated_missing_id_once(self, app_client):
+        client, _ = app_client
+        resp = client.post("/api/artifacts/delete", json={"ids": ["x", "y", "x"]})
+        assert resp.status_code == 200
+        assert resp.json() == {"deleted": [], "missing": ["x", "y"]}
+
+    def test_bulk_delete_runs_under_the_human_actor(self, app_client):
+        from osprey.stores.artifact_store import (
+            current_artifact_mutation_actor,
+            register_artifact_delete_listener,
+            unregister_artifact_delete_listener,
+        )
+
+        client, _ = app_client
+        store = client.app.state.artifact_store
+        a = _save_text_artifact(store)
+        b = _save_text_artifact(store)
+
+        actors = []
+
+        def record_actor(_entry):
+            actors.append(current_artifact_mutation_actor())
+
+        register_artifact_delete_listener(record_actor)
+        try:
+            resp = client.post("/api/artifacts/delete", json={"ids": [a.id, b.id]})
+            assert resp.status_code == 200
+        finally:
+            unregister_artifact_delete_listener(record_actor)
+
+        assert actors == ["human", "human"]
+
+    def test_bulk_delete_clears_focus_on_a_deleted_artifact(self, tmp_path):
+        with TestClient(create_app(workspace_root=tmp_path)) as client:
+            store = client.app.state.artifact_store
+            focused = _save_text_artifact(store, title="Focused")
+            other = _save_text_artifact(store, title="Other")
+            client.post("/api/focus", json={"artifact_id": focused.id})
+
+            resp = client.post("/api/artifacts/delete", json={"ids": [focused.id, other.id]})
+            assert resp.status_code == 200
+            assert client.app.state.focused_artifact_id is None
+            assert client.get("/api/focus").json() == {"focused": False, "artifact": None}
+            assert (tmp_path / "focus_state.txt").read_text() == ""
+
+    def test_bulk_delete_refuses_an_empty_list(self, app_client):
+        client, _ = app_client
+        assert client.post("/api/artifacts/delete", json={"ids": []}).status_code == 422
+
+    def test_bulk_delete_refuses_more_than_the_cap(self, app_client):
+        client, _ = app_client
+        ids = [f"id{i}" for i in range(1001)]
+        assert client.post("/api/artifacts/delete", json={"ids": ids}).status_code == 422
+
+
 class TestFocus:
     """GET/POST /api/focus and the focus_state.txt file the CLI hook reads."""
 

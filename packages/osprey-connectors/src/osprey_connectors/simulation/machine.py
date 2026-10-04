@@ -73,6 +73,17 @@ _IMAGE_SIGNATURES: dict[str, tuple[tuple[int, bytes], ...]] = {
 }
 _SIGNATURE_BYTES = 16
 
+# Scenario shared-driver schema. A driver declares the same closed keys as a
+# texture block (it is evaluated by the same ``wander`` machinery, keyed by the
+# driver's name instead of a channel); a coupling names one driver and a gain,
+# with an optional gain envelope; a noise override replaces one or both of a
+# channel's declared noise sigmas while the scenario is active.
+_DRIVER_KEYS = _TEXTURE_KEYS
+_DRIVER_KINDS = ("wander",)
+_COUPLING_KEYS = ("driver", "gain", "gain_wander")
+_GAIN_WANDER_KEYS = ("amplitude", "period_s")
+_NOISE_OVERRIDE_KEYS = ("noise", "noise_abs")
+
 # Cap on channel names listed in the aggregated dead-noise warning.
 _DEAD_NOISE_EXAMPLES = 5
 
@@ -214,6 +225,44 @@ class PhysicsFault:
 
 
 @dataclass(frozen=True)
+class DriverCoupling:
+    """One channel's coupling to a scenario's shared latent driver.
+
+    The contribution at absolute time ``t`` is
+    ``gain * (1 + gain_wander(t)) * driver(t)`` (the envelope factor only when
+    ``gain_wander`` is declared). The driver is evaluated under a key derived
+    from ``driver`` alone, so every channel coupled to it sees the identical
+    driver value at the same instant; the gain envelope is keyed by channel and
+    driver together, so each coupling's strength drifts on its own.
+
+    Attributes:
+        driver: The driver's name, as declared in the scenario's ``drivers``.
+        spec: The driver's parameters (resolved at parse time, so a composed
+            view needs no lookup back into the declaring scenario).
+        gain: Channel units per unit of driver value; negative anti-correlates.
+        gain_wander: Optional slow envelope on the gain, as ``wander``
+            amplitude (fractional) and slowest period. ``kind`` is always
+            ``"wander"``.
+    """
+
+    driver: str
+    spec: TextureSpec
+    gain: float
+    gain_wander: TextureSpec | None = None
+
+
+@dataclass(frozen=True)
+class NoiseOverride:
+    """Scenario-scoped replacement of a channel's declared noise sigmas.
+
+    ``None`` keeps the machine file's value for that term.
+    """
+
+    noise: float | None = None
+    noise_abs: float | None = None
+
+
+@dataclass(frozen=True)
 class Scenario:
     """Parsed scenario definition: overrides, archiver event scripts, logbook.
 
@@ -221,6 +270,12 @@ class Scenario:
     scenario bundles carry logbook entries (see :func:`load_scenario_bundles`).
     ``physics`` is ``None`` unless the bundle defines a ``physics`` block
     (see :class:`PhysicsFault`); absent block means no physics fault.
+
+    ``drivers`` / ``couple`` / ``noise`` describe shared latent causes: named
+    slow signals (pure functions of epoch time) that coupled channels add,
+    scaled by a gain, before their own measurement noise — which ``noise`` can
+    raise or lower per channel while the scenario is active. All three default
+    to empty, so scenarios written before they existed parse unchanged.
     """
 
     name: str
@@ -229,6 +284,9 @@ class Scenario:
     archiver: dict[str, list[dict[str, Any]]]
     logbook: tuple[ScenarioLogEntry, ...] = field(default_factory=tuple)
     physics: PhysicsFault | None = None
+    drivers: dict[str, TextureSpec] = field(default_factory=dict)
+    couple: dict[str, tuple[DriverCoupling, ...]] = field(default_factory=dict)
+    noise: dict[str, NoiseOverride] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -573,6 +631,9 @@ def _parse_scenario_spec(
         archiver[pv] = list(events)
 
     physics = _parse_physics_fault(name, spec.get("physics"))
+    drivers = _parse_drivers(name, spec.get("drivers", {}))
+    couple = _parse_couple(name, spec.get("couple", {}), drivers, channels)
+    noise = _parse_noise_overrides(name, spec.get("noise", {}), channels)
 
     return Scenario(
         name=name,
@@ -581,7 +642,163 @@ def _parse_scenario_spec(
         archiver=archiver,
         logbook=logbook,
         physics=physics,
+        drivers=drivers,
+        couple=couple,
+        noise=noise,
     )
+
+
+def _is_number(raw: Any) -> bool:
+    """True for an int or float that is not a bool (JSON ``true`` is not a number)."""
+    return not isinstance(raw, bool) and isinstance(raw, (int, float))
+
+
+def _closed_mapping(prefix: str, block: str, raw: Any, keys: tuple[str, ...]) -> dict[str, Any]:
+    """Require ``raw`` to be a mapping whose keys are a subset of ``keys``."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: {block} must be a mapping, got {raw!r}")
+    unknown = sorted(set(raw) - set(keys))
+    if unknown:
+        raise ValueError(f"{prefix}: {block} has unknown keys {unknown}")
+    return raw
+
+
+def _positive_number(prefix: str, block: str, raw: dict[str, Any], key: str) -> float:
+    """Validate one strictly positive numeric parameter of a block."""
+    value = raw[key]
+    if not _is_number(value) or value <= 0:
+        raise ValueError(f"{prefix}: {block} {key} must be a number > 0, got {value!r}")
+    return float(value)
+
+
+def _parse_drivers(scenario: str, raw: Any) -> dict[str, TextureSpec]:
+    """Parse a scenario's optional ``drivers`` block: name -> wander parameters.
+
+    Each driver carries exactly the texture keys (``kind``/``amplitude``/
+    ``period_s``, all required) and is evaluated by the same ``wander`` stack,
+    keyed by the driver's name.
+    """
+    prefix = f"Scenario {scenario!r}"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: 'drivers' must be a mapping of driver name to definition")
+    drivers: dict[str, TextureSpec] = {}
+    for driver, spec in raw.items():
+        if not isinstance(driver, str) or not driver:
+            raise ValueError(f"{prefix}: driver names must be non-empty strings")
+        block = f"driver {driver!r}"
+        _closed_mapping(prefix, block, spec, _DRIVER_KEYS)
+        missing = [key for key in _DRIVER_KEYS if key not in spec]
+        if missing:
+            raise ValueError(f"{prefix}: {block} missing keys {missing}")
+        if spec["kind"] not in _DRIVER_KINDS:
+            raise ValueError(
+                f"{prefix}: {block} kind must be one of {list(_DRIVER_KINDS)}, got {spec['kind']!r}"
+            )
+        drivers[driver] = TextureSpec(
+            kind=str(spec["kind"]),
+            amplitude=_positive_number(prefix, block, spec, "amplitude"),
+            period_s=_positive_number(prefix, block, spec, "period_s"),
+        )
+    return drivers
+
+
+def _parse_couple(
+    scenario: str,
+    raw: Any,
+    drivers: dict[str, TextureSpec],
+    channels: dict[str, SimChannel],
+) -> dict[str, tuple[DriverCoupling, ...]]:
+    """Parse a scenario's optional ``couple`` block: channel -> driver couplings.
+
+    Every coupling must name a driver this scenario declares; the target must
+    be a known numeric channel; a channel may couple to a given driver once.
+    """
+    prefix = f"Scenario {scenario!r}"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: 'couple' must be a mapping of channel to a list of couplings")
+    couple: dict[str, tuple[DriverCoupling, ...]] = {}
+    for pv, entries in raw.items():
+        if pv not in channels:
+            raise ValueError(f"{prefix}: couple for unknown channel {pv!r}")
+        channel = channels[pv]
+        if channel.expr is None and isinstance(channel.value, str):
+            raise ValueError(f"{prefix}: couple for string-valued channel {pv!r} is not supported")
+        if not isinstance(entries, list) or not entries:
+            raise ValueError(f"{prefix}: couple[{pv!r}] must be a non-empty list of couplings")
+        parsed: list[DriverCoupling] = []
+        for entry in entries:
+            block = f"couple[{pv!r}] entry"
+            _closed_mapping(prefix, block, entry, _COUPLING_KEYS)
+            for key in ("driver", "gain"):
+                if key not in entry:
+                    raise ValueError(f"{prefix}: {block} missing key {key!r}")
+            driver = entry["driver"]
+            if driver not in drivers:
+                raise ValueError(
+                    f"{prefix}: {block} references unknown driver {driver!r}; "
+                    f"declared drivers: {sorted(drivers)}"
+                )
+            if any(existing.driver == driver for existing in parsed):
+                raise ValueError(f"{prefix}: couple[{pv!r}] couples driver {driver!r} twice")
+            gain = entry["gain"]
+            if not _is_number(gain):
+                raise ValueError(f"{prefix}: {block} gain must be a number, got {gain!r}")
+            gain_wander = None
+            if "gain_wander" in entry:
+                gw_block = f"couple[{pv!r}] gain_wander"
+                gw = _closed_mapping(prefix, gw_block, entry["gain_wander"], _GAIN_WANDER_KEYS)
+                missing = [key for key in _GAIN_WANDER_KEYS if key not in gw]
+                if missing:
+                    raise ValueError(f"{prefix}: {gw_block} missing keys {missing}")
+                gain_wander = TextureSpec(
+                    kind="wander",
+                    amplitude=_positive_number(prefix, gw_block, gw, "amplitude"),
+                    period_s=_positive_number(prefix, gw_block, gw, "period_s"),
+                )
+            parsed.append(
+                DriverCoupling(
+                    driver=driver, spec=drivers[driver], gain=float(gain), gain_wander=gain_wander
+                )
+            )
+        couple[pv] = tuple(parsed)
+    return couple
+
+
+def _parse_noise_overrides(
+    scenario: str, raw: Any, channels: dict[str, SimChannel]
+) -> dict[str, NoiseOverride]:
+    """Parse a scenario's optional ``noise`` block: channel -> replacement sigmas.
+
+    Each entry names ``noise`` (relative) and/or ``noise_abs`` (absolute, in
+    the channel's units); an absent key keeps the machine file's value.
+    """
+    prefix = f"Scenario {scenario!r}"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: 'noise' must be a mapping of channel to noise sigmas")
+    overrides: dict[str, NoiseOverride] = {}
+    for pv, entry in raw.items():
+        if pv not in channels:
+            raise ValueError(f"{prefix}: noise override for unknown channel {pv!r}")
+        channel = channels[pv]
+        if channel.expr is None and isinstance(channel.value, str):
+            raise ValueError(
+                f"{prefix}: noise override for string-valued channel {pv!r} is not supported"
+            )
+        block = f"noise[{pv!r}]"
+        _closed_mapping(prefix, block, entry, _NOISE_OVERRIDE_KEYS)
+        if not entry:
+            raise ValueError(
+                f"{prefix}: {block} must set at least one of {list(_NOISE_OVERRIDE_KEYS)}"
+            )
+        values: dict[str, float] = {}
+        for key, value in entry.items():
+            if not _is_number(value) or value < 0:
+                raise ValueError(
+                    f"{prefix}: {block} {key} must be a non-negative number, got {value!r}"
+                )
+            values[key] = float(value)
+        overrides[pv] = NoiseOverride(**values)
+    return overrides
 
 
 def _default_nominal() -> Scenario:

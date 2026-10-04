@@ -28,10 +28,14 @@ async def list_sessions(request: Request):
 
 
 def _read_session_events(request: Request, reader: TranscriptReader) -> list[dict]:
-    """Read session events, scoped to a session_id if provided."""
+    """Read session events, scoped to a session_id if provided.
+
+    A session key is mapped to the transcript it points at now, as
+    ``session_chat`` does.
+    """
     session_id = request.query_params.get("session_id")
     if session_id:
-        return reader.read_session_by_id(session_id)
+        return reader.read_session_by_id(transcript_map.get(request.app, session_id))
     return reader.read_current_session()
 
 
@@ -75,6 +79,8 @@ async def session_agent_timeline(request: Request):
 
         reader = TranscriptReader(request.app.state.project_cwd)
         session_id = request.query_params.get("session_id")
+        if session_id:
+            session_id = transcript_map.get(request.app, session_id)
         timeline = reader.read_agent_timeline(agent_id, session_id=session_id)
         return {"agent_id": agent_id, "timeline": timeline, "count": len(timeline)}
     except Exception:

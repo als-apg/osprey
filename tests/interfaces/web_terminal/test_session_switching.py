@@ -34,6 +34,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.websocket import _TerminalChannel
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from tests.interfaces.web_terminal._fakes import FakePtySession
+from tests.interfaces.web_terminal._ws import recv_json
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 
@@ -41,51 +42,6 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not availab
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-#: How long one frame may take to arrive before the test fails. A handler
-#: that answers nothing is a regression, not a stall.
-RECV_TIMEOUT_S = 10.0
-
-
-async def _receive_within(rx, seconds: float):
-    with anyio.fail_after(seconds):
-        return await rx.receive()
-
-
-def _recv(ws):
-    """One frame off the socket, or ``TimeoutError`` after ``RECV_TIMEOUT_S``.
-
-    ``ws.receive()`` waits on the portal with no deadline, and the test thread
-    then sits in a lock wait that pytest-timeout's signal cannot interrupt.
-    The deadline runs inside the portal, on the stream the session reads. A
-    server close surfaces at once as ``WebSocketDisconnect``.
-    """
-    message = ws.portal.call(_receive_within, ws._send_rx, RECV_TIMEOUT_S)
-    ws._raise_on_close(message)
-    return message
-
-
-def _recv_json(ws, msg_type: str, max_frames: int = 30):
-    """Receive frames until a JSON message with the given ``type`` arrives.
-
-    Skips binary frames.  Raises ``AssertionError`` if ``msg_type`` is not
-    found within *max_frames* frames, ``TimeoutError`` if a frame is late.
-    """
-    collected = []
-    for _ in range(max_frames):
-        raw = _recv(ws)
-        if "text" in raw:
-            data = json.loads(raw["text"])
-            collected.append(data)
-            if data.get("type") == msg_type:
-                return data
-        # binary frames are silently skipped
-    types = [d.get("type") for d in collected]
-    raise AssertionError(
-        f"Expected JSON type '{msg_type}' not received within {max_frames} frames. "
-        f"Got types: {types}"
-    )
 
 
 def _uuid() -> str:
@@ -105,7 +61,7 @@ def _send_resize(ws, cols: int = 80, rows: int = 24):
 def _sync_after_connect(ws, session_id: str):
     """Round-trip to ensure the handler finished initial connect processing."""
     ws.send_json({"type": "switch_session", "session_id": session_id})
-    _recv_json(ws, "session_switched")
+    recv_json(ws, "session_switched")
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +136,7 @@ class TestSessionSwitchingProtocol:
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
                 ws.send_json({"type": "switch_session", "session_id": sid})
-                msg = _recv_json(ws, "session_switched")
+                msg = recv_json(ws, "session_switched")
                 assert msg["session_id"] == sid
                 assert len(spawned) == 1  # no extra spawn
 
@@ -195,10 +151,59 @@ class TestSessionSwitchingProtocol:
             with client.websocket_connect(_resume_url(sid)) as ws:
                 _send_resize(ws)
                 ws.send_json({"type": "switch_session", "session_id": "not-a-uuid"})
-                msg = _recv_json(ws, "error")
+                msg = recv_json(ws, "error")
                 assert "Invalid" in msg["message"]
                 # Refused before the door: nothing spawned for the bad id.
                 assert len(spawned) == 1
+
+    @pytest.mark.parametrize(
+        "bad",
+        ["0" * 36, "-" * 36, "AAAAAAAA-1111-2222-3333-444444444444"],
+        ids=["zeros-36", "dashes-36", "uppercase"],
+    )
+    def test_switch_outside_the_key_grammar_spawns_nothing(self, app, sessions_dir, bad):
+        """A switch target with a transcript but outside the key grammar is refused.
+
+        The operator stays on the current session: a later switch to it is the
+        no-op ``session_switched``, and no second PTY was spawned or pooled.
+        """
+        initial = _uuid()
+        _seed_session_file(sessions_dir, initial)
+        _seed_session_file(sessions_dir, bad)
+        with TestClient(app) as client:
+            reg, spawned = self._patch_spawn(app)
+            with client.websocket_connect(_resume_url(initial)) as ws:
+                _send_resize(ws)
+                _sync_after_connect(ws, initial)
+                ws.send_json({"type": "switch_session", "session_id": bad})
+                assert recv_json(ws, "error")["message"] == "Invalid session ID format"
+                ws.send_json({"type": "switch_session", "session_id": initial})
+                assert recv_json(ws, "session_switched")["session_id"] == initial
+            assert len(spawned) == 1
+            assert reg.get_session(bad) is None
+            assert reg.get_session(initial) is spawned[0]
+
+    @pytest.mark.parametrize(
+        "value",
+        [123, None, ["x"], {"a": 1}],
+        ids=["int", "null", "list", "object"],
+    )
+    def test_a_non_string_switch_target_is_refused_and_the_connection_survives(
+        self, app, sessions_dir, value
+    ):
+        """A switch frame is decoded JSON; a non-string id is an error, not a crash."""
+        initial = _uuid()
+        _seed_session_file(sessions_dir, initial)
+        with TestClient(app) as client:
+            _, spawned = self._patch_spawn(app)
+            with client.websocket_connect(_resume_url(initial)) as ws:
+                _send_resize(ws)
+                _sync_after_connect(ws, initial)
+                ws.send_json({"type": "switch_session", "session_id": value})
+                assert recv_json(ws, "error")["message"] == "Invalid session ID format"
+                ws.send_json({"type": "switch_session", "session_id": initial})
+                assert recv_json(ws, "session_switched")["session_id"] == initial
+            assert len(spawned) == 1
 
     # -- warm session reuse --
 
@@ -215,11 +220,11 @@ class TestSessionSwitchingProtocol:
                 assert len(spawned) == 1  # initial A
 
                 ws.send_json({"type": "switch_session", "session_id": b})
-                _recv_json(ws, "session_switched")
+                recv_json(ws, "session_switched")
                 assert len(spawned) == 2  # A + B
 
                 ws.send_json({"type": "switch_session", "session_id": a})
-                _recv_json(ws, "session_switched")
+                recv_json(ws, "session_switched")
                 assert len(spawned) == 2  # still 2 — A was reused from pool
 
     # -- the resume boundary on the switch path --
@@ -243,13 +248,13 @@ class TestSessionSwitchingProtocol:
                 _sync_after_connect(ws, initial)
 
                 ws.send_json({"type": "switch_session", "session_id": missing})
-                msg = _recv_json(ws, "transcript_missing")
+                msg = recv_json(ws, "transcript_missing")
                 assert msg["session_id"] == missing
 
                 # Still on the initial session: a switch to it is the no-op
                 # answer, and the pool holds only what it held before.
                 ws.send_json({"type": "switch_session", "session_id": initial})
-                assert _recv_json(ws, "session_switched")["session_id"] == initial
+                assert recv_json(ws, "session_switched")["session_id"] == initial
                 assert len(spawned) == 1
                 assert reg.get_session(missing) is None
                 assert reg.get_session(initial) is spawned[0]
@@ -264,12 +269,12 @@ class TestSessionSwitchingProtocol:
             # leave it warm in the pool.
             with client.websocket_connect("/ws/terminal") as ws:
                 _send_resize(ws)
-                never_prompted = _recv_json(ws, "session_info")["session_id"]
+                never_prompted = recv_json(ws, "session_info")["session_id"]
 
             with client.websocket_connect(_resume_url(a)) as ws:
                 _send_resize(ws)
                 ws.send_json({"type": "switch_session", "session_id": never_prompted})
-                assert _recv_json(ws, "session_switched")["session_id"] == never_prompted
+                assert recv_json(ws, "session_switched")["session_id"] == never_prompted
                 assert len(spawned) == 2  # a + the warm one, reused
 
 
@@ -311,6 +316,7 @@ class TestSessionSwitchingContract:
         mock_reg.get_session.side_effect = pool.get
         mock_reg.pop_session.side_effect = lambda key: pool.pop(key, None)
         mock_reg.pop_lru_victim.return_value = None  # a pool below capacity evicts nothing
+        mock_reg.pop_env_mismatch.return_value = None  # no warm entry under a different launch env
         mock_reg.attach_session.return_value = True
         mock_reg.is_attached.return_value = False
         mock_reg.attached_owner.return_value = None
@@ -332,11 +338,11 @@ class TestSessionSwitchingContract:
                 _send_resize(ws)
                 # Door-completion barrier: session_info goes out only
                 # after the hand-off door has attached the key.
-                _recv_json(ws, "session_info")
+                recv_json(ws, "session_info")
                 mock_reg.reset_mock()
                 # Kill the session while connected
                 dead._alive = False
-                _recv_json(ws, "exit")  # the output loop saw the child go
+                recv_json(ws, "exit")  # the output loop saw the child go
 
         assert mock_reg.detach_session.call_args.args[0] == sid
         # Terminated through the owner-checked entry point, which takes the
@@ -362,10 +368,10 @@ class TestSessionSwitchingContract:
                 _send_resize(ws)
                 # Door-completion barrier: session_info goes out only
                 # after the hand-off door has attached the key.
-                _recv_json(ws, "session_info")
+                recv_json(ws, "session_info")
                 mock_reg.reset_mock()
                 dead._alive = False
-                _recv_json(ws, "exit")  # the output loop saw the child go
+                recv_json(ws, "exit")  # the output loop saw the child go
                 # A newer handler has since put its own session under this key.
                 mock_reg.pool[sid] = FakePtySession()
 

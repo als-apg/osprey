@@ -37,6 +37,8 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.expressions import ExpressionError, evaluate_channel
 from osprey_connectors.simulation.machine import (
     DEFAULT_SCENARIO,
+    DriverCoupling,
+    NoiseOverride,
     Scenario,
     ScenarioLogEntry,
     SimChannel,
@@ -48,6 +50,7 @@ from osprey_connectors.simulation.series import (
     apply_events,
     channel_key_bytes,
     clamp,
+    driver_key_bytes,
     epoch_seconds_array,
     keyed_normals,
     ref_value,
@@ -160,8 +163,65 @@ def _texture_offset(
     return wander(channel_key, times, texture.amplitude, texture.period_s)
 
 
+def _coupling_offset(
+    pv: str, couplings: Sequence[DriverCoupling], t_abs_s: "np.ndarray | float"
+) -> "np.ndarray":
+    """Summed shared-driver contribution at absolute epoch time(s) — both engine paths.
+
+    Each term is ``gain * (1 + gain_wander(t)) * driver(t)``. The driver is a
+    :func:`wander` stack keyed by the driver's name alone
+    (:func:`~osprey_connectors.simulation.series.driver_key_bytes`), so every
+    channel coupled to it sees the identical driver value at a given ``t`` —
+    that shared term is the correlation. The optional gain envelope is keyed by
+    channel *and* driver, so each coupling's strength drifts independently,
+    which is what makes the observed correlation wax and wane.
+
+    Like :func:`_texture_offset`, this is a pure function of UNMODIFIED
+    absolute epoch seconds, called with a scalar by live reads and with the
+    window array by synthesis, so the two agree exactly at a shared timestamp.
+
+    Args:
+        pv: The coupled channel's name (keys the gain envelope).
+        couplings: The channel's couplings in the composed active set.
+        t_abs_s: Absolute epoch seconds — array (synthesis) or scalar (live).
+
+    Returns:
+        Offsets with the shape of ``t_abs_s`` (0-d for a scalar), in the
+        channel's units.
+    """
+    times = np.asarray(t_abs_s, dtype=np.float64)
+    total = np.zeros(times.shape, dtype=np.float64)
+    for coupling in couplings:
+        spec = coupling.spec
+        driver = wander(driver_key_bytes(coupling.driver), times, spec.amplitude, spec.period_s)
+        gain: np.ndarray | float = coupling.gain
+        if coupling.gain_wander is not None:
+            envelope_key = channel_key_bytes(pv) + b":gain_wander:" + coupling.driver.encode()
+            envelope = wander(
+                envelope_key, times, coupling.gain_wander.amplitude, coupling.gain_wander.period_s
+            )
+            gain = coupling.gain * (1.0 + envelope)
+        total = total + gain * driver
+    return total
+
+
+def _with_noise_override(channel: SimChannel, override: NoiseOverride | None) -> SimChannel:
+    """The channel as an active scenario's ``noise`` block re-declares it."""
+    if override is None:
+        return channel
+    return replace(
+        channel,
+        noise=channel.noise if override.noise is None else override.noise,
+        noise_abs=channel.noise_abs if override.noise_abs is None else override.noise_abs,
+    )
+
+
 def _apply_signal_model(
-    pv: str, channel: SimChannel, series: "np.ndarray", t_abs: "np.ndarray | None"
+    pv: str,
+    channel: SimChannel,
+    series: "np.ndarray",
+    t_abs: "np.ndarray | None",
+    couplings: Sequence[DriverCoupling] = (),
 ) -> "np.ndarray":
     """Add a channel's declared signal model to its post-event baseline series.
 
@@ -183,9 +243,14 @@ def _apply_signal_model(
         series: Post-event baseline series, one entry per sample. Not mutated.
         t_abs: Absolute epoch seconds per sample, or ``None`` when the requested
             timestamps were not convertible.
+        couplings: The channel's shared-driver couplings in the composed active
+            set (empty by default). Added after texture and before both noise
+            terms; like texture they need absolute time and are skipped
+            without it.
 
     Returns:
-        The series with texture and both noise terms applied.
+        The series with texture, shared-driver couplings and both noise terms
+        applied.
     """
     channel_key = channel_key_bytes(pv)
     if channel.texture is not None:
@@ -194,6 +259,13 @@ def _apply_signal_model(
         else:
             logger.debug(
                 f"Skipping texture for {pv!r}: timestamps not convertible to epoch seconds"
+            )
+    if couplings:
+        if t_abs is not None:
+            series = series + _coupling_offset(pv, couplings, t_abs)
+        else:
+            logger.debug(
+                f"Skipping driver couplings for {pv!r}: timestamps not convertible to epoch seconds"
             )
     if channel.noise > 0.0 or channel.noise_abs > 0.0:
         counters = t_abs * 1000.0 if t_abs is not None else np.arange(len(series), dtype=np.int64)
@@ -266,6 +338,8 @@ class SimulationEngine:
         self._active: tuple[str, ...] = (DEFAULT_SCENARIO,)
         self._composed_overrides: dict[str, float | str] = {}
         self._composed_archiver: dict[str, list[dict[str, Any]]] = {}
+        self._composed_couple: dict[str, tuple[DriverCoupling, ...]] = {}
+        self._composed_noise: dict[str, NoiseOverride] = {}
         self._anchor_epoch: float | None = None
         self._state_mtime_ns: int | None = None
         # Sentinel that never matches a real (path, mtime) so first refresh runs.
@@ -420,7 +494,8 @@ class SimulationEngine:
         """Return composition problems for a set of scenarios; empty list = OK.
 
         Active scenarios must touch *disjoint* channel sets — a channel is
-        "touched" if a scenario declares an override or an archiver block for it.
+        "touched" if a scenario declares an override, an archiver block, a
+        driver coupling (``couple``) or a noise override (``noise``) for it.
         Archiver step/ramp events overwrite the synthesized series (and overrides
         collide on point reads), so two scenarios touching one channel compose
         order-dependently and silently wrong. Returns a message per unknown name
@@ -439,7 +514,12 @@ class SimulationEngine:
                 problems.append(f"Unknown scenario {name!r}. Available: {sorted(self._scenarios)}")
                 continue
             scenario = self._scenarios[name]
-            touched = set(scenario.overrides) | set(scenario.archiver)
+            touched = (
+                set(scenario.overrides)
+                | set(scenario.archiver)
+                | set(scenario.couple)
+                | set(scenario.noise)
+            )
             for pv in sorted(touched):
                 if pv in owner and owner[pv] != name:
                     problems.append(
@@ -458,11 +538,14 @@ class SimulationEngine:
         """Read a channel's effective value with the live signal model applied.
 
         Numeric pipeline: effective value -> + texture at wall-clock now ->
-        relative ``noise`` (multiplicative) -> + ``noise_abs`` (additive) ->
-        clamp. Texture is the shared deterministic term (:func:`_texture_offset`,
-        the same implementation synthesis uses), so for a NON-OVERRIDDEN,
-        noise-free channel a live read equals the synthesized sample at the
-        same timestamp exactly. That agreement is scoped: the effective value
+        + shared-driver couplings at the same now -> relative ``noise``
+        (multiplicative) -> + ``noise_abs`` (additive) -> clamp. Texture and
+        couplings are the shared deterministic terms (:func:`_texture_offset`,
+        :func:`_coupling_offset` — the implementations synthesis uses), so for
+        a NON-OVERRIDDEN, noise-free channel a live read equals the
+        synthesized sample at the same timestamp exactly. The noise sigmas are
+        the machine file's unless an active scenario's ``noise`` block
+        replaces them. That agreement is scoped: the effective value
         resolves write > override > baseline, while synthesized history builds
         on ``channel.value`` plus archiver events — an override shifts the live
         read but not the history (scenarios declare matching archiver events to
@@ -479,12 +562,16 @@ class SimulationEngine:
             KeyError: If the channel is not defined in the machine file.
         """
         self._refresh_scenario()
-        channel = self._require_channel(pv)
+        channel = self._signal_channel(self._require_channel(pv))
         value = self._effective(pv)
         if not isinstance(value, str):
             value = float(value)
+            now = time.time()
             if channel.texture is not None:
-                value += float(_texture_offset(channel_key_bytes(pv), channel.texture, time.time()))
+                value += float(_texture_offset(channel_key_bytes(pv), channel.texture, now))
+            couplings = self._composed_couple.get(pv)
+            if couplings:
+                value += float(_coupling_offset(pv, couplings, now))
             if channel.noise > 0.0:
                 value *= 1.0 + float(self._rng.normal(0.0, channel.noise))
             if channel.noise_abs > 0.0:
@@ -526,7 +613,9 @@ class SimulationEngine:
         channel's baseline is the synthesized sample at ``t`` exactly -- the
         live present and the synthesized past are two views of one
         description. Scenario state is not consulted: the level is the
-        caller's.
+        caller's. In particular a scenario's shared-driver couplings and noise
+        overrides do not reach a channel served this way (they apply to
+        :meth:`read` and :meth:`synthesize_series`).
 
         Args:
             pv: Channel name.
@@ -744,12 +833,22 @@ class SimulationEngine:
         """
         overrides: dict[str, float | str] = {}
         archiver: dict[str, list[dict[str, Any]]] = {}
+        couple: dict[str, tuple[DriverCoupling, ...]] = {}
+        noise: dict[str, NoiseOverride] = {}
         for name in self._active:
             scenario = self._scenarios[name]
             overrides.update(scenario.overrides)
             archiver.update(scenario.archiver)
+            couple.update(scenario.couple)
+            noise.update(scenario.noise)
         self._composed_overrides = overrides
         self._composed_archiver = archiver
+        self._composed_couple = couple
+        self._composed_noise = noise
+
+    def _signal_channel(self, channel: SimChannel) -> SimChannel:
+        """The channel with the composed scenario noise override (if any) applied."""
+        return _with_noise_override(channel, self._composed_noise.get(channel.name))
 
     def _effective(self, pv: str) -> float | str:
         """Effective value: session write > composed scenario override > baseline."""
@@ -839,7 +938,13 @@ class SimulationEngine:
             series = np.full(n, float(channel.value))
 
         series = apply_events(series, events, n, t_abs, anchor, tz)
-        series = _apply_signal_model(pv, channel, series, t_abs)
+        series = _apply_signal_model(
+            pv,
+            self._signal_channel(channel),
+            series,
+            t_abs,
+            self._composed_couple.get(pv, ()),
+        )
         if channel.min_value is not None or channel.max_value is not None:
             series = np.clip(series, channel.min_value, channel.max_value)
         cache[pv] = series
