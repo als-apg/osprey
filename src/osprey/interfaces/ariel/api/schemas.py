@@ -15,7 +15,9 @@ class AttachmentResponse(BaseModel):
     The fields other than ``display_url`` are the attachment summary keys
     (``SUMMARY_KEYS``). ``url`` is the attachment's absolute http(s) source url,
     when it has one; ``display_url`` is where the web page shows or downloads
-    the attachment from, or null when there is nowhere to.
+    the attachment from, or null when there is nowhere to: an absolute http(s)
+    url, or one of this API's attachment routes given relative to the API base
+    (``/attachments/{id}`` or ``/attachments/{id}/rendition``).
     """
 
     attachment_id: str | None = None

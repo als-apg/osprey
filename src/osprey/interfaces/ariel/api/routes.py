@@ -92,6 +92,11 @@ def _require_service(request: Request) -> ARIELSearchService:
 
 _ATTACHMENT_ROUTE_PREFIX = "/api/attachments/"
 
+#: Where the attachment routes sit relative to the API base. ``display_url``
+#: names a local route this way so the page can resolve it against the same API
+#: base its other calls use, wherever the page is mounted.
+_ATTACHMENT_API_ROUTE = "/attachments/"
+
 
 def _safe_url(url: Any) -> str | None:
     """Return ``url`` when the page may link to it, else None.
@@ -119,12 +124,17 @@ def _display_url(
 ) -> str | None:
     """Return where the web page shows or downloads one attachment from.
 
+    A local route is given relative to the API base (``/api``), not to the
+    server root: the page joins it to its own API base, which is the one path
+    a proxy that mounts the page under a prefix rewrites. A root-absolute path
+    in this JSON value would escape that rewrite and miss the prefix.
+
     ===========================================  ==========================================
     The attachment                               ``display_url``
     ===========================================  ==========================================
-    viewable                                     ``/api/attachments/{id}/rendition``
-    copied, not viewable                         ``/api/attachments/{id}``
-    no copy state, native item                   ``/api/attachments/{id parsed from url}``
+    viewable                                     ``/attachments/{id}/rendition``
+    copied, not viewable                         ``/attachments/{id}``
+    no copy state, native item                   ``/attachments/{id parsed from url}``
     anything else with an absolute http(s) url   that url
     anything else                                null
     ===========================================  ==========================================
@@ -142,12 +152,15 @@ def _display_url(
 
     attachment_id = summary.get("attachment_id")
     if attachment_id and summary.get("viewable"):
-        return f"{_ATTACHMENT_ROUTE_PREFIX}{attachment_id}/rendition"
+        return f"{_ATTACHMENT_API_ROUTE}{attachment_id}/rendition"
     if attachment_id and summary.get("copy_status") == "copied":
-        return f"{_ATTACHMENT_ROUTE_PREFIX}{attachment_id}"
+        return f"{_ATTACHMENT_API_ROUTE}{attachment_id}"
     if not copy_state and is_native_item(item):
-        return f"{_ATTACHMENT_ROUTE_PREFIX}{attachment_id_for(entry_id, item)}"
-    return summary.get("url")
+        return f"{_ATTACHMENT_API_ROUTE}{attachment_id_for(entry_id, item)}"
+    url = summary.get("url")
+    if isinstance(url, str) and url.lower().startswith(("http://", "https://")):
+        return url
+    return None
 
 
 def _entry_to_response(
@@ -200,7 +213,7 @@ def _entry_to_response(
                 **{
                     **summary,
                     "url": _safe_url(summary.get("url")),
-                    "display_url": _safe_url(display_url),
+                    "display_url": display_url,
                 }
             )
         )

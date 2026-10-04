@@ -5,7 +5,8 @@
  *
  * The entry detail view draws an <img> only for attachments the server marks
  * `viewable: true`, always from `display_url`, and every href/src built from
- * attachment data passes `safeHref` (http(s) or `/api/attachments/` only).
+ * attachment data passes `safeHref` (http(s), or an attachment route relative
+ * to the API base, joined to that base).
  * Everything else is a file card. The entry card shows a "picture match"
  * marker only when the search matched through an image.
  */
@@ -28,8 +29,12 @@ import {
 } from '../../../src/osprey/interfaces/ariel/static/js/entries-detail.js';
 import { renderEntryCard } from '../../../src/osprey/interfaces/ariel/static/js/components.js';
 
-const RENDITION = '/api/attachments/att-0123456789ab/rendition';
-const ORIGINAL = '/api/attachments/att-0123456789ab';
+/** `display_url` values as the server sends them: routes relative to the API base. */
+const RENDITION = '/attachments/att-0123456789ab/rendition';
+const ORIGINAL = '/attachments/att-0123456789ab';
+/** The same routes joined to the page's API base, as the page requests them. */
+const RENDITION_SRC = '/api/attachments/att-0123456789ab/rendition';
+const ORIGINAL_SRC = '/api/attachments/att-0123456789ab';
 
 /**
  * Render one entry with the given attachments into the detail modal.
@@ -63,10 +68,15 @@ describe('safeHref', () => {
     'http://example.org/a.png',
     'https://example.org/a.png',
     'HTTPS://example.org/a.png',
-    RENDITION,
-    ORIGINAL,
   ])('keeps %j', (url) => {
     expect(safeHref(url)).toBe(url);
+  });
+
+  test.each([
+    [RENDITION, RENDITION_SRC],
+    [ORIGINAL, ORIGINAL_SRC],
+  ])('joins the attachment route %j to the API base', (route, src) => {
+    expect(safeHref(route)).toBe(src);
   });
 
   test.each([
@@ -77,6 +87,13 @@ describe('safeHref', () => {
     'vbscript:msgbox(1)',
     '//evil.example/a.png',
     '/api/other',
+    '/api/attachments/att-0123456789ab/rendition',
+    '/attachments/',
+    '/attachments/../rendition',
+    '/attachments/./rendition',
+    '/attachments/a/b',
+    '/attachments/a/rendition/x',
+    '/attachments/a?x=1',
     'relative/path.png',
     '',
     null,
@@ -94,7 +111,7 @@ describe('entry detail attachments', () => {
     ]);
     const img = body.querySelector('img');
     expect(img, 'thumbnail rendered').not.toBeNull();
-    expect(/** @type {HTMLImageElement} */ (img).getAttribute('src')).toBe(RENDITION);
+    expect(/** @type {HTMLImageElement} */ (img).getAttribute('src')).toBe(RENDITION_SRC);
     const thumb = /** @type {HTMLElement} */ (body.querySelector('[data-lightbox-url]'));
     expect(thumb.dataset.lightboxUrl).toBe(RENDITION);
     expect(body.textContent).toContain('image/png');
@@ -108,7 +125,7 @@ describe('entry detail attachments', () => {
     expect(body.querySelector('[data-lightbox-url]')).toBeNull();
     const link = body.querySelector('a[href]');
     expect(link, 'file card links to the download').not.toBeNull();
-    expect(/** @type {HTMLAnchorElement} */ (link).getAttribute('href')).toBe(ORIGINAL);
+    expect(/** @type {HTMLAnchorElement} */ (link).getAttribute('href')).toBe(ORIGINAL_SRC);
     expect(body.textContent).toContain('image/svg+xml');
     expect(body.textContent).toContain('diagram.svg');
   });
@@ -176,7 +193,7 @@ describe('entry detail attachments', () => {
     thumb.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const overlay = document.getElementById('image-lightbox');
     expect(overlay).not.toBeNull();
-    expect(/** @type {Element} */ (overlay).querySelector('img')?.getAttribute('src')).toBe(RENDITION);
+    expect(/** @type {Element} */ (overlay).querySelector('img')?.getAttribute('src')).toBe(RENDITION_SRC);
     overlay?.remove();
   });
 

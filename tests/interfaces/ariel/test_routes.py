@@ -1519,7 +1519,7 @@ def test_display_url_viewable_is_rendition():
 
     att_id = attachment_id_for("e-att", item)
     assert att.viewable is True
-    assert att.display_url == f"/api/attachments/{att_id}/rendition"
+    assert att.display_url == f"/attachments/{att_id}/rendition"
     assert att.url == _PNG_URL
 
 
@@ -1534,7 +1534,7 @@ def test_display_url_copied_not_viewable_is_original():
 
     assert att.viewable is False
     assert att.copy_status == "copied"
-    assert att.display_url == f"/api/attachments/{attachment_id_for('e-att', item)}"
+    assert att.display_url == f"/attachments/{attachment_id_for('e-att', item)}"
 
 
 def test_display_url_pending_falls_back_to_source_url():
@@ -1561,7 +1561,7 @@ def test_display_url_unmigrated_native_item_is_original():
     att = _to_response(_att_entry([item]), None).attachments[0]
 
     assert att.attachment_id is None
-    assert att.display_url == f"/api/attachments/{_NATIVE_ID}"
+    assert att.display_url == f"/attachments/{_NATIVE_ID}"
 
 
 def test_display_url_migrated_native_without_row_is_null():
@@ -1628,7 +1628,7 @@ def test_entry_response_orders_matched_attachment_first():
 
     assert [a.filename for a in atts] == ["b.png", "a.png"]
     # display_url follows the item, not the position.
-    assert atts[0].display_url == f"/api/attachments/{second_id}/rendition"
+    assert atts[0].display_url == f"/attachments/{second_id}/rendition"
 
 
 # -- routes: search, list, detail ------------------------------------------------
@@ -1692,7 +1692,7 @@ def test_routes_use_rows_for_display_url(client, mock_ariel_service, route):
 
     att = _route_entries(client, mock_ariel_service, route, _att_entry([item]))[0]["attachments"][0]
 
-    assert att["display_url"] == f"/api/attachments/{row['attachment_id']}/rendition"
+    assert att["display_url"] == f"/attachments/{row['attachment_id']}/rendition"
     assert set(att) == set(routes.AttachmentResponse.model_fields)
 
 
@@ -1708,7 +1708,7 @@ def test_routes_unmigrated_store_returns_fallback_summaries(client, mock_ariel_s
 
     assert [a["copy_status"] for a in atts] == ["pending", "pending"]
     assert all(a["viewable"] is False and a["attachment_id"] is None for a in atts)
-    assert atts[0]["display_url"] == f"/api/attachments/{_NATIVE_ID}"
+    assert atts[0]["display_url"] == f"/attachments/{_NATIVE_ID}"
     assert atts[1]["display_url"] == _PNG_URL
 
 
@@ -1779,7 +1779,7 @@ def test_unmigrated_native_display_url_is_served_by_original_route(client, mock_
     att = _route_entries(client, mock_ariel_service, "detail", _att_entry([native]))[0][
         "attachments"
     ][0]
-    served = client.get(att["display_url"])
+    served = client.get("/api" + att["display_url"])
 
     assert served.status_code == 200
     mock_ariel_service.repository.get_attachment_original.assert_awaited_once_with(_NATIVE_ID)

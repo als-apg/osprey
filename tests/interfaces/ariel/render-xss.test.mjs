@@ -69,7 +69,7 @@ const JS_BREAKOUT_PAYLOAD = "'-alert(1)-'";
 const HOSTILE_PAYLOADS = [JS_BREAKOUT_PAYLOAD, PAYLOAD];
 
 /** A well-formed rendition URL, the only shape a viewable thumbnail is drawn from. */
-const RENDITION_URL = '/api/attachments/att-0123456789ab/rendition';
+const RENDITION_URL = '/attachments/att-0123456789ab/rendition';
 
 /**
  * Assert the PAYLOAD reached `root` as inert text: none of these templates

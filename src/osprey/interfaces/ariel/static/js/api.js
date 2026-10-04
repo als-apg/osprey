@@ -8,6 +8,17 @@
 const API_BASE = '/api';
 
 /**
+ * Join a path relative to the API base onto the API base, the same base every
+ * call in this module uses. A proxy that mounts this page under a prefix
+ * rewrites that base, so the result points under the prefix too.
+ * @param {string} path - Path relative to the API base, starting with '/'
+ * @returns {string} The URL path the browser should request
+ */
+export function apiUrl(path) {
+  return API_BASE + path;
+}
+
+/**
  * Structured API error carrying the HTTP status code and an optional
  * machine-readable `code` discriminator from the response body.
  */

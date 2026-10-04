@@ -5,7 +5,7 @@
  * Entry detail view: loading, rendering, and the image lightbox.
  */
 
-import { entriesApi } from './api.js';
+import { entriesApi, apiUrl } from './api.js';
 import {
   formatTimestamp,
   renderLoading,
@@ -16,16 +16,26 @@ import {
 import { parseEntryText } from './entries-helpers.js';
 
 /**
- * Return `u` when it is safe to place in an href or src built from
- * attachment data, else null. Safe means an absolute http(s) URL or a path
- * on this server's attachment routes; every other scheme (javascript:,
- * data:, vbscript:, protocol-relative //host, ...) is refused.
+ * One of this API's attachment routes, relative to the API base: the original
+ * (`/attachments/<id>`) or its rendition (`/attachments/<id>/rendition`). The
+ * id is one plain path segment, never `.` or `..`.
+ */
+const ATTACHMENT_ROUTE = /^\/attachments\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+(?:\/rendition)?$/;
+
+/**
+ * Turn an attachment's `display_url` into a URL safe to place in an href or
+ * src, else null. An absolute http(s) URL is kept unchanged; an attachment
+ * route relative to the API base is joined to the page's API base, so it
+ * resolves under whatever prefix the page is served from. Every other value
+ * (javascript:, data:, vbscript:, protocol-relative //host, any other path)
+ * is refused.
  * @param {unknown} u - Candidate URL
- * @returns {string|null} The URL unchanged, or null when it is not safe
+ * @returns {string|null} The URL to use, or null when it is not safe
  */
 export function safeHref(u) {
   if (typeof u !== 'string') return null;
-  if (/^https?:\/\//i.test(u) || u.startsWith('/api/attachments/')) return u;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (ATTACHMENT_ROUTE.test(u)) return apiUrl(u);
   return null;
 }
 
@@ -44,7 +54,7 @@ function renderAttachmentCard(att) {
     const escapedUrl = escapeHtml(href);
     return `
     <div class="card" style="width: 150px; cursor: pointer;"
-         data-lightbox-url="${escapedUrl}" data-lightbox-name="${escapedName}">
+         data-lightbox-url="${escapeHtml(att.display_url)}" data-lightbox-name="${escapedName}">
       <div class="card-body" style="padding: 12px; text-align: center;">
         <img src="${escapedUrl}" alt="${escapedName}"
              style="width: 126px; height: 100px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 8px;">
