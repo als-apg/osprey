@@ -186,8 +186,6 @@ class Family(NamedTuple):
     settable: bool = False
     #: A second readback on its own signal, or ``None`` for a family with one.
     second_signal: str | None = None
-    #: What the device card calls the family's field.
-    field: str = ""
     #: What the device card says the family is.
     description: str = ""
 
@@ -196,23 +194,12 @@ class Family(NamedTuple):
 #: what puts a setpoint beside their readback; one reads two signals through
 #: two addresses; the rest read one.
 DEMO_FAMILIES: tuple[Family, ...] = (
-    Family("QFA", "Quadrupole", "MG", "current", True, None, "Current", "Quadrupole, family A"),
-    Family("QDA", "Quadrupole", "MG", "current", True, None, "Current", "Quadrupole, family D"),
-    Family("SF", "Sextupole", "MG", "current", True, None, "Current", "Focusing sextupole"),
-    Family("BEND", "Dipole", "MG", "current", True, None, "Current", "Storage ring bend magnet"),
-    Family(
-        "HCM",
-        "HorizontalCorrector",
-        "MG",
-        "current",
-        True,
-        None,
-        "Current",
-        "Horizontal corrector",
-    ),
-    Family(
-        "VCM", "VerticalCorrector", "MG", "current", True, None, "Current", "Vertical corrector"
-    ),
+    Family("QFA", "Quadrupole", "MG", "current", True, None, "Quadrupole, family A"),
+    Family("QDA", "Quadrupole", "MG", "current", True, None, "Quadrupole, family D"),
+    Family("SF", "Sextupole", "MG", "current", True, None, "Focusing sextupole"),
+    Family("BEND", "Dipole", "MG", "current", True, None, "Storage ring bend magnet"),
+    Family("HCM", "HorizontalCorrector", "MG", "current", True, None, "Horizontal corrector"),
+    Family("VCM", "VerticalCorrector", "MG", "current", True, None, "Vertical corrector"),
     Family(
         "BPM",
         "BeamPositionMonitor",
@@ -220,16 +207,15 @@ DEMO_FAMILIES: tuple[Family, ...] = (
         "beamPositionX",
         False,
         "beamPositionY",
-        "Position",
         "Beam position monitor",
     ),
-    Family("IPUMP", "IonPump", "VA", "pressure", False, None, "Pressure", "Ion pump"),
-    Family("GAUGE", "VacuumGauge", "VA", "pressure", False, None, "Pressure", "Vacuum gauge"),
+    Family("IPUMP", "IonPump", "VA", "pressure", False, None, "Ion pump"),
+    Family("GAUGE", "VacuumGauge", "VA", "pressure", False, None, "Vacuum gauge"),
 )
 
 #: The one family off the grid: a single cavity, whose one address is both read
 #: and set, which is the only way the ``RW`` direction gets exercised.
-_CAVITY = Family("RFCAV", "RFCavity", "RF", "cavityVoltage", False, None, "Voltage", "RF cavity")
+_CAVITY = Family("RFCAV", "RFCavity", "RF", "cavityVoltage", False, None, "RF cavity")
 
 #: The sections the grid covers.
 DEMO_SECTIONS = ("SR01C", "SR02C", "SR03C")
@@ -246,9 +232,6 @@ _SYSTEM_DESCRIPTIONS = {
     "VA": "Storage ring vacuum",
     "RF": "Storage ring RF",
 }
-
-#: What the device card calls the machine the corpus describes.
-_RING_DESCRIPTION = "Storage ring"
 
 #: The ontology the corpus declares: bare class name to its parents and its
 #: alternative labels. It is wider than the grid on purpose — ``Undulator``,
@@ -547,13 +530,6 @@ DEMO_FACETS: dict[str, list[dict[str, Any]]] = demo_facets()
 # ---------------------------------------------------------------------------
 
 
-def _subfield(full_pv: str) -> str | None:
-    """Return what the card calls the address's role, or ``None`` when it has none."""
-    if full_pv.endswith("SP00"):
-        return "Setpoint"
-    return "Readback" if "AM" in full_pv[-4:] else None
-
-
 def device_card(device: str) -> dict[str, Any]:
     """Build the store-shaped device row for *device* out of the corpus rows.
 
@@ -584,10 +560,6 @@ def device_card(device: str) -> dict[str, Any]:
                 {
                     "fullPv": row["fullPv"],
                     "description": row["description"],
-                    "fieldDescription": spec.family.field,
-                    "subfieldDescription": _subfield(row["fullPv"]),
-                    "protocol": "ca",
-                    "confidence": 0.94 if _EDGE_WRITE in row["edges"] else 0.98,
                     "edges": list(row["edges"]),
                 }
             )
@@ -605,10 +577,9 @@ def device_card(device: str) -> dict[str, Any]:
         # A plausible position along the ring: the section sets the arc, the
         # ordinal the step within it.
         "sPositionM": round(DEMO_SECTIONS.index(spec.section) * 30.0 + spec.ordinal * 4.271, 3),
-        "ordinalInSection": spec.ordinal,
+        "ordinalInPlace": spec.ordinal,
         "systemDescription": _SYSTEM_DESCRIPTIONS[spec.family.system],
         "familyDescription": spec.family.description,
-        "ringDescription": _RING_DESCRIPTION,
         "signals": list(groups.values()),
     }
 

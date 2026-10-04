@@ -108,8 +108,7 @@ _ADDRESSES: dict[str, object] = {
         "example": "SR:MAG:DIPOLE:01:CURRENT:SP",
     },
     "notes": [
-        "The six-token grammar is the generated demo corpus', and it is what "
-        "fieldDescription and subfieldDescription explain. A corpus built from a "
+        "The six-token grammar is the generated demo corpus'. A corpus built from a "
         "real facility records whatever that facility calls its channels — "
         "often fewer tokens, in that facility's own order — so read the shape "
         "off the rows rather than assuming it.",
@@ -134,12 +133,12 @@ _PROSE_IS_CORPUS_DEPENDENT = (
 _DESCRIPTION_PREDICATES: dict[str, dict[str, object]] = {
     "binding": {
         "match": "(b:ChannelBinding)",
-        "properties": ["description", "fieldDescription", "subfieldDescription"],
+        "properties": ["description"],
         "presence": _PROSE_IS_CORPUS_DEPENDENT,
     },
     "device": {
         "match": "(d:Resource)-[:HASBINDING]->(:ChannelBinding)",
-        "properties": ["familyDescription", "systemDescription", "ringDescription"],
+        "properties": ["familyDescription", "systemDescription"],
         "presence": _PROSE_IS_CORPUS_DEPENDENT,
     },
     "signal": {

@@ -44,7 +44,6 @@ PREDICATES = {
     "sourceName",
     "system",
     "systemDescription",
-    "ringDescription",
     "ordinalInPlace",
     "ordinalInModel",
     "placePath",
@@ -149,7 +148,6 @@ def test_a_device_carries_its_identity_place_and_position() -> None:
         "sourceName": "BPM1",
         "familyDescription": "Monitors.",
         "systemDescription": "The machine.",
-        "ringDescription": "The machine.",
         "sPositionM": 1.25,
         "lengthM": 0.0,
         "ordinalInPlace": 1,
@@ -159,10 +157,9 @@ def test_a_device_carries_its_identity_place_and_position() -> None:
         assert _value(graph, "device", "M/BPM1", name) == value, name
 
 
-def test_the_place_description_is_the_device_place_before_the_one_above() -> None:
+def test_a_device_carries_its_top_place_and_family_descriptions() -> None:
     graph = _graph(graph_text(_doc()))
 
-    assert _value(graph, "device", "M/Q1", "ringDescription") == "Sector two."
     assert _value(graph, "device", "M/Q1", "systemDescription") == "The machine."
     assert _value(graph, "device", "M/Q1", "familyDescription") == "Diagnostics."
 

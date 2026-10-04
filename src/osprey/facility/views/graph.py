@@ -14,11 +14,9 @@ Nodes and their ``narad_p:`` predicates:
   place path), ``placePath`` and ``sectionCode`` of its place, ``sourceName``
   (its first name), ``familyDescription`` (the description of the smallest
   described group naming it), ``systemDescription`` (the top place's
-  description), ``ringDescription`` (the description of its place, or of the
-  nearest described place above it), ``sPositionM``, ``lengthM``,
-  ``ordinalInPlace`` and ``ordinalInModel`` (each only when the facility file
-  carries it), and one ``hasBinding`` per channel it is ``on`` or an
-  ``endpoint_of``;
+  description), ``sPositionM``, ``lengthM``, ``ordinalInPlace`` and
+  ``ordinalInModel`` (each only when the facility file carries it), and one
+  ``hasBinding`` per channel it is ``on`` or an ``endpoint_of``;
 - a channel, a ``narad_sem:ChannelBinding``: ``bindingId`` and ``fullPv`` (its
   address), ``description``, and one ``readsSignal`` (a readback) or
   ``writesSignal`` (a setpoint) to ``narad_sem:<signal>`` when it names a
@@ -92,7 +90,6 @@ P_ORDINAL_IN_PLACE = "ordinalInPlace"
 P_PLACE_PATH = "placePath"
 P_RAW_TYPE = "rawType"
 P_READS_SIGNAL = "readsSignal"
-P_RING_DESCRIPTION = "ringDescription"
 P_S_POSITION_M = "sPositionM"
 P_SECTION_CODE = "sectionCode"
 P_SOURCE_NAME = "sourceName"
@@ -118,7 +115,6 @@ PROPERTY_NAMES: tuple[str, ...] = tuple(
             P_PLACE_PATH,
             P_RAW_TYPE,
             P_READS_SIGNAL,
-            P_RING_DESCRIPTION,
             P_S_POSITION_M,
             P_SECTION_CODE,
             P_SOURCE_NAME,
@@ -181,16 +177,6 @@ def _top(place_id: str) -> str:
 
 def _last_segment(place_id: str) -> str:
     return place_id.rsplit("/", 1)[-1]
-
-
-def _nearest_description(place_id: str, places: Mapping[str, Mapping[str, Any]]) -> str | None:
-    """The description of a place, or of the nearest described place above it."""
-    segments = place_id.split("/")
-    for depth in range(len(segments), 0, -1):
-        description = places.get("/".join(segments[:depth]), {}).get("description")
-        if description:
-            return str(description)
-    return None
 
 
 def _family_descriptions(groups: Iterable[Mapping[str, Any]]) -> dict[str, str]:
@@ -271,9 +257,6 @@ def _device_triples(
             top_description = places.get(top, {}).get("description")
             if top_description:
                 _add(subjects, subject, _p(P_SYSTEM_DESCRIPTION), _text(top_description))
-            place_description = _nearest_description(str(place), places)
-            if place_description:
-                _add(subjects, subject, _p(P_RING_DESCRIPTION), _text(place_description))
         names = device.get("names") or []
         if names:
             _add(subjects, subject, _p(P_SOURCE_NAME), _text(names[0]))

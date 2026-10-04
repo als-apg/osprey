@@ -204,21 +204,21 @@ class TestGraphVocabulary:
         predicates = payload["description_predicates"]
 
         assert {kind: entry["properties"] for kind, entry in predicates.items()} == {
-            "binding": ["description", "fieldDescription", "subfieldDescription"],
-            "device": ["familyDescription", "systemDescription", "ringDescription"],
+            "binding": ["description"],
+            "device": ["familyDescription", "systemDescription"],
             "signal": [],
         }
 
-    def test_advertised_prose_properties_are_the_generators(self, payload):
-        """Pin the manifest to the emitter so the two cannot drift apart.
+    def test_advertised_prose_properties_are_the_graph_views(self, payload):
+        """Pin the manifest to the graph view so the two cannot drift apart.
 
-        The manifest spells the six description predicates as literals rather
-        than importing them, which keeps the server off the TTL generator's
-        import path. This is the seam that would otherwise let a renamed or
-        newly added predicate ship in generated corpora while the manifest kept
+        The manifest spells the description predicates as literals rather than
+        importing them, which keeps the server off the graph view's import
+        path. This is the seam that would otherwise let a renamed or newly
+        added predicate ship in the generated graph while the manifest kept
         advertising the old vocabulary.
         """
-        from osprey.services.facility_knowledge.ttl_generator.emitter import PROPERTY_NAMES
+        from osprey.facility.views.graph import PROPERTY_NAMES
 
         advertised = {
             prop
@@ -230,9 +230,9 @@ class TestGraphVocabulary:
         }
 
         assert advertised == generated, (
-            "the manifest's prose vocabulary drifted from the TTL emitter's "
+            "the manifest's prose vocabulary drifted from the graph view's "
             f"(manifest only: {sorted(advertised - generated)}; "
-            f"emitter only: {sorted(generated - advertised)})"
+            f"view only: {sorted(generated - advertised)})"
         )
 
     def test_every_node_type_says_how_it_is_matched(self, payload):

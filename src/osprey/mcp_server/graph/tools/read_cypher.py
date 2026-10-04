@@ -73,8 +73,8 @@ def read_cypher(query: str, params: dict[str, Any] | None = None) -> str:
       ``WRITESSIGNAL``, ``SUBCLASSOF``, ``TYPE``. Writing ``hasBinding`` matches
       nothing and returns zero rows rather than an error.
     * Properties keep their original spelling: ``uri`` (every node's identity),
-      ``fullPv``, ``sourceName``, ``sectionCode``, ``sPositionM``,
-      ``ordinalInSection``, ``confidence``.
+      ``fullPv``, ``sourceName``, ``sectionCode``, ``placePath``, ``sPositionM``,
+      ``ordinalInPlace``.
 
     Pass values through ``params`` as ``$name`` placeholders rather than pasting
     them into the query text — ``MATCH (d:Resource {sectionCode: $section})``

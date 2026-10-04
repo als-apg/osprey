@@ -39,11 +39,13 @@ nothing and returns zero rows rather than an error.
 
 Properties worth knowing:
 
-- **On a device:** `sourceName`, `sectionCode`, `system`, `sPositionM`,
-  `ordinalInSection`, plus the free text `familyDescription`,
-  `systemDescription`, `ringDescription`
-- **On a binding:** `fullPv`, `confidence`, plus the free text `description`,
-  `fieldDescription`, `subfieldDescription`
+- **On a device:** `sourceName`, `sectionCode`, `placePath`, `system`,
+  `rawType`, `sPositionM`, `ordinalInPlace`, plus the free text
+  `familyDescription`, `systemDescription`
+- **On a place:** `placePath`, `sectionCode`, and a `HASBINDING` edge to each
+  channel that sits on the place itself. A query that means devices keeps
+  `d.rawType IS NOT NULL`
+- **On a binding:** `fullPv`, plus the free text `description`
 - **On a class:** `uri`, `altLabel`
 
 A facility corpus may also carry scalar properties of its own on devices and
@@ -72,7 +74,7 @@ Operators use domain language. Map their terms to a graph query:
 | "readback" / "monitor" | Bindings with a `READSSIGNAL` edge and no `WRITESSIGNAL` |
 | "setpoint" / "control" | Bindings with a `WRITESSIGNAL` edge |
 | "in sector 3" / "in the storage ring" | `d.sectionCode` for the location, `d.system` for the accelerator system |
-| "in beamline order" | Order by `d.sPositionM`, falling back to `d.ordinalInSection` |
+| "in beamline order" | Order by `d.sPositionM`, then `d.ordinalInPlace` |
 | "what is this channel" | Reverse lookup: `MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})` |
 
 ### Graph Conventions

@@ -844,10 +844,9 @@ class TestDevice:
         assert data["section"] == "SR01C"
         assert data["system"] == "MG"
         assert data["sPositionM"] == DEMO_DEVICE_ROW["sPositionM"]
-        assert data["ordinalInSection"] == 1
+        assert data["ordinalInPlace"] == 1
         assert data["systemDescription"] == DEMO_DEVICE_ROW["systemDescription"]
         assert data["familyDescription"] == DEMO_DEVICE_ROW["familyDescription"]
-        assert data["ringDescription"] == DEMO_DEVICE_ROW["ringDescription"]
 
     def test_bindings_stay_grouped_under_their_signal_and_carry_their_edges(self, client):
         install_graph_paradigm(client, demo_context())
@@ -864,15 +863,7 @@ class TestDevice:
             f"{DEMO_DEVICE_ROW['device']}SP00",
         ]
         assert bindings[0]["description"] == "current readback"
-        assert bindings[0]["fieldDescription"] == "Current"
-        assert bindings[0]["subfieldDescription"] == "Readback"
-        assert set(bindings[0]) == {
-            "fullPv",
-            "edges",
-            "description",
-            "subfieldDescription",
-            "fieldDescription",
-        }
+        assert set(bindings[0]) == {"fullPv", "edges", "description"}
 
     def test_a_binding_without_a_semantic_signal_reports_no_edges(self, client):
         device = DEMO_DEVICE_ROW["device"]
@@ -886,15 +877,11 @@ class TestDevice:
                         {
                             "fullPv": f"{device}AM00",
                             "description": "read and set on one address",
-                            "fieldDescription": "Voltage",
-                            "subfieldDescription": None,
                             "edges": ["READSSIGNAL", "WRITESSIGNAL"],
                         },
                         {
                             "fullPv": f"{device}ST00",
                             "description": "status word, no semantic signal",
-                            "fieldDescription": None,
-                            "subfieldDescription": None,
                             "edges": [],
                         },
                     ],

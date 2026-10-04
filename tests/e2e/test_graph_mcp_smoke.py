@@ -140,31 +140,33 @@ PROBE_DEVICE_BINDINGS = (
     "SR:MAG:DIPOLE:01:STATUS:READY",
 )
 
-#: Facts the judge rubric is built from. Every one was queried from a store
-#: seeded with the same ``demo_machine.ttl`` this test seeds (25,845 triples,
-#: 512 devices, 2,908 bindings). Restated here rather than re-queried at run
-#: time on purpose: a rubric that asked the graph what the answer is could be
-#: satisfied by a graph that is wrong.
+#: Facts the judge rubric is built from. Every one was queried from the graph
+#: view the control-assistant build writes, the corpus this test seeds (24,486
+#: triples, 512 devices, 2,912 bindings). Restated here rather than re-queried
+#: at run time on purpose: a rubric that asked the graph what the answer is
+#: could be satisfied by a graph that is wrong.
 #:
 #: ``dipole_count_sr`` and ``dipole_count_machine`` are BOTH here, and the
 #: distinction is not pedantry: the ``Dipole`` class holds 44 devices across the
 #: whole corpus, but only 36 of them are in the storage ring — the other 8 are
-#: the booster's, at s = 10-17 m. A rubric carrying only the machine-wide figure
+#: the booster's, which carry no position. A rubric carrying only the machine-wide figure
 #: marks a correct "36 dipoles in the ring" answer as fabricated, which is
 #: exactly the wrong-answer-key failure a hand-written rubric invites. Both
 #: numbers are named so the judge can recognise either as right.
 _VERIFIED = {
     "device_name": "DIPOLE01",
-    "device_uri": "https://narad.example.org/device/demo_SR_DIPOLE01",
-    "section": "SR",
-    "s_position_m": 82.0,
-    "ordinal_in_section": 82,
+    "device_uri": "https://narad.example.org/device/ca_device_SR_x2F_DIPOLE01",
+    "section": "SECT1",
+    "place": "SR/SECT1",
+    "s_position_m": 6.781,
+    "ordinal_in_place": 1,
     "dipole_count_sr": 36,
     "dipole_count_machine": 44,
-    "sr_dipole_span_m": (82.0, 117.0),
-    "sr_dipole_spacing_m": 1.0,
-    "next_device": ("DIPOLE02", 83.0),
-    "previous_device": ("NEUTRON04", 81.0),
+    "sr_dipole_span_m": (6.781, 179.276),
+    "sr_dipoles_per_sector": 3,
+    "sr_dipole_spacing_m": (2.775, 9.628),
+    "next_device": ("SD01", 7.877),
+    "previous_device": ("QD01", 6.346),
 }
 
 #: Any ``SR:MAG:DIPOLE:01:…`` address the corpus does *not* hold is a fabricated
@@ -440,18 +442,21 @@ GROUND TRUTH (read directly out of the corpus the agent was querying):
   * That device carries exactly six channel bindings:
     {", ".join(PROBE_DEVICE_BINDINGS)}.
     Only {PROBE_PV} is writable; the other five are read-only.
-  * The device sits in section {_VERIFIED["section"]} at longitudinal position
-    s = {_VERIFIED["s_position_m"]} m, ordinal {_VERIFIED["ordinal_in_section"]}
-    within its section. It is the FIRST dipole along the storage ring. The
-    device immediately downstream is {_VERIFIED["next_device"][0]} at
-    s = {_VERIFIED["next_device"][1]} m; the one immediately upstream is
-    {_VERIFIED["previous_device"][0]} (a beam-loss monitor) at
+  * The device sits in section {_VERIFIED["section"]} (place
+    {_VERIFIED["place"]}) at longitudinal position
+    s = {_VERIFIED["s_position_m"]} m, ordinal {_VERIFIED["ordinal_in_place"]}
+    within its place. It is the FIRST dipole along the storage ring. The
+    device immediately downstream is {_VERIFIED["next_device"][0]} (a
+    sextupole) at s = {_VERIFIED["next_device"][1]} m; the one immediately
+    upstream is {_VERIFIED["previous_device"][0]} (a quadrupole) at
     s = {_VERIFIED["previous_device"][1]} m.
   * Dipole census, and BOTH figures are correct depending on what is being
     counted: the storage ring holds {_VERIFIED["dipole_count_sr"]} dipoles
-    (DIPOLE01-DIPOLE{_VERIFIED["dipole_count_sr"]}), evenly spaced
-    {_VERIFIED["sr_dipole_spacing_m"]} m apart from
-    s = {_VERIFIED["sr_dipole_span_m"][0]} m to
+    (DIPOLE01-DIPOLE{_VERIFIED["dipole_count_sr"]}),
+    {_VERIFIED["sr_dipoles_per_sector"]} per sector,
+    {_VERIFIED["sr_dipole_spacing_m"][0]} m apart within a sector and
+    {_VERIFIED["sr_dipole_spacing_m"][1]} m apart across a sector boundary,
+    from s = {_VERIFIED["sr_dipole_span_m"][0]} m to
     s = {_VERIFIED["sr_dipole_span_m"][1]} m, while the machine as a whole holds
     {_VERIFIED["dipole_count_machine"]} — the other
     {_VERIFIED["dipole_count_machine"] - _VERIFIED["dipole_count_sr"]} are the
