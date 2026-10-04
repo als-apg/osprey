@@ -23,6 +23,7 @@ import numpy as np  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 from osprey.simulation.engines import pyat_model  # noqa: E402
+from osprey.simulation.engines.pyat_faults import supply_attribute  # noqa: E402
 from osprey.simulation.engines.pyat_model import (  # noqa: E402
     BETA_AT_MONITORS,
     ORBIT_AT_MONITORS,
@@ -176,8 +177,8 @@ class TestFaultRoster:
         assert monitor.readout_polarity_y == 1.0
         assert monitor.readout_roll == 0.0
         corrector = model.simulator.element("HCOR_01")
-        assert corrector.supply_cal_factor == 1.0
-        assert corrector.supply_cal_offset == 0.0
+        assert getattr(corrector, supply_attribute("HCOR:01:SP", "cal_factor")) == 1.0
+        assert getattr(corrector, supply_attribute("HCOR:01:SP", "cal_offset")) == 0.0
 
     def test_fault_units_follow_the_variable_they_perturb(self, model):
         variables = model.supported_variables
@@ -191,7 +192,8 @@ class TestFaultRoster:
     def test_a_seed_is_the_default_and_lands_on_the_element(self):
         model = build(faults={"BPM:02:Y/offset": 0.25, "QF:01:SP/cal_factor": 1.1})
         assert model.simulator.element("BPM_02").readout_offset_y == 0.25
-        assert model.simulator.element("QF_01").supply_cal_factor == 1.1
+        quad = model.simulator.element("QF_01")
+        assert getattr(quad, supply_attribute("QF:01:SP", "cal_factor")) == 1.1
         model.set({"BPM:02:Y/offset": 0.5})
         model.reset()
         assert model.get(["BPM:02:Y/offset"])["BPM:02:Y/offset"] == 0.25
@@ -222,14 +224,27 @@ class TestFaultRoster:
         model.set({"BPM:03:X/offset": 1.0, "HCOR:01:SP/cal_factor": 2.0})
         assert model.get(["BPM:03:X"])["BPM:03:X"] == before
 
-    def test_two_setpoints_on_one_element_share_one_calibration(self):
-        records = wiring()
-        twin = dict(_quad(1), address="QF:01:TRIM")
-        model = build(records=[*records, twin])
-        assert "QF:01:SP/cal_factor" in model.supported_variables
-        assert "QF:01:TRIM/cal_factor" not in model.supported_variables
+    def test_each_setpoint_on_a_shared_element_carries_its_own_calibration(self):
+        twin = dict(_quad(1), address="QF:01:TRIM", unit="T/m")
+        model = build(records=[*wiring(), twin])
+        for address, unit in (("QF:01:SP", "A"), ("QF:01:TRIM", "T/m")):
+            assert f"{address}/cal_factor" in model.supported_variables
+            assert model.supported_variables[f"{address}/cal_offset"].unit == unit
 
-    def test_setpoints_sharing_some_elements_share_one_calibration_over_all(self):
+    def test_a_combined_corrector_calibrates_each_plane_alone(self):
+        records = [
+            *wiring(),
+            {**_corrector(1, "x"), "address": "HV:01:X"},
+            {**_corrector(1, "y"), "address": "HV:01:Y", "element": _named("HCOR", 1)},
+        ]
+        model = build(records=records)
+        model.set({"HV:01:X/cal_factor": 2.0})
+        model.set({"HV:01:X": 5.0, "HV:01:Y": 5.0})
+        kick = model.simulator.element(_named("HCOR", 1)).KickAngle
+        assert kick[0] == pytest.approx(2.0 * 5.0e-5, rel=1e-12)
+        assert kick[1] == pytest.approx(5.0e-5, rel=1e-12)
+
+    def test_a_trim_calibration_leaves_its_family_supply_alone(self):
         family = {
             "address": "QF:ALL:SP",
             "slices": [{"element": _named("QF", cell)} for cell in range(1, N_CELLS + 1)],
@@ -239,27 +254,19 @@ class TestFaultRoster:
             "calibration": _linear(1.0e-2),
         }
         model = build(records=[*wiring(), family])
-        assert "QF:ALL:SP/cal_factor" not in model.supported_variables
-        model.set({"QF:01:SP/cal_factor": 2.0})
+        model.set({"QF:01:SP/cal_factor": 1.05})
+        model.set({"QF:ALL:SP": 102.0})
         for cell in range(1, N_CELLS + 1):
-            assert model.lattice[model.element_index(_named("QF", cell))].supply_cal_factor == 2.0
-
-    def test_setpoints_driving_the_same_elements_in_another_order_share_one_calibration(self):
-        first = [{"element": _named("QD", cell)} for cell in (1, 2)]
-        records = [
-            {**_quad(1), "address": "QD:A:SP", "slices": first},
-            {**_quad(1), "address": "QD:B:SP", "slices": first[::-1]},
-        ]
-        for record in records:
-            del record["element"]
-        model = build(records=[*wiring(), *records])
-        assert "QD:A:SP/cal_factor" in model.supported_variables
-        assert "QD:B:SP/cal_factor" not in model.supported_variables
-
-    def test_two_setpoints_on_one_element_in_different_units_are_refused(self):
-        twin = dict(_quad(1), address="QF:01:TRIM", unit="T/m")
-        with pytest.raises(ValueError, match="one calibration"):
-            build(records=[*wiring(), twin])
+            quad = model.simulator.element(_named("QF", cell))
+            assert quad.PolynomB[1] == pytest.approx(1.02, rel=1e-12)
+        model.set({"QF:ALL:SP/cal_factor": 1.5})
+        model.set({"QF:01:SP": 101.0})
+        assert model.simulator.element(_named("QF", 1)).PolynomB[1] == pytest.approx(
+            1.05 * 1.01, rel=1e-12
+        )
+        assert model.simulator.element(_named("QF", 2)).PolynomB[1] == pytest.approx(
+            1.02, rel=1e-12
+        )
 
     def test_a_derived_name_already_a_channel_is_refused(self):
         clash = dict(_monitor(1, "x"), address="BPM:02:X/offset")
