@@ -3,9 +3,8 @@
 The hand databases are the tier-1 in_context database and the tier-3
 in_context, hierarchical and middle-layer databases. Each description, level
 description, common name and ``DeviceList`` entry they hold must appear in the
-records the demo generator writes, as a channel, group, place or device
-description, name, ``signals`` sentence or device attribute. The records are
-read back from the YAML the generator writes.
+demo's committed records, as a channel, group, place or device description,
+name, ``signals`` sentence or device attribute.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from tests.facility.test_generator_records import CA_DATA, generated, records_by_id
+from tests.facility.test_generator_records import CA_DATA, committed, records_by_id
 
 TIERS = CA_DATA / "channel_databases/tiers"
 TIER1_IN_CONTEXT = TIERS / "tier1/in_context.json"
@@ -56,7 +55,7 @@ def _field_sentences() -> Iterator[tuple[str, str, str]]:
 
 def _descriptions_and_names(kind: str) -> set[str]:
     texts = set()
-    for record in generated(f"records/{kind}s.yaml"):
+    for record in committed(f"records/{kind}s.yaml"):
         if "description" in record:
             texts.add(record["description"])
         texts.update(record.get("names") or [])
@@ -125,7 +124,7 @@ def test_middle_layer_family_labels_are_their_group_description_or_names() -> No
 
 
 def test_middle_layer_field_labels_occur_in_a_channel_description() -> None:
-    descriptions = [c["description"].lower() for c in generated("records/channels.yaml")]
+    descriptions = [c["description"].lower() for c in committed("records/channels.yaml")]
     labels = set()
     for _machine, machine_node in _children(_json(TIER3_MIDDLE_LAYER)):
         for _family, family_node in _children(machine_node):

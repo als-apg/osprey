@@ -1,10 +1,9 @@
-"""The demo generator's ``models.yaml`` against the virtual accelerator's bindings.
+"""The demo's committed ``models.yaml`` against the virtual accelerator's bindings.
 
-``scripts/facility_demo/generate.py`` writes the demo's one deck model, ``SR``,
-with a wiring record per address the virtual accelerator's bindings wire, plus
-the optics readbacks and one cavity's frequency pair. These tests read the
-model back from the YAML the generator writes and hold it to the bindings and
-to the committed deck.
+The demo commits one deck model, ``SR``, with a wiring record per address the
+virtual accelerator's bindings wire, plus the optics readbacks and one cavity's
+frequency pair. These tests read the model as the facility loader parses it and
+hold it to the bindings and to the committed deck.
 """
 
 from __future__ import annotations
@@ -16,14 +15,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.facility.sources import load_sources, read_yaml
 from tests.facility.test_generator_records import (
     CA_DATA,
+    FACILITY_TREE,
     VA_BINDINGS,
-    generated,
-    generated_files,
-    generator,
+    committed,
 )
 
 SR_DECK = CA_DATA / "facility/decks/SR.json"
@@ -48,7 +47,7 @@ def bindings() -> list[dict[str, Any]]:
 
 def models() -> list[dict[str, Any]]:
     """``models.yaml`` as the facility loader parses it."""
-    rows: list[dict[str, Any]] = generated("models.yaml")
+    rows: list[dict[str, Any]] = committed("models.yaml")
     return rows
 
 
@@ -58,8 +57,8 @@ def wiring() -> dict[str, dict[str, Any]]:
 
 
 def roles() -> dict[str, str]:
-    """Each generated channel's role, schema default filled."""
-    return {c["id"]: c.get("role", "readback") for c in generated("records/channels.yaml")}
+    """Each committed channel's role, schema default filled."""
+    return {c["id"]: c.get("role", "readback") for c in committed("records/channels.yaml")}
 
 
 def test_models_yaml_is_the_one_deck_model() -> None:
@@ -179,26 +178,25 @@ def test_start_values_equal_the_binding_nominals() -> None:
 def test_models_yaml_rejects_a_kind_key(
     tmp_path: Path, where: str, record_kind: str, record_id: str
 ) -> None:
-    assert generator().main(["--out", str(tmp_path)]) == 0
-    document = read_yaml(generated_files()["models.yaml"])
+    shutil.copytree(FACILITY_TREE, tmp_path, dirs_exist_ok=True)
+    document = read_yaml((FACILITY_TREE / "models.yaml").read_text(encoding="utf-8"))
     if where == "model":
         document[0]["kind"] = "deck"
     else:
         next(r for r in document[0]["wiring"] if r["address"] == "SR:DIAG:TUNE:X")["kind"] = "tune"
-    (tmp_path / "models.yaml").write_text(generator().dump(document), encoding="utf-8")
+    (tmp_path / "models.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
     errors = load_sources(tmp_path).errors
     assert [(e.kind, e.record_kind, e.record_id, e.detail) for e in errors] == [
         ("source-invalid", record_kind, record_id, "unknown key `kind`")
     ]
 
 
-def test_written_tree_fills_every_wiring_slot(tmp_path: Path) -> None:
+def test_committed_tree_fills_every_wiring_slot(tmp_path: Path) -> None:
     pytest.importorskip("at")
     from osprey.facility.validate import run_stages
     from osprey.facility.wiring import fill_wiring_slots
 
-    assert generator().main(["--out", str(tmp_path)]) == 0
-    (tmp_path / "decks").mkdir()
-    shutil.copyfile(SR_DECK, tmp_path / "decks/SR.json")
-    report = run_stages(tmp_path, project_name="ca", later=(("wiring", fill_wiring_slots),))
+    tree = tmp_path / "facility"
+    shutil.copytree(FACILITY_TREE, tree)
+    report = run_stages(tree, project_name="ca", later=(("wiring", fill_wiring_slots),))
     assert report.errors == []

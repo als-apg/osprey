@@ -1,20 +1,17 @@
-"""The demo generator's records against the demo's hand-written sources.
+"""The demo's committed ``data/facility/`` records against its other sources.
 
-``scripts/facility_demo/generate.py`` writes the demo's ``data/facility/``
-records from its TTL and channel databases. These tests read the records back
-from the YAML the generator writes and hold them to the sources: the channel
-rows joined as the fingerprint joins them, the hand places, the value types,
-the signal roles, the in_context tags, the groups and the places.
+The control-assistant preset commits the demo's facility records as authored
+sources. These tests read them as the facility loader reads them and hold them
+to the demo's other sources: the channel rows joined as the frozen fingerprint
+joins them, the hand places, the value types, the signal roles, the in_context
+tags, the groups and the places.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 from functools import cache
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -27,8 +24,9 @@ from tests.facility.test_cf_view_parity import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GENERATOR = REPO_ROOT / "scripts" / "facility_demo" / "generate.py"
 CA_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
+FACILITY_TREE = CA_DATA / "facility"
+STANDALONE_TREE = REPO_ROOT / "src/osprey/templates/apps/channel_finder_standalone/data/facility"
 DEMO_TTL = CA_DATA / "demo_machine.ttl"
 TIER1_IN_CONTEXT = CA_DATA / "channel_databases/tiers/tier1/in_context.json"
 TIER3_HIERARCHICAL = CA_DATA / "channel_databases/tiers/tier3/hierarchical.json"
@@ -57,38 +55,31 @@ NEW_ROLES = frozenset(
 
 
 @cache
-def generator() -> ModuleType:
-    """``scripts/facility_demo/generate.py`` as a module."""
-    spec = importlib.util.spec_from_file_location("facility_demo_generate", GENERATOR)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def committed_files(standalone: bool = False) -> dict[str, str]:
+    """Relative path -> text of every YAML source of the committed tree.
 
+    Args:
+        standalone: Read a standalone preset's tree instead.
 
-def records_module() -> ModuleType:
-    """``scripts/facility_demo/_records.py``, as the generator loaded it."""
-    records: ModuleType = generator()._records
-    return records
-
-
-@cache
-def generated_files(standalone: bool = False) -> dict[str, str]:
-    """Relative path -> text of every file the generator writes."""
-    module = generator()
-    files: dict[str, str] = module.files(module._records.build_records(standalone=standalone))
-    return files
+    Returns:
+        Each file's path relative to ``data/facility`` and its text.
+    """
+    root = STANDALONE_TREE if standalone else FACILITY_TREE
+    return {
+        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted(root.rglob("*.yaml"))
+    }
 
 
 @cache
-def generated(name: str) -> Any:
-    """One generated file, parsed back as the facility loader parses it."""
-    return read_yaml(generated_files()[name])
+def committed(name: str) -> Any:
+    """One committed file, parsed as the facility loader parses it."""
+    return read_yaml(committed_files()[name])
 
 
 def records_by_id(kind: str) -> dict[str, dict[str, Any]]:
     """``records/<kind>s.yaml`` keyed by id."""
-    return {record["id"]: record for record in generated(f"records/{kind}s.yaml")}
+    return {record["id"]: record for record in committed(f"records/{kind}s.yaml")}
 
 
 def _json(path: Path) -> Any:
@@ -138,46 +129,23 @@ def _joined_rows() -> list[dict[str, Any]]:
             "names": channel["names"],
             "description": channel["description"],
         }
-        for channel in generated("records/channels.yaml")
+        for channel in committed("records/channels.yaml")
     ]
     return sorted(rows, key=lambda row: row["address"])
 
 
-def test_written_tree_loads_without_a_stop(tmp_path: Path) -> None:
-    assert generator().main(["--out", str(tmp_path)]) == 0
-    written = {
-        path.relative_to(tmp_path).as_posix(): path.read_text(encoding="utf-8")
-        for path in tmp_path.rglob("*.yaml")
-    }
-    assert written == generated_files()
-    result = load_sources(tmp_path)
+def test_committed_tree_loads_without_a_stop() -> None:
+    result = load_sources(FACILITY_TREE)
     assert result.errors == []
     assert result.sources.identity == {"code": "ca"}
     assert result.sources.classes == []
 
 
-def test_generation_is_deterministic() -> None:
-    module = generator()
-    assert module.files(module._records.build_records()) == generated_files()
-
-
 def test_standalone_identity_adds_the_facility_name() -> None:
-    assert read_yaml(generated_files(standalone=True)["identity.yaml"]) == {
+    assert read_yaml(committed_files(standalone=True)["identity.yaml"]) == {
         "code": "ca",
         "name": "Example Research Facility",
     }
-    standalone = {k: v for k, v in generated_files(standalone=True).items() if k != "identity.yaml"}
-    assert standalone == {k: v for k, v in generated_files().items() if k != "identity.yaml"}
-
-
-def test_loading_the_generator_leaves_the_import_path_and_top_level_names_alone() -> None:
-    path = list(sys.path)
-    spec = importlib.util.spec_from_file_location("facility_demo_generate_isolated", GENERATOR)
-    assert spec and spec.loader
-    spec.loader.exec_module(importlib.util.module_from_spec(spec))
-    assert sys.path == path
-    assert "fingerprint" not in sys.modules
-    assert "_records" not in sys.modules
 
 
 def test_joined_channels_equal_the_fingerprint_and_its_additions() -> None:
@@ -208,27 +176,19 @@ def test_every_bi_channel_is_bool() -> None:
     assert {c.get("value_type") for c in channels.values()} == {None, "bool"}
 
 
-def test_every_fingerprint_channel_carries_the_role_its_ttl_signal_means() -> None:
-    table = records_module().SIGNAL_ROLE
+def test_every_ttl_signal_maps_to_one_vocabulary_role() -> None:
     roles = {role["name"] for role in _json(VOCABULARY)["signal_roles"]}
     channels = records_by_id("channel")
     bindings = ttl_bindings()
     assert len(bindings) == 2908
-    assert set(table) <= {binding["signal"] for binding in bindings.values()}
+    by_signal: dict[str, set[str | None]] = {}
     for address, binding in bindings.items():
-        channel = channels[address]
-        if binding["signal"] in table:
-            assert channel["signal"] == table[binding["signal"]], address
-        else:
-            assert "signal" not in channel, address
-    signals = {c["signal"] for c in channels.values() if "signal" in c}
-    assert signals <= roles
-    assert not signals & {binding["signal"] for binding in bindings.values()}
-
-
-def test_every_ttl_signal_has_a_vocabulary_role() -> None:
-    table = records_module().SIGNAL_ROLE
-    assert {binding["signal"] for binding in ttl_bindings().values()} <= set(table)
+        by_signal.setdefault(binding["signal"], set()).add(channels[address].get("signal"))
+    assert {signal for signal, mapped in by_signal.items() if len(mapped) != 1} == set()
+    mapped = {role for roles_of in by_signal.values() for role in roles_of}
+    assert None not in mapped
+    assert mapped <= roles
+    assert not mapped & set(by_signal)
 
 
 def test_the_first_vocabulary_roles_are_left_as_they_were() -> None:
@@ -348,7 +308,7 @@ def test_devices_carry_their_bare_name_and_class() -> None:
 
 
 def test_places_are_the_machines_and_the_deck_machine_sectors() -> None:
-    places = generated("records/places.yaml")
+    places = committed("records/places.yaml")
     machines = [p["id"] for p in places if p["level"] == "machine"]
     assert machines == ["SR", "BR", "BTS"]
     sectors = [p for p in places if p["level"] == "sector"]
@@ -385,6 +345,6 @@ def test_family_and_system_groups() -> None:
 
 @pytest.mark.parametrize("name", ["records/devices.yaml", "records/channels.yaml"])
 def test_records_are_sorted_by_id(name: str) -> None:
-    ids = [record["id"] for record in generated(name)]
+    ids = [record["id"] for record in committed(name)]
     assert ids == sorted(ids)
     assert len(ids) == len(set(ids))

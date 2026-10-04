@@ -1,7 +1,6 @@
 {
-  "_reproduce": "uv run python scripts/facility_demo/fingerprint.py --write tests/facility/golden/demo_fingerprint.json",
+  "_reproduce": "Frozen: no command rewrites this golden; its rows are pinned by sha256.",
   "_sources": [
-    "src/osprey/templates/apps/control_assistant/data/demo_machine.ttl",
     "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/in_context.json",
     "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/hierarchical.json"
   ],
