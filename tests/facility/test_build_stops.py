@@ -1647,9 +1647,9 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "engine_invalid__non_float_wired": (
-        _deck(update("records/channels.yaml", 2, value_type="int")),
+        _deck(update("records/channels.yaml", 0, value_type="waveform", shape=[3])),
         (
-            "facility: engine-invalid: wiring SR/BPM1:X — BPM1:X is int; pyat drives float "
+            "facility: engine-invalid: wiring SR/QF:SP — QF:SP is waveform; pyat drives float "
             "channels only; fix: wire a float channel, or leave the channel unwired"
         ),
     ),

@@ -119,6 +119,11 @@ def _fill_model(
                 r["address"]: str(channels[r["address"]].get("value_type", "float"))
                 for r in records
             },
+            shapes={
+                r["address"]: list(channels[r["address"]]["shape"])
+                for r in records
+                if "shape" in channels[r["address"]]
+            },
         )
     except FacilityBuildError as stop:
         record = next((r for r in model.get("wiring", []) if r["id"] == stop.record_id), None)
@@ -173,7 +178,7 @@ def element_stop(
 
 def _fill_record(
     record: dict[str, Any],
-    default: float,
+    default: float | list[float],
     channel: Mapping[str, Any],
     limit: Mapping[str, Any] | None,
 ) -> None:

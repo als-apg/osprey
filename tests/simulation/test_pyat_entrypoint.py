@@ -271,6 +271,60 @@ class TestStartValues:
         assert caught.value.detail == "N:RB is int; pyat drives float channels only"
         assert caught.value.remedy == "wire a float channel, or leave the channel unwired"
 
+    def test_a_waveform_readback_of_a_whole_optics_output_has_a_start_value(self, ab_deck: Path):
+        record = Wiring("LINE/TUNE", "TUNE", engine={"attribute": "tune"})
+        values = engine.start_values(
+            ab_deck,
+            [record],
+            {},
+            readbacks={"TUNE": None},
+            value_types={"TUNE": "waveform"},
+            shapes={"TUNE": [2]},
+        )
+        assert values == {"TUNE": [0.0, 0.0]}
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                ab_deck,
+                [record],
+                {},
+                readbacks={"TUNE": None},
+                value_types={"TUNE": "waveform"},
+                shapes={"TUNE": [3]},
+            )
+        assert caught.value.detail == (
+            "TUNE is a waveform naming axis None, index None and shape [3]; "
+            "a waveform reads the whole of tune on the deck's 2 planes"
+        )
+        assert caught.value.remedy == "wire the waveform with no axis or index and shape [2]"
+
+    def test_a_waveform_readback_naming_a_plane_is_refused_as_a_waveform(self, ab_deck: Path):
+        record = Wiring("LINE/TUNE", "TUNE", engine={"attribute": "tune", "axis": "x"})
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                ab_deck,
+                [record],
+                {},
+                readbacks={"TUNE": None},
+                value_types={"TUNE": "waveform"},
+                shapes={"TUNE": [2]},
+            )
+        assert caught.value.detail == (
+            "TUNE is a waveform naming axis 'x', index None and shape [2]; "
+            "a waveform reads the whole of tune on the deck's 2 planes"
+        )
+
+    def test_a_waveform_setpoint_stops(self, tmp_path: Path):
+        record = Wiring("LINE/TUNE", "TUNE", engine={"attribute": "tune"})
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                tmp_path / "absent.json",
+                [record],
+                {},
+                readbacks={},
+                value_types={"TUNE": "waveform"},
+            )
+        assert caught.value.detail == "TUNE is waveform; pyat drives float channels only"
+
     def test_float_channels_build(self, ab_deck: Path):
         record = Wiring("LINE/Q:SP", "Q:SP", element="A", engine=dict(SETTING))
         values = engine.start_values(ab_deck, [record], {}, value_types={"Q:SP": "float"})

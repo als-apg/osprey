@@ -112,6 +112,7 @@ __all__ = [
     "OPTICS_NAMES",
     "ORBIT_AT_MONITORS",
     "TUNES",
+    "ArrayReadbackVariable",
     "PyATLatticeModel",
     "ReadbackVariable",
 ]
@@ -317,6 +318,16 @@ class ReadbackVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
         )
 
 
+class ArrayReadbackVariable(PyATReadOnlyNDVariable):
+    """A wired readback serving the whole of ``tunes`` or ``chromaticity``.
+
+    Attributes:
+        source: ``tunes`` or ``chromaticity``.
+    """
+
+    source: str
+
+
 def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> None:
     """Refuse a readback whose source the model does not serve.
 
@@ -332,6 +343,18 @@ def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> N
         if isinstance(variable, (CalibratedSetpoint, EnergyVariable))
     }
     for variable in channels:
+        if isinstance(variable, ArrayReadbackVariable):
+            if solve != PERIODIC or variable.source not in PLANE_OPTICS:
+                raise ValueError(
+                    f"readback {variable.name} reads all of {variable.source}; only a periodic "
+                    f"model serves {sorted(PLANE_OPTICS)}"
+                )
+            if tuple(variable.shape) != (planes,):
+                raise ValueError(
+                    f"readback {variable.name} has shape {tuple(variable.shape)}; "
+                    f"{variable.source} holds {planes} planes"
+                )
+            continue
         if not isinstance(variable, ReadbackVariable) or variable.source is None:
             continue
         if variable.source in PLANE_OPTICS:
@@ -509,10 +532,10 @@ class PyATLatticeModel(LUMEPyATModel):
             [self.element_index(element) for element in self._monitor_order], dtype=np.uint32
         )
         self._planes = planes
-        self._readbacks: dict[str, ReadbackVariable] = {
+        self._readbacks: dict[str, ReadbackVariable | ArrayReadbackVariable] = {
             variable.name: variable
             for variable in channels
-            if isinstance(variable, ReadbackVariable)
+            if isinstance(variable, (ReadbackVariable, ArrayReadbackVariable))
         }
         self._setpoints: dict[str, CalibratedSetpoint] = {
             variable.name: variable
@@ -598,8 +621,12 @@ class PyATLatticeModel(LUMEPyATModel):
                 values[name] = cached[name]
         return values
 
-    def _readback(self, readback: ReadbackVariable, arrays: Mapping[str, np.ndarray]) -> float:
+    def _readback(
+        self, readback: ReadbackVariable | ArrayReadbackVariable, arrays: Mapping[str, np.ndarray]
+    ) -> Any:
         """One readback's value, from the optics in ``arrays`` or the held setpoints."""
+        if isinstance(readback, ArrayReadbackVariable):
+            return arrays[readback.source].copy()
         if readback.source is None:
             return float(readback.default_value or 0.0)
         if readback.source in PLANE_OPTICS:
