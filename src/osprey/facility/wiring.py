@@ -44,9 +44,9 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
 
     Each filled slot is recorded in the record's ``provenance.defaults``. A
     model without a deck is left untouched. The engine is reached through the
-    ``osprey.simulation.engines`` entry-point group and loaded only here. A
-    record the engine has no start value for is left unfilled and stops; the
-    model's other records are still filled.
+    ``osprey.simulation.engines`` entry-point group. A record the engine has
+    no start value for is left unfilled and stops; the model's other records
+    are still filled.
 
     Args:
         validated: What stages S1 to S5 produced.

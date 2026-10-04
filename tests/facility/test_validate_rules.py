@@ -426,9 +426,10 @@ class TestReferences:
             ({"overrides": {"GONE": 1.0}}, "`overrides` names channel GONE"),
             ({"archiver": [{"channel": "GONE", "events": []}]}, "`archiver.channel` names"),
             ({"faults": {"nomodel": {"Q1:SP": 1.0}}}, "`faults` names model nomodel"),
-            ({"faults": {"optics": {"GONE": 1.0}}}, "`faults.optics` names channel GONE"),
+            ({"couple": {"GONE": [{"driver": "d", "gain": 1.0}]}}, "`couple` names channel GONE"),
+            ({"noise": {"GONE": {"noise_abs": 0.1}}}, "`noise` names channel GONE"),
         ],
-        ids=["override", "archiver", "fault-model", "fault-target"],
+        ids=["override", "archiver", "fault-model", "couple", "noise"],
     )
     def test_scenario_entries(
         self, tmp_path: Path, scenario: dict[str, Any], fragment: str
@@ -437,6 +438,15 @@ class TestReferences:
         error = _one(tmp_path, files, "references")
         _missing(error, "scenario", "s", fragment)
         assert error.sources == ("scenarios/s.yaml",)
+
+    def test_a_fault_key_naming_no_channel_is_left_to_the_engine(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "scenarios/s.yaml": {"faults": {"optics": {"Q1:SP/cal_factor": 1.1}}},
+                "models.yaml": [_wired("Q1:SP")],
+            }
+        )
+        assert _run(tmp_path, files).failed != "references"
 
     @pytest.mark.parametrize(
         ("measurement", "rid", "fragment"),
@@ -872,14 +882,22 @@ class TestValueRules:
         error = _rule(tmp_path / "bad", bad, "value-invalid")
         assert error.detail == "`faults.optics.Q1:RB` is `stuck` on a readback channel"
 
-    def test_a_fault_field_map_is_left_to_the_engine(self, tmp_path: Path) -> None:
-        files = _tree(
-            **{
-                "models.yaml": [_wired("Q1:SP")],
-                "scenarios/s.yaml": {"faults": {"optics": {"BPM1:X": {"offset": 1e-4}}}},
-            }
-        )
+    def _monitor_map(self, faults: dict[str, Any]) -> dict[str, Any]:
+        model = _wired("Q1:SP")
+        model["wiring"].append({"address": "BPM1:X", "element": "BPM1", "engine": {"axis": "x"}})
+        return _tree(**{"models.yaml": [model], "scenarios/s.yaml": {"faults": {"optics": faults}}})
+
+    def test_a_fault_field_map_on_a_monitor_reading_builds(self, tmp_path: Path) -> None:
+        files = self._monitor_map({"BPM1:X": {"offset": 1e-4, "roll": 0.01}})
         assert _run(tmp_path, files).ok
+
+    def test_a_fault_field_map_names_the_engine_fields(self, tmp_path: Path) -> None:
+        files = self._monitor_map({"BPM1:X": {"cal_factor": 1.1}})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.format_message() == (
+            "facility: value-invalid: scenario s — faults.optics.BPM1:X.cal_factor is not a "
+            "fault field of BPM1:X; fix: use one of gain, noise, offset, polarity, roll"
+        )
 
 
 class TestLimitRules:

@@ -21,9 +21,11 @@ place that contradicts its span (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
 (``wiring-conflict``), a declared ``texture`` model or a channel on a status
 address (``model-conflict``), a nominal outside its limits band
-(``seed-invalid``), and an unseeded setpoint whose limits band excludes 0
-(``seed-missing``); a wired element missing from its deck is ``engine-invalid``
-naming the wiring record. ``texture`` is then listed last among the models.
+(``seed-invalid``), an unseeded setpoint whose limits band excludes 0
+(``seed-missing``), and a scenario fault keyed by a name that is neither a
+channel nor a variable of the model's engine (``engine-invalid``); a wired
+element missing from its deck is ``engine-invalid`` naming the wiring record.
+``texture`` is then listed last among the models.
 
 A span is half open, ``[from_marker, to_marker)``; with no ``to_marker`` it
 runs to the end of the deck, and on a periodic model it may wrap past the end.
@@ -42,6 +44,7 @@ from typing import Any
 from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults, set_place_from
+from osprey.facility.scenarios import check_scenario_engines
 from osprey.facility.sources import AUTHORED
 from osprey.facility.validate import Validated, need, paired_nominal_error, stating_files
 from osprey.facility.wiring import element_stop
@@ -158,6 +161,7 @@ def check_compute(validated: Validated) -> list[FacilityBuildError]:
         return run.errors
     _places(run, positions, spans)
     _nominal_band(run)
+    run.errors.extend(check_scenario_engines(document))
     if run.errors:
         return run.errors
     _write_positions(document, positions)
