@@ -1,8 +1,9 @@
 """Whether the ARIEL agent may look at logbook pictures: one switch.
 
-``ariel.attachments.view.enabled`` decides whether ``attachment_view`` and the
-attachment summaries are offered to agents. It defaults to on: viewing a
-stored picture makes no model call and needs no server.
+``ariel.attachments.view.enabled`` decides whether ``attachment_view``,
+``attachment_to_artifact`` and the attachment summaries are offered to agents.
+It defaults to on: viewing a stored picture makes no model call and needs no
+server.
 
 This leaf module imports nothing from ``osprey``. ``AttachmentsConfig`` parses
 the key through it at runtime and the build reads the raw config through it,

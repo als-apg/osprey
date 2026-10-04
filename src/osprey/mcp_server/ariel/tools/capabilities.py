@@ -40,7 +40,8 @@ async def capabilities() -> str:
     - ``formats``: ``viewable`` lists the formats a stored picture can be shown
       in; ``reserved`` lists formats that are recognised but never shown.
     - ``view``: whether agents may look at stored pictures with
-      ``attachment_view``; when false, attachments are not offered to agents.
+      ``attachment_view`` and keep them with ``attachment_to_artifact``; when
+      false, attachments are not offered to agents.
     - ``captions``: whether model captions are generated for pictures.
     - ``picture_search``: whether searches can match pictures, which needs both
       image embeddings and the ``hybrid`` search mode enabled.

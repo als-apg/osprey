@@ -34,6 +34,13 @@ Agent tools for pictures
   entry id and ``attachment_id`` a logbook subagent reported. The same view is
   a link, ``#entry?id=<entry_id>&attachment=<attachment_id>``, on the ARIEL web
   page.
+- ``attachment_to_artifact`` keeps one picture: it copies the picture's stored
+  display rendition into the artifact gallery, with the entry id, attachment
+  id, filename and caption recorded, and selects it there. Saving the same
+  picture twice gives the same artifact. Like ``attachment_view`` it is offered
+  only while ``ariel.attachments.view.enabled`` is on and only for a
+  ``viewable`` picture. The agent is told to use it rather than redraw a
+  logbook plot from its caption.
 
 
 On by default, skipped when unavailable
@@ -78,7 +85,7 @@ To turn a module off, set its ``enabled`` key to ``false`` in ``profile.yml``:
    config:
      ariel.enhancement_modules.image_caption.enabled: false    # no captions
      ariel.enhancement_modules.image_embedding.enabled: false  # no picture search
-     ariel.attachments.view.enabled: false                     # no attachment_view tool
+     ariel.attachments.view.enabled: false                     # no picture tools
 
 
 Picture formats

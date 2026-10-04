@@ -468,9 +468,11 @@ def _ariel_attachment_view(config: dict) -> bool:
 
 
 #: The ARIEL tools the main agent calls itself rather than through a logbook
-#: subagent: the two introspection tools, and the show verb that puts an entry
-#: or picture the subagent found in front of the operator.
-_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset({"capabilities", "status", "entry_open"})
+#: subagent: the two introspection tools, and the two verbs that put an entry or
+#: picture the subagent found in front of the operator.
+_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset(
+    {"capabilities", "status", "entry_open", "attachment_to_artifact"}
+)
 
 
 def _ariel_read_tools(view_enabled: bool) -> list[str]:

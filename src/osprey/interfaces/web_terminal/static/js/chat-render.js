@@ -268,6 +268,7 @@ export const TOOL_PHRASES = Object.freeze({
   entries_by_ids: 'reading logbook entries',
   attachment_view: 'viewing a logbook picture',
   entry_open: 'showing a logbook entry',
+  attachment_to_artifact: 'saving a logbook picture',
   entry_create: 'drafting a logbook entry',
   entry_publish: 'publishing a logbook entry',
 

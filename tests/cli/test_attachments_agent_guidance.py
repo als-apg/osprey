@@ -305,4 +305,24 @@ def test_claude_ariel_tells_the_agent_to_show_with_entry_open(view):
 @pytest.mark.parametrize("path", [*AGENTS.values(), SKILL])
 def test_subagent_bodies_name_no_show_tool(path, view):
     """The subagents report ids; only the agent that holds the show tool is told to call it."""
-    assert "entry_open" not in _render(path, view)
+    text = _render(path, view)
+    assert "entry_open" not in text
+    assert "attachment_to_artifact" not in text
+
+
+KEEP_RULE_MAIN = (
+    "To keep a logbook picture in the gallery, call `attachment_to_artifact` yourself; "
+    "never redraw a logbook plot from its caption or description."
+)
+KEEP_RULE_ARIEL = (
+    "To keep a logbook picture in the gallery, call `attachment_to_artifact`; "
+    "never redraw a logbook plot from its caption or description."
+)
+
+
+@pytest.mark.parametrize(
+    ("path", "rule"), [(CLAUDE_MD, KEEP_RULE_MAIN), (CLAUDE_ARIEL, KEEP_RULE_ARIEL)]
+)
+def test_keep_rule_renders_only_while_the_view_is_on(path, rule):
+    assert rule in _flat(_render(path, True))
+    assert "attachment_to_artifact" not in _render(path, False)

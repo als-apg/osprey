@@ -9,7 +9,10 @@ each copied picture with a multimodal model served by a site-run `llama-server`
 the query text. The agent's `attachment_view` tool returns one stored picture,
 and `entry_open` shows an entry, or one of its pictures enlarged, to the operator
 in the ARIEL panel; the panel opens the same view from a
-`#entry?id=<entry_id>&attachment=<attachment_id>` link.
+`#entry?id=<entry_id>&attachment=<attachment_id>` link. `attachment_to_artifact`
+keeps a stored picture's display rendition in the artifact gallery, with the entry,
+attachment, filename and caption it came from; the same picture saved twice is one
+artifact.
 The `control-assistant` and `ariel-standalone` presets turn all three on; each
 picture module runs when its server and model answer and is otherwise skipped,
 with `osprey ariel status` naming the skipped module and why.

@@ -54,15 +54,16 @@ async def _listed_names() -> set[str]:
 
 @VIEW_OFF
 async def test_view_off_hides_attachment_view_from_tools_list(keyset_harness):  # noqa: ARG001
-    """With the key false ``tools/list`` lacks ``attachment_view`` and nothing else."""
+    """With the key false ``tools/list`` lacks the two picture tools and nothing else."""
     names = await _listed_names()
     assert "attachment_view" not in names
-    assert {"keyword_search", "entry_get", "browse", "entries_by_ids"} <= names
+    assert "attachment_to_artifact" not in names
+    assert {"keyword_search", "entry_get", "entry_open", "browse", "entries_by_ids"} <= names
 
 
 async def test_view_on_lists_attachment_view(keyset_harness):  # noqa: ARG001
-    """With the key at its default the tool is listed."""
-    assert "attachment_view" in await _listed_names()
+    """With the key at its default both picture tools are listed."""
+    assert {"attachment_view", "attachment_to_artifact"} <= await _listed_names()
 
 
 @VIEW_OFF

@@ -2358,8 +2358,8 @@ keys:
   ariel.attachments.view.enabled:
     evidence: 'attachment_view_enabled\(\{"attachments": data\}\)'
     note: >-
-      Shipped `true` in the presets. False hides `attachment_view` and the
-      attachment summaries from agents; a present non-boolean (`"no"`, `1`) is
+      Shipped `true` in the presets. False hides `attachment_view`,
+      `attachment_to_artifact` and the attachment summaries from agents; a present non-boolean (`"no"`, `1`) is
       refused at config parse naming the key.
     default: true
   ariel.attachments.max_file_mb:

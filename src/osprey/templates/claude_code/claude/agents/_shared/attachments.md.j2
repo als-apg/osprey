@@ -21,4 +21,7 @@
 {%- endif %}
 {%- if attachments_show_tools | default(false) %}
 - To show the operator an entry or one of its pictures, call `entry_open` with the entry id and, for a picture, its `attachment_id`.
+{%- if ariel_attachment_view %}
+- To keep a logbook picture in the gallery, call `attachment_to_artifact`; never redraw a logbook plot from its caption or description.
+{%- endif %}
 {%- endif %}

@@ -26,12 +26,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey.mcp_server.ariel")
 
-#: The tool ``ariel.attachments.view.enabled`` withholds.
+#: The tool that shows the agent a stored picture.
 ATTACHMENT_VIEW_TOOL = "attachment_view"
+
+#: The tool that copies a stored picture into the artifact gallery.
+ATTACHMENT_TO_ARTIFACT_TOOL = "attachment_to_artifact"
+
+#: The tools ``ariel.attachments.view.enabled`` withholds: every tool that hands
+#: a stored picture onward, to the model or to the gallery.
+VIEW_GATED_TOOLS = frozenset({ATTACHMENT_VIEW_TOOL, ATTACHMENT_TO_ARTIFACT_TOOL})
 
 
 def attachment_view_offered() -> bool:
-    """Return whether ``attachment_view`` is offered on this deployment.
+    """Return whether the picture tools (``VIEW_GATED_TOOLS``) are offered here.
 
     Reads ``ariel.attachments.view.enabled`` from the ARIEL context. With no
     context to read it from (not initialised, or initialised from a config
@@ -63,11 +70,11 @@ def check_attachment_view_offered() -> None:
 
 
 class AttachmentViewOfferMiddleware(Middleware):
-    """Leave ``attachment_view`` out of ``tools/list`` when the view is switched off.
+    """Leave the picture tools out of ``tools/list`` when the view is switched off.
 
-    It hides the tool and does not refuse it. The refusal lives in the tool,
-    so a call that reaches the server anyway gets an answer naming the key,
-    not a bare "Unknown tool".
+    It hides the tools and does not refuse them. The refusal lives in each
+    tool, so a call that reaches the server anyway gets an answer naming the
+    key, not a bare "Unknown tool".
     """
 
     async def on_list_tools(
@@ -75,11 +82,11 @@ class AttachmentViewOfferMiddleware(Middleware):
         context: MiddlewareContext[mt.ListToolsRequest],
         call_next: CallNext[mt.ListToolsRequest, Sequence[Tool]],
     ) -> Sequence[Tool]:
-        """Return the listed tools, without ``attachment_view`` when it is not offered."""
+        """Return the listed tools, without ``VIEW_GATED_TOOLS`` when they are not offered."""
         tools = await call_next(context)
         if attachment_view_offered():
             return tools
-        return [tool for tool in tools if tool.name != ATTACHMENT_VIEW_TOOL]
+        return [tool for tool in tools if tool.name not in VIEW_GATED_TOOLS]
 
 
 # ---------------------------------------------------------------------------

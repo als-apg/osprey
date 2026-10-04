@@ -1135,6 +1135,7 @@ class TestArielAttachmentView:
         servers = self._by_name(self._CFG, True)
         for name in ("ariel", "ariel2"):
             assert "attachment_view" in servers[name]["permissions_allow"]
+            assert "attachment_to_artifact" in servers[name]["permissions_allow"]
 
     def test_context_without_the_key_offers_view(self):
         servers = {s["name"]: s for s in resolve_servers(self._CFG, _base_ctx())}
@@ -1161,6 +1162,10 @@ class TestArielAttachmentView:
     def test_render_settings_json_on_offers_view(self):
         allow = self._settings_allow(True)
         assert {"mcp__ariel__attachment_view", "mcp__ariel2__attachment_view"} <= set(allow)
+        assert {
+            "mcp__ariel__attachment_to_artifact",
+            "mcp__ariel2__attachment_to_artifact",
+        } <= set(allow)
 
 
 # ---------------------------------------------------------------------------

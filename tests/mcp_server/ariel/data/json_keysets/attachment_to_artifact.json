@@ -1,0 +1,15 @@
+{
+  "$": "dict",
+  "artifact_id": "str",
+  "artifact_type": "str",
+  "attachment_id": "str",
+  "category": "str",
+  "created": "bool",
+  "entry_id": "str",
+  "focused": "bool",
+  "gallery_url": "str",
+  "pinned": "bool",
+  "size_bytes": "int",
+  "status": "str",
+  "title": "str"
+}

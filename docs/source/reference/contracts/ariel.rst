@@ -70,6 +70,8 @@ OSPREY agent selects the appropriate tool based on the user's query.
    * - ``entry_open``
      - Show an entry, and optionally one of its viewable pictures enlarged, in
        the ARIEL web panel
+   * - ``attachment_to_artifact``
+     - Copy one viewable picture into the artifact gallery and select it there
    * - ``entry_create``
      - Create a new logbook entry
 
@@ -108,8 +110,8 @@ and ``rendition_sha256``) followed by the picture. An unknown id is
 ``ariel.attachments.view.enabled`` (default ``true``) switches picture viewing
 for the agent. With it off:
 
-- ``attachment_view`` is absent from ``tools/list``, and a call to it returns
-  ``not_supported``;
+- ``attachment_view`` and ``attachment_to_artifact`` are absent from
+  ``tools/list``, and a call to either returns ``not_supported``;
 - listings carry no ``attachments``, ``attachment_count`` or
   ``matched_attachment_ids``;
 - ``entry_get`` carries the entry's stored ``attachments`` items unchanged,
@@ -126,6 +128,18 @@ attachment is one of the entry's and is viewable. It returns ``entry_id``,
 follow. An unknown entry, or an attachment that is not the entry's, is
 ``not_found``. The panel route also works in a browser on the standalone ARIEL
 web page.
+
+``attachment_to_artifact`` takes the ``attachment_id`` of a viewable attachment
+and saves its display rendition, never the original upload, to the artifact
+gallery as an ``image`` artifact in the ``visualization`` category, titled with
+the filename and entry id. The entry id, attachment id, filename, and caption
+with its ``caption_source`` are recorded in the artifact's description and in
+``metadata.logbook_picture``. The artifact is keyed by the rendition's sha256,
+so saving the same picture again returns the same artifact. The result is the
+gallery's usual artifact response (``artifact_id``, ``title``,
+``artifact_type``, ``category``, ``gallery_url`` ...) plus ``entry_id``,
+``attachment_id``, ``created`` and ``focused``. Errors match
+``attachment_view``'s.
 
 **Source:** :file:`src/osprey/mcp_server/ariel/tools/`
 

@@ -933,7 +933,8 @@ class AttachmentsConfig:
             normalised to (scheme, host, effective port) so ``https://h`` and
             ``https://h:443`` compare equal. Empty allows none.
         view_enabled: ``ariel.attachments.view.enabled``; false hides
-            ``attachment_view`` and the attachment summaries from agents.
+            ``attachment_view``, ``attachment_to_artifact`` and the attachment
+            summaries from agents.
     """
 
     copy_on_ingest: CopyOnIngest = "images"

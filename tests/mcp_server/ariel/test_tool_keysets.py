@@ -12,9 +12,11 @@ What is pinned per tool:
   real service and its search modules (the repository, the embedder and the qmd
   client are faked at their boundaries), so keys the service or repository
   layer adds reach the comparison.
-* ``browse``, ``entry_get``, ``entries_by_ids``, ``capabilities``, ``status``
-  and ``entry_open`` pin only the tool layer: they read the fake repository,
-  the context config or a patched ``service.get_status`` directly.
+* ``browse``, ``entry_get``, ``entries_by_ids``, ``capabilities``, ``status``,
+  ``entry_open`` and ``attachment_to_artifact`` pin only the tool layer: they
+  read the fake repository, the context config or a patched
+  ``service.get_status`` directly, and ``attachment_to_artifact`` saves into an
+  artifact store under the test's directory.
 
 The comparison is "superset plus the listed changes": every golden path keeps
 its type, and a new path is accepted only when ``ALLOWED_ADDITIONS`` or
@@ -60,6 +62,7 @@ TOOLS = (
     "capabilities",
     "status",
     "entry_open",
+    "attachment_to_artifact",
 )
 VALUE_TOOLS = ("keyword_search", "hybrid_search")
 
@@ -92,6 +95,7 @@ ALLOWED_ADDITIONS: dict[str, tuple[str, ...]] = {
     "capabilities": ("attachments", "attachments.*"),
     "status": (),
     "entry_open": (),
+    "attachment_to_artifact": (),
 }
 
 # Requirement 5: golden paths whose shape a later phase may change. The stored
@@ -325,6 +329,18 @@ async def run_tool(tool: str, harness: Any) -> str:
             return await get_tool_fn(entry_open)(
                 entry_id=KEYSET_ENTRY_ID, attachment_id=_keyset_picture_id()
             )
+    if tool == "attachment_to_artifact":
+        from osprey.mcp_server.ariel.tools.attachment import attachment_to_artifact
+        from osprey.stores import artifact_store as artifact_store_module
+
+        store = artifact_store_module.ArtifactStore(
+            workspace_root=Path.cwd() / "agent_data", auto_launch=False
+        )
+        with (
+            patch.object(artifact_store_module, "_artifact_store", store),
+            patch("osprey.mcp_server.http._post_json_with_response", return_value=(200, {})),
+        ):
+            return await get_tool_fn(attachment_to_artifact)(attachment_id=_keyset_picture_id())
     raise AssertionError(f"no run for {tool}")
 
 
@@ -350,14 +366,16 @@ async def test_tool_keyset_matches_golden(tool, keyset_harness):
 
 
 @pytest.mark.parametrize("keyset_harness", [{"view_enabled": False}], indirect=True)
-@pytest.mark.parametrize("tool", [tool for tool in TOOLS if tool != "capabilities"])
+@pytest.mark.parametrize(
+    "tool", [tool for tool in TOOLS if tool not in ("capabilities", "attachment_to_artifact")]
+)
 async def test_tool_keyset_equals_golden_with_view_off(tool, keyset_harness):
     """With ``ariel.attachments.view.enabled: false`` every tool emits B1's shape exactly.
 
     Listings (search, browse, ``entries_by_ids``) carry no ``attachments``,
     ``attachment_count`` or ``matched_attachment_ids``, and ``entry_get``
-    carries the stored ``attachments`` unchanged. ``capabilities`` is the one
-    exception: it reports the switch itself.
+    carries the stored ``attachments`` unchanged. ``capabilities`` reports the
+    switch itself, and ``attachment_to_artifact`` is refused with the view off.
     """
     raw = await run_tool(tool, keyset_harness)
     actual = keyset(json.loads(raw))

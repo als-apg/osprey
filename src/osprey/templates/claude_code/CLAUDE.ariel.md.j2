@@ -67,6 +67,9 @@ You have access to these ARIEL MCP tools for logbook search:
 **Showing the Operator**
 - `entry_open` — Open an entry, and optionally one of its pictures enlarged,
   in the ARIEL panel
+{%- if ariel_attachment_view %}
+- `attachment_to_artifact` — Keep one logbook picture in the artifact gallery
+{%- endif %}
 
 **Entry Authoring** (gated by the approval hook)
 - `entry_create` — Create a new logbook entry (requires user approval)
