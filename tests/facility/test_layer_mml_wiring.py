@@ -134,8 +134,14 @@ def _curve(curve: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def _slices(record: dict[str, Any]) -> list[tuple[str, float]]:
+    if "element" not in record and "slices" not in record:
+        return []
     pieces = record.get("slices") or [{"element": record["element"]}]
     return [(piece["element"], piece.get("weight", 1.0)) for piece in pieces]
+
+
+def _names_element(record: dict[str, Any]) -> bool:
+    return "element" in record or "slices" in record
 
 
 def test_every_wiring_record_equals_the_emitted_binding_for_its_address(
@@ -149,7 +155,11 @@ def test_every_wiring_record_equals_the_emitted_binding_for_its_address(
         for key in ("setpoint_address", "readback_address"):
             if binding[key]:
                 emitted[binding[key]] = binding
-    wiring = {record["address"]: record for record in _models(imported)[STORAGE]["wiring"]}
+    wiring = {
+        record["address"]: record
+        for record in _models(imported)[STORAGE]["wiring"]
+        if _names_element(record)
+    }
 
     assert sorted(wiring) == sorted(emitted)
     for address, record in wiring.items():
@@ -200,6 +210,29 @@ def test_every_written_deck_is_the_served_deck_of_its_export(tree: str, imported
         assert written.read_text(encoding="utf-8") == decks.deck_text(decks.served_deck(addressing))
 
 
+def test_the_spear3_energy_knob_drives_the_deck_energy_through_its_energy_table(
+    tmp_path: Path,
+) -> None:
+    from osprey.simulation.engines.calibration import curve_from_record, to_hardware
+
+    facility = _facility(tmp_path, "spear3")
+    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
+    wiring = {record["address"]: record for record in _models(facility)[STORAGE]["wiring"]}
+    knob = wiring["MS1-BD:CurrSetpt"]
+    assert set(knob) == {"address", "engine", "calibration"}
+    assert knob["engine"] == {"attribute": "energy"}
+    assert wiring["MS1-BD:Curr"] == {**knob, "address": "MS1-BD:Curr"}
+    va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))
+    table = va["families"]["BEND"]["energy_table"]
+    calibration = knob["calibration"]
+    current = to_hardware(
+        curve_from_record(calibration["curve"]),
+        curve_from_record(calibration["inverse"]),
+        table["energy_at_nominal"] * 1e9,
+    )
+    assert current == pytest.approx(table["I_nom"], rel=1e-3)
+
+
 def test_every_wired_element_is_in_the_written_deck_exactly_once(imported: Path) -> None:
     for entry in _models(imported).values():
         document = json.loads((imported / entry["deck"]).read_text(encoding="utf-8"))
@@ -229,7 +262,7 @@ def test_every_device_of_a_shared_endpoint_is_named_by_a_slice(imported: Path) -
     wired = 0
     for entry in _models(imported).values():
         for record in entry["wiring"]:
-            if record["address"] not in shared:
+            if record["address"] not in shared or not _names_element(record):
                 continue
             wired += 1
             named = [piece.get("device") for piece in record["slices"]]
@@ -290,7 +323,7 @@ def test_what_the_deck_pass_refuses_stops_the_import(tmp_path: Path) -> None:
 
     assert _stops(tmp_path, "spear3", TREES["spear3"], unranked) == (
         "import mml: export-invalid: StorageRing: family QF drives K; wire it to an axis "
-        "or to PolynomB, PolynomA, KickAngle or Frequency"
+        "or to PolynomB, PolynomA, KickAngle, energy or Frequency"
     )
 
 

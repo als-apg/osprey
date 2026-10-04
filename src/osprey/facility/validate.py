@@ -1299,7 +1299,9 @@ class _Records:
                 continue
             channel = self.index.channels.get(str(entry.get("address")), {})
             endpoints = channel.get("endpoint_of") or []
-            if endpoints:
+            # A record naming no element drives a property of the whole deck,
+            # which every endpoint device shares; there is no slice to name one in.
+            if endpoints and ("element" in entry or slices):
                 named = {p.get("device") for p in slices or [] if isinstance(p, dict)}
                 unnamed = [d for d in endpoints if d not in named]
                 if unnamed:

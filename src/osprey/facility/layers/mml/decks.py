@@ -23,7 +23,7 @@ family owns it and the others address it by the owner's name while still
 writing their own field of it. The owner is the family whose engine block
 ranks lowest in :data:`OWNER_RANK`, ties broken by sorted family name: a
 monitor reading an orbit axis first, then ``PolynomB``, ``PolynomA``,
-``KickAngle`` and the cavity's ``Frequency``. The rank is not a preference
+``KickAngle``, the energy knob's ``energy`` and the cavity's ``Frequency``. The rank is not a preference
 between families; it is the order in which a name tells a reader what the
 element *is*.
 
@@ -103,6 +103,7 @@ __all__ = [
     "CARRIED_FIELDS",
     "CAVITY_PASS",
     "DECKS_DIR",
+    "ENERGY",
     "FREQUENCY",
     "MONITOR",
     "OWNER_RANK",
@@ -128,10 +129,13 @@ FREQUENCY = "Frequency"
 #: The engine attribute of a corrector family.
 KICK = "KickAngle"
 
+#: The engine attribute of the family that drives the deck's energy.
+ENERGY = "energy"
+
 #: What a family claims on an element, the strongest claim first: a monitor by
 #: the axis it reads, every other family by the engine attribute it writes, so
 #: a normal multipole outranks the skew one wound on the same body.
-OWNER_RANK: tuple[str, ...] = (MONITOR, "PolynomB", "PolynomA", KICK, FREQUENCY)
+OWNER_RANK: tuple[str, ...] = (MONITOR, "PolynomB", "PolynomA", KICK, ENERGY, FREQUENCY)
 
 #: What an element carries that neither the marker nor the monitor class
 #: implies: the apertures the beam is lost against and the transformations the

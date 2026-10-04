@@ -16,7 +16,7 @@
     "channels": 1370,
     "groups": 43,
     "models": 2,
-    "wiring": 831,
+    "wiring": 833,
     "limits": 313,
     "decks": 1
   },
@@ -1955,7 +1955,7 @@
       "LTB-BPM05:Y": "5c2850f942181ed2",
       "LTB-BPM05:YDes": "0ad8441ec6dc68ec",
       "MS1-BD:Curr": "51fa50017f744e0b",
-      "MS1-BD:CurrSetpt": "83e8465e813a42df",
+      "MS1-BD:CurrSetpt": "dea82bf225da4f51",
       "MS1-BD:CurrSetptDes": "19e3fd91444c7808",
       "MS1-BDMT:Curr1": "a2278c5da1c48c67",
       "MS1-BDMT:CurrSetpt": "0c93b8c306453e29",
@@ -2969,6 +2969,8 @@
       "StorageRing/18G-QSS3:CurrSetpt": "888a07fc4a743561",
       "StorageRing/18G-QSS4:Curr1": "e428f2ce76e3905f",
       "StorageRing/18G-QSS4:CurrSetpt": "14e7b6db61288e99",
+      "StorageRing/MS1-BD:Curr": "d0a01f48d6de9f0e",
+      "StorageRing/MS1-BD:CurrSetpt": "1ccbaa1cc2e49b55",
       "StorageRing/MS1-QD:Curr": "a359a605690aa5d4",
       "StorageRing/MS1-QD:CurrSetpt": "2d3aac300958a78e",
       "StorageRing/MS1-QDX:Curr": "cc54d63f4e838994",
@@ -3295,7 +3297,7 @@
       "18G-QSS3:CurrSetpt": "4f451bd5b196376b",
       "18G-QSS4:CurrSetpt": "e871240f1893dd7e",
       "BTS-B9V:CurrSetpt": "040889fec13d942c",
-      "MS1-BD:CurrSetpt": "e95cbf1460787cd8",
+      "MS1-BD:CurrSetpt": "7709f311dc558bc6",
       "MS1-BDMT:CurrSetpt": "4b02e70373a6769d",
       "MS1-QD:CurrSetpt": "ae72dd11d3db219d",
       "MS1-QDX:CurrSetpt": "6a5957566e0be85a",
@@ -3315,7 +3317,7 @@
       "SRF1:STN:PHASE": "6beafb13ad08386c"
     },
     "decks": {
-      "StorageRing": "7a92bccd250168ea"
+      "StorageRing": "fc0c4b417a887446"
     }
   }
 }

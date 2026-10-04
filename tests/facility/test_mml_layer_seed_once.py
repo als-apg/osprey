@@ -35,6 +35,9 @@ at = pytest.importorskip("at")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
+#: The spear3 energy knob's setpoint, which the old chain binds to no element.
+ENERGY_KNOB = "MS1-BD:CurrSetpt"
+
 #: Each tree's exports, by the stem every file of one export is named after.
 TREES: dict[str, tuple[str, ...]] = {
     "spear3": ("spear3.storagering",),
@@ -256,8 +259,8 @@ def test_the_writable_set_is_the_setpoints_the_old_chain_binds(
     spear3: Path, tmp_path: Path
 ) -> None:
     writable = {address for address, row in _limits(spear3).items() if row.get("writable") is True}
-    assert writable == _emitted_setpoints(tmp_path / "old", "spear3")
-    assert len(writable) == 299
+    assert writable == _emitted_setpoints(tmp_path / "old", "spear3") | {ENERGY_KNOB}
+    assert len(writable) == 300
 
 
 def test_a_setpoint_an_earlier_read_field_named_is_writable_inside_its_band(spear3: Path) -> None:
@@ -449,7 +452,7 @@ def test_the_import_counts_the_wired_channels_whose_golden_value_it_skips(
     wired = _wired(facility)
     stated = sum(
         1
-        for name in ("QF", "QD", "SF", "SQ", "HC", "VC", "RF", "BPMx", "BPMy")
+        for name in ("QF", "QD", "SF", "SQ", "HC", "VC", "RF", "BPMx", "BPMy", "BEND")
         for nominal in va["families"][name]["nominals"].values()
         for value in (
             nominal["values"] if isinstance(nominal["values"], list) else [nominal["values"]]
