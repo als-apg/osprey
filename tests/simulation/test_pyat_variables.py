@@ -311,6 +311,12 @@ class TestCopiedNotShared:
         assert parameters[1] == "lattice"
 
 
+def test_the_energy_knob_s_attribute_is_a_deck_property_of_the_engine() -> None:
+    from osprey.simulation.engines import pyat
+
+    assert pyat_variables.ENERGY_ATTRIBUTE in pyat.DECK_PROPERTIES
+
+
 class TestCalibrationModule:
     def test_the_inverse_wins_over_the_curve(self) -> None:
         curve, inverse = cal.Linear(2.0, 1.0), cal.Linear(10.0, 0.0)
