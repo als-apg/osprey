@@ -662,20 +662,19 @@ UNKNOWN_CLASS_DEVICES = {"spear3": 130, "nsls2": 32}
 #: each with the edge that widens its limits record to hold the build's
 #: operating point. A wired setpoint starts where its calibration puts the
 #: deck's strength. For spear3 that is the nominal the export states, outside
-#: the export's own ``Range``. For nsls2 it is the export's nominal with the
-#: other sign: the export states these quadrupoles' currents positive and
-#: inside the band, the deck holds them at a negative strength and their
-#: curve has a positive gain.
+#: the export's own ``Range``. nsls2 widens nothing.
 WIDENED: dict[str, dict[str, tuple[str, float]]] = {
     "spear3": {
         "09S-QD1:CurrSetpt": ("min_value", -60.0),
         "MS1-BDMT:CurrSetpt": ("max_value", 600.0),
     },
-    "nsls2": {
-        f"LTB-MG{{Quad:{number}}}I:Sp1-SP": ("min_value", -100.0)
-        for number in (1, 3, 4, 6, 9, 11, 14)
-    },
+    "nsls2": {},
 }
+
+#: The nsls2 transport quadrupoles the deck holds at the other sign from the
+#: export: the export states their currents positive and inside the band, the
+#: deck holds them at a negative strength and their curve has a positive gain.
+POLARITY = tuple(f"LTB-MG{{Quad:{number}}}I:Sp1-SP" for number in (1, 3, 4, 6, 9, 11, 14))
 
 
 def _widen(facility: Path, edges: dict[str, tuple[str, float]]) -> None:
@@ -689,8 +688,8 @@ def _widen(facility: Path, edges: dict[str, tuple[str, float]]) -> None:
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
 
-def test_a_transport_quadrupole_stops_on_its_export_nominal_with_the_other_sign(
-    tmp_path: Path,
+def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarity(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     facility = _import(tmp_path, "nsls2")
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
@@ -700,22 +699,34 @@ def test_a_transport_quadrupole_stops_on_its_export_nominal_with_the_other_sign(
         zip(addresses, va["families"]["Q"]["nominals"]["Setpoint"]["values"], strict=True)
     )
     low, high = ao["Q"]["Setpoint"]["Range"]
-    models = _load(facility / LAYER_DIR / "models.yaml")
-    gains = {
-        record["address"]: record["calibration"]["curve"]["linear"]["gain"]
-        for model in models
+    records = {
+        record["address"]: record
+        for model in _load(facility / LAYER_DIR / "models.yaml")
         for record in model.get("wiring", [])
-        if record["address"] in WIDENED["nsls2"]
     }
-
-    report = run_stages(facility, project_name="demo", later=LATER_STAGES)
-
-    stops = {error.record_id: error.format_message() for error in report.errors}
-    assert set(stops) == set(WIDENED["nsls2"])
-    for address, message in stops.items():
+    assert [line for line in capsys.readouterr().out.splitlines() if "polarity" in line] == [
+        f"import mml: polarity: LTB: family Q device {addresses.index(address) + 1}; "
+        "the deck holds the other sign"
+        for address in POLARITY
+    ]
+    for address in addresses:
+        record = records[address]
+        if address in POLARITY:
+            assert [piece["weight"] for piece in record["slices"]] == [-1.0], address
+            assert "element" not in record, address
+        else:
+            assert "slices" not in record, address
+        assert record["calibration"]["curve"]["linear"]["gain"] > 0, address
         assert low <= stated[address] <= high, address
-        assert gains[address] > 0, address
-        assert f"nominal {-stated[address]:g} lies below" in message, address
+
+    document = build_facility(facility, project_name="demo")
+    defaults = {
+        record["address"]: record["default"]
+        for model in document["models"]
+        for record in model.get("wiring", [])
+    }
+    for address in POLARITY:
+        assert defaults[address] == pytest.approx(stated[address], rel=1e-9), address
 
 
 @pytest.mark.parametrize("name", BUILT)
@@ -741,8 +752,9 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
     for error in seeded.errors:
         assert "limits.yaml" in error.sources, error.record_id
         assert "widen the limits record" in error.remedy, error.record_id
-    with pytest.raises(FacilityBuildError):
-        build_facility(facility, project_name="demo")
+    if WIDENED[name]:
+        with pytest.raises(FacilityBuildError):
+            build_facility(facility, project_name="demo")
 
     _widen(facility, WIDENED[name])
 

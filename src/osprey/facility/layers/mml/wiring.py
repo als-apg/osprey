@@ -271,14 +271,26 @@ def _records(
             model.raw, family, {model.raw: facts}, answers, devices=view.n_devices
         )
         _require_devices(family, view, block)
-        records, unstated = _family_records(
-            family, wiring, view, block, entries, device_ids.get(family), endpoints
+        records, unstated, flipped = _family_records(
+            family,
+            wiring,
+            view,
+            block,
+            entries,
+            device_ids.get(family),
+            endpoints,
+            addressing.deck,
         )
         if unstated:
             lines.append(
                 f"import mml: nominal not stated: {model.name}: family {family}; "
                 "start value from the deck"
             )
+        lines.extend(
+            f"import mml: polarity: {model.name}: family {family} device {device + 1}; "
+            "the deck holds the other sign"
+            for device in flipped
+        )
         for address, readbacks, body in records:
             for piece in _elements(body):
                 key = (piece, _field_name(body["engine"]))
@@ -322,7 +334,8 @@ def _family_records(
     entries: Sequence[decks.ElementBinding],
     ids: Sequence[str] | None,
     endpoints: Map[str, Sequence[str]],
-) -> tuple[list[tuple[str, list[str], dict[str, Any]]], bool]:
+    deck: Any,
+) -> tuple[list[tuple[str, list[str], dict[str, Any]]], bool, list[int]]:
     """One family's records: per supply its address, its readbacks and the record body.
 
     A supply's readbacks are the ``Monitor`` addresses its devices read back
@@ -335,7 +348,8 @@ def _family_records(
     feeding several devices in series, whose shares the nominals set.
 
     Returns:
-        The records, and whether a device was wired without a nominal.
+        The records, whether a device was wired without a nominal, and the
+        devices whose polarity the deck holds the other way, in device order.
 
     Raises:
         ValueError: The family carries no channel of its wired field, a driven
@@ -365,6 +379,7 @@ def _family_records(
 
     records: list[tuple[str, list[str], dict[str, Any]]] = []
     unstated = False
+    flipped: list[int] = []
     monitor = view.fields.get(MONITOR_FIELD)
     for address, members in supplies.items():
         if gap is not None and any(
@@ -374,7 +389,10 @@ def _family_records(
             if len(members) > 1 or _turns_back(block, written, members[0], devices, family):
                 raise ValueError(f"family {family} is wired through {written} and the export {gap}")
             unstated = True
-        body = _supply_record(family, kind, engine, wiring, view, block, elements, members)
+        body = _supply_record(family, kind, engine, wiring, view, block, elements, members, deck)
+        flipped.extend(
+            sorted({piece.device for piece in body.get("slices", ()) if piece.weight < 0.0})
+        )
         if kind != _ENERGY:
             shared = len(endpoints.get(address, ())) > 1
             body = _stated(body, ids if shared else None)
@@ -390,7 +408,7 @@ def _family_records(
                 )
             readbacks.append(served)
         records.append((address, readbacks, body))
-    return records, unstated
+    return records, unstated, sorted(flipped)
 
 
 def _turns_back(block: Map[str, Any], written: str, device: int, devices: int, family: str) -> bool:
@@ -415,6 +433,7 @@ def _supply_record(
     block: Map[str, Any],
     elements: Map[int, decks.ElementBinding],
     members: list[int],
+    deck: Any,
 ) -> dict[str, Any]:
     """One supply's record body, whether it feeds one device or several in series.
 
@@ -468,7 +487,7 @@ def _supply_record(
     calibration["energy_scaling"] = _energy_scaling(kind, block.get(written))
     return {
         "slices": _slices(
-            family, kind, written, view, block, elements, members, evaluate(curve, hardware)
+            family, kind, written, view, block, elements, members, evaluate(curve, hardware), deck
         ),
         "engine": _engine_record(engine),
         "calibration": calibration,
@@ -608,13 +627,18 @@ def _slices(
     elements: Map[int, decks.ElementBinding],
     members: list[int],
     start_physics: float,
+    deck: Any,
 ) -> list[_Slice]:
     """Every element one supply writes, each with the share it carries there.
 
-    Two shares multiply into one weight. The split share divides a value over
-    the pieces one device is modelled as. The series factor is what one device
-    of a series holds against the supply: the physics its own curve puts it at
-    over the physics the supply's curve answers at the starting value.
+    Two shares and a sign multiply into one weight. The split share divides a
+    value over the pieces one device is modelled as. The series factor is what
+    one device of a series holds against the supply: the physics its own curve
+    puts it at over the physics the supply's curve answers at the starting
+    value. The sign is the device's polarity: where the physics the export's
+    curve puts the device at from its stated nominal and the strength the deck
+    holds on its first piece have opposite signs, the deck is wound the other
+    way, and the slice carries -1 so the device starts at its stated nominal.
 
     Raises:
         ValueError: A device of a series sits at no strength while the supply
@@ -627,14 +651,29 @@ def _slices(
         pieces = elements[device].slices
         share = 1.0 / len(pieces) if kind in _SHARED_KINDS and len(pieces) > 1 else 1.0
         factor = 1.0
+        where = f"family {family} device {device + 1}"
+        nominal = _nominal_for(block, written, device, devices, where)
+        physics = start_physics if nominal is not None else 0.0
         if len(members) > 1:
-            where = f"family {family} device {device + 1}"
             own = _curve_for_device(block.get(written), "calibration", device, devices, where)
-            nominal = _nominal_for(block, written, device, devices, where)
-            strength = evaluate(own, nominal) if own is not None and nominal is not None else 0.0
-            factor = _series_factor(where, strength, start_physics)
-        rows.extend(_Slice(piece.element, share * factor, device) for piece in pieces)
+            physics = evaluate(own, nominal) if own is not None and nominal is not None else 0.0
+            factor = _series_factor(where, physics, start_physics)
+        held = _deck_strength(deck, pieces[0].position, elements[device].engine)
+        sign = -1.0 if held is not None and physics * held < 0.0 else 1.0
+        rows.extend(_Slice(piece.element, share * factor * sign, device) for piece in pieces)
     return rows
+
+
+def _deck_strength(deck: Any, position: int, engine: EngineBlock) -> float | None:
+    """The finite value the deck holds in the field an engine block writes, or ``None``."""
+    if engine.attribute is None:
+        return None
+    value: Any = getattr(deck[position], engine.attribute, None)
+    try:
+        number = float(value if engine.index is None else value[engine.index])
+    except (IndexError, TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _series_factor(where: str, strength: float, start_physics: float) -> float:
