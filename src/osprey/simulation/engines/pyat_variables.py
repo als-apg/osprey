@@ -88,6 +88,7 @@ from osprey.simulation.engines.calibration import (
     to_hardware,
     to_physics,
 )
+from osprey.simulation.engines.pyat_faults import magnet_cal, supply_calibration
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
@@ -323,8 +324,16 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
                 held[binding.index] = held[binding.index] * factor
 
     def _physics(self, simulator: PyATSimulator, value: float) -> float:
-        """The physics value ``value`` is worth at the lattice's present energy."""
-        return to_physics(self.calibration, value) * self._rigidity_factor(simulator)
+        """The physics value ``value`` is worth at the lattice's present energy.
+
+        The supply calibration of the first bound element acts on the
+        commanded value first: a miscalibrated supply delivers a different
+        hardware value, which the record's own calibration then converts. An
+        element carrying none delivers what was commanded.
+        """
+        element = simulator.element(self.bindings[0].element_name)
+        delivered = magnet_cal(value, **supply_calibration(element))
+        return to_physics(self.calibration, delivered) * self._rigidity_factor(simulator)
 
     def _rigidity_factor(self, simulator: PyATSimulator) -> float:
         """What a rigidity-scaled value is worth at the lattice's present energy."""
