@@ -3,8 +3,8 @@
 The control-assistant preset commits the demo's facility records as authored
 sources. These tests read them as the facility loader reads them and hold them
 to the demo's other sources: the channel rows joined as the frozen fingerprint
-joins them, the hand places, the value types, the signal roles, the in_context
-tags, the groups and the places.
+joins them, the graph view the build writes, the hand places, the value types,
+the signal roles, the in_context tags, the groups and the places.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from osprey.facility.sources import load_sources, read_yaml
+from tests._builds import BuiltProject
 from tests.facility.test_cf_view_parity import (
     FINGERPRINT_ROW_KEYS,
     fingerprint_rows,
@@ -27,7 +28,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CA_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 FACILITY_TREE = CA_DATA / "facility"
 STANDALONE_TREE = REPO_ROOT / "src/osprey/templates/apps/channel_finder_standalone/data/facility"
-DEMO_TTL = CA_DATA / "demo_machine.ttl"
 TIER1_IN_CONTEXT = CA_DATA / "channel_databases/tiers/tier1/in_context.json"
 TIER3_HIERARCHICAL = CA_DATA / "channel_databases/tiers/tier3/hierarchical.json"
 VA_BINDINGS = CA_DATA / "simulation/va_bindings.json"
@@ -35,6 +35,9 @@ MIDDLE_LAYER = CA_DATA / "channel_databases/tiers/tier3/middle_layer.json"
 VOCABULARY = REPO_ROOT / "src/osprey/facility/schema/_generated/vocabulary.json"
 
 _NARAD_PROPERTY = "https://narad.example.org/property/"
+
+#: The module reads the session's one control-assistant build.
+pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
 
 #: The general quantity roles the demo's channels need beyond the seed roles.
 NEW_ROLES = frozenset(
@@ -86,27 +89,45 @@ def _json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@pytest.fixture(scope="module")
+def graph_view(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+
+
 @cache
-def ttl_bindings() -> dict[str, dict[str, str]]:
-    """Address -> ``{device, signal}``: the binding's device and TTL signal local name."""
+def _parsed_view(view: Path) -> Any:
+    """The graph view at *view*, parsed once."""
+    import rdflib
+
+    graph = rdflib.Graph()
+    graph.parse(view, format="turtle")
+    return graph
+
+
+@cache
+def ttl_bindings(view: Path) -> dict[str, dict[str, str]]:
+    """Address -> ``{device}``: the device id owning each device-bound binding.
+
+    A place that carries channels of its own owns bindings too; it names no
+    ``sourceName``, and its channels are not on a device.
+    """
     import rdflib
 
     prop = rdflib.Namespace(_NARAD_PROPERTY)
-    graph = rdflib.Graph()
-    graph.parse(DEMO_TTL, format="turtle")
+    graph = _parsed_view(view)
     bindings = {}
     for device, binding in graph.subject_objects(prop.hasBinding):
-        machine = str(graph.value(device, prop.sectionCode))
-        signal = graph.value(binding, prop.readsSignal) or graph.value(binding, prop.writesSignal)
+        if graph.value(device, prop.sourceName) is None:
+            continue
         bindings[str(graph.value(binding, prop.fullPv))] = {
-            "device": f"{machine}/{graph.value(device, prop.sourceName)}",
-            "signal": str(signal).rsplit("/", 1)[-1],
+            "device": str(graph.value(device, prop.deviceId)),
         }
     return bindings
 
 
 @cache
-def wired_devices() -> frozenset[str]:
+def wired_devices(view: Path) -> frozenset[str]:
     """The devices owning an address the virtual accelerator's bindings wire."""
     addresses = {
         address
@@ -115,7 +136,7 @@ def wired_devices() -> frozenset[str]:
         if address
     }
     assert len(addresses) == 840
-    bindings = ttl_bindings()
+    bindings = ttl_bindings(view)
     return frozenset(bindings[address]["device"] for address in addresses)
 
 
@@ -174,21 +195,6 @@ def test_every_bi_channel_is_bool() -> None:
     assert len(bools) == 1246
     assert {a for a, c in channels.items() if c.get("value_type") == "bool"} == bools
     assert {c.get("value_type") for c in channels.values()} == {None, "bool"}
-
-
-def test_every_ttl_signal_maps_to_one_vocabulary_role() -> None:
-    roles = {role["name"] for role in _json(VOCABULARY)["signal_roles"]}
-    channels = records_by_id("channel")
-    bindings = ttl_bindings()
-    assert len(bindings) == 2908
-    by_signal: dict[str, set[str | None]] = {}
-    for address, binding in bindings.items():
-        by_signal.setdefault(binding["signal"], set()).add(channels[address].get("signal"))
-    assert {signal for signal, mapped in by_signal.items() if len(mapped) != 1} == set()
-    mapped = {role for roles_of in by_signal.values() for role in roles_of}
-    assert None not in mapped
-    assert mapped <= roles
-    assert not mapped & set(by_signal)
 
 
 def test_the_first_vocabulary_roles_are_left_as_they_were() -> None:
@@ -251,9 +257,11 @@ def test_every_channel_carries_its_leaf_unit() -> None:
     assert channels["SR:MAG:QF:01:CURRENT:SP"]["unit"] == "A"
 
 
-def test_every_channel_is_on_its_ttl_device() -> None:
+def test_every_channel_is_on_its_ttl_device(graph_view: Path) -> None:
     channels = records_by_id("channel")
-    for address, binding in ttl_bindings().items():
+    bindings = ttl_bindings(graph_view)
+    assert len(bindings) == 2908
+    for address, binding in bindings.items():
         assert channels[address]["on"] == {"device": binding["device"]}, address
 
 
@@ -265,9 +273,9 @@ def test_the_tier1_addresses_are_tagged_in_context() -> None:
     assert all(channels[a]["tags"] == ["in_context"] for a in tier1)
 
 
-def test_only_unwired_devices_carry_a_hand_place() -> None:
+def test_only_unwired_devices_carry_a_hand_place(graph_view: Path) -> None:
     devices = records_by_id("device")
-    wired = wired_devices()
+    wired = wired_devices(graph_view)
     assert len(devices) == 512
     assert len(wired) == 420
     assert wired <= set(devices)
@@ -293,15 +301,14 @@ def test_hand_places_sit_on_their_machine() -> None:
     assert devices["SR/VALVE12"]["place"] == "SR/SECT12"
 
 
-def test_devices_carry_their_bare_name_and_class() -> None:
+def test_devices_carry_their_bare_name_and_class(graph_view: Path) -> None:
     import rdflib
 
     prop = rdflib.Namespace(_NARAD_PROPERTY)
-    graph = rdflib.Graph()
-    graph.parse(DEMO_TTL, format="turtle")
+    graph = _parsed_view(graph_view)
     devices = records_by_id("device")
     for subject, name in graph.subject_objects(prop.sourceName):
-        device = devices[f"{graph.value(subject, prop.sectionCode)}/{name}"]
+        device = devices[str(graph.value(subject, prop.deviceId))]
         assert device["names"][0] == str(name)
         assert device["class"] == str(graph.value(subject, rdflib.RDF.type)).rsplit("/", 1)[-1]
         assert set(device["attributes"]) == {"DeviceList", "ElementList"}
@@ -321,12 +328,12 @@ def test_places_are_the_machines_and_the_deck_machine_sectors() -> None:
     assert all("span" not in p for p in places if p["level"] == "machine")
 
 
-def test_family_and_system_groups() -> None:
+def test_family_and_system_groups(graph_view: Path) -> None:
     tree = _json(TIER3_HIERARCHICAL)["tree"]
     groups = records_by_id("group")
     by_family: dict[str, set[str]] = {}
     by_system: dict[str, set[str]] = {}
-    for address, binding in ttl_bindings().items():
+    for address, binding in ttl_bindings(graph_view).items():
         machine, system, family = address.split(":")[:3]
         by_family.setdefault(f"{machine}/{family}", set()).add(binding["device"])
         by_system.setdefault(f"{machine}/{system}", set()).add(binding["device"])

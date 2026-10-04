@@ -15,7 +15,10 @@ from functools import cache
 from types import ModuleType
 from typing import Any
 
+import pytest
+
 from osprey.facility.sources import slot_names
+from tests._builds import BuiltProject
 from tests.facility.test_cf_view_parity import load_golden
 from tests.facility.test_generator_records import (
     REPO_ROOT,
@@ -155,9 +158,12 @@ def test_measurement_allows_the_five_kinds() -> None:
     ]
 
 
-def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member() -> None:
+@pytest.mark.xdist_group("built_control_assistant")
+def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member(
+    built_control_assistant: BuiltProject,
+) -> None:
     groups = records_by_id("group")
-    wired = wired_devices()
+    wired = wired_devices(built_control_assistant.build_dir / "data" / "graph" / "facility.ttl")
     named = measurement()["groups"]
     assert sorted(named) == ["bpm", "hcor", "quad", "sext", "vcor"]
     for role, group_id in named.items():

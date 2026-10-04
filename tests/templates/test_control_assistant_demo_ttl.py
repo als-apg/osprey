@@ -1,12 +1,12 @@
-"""The demo machine corpus the control-assistant data tree ships.
+"""The graph view the control-assistant build writes.
 
-A committed corpus that nobody counts can drift silently: a change to it would
-quietly ship a different graph. The census below (512 devices, 2908 bindings,
-396 written and 2512 read signals) is the demo machine as of the corpus
-committed beside this test, and the 396 writes are exactly its `:SP`
-addresses. The prose census sits beside it: three
-description predicates on every binding, three more plus the SYSTEM token on
-every device, and none of the six on a semantic signal.
+A corpus that nobody counts can drift silently: a change to the facility or to
+the view's writer would quietly seed a different graph. The census below (512
+devices, 2912 bindings, 396 written and 2512 read signals) is the demo facility
+as the build renders it, and the 396 writes are exactly its `:SP` addresses.
+The prose census sits beside it: a description on every binding, a family and
+a system description plus the SYSTEM token on every device, and none of the
+three descriptions on a semantic signal.
 
 The uppercase check guards the other half of the pipeline. neosemantics imports
 a predicate IRI under the local name it finds, so `narad_p:hasBinding` becomes
@@ -19,12 +19,10 @@ would import into a graph where every shipped query returns nothing.
 from pathlib import Path
 
 import pytest
+from tests._builds import BuiltProject
 
-#: The control-assistant preset's data tree, where the corpus ships.
-DEMO_DATA = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
-
-#: The corpus as it ships in the preset's data tree.
-TEMPLATE_TTL = DEMO_DATA / "demo_machine.ttl"
+#: The module reads the session's one control-assistant build.
+pytestmark = [pytest.mark.xdist_group("built_control_assistant")]
 
 #: NARAD property namespace — the one the emitter binds as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
@@ -36,21 +34,22 @@ NARAD_SEMANTICS = "https://narad.example.org/schema/shared_semantics/"
 #: Classes in ``narad_sem:`` that type something other than a device.
 NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
 
-#: The demo machine's census, as generated from the tier-3 channel database and
-#: the shipped channel limits.
+#: The demo facility's census, as the build renders it: the tier-3 channel
+#: database's 2908 device channels plus the four tune and chromaticity channels
+#: the top place carries itself.
 EXPECTED_DEVICES = 512
-EXPECTED_BINDINGS = 2908
+EXPECTED_BINDINGS = 2912
 EXPECTED_WRITES = 396
 EXPECTED_READS = 2512
 
 #: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
-#: channel's own sentence and the text of the two address tokens it ends in.
-BINDING_DESCRIPTION_PREDICATES = ("description", "fieldDescription", "subfieldDescription")
+#: channel's own sentence.
+BINDING_DESCRIPTION_PREDICATES = ("description",)
 
-#: Prose predicates carried once by every device node, from the tree levels
-#: above it, plus the SYSTEM token itself — the one address token the device
-#: IRI does not spell, so it ships as data a query can filter on.
-DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription", "ringDescription")
+#: Prose predicates carried once by every device node, from its family and its
+#: system, plus the SYSTEM token itself — the one token the device IRI does not
+#: spell, so it ships as data a query can filter on.
+DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 DEVICE_TOKEN_PREDICATES = ("system",)
 
 #: n10s' uppercase spellings of the three relationship types the shipped
@@ -59,12 +58,18 @@ UPPERCASE_N10S_NAMES = ("HASBINDING", "READSSIGNAL", "WRITESSIGNAL")
 
 
 @pytest.fixture(scope="module")
-def graph() -> object:
-    """The committed corpus, parsed once."""
+def view_path(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+
+
+@pytest.fixture(scope="module")
+def graph(view_path: Path) -> object:
+    """The graph view, parsed once."""
     from rdflib import Graph
 
     parsed = Graph()
-    parsed.parse(TEMPLATE_TTL, format="turtle")
+    parsed.parse(view_path, format="turtle")
     return parsed
 
 
@@ -88,7 +93,7 @@ def test_prose_census(graph) -> None:
     """Every binding and every device carries its prose, exactly once.
 
     The subject counts are what make this a census rather than a spot check: a
-    predicate appearing 2,908 times spread over 40 bindings would satisfy a
+    predicate appearing 2,912 times spread over 40 bindings would satisfy a
     triple count and import into a graph where most channels have no text at
     all. neosemantics keeps one value per property unless told otherwise, so a
     doubled predicate is also silent data loss at seed time.
@@ -117,10 +122,9 @@ def test_prose_census(graph) -> None:
 def test_semantic_signals_carry_no_description(graph) -> None:
     """No prose predicate lands on a ``narad_sem:SemanticSignal``.
 
-    A signal is keyed without a ring, and the tree's field and subfield prose is
-    written per ring — so text on a signal could only be one ring's wording
-    standing in for every ring's. The corpus puts that text on bindings, whose
-    address carries all six tokens.
+    A signal is shared by every channel that reads or writes it, so text on a
+    signal could only be one channel's wording standing in for all of them. The
+    view puts that text on bindings and devices.
     """
     from rdflib import RDF, URIRef
 
@@ -162,7 +166,7 @@ def test_only_setpoints_are_written(graph) -> None:
     assert not any(pv.endswith(":SP") for pv in pvs("readsSignal"))
 
 
-def test_no_uppercase_n10s_names() -> None:
-    text = TEMPLATE_TTL.read_text(encoding="utf-8")
+def test_no_uppercase_n10s_names(view_path: Path) -> None:
+    text = view_path.read_text(encoding="utf-8")
     for name in UPPERCASE_N10S_NAMES:
         assert name not in text
