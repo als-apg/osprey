@@ -897,6 +897,81 @@ class TestDraft:
         del ao["SR"]["BPMx"]["AT"]
         assert "wiring" not in draft_mapping(ao, va=_va())["models"]["SR"]
 
+    @staticmethod
+    def _bends(**bodies: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """An export of dipole strings named by ``bodies``, and its sampled facts."""
+        ao: dict[str, Any] = {"_import_order": ["SR"], "SR": {}}
+        families: dict[str, Any] = {}
+        for name, facts in bodies.items():
+            ao["SR"][name] = {
+                "DeviceList": [[1, 1]],
+                "Setpoint": {"ChannelNames": [f"{name}:SP"]},
+                "AT": {"ATType": "BEND", "ATIndex": [4]},
+            }
+            families[name] = {"Setpoint": {"calibration": {"kind": "table"}}, **facts}
+        return ao, {"SR": {"families": families}}
+
+    @staticmethod
+    def _ramp(*energies: Any) -> dict[str, Any]:
+        return {
+            "energy_candidate": 1,
+            "energy_table": {"values": list(energies), "energy_at_nominal": 3.0},
+        }
+
+    def test_the_energy_knob_drives_the_deck_energy(self) -> None:
+        ao, va = self._bends(BEND=self._ramp(0.0, 1.5, 3.0, "NaN"))
+        wiring = draft_mapping(ao, va=va)["models"]["SR"]["wiring"]
+        assert wiring == {
+            "BEND": {
+                "element_field": "Setpoint",
+                "engine": {"attribute": "energy"},
+                "calibration": "table",
+            }
+        }
+        assert parse_mapping(draft_mapping(ao, va=va)).models["SR"].wiring[
+            "BEND"
+        ].engine == EngineBlock(attribute="energy")
+
+    def test_a_ramp_answering_one_energy_drives_nothing(self) -> None:
+        ao, va = self._bends(BEND=self._ramp(3.0, 3.0, "NaN"))
+        assert "wiring" not in draft_mapping(ao, va=va)["models"]["SR"]
+
+    def test_a_second_energy_knob_is_left_to_the_reviewer(self) -> None:
+        ao, va = self._bends(BEND=self._ramp(0.0, 3.0), BSOFT=self._ramp(0.0, 3.0))
+        wiring = draft_mapping(ao, va=va)["models"]["SR"]["wiring"]
+        assert wiring["BEND"]["engine"] == {"attribute": "energy"}
+        assert wiring["BSOFT"]["engine"] is None
+
+    def test_a_dipole_string_that_corrects_drives_a_kick_in_a_plane_left_open(self) -> None:
+        ao, va = self._bends(BDM={})
+        ao["SR"]["BDM"]["MemberOf"] = ["COR", "BDM"]
+        document = draft_mapping(ao, va=va)
+        assert document["models"]["SR"]["wiring"]["BDM"]["engine"] == {
+            "attribute": "KickAngle",
+            "index": None,
+        }
+        mapping = parse_mapping(document)
+        assert mapping.models["SR"].wiring["BDM"].engine == EngineBlock(
+            attribute="KickAngle", index_open=True
+        )
+        assert ("models.SR.wiring.BDM.engine.index", "name the plane: 0 for x, 1 for y") in (
+            undecided_slots(mapping)
+        )
+
+    def test_a_cavity_drives_the_frequency_whatever_element_it_binds(self) -> None:
+        ao, va = self._bends(RF={})
+        ao["SR"]["RF"]["AT"] = {"ATType": "RF", "ATIndex": []}
+        wiring = draft_mapping(ao, va=va)["models"]["SR"]["wiring"]
+        assert wiring["RF"] == {
+            "element_field": "Setpoint",
+            "engine": {"attribute": "Frequency"},
+            "calibration": "table",
+        }
+
+    def test_a_dipole_string_the_export_marks_nothing_is_left_to_the_reviewer(self) -> None:
+        ao, va = self._bends(BEND={})
+        assert draft_mapping(ao, va=va)["models"]["SR"]["wiring"]["BEND"]["engine"] is None
+
     def test_no_sampled_model_facts_propose_no_wiring(self) -> None:
         assert "wiring" not in draft_mapping(_typed_export())["models"]["SR"]
 

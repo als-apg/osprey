@@ -224,11 +224,14 @@ class EngineBlock:
     ``attribute`` and ``index`` name the element attribute a setpoint drives
     (``PolynomB`` index 1 is a quadrupole gradient, ``KickAngle`` index 0 a
     horizontal kick); ``axis`` names the orbit plane a monitor reads.
+    ``index_open`` is true where the document writes ``index: null``: the
+    attribute is decided and its index is a slot nobody has answered yet.
     """
 
     attribute: str | None = None
     index: int | None = None
     axis: str | None = None
+    index_open: bool = False
 
 
 @dataclass(frozen=True)
@@ -537,13 +540,15 @@ def _engine(value: Any, path: str) -> EngineBlock | None:
     if attribute is not None and not attribute.strip():
         raise MappingError(f"{path}.attribute", "must name an attribute, got an empty string")
     index = body.get("index")
-    if "index" in body and not (_ordinal(index) and index >= 0):
+    if "index" in body and index is not None and not (_ordinal(index) and index >= 0):
         shown = index if _ordinal(index) else _type_name(index)
         raise MappingError(f"{path}.index", f"must be a non-negative integer, got {shown}")
     axis = body.get("axis")
     if "axis" in body and not (isinstance(axis, str) and axis in ENGINE_AXES):
         raise MappingError(f"{path}.axis", f"must be x or y, got {_shown(axis)}")
-    return EngineBlock(attribute=attribute, index=index, axis=axis)
+    return EngineBlock(
+        attribute=attribute, index=index, axis=axis, index_open="index" in body and index is None
+    )
 
 
 def _wiring(value: Any, path: str) -> dict[str, WiringFamily]:
@@ -955,6 +960,8 @@ def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
                         "name the attribute and index, or the axis, the model wires",
                     )
                 )
+            elif wiring.engine.index_open:
+                found.append((f"{entry}.engine.index", "name the plane: 0 for x, 1 for y"))
             if wiring.calibration is None:
                 found.append((f"{entry}.calibration", "write linear or table"))
     known = _vocabulary_classes() | set(mapping.branches)
@@ -1562,7 +1569,8 @@ IMPORTED = "imported"
 
 #: What each lattice type token drives, in pyAT's words, keyed by the token
 #: folded to lower case. A token absent here -- the dipole string among them,
-#: whose energy knob is the reviewer's call -- is proposed with a null engine.
+#: unless the export marks the family as its energy knob or as a corrector --
+#: is proposed with a null engine.
 ENGINE_BY_TYPE: dict[str, dict[str, Any]] = {
     **dict.fromkeys(("quad", "k", "quadrupole"), {"attribute": "PolynomB", "index": 1}),
     **dict.fromkeys(("sext", "k2", "sextupole"), {"attribute": "PolynomB", "index": 2}),
@@ -1574,6 +1582,21 @@ ENGINE_BY_TYPE: dict[str, dict[str, Any]] = {
     **dict.fromkeys(("x", "bpmx", "xturns"), {"axis": "x"}),
     **dict.fromkeys(("y", "bpmy", "yturns"), {"axis": "y"}),
 }
+
+#: The lattice type token of a dipole string.
+_BEND_TYPE = "bend"
+
+#: The membership word that marks a family as a corrector: a dipole string
+#: carrying it trims an orbit rather than setting the energy.
+_CORRECTOR_MEMBERSHIP = "COR"
+
+#: The engine block of the family that drives the deck's energy: a property of
+#: the whole deck, so it names no element.
+_ENERGY_ENGINE: dict[str, Any] = {"attribute": "energy"}
+
+#: The engine block of a dipole string that corrects: a kick, whose plane the
+#: export never states, so it is left for the reviewer.
+_TRIM_ENGINE: dict[str, Any] = {"attribute": "KickAngle", "index": None}
 
 #: The fields a family is wired through, in preference order: a family that
 #: sets something is wired through what it sets, one that only reads through
@@ -1801,6 +1824,13 @@ def _draft_judgments(views: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
     return block
 
 
+def _lattice_type(view: Any) -> str | None:
+    """The lattice type a family states, folded to lower case; ``None`` when it states none."""
+    lattice = view.body.get("AT")
+    token = _text(lattice.get("ATType")) if isinstance(lattice, dict) else None
+    return token.lower() if token is not None else None
+
+
 def _bound_type(view: Any) -> str | None:
     """The lattice type a family binds, folded to lower case; ``None`` when it binds none."""
     lattice = view.body.get("AT")
@@ -1811,6 +1841,67 @@ def _bound_type(view: Any) -> str | None:
         return None
     token = _text(lattice.get("ATType"))
     return token.lower() if token is not None else ""
+
+
+def _corrects(view: Any) -> bool:
+    """Whether a family's membership names the correctors."""
+    membership = view.body.get("MemberOf")
+    words = membership if isinstance(membership, (list, tuple)) else [membership]
+    return any(
+        isinstance(word, str) and word.strip().upper() == _CORRECTOR_MEMBERSHIP for word in words
+    )
+
+
+def _drives_energy(facts: dict) -> bool:
+    """Whether the export marks a family as the energy knob and its ramp moves the energy.
+
+    A ramp that answers one energy at every current is a constant, and one
+    that answers none at the nominal current starts nothing; neither is a knob.
+    """
+    candidate = exported_number(facts.get("energy_candidate"))
+    table = facts.get("energy_table")
+    if not candidate or not isinstance(table, dict):
+        return False
+    values = table.get("values")
+    energies = {
+        number
+        for value in (values if isinstance(values, (list, tuple)) else [values])
+        if (number := exported_number(value)) is not None
+    }
+    return len(energies) > 1 and exported_number(table.get("energy_at_nominal")) is not None
+
+
+def _draft_engine(view: Any, facts: dict, knob: bool) -> tuple[bool, dict[str, Any] | None]:
+    """Whether a family is proposed for wiring, and the engine block it is proposed with.
+
+    The rules run in order and the first that settles the family wins: the
+    family the export marks as its energy knob drives the deck's energy, the
+    first one only, a second being the reviewer's question; a dipole string
+    that corrects drives a kick in a plane the reviewer names; a cavity drives
+    the frequency, whatever element the export binds it to, because a cavity
+    is bound by class; every other family that binds an element drives what
+    its lattice type names.
+
+    Args:
+        view: The family.
+        facts: Its sampled model facts.
+        knob: Whether an earlier family of the system already drives the energy.
+    """
+    stated = _lattice_type(view)
+    if exported_number(facts.get("energy_candidate")):
+        if not _drives_energy(facts):
+            return False, None
+        return True, None if knob else dict(_ENERGY_ENGINE)
+    if stated == _BEND_TYPE and _corrects(view):
+        return _bound_type(view) is not None, dict(_TRIM_ENGINE)
+    known = ENGINE_BY_TYPE.get(stated) if stated is not None else None
+    if known is not None and known.get("attribute") == "Frequency":
+        return True, dict(known)
+    token = _bound_type(view)
+    if token is None:
+        return False, None
+    known = ENGINE_BY_TYPE.get(token)
+    return True, dict(known) if known is not None else None
 
 
 def _wired_field(view: Any, engine: dict[str, Any] | None, facts: dict) -> str | None:
@@ -1832,21 +1923,25 @@ def _calibration_kind(facts: dict, name: str) -> str | None:
 def _draft_wiring(views: list[Any], va_block: dict) -> dict[str, dict[str, Any]]:
     """Propose one system's wiring from the lattice types its families bind.
 
-    A family the model's sampled facts do not cover, or that binds no element,
-    is not proposed; one whose type the table does not know is proposed with a
-    null engine for the reviewer to answer or delete.
+    A family the model's sampled facts do not cover, or that
+    :func:`_draft_engine` does not propose, is not proposed; one whose type
+    the table does not know is proposed with a null engine for the reviewer to
+    answer or delete. The units and the hooks of a family are the reviewer's
+    to check: the draft reads neither.
     """
     sampled = va_block.get("families")
     if not isinstance(sampled, dict):
         return {}
     wiring: dict[str, dict[str, Any]] = {}
+    knob = False
     for view in views:
         facts = sampled.get(view.raw_name)
-        token = _bound_type(view)
-        if not isinstance(facts, dict) or token is None:
+        if not isinstance(facts, dict):
             continue
-        known = ENGINE_BY_TYPE.get(token)
-        engine = dict(known) if known is not None else None
+        proposed, engine = _draft_engine(view, facts, knob)
+        if not proposed:
+            continue
+        knob = knob or engine == _ENERGY_ENGINE
         name = _wired_field(view, engine, facts)
         if name is None:
             continue
