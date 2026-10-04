@@ -28,13 +28,15 @@ the model.
 **Rows are matched by device.** A response export states a ``DeviceList`` per
 side; each row is matched to the device carrying that ``DeviceList`` and to
 that device's wiring record of the family's engine words. A row the export
-marks ``Status`` 0, a row no wired device answers to, a column with no finite
-width and a column whose sweep leaves the deck without a solve are left out of
-the comparison. Each corrector is swept on its own through the engine's
-response matrix, rows matched by the readback addresses it returns, and its
-hardware entries are carried into the export's physics units through the two
-records' calibrations, so one unsolvable corrector leaves its column out and
-the rest are still judged.
+marks ``Status`` 0 is the export's own exclusion and is not compared. A row no
+wired device answers to, a column with no finite width and a column whose
+sweep leaves the deck without a solve are left out of the comparison too, and
+``validate`` then prints a second line for the model, naming how many rows the
+check left out and why. Each corrector is swept on its own
+through the engine's response matrix, rows matched by the readback addresses
+it returns, and its hardware entries are carried into the export's physics
+units through the two records' calibrations, so one unsolvable corrector
+leaves its column out and the rest are still judged.
 
 **Reversed columns are set aside.** Inside a judged block, a corrector whose
 entries above the floor disagree in sign on more than half of its compared
@@ -56,7 +58,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Any
 
@@ -72,6 +74,7 @@ __all__ = [
     "Block",
     "Entry",
     "Figures",
+    "LeftOut",
     "ModelCheck",
     "Verdict",
     "banded",
@@ -236,6 +239,37 @@ def figures(entries: Iterable[Entry], *, judged: bool = True) -> Figures:
 
 
 @dataclass(frozen=True)
+class LeftOut:
+    """The rows of an export's blocks left out of the comparison, by reason.
+
+    A row is counted once per block that states it, monitor rows and
+    corrector rows alike.
+
+    Attributes:
+        unwired: Rows no wired device of the family answers to.
+        no_width: Corrector rows with no finite sweep width, or whose width
+            spans no physics distance through the corrector's calibration.
+        unsolved: Corrector rows whose sweep leaves the deck without a solve.
+    """
+
+    unwired: int = 0
+    no_width: int = 0
+    unsolved: int = 0
+
+    @property
+    def total(self) -> int:
+        """Every row left out."""
+        return self.unwired + self.no_width + self.unsolved
+
+    def __add__(self, other: LeftOut) -> LeftOut:
+        return LeftOut(
+            self.unwired + other.unwired,
+            self.no_width + other.no_width,
+            self.unsolved + other.unsolved,
+        )
+
+
+@dataclass(frozen=True)
 class Block:
     """One monitor family against one corrector family.
 
@@ -247,6 +281,7 @@ class Block:
         judged: Whether the monitors read the plane the correctors drive.
         reversed_columns: The columns of a judged block set aside as reversed,
             by ``actuator_device``.
+        left_out: The export's rows of the block that were not compared.
     """
 
     monitor_family: str
@@ -255,6 +290,7 @@ class Block:
     entries: tuple[Entry, ...]
     judged: bool
     reversed_columns: tuple[int, ...] = ()
+    left_out: LeftOut = field(default_factory=LeftOut)
 
     @property
     def name(self) -> str:
@@ -442,10 +478,12 @@ class ModelCheck:
     Attributes:
         model: The model's name.
         verdict: The figure nearest its bar.
+        left_out: The export's rows the check did not compare.
     """
 
     model: str
     verdict: Verdict
+    left_out: LeftOut = field(default_factory=LeftOut)
 
     @property
     def passed(self) -> bool:
@@ -454,7 +492,7 @@ class ModelCheck:
 
     @property
     def line(self) -> str:
-        """The one line ``osprey facility validate`` prints for the model."""
+        """The verdict line ``osprey facility validate`` prints for the model."""
         verdict = self.verdict
         word = "pass" if verdict.passed else "fail"
         return (
@@ -462,9 +500,25 @@ class ModelCheck:
             f"{verdict.figure} ({word} at {verdict.bar})"
         )
 
+    @property
+    def lines(self) -> list[str]:
+        """The verdict line, then the rows left out when the check left any out.
+
+        A row the export marks ``Status`` 0 is the export's own exclusion and
+        is not counted.
+        """
+        left = self.left_out
+        if not left.total:
+            return [self.line]
+        return [
+            self.line,
+            f"response check {self.model}: left out {left.total} rows ({left.unwired} unwired, "
+            f"{left.no_width} no width, {left.unsolved} unsolved)",
+        ]
+
 
 def report(checks: Iterable[ModelCheck], file: IO[Any] | None = None) -> bool:
-    """Print each check's line and say whether every one passed.
+    """Print each check's lines and say whether every one passed.
 
     Args:
         checks: The checks, in the order they are printed.
@@ -478,7 +532,8 @@ def report(checks: Iterable[ModelCheck], file: IO[Any] | None = None) -> bool:
     stream = sys.stderr if file is None else file
     passed = True
     for check in checks:
-        print(check.line, file=stream)
+        for line in check.lines:
+            print(line, file=stream)
         passed = passed and check.passed
     return passed
 
@@ -541,20 +596,31 @@ def _widths(block: Mapping[str, Any]) -> list[float | None]:
     return [width if width else None for width in widths]
 
 
-def _kept_rows(block: Mapping[str, Any], side: str, records: Mapping[tuple[int, ...], Any]) -> dict:
-    """The rows of one side that reach a wiring record, keyed by position in the export."""
+def _kept_rows(
+    block: Mapping[str, Any], side: str, records: Mapping[tuple[int, ...], Any]
+) -> tuple[dict[int, Any], LeftOut]:
+    """The rows of one side that reach a wiring record, keyed by position in the export.
+
+    A row the export marks ``Status`` 0 is skipped and not counted.
+
+    Returns:
+        The kept rows, and the rows left out as unwired.
+    """
     body = _side(block, side)
     statuses = _list(body, "status")
     kept: dict[int, Any] = {}
+    unwired = 0
     for index, row in enumerate(_list(body, "device_list")):
         status = _number(_first(statuses[index])) if index < len(statuses) else None
         if status is not None and status == 0.0:
             continue
         key = _row_key(row)
         record = records.get(key) if key is not None else None
-        if record is not None:
+        if record is None:
+            unwired += 1
+        else:
             kept[index] = record
-    return kept
+    return kept, LeftOut(unwired=unwired)
 
 
 def _matrix(data: Any, row: int, column: int) -> float | None:
@@ -759,8 +825,9 @@ def compare(
         actuator_family = _word(_side(block, "actuator").get("family"))
         monitor_plane, actuator_plane = plane(monitor_family), plane(actuator_family)
         entries: list[Entry] = []
-        rows = _kept_rows(block, "monitor", records(monitor_family, "read"))
-        columns = _kept_rows(block, "actuator", records(actuator_family, "write"))
+        rows, left_rows = _kept_rows(block, "monitor", records(monitor_family, "read"))
+        columns, left_columns = _kept_rows(block, "actuator", records(actuator_family, "write"))
+        left_out = left_rows + left_columns
         if rows and columns and "deck" in model and _well_shaped(block):
             widths = _widths(block)
             for column, actuator in columns.items():
@@ -770,9 +837,11 @@ def compare(
                 held = float(actuator.get("default") or 0.0)
                 span = math.nan if width is None else _physics_span(actuator, held, width)
                 if width is None or not math.isfinite(span) or span == 0.0:
+                    left_out += LeftOut(no_width=1)
                     continue
                 measured = sweep(str(actuator["address"]), width, span)
                 if measured is None:
+                    left_out += LeftOut(unsolved=1)
                     continue
                 for row, monitor in rows.items():
                     file_value = _matrix(block.get("data"), row, column)
@@ -796,6 +865,7 @@ def compare(
                 origin=_word(block.get("origin")) or "unstated",
                 entries=tuple(entries),
                 judged=monitor_plane is not None and monitor_plane == actuator_plane,
+                left_out=left_out,
             )
         )
 
@@ -821,5 +891,6 @@ def check_responses(facility_dir: Path, document: Mapping[str, Any]) -> list[Mod
             continue
         blocks = compare(facility_dir, document, model)
         origin = next((block.origin for block in blocks), "unstated")
-        checks.append(ModelCheck(str(model["name"]), judge(blocks, origin)))
+        left_out = sum((block.left_out for block in blocks), LeftOut())
+        checks.append(ModelCheck(str(model["name"]), judge(blocks, origin), left_out))
     return checks

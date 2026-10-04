@@ -9,6 +9,7 @@ to ``osprey.services.mml.va.verify`` on spear3.
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import shutil
@@ -26,12 +27,14 @@ from osprey.facility.layers.mml.mapping import MAPPING_FILE
 from osprey.facility.response_check import (
     Block,
     Entry,
+    LeftOut,
     ModelCheck,
     banded,
     check_responses,
     compare,
     figures,
     judge,
+    report,
 )
 from tests.facility.test_mml_layer_seed_once import WIDENED, _widen
 
@@ -53,6 +56,9 @@ NSLS2_LINES = [
     "response check LTB: model - judged blocks 0 (pass at 0)",
     "response check StorageRing: model BPMx/HCM inside band 1.000 (pass at 0.99)",
 ]
+NSLS2_LTB_LEFT_OUT = (
+    "response check LTB: left out 24 rows (24 unwired, 0 no width, 0 unsolved)"
+)
 
 
 def _repo(root: Path, tree: str) -> Path:
@@ -133,6 +139,22 @@ def test_a_model_derived_export_passes_block_by_block(nsls2: Path) -> None:
     assert all(check.passed for check in checks)
 
 
+def test_the_rows_left_out_are_named_on_a_second_line(nsls2: Path) -> None:
+    """The LTB export's monitor families are wired to no device; the StorageRing export's all are."""
+    facility = _facility(nsls2)
+    document = build_facility(facility, project_name="scratch")
+    stream = io.StringIO()
+
+    passed = report(check_responses(facility, document), stream)
+
+    assert passed
+    assert stream.getvalue().splitlines() == [
+        NSLS2_LINES[0],
+        NSLS2_LTB_LEFT_OUT,
+        NSLS2_LINES[1],
+    ]
+
+
 def test_one_judged_block_scaled_by_a_tenth_exits_1(
     nsls2: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -153,6 +175,8 @@ def test_one_judged_block_scaled_by_a_tenth_exits_1(
     assert (result.stdout, result.stderr) == (
         "",
         NSLS2_LINES[0]
+        + "\n"
+        + NSLS2_LTB_LEFT_OUT
         + "\n"
         + "response check StorageRing: model BPMx/HCM inside band 0.022 (fail at 0.99)\n",
     )
@@ -316,6 +340,22 @@ def _line(*blocks: Block) -> str:
     return ModelCheck("SR", judge(blocks)).line
 
 
+def test_a_check_that_left_nothing_out_prints_one_line() -> None:
+    check = ModelCheck("SR", judge([_block("model", [(1.0, 1.0)] * 4)]))
+
+    assert check.lines == [check.line]
+
+
+def test_the_left_out_line_counts_each_reason() -> None:
+    left_out = LeftOut(unwired=3, no_width=1) + LeftOut(unsolved=1)
+    check = ModelCheck("SR", judge([_block("model", [(1.0, 1.0)] * 4)]), left_out)
+
+    assert check.lines == [
+        "response check SR: model BPMx/HCM inside band 1.000 (pass at 0.99)",
+        "response check SR: left out 5 rows (3 unwired, 1 no width, 1 unsolved)",
+    ]
+
+
 def test_an_entry_is_banded_at_five_per_cent_of_itself_or_of_the_floor() -> None:
     block = _block("model", [(1.0, 1.04), (1.0, 1.06), (0.01, 0.012), (0.01, 0.02)])
     floor = 0.1 * math.sqrt((1.0 + 1.0 + 1e-4 + 1e-4) / 4)
@@ -459,3 +499,4 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
     assert ModelCheck("StorageRing", judge(blocks)).line.startswith(
         "response check StorageRing: measured BPMx/HCM median ratio "
     )
+    assert sum((block.left_out for block in blocks), LeftOut()) == LeftOut(unsolved=2)
