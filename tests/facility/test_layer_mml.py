@@ -313,7 +313,7 @@ def test_a_wired_shared_endpoint_names_each_device_in_a_slice(
         record
         for model in _rows(facility, "models.yaml")
         for record in model["wiring"]
-        if record["address"] in shared
+        if record["address"] in shared and ("element" in record or "slices" in record)
     ]
     assert wired
     for record in wired:

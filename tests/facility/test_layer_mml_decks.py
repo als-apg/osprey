@@ -354,6 +354,30 @@ def test_a_corrector_winding_leaves_the_magnet_it_is_wound_on_alone() -> None:
     assert served[1].PolynomB[2] == 1.5
 
 
+def test_the_energy_knob_names_the_dipoles_it_is_placed_at() -> None:
+    deck = _deck(at.Drift("D", 1.0), at.Dipole("B", 1.0, 0.1))
+    va = {"families": {"BEND": _family("Setpoint", [2], [[1, 1]])}}
+    addressing = address_elements(_model(BEND=EngineBlock(attribute="energy")), deck, va)
+    assert addressing.deck[1].FamName == "BEND_1_1"
+    assert addressing.owners == {1: "BEND"}
+
+
+def test_a_corrector_outranks_the_energy_knob_on_one_dipole() -> None:
+    deck = _deck(at.Drift("D", 1.0), at.Dipole("B", 1.0, 0.1))
+    va = {
+        "families": {
+            "BEND": _family("Setpoint", [2], [[1, 1]]),
+            "HCM": _family("Setpoint", [2], [[1, 1]]),
+        }
+    }
+    model = _model(
+        BEND=EngineBlock(attribute="energy"), HCM=EngineBlock(attribute="KickAngle", index=0)
+    )
+    addressing = address_elements(model, deck, va)
+    assert addressing.deck[1].FamName == "HCM_1_1"
+    assert addressing.bindings["BEND"][0].element == "HCM_1_1"
+
+
 def test_a_repeated_monitor_nothing_reads_is_served_as_a_marker() -> None:
     deck = _deck(at.Monitor("G"), at.Drift("D", 1.0), at.Monitor("G"), at.Monitor("B"))
     va = {"families": {"BPMx": _family("Monitor", [4], [[1, 1]])}}
@@ -385,8 +409,8 @@ def test_a_family_the_export_does_not_place_binds_nothing() -> None:
         (
             {"families": {"QF": _family("Setpoint", [1], [[1, 1]])}},
             EngineBlock(attribute="K", index=1),
-            "family QF drives K; wire it to an axis or to PolynomB, PolynomA, KickAngle "
-            "or Frequency",
+            "family QF drives K; wire it to an axis or to PolynomB, PolynomA, KickAngle, "
+            "energy or Frequency",
         ),
     ],
 )

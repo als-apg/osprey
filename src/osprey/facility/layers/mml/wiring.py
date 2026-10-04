@@ -12,8 +12,8 @@ model is served and its wiring records, in the shape an authored
 ``models.yaml`` states them::
 
     address: <the channel>
-    element: <deck element>            # or slices: [{element, weight?, device?}]
-    engine: {attribute, index} | {axis}
+    element: <deck element>            # or slices: [{element, weight?, device?}]; neither for energy
+    engine: {attribute, index} | {axis} | {attribute: energy}
     calibration:
       curve: {linear: {gain, offset}} | {table: {grid, values}}
       inverse: <curve>                 # where the export states one
@@ -37,6 +37,10 @@ Rules of the derivation:
   address is a shared endpoint of several.
 * **A device with no element is not wired.** It is on the supply and not in
   the deck, so it enters no slice and no mean.
+* **The energy knob names no element.** Its engine block,
+  ``{attribute: energy}``, drives a property of the whole deck, so its record
+  is ``{address, engine, calibration}`` and the dipoles its devices are placed
+  at are named for the reader, never bound.
 * **Curves are the export's.** ``curve`` is the calibration of the wired field
   and ``inverse`` the ``monitor_inverse`` of the family's ``Monitor`` field;
   neither is derived from the other. A sampled curve keeps the points that are
@@ -104,6 +108,9 @@ REFERENCE_MISSING = "reference-missing"
 #: The words a calibration's ``energy_scaling`` may hold, the default first.
 ENERGY_SCALINGS: tuple[str, ...] = ("none", "brho")
 
+#: Electron-volts per GeV: an export states energies in GeV, a deck in eV.
+_EV_PER_GEV = 1.0e9
+
 #: What a nominal's ``units`` reads when it is not a hardware value.
 _PHYSICS_UNITS = "physics"
 
@@ -111,6 +118,7 @@ _MONITOR = "monitor"
 _KICK = "kick"
 _RF = "rf"
 _STRENGTH = "strength"
+_ENERGY = "energy"
 
 #: The kinds carrying a physics strength the beam rigidity rescales.
 _RIGID_KINDS: frozenset[str] = frozenset({_STRENGTH, _KICK})
@@ -329,14 +337,15 @@ def _family_records(
     supplies: dict[str, list[int]] = {}
     for device in range(devices):
         address = _first_address(field_view, device)
-        if address is not None and device in elements:
+        if address is not None and (kind == _ENERGY or device in elements):
             supplies.setdefault(address, []).append(device)
 
     records: list[tuple[str, str | None, dict[str, Any]]] = []
     for address, members in supplies.items():
         body = _supply_record(family, kind, engine, wiring, view, block, elements, members)
-        shared = len(endpoints.get(address, ())) > 1
-        body = _stated(body, ids if shared else None)
+        if kind != _ENERGY:
+            shared = len(endpoints.get(address, ())) > 1
+            body = _stated(body, ids if shared else None)
         served = None
         if kind != _MONITOR:
             served = _first_address(view.fields.get(MONITOR_FIELD), members[0])
@@ -369,7 +378,9 @@ def _supply_record(
 
     Returns:
         ``{slices, engine, calibration}`` with ``slices`` as :class:`_Slice`
-        rows, for :func:`_stated` to spell.
+        rows, for :func:`_stated` to spell; ``{engine, calibration}`` for the
+        energy knob, which drives a property of the whole deck and names no
+        element.
 
     Raises:
         ValueError: The first device states no calibration or one of another
@@ -386,6 +397,8 @@ def _supply_record(
     ]
     stated = [value for value in nominals if value is not None]
     hardware = math.fsum(stated) / len(stated) if stated else 0.0
+    if kind == _ENERGY:
+        return _energy_record(family, engine, wiring, block, hardware)
 
     sampled = _curve_for_device(block.get(written), "calibration", reference, devices, where)
     if sampled is None:
@@ -413,6 +426,60 @@ def _supply_record(
         ),
         "engine": _engine_record(engine),
         "calibration": calibration,
+    }
+
+
+def _energy_record(
+    family: str, engine: EngineBlock, wiring: WiringFamily, block: Map[str, Any], hardware: float
+) -> dict[str, Any]:
+    """The energy knob's record body: its supply's current to the deck energy.
+
+    The curve is the export's energy table, its energies stated in GeV and
+    written in eV, the unit the deck states its energy in, so the deck's own
+    energy reads back through the inverse to the current the supply sits at.
+    The inverse is the same table read the other way: a table that runs one
+    way on both axes converts back exactly.
+
+    Raises:
+        ValueError: The export states no energy table with two finite points,
+            the mapping names a linear calibration, or the table reads one way
+            nowhere.
+    """
+    where = f"family {family}"
+    table = block.get("energy_table")
+    grid = table.get("grid") if isinstance(table, Map) else None
+    values = table.get("values") if isinstance(table, Map) else None
+    sampled = _sampled_curve(
+        grid,
+        [
+            _EV_PER_GEV * number if (number := exported_number(value)) is not None else value
+            for value in values
+        ]
+        if isinstance(values, (list, tuple))
+        else values,
+    )
+    if sampled is None:
+        raise ValueError(f"{where}: drives the energy and the export states no energy table")
+    if wiring.calibration is not None and wiring.calibration != _SHAPES[Table]:
+        raise ValueError(
+            f"{where}: the mapping names a {wiring.calibration} calibration "
+            "and the export states the energy as a table"
+        )
+    curve = _one_way(sampled, where, "energy table", hardware=hardware)
+    inverse = _one_way(
+        Table(grid=curve.values, values=curve.grid),  # type: ignore[union-attr]
+        where,
+        "energy table",
+        hardware=hardware,
+        on_values=True,
+    )
+    return {
+        "engine": _engine_record(engine),
+        "calibration": {
+            "curve": _curve_record(curve),
+            "inverse": _curve_record(inverse),
+            "energy_scaling": ENERGY_SCALINGS[0],
+        },
     }
 
 
@@ -451,6 +518,8 @@ def _kind(engine: EngineBlock) -> str:
         return _KICK
     if engine.attribute == decks.FREQUENCY:
         return _RF
+    if engine.attribute == decks.ENERGY:
+        return _ENERGY
     return _STRENGTH
 
 

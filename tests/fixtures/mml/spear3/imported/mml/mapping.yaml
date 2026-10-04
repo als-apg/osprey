@@ -130,6 +130,11 @@ models:
         engine:
           attribute: Frequency
         calibration: linear
+      BEND:
+        element_field: Setpoint
+        engine:
+          attribute: energy
+        calibration: table
 section_order:
 - StorageRing
 families:
