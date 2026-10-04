@@ -34,6 +34,9 @@ makes:
   first: ``osprey facility import mml`` stops over the preset's authored record
   sources and prints one ``rm`` line per file, the recipe removes exactly those,
   installs the tree's reviewed ``imported/mml/mapping.yaml`` and imports. The
+  import then lists, as ``rm`` lines, the demo scenarios it leaves stale --
+  each names a channel or model the imported facility does not have -- and the
+  recipe removes exactly those, since the build stops while one is left. The
   seeded ``limits.yaml`` holds each band as the export states it, so the build
   then stops ``seed-invalid`` while a setpoint starts outside its band;
   ``facility validate`` names each one, and the recipe widens exactly the
@@ -182,6 +185,27 @@ def _packaged_scenarios() -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 DEMO_CHANNELLED_SCENARIOS, DEMO_PLAIN_SCENARIOS = _packaged_scenarios()
 
+#: The slots a facility scenario names a channel or a model in.
+_RESOLVING_SLOTS = ("overrides", "faults", "archiver", "couple", "noise")
+
+
+def _resolving_scenarios() -> tuple[str, ...]:
+    """The preset's facility scenarios that name a channel or a model, as repo paths.
+
+    Read off the packaged preset, so a demo scenario added later is counted
+    without a name being typed here. A scenario stating none of these slots
+    names nothing an import can take away.
+    """
+    found: list[str] = []
+    for path in sorted((PACKAGED_DATA / "facility" / "scenarios").glob("*.yaml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if any(slot in document for slot in _RESOLVING_SLOTS):
+            found.append(f"data/facility/scenarios/{path.name}")
+    return tuple(found)
+
+
+DEMO_RESOLVING_SCENARIOS = _resolving_scenarios()
+
 #: Where the build publishes the served tree, relative to the repo.
 SERVED = "build/data/simulation"
 
@@ -193,6 +217,10 @@ FACILITY_LIMITS = f"{FACILITY_DIR}/limits.yaml"
 #: The first line of the stop ``facility import mml`` prints over authored
 #: record sources; one ``rm`` line per file follows it.
 AUTHORED_PRESENT = "import mml: authored-present: "
+
+#: The header line ``facility import mml`` prints over the scenario files a
+#: clean import leaves stale; one ``  rm`` line per file follows it.
+STALE_SCENARIOS = "these scenario files name channels that no longer exist:"
 
 #: The line a build stage prints for a setpoint that starts outside its band:
 #: the address, the nominal it starts at, the side it lies on and the edge of
@@ -288,6 +316,29 @@ def import_facility(runner: CliRunner, repo: Path, exports: Sequence[str], mappi
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(mapping, target)
     return invoke(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
+
+
+def remove_stale_scenarios(repo: Path, imported: Result) -> tuple[str, ...]:
+    """Remove exactly the scenario files a clean ``facility import mml`` listed.
+
+    Nothing here decides what to delete: every path removed was named by one
+    ``  rm`` line under the list's header, one path per line.
+
+    Returns:
+        The removed paths, in the order they were printed; empty when the
+        import listed none.
+    """
+    lines = imported.stderr.splitlines()
+    if STALE_SCENARIOS not in lines:
+        return ()
+    listed = lines[lines.index(STALE_SCENARIOS) + 1 :]
+    assert listed and all(line.startswith("  rm ") for line in listed), imported.stderr
+
+    removed: list[str] = []
+    for line in listed:
+        (named,) = remove_named(repo, line.strip())
+        removed.append(named)
+    return tuple(removed)
 
 
 def seed_stops(stderr: str) -> dict[str, tuple[str, float]]:
@@ -623,7 +674,9 @@ def served_repo(
 
     Before any of that the same exports enter the facility description through
     ``facility import mml``, past the stop it makes over the preset's authored
-    sources, and the first build runs into the ``seed-invalid`` stops the
+    sources. The import lists the demo scenarios it leaves stale; one build
+    runs while they are still there, and the recipe then removes exactly those.
+    The first build after that runs into the ``seed-invalid`` stops the
     imported tree carries; ``build_past_the_seed_stops`` applies their remedy.
 
     The build then runs twice. The second run is what says the published tree
@@ -638,7 +691,13 @@ def served_repo(
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     cleared = clear_authored(runner, repo, exports)
-    import_facility(runner, repo, exports, facility_mapping(fixture))
+    imported = import_facility(runner, repo, exports, facility_mapping(fixture))
+    scenario_stop = runner.invoke(
+        cli,
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        catch_exceptions=False,
+    )
+    stale = remove_stale_scenarios(repo, imported)
     invoke(runner, "mml", "import", *exports, "--repo", str(repo))
     shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
 
@@ -657,6 +716,8 @@ def served_repo(
         "fixture": request.param,
         "repo": repo,
         "cleared": cleared,
+        "scenario_stop": scenario_stop,
+        "stale_scenarios": stale,
         "stopped": stopped,
         "remedied": remedied,
         "rounds": rounds,
@@ -1087,9 +1148,36 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert cleared == tuple(sorted(cleared))
         assert f"{FACILITY_DIR}/records/channels.yaml" in cleared
         assert all(path.startswith(f"{FACILITY_DIR}/") for path in cleared)
+        assert [path for path in cleared if path.startswith(f"{FACILITY_DIR}/scenarios/")] == []
         assert not (PACKAGED_DATA / "facility" / "classes.yaml").exists()
         assert (facility / "classes.yaml").is_file()
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
+
+    def test_the_import_lists_the_stale_demo_scenarios_and_the_build_stops_until_they_are_gone(
+        self, served_repo: dict
+    ) -> None:
+        """The listed files are the demo's channel-naming ones, and only they stop the build.
+
+        ``nominal.yaml`` names nothing the import takes away, so it is never
+        listed and stays.
+        """
+        listed = served_repo["stale_scenarios"]
+        names = {Path(path).stem for path in listed}
+        scenario_stop = served_repo["scenario_stop"]
+        stops = [
+            line for line in scenario_stop.stderr.splitlines() if line.startswith("facility: ")
+        ]
+
+        assert listed == DEMO_RESOLVING_SCENARIOS
+        assert scenario_stop.exit_code != 0
+        assert stops and " scenario " in stops[0], scenario_stop.output
+        assert any(f" scenario {name} " in stops[0] for name in names), stops[0]
+        assert not [
+            line
+            for line in served_repo["stopped"].stderr.splitlines()
+            if line.startswith("facility: ") and " scenario " in line
+        ]
+        assert (served_repo["repo"] / FACILITY_DIR / "scenarios" / "nominal.yaml").is_file()
 
     @pytest.mark.parametrize("served_repo", ["spear3", "synthetic"], indirect=True)
     def test_the_build_stops_on_each_setpoint_outside_its_band_until_it_is_widened(
