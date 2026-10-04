@@ -1,27 +1,29 @@
-"""Data-driven simulation engine for OSPREY mock connectors.
+"""The simulated machine behind OSPREY's mock connectors.
 
-Provides :class:`SimulationEngine`, which loads a machine description
-(``machine.json``) and serves channel reads/writes plus synthesized archiver
-time-series to the mock control-system and archiver connectors.
+The package root holds only what every reader needs without loading a model:
+value coercion and the active-scenario state helpers. It imports neither
+numpy nor lume; the engine, machine and expression names are imported from
+their own modules (:mod:`.engine`, :mod:`.machine`, :mod:`.expressions`).
 """
 
-from osprey_connectors.simulation.engine import (
-    SimReading,
-    SimulationEngine,
-    engine_from_connector_config,
-    engine_serves,
+from osprey_connectors.simulation.state import (
+    ACTIVE_SCENARIOS_FILENAME,
+    OVERLAP_EVENT,
+    Overlap,
+    format_overlap_record,
+    overlap_record,
+    resolve_active_scenarios,
+    validate_composition,
 )
-from osprey_connectors.simulation.expressions import ExpressionError
-from osprey_connectors.simulation.machine import DEFAULT_SCENARIO
-from osprey_connectors.simulation.values import coerce, zero
+from osprey_connectors.simulation.values import coerce
 
 __all__ = [
-    "DEFAULT_SCENARIO",
-    "ExpressionError",
-    "SimReading",
-    "SimulationEngine",
+    "ACTIVE_SCENARIOS_FILENAME",
+    "OVERLAP_EVENT",
+    "Overlap",
     "coerce",
-    "engine_from_connector_config",
-    "engine_serves",
-    "zero",
+    "format_overlap_record",
+    "overlap_record",
+    "resolve_active_scenarios",
+    "validate_composition",
 ]
