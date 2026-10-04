@@ -633,8 +633,17 @@ def _signal_key(address: str, signals: Mapping[str, Any]) -> str | None:
     return best[1] if best is not None else None
 
 
-def _cell_sentence(addresses: Sequence[str], signals: Mapping[str, Any]) -> str | None:
-    """The sentence under the longest ``signals`` key every address ends with."""
+def _cell_sentence(
+    addresses: Sequence[str], signals: Mapping[str, Any], role: str | None = None
+) -> str | None:
+    """The sentence a Field's cell carries.
+
+    A Field keyed by a signal role takes the sentence under its own key, where
+    ``signals`` states one; every other Field takes the sentence under the
+    longest ``signals`` key every address ends with.
+    """
+    if role is not None and signals.get(role):
+        return str(signals[role])
     best: tuple[int, str, str] | None = None
     for key, sentence in signals.items():
         key_runs = _key_runs(key)
@@ -743,12 +752,16 @@ def _family_fields(
 ) -> tuple[dict[str, dict[str, Any]], int]:
     """A family's Fields under one System, and how many channels are keyed by address."""
     per_member: list[dict[str | None, list[str]]] = []
+    roles: set[str] = set()
     for member in members:
         fields: dict[str | None, list[str]] = defaultdict(list)
         for channel in channels_of.get(str(member["id"]), ()):
             address = str(channel["id"])
             signal = channel.get("signal")
-            key = _signal_key(address, signals) or (str(signal) if signal else None)
+            key = _signal_key(address, signals)
+            if key is None and signal:
+                key = str(signal)
+                roles.add(key)
             fields[key].append(address)
         per_member.append(fields)
 
@@ -767,7 +780,7 @@ def _family_fields(
     out: dict[str, dict[str, Any]] = {}
     for key, addresses in cells.items():
         field: dict[str, Any] = {"ChannelNames": addresses}
-        sentence = _cell_sentence(addresses, signals)
+        sentence = _cell_sentence(addresses, signals, key if key in roles else None)
         if sentence:
             field["_description"] = sentence
         out[key] = field

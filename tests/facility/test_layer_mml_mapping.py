@@ -972,6 +972,32 @@ class TestDraft:
         ao, va = self._bends(BEND={})
         assert draft_mapping(ao, va=va)["models"]["SR"]["wiring"]["BEND"]["engine"] is None
 
+    def test_a_magnet_s_current_and_a_monitor_s_position_draft_their_signal_roles(self) -> None:
+        ao = _typed_export()
+        ao["SR"]["QF"]["Setpoint"]["HWUnits"] = "A"
+        ao["SR"]["QF"]["Monitor"]["HWUnits"] = "Ampere"
+        families = draft_mapping(ao)["families"]
+        assert families["QF"]["fields"]["Setpoint"]["signal"] == "current_setpoint"
+        assert families["QF"]["fields"]["Monitor"]["signal"] == "current_readback"
+        assert families["BPMx"]["fields"]["Monitor"]["signal"] == "position_x_readback"
+        mapping = parse_mapping(draft_mapping(ao))
+        assert mapping.families["QF"].fields["Setpoint"].signal == "current_setpoint"
+        assert check_mapping(mapping, ao) == []
+
+    def test_a_field_the_export_does_not_decide_drafts_no_signal_role(self) -> None:
+        ao = _typed_export()
+        ao["SR"]["QF"]["Setpoint"]["HWUnits"] = "T/m"
+        families = draft_mapping(ao)["families"]
+        assert families["QF"]["fields"]["Setpoint"]["signal"] is None
+        assert draft_mapping(_export())["families"]["QF"]["fields"]["Monitor"]["signal"] is None
+
+    def test_a_signal_off_the_vocabulary_is_a_problem(self) -> None:
+        document = draft_mapping(_typed_export())
+        document["families"]["QF"]["fields"]["Setpoint"]["signal"] = "gradient"
+        assert _problems(document) == [
+            "families.QF.fields.Setpoint.signal: 'gradient' is no vocabulary signal role"
+        ]
+
     def test_no_sampled_model_facts_propose_no_wiring(self) -> None:
         assert "wiring" not in draft_mapping(_typed_export())["models"]["SR"]
 
