@@ -354,7 +354,7 @@ def _make_index(
     *,
     digest: str = DIGEST,
     schema_version: int | None = None,
-    filename: str = "demo_machine.ttl",
+    filename: str = "facility.ttl",
     counts: tuple[int, int, int, int, int] = (12, 5, 3, 4, 2),
 ) -> None:
     """Write a tiny real search index: the three tables and one ``meta`` row.
@@ -588,7 +588,7 @@ class TestSearchIndexRow(_GraphModeCase):
         assert row.status is Status.OK
         assert row.value == f"12 bindings · 5 devices · {DIGEST[:12]}"
         assert "store's seed unknown" not in row.value
-        assert "demo_machine.ttl" in row.details
+        assert "facility.ttl" in row.details
 
     async def test_missing_index_warns_and_names_the_build_verbs(
         self, monkeypatch: pytest.MonkeyPatch

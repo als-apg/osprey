@@ -41,7 +41,7 @@ GRAPHDB_CONFIG: dict = {
         "graphdb": {
             "port_host": 7687,
             "http_port_host": 7474,
-            "ttl_path": "./data/demo_machine.ttl",
+            "ttl_path": "./data/graph/facility.ttl",
         }
     },
 }
@@ -56,7 +56,7 @@ def graphdb_stubs(monkeypatch, tmp_path):
     """Reduce ``_stage_graphdb_store`` to its compose call and its seeder calls.
 
     The project is laid out the way a built one is: the render (and therefore
-    ``config.yml`` and the shipped ``data/demo_machine.ttl``) one zone
+    ``config.yml`` and the graph view ``data/graph/facility.ttl``) one zone
     down in ``build/``, the single ``.env`` at the repo root.
     """
     state: dict[str, Any] = {
@@ -76,9 +76,9 @@ def graphdb_stubs(monkeypatch, tmp_path):
 
     (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=s3cret\n", encoding="utf-8")
     render = tmp_path / "build"
-    (render / "data").mkdir(parents=True)
+    (render / "data" / "graph").mkdir(parents=True)
     (render / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
-    (render / "data" / "demo_machine.ttl").write_text(TTL_TEXT, encoding="utf-8")
+    (render / "data" / "graph" / "facility.ttl").write_text(TTL_TEXT, encoding="utf-8")
 
     monkeypatch.setattr(container_lifecycle, "runtime_env", lambda config, env: dict(env))
     monkeypatch.setattr(
@@ -426,7 +426,7 @@ def test_a_missing_ttl_file_warns_and_leaves_the_deploy_standing(graphdb_stubs, 
     """A configured corpus that is not on disk is a real problem worth naming --
     and still not a reason to refuse the operator a control room."""
     # Arrange
-    (tmp_path / "build" / "data" / "demo_machine.ttl").unlink()
+    (tmp_path / "build" / "data" / "graph" / "facility.ttl").unlink()
 
     # Act
     with caplog.at_level("WARNING"):
@@ -458,9 +458,9 @@ def test_a_relative_ttl_path_anchors_on_the_config_directory(graphdb_stubs, tmp_
     root instead would read a different file, and anchoring on the process cwd
     would read whatever the operator happened to be standing in."""
     # Arrange
-    decoy = tmp_path / "data"
+    decoy = tmp_path / "data" / "graph"
     decoy.mkdir(parents=True)
-    (decoy / "demo_machine.ttl").write_text(DECOY_TTL_TEXT, encoding="utf-8")
+    (decoy / "facility.ttl").write_text(DECOY_TTL_TEXT, encoding="utf-8")
 
     # Act
     _stage(GRAPHDB_CONFIG, tmp_path)

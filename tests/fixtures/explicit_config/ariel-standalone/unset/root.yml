@@ -113,7 +113,7 @@ services:
     port_host: 10802
     query_max_rows: 200
     query_timeout_s: 15
-    ttl_path: ./data/demo_machine.ttl
+    ttl_path: ./data/graph/facility.ttl
   openobserve:
     path: ./services/openobserve
     port: 10050

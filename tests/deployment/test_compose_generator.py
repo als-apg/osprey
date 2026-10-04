@@ -8480,7 +8480,7 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_staged_device_set(
                 "deployed_services": ["bluesky"],
                 "services": {
                     "bluesky": {"path": "./services/bluesky"},
-                    "graphdb": {"ttl_path": "data/demo_machine.ttl"},
+                    "graphdb": {"ttl_path": "data/graph/facility.ttl"},
                 },
                 "channel_finder": {"pipeline_mode": "graph"},
                 "control_system": {
