@@ -1,4 +1,4 @@
-"""The faults a scenario writes into a model, checked against the model's engine.
+"""The faults a scenario writes into a model, and the logbook it narrates.
 
 A scenario faults a model in two spellings, both under ``faults.<model>``:
 
@@ -11,18 +11,143 @@ The engine plug-in names what a model built from a wiring declares through
 ``osprey.simulation.engines`` entry-point group, never by import. Every value
 is coerced as a float and must lie inside its slot's ``value_range`` or equal
 one of its ``options``.
+
+A scenario's ``logbook`` block reads as :class:`ScenarioLogEntry` records
+through :func:`scenario_logbook`; each entry's ``when`` is ``{days_ago,
+time}``, resolved against the activation anchor when the entry is seeded.
 """
 
 from __future__ import annotations
 
 import difflib
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
+from datetime import time
 from importlib import metadata
 from typing import Any
 
 from osprey.facility.errors import FacilityBuildError
+from osprey_connectors.relative_time import RelativeTimestamp
 
-__all__ = ["FaultRoster", "check_scenario_engines", "fault_roster", "map_fault_errors"]
+__all__ = [
+    "FaultRoster",
+    "ScenarioLogEntry",
+    "check_scenario_engines",
+    "fault_roster",
+    "map_fault_errors",
+    "scenario_logbook",
+]
+
+
+@dataclass(frozen=True)
+class ScenarioLogEntry:
+    """One logbook entry a scenario narrates.
+
+    Attributes:
+        entry_id: The entry's identifier, unique across the logbook.
+        when: Days before the activation anchor and the local time of day.
+        author: Who wrote the entry.
+        title: The entry's title.
+        text: The entry's body.
+        tags: Free-form tags.
+        categories: Logbook categories.
+        loto_tag: The lock-out/tag-out tag the entry cites, if any.
+        extra: Further metadata, carried as stated.
+    """
+
+    entry_id: str
+    when: RelativeTimestamp
+    author: str
+    title: str
+    text: str
+    tags: tuple[str, ...]
+    categories: tuple[str, ...]
+    loto_tag: str | None
+    extra: dict[str, Any]
+
+
+def scenario_logbook(scenario: Mapping[str, Any]) -> tuple[ScenarioLogEntry, ...]:
+    """The entries a scenario's ``logbook`` block narrates, in block order.
+
+    Args:
+        scenario: One scenario record: its ``name`` and, when stated, its
+            ``logbook`` list.
+
+    Returns:
+        The entries; empty when the scenario states no logbook.
+
+    Raises:
+        ValueError: An entry is malformed; the message names the scenario,
+            the entry and the key.
+    """
+    name = str(scenario.get("name"))
+    raw = scenario.get("logbook") or []
+    if not isinstance(raw, list):
+        raise ValueError(f"Scenario {name!r} logbook: must be a list of entries")
+    return tuple(_log_entry(name, item) for item in raw)
+
+
+def _log_entry(scenario: str, raw: Any) -> ScenarioLogEntry:
+    prefix = f"Scenario {scenario!r} logbook"
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{prefix}: each entry must be a mapping")
+    entry_id = raw.get("entry_id")
+    if not isinstance(entry_id, str) or not entry_id:
+        raise ValueError(f"{prefix}: 'entry_id' must be a non-empty string, got {entry_id!r}")
+    prefix = f"{prefix} entry {entry_id!r}"
+
+    def text(key: str) -> str:
+        value = raw.get(key)
+        if not isinstance(value, str):
+            raise ValueError(f"{prefix}: {key!r} must be a string, got {value!r}")
+        return value
+
+    def strings(key: str) -> tuple[str, ...]:
+        value = raw.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(f"{prefix}: {key!r} must be a list of strings, got {value!r}")
+        return tuple(value)
+
+    loto_tag = raw.get("loto_tag")
+    if loto_tag is not None and not isinstance(loto_tag, str):
+        raise ValueError(f"{prefix}: 'loto_tag' must be a string or null, got {loto_tag!r}")
+    extra = raw.get("extra", {})
+    if not isinstance(extra, Mapping):
+        raise ValueError(f"{prefix}: 'extra' must be a mapping, got {extra!r}")
+    return ScenarioLogEntry(
+        entry_id=entry_id,
+        when=_relative_timestamp(prefix, raw.get("when")),
+        author=text("author"),
+        title=text("title"),
+        text=text("text"),
+        tags=strings("tags"),
+        categories=strings("categories"),
+        loto_tag=loto_tag,
+        extra=dict(extra),
+    )
+
+
+def _relative_timestamp(prefix: str, raw: Any) -> RelativeTimestamp:
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{prefix}: 'when' must be a mapping with 'days_ago' and 'time'")
+    days_ago = raw.get("days_ago")
+    if isinstance(days_ago, bool) or not isinstance(days_ago, int) or days_ago < 0:
+        raise ValueError(f"{prefix}: 'days_ago' must be a non-negative integer, got {days_ago!r}")
+    raw_time = raw.get("time")
+    if not isinstance(raw_time, str):
+        raise ValueError(f"{prefix}: 'when.time' must be an 'HH:MM:SS' string, got {raw_time!r}")
+    try:
+        parsed = time.fromisoformat(raw_time)
+    except ValueError:
+        raise ValueError(
+            f"{prefix}: 'when.time' must be a valid 'HH:MM:SS' time of day, got {raw_time!r}"
+        ) from None
+    if parsed.tzinfo is not None:
+        raise ValueError(
+            f"{prefix}: 'when.time' is local time and must not carry a timezone offset, "
+            f"got {raw_time!r}"
+        )
+    return RelativeTimestamp(days_ago=days_ago, time=parsed)
 
 
 class FaultRoster:
