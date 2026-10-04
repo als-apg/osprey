@@ -440,6 +440,7 @@ def start_values(
     settings: Any,
     *,
     readbacks: Mapping[str, str | None] | None = None,
+    value_types: Mapping[str, str] | None = None,
 ) -> dict[str, float]:
     """Derive each wired channel's operating point from the deck.
 
@@ -459,22 +460,38 @@ def start_values(
         readbacks: Each readback address among the records, mapped to the
             address of its paired setpoint or ``None``; every other record is
             a setpoint.
+        value_types: Each wired channel's ``value_type``; an address it
+            does not name is float. pyat drives float channels only.
 
     Returns:
         ``{address: value}`` sorted by address.
 
     Raises:
-        FacilityBuildError: ``engine-invalid`` naming the wiring id for an
-            element absent from or repeated in the deck (an ``ElementStop``),
-            an unreadable attribute, a table calibration without an inverse,
-            or a linear gain of 0.
+        FacilityBuildError: ``engine-invalid`` naming the wiring id for the
+            first record, in record order, whose channel is not float (raised
+            before the deck is read); for an element absent from or repeated
+            in the deck (an ``ElementStop``), an unreadable attribute, a table
+            calibration without an inverse, or a linear gain of 0.
     """
     del settings
     readbacks = readbacks or {}
+    value_types = value_types or {}
+    records = list(wiring)
+    for record in records:
+        address = field(record, "address")
+        value_type = value_types.get(address, "float")
+        if value_type != "float":
+            raise _stop(
+                deck,
+                field(record, "id") or address,
+                "wiring",
+                f"{address} is {value_type}; pyat drives float channels only",
+                "wire a float channel, or leave the channel unwired",
+            )
     loaded = _load(deck)
     values: dict[str, float] = {}
     pending: list[str] = []
-    for record in wiring:
+    for record in records:
         address = field(record, "address")
         pair = readbacks.get(address)
         if address in readbacks and pair != address:

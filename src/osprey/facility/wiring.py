@@ -115,6 +115,10 @@ def _fill_model(
             model.get("wiring", []),
             model.get("settings"),
             readbacks=readbacks,
+            value_types={
+                r["address"]: str(channels[r["address"]].get("value_type", "float"))
+                for r in records
+            },
         )
     except FacilityBuildError as stop:
         record = next((r for r in model.get("wiring", []) if r["id"] == stop.record_id), None)

@@ -23,6 +23,7 @@ GAIN = 0.37
 OFFSET = -0.012
 K_A = 1.234
 K_B = -0.456
+SETTING = {"attribute": "PolynomB", "index": 1}
 
 
 @dataclass
@@ -227,6 +228,30 @@ class TestStartValues:
         assert values["LINE:Q:RB"] == values["LINE:Q:SP"]
         assert values["BPM1:X"] == 0.0
         assert list(values) == sorted(values)
+
+    def test_a_non_float_channel_stops_before_the_deck_is_read(self, tmp_path: Path):
+        float_record = Wiring("LINE/Q:SP", "Q:SP", element="A", engine=dict(SETTING))
+        int_record = Wiring("LINE/N:RB", "N:RB", element="A", engine=dict(SETTING))
+        enum_record = Wiring("LINE/E:RB", "E:RB", element="A", engine=dict(SETTING))
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                tmp_path / "absent.json",
+                [float_record, int_record, enum_record],
+                {},
+                value_types={"Q:SP": "float", "N:RB": "int", "E:RB": "enum"},
+            )
+        assert (caught.value.kind, caught.value.record_id, caught.value.record_kind) == (
+            "engine-invalid",
+            "LINE/N:RB",
+            "wiring",
+        )
+        assert caught.value.detail == "N:RB is int; pyat drives float channels only"
+        assert caught.value.remedy == "wire a float channel, or leave the channel unwired"
+
+    def test_float_channels_build(self, ab_deck: Path):
+        record = Wiring("LINE/Q:SP", "Q:SP", element="A", engine=dict(SETTING))
+        values = engine.start_values(ab_deck, [record], {}, value_types={"Q:SP": "float"})
+        assert values == {"Q:SP": pytest.approx(K_A)}
 
     def test_mapping_records(self, ab_deck: Path):
         record = {

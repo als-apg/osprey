@@ -402,6 +402,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a calibration table without `inverse` on a setpoint",
     ),
     ("engine_invalid__linear_gain_zero", "engine-invalid", "a linear gain of 0 on a setpoint"),
+    (
+        "engine_invalid__non_float_wired",
+        "engine-invalid",
+        "a non-float channel wired to an engine-pyat model",
+    ),
     ("model_conflict__texture", "model-conflict", "a layer declares a model named texture"),
     (
         "model_conflict__status_address",
@@ -1481,6 +1486,13 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: wiring SR/QD:SP — the linear calibration's gain is 0, so "
             "it has no inverse; fix: give the calibration a non-zero gain"
+        ),
+    ),
+    "engine_invalid__non_float_wired": (
+        _deck(update("records/channels.yaml", 2, value_type="int")),
+        (
+            "facility: engine-invalid: wiring SR/BPM1:X — BPM1:X is int; pyat drives float "
+            "channels only; fix: wire a float channel, or leave the channel unwired"
         ),
     ),
     "model_conflict__texture": (
