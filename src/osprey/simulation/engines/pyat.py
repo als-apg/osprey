@@ -10,6 +10,8 @@ These functions read a deck -- a lattice file pyAT loads with
   deck;
 * :func:`plane` says which transverse plane a wiring record drives;
 * :func:`build` builds the LUME model that serves the wiring;
+* :func:`response_matrix` steps wired correctors and returns the orbit
+  response at the wired monitors;
 * :func:`error_text` gives the one line a failed build or solve reports;
 * :func:`readout` turns solved monitor positions into what each monitor
   reports.
@@ -52,6 +54,7 @@ __all__ = [
     "plane",
     "prepare",
     "readout",
+    "response_matrix",
     "start_values",
 ]
 
@@ -755,6 +758,134 @@ def build(
     )
     built.reset()
     return built
+
+
+def _is_monitor_reading(record: Any) -> bool:
+    block = field(record, "engine")
+    return field(block, "attribute") is None and field(block, "axis") is not None
+
+
+def response_matrix(
+    deck: Deck,
+    wiring: Iterable[Any],
+    settings: Any,
+    correctors: list[str],
+    step: Mapping[str, float],
+) -> tuple[list[str], np.ndarray]:
+    """Compute the orbit response of the wired monitors to the named correctors.
+
+    Each corrector is stepped by central difference, ``held ± step/2`` in its
+    hardware unit about the value the deck holds, each arm converted to the
+    deck's attribute through the corrector's calibration and solved on a copy
+    of the deck: the closed orbit for a ``periodic`` model, one tracked pass
+    from ``twiss_in`` for a ``single_pass`` one. Each reading is mapped to its
+    readback's hardware unit through the way back its calibration states, so
+    an entry is hardware readback per hardware setpoint. The deck a later call
+    loads is never written to.
+
+    Args:
+        deck: The lattice file.
+        wiring: The model's wiring records.
+        settings: The model's settings, ``{pyat: {...}}``, or ``None``.
+        correctors: The setpoint addresses to step, one column each, in this
+            order.
+        step: Each corrector's full step width in its hardware unit.
+
+    Returns:
+        ``(rows, matrix)``: ``rows`` the wired monitor readback addresses
+        ordered by (element lattice index, ``x`` before ``y``), a monitor no
+        record wires having no row; ``matrix`` one row per address and one
+        column per corrector.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
+            refuses, or a monitor element the deck does not hold exactly once.
+        ValueError: a corrector is not a wired setpoint naming an element, is
+            named twice, or has no finite non-zero step; a monitor record
+            cannot be built as a reading.
+        OrbitSolveError: a step has no solve; the message is
+            :func:`error_text` of the failure followed by
+            ``(while stepping <address>)``.
+    """
+    import numpy as np
+    from lume_pyat.exceptions import OrbitSolveError
+    from lume_pyat.simulator import PyATSimulator
+
+    from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
+    from osprey.simulation.engines.pyat_variables import (
+        EV_PER_GEV,
+        CalibratedSetpoint,
+        MonitorVariable,
+        variable_from_wiring,
+    )
+
+    prepared = prepare(deck, settings)
+    loaded = _load(deck)
+    lattice = loaded.lattice.deepcopy()
+    deck_energy_gev = float(lattice.energy) / EV_PER_GEV
+    records = list(wiring)
+
+    readings: list[tuple[tuple[int, str], MonitorVariable]] = []
+    for record in records:
+        if not _is_monitor_reading(record):
+            continue
+        reading = MonitorVariable.from_wiring(record)
+        record_id = str(field(record, "id") or reading.name)
+        index = _element_index(loaded, deck, reading.element_name, record_id, "wiring")
+        readings.append(((index, reading.axis), reading))
+    readings.sort(key=lambda item: item[0])
+    monitors = [reading for _, reading in readings]
+
+    setpoints = {
+        str(field(record, "address")): record
+        for record in records
+        if field(record, "direction") == "write" and _names_element(record)
+    }
+    columns: list[tuple[CalibratedSetpoint, float]] = []
+    for address in correctors:
+        record = setpoints.get(address)
+        variable = (
+            None
+            if record is None
+            else variable_from_wiring(record, deck_energy_gev=deck_energy_gev)
+        )
+        if not isinstance(variable, CalibratedSetpoint):
+            raise ValueError(f"corrector {address} is not a wired setpoint on an element")
+        if any(variable.name == other.name for other, _ in columns):
+            raise ValueError(f"corrector {address} is named twice")
+        width = step.get(address)
+        if width is None or not math.isfinite(float(width)) or float(width) == 0.0:
+            raise ValueError(f"corrector {address} has step {width!r}; give a finite non-zero step")
+        columns.append((variable, float(width)))
+
+    simulator = (
+        PyATSimulator(lattice)
+        if prepared.solve == SOLVES[0]
+        else SinglePassSimulator(lattice, twiss_in=prepared.twiss_in)  # type: ignore[arg-type]
+    )
+    matrix = np.empty((len(monitors), len(columns)), dtype=np.float64)
+    for column, (variable, width) in enumerate(columns):
+        elements = [simulator.element(binding.element_name) for binding in variable.bindings]
+        held_fields = [
+            np.array(getattr(element, binding.attribute), copy=True)
+            for binding, element in zip(variable.bindings, elements, strict=True)
+        ]
+        held = variable._get(simulator)
+        arms: list[np.ndarray] = []
+        try:
+            for value in (held + 0.5 * width, held - 0.5 * width):
+                variable._set(simulator, value)
+                simulator.solve()
+                arms.append(np.array([reading._get(simulator) for reading in monitors]))
+        except OrbitSolveError as exc:
+            raise OrbitSolveError(f"{error_text(exc)} (while stepping {variable.name})") from exc
+        finally:
+            for binding, element, saved in zip(
+                variable.bindings, elements, held_fields, strict=True
+            ):
+                setattr(element, binding.attribute, saved if saved.ndim else float(saved))
+        matrix[:, column] = (arms[0] - arms[1]) / width
+    return [reading.name for reading in monitors], matrix
 
 
 def error_text(exc: BaseException) -> str:
