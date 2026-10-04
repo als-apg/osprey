@@ -122,6 +122,7 @@ __all__ = [
     "draft_mapping",
     "draft_text",
     "dump_mapping",
+    "exported_number",
     "field_roles",
     "judgment_key",
     "load_or_draft",
@@ -1587,8 +1588,8 @@ def _text(value: Any) -> str | None:
     return None
 
 
-def _number(value: Any) -> float | None:
-    """A finite number as a float, or ``None``; an export spells a non-finite one as text."""
+def exported_number(value: Any) -> float | None:
+    """A finite number as a float, or ``None``; an export spells only a non-finite as text."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     number = float(value)
