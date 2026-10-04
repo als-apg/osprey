@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
     from osprey.simulation.machine import PlotSpec
@@ -74,7 +75,9 @@ def draw_plot_spec(spec: PlotSpec, end: datetime) -> Figure:
     import matplotlib.dates as mdates
 
     zone = end.tzinfo
-    times = [end - timedelta(hours=hours) for hours in spec.hours_before]
+    # The axis is laid out in matplotlib's own date numbers; the locator and
+    # formatter below read them back in ``zone``.
+    times = mdates.date2num([end - timedelta(hours=hours) for hours in spec.hours_before])
     fig, ax = _new_figure()
     for series in spec.series:
         ax.plot(times, series.values, lw=1.0, label=series.label)
@@ -99,7 +102,7 @@ def draw_plot_spec(spec: PlotSpec, end: datetime) -> Figure:
     return fig
 
 
-def _new_figure():
+def _new_figure() -> tuple[Figure, Axes]:
     """A detached Agg figure and its one axes; no pyplot state is touched."""
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
