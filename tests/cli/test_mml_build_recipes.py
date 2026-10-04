@@ -10,11 +10,9 @@ makes:
   first, past the stop ``osprey facility import mml`` makes over the preset's
   authored record sources, so the build writes the middle-layer index and its
   DuckDB copy from the imported groups. The export reads one corrector
-  readback for two setpoints, so the build stops ``pair-invalid``; the recipe
-  applies the printed remedy as a ``fixes.yaml`` entry, pairing each later
-  setpoint the line names with itself, and builds again. The rendered config
-  binds the index and its copy, and ``run_sql`` answers from the copy. The set
-  line never spells
+  readback for two setpoints, which the import pairs with neither, so the
+  build runs clean. The rendered config binds the index and its copy, and
+  ``run_sql`` answers from the copy. The set line never spells
   ``channel_finder.pipelines.*``: those keys are build-derived and ``validate``
   refuses a profile that states them.
 * **hello-world, graph.** The same emit feeds the other paradigm through a
@@ -205,16 +203,6 @@ SEED_INVALID = re.compile(
     r"fix: .*widen the limits record$"
 )
 
-#: The line a build stage prints for a readback two setpoints name as their
-#: pair: the readback, then the setpoints in the order the line lists them.
-PAIR_SHARED = re.compile(
-    r"^facility: pair-invalid: channel (?P<readback>.+?) — the pair of setpoints "
-    r"(?P<setpoints>.+?); fix: pair each setpoint with its own readback$"
-)
-
-#: The corrections file of a deployment's facility description, relative to the repo.
-FACILITY_FIXES = f"{FACILITY_DIR}/fixes.yaml"
-
 #: The response-check line of the synthetic tree's one model.
 SYNTHETIC_RESPONSE_LINES = ("response check SR: model BPMx/HC inside band 1.000 (pass at 0.99)",)
 
@@ -383,54 +371,6 @@ def apply_seed_invalid_remedies(
     return tuple(stops)
 
 
-def apply_shared_pair_remedies(runner: CliRunner, repo: Path) -> dict[str, tuple[str, ...]]:
-    """Pair every setpoint after the first of each shared-readback stop with itself.
-
-    ``osprey facility validate`` prints one ``pair-invalid`` line per readback
-    that several setpoints name as their pair. Its remedy, each setpoint with
-    its own readback, is written as one ``fixes.yaml`` ``set`` entry per later
-    setpoint the line names: the export holds no other readback for it, so it
-    pairs with itself, and its ``was`` is the pair the mml layer states. The
-    verb then runs once more and must stop on nothing.
-
-    Returns:
-        Each shared readback, mapped to the setpoints its line named.
-    """
-    from osprey.facility.combine import FIXES_HEADER
-
-    where = ["facility", "validate", "--repo", str(repo)]
-    stopped = runner.invoke(cli, where, catch_exceptions=False)
-    stops = {
-        match["readback"]: tuple(match["setpoints"].split(", "))
-        for match in map(PAIR_SHARED.match, stopped.stderr.splitlines())
-        if match is not None
-    }
-    assert stops, stopped.stderr
-    assert stopped.exit_code == 1, stopped.output
-
-    fixes = [
-        {
-            "op": "set",
-            "kind": "channel",
-            "id": setpoint,
-            "fields": {"pair": setpoint},
-            "was": {"pair": {"mml": readback}},
-            "why": f"{readback} reads back {setpoints[0]}; {setpoint} has no readback of its own.",
-        }
-        for readback, setpoints in stops.items()
-        for setpoint in setpoints[1:]
-    ]
-    target = repo / FACILITY_FIXES
-    target.write_text(
-        yaml.safe_dump({"schema": FIXES_HEADER, "fixes": fixes}, sort_keys=False),
-        encoding="utf-8",
-    )
-
-    clean = runner.invoke(cli, where, catch_exceptions=False)
-    assert clean.exit_code == 0, clean.output
-    return stops
-
-
 def expected_seed_stops(tree: str) -> frozenset[str]:
     """The setpoints a fixture tree's build stops on once its exports are imported.
 
@@ -583,17 +523,12 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    arguments = ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
-    stopped = runner.invoke(cli, arguments, catch_exceptions=False)
-    remedied = apply_shared_pair_remedies(runner, repo)
-    build = invoke(runner, *arguments)
+    build = invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
     return {
         "repo": repo,
         "emit": emitted.output,
         "validate": validate.output,
-        "stopped": stopped,
-        "remedied": remedied,
         "build": build.output,
     }
 
@@ -735,22 +670,6 @@ class TestHelloWorldMiddleLayer:
     def test_validate_and_build_accept_the_recipe(self, middle_layer_repo: dict) -> None:
         assert "Profile is valid" in middle_layer_repo["validate"]
         assert (middle_layer_repo["repo"] / "build" / "config.yml").is_file()
-
-    def test_the_first_build_stops_on_the_shared_readback_the_fix_remedies(
-        self, middle_layer_repo: dict
-    ) -> None:
-        stopped = middle_layer_repo["stopped"]
-        lines = [line for line in stopped.stderr.splitlines() if line.startswith("facility: ")]
-
-        assert stopped.exit_code == 1, stopped.output
-        assert lines == [
-            f"facility: pair-invalid: channel {readback} — the pair of setpoints "
-            f"{', '.join(setpoints)}; fix: pair each setpoint with its own readback"
-            for readback, setpoints in middle_layer_repo["remedied"].items()
-        ]
-        assert middle_layer_repo["remedied"] == {
-            "QK:R12:HCM:RB": ("QK:R1:HCM1:SP", "QK:R2:HCM1:SP")
-        }
 
     def test_the_build_binds_the_index_and_database_it_writes(
         self, middle_layer_repo: dict

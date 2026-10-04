@@ -23,7 +23,9 @@ judgment the export pends, and what each model wires. The document shape is::
     section_order: [<model name>, ...]
     branches: {<class>: {parent, description}}            # optional
     families: {<raw family>: {rename?, branch?, class?, devices?, aliases,
-                              description, provenance, channels, fields}}
+                              description, provenance, channels,
+                              fields: {<field>: {description, provenance,
+                                                 signal?}}}}
     directions: {<raw family>.<field>: {direction: read | write | null,
                                         provenance, override?}}
     judgments: {<raw family>: {rows_beyond_devices?, unbound_devices?,
@@ -55,7 +57,8 @@ direction is ``write`` is a setpoint of its own and pairs with nothing.
 ``section_order`` lists every model once, classes and branches resolve against
 the vocabulary, a ``devices`` answer names another family or one-word device
 names, every direction and wiring family names a field the mapping
-describes, and -- given the export -- the mapping names exactly the export's
+describes, a field's ``signal`` is a vocabulary signal role, and -- given the
+export -- the mapping names exactly the export's
 systems and families, gives every channel-bearing field a direction, a
 ``stated`` direction agrees with the export's own vote unless ``override``, and
 the judgment answers match what the export pends: every pending row, unbound
@@ -273,10 +276,15 @@ class Branch:
 
 @dataclass(frozen=True)
 class Field:
-    """The description of one family field."""
+    """The description of one family field, and the signal role its channels play.
+
+    ``signal`` is a vocabulary signal role every channel of the field takes,
+    or ``None`` for a field that plays none.
+    """
 
     description: str | None
     provenance: str
+    signal: str | None = None
 
 
 @dataclass(frozen=True)
@@ -513,6 +521,7 @@ _FAMILY_REQUIRED = frozenset({"aliases", "description", "provenance", "channels"
 _FAMILY_OPTIONAL = frozenset({"rename", "branch", "class", "devices"})
 _SAME_AS_KEYS = frozenset({"same_as"})
 _FIELD_KEYS = frozenset({"description", "provenance"})
+_FIELD_OPTIONAL = frozenset({"signal"})
 _DIRECTION_REQUIRED = frozenset({"direction", "provenance"})
 _DIRECTION_OPTIONAL = frozenset({"override"})
 _JUDGMENT_KINDS = frozenset({ROWS_BEYOND_KIND, UNBOUND_KIND, SHARED_KIND})
@@ -617,10 +626,11 @@ def _branches(value: Any) -> dict[str, Branch]:
 def _fields(value: Any, key: str) -> dict[str, Field]:
     fields: dict[str, Field] = {}
     for name, body, path in _entries(value, key):
-        _keys(body, path, _FIELD_KEYS, _NONE)
+        _keys(body, path, _FIELD_KEYS, _FIELD_OPTIONAL)
         fields[name] = Field(
             description=_str(body, "description", path, nullable=True),
             provenance=_str(body, "provenance", path, nullable=False),
+            signal=_str(body, "signal", path, nullable=True),
         )
     return fields
 
@@ -1166,6 +1176,19 @@ def _family_field(mapping: Mapping, family: str, name: str) -> str | None:
     return None
 
 
+def _field_signals(mapping: Mapping) -> Iterator[Problem]:
+    from osprey.facility.validate import signal_roles
+
+    roles = signal_roles()
+    for raw, family in mapping.families.items():
+        for name, fld in family.fields.items():
+            if fld.signal is not None and fld.signal not in roles:
+                yield Problem(
+                    f"families.{raw}.fields.{name}.signal",
+                    f"{fld.signal!r} is no vocabulary signal role",
+                )
+
+
 def _direction_fields(mapping: Mapping) -> Iterator[Problem]:
     for key in mapping.directions:
         family, _, name = key.partition(".")
@@ -1200,6 +1223,7 @@ _RULES: tuple[Callable[[Mapping], Iterator[Problem]], ...] = (
     _family_classes,
     _family_devices,
     _declared_branches,
+    _field_signals,
     _direction_fields,
     _wiring_fields,
     _judgment_families,
@@ -1740,6 +1764,42 @@ def _draft_family(raw: str, views: list[Any], devices: Any = None) -> dict[str, 
     return entry
 
 
+#: The ``HWUnits`` words of a current, folded to lower case.
+_CURRENT_UNITS: frozenset[str] = frozenset({"a", "amp", "amps", "ampere", "amperes"})
+
+#: The engine attributes a magnet family drives.
+_MAGNET_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "PolynomA", "KickAngle"})
+
+
+def _draft_signal(views: list[Any], name: str, direction: str | None) -> str | None:
+    """The signal role a family field's channels play, where the export decides it.
+
+    A beam monitor's ``Monitor`` reads the position on its axis. A magnet
+    family -- a dipole string, or one whose lattice type drives a multipole or
+    a kick -- whose field states its hardware in a current commands that
+    current where the field is written and reads it back through its
+    ``Monitor``. Every other field is left for the reviewer.
+    """
+    token = next((found for view in views if (found := _lattice_type(view)) is not None), None)
+    engine = ENGINE_BY_TYPE.get(token, {}) if token is not None else {}
+    if "axis" in engine:
+        return f"position_{engine['axis']}_readback" if name == MONITOR_FIELD else None
+    if token != _BEND_TYPE and engine.get("attribute") not in _MAGNET_ATTRIBUTES:
+        return None
+    units = {
+        unit.lower()
+        for view in views
+        if name in view.fields and (unit := _one_unit(view.fields[name].body.get("HWUnits")))
+    }
+    if not units or not units <= _CURRENT_UNITS:
+        return None
+    if direction == "write":
+        return "current_setpoint"
+    if direction == "read" and name == MONITOR_FIELD:
+        return "current_readback"
+    return None
+
+
 def _draft_devices(
     views: dict[str, list[Any]], models: dict[str, str], imported: list[Any]
 ) -> tuple[dict[str, Any], dict[str, list[str]]]:
@@ -2023,6 +2083,9 @@ def _draft(
                 "provenance": DERIVED,
                 "override": False,
             }
+            entry["fields"][name]["signal"] = _draft_signal(
+                views[raw], name, directions[f"{raw}.{name}"]["direction"]
+            )
 
     document: dict[str, Any] = {}
     identity = _draft_identity(ad, order)

@@ -341,3 +341,35 @@ def test_a_mapping_that_fails_its_check_stops_the_import_before_anything_is_writ
     assert lines[-1] == f"{len(lines) - 1} problems in {mapping}; fix each and check again."
     assert sorted(path.name for path in (facility / LAYER_DIR).iterdir()) == ["mapping.yaml"]
     assert sorted(path.name for path in facility.iterdir()) == ["imported"]
+
+
+def test_a_field_s_signal_role_lands_on_its_channels_and_keys_its_group_sentence(
+    spear3: Path,
+) -> None:
+    channels = _by_id(_rows(spear3, "channels.yaml"))
+    groups = _by_id(_rows(spear3, "groups.yaml"))
+    assert channels["01G-BPM1:U"]["signal"] == "position_x_readback"
+    assert channels["MS1-BD:CurrSetpt"]["signal"] == "current_setpoint"
+    assert set(groups["BPMx"]["signals"]) == {"position_x_readback"}
+    unroled = [group for group in groups.values() if "signals" not in group]
+    assert unroled
+    for group in groups.values():
+        assert set(group.get("signals", {})) <= {
+            "current_setpoint",
+            "current_readback",
+            "position_x_readback",
+            "position_y_readback",
+        }
+
+
+def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -> None:
+    facility = tmp_path / "data" / "facility"
+    (facility / MAPPING_FILE).parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "paired" / MAPPING_FILE, facility / MAPPING_FILE)
+    import_mml([FIXTURES / "paired" / "quokka.ring.ao.json"], facility)
+    channels = _by_id(_rows(facility, "channels.yaml"))
+    assert channels["QK:R12:HCM:RB"]["endpoint_of"] == ["RING/hcm_1", "RING/hcm_2"]
+    for setpoint in ("QK:R1:HCM1:SP", "QK:R2:HCM1:SP"):
+        assert channels[setpoint]["role"] == "setpoint"
+        assert "pair" not in channels[setpoint], setpoint
+    assert not run_stages(facility, project_name="demo").errors

@@ -154,6 +154,7 @@ families:
       Monitor:
         description: Horizontal beam position per BPM (mm).
         provenance: stated
+        signal: position_x_readback
   BPMy:
     class: BeamPositionMonitor
     devices: names
@@ -170,6 +171,7 @@ families:
       Monitor:
         description: Vertical beam position per BPM (mm).
         provenance: stated
+        signal: position_y_readback
   LTBBPMx:
     class: BeamPositionMonitor
     devices: names
@@ -242,9 +244,11 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   VCM:
     class: VCorrector
     devices: names
@@ -257,9 +261,11 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   HCMCurrReference:
     branch: Corrector
     class: CorrectorCurrentReference
@@ -299,12 +305,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   BDM:
     branch: Corrector
     class: BendTrim
@@ -319,9 +328,11 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   CD:
     class: Dipole
     devices: names
@@ -335,12 +346,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QF:
     class: Quadrupole
     devices: names
@@ -353,12 +367,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QD:
     class: Quadrupole
     devices: names
@@ -371,12 +388,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QFC:
     class: Quadrupole
     devices: names
@@ -389,12 +409,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QDX:
     class: Quadrupole
     devices: names
@@ -407,12 +430,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QFX:
     class: Quadrupole
     devices: names
@@ -425,12 +451,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QDY:
     class: Quadrupole
     devices: names
@@ -443,12 +472,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QFY:
     class: Quadrupole
     devices: names
@@ -461,12 +493,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QDZ:
     class: Quadrupole
     devices: names
@@ -479,12 +514,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   QFZ:
     class: Quadrupole
     devices: names
@@ -497,12 +535,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   Q9S:
     class: Quadrupole
     devices: names
@@ -515,12 +556,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   SF:
     class: Sextupole
     devices: names
@@ -533,12 +577,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   SD:
     class: Sextupole
     devices: names
@@ -551,12 +598,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   SFM:
     class: Sextupole
     devices: names
@@ -569,12 +619,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   SDM:
     class: Sextupole
     devices: names
@@ -587,12 +640,15 @@ families:
       Desired:
         description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
         provenance: stated
+        signal: current_setpoint
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   SkewQuad:
     branch: Quadrupole
     class: SkewQuadrupole
@@ -606,9 +662,11 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (ampere).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (ampere), applied immediately.
         provenance: stated
+        signal: current_setpoint
   KickerAmp:
     branch: Magnet
     class: InjectionKicker

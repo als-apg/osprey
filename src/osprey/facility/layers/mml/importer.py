@@ -25,10 +25,14 @@ What is written, relative to ``data/facility/``:
   (:func:`~osprey.facility.layers.mml.mapping.field_roles`): an address any
   ``write`` field names is a setpoint, whichever field named it first. A
   setpoint that reads back through its family's ``Monitor`` names that
-  device's ``Monitor`` address as its ``pair``.
+  device's ``Monitor`` address as its ``pair``, unless that address reads back
+  several setpoints of the field, when it pairs none. A field the mapping
+  gives a ``signal`` role writes it on each of its channels.
 * ``imported/mml/groups.yaml``: one group per family, id the family's mapped
   token; same-named families of several exports are one group whose members
-  are the union of theirs.
+  are the union of theirs. Its ``signals`` holds the description of each field
+  the mapping gives a ``signal`` role, keyed by that role; a family with no
+  such field states none.
 * ``imported/mml/models.yaml``: one ``pyat`` model per imported system, named
   by the mapping. A transport line (``state.is_transport`` of the export's
   ``<stem>.model.json``, else ``MachineType: Transport`` in its AD) runs
@@ -128,7 +132,7 @@ _TWISS_KEYS: tuple[tuple[str, str], ...] = (
 _SETPOINT = "setpoint"
 
 #: The keys of a channel record, in the order they are written.
-_CHANNEL_KEYS = ("id", "endpoint_of", "on", "role", "pair", "unit", "description")
+_CHANNEL_KEYS = ("id", "endpoint_of", "on", "role", "pair", "signal", "unit", "description")
 
 
 @dataclass
@@ -528,7 +532,9 @@ def _channels(
         role = roles.get(f"{view.raw_name}.{fld.name}")
         described = family.fields.get(fld.name)
         description = described.description if described is not None else None
+        signal = described.signal if described is not None else None
         paired = view.fields.get(role.pair) if role is not None and role.pair else None
+        shared = _shared_pairs(fld, paired, view.n_devices)
         for key in fld.keys:
             pairs = paired.slots(key) if paired is not None and key in paired.keys else []
             for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
@@ -537,12 +543,16 @@ def _channels(
                     continue
                 writes = role is not None and role.role == _SETPOINT
                 pair = _text(pairs[index]) if index < len(pairs) else None
+                if pair in shared:
+                    pair = None
                 found = channels.get(address)
                 if found is not None:
                     if writes and found.get("role") != _SETPOINT:
                         found["role"] = _SETPOINT
                         if pair is not None and pair != address:
                             found["pair"] = pair
+                        if signal is not None:
+                            found["signal"] = signal
                         unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
                         if unit is not None:
                             found["unit"] = unit
@@ -562,12 +572,29 @@ def _channels(
                     channel["role"] = role.role
                     if writes and pair is not None and pair != address:
                         channel["pair"] = pair
+                if signal is not None:
+                    channel["signal"] = signal
                 unit = _field_scalar(fld, "HWUnits", index, view.n_devices)
                 if unit is not None:
                     channel["unit"] = unit
                 if description is not None:
                     channel["description"] = description
                 channels[address] = channel
+
+
+def _shared_pairs(fld: FieldView, paired: FieldView | None, devices: int) -> set[str]:
+    """The addresses of ``paired`` that read back more than one address of ``fld``."""
+    if paired is None:
+        return set()
+    read: dict[str, set[str]] = {}
+    for key in fld.keys:
+        if key not in paired.keys:
+            continue
+        for slot, back in zip(fld.slots(key)[:devices], paired.slots(key), strict=False):
+            address, pair = _text(slot), _text(back)
+            if address is not None and pair is not None and pair != address:
+                read.setdefault(pair, set()).add(address)
+    return {pair for pair, addresses in read.items() if len(addresses) > 1}
 
 
 def _group(
@@ -583,11 +610,13 @@ def _group(
         if family.aliases:
             group["names"] = list(family.aliases)
         group["members"] = []
-        signals = {
-            name: fld.description
-            for name, fld in sorted(family.fields.items())
-            if fld.description is not None
-        }
+        signals = dict(
+            sorted(
+                (fld.signal, fld.description)
+                for fld in family.fields.values()
+                if fld.signal is not None and fld.description is not None
+            )
+        )
         if signals:
             group["signals"] = signals
         groups[token] = group

@@ -700,3 +700,33 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(tmp_pat
     assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
     assert "view middle_layer not written" not in built.output
     assert built.output.count("view middle_layer: 4 channels in no family left out") == 1
+
+
+def test_an_imported_field_keyed_by_its_signal_role_carries_that_role_s_sentence(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("at")
+    from osprey.facility.build import build_facility
+    from tests.facility.test_mml_layer_seed_once import WIDENED, _import, _widen
+
+    facility = _import(tmp_path, "spear3")
+    _widen(facility, WIDENED["spear3"])
+    doc = build_facility(facility, project_name="demo")
+    sentences = {
+        group["id"]: group.get("signals", {}) for group in doc["groups"] if "signals" in group
+    }
+
+    document, _, _ = _document(doc)
+
+    keyed = [
+        (family, key, field)
+        for system, families in document.items()
+        if not system.startswith("_") and isinstance(families, dict)
+        for family, body in families.items()
+        if isinstance(body, dict)
+        for key, field in _fields(body).items()
+        if key in sentences.get(family, {})
+    ]
+    assert {key for _, key, _ in keyed} >= {"position_x_readback", "current_setpoint"}
+    for family, key, field in keyed:
+        assert field["_description"] == sentences[family][key], (family, key)

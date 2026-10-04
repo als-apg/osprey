@@ -147,6 +147,7 @@ families:
       Monitor:
         description: Horizontal beam position per BPM (mm).
         provenance: stated
+        signal: position_x_readback
       TBT:
         description: Single-shot turn-by-turn horizontal position per storage-ring BPM (mm).
         provenance: stated
@@ -167,6 +168,7 @@ families:
       Monitor:
         description: Vertical beam position per BPM (mm).
         provenance: stated
+        signal: position_y_readback
       TBT:
         description: Single-shot turn-by-turn vertical position per storage-ring BPM (mm).
         provenance: stated
@@ -186,6 +188,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet.
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated kick readback per corrector (rad), the strength companion of Monitor.
         provenance: stated
@@ -195,6 +198,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet.
         provenance: stated
+        signal: current_setpoint
       Fault:
         description: Power-supply summary fault status per LTB device (boolean monitor).
         provenance: stated
@@ -214,6 +218,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet.
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated kick readback per corrector (rad), the strength companion of Monitor.
         provenance: stated
@@ -223,6 +228,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet.
         provenance: stated
+        signal: current_setpoint
       Fault:
         description: Power-supply summary fault status per LTB device (boolean monitor).
         provenance: stated
@@ -241,6 +247,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -250,6 +257,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   QH2:
     class: Quadrupole
     devices: names
@@ -262,6 +270,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -271,6 +280,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   QH3:
     class: Quadrupole
     devices: names
@@ -283,6 +293,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -292,6 +303,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   QL1:
     class: Quadrupole
     devices: names
@@ -304,6 +316,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -313,6 +326,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   QL2:
     class: Quadrupole
     devices: names
@@ -325,6 +339,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -334,6 +349,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   QL3:
     class: Quadrupole
     devices: names
@@ -346,6 +362,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -355,6 +372,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   QM1:
     class: Quadrupole
     devices: names
@@ -367,6 +385,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -376,6 +395,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   QM2:
     class: Quadrupole
     devices: names
@@ -388,6 +408,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
         provenance: stated
@@ -397,6 +418,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SM1:
     class: Sextupole
     devices: names
@@ -409,6 +431,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -420,6 +443,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SM2:
     class: Sextupole
     devices: names
@@ -432,6 +456,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -443,6 +468,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SH1:
     class: Sextupole
     devices: names
@@ -455,6 +481,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -466,6 +493,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SH3:
     class: Sextupole
     devices: names
@@ -478,6 +506,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -489,6 +518,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SH4:
     class: Sextupole
     devices: names
@@ -501,6 +531,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -512,6 +543,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SL1:
     class: Sextupole
     devices: names
@@ -524,6 +556,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -535,6 +568,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SL2:
     class: Sextupole
     devices: names
@@ -547,6 +581,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -558,6 +593,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SL3:
     class: Sextupole
     devices: names
@@ -570,6 +606,7 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       RBKL:
         description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
           of Monitor.
@@ -581,6 +618,7 @@ families:
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   SQ:
     branch: Quadrupole
     class: SkewQuadrupole
@@ -594,9 +632,11 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (A).
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet (A).
         provenance: stated
+        signal: current_setpoint
   BEND:
     class: Dipole
     devices: names
@@ -611,9 +651,11 @@ families:
       Monitor:
         description: Power-supply current readback per magnet.
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Power-supply current setpoint per magnet.
         provenance: stated
+        signal: current_setpoint
       Fault:
         description: Power-supply summary fault status per LTB device (boolean monitor).
         provenance: stated
@@ -682,12 +724,14 @@ families:
       Monitor:
         description: Power-supply current readback per magnet (Ampere).
         provenance: stated
+        signal: current_readback
       OnControl:
         description: Power-supply on/off control per LTB device (boolean control).
         provenance: stated
       Setpoint:
         description: Power-supply current setpoint per magnet (Ampere).
         provenance: stated
+        signal: current_setpoint
   Screen:
     aliases:
     - Screen

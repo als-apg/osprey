@@ -76,9 +76,11 @@ families:
       Monitor:
         description: Quadrupole current as the supply reads it back.
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Quadrupole current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   QD:
     class: Quadrupole
     aliases:
@@ -90,9 +92,11 @@ families:
       Monitor:
         description: Quadrupole current as the supply reads it back.
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Quadrupole current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   SF:
     class: Sextupole
     aliases:
@@ -104,6 +108,7 @@ families:
       Setpoint:
         description: Sextupole current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   SQ:
     branch: Quadrupole
     class: SkewQuadrupole
@@ -116,6 +121,7 @@ families:
       Setpoint:
         description: Skew trim current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   HC:
     class: HCorrector
     aliases:
@@ -128,9 +134,11 @@ families:
       Monitor:
         description: Corrector current as the supply reads it back.
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Corrector current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   VC:
     class: VCorrector
     aliases:
@@ -142,9 +150,11 @@ families:
       Monitor:
         description: Corrector current as the supply reads it back.
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Corrector current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   BPMx:
     class: BeamPositionMonitor
     aliases:
@@ -156,6 +166,7 @@ families:
       Monitor:
         description: Horizontal beam position at the monitor.
         provenance: stated
+        signal: position_x_readback
   BPMy:
     class: BeamPositionMonitor
     aliases:
@@ -167,6 +178,7 @@ families:
       Monitor:
         description: Vertical beam position at the monitor.
         provenance: stated
+        signal: position_y_readback
   BEND:
     class: Dipole
     aliases:
@@ -179,9 +191,11 @@ families:
       Monitor:
         description: Dipole current as the supply reads it back.
         provenance: stated
+        signal: current_readback
       Setpoint:
         description: Dipole current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   BDM:
     branch: Corrector
     class: BendTrim
@@ -195,6 +209,7 @@ families:
       Setpoint:
         description: Trim current asked of each supply.
         provenance: stated
+        signal: current_setpoint
   BSOFT:
     class: Dipole
     aliases:
