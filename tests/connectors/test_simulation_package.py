@@ -106,3 +106,42 @@ async def test_the_mock_connector_still_connects_on_a_machine_file(tmp_path, mon
         assert connector._sim_engine.has_channel("A:B")
     finally:
         await connector.disconnect()
+
+
+@pytest.mark.parametrize("config", [{}, {"simulation": None}, {"simulation": {"models": []}}])
+def test_an_absent_tick_resolves_to_the_default(config):
+    import osprey_connectors.simulation as package
+
+    assert package.resolve_tick_s(config) == package.DEFAULT_TICK_S == 1.0
+
+
+def test_a_set_tick_is_returned_as_seconds():
+    from osprey_connectors.simulation import resolve_tick_s
+
+    assert resolve_tick_s({"simulation": {"tick_s": 2}}) == 2.0
+
+
+@pytest.mark.parametrize("tick", [0, -0.5, "fast"])
+def test_a_tick_that_is_not_positive_names_the_key(tick):
+    from osprey_connectors.simulation import resolve_tick_s
+
+    with pytest.raises(ValueError, match=r"simulation\.tick_s"):
+        resolve_tick_s({"simulation": {"tick_s": tick}})
+
+
+def test_a_string_waveform_value_passes_through():
+    from osprey_connectors.simulation import decode_char_waveform
+
+    assert decode_char_waveform("BEAM ON") == "BEAM ON"
+
+
+def test_an_int_array_decodes_to_the_first_nul():
+    import numpy as np
+
+    from osprey_connectors.simulation import decode_char_waveform
+
+    raw = [ord(c) for c in "BEAM ON"] + [0, ord("x"), 0]
+    assert decode_char_waveform(raw) == "BEAM ON"
+    assert decode_char_waveform(np.array(raw, dtype=np.int8)) == "BEAM ON"
+    assert decode_char_waveform(np.array([0xC3, 0xA9, 0xFF], dtype=np.uint8)) == "é�"
+    assert decode_char_waveform(np.array([-61, -87], dtype=np.int8)) == "é"
