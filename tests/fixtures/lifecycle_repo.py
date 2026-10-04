@@ -3063,87 +3063,6 @@ refuse, and forcing it risks the whole ring's vacuum.
 #: the shipped presets are written in. A bare number here would look like a
 #: reasonable shorthand and is not: the parser rejects it, so the exemplar would
 #: name a simulation model that no engine can load.
-DEMO_MACHINE_TTL = """\
-# The knowledge-graph corpus `services.graphdb` seeds and the graph channel
-# finder answers from. One device per channel family of machine.json, each
-# binding stating its address and its direction.
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
-
-<https://narad.example.org/device/demo_SR_DCCT01> a narad_sem:BeamCurrentMonitor ;
-    narad_p:deviceId "narad:device:demo:SR:DCCT01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_DCCT01_CURRENT_RB> ;
-    narad_p:ordinalInFacility 1 ;
-    narad_p:ordinalInSection 1 ;
-    narad_p:rawType "DCCT" ;
-    narad_p:sPositionM 0.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "DCCT01" ;
-    narad_p:system "DIAG" .
-
-<https://narad.example.org/binding/demo_SR_DCCT01_CURRENT_RB> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:DCCT01:CURRENT_RB" ;
-    narad_p:description "Stored beam current" ;
-    narad_p:fullPv "SR:DIAG:DCCT:01:CURRENT:RB" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:beam_current .
-
-<https://narad.example.org/device/demo_SR_BPM01> a narad_sem:BeamPositionMonitor ;
-    narad_p:deviceId "narad:device:demo:SR:BPM01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_BPM01_POSITION_X>,
-        <https://narad.example.org/binding/demo_SR_BPM01_POSITION_Y> ;
-    narad_p:ordinalInFacility 2 ;
-    narad_p:ordinalInSection 2 ;
-    narad_p:rawType "BPM" ;
-    narad_p:sPositionM 1.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "BPM01" ;
-    narad_p:system "DIAG" .
-
-<https://narad.example.org/binding/demo_SR_BPM01_POSITION_X> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:BPM01:POSITION_X" ;
-    narad_p:description "Beam position monitor 1, horizontal" ;
-    narad_p:fullPv "SR:DIAG:BPM:01:POSITION:X" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:bpm_position_x .
-
-<https://narad.example.org/binding/demo_SR_BPM01_POSITION_Y> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:BPM01:POSITION_Y" ;
-    narad_p:description "Beam position monitor 1, vertical" ;
-    narad_p:fullPv "SR:DIAG:BPM:01:POSITION:Y" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:bpm_position_y .
-
-<https://narad.example.org/device/demo_SR_HCM01> a narad_sem:HorizontalCorrector ;
-    narad_p:deviceId "narad:device:demo:SR:HCM01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_HCM01_CURRENT_RB>,
-        <https://narad.example.org/binding/demo_SR_HCM01_CURRENT_SP> ;
-    narad_p:ordinalInFacility 3 ;
-    narad_p:ordinalInSection 3 ;
-    narad_p:rawType "HCM" ;
-    narad_p:sPositionM 2.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "HCM01" ;
-    narad_p:system "MAG" .
-
-<https://narad.example.org/binding/demo_SR_HCM01_CURRENT_RB> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:HCM01:CURRENT_RB" ;
-    narad_p:description "Horizontal corrector 1 current, readback" ;
-    narad_p:fullPv "SR:MAG:HCM:01:CURRENT:RB" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:hcm_current .
-
-<https://narad.example.org/binding/demo_SR_HCM01_CURRENT_SP> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:HCM01:CURRENT_SP" ;
-    narad_p:description "Horizontal corrector 1 current, setpoint" ;
-    narad_p:fullPv "SR:MAG:HCM:01:CURRENT:SP" ;
-    narad_p:protocol "ca" ;
-    narad_p:writesSignal narad_sem:hcm_current .
-"""
-
 SIMULATION_MACHINE_JSON = """\
 {
   "name": "Als Exemplar demo machine",
@@ -3229,7 +3148,6 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
     "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
     "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
-    "data/demo_machine.ttl": DEMO_MACHINE_TTL,
     "data/simulation/machine.json": SIMULATION_MACHINE_JSON,
     "data/simulation/scenarios/nominal/scenario.json": SIMULATION_NOMINAL_SCENARIO_JSON,
     "data/simulation/scenarios/vacuum-burst/scenario.json": SIMULATION_VACUUM_BURST_SCENARIO_JSON,

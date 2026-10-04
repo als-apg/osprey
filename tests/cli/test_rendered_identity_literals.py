@@ -251,7 +251,7 @@ def test_the_walk_reaches_every_surface_a_deployer_reads(
         "profile.yml",
         "providers.yml",
         ".env.example",
-        "data/demo_machine.ttl",
+        "build/data/graph/facility.ttl",
         "build/config.yml",
         "build/.claude/settings.json",
         "build/.mcp.json",

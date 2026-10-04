@@ -407,9 +407,8 @@ def test_a_second_corpus_becomes_a_second_cache_entry_built_once(
     """
     import osprey.services.channel_finder.graph_index as graph_index
     from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
-    from tests.fixtures.lifecycle_repo import DEMO_MACHINE_TTL
 
-    repeated, single = DEMO_MACHINE_TTL, corpora.BOTH_EDGES
+    repeated, single = corpora.SUBCLASS_CHAIN, corpora.BOTH_EDGES
     digests = {corpus: ttl_sha256(corpus) for corpus in (repeated, single)}
     assert len(set(digests.values())) == 2, "the two corpora are the same text"
     for digest in digests.values():
