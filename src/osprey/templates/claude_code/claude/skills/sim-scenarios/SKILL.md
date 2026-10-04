@@ -199,7 +199,7 @@ lands at a recent, deterministic position:
   "text": "...",
   "tags": ["rf", "temperature"],
   "categories": ["Operations"],
-  "attachments": [{ "path": "plots/cavity_temperatures_week.png" }]
+  "attachments": [{ "plot": "plots/cavity_temperatures.json" }]
 }
 ```
 
@@ -207,14 +207,23 @@ lands at a recent, deterministic position:
 and archiver data share one clock. A scenario with no narrative (pure telemetry)
 simply omits `logbook.json`.
 
-`attachments` is optional: each item is `{"path": ...}` and nothing else, naming
-a PNG, JPEG, GIF or WebP file by its path relative to the scenario directory.
-Loading refuses an unknown key, a path outside the directory, a missing file,
-or a file that is not a picture. Seeding stores each picture on its entry, ready
-for `attachment_view`; it runs no caption or picture-embedding module, so the
-picture is found by its caption only after `osprey ariel enhance` (or the
-ingestion poller) runs with a vision model configured. Keep a fact the picture
-shows out of the entry text when the point is that only the picture says it.
+`attachments` is optional: each item is exactly one of `{"path": ...}`, a
+shipped PNG, JPEG, GIF or WebP file, or `{"plot": ...}`, a JSON plot spec that
+seeding draws against the entry's own resolved timestamp, so its time axis shows
+the entry's real dates. Both name a file by its path relative to the scenario
+directory. A plot spec holds `filename`, `title`, `ylabel`, a shared
+`hours_before` axis ending at 0 and one or more `series` of `label` and `values`
+(see the simulation bundle contract for the schema). Loading refuses an unknown
+key, a path outside the directory, a missing file, a file that is not a picture
+or not a valid spec, and two pictures of one entry with the same file name.
+Seeding stores each picture on its entry, ready for `attachment_view`; it runs
+no caption or picture-embedding module, so the picture is found by its caption
+only after `osprey ariel enhance` (or the ingestion poller) runs with a vision
+model configured. Use a plot spec for any picture with a time axis: a shipped
+picture can never carry the entry's dates. A picture must look like an
+operator's own export: a terse title, device names, dates on the time axis, and
+no annotation that states the finding. Keep a fact the picture shows out of the
+entry text when the point is that only the picture says it.
 
 ## Anti-patterns
 
