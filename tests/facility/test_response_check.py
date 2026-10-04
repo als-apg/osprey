@@ -36,7 +36,7 @@ from osprey.facility.response_check import (
     judge,
     report,
 )
-from tests.facility.test_mml_layer_seed_once import WIDENED, _widen
+from tests.facility.test_mml_layer_seed_once import OUTSIDE, WIDENED, _widen
 
 at = pytest.importorskip("at")
 
@@ -47,6 +47,7 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 TREES: dict[str, tuple[str, ...]] = {
     "spear3": ("spear3.storagering",),
     "nsls2": ("nsls2.storagering", "nsls2.ltb"),
+    "synthetic": ("quokka.sr",),
 }
 
 SPEAR3_LINE = (
@@ -59,6 +60,11 @@ NSLS2_LINES = [
 NSLS2_LTB_LEFT_OUT = (
     "response check LTB: left out 24 rows (24 unwired, 0 no width, 0 unsolved)"
 )
+SYNTHETIC_LINE = "response check SR: model BPMx/HC inside band 1.000 (pass at 0.99)"
+
+#: The synthetic tree's one setpoint whose nominal lies outside its stated band,
+#: with the edge that holds it.
+SYNTHETIC_WIDENED: dict[str, tuple[str, float]] = {OUTSIDE: ("max_value", 2.0)}
 
 
 def _repo(root: Path, tree: str) -> Path:
@@ -68,7 +74,9 @@ def _repo(root: Path, tree: str) -> Path:
     target.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
     import_mml([FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], facility)
-    _widen(facility, WIDENED[tree])
+    _widen(facility, WIDENED.get(tree, {}))
+    if tree == "synthetic":
+        _widen(facility, SYNTHETIC_WIDENED)
     (root / "profile.yml").write_text("name: scratch\ndata: data\n", encoding="utf-8")
     return root
 
@@ -107,6 +115,11 @@ def nsls2(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
+def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _repo(tmp_path_factory.mktemp("synthetic"), "synthetic")
+
+
+@pytest.fixture(scope="module")
 def spear3_blocks(spear3: Path) -> tuple[Block, ...]:
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
@@ -127,6 +140,19 @@ def test_a_measured_export_prints_one_line_and_exits_0(
     assert result.exit_code == 0, result.output
     assert (result.stdout, result.stderr) == ("", SPEAR3_LINE + "\n")
     assert _snapshot(spear3) == before
+
+
+def test_a_model_derived_export_prints_one_line_and_exits_0(
+    synthetic: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The export's one monitor device whose status flag is down is not counted."""
+    before = _snapshot(synthetic)
+
+    result = _validate(synthetic, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert (result.stdout, result.stderr) == ("", SYNTHETIC_LINE + "\n")
+    assert _snapshot(synthetic) == before
 
 
 def test_a_model_derived_export_passes_block_by_block(nsls2: Path) -> None:
