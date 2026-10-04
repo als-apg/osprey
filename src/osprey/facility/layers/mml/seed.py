@@ -29,9 +29,9 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
 * ``scenarios/readout.yaml``: the readout the export states for each device's
   ``Monitor`` reading, as a scenario a deployer applies by choice (:func:`_readout`).
   A value at its identity (gain 1, offset 0, roll 0, crunch 0, polarity 1) is
-  not written. A gain and an offset the family's ``monitor_inverse`` is seen
-  to hold are served through the wiring's calibration and not written; any
-  other gain or offset is not carried. Every other value is written as
+  not written. An offset the family's ``monitor_inverse`` is seen to hold is
+  served through the wiring's calibration and not written; any other offset,
+  and a gain other than 1, is not carried. Every other value is written as
   ``faults.<model>.<readback address>.<field>`` where the model's engine
   declares that fault for its wiring. What is not carried is named in one
   line per family,
@@ -120,9 +120,10 @@ _READOUT_IDENTITY: dict[str, float] = {
     "polarity": 1.0,
 }
 
-#: The readout fields the Middle Layer corrects a reading by, Gain x (Raw - Offset),
-#: which the export's conversion of the reading already holds.
-_CONVERSION_FIELDS = frozenset({"gain", "offset"})
+#: The readout fields the Middle Layer corrects a reading by, Gain x (Raw - Offset);
+#: the offset is the one the export's conversion can be seen to hold.
+_OFFSET = "offset"
+_GAIN = "gain"
 
 #: The tolerance an inverse's offset matches a stated offset to.
 _OFFSET_REL_TOL = 1.0e-9
@@ -513,10 +514,11 @@ def _readout(
 
     The Middle Layer corrects a reading as Gain x (Raw - Offset), the offset
     in the reading's hardware units. A served reading is the model's position
-    through the family's ``monitor_inverse``, so a gain and an offset that
-    inverse holds are applied once already and written nowhere else
-    (:func:`_in_conversion`); a gain or an offset it is not seen to hold is
-    not carried, since applying it again or not at all cannot be told apart.
+    through the family's ``monitor_inverse``, so an offset that inverse is
+    seen to hold is applied once already and written nowhere else
+    (:func:`_in_conversion`); an offset it is not seen to hold, and any gain
+    other than 1, is not carried, since the export gives nothing to check the
+    inverse's gain against.
 
     Every other value is carried on the readback address of its device's
     ``Monitor`` field where the model's engine declares that field as a fault
@@ -560,9 +562,12 @@ def _readout(
                 value = _per_device(row, device, view.n_devices)
                 if value is None or value == identity:
                     continue
-                if name in _CONVERSION_FIELDS:
+                if name == _OFFSET:
                     if not converted:
                         dropped.add(name)
+                    continue
+                if name == _GAIN:
+                    dropped.add(name)
                     continue
                 address = _device_address(monitor, device)
                 if address is None or (address, name) not in roster:
