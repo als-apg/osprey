@@ -30,6 +30,7 @@ from osprey.simulation.engines.pyat_model import (  # noqa: E402
     ORBIT_AT_MONITORS,
     TUNES,
     PyATLatticeModel,
+    ReadbackVariable,
 )
 from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring  # noqa: E402
 
@@ -381,3 +382,74 @@ class TestOptics:
         model.set({"HCOR:01:SP": 2.0})
         model.get([CHROMATICITY])
         assert chromatic == [False, True, True]
+
+
+def _readback_model(*readbacks: ReadbackVariable) -> PyATLatticeModel:
+    return PyATLatticeModel(build_test_lattice(), [*variables(), *readbacks])
+
+
+class TestReadbacks:
+    def test_a_setpoint_readback_follows_every_write_and_reset(self):
+        model = _readback_model(ReadbackVariable(name="QF:01:RB", source="QF:01:SP", unit="A"))
+        assert model.get(["QF:01:RB"])["QF:01:RB"] == 100.0
+        model.set({"QF:01:SP": 103.0})
+        assert model.get(["QF:01:RB"])["QF:01:RB"] == pytest.approx(103.0, rel=1e-12)
+        model.reset()
+        assert model.get(["QF:01:RB"])["QF:01:RB"] == pytest.approx(100.0, rel=1e-12)
+
+    def test_a_setpoint_readback_goes_back_through_the_inverse(self):
+        inverse = {"table": {"grid": [0.0, 2.0], "values": [0.0, 400.0]}}
+        quad = {**_quad(1), "calibration": {**_linear(1.0e-2), "inverse": inverse}}
+        records = [record for record in wiring() if record["address"] != "QF:01:SP"]
+        lattice = build_test_lattice()
+        model = PyATLatticeModel(
+            lattice,
+            [
+                *variables([*records, quad]),
+                ReadbackVariable(name="QF:01:RB", source="QF:01:SP"),
+            ],
+        )
+        model.set({"QF:01:SP": 110.0})
+        assert model.get(["QF:01:RB"])["QF:01:RB"] == pytest.approx(220.0, rel=1e-12)
+
+    def test_a_readback_with_nothing_to_follow_reads_its_default(self):
+        model = _readback_model(ReadbackVariable(name="LONE:RB", default_value=4.5))
+        model.set({"QF:01:SP": 103.0})
+        assert model.get(["LONE:RB"])["LONE:RB"] == 4.5
+
+    def test_optics_readbacks_read_one_plane(self, monkeypatch):
+        model = _readback_model(
+            ReadbackVariable(name="TUNE:Y", source=TUNES, component=1),
+            ReadbackVariable(name="CHROM:X", source=CHROMATICITY, component=0),
+        )
+        chromatic: list[bool] = []
+        real = at.get_optics
+
+        def counting(*args: Any, **kwargs: Any) -> Any:
+            chromatic.append(bool(kwargs.get("get_chrom", False)))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(pyat_model.at, "get_optics", counting)
+        assert model.get(["TUNE:Y"])["TUNE:Y"] == model.get([TUNES])[TUNES][1]
+        assert chromatic == [False]
+        values = model.get(["CHROM:X", CHROMATICITY])
+        assert values["CHROM:X"] == values[CHROMATICITY][0]
+        assert chromatic == [False, True]
+
+    def test_a_readback_is_not_writable(self):
+        model = _readback_model(ReadbackVariable(name="QF:01:RB", source="QF:01:SP"))
+        with pytest.raises(Exception, match="read-only"):
+            model.set({"QF:01:RB": 1.0})
+
+    @pytest.mark.parametrize(
+        "readback",
+        [
+            ReadbackVariable(name="X:RB", source="NOT:A:SETPOINT"),
+            ReadbackVariable(name="X:RB", source="BPM:01:X"),
+            ReadbackVariable(name="X:RB", source=TUNES, component=2),
+            ReadbackVariable(name="X:RB", source=CHROMATICITY),
+        ],
+    )
+    def test_a_readback_of_nothing_the_model_serves_is_refused(self, readback):
+        with pytest.raises(ValueError, match="X:RB"):
+            _readback_model(readback)
