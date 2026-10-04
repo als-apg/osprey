@@ -332,7 +332,7 @@ Then delete the ones this deployment has no role for:
 - **A role nothing serves.** `logbook` opens the `ariel` panel, so it goes on
   any base with no ARIEL service block, whatever the user named, and returns
   with the LOGBOOK area's feature port. The web-terminal recipe in
-  `references/map.md` step 5 has this case.
+  `references/map.md` step 4 has this case.
 
 Deleting a persona is four deletions that go together: `personas/<name>.yml`,
 its dotted `modules.web_terminals.personas.<name>.*` catalog keys, its roster

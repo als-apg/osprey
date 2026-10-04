@@ -2375,12 +2375,10 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
 
 
 def test_lint_resolves_personas_against_the_project_name(monkeypatch) -> None:
-    """Lint resolves the roster under the same project name provisioning addresses,
-    so a `facility.prefix` that differs from the project name names nothing."""
+    """Lint resolves the roster under the same project name provisioning addresses."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["project_name"] = "demo"
-    config["facility"] = {"prefix": "other"}
     resolved: list[dict] = []
     real_resolve = lint.resolve_personas
 
@@ -4545,7 +4543,6 @@ def _profile_config(**web_terminals_overrides: object) -> dict:
     }
     web_terminals.update(web_terminals_overrides)
     return {
-        "facility.prefix": "ca",
         "deploy.fqdn": "127.0.0.1",
         "modules.web_terminals": web_terminals,
     }
@@ -4570,10 +4567,7 @@ def test_lint_profile_config_skips_the_checks_a_profile_cannot_answer() -> None:
     # Act
     profile_findings = lint_profile_config(config)
     rendered_findings = lint_web_terminals(
-        {
-            "facility": {"prefix": "ca"},
-            "modules": {"web_terminals": config["modules.web_terminals"]},
-        }
+        {"modules": {"web_terminals": config["modules.web_terminals"]}}
     )
 
     # Assert
@@ -4630,7 +4624,7 @@ def test_lint_profile_config_lets_a_deeper_dotted_key_refine_the_subtree() -> No
 def test_lint_profile_config_ignores_a_config_block_that_omits_the_module() -> None:
     """A profile that never mentions the module lints clean."""
     # Act
-    findings = lint_profile_config({"control_system.type": "mock", "facility.prefix": "ca"})
+    findings = lint_profile_config({"control_system.type": "mock"})
 
     # Assert
     assert findings == []

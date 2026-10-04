@@ -223,12 +223,12 @@ def test_leaves_below_a_data_map_are_not_demanded():
 
 def test_mode_2_unmatched_evidence_regex_goes_red():
     def break_the_evidence(manifest):
-        manifest["keys"]["facility.prefix"]["evidence"] = "no_reader_spells_this_anywhere"
+        manifest["keys"]["images.registry"]["evidence"] = "no_reader_spells_this_anywhere"
 
     guard = make_guard(break_the_evidence)
     guard.check_evidence()
     assert "evidence" in modes(guard)
-    assert "facility.prefix" in details(guard)
+    assert "images.registry" in details(guard)
 
 
 def test_mode_3_deleted_key_back_in_the_rendered_union_goes_red():
@@ -735,10 +735,9 @@ def test_a_rendered_key_marked_unrendered_goes_red():
     Skipped only when the key is absent, the flag rots silently in exactly the
     direction the phantom check exists to catch: a key that starts being shipped
     keeps a marking saying nothing ships it, and the prose beside it goes on
-    describing a commented example while a preset writes the key live. Four
-    entries had drifted that way — ``facility.prefix`` and the three
-    virtual-accelerator ``limits_checking`` paths, all of them live in
-    ``control-assistant``.
+    describing a commented example while a preset writes the key live. The
+    virtual-accelerator ``limits_checking`` paths, live in ``control-assistant``,
+    are keys of that kind.
 
     The failure has to name the source, because the fix is to say what ships it.
     """

@@ -200,11 +200,6 @@ config:
   # this facility runs needs it.
   deployed_services:
     - openobserve
-  # Container-name prefix for the web stack: names are `<prefix>-nginx` /
-  # `<prefix>-web-<user>`, so this MUST be a non-empty valid Docker name start
-  # ([a-zA-Z0-9]). Keep it short and distinct from the project name (used for
-  # image tags). Set to your own facility abbreviation when you copy this preset.
-  facility.prefix: demo
   # Landing-URL origin for the multi-user web stack: render refuses to build
   # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
   # 127.0.0.1 matches the single-trusted-host tutorial posture; set your

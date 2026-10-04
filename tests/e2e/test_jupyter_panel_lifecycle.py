@@ -117,7 +117,6 @@ RUNTIME = "docker"
 PROJECT_NAME = "osprey-e2e-jnb"
 #: The compose project name the web tier's containers are named by.
 PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
-PREFIX = "jnb"
 PRESET = "control-assistant"
 USER = "alice"
 PERSONA = "operator"
@@ -337,7 +336,6 @@ def _profile_edits() -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.prefix": PREFIX,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             PORT_BASE_CONFIG_KEY: PORT_BASE,

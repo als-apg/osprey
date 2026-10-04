@@ -142,7 +142,6 @@ every state blank, so the user sees that nothing was assumed.
  MAP FACTS — <name>
  ┌──────────────────────────────────────────────────────────────────────┐
  │ facility     <name>                     <user said | file | command> │
- │ prefix       <facility.prefix>          <…>                          │
  │ timezone     <IANA name>                <…>                          │
  │ project      <repo directory>           <…>                          │
  └──────────────────────────────────────────────────────────────────────┘

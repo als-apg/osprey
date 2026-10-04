@@ -1482,7 +1482,7 @@ def test_a_persona_image_belonging_to_another_deployment_survives(repo):
 
 @pytest.mark.usefixtures("no_down")
 def test_a_persona_without_its_own_project_is_named_by_the_project_name(repo):
-    """The persona tag follows the project name; ``facility.prefix`` never names it."""
+    """The persona tag follows the project name."""
     import yaml
 
     _with_web_terminals(repo)

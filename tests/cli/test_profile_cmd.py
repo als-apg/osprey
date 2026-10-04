@@ -178,7 +178,6 @@ name: Lint Fail
 extends: hello-world
 data: data
 config:
-  facility.prefix: demo
   modules.web_terminals:
     enabled: true
     default_persona: readwrite

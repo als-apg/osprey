@@ -8,8 +8,8 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-The parts of that file gathered here are the facility this deployment belongs
-to (``facility:``), the models its simulator serves (``simulation:``), the
+The parts of that file gathered here are the models its simulator serves
+(``simulation:``), the
 diagnostic suite (``health:``), the browser UI's documentation and feedback
 settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
@@ -25,23 +25,6 @@ in. Settings that only
 ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
-
-.. _config-facility:
-
-``facility:`` — whose machine this is
---------------------------------------
-
-One key says which facility the deployment serves.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 70
-
-   * - Key
-     - What it does
-   * - ``facility.prefix``
-     - The facility token the knowledge graph's identifiers carry.
-       ``osprey knowledge`` reads it; nothing else does.
 
 .. _config-simulation:
 

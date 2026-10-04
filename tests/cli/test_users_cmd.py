@@ -81,7 +81,6 @@ PROFILE_WITH_ROSTER = textwrap.dedent(
     """
     preset: control-assistant
     config:
-      facility.prefix: dls
       modules.web_terminals:
         enabled: true
         users:

@@ -187,13 +187,13 @@ deployment will run carries its id, landing as
 not carry it (reason `<provider> does not serve <id>`) or when the agent is not in the new
 deployment. An obsolete pin's agent runs the main model.
 The confirmed card lands under `## Porting map (locked)`. An empty status quo
-(`generation: none`) maps nothing: no porting-map card, locked as `none`, and the four
+(`generation: none`) maps nothing: no porting-map card, locked as `none`, and the three
 facts below become this phase's card instead — MAP FACTS in `references/map.md`.
 
-MAP ends with four facts. Ask only for the ones the inventory did not yield, and say
-where the others came from: facility name; the short `facility.prefix` the web container
-names are built from; the IANA timezone for `system.timezone`; the project name. Only the
-last is an `osprey init` argument; the other three are `osprey set` keys applied after it.
+MAP ends with three facts. Ask only for the ones the inventory did not yield, and say
+where the others came from: facility name; the IANA timezone for `system.timezone`; the
+project name, which the web container names are built from. Only the last is an `osprey
+init` argument; the other two are `osprey set` keys applied after it.
 
 ### 3. BUILD
 

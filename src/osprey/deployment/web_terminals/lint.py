@@ -308,7 +308,7 @@ def lint_profile_config(
     """Validate the ``modules.web_terminals`` a build profile's ``config:`` sets.
 
     A ``config:`` block is a flat bag of dotted keys (``modules.web_terminals``,
-    ``facility.prefix``, ``services.openobserve.port``, …) applied over the
+    ``deploy.fqdn``, ``services.openobserve.port``, …) applied over the
     rendered template, so it is nested into the shape the checks read before
     linting. Shallowest key first, so a deeper key refines the subtree a
     shallower one set rather than being overwritten by it — the same order

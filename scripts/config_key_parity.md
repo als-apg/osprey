@@ -152,7 +152,6 @@ Present only where the deployment has the capability.
 |---|---|---|
 | `control_system.writes_enabled` | `true` in `control-assistant`; `false` in `hello-world` | control-assistant is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
 | `web.theme` | live `light` in `control-assistant`; commented in `hello-world`; absent from the two standalones | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
-| `facility.prefix` | commented in the two standalones, live `ca` in `control-assistant` | only the multi-user web-terminal stack reads it, so only the preset that ships one sets it |
 | `channel_finder.benchmark.dataset_path` | `control-assistant` only | see below |
 | `deployment.bind_address` (commented) | `hello-world`, `ariel-standalone`, `control-assistant` | absent ⇒ `127.0.0.1`, the safe state |
 
@@ -259,30 +258,6 @@ omission.
    It is absent from every `approval.tools` block, so it falls to
    `default_policy: always` — fail-closed and correctly described by the
    shipped comment. No change needed; recorded so it is not mistaken for drift.
-4. **`facility.prefix` has a stated convention and no validator — by design.**
-   The 2-6-character lowercase-alnum-plus-hyphens rule this entry was opened
-   against came from a schema document that no longer exists (it went with the
-   `facility-config.yml` surface). The convention survives in prose only, and
-   nothing in the tree validates `facility.prefix`.
-
-   The absence is real, not an artifact of an incomplete search. The same lint
-   module defines `_USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")`
-   and enforces it at two sites — usernames (`_check_username_charset`) and
-   persona names (`_check_persona_charset`). So this codebase does write charset
-   checks where it wants them, and has none for `facility.prefix`.
-
-   **The rule is not merely unenforced — it is inert.** Tracing `facility.prefix`
-   to its sinks: two container-name interpolations plus the personas path, and
-   nothing else. It never becomes an nginx location key or a URL segment, which
-   is the specific reason usernames and persona names *do* get the charset
-   regex. There is no sink at which violating the 2-6/lowercase rule breaks
-   anything.
-
-   **Resolved: it stays a convention — do NOT add a validator.** A new charset
-   check would reject configurations that work correctly today, turning a
-   cosmetic inconsistency into a breaking change. The presets state the enforced
-   rule (non-emptiness) alongside the Docker constraint, which is the right
-   two-altitude framing.
 
 ## Where the web-terminal lint runs
 
