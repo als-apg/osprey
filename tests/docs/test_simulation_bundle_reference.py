@@ -115,7 +115,12 @@ def test_the_page_names_the_loaders_vocabulary() -> None:
     from dataclasses import fields
 
     from osprey_connectors.simulation.machine import (
+        _COUPLING_KEYS,
+        _DRIVER_KEYS,
+        _DRIVER_KINDS,
         _EVENT_VALUE_KEYS,
+        _GAIN_WANDER_KEYS,
+        _NOISE_OVERRIDE_KEYS,
         _TEXTURE_KEYS,
         _TEXTURE_KINDS,
         BpmErrorSpec,
@@ -130,6 +135,10 @@ def test_the_page_names_the_loaders_vocabulary() -> None:
     vocabulary.update({"at", "at_offset", "at_time", "until", "until_offset"})
     vocabulary.update(_TEXTURE_KEYS)
     vocabulary.update(_TEXTURE_KINDS)
+    vocabulary.update({"drivers", "couple", "noise"})
+    for keys in (_DRIVER_KEYS, _DRIVER_KINDS, _COUPLING_KEYS, _GAIN_WANDER_KEYS):
+        vocabulary.update(keys)
+    vocabulary.update(_NOISE_OVERRIDE_KEYS)
     for model in (BpmErrorSpec, PhysicsFault, ScenarioLogEntry):
         vocabulary.update(f.name for f in fields(model))
     vocabulary.update({"days_ago", "time"})

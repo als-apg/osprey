@@ -67,8 +67,8 @@ osprey sim apply nominal              # back to clean baseline
 
 - Pass every fault you want active in one command; they compose. `nominal` is
   always included implicitly.
-- Active scenarios **must touch disjoint channel sets** (no two may override or
-  attach archiver events to the same channel). `apply` refuses a colliding set
+- Active scenarios **must touch disjoint channel sets** (no two may override,
+  attach archiver events to, couple or re-noise the same channel). `apply` refuses a colliding set
   with a clear error — pick scenarios that don't fight over a channel.
 - `apply` **purges and reseeds** the logbook DB so the narrative matches the
   active telemetry. Pass `--no-seed-logbook` to leave it alone.
@@ -171,6 +171,25 @@ that boundary tracks the present), and anything positive reaches into a future
 nothing has recorded yet. Keep events inside the dense window (48 hours by
 default) when the shape needs resolution — a spike whose sigma is smaller than
 the 60-second coarse cadence is not resolvable out there.
+
+### Shared drivers (`drivers` / `couple` / `noise`, optional)
+
+To make channels move *together* (a common cause, e.g. for live correlation
+plots), declare a named slow driver and couple channels to it:
+
+```json
+"drivers": {"cav01-thermal": {"kind": "wander", "amplitude": 1.0, "period_s": 300}},
+"couple": {"SR:RF:CAVITY:01:POWER:REV": [{"driver": "cav01-thermal", "gain": 2.5,
+           "gain_wander": {"amplitude": 0.8, "period_s": 900}}]},
+"noise": {"SR:RF:CAVITY:01:POWER:REV": {"noise": 0.0, "noise_abs": 0.75}}
+```
+
+A driver is a texture-style `wander` keyed by its name, so every coupled channel
+sees the same value at the same instant, in live reads and synthesized history
+alike. `gain` is in the channel's units per unit driver; optional `gain_wander`
+makes the coupling strength drift; `noise` replaces the channel's machine-file
+noise sigmas while the scenario is active. The shipped `rf-thermal-live` bundle
+is the worked example.
 
 A numeric channel may declare optional `min`/`max` physical bounds; live reads
 and synthesized history are clamped into that range on the way out (e.g.

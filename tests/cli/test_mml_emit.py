@@ -850,6 +850,11 @@ def _write_scenario(repo: Path, name: str, channel: str, *, key: str = "archiver
     spec: dict = {"description": name}
     if key == "archiver":
         spec["archiver"] = [{"channel": channel, "events": []}]
+    elif key == "couple":
+        spec["drivers"] = {"cause": {"kind": "wander", "amplitude": 1.0, "period_s": 300}}
+        spec["couple"] = {channel: [{"driver": "cause", "gain": 1.0}]}
+    elif key == "noise":
+        spec["noise"] = {channel: {"noise_abs": 0.1}}
     else:
         spec["overrides"] = {channel: 1.0}
     path.write_text(json.dumps(spec) + "\n", encoding="utf-8")
@@ -1324,6 +1329,24 @@ class TestVirtualAcceleratorLane:
 
         assert result.exit_code == 0, result.output
         assert served.is_file()
+
+    @pytest.mark.parametrize("key", ["couple", "noise"])
+    def test_a_scenario_coupling_or_renoising_an_unserved_channel_is_refused(
+        self, va_repo: Path, key: str
+    ) -> None:
+        # A driver coupling and a noise override are addresses too: the
+        # simulation resolves both against the served machine at boot, so a
+        # bundle naming an absent channel through either is refused like one
+        # naming it through an override or an archiver event.
+        stale = _write_scenario(va_repo, "rf-thermal-live", ABSENT_CHANNEL, key=key)
+
+        refused = _emit()
+
+        assert refused.exit_code != 0
+        assert "Traceback" not in refused.output
+        assert f"data/simulation/scenarios/rf-thermal-live names {ABSENT_CHANNEL}" in refused.output
+        assert _rm_lines(refused.output) == ["rm -r data/simulation/scenarios/rf-thermal-live"]
+        assert stale.is_file()
 
     def test_an_empty_scenario_directory_is_kept(self, va_repo: Path) -> None:
         # Nothing in it is stated against anything, so there is nothing for the
