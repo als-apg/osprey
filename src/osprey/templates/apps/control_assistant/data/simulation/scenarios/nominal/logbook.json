@@ -187,7 +187,7 @@
     },
     "author": "A. Rodriguez",
     "title": "Orbit feedback system tuning",
-    "text": "Retuned the global orbit feedback system response matrix. Previous matrix was from 2024-01-15 and showed degraded correction above 50 Hz. Measured new response matrix with 144 correctors and all 72 BPMs in both planes. Singular value decomposition shows 85 significant modes (was 82 with old matrix). Feedback bandwidth improved from 50 Hz to 80 Hz. RMS orbit stability improved from 1.2 um to 0.8 um.",
+    "text": "Retuned the global orbit feedback system response matrix. Previous matrix was from 2024-01-15 and showed degraded correction above 50 Hz. Measured new response matrix with 144 correctors and all 72 BPMs in both planes. Singular value decomposition shows 85 significant modes (was 82 with old matrix). Feedback bandwidth improved from 50 Hz to 80 Hz. RMS orbit stability improved from 1.2 um to 0.8 um. Attached: hourly closed-orbit RMS over all 72 BPMs for the week before the retune, flat at about 10 um in both planes; the retune targets the fast beam motion, not the static orbit.",
     "tags": [
       "orbit",
       "feedback",
