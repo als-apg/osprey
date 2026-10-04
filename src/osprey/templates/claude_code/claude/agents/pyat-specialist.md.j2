@@ -79,7 +79,7 @@ copy — never mutate the loaded lattice in place across the whole map:
 ```python
 import copy, at, numpy as np
 
-lattice = at.load_lattice("data/simulator/decks/{{ served_deck_models[0] if served_deck_models else '<model>' }}.json")
+lattice = at.load_lattice("data/simulator/decks/{{ served_deck_models[0] }}.json")
 ring4d = copy.deepcopy(lattice)
 ring4d.disable_6d()          # in-place on the COPY, before any linear-optics call
 ```

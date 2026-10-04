@@ -909,6 +909,10 @@ class AgentDefinition:
     # cli/templates/claude_code.py) -- an enabled agent declaring a tool that
     # is neither in allow nor ask fails build validation.
     requires_ask_tools: frozenset[str] = frozenset()
+    # What the agent needs that its condition stands for. When set, an unmet
+    # condition keeps the agent out even under ``enabled: true``, and the build
+    # logs one line naming this need.
+    condition_need: str | None = None
 
 
 FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
@@ -960,6 +964,7 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
         name="pyat-specialist",
         # Loads each served model's deck; a render serving none has no agent.
         condition="served_deck_models",
+        condition_need="a served model with a deck",
         server_dependency="python",
         description=(
             "Delegate to this agent when the user needs lattice/optics quantities "
@@ -1877,7 +1882,11 @@ def resolve_agents(
             if spec.get("enabled") is False:
                 agents[name].default_enabled = False
             elif spec.get("enabled") is True:
-                agents[name].default_enabled = True
+                adef = agents[name]
+                if adef.condition_need and not ctx.get(adef.condition):
+                    logger.warning("Agent %r is left out: it needs %s", name, adef.condition_need)
+                else:
+                    adef.default_enabled = True
         else:
             if spec.get("enabled") is not False:
                 adef = _custom_agent_from_spec(name, spec)
