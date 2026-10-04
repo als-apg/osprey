@@ -73,6 +73,7 @@ from osprey_connectors.posture_store import (
     RESERVED_OWNER_KWARG,
     StoreVerdict,
 )
+from tests.facility.served_tree import mock_config, served_tree
 
 #: The person whose chip narrows the target in every row that has a narrowing.
 NARROWING_OWNER = "alice"
@@ -235,7 +236,7 @@ def armed_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def connector(armed_deployment: None) -> Iterator[_RecordingMockConnector]:  # noqa: ARG001 - the deployment's write ceiling is open before the connector is built
+def connector(armed_deployment: None, tmp_path: Path) -> Iterator[_RecordingMockConnector]:  # noqa: ARG001 - the deployment's write ceiling is open before the connector is built
     """The connector a lane builds, through the factory that builds a lane's.
 
     Built rather than constructed, because the monitor reads two stamps that
@@ -256,7 +257,12 @@ def connector(armed_deployment: None) -> Iterator[_RecordingMockConnector]:  # n
             ConnectorFactory.create_control_system_connector(
                 {
                     "type": _CONNECTOR_TYPE,
-                    "connector": {_CONNECTOR_TYPE: {"response_delay_ms": 0, "noise_level": 0.0}},
+                    "connector": {
+                        _CONNECTOR_TYPE: mock_config(
+                            served_tree(tmp_path / "served", [_CHANNEL]),
+                            response_delay_ms=0,
+                        )
+                    },
                 },
                 control_target=_TARGET,
             )
