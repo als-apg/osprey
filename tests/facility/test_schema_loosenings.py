@@ -182,7 +182,17 @@ def test_device_attributes_is_a_free_map(core: dict) -> None:
 
 def test_scenario_record_shape(core: dict) -> None:
     scenario = _attrs(core, "Scenario")
-    assert list(scenario) == ["name", "overrides", "faults", "archiver", "logbook"]
+    assert list(scenario) == [
+        "name",
+        "description",
+        "overrides",
+        "faults",
+        "archiver",
+        "logbook",
+        "drivers",
+        "couple",
+        "noise",
+    ]
     faults = scenario["faults"]
     assert faults["range"] == "Any" and not faults.get("multivalued")
     for part in ("<model>", "<address or engine variable>", "`stuck`", "{<fault field>: <value>}"):

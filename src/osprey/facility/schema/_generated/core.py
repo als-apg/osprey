@@ -1111,7 +1111,8 @@ class Identity(ConfiguredBaseModel):
                        'Place',
                        'Device',
                        'Channel',
-                       'Group']} })
+                       'Group',
+                       'Scenario']} })
 
     @field_validator('code')
     def pattern_code(cls, v):
@@ -1141,7 +1142,8 @@ class FacilityClass(ConfiguredBaseModel):
                        'Place',
                        'Device',
                        'Channel',
-                       'Group']} })
+                       'Group',
+                       'Scenario']} })
 
 
 class Provenance(ConfiguredBaseModel):
@@ -1184,7 +1186,8 @@ class Place(ConfiguredBaseModel):
                        'Place',
                        'Device',
                        'Channel',
-                       'Group']} })
+                       'Group',
+                       'Scenario']} })
     names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
          'list_elements_ordered': True} })
     attributes: Optional[Any] = Field(default=None, description="""A free string to scalar or list map, carried verbatim.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel']} })
@@ -1217,7 +1220,8 @@ class Device(ConfiguredBaseModel):
                        'Place',
                        'Device',
                        'Channel',
-                       'Group']} })
+                       'Group',
+                       'Scenario']} })
     names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
          'list_elements_ordered': True} })
     properties: Optional[list[str]] = Field(default=None, description="""Vocabulary property names.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Device'], 'list_elements_ordered': True} })
@@ -1259,7 +1263,8 @@ class Channel(ConfiguredBaseModel):
                        'Place',
                        'Device',
                        'Channel',
-                       'Group']} })
+                       'Group',
+                       'Scenario']} })
     names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
          'list_elements_ordered': True} })
     former_addresses: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
@@ -1279,7 +1284,7 @@ class Seed(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     nominal: Optional[Any] = Field(default=None, description="""The value at start, of the channel's value_type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
-    noise: Optional[float] = Field(default=None, description="""Additive Gaussian sigma in the channel's unit.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    noise: Optional[float] = Field(default=None, description="""Additive Gaussian sigma in the channel's unit.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
     drift: Optional[Drift] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     clamp: Optional[list[Any]] = Field(default=None, description="""[low, high]; either side may be null.""", min_length=2, max_length=2, json_schema_extra = { "linkml_meta": {'domain_of': ['Seed'], 'list_elements_ordered': True} })
     linear: Optional[dict[str, Union[float, LinearTerm]]] = Field(default=None, description="""The value as a weighted sum of other channels, `{<address>: <coefficient>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Curve'], 'list_elements_ordered': True} })
@@ -1311,7 +1316,8 @@ class Group(ConfiguredBaseModel):
                        'Place',
                        'Device',
                        'Channel',
-                       'Group']} })
+                       'Group',
+                       'Scenario']} })
     names: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group'],
          'list_elements_ordered': True} })
     members: Optional[list[str]] = Field(default=None, description="""Device ids.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group']} })
@@ -1485,10 +1491,20 @@ class Scenario(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'Model', 'Scenario']} })
+    description: Optional[str] = Field(default=None, description="""What the scenario shows.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Identity',
+                       'FacilityClass',
+                       'Place',
+                       'Device',
+                       'Channel',
+                       'Group',
+                       'Scenario']} })
     overrides: Optional[Any] = Field(default=None, description="""`{<address>: <value>}`, each value of the channel's value_type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     faults: Optional[Any] = Field(default=None, description="""`{<model>: {<address or engine variable>: <value>}}`, where a value is a scalar, the word `stuck`, or a map `{<fault field>: <value>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
-    archiver: Optional[list[Any]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
+    archiver: Optional[list[Any]] = Field(default=None, description="""`[{channel, events}]`, the history each channel's archive shows. An event's `at_offset` is in seconds relative to the moment the scenario is applied (negative is the past), and an anchored spike's `width` is its Gaussian sigma in seconds. An event meant to be sampled densely sits inside the archive's dense tier, with a `width` of at least twice the sampling interval.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
     logbook: Optional[list[Any]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
+    drivers: Optional[Any] = Field(default=None, description="""`{<driver>: {kind, amplitude, period_s}}`, slow signals shared by the channels `couple` names, so those channels move together.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
+    couple: Optional[Any] = Field(default=None, description="""`{<address>: [{driver, gain, gain_wander?}]}`: the channel adds `gain` times each named driver to its value; `gain_wander` `{amplitude, period_s}` lets that gain wax and wane.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
+    noise: Optional[Any] = Field(default=None, description="""`{<address>: {noise, noise_abs}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
 
 
 # Model rebuild
