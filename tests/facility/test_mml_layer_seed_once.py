@@ -565,6 +565,27 @@ def test_the_spear3_offsets_are_in_the_conversion_and_seed_no_scenario(
     assert not (facility / READOUT_FILE).exists()
 
 
+def test_a_gain_beside_an_offset_the_conversion_holds_is_not_carried(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    for stem in TREES["spear3"]:
+        for source in sorted((FIXTURES / "spear3").glob(f"{stem}.*")):
+            shutil.copyfile(source, exports / source.name)
+    va = exports / "spear3.storagering.va.json"
+    document = json.loads(va.read_text(encoding="utf-8"))
+    document["families"]["BPMx"]["Monitor"]["readout"]["gain"][0] = 2.0
+    va.write_text(json.dumps(document), encoding="utf-8")
+
+    facility = _facility(tmp_path, "spear3")
+    import_mml([exports / source.name for source in _sources("spear3")], facility)
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
+    assert lines == ["import mml: readout not carried: StorageRing: family BPMx (gain)"]
+    assert not (facility / READOUT_FILE).exists()
+
+
 def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_position(
     tmp_path: Path,
 ) -> None:
