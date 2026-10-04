@@ -453,7 +453,7 @@ def test_a_va_baseline_with_no_live_block_still_answers_live_from_the_global_key
 def test_live_on_a_mock_deployment_answers_the_deployment_wide_key(global_value: bool):
     """Parity: a mock deployment never had a second target, so it keeps the flag."""
     # Arrange
-    section = _section(MOCK, writes_enabled=global_value, connector={"mock": {"noise_level": 0.0}})
+    section = _section(MOCK, writes_enabled=global_value, connector={"mock": {}})
 
     # Act / Assert
     assert target_writes_enabled(section, TARGET_LIVE) is global_value

@@ -13,6 +13,18 @@ from unittest.mock import patch
 
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
+from tests.facility.served_tree import mock_config, served_tree
+
+#: Every address this module writes.
+WRITTEN = (
+    "BATCH:CH1",
+    "BATCH:CH2",
+    "BLIND:CHANNEL",
+    "PICKY:CHANNEL",
+    "PLAIN:CHANNEL",
+    "QUIET:CHANNEL",
+    "TEST:CHANNEL",
+)
 
 
 def _config_with_writes_enabled(key, default=None):
@@ -60,11 +72,11 @@ def _limits_config(limits_file, **extra):
     return get_config_value
 
 
-async def _connected_mock(monkeypatch, limits_file=None, **extra):
-    """A connected mock with writes enabled and noise switched off.
+async def _connected_mock(monkeypatch, tmp_path, limits_file=None, **extra):
+    """A connected mock with writes enabled, serving a tree of :data:`WRITTEN`.
 
-    Noise off is what makes the assertions about the *outcome* rather than the
-    mock's synthetic jitter; the confirming read is noise-free either way.
+    The confirming read is noise-free, so the assertions are about the
+    *outcome* rather than the mock's synthetic jitter.
     """
     config = (
         _config_with_writes_enabled if limits_file is None else _limits_config(limits_file, **extra)
@@ -72,7 +84,9 @@ async def _connected_mock(monkeypatch, limits_file=None, **extra):
     monkeypatch.setattr("osprey.utils.config.get_config_value", config)
 
     connector = MockConnector()
-    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+    await connector.connect(
+        mock_config(served_tree(tmp_path / "served", WRITTEN), response_delay_ms=0)
+    )
     return connector
 
 
@@ -83,9 +97,9 @@ class TestConfirmResolution:
     ``defaults.confirm``, 3. the fleet default ``True``.
     """
 
-    async def test_fleet_default_confirms_without_a_limits_database(self, monkeypatch):
+    async def test_fleet_default_confirms_without_a_limits_database(self, tmp_path, monkeypatch):
         """Layer 3: no database means no policy to read, so the write confirms."""
-        connector = await _connected_mock(monkeypatch)
+        connector = await _connected_mock(monkeypatch, tmp_path)
         assert connector._limits_validator is None
 
         result = await connector.write_channel("TEST:CHANNEL", 100.0)
@@ -103,7 +117,7 @@ class TestConfirmResolution:
                 "QUIET:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         result = await connector.write_channel("QUIET:CHANNEL", 50.0)
 
@@ -120,7 +134,7 @@ class TestConfirmResolution:
                 "PLAIN:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         result = await connector.write_channel("PLAIN:CHANNEL", 50.0)
 
@@ -139,7 +153,7 @@ class TestConfirmResolution:
                 "PLAIN:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         picky = await connector.write_channel("PICKY:CHANNEL", 50.0)
         plain = await connector.write_channel("PLAIN:CHANNEL", 50.0)
@@ -158,7 +172,7 @@ class TestConfirmResolution:
                 "BLIND:CHANNEL": {"min_value": 0.0, "max_value": 100.0, "confirm": False},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         result = await connector.write_channel("BLIND:CHANNEL", 50.0)
 
@@ -178,7 +192,7 @@ class TestExplicitConfirmOverridesTheDatabase:
                 "PICKY:CHANNEL": {"min_value": 0.0, "max_value": 100.0, "confirm": True},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         assert (await connector.write_channel("PICKY:CHANNEL", 50.0)).outcome is (
             WriteOutcome.CONFIRMED
@@ -197,7 +211,7 @@ class TestExplicitConfirmOverridesTheDatabase:
                 "BLIND:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         result = await connector.write_channel("BLIND:CHANNEL", 50.0, confirm=True)
 
@@ -220,7 +234,7 @@ class TestExplicitConfirmOverridesTheDatabase:
                 "PLAIN:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         explicit_none = await connector.write_channel("PLAIN:CHANNEL", 50.0, confirm=None)
         omitted = await connector.write_channel("PLAIN:CHANNEL", 50.0)
@@ -244,7 +258,7 @@ class TestBatchConfirmResolution:
                 "BATCH:CH2": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         results = await connector.write_multiple_channels(
             [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)]
@@ -266,7 +280,7 @@ class TestBatchConfirmResolution:
                 "BATCH:CH2": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        connector = await _connected_mock(monkeypatch, limits_file)
+        connector = await _connected_mock(monkeypatch, tmp_path, limits_file)
 
         declined = await connector.write_multiple_channels(
             [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)], confirm=False
@@ -278,9 +292,11 @@ class TestBatchConfirmResolution:
 
         await connector.disconnect()
 
-    async def test_batch_without_a_limits_database_confirms_every_channel(self, monkeypatch):
+    async def test_batch_without_a_limits_database_confirms_every_channel(
+        self, tmp_path, monkeypatch
+    ):
         """No database, no policy: the fleet default applies to each channel."""
-        connector = await _connected_mock(monkeypatch)
+        connector = await _connected_mock(monkeypatch, tmp_path)
 
         results = await connector.write_multiple_channels(
             [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)]
@@ -297,10 +313,11 @@ class TestBatchConfirmResolution:
 class TestWritesDisabledOutranksConfirmation:
     """The ``writes_enabled`` gate refuses before any policy is resolved."""
 
-    async def test_a_disabled_write_is_refused_not_unrequested(self):
+    async def test_a_disabled_write_is_refused_not_unrequested(self, tmp_path):
+        view = served_tree(tmp_path, ["TEST:CHANNEL"])
         connector = MockConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             result = await connector.write_channel("TEST:CHANNEL", 100.0, confirm=False)
 
