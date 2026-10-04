@@ -10,7 +10,9 @@ each built from one wiring record by
 
 - the fault state every wired monitor and magnet can carry,
 - the energy knob's coupling to the rigidity-scaled setpoints,
-- and the optics arrays of the solved lattice, computed on read.
+- the optics arrays of the solved lattice, computed on read,
+- and the wired readbacks it serves from those: a :class:`ReadbackVariable`
+  reads a setpoint back, or one plane of the tunes or the chromaticity.
 
 **Faults are variables, held as state on the element.** Each is named
 ``<address>/<field>`` after the wired address it perturbs, so a fault name is
@@ -68,12 +70,13 @@ from typing import TYPE_CHECKING, Any
 
 import at
 import numpy as np
-from lume.actions import WritableActionMixin
-from lume.variables import ConfigEnum
+from lume.actions import ReadOnlyActionMixin, WritableActionMixin
+from lume.variables import ConfigEnum, ScalarVariable
 from lume_pyat.actions import ElementBinding, PyATWritableScalarVariable
 from lume_pyat.exceptions import UnknownElementError
 from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
+from pydantic import ConfigDict
 
 from osprey.simulation.engines.pyat_faults import SUPPLY_IDENTITY, supply_attribute
 from osprey.simulation.engines.pyat_variables import (
@@ -97,6 +100,7 @@ __all__ = [
     "ORBIT_AT_MONITORS",
     "TUNES",
     "PyATLatticeModel",
+    "ReadbackVariable",
 ]
 
 #: What separates a wired address from a field in a fault name.
@@ -158,6 +162,8 @@ ORBIT_AT_MONITORS = "orbit_at_monitors"
 #: The optics one linear pass computes together.
 LINEAR_OPTICS: frozenset[str] = frozenset({TUNES, BETA_AT_MONITORS, ORBIT_AT_MONITORS})
 OPTICS_NAMES: frozenset[str] = LINEAR_OPTICS | {CHROMATICITY}
+#: The optics arrays a readback reads one plane of.
+PLANE_OPTICS: frozenset[str] = frozenset({TUNES, CHROMATICITY})
 
 FaultVariable = PyATWritableScalarVariable | PyATWritableEnumVariable
 
@@ -278,6 +284,67 @@ def _optics_variables(monitor_count: int, planes: int) -> list[PyATReadOnlyNDVar
     ]
 
 
+class ReadbackVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
+    """A wired readback the model serves from another of its variables.
+
+    It binds no element: the model computes it on read from ``source``, so it
+    follows every write of that source and every :meth:`reset`.
+
+    Attributes:
+        source: A setpoint's address, read back through the setpoint's own
+            calibration at the hardware value it holds; ``tunes`` or
+            ``chromaticity``, read at ``component``; or ``None`` for a
+            readback with nothing to follow, which reads ``default_value``.
+        component: The plane of ``tunes`` or ``chromaticity``; ``None``
+            otherwise.
+        element_name: Always ``None``, so a model's per-element binding check
+            has nothing to resolve.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str | None = None
+    component: int | None = None
+    element_name: None = None
+    read_only: bool = True
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """Refuse. The owning model computes the value, not the variable.
+
+        Raises:
+            NotImplementedError: always.
+        """
+        raise NotImplementedError(
+            f"{self.name!r} is read from {self.source!r}; read it through the model that "
+            "declares it"
+        )
+
+
+def _check_readbacks(channels: Iterable[Variable], planes: int) -> None:
+    """Refuse a readback whose source the model does not serve.
+
+    Raises:
+        ValueError: a readback names a source that is neither a setpoint
+            among ``channels`` nor ``tunes``/``chromaticity``, or an optics
+            plane the deck does not have.
+    """
+    setpoints = {variable.name for variable in channels if isinstance(variable, CalibratedSetpoint)}
+    for variable in channels:
+        if not isinstance(variable, ReadbackVariable) or variable.source is None:
+            continue
+        if variable.source in PLANE_OPTICS:
+            if variable.component is None or not 0 <= variable.component < planes:
+                raise ValueError(
+                    f"readback {variable.name} reads {variable.source} plane "
+                    f"{variable.component}; the deck has planes 0 to {planes - 1}"
+                )
+        elif variable.source not in setpoints:
+            raise ValueError(
+                f"readback {variable.name} reads {variable.source}, which is no setpoint "
+                f"of the model and none of {sorted(PLANE_OPTICS)}"
+            )
+
+
 def _refuse_name_collisions(channels: Iterable[Variable], declared: Iterable[Variable]) -> None:
     """Refuse a declared name a channel variable already carries.
 
@@ -380,6 +447,7 @@ class PyATLatticeModel(LUMEPyATModel):
                 f"{sorted(CALIBRATION_IDENTITY)}"
             )
         planes = tune_planes(lattice)
+        _check_readbacks(channels, planes)
         optics = _optics_variables(len(monitors), planes)
         _refuse_name_collisions(channels, [*declared, *optics])
         _seed_fault_attributes(lattice, declared)
@@ -413,6 +481,16 @@ class PyATLatticeModel(LUMEPyATModel):
             [self.element_index(element) for element in self._monitor_order], dtype=np.uint32
         )
         self._planes = planes
+        self._readbacks: dict[str, ReadbackVariable] = {
+            variable.name: variable
+            for variable in channels
+            if isinstance(variable, ReadbackVariable)
+        }
+        self._setpoints: dict[str, CalibratedSetpoint] = {
+            variable.name: variable
+            for variable in channels
+            if isinstance(variable, CalibratedSetpoint)
+        }
         self._optics_memo: _OpticsMemo | None = None
         self._chromaticity_memo: _ChromaticityMemo | None = None
 
@@ -432,22 +510,24 @@ class PyATLatticeModel(LUMEPyATModel):
     # -- the optics arrays, which bind no element and are read on demand ----
 
     def _validate_binding(self, name: str, variable: Variable) -> None:
-        """Check a variable's binding; an optics array binds none to check."""
-        if isinstance(variable, PyATReadOnlyNDVariable):
+        """Check a variable's binding; an optics array or a readback binds none."""
+        if isinstance(variable, (PyATReadOnlyNDVariable, ReadbackVariable)):
             return
         super()._validate_binding(name, variable)
 
     def _read_outputs(self) -> dict[str, float]:
-        """Every per-monitor reading off the last solve, and never the optics.
+        """Every per-monitor reading off the last solve, never the optics or a readback.
 
         This runs after every solve, so leaving the optics out is what keeps a
-        setpoint write from paying for them; :meth:`_get` computes them when
-        one is read.
+        setpoint write from paying for them; :meth:`_get` computes them, and
+        every readback, when one is read.
         """
         return {
             name: variable._get(self.simulator)
             for name, variable in self.supported_variables.items()
-            if not isinstance(variable, (WritableActionMixin, PyATReadOnlyNDVariable))
+            if not isinstance(
+                variable, (WritableActionMixin, PyATReadOnlyNDVariable, ReadbackVariable)
+            )
         }
 
     def _get(self, names: list[str]) -> dict[str, Any]:
@@ -456,22 +536,45 @@ class PyATLatticeModel(LUMEPyATModel):
         Optics arrays come from :meth:`_optics` and :meth:`_chromaticity`, as
         copies, so a caller that edits one cannot alter what the next read
         returns; the chromatic solve runs only when ``names`` holds
-        ``chromaticity``. Everything else is the base class's cached answer.
+        ``chromaticity`` or a readback of it. A readback is computed from its
+        source. Everything else is the base class's cached answer.
 
         Raises:
             UnknownElementError: a name is not a variable of this model.
         """
-        if OPTICS_NAMES.isdisjoint(names):
+        readbacks = {name: self._readbacks[name] for name in names if name in self._readbacks}
+        wanted = {name for name in names if name in OPTICS_NAMES}
+        wanted.update(
+            readback.source for readback in readbacks.values() if readback.source in PLANE_OPTICS
+        )
+        if not wanted and not readbacks:
             return super()._get(names)
         arrays: dict[str, np.ndarray] = {}
-        if not LINEAR_OPTICS.isdisjoint(names):
+        if not LINEAR_OPTICS.isdisjoint(wanted):
             arrays.update(self._optics())
-        if CHROMATICITY in names:
+        if CHROMATICITY in wanted:
             arrays[CHROMATICITY] = self._chromaticity()
-        cached = super()._get([name for name in names if name not in OPTICS_NAMES])
-        return {
-            name: arrays[name].copy() if name in OPTICS_NAMES else cached[name] for name in names
-        }
+        cached = super()._get(
+            [name for name in names if name not in OPTICS_NAMES and name not in readbacks]
+        )
+        values: dict[str, Any] = {}
+        for name in names:
+            if name in OPTICS_NAMES:
+                values[name] = arrays[name].copy()
+            elif name in readbacks:
+                values[name] = self._readback(readbacks[name], arrays)
+            else:
+                values[name] = cached[name]
+        return values
+
+    def _readback(self, readback: ReadbackVariable, arrays: Mapping[str, np.ndarray]) -> float:
+        """One readback's value, from the optics in ``arrays`` or the held setpoints."""
+        if readback.source is None:
+            return float(readback.default_value or 0.0)
+        if readback.source in PLANE_OPTICS:
+            return float(arrays[readback.source][readback.component])
+        setpoint = self._setpoints[readback.source]
+        return setpoint.readback(self._inputs[readback.source])
 
     def _optics(self) -> dict[str, np.ndarray]:
         """The optics arrays of the last solve, computed at most once per solve.
