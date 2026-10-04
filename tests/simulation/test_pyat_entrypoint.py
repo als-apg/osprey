@@ -229,6 +229,29 @@ class TestStartValues:
         assert values["BPM1:X"] == 0.0
         assert list(values) == sorted(values)
 
+    def test_the_deck_energy_is_read_through_the_inverse(self, ab_deck: Path):
+        calibration = Calibration(
+            curve=Curve(table=TableCurve([0.0, 400.0], [0.0, 4.0e9])),
+            inverse=Curve(table=TableCurve([0.0, 4.0e9], [0.0, 400.0])),
+        )
+        record = Wiring(
+            "LINE/E:SP", "E:SP", engine={"attribute": "energy"}, calibration=calibration
+        )
+        assert engine.start_values(ab_deck, [record], {}) == {"E:SP": pytest.approx(300.0)}
+
+    def test_a_deck_property_with_a_table_and_no_inverse_stops(self, ab_deck: Path):
+        calibration = Calibration(curve=Curve(table=TableCurve([0.0, 400.0], [0.0, 4.0e9])))
+        record = Wiring(
+            "LINE/E:SP", "E:SP", engine={"attribute": "energy"}, calibration=calibration
+        )
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(ab_deck, [record], {})
+        assert (caught.value.kind, caught.value.record_id) == ("engine-invalid", "LINE/E:SP")
+
+    def test_no_element_and_no_deck_property_has_no_start_value(self, ab_deck: Path):
+        record = Wiring("LINE/V:SP", "V:SP", engine={"attribute": "voltage"})
+        assert engine.start_values(ab_deck, [record], {}) == {}
+
     def test_a_non_float_channel_stops_before_the_deck_is_read(self, tmp_path: Path):
         float_record = Wiring("LINE/Q:SP", "Q:SP", element="A", engine=dict(SETTING))
         int_record = Wiring("LINE/N:RB", "N:RB", element="A", engine=dict(SETTING))

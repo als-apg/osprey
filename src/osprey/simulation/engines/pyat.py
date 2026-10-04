@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -56,6 +56,13 @@ TWISS_LENGTHS: dict[str, tuple[int, ...]] = {
 
 #: The ``twiss_in`` keys pyAT cannot default.
 TWISS_REQUIRED: tuple[str, ...] = ("beta", "alpha")
+
+#: The engine-block attributes that name a property of the whole deck rather
+#: than of an element, each with its reader: ``energy`` is the deck energy in
+#: electron-volts, pyAT's unit.
+DECK_PROPERTIES: dict[str, Callable[[Any], float]] = {
+    "energy": lambda lattice: float(lattice.energy),
+}
 
 Deck = str | os.PathLike[str]
 
@@ -370,11 +377,12 @@ def _read_element(loaded: _Loaded, deck: Deck, record: Any, record_id: str) -> f
     else:
         element = field(record, "element")
         weight = 1.0
-    if element is None:
-        return None
-    index = _element_index(loaded, deck, element, record_id, "wiring")
     block = field(record, "engine")
     attribute = field(block, "attribute")
+    if element is None:
+        reader = DECK_PROPERTIES.get(attribute) if isinstance(attribute, str) else None
+        return None if reader is None else reader(loaded.lattice)
+    index = _element_index(loaded, deck, element, record_id, "wiring")
     if attribute is None:
         raise _stop(
             deck,
@@ -446,12 +454,13 @@ def start_values(
 
     A setpoint's value is its first slice's element attribute (the
     ``element`` when the record has no slices) divided by that slice's
-    weight, mapped to hardware through ``calibration.inverse`` when present,
-    else through the algebraic inverse of a ``linear`` curve; with no
-    calibration the physics value is the hardware value. A readback takes its
-    paired setpoint's value when that setpoint is in ``wiring``, else zero. A
-    record that names no element has no start value in the deck and is left
-    out.
+    weight, or, for a record naming no element whose engine attribute is one
+    of :data:`DECK_PROPERTIES`, that property of the deck; it is mapped to
+    hardware through ``calibration.inverse`` when present, else through the
+    algebraic inverse of a ``linear`` curve; with no calibration the physics
+    value is the hardware value. A readback takes its paired setpoint's value
+    when that setpoint is in ``wiring``, else zero. Any other record that
+    names no element has no start value in the deck and is left out.
 
     Args:
         deck: The lattice file.

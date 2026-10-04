@@ -192,6 +192,23 @@ class TestStops:
             "from; fix: name an element or slices for the record, or leave the channel unwired"
         ]
 
+    def test_a_deck_property_record_reads_its_start_value_from_the_deck(self, tmp_path):
+        energy = {
+            "address": "K",
+            "engine": {"attribute": "energy"},
+            "calibration": {"curve": {"linear": {"gain": 1.0e7, "offset": 0.0}}},
+        }
+        result = _run(tmp_path, _files(energy))
+        assert result.ok, _lines(result)
+        assert _records(result)["SR/K"]["default"] == pytest.approx(300.0, abs=1e-12)
+
+    def test_an_unknown_deck_property_still_stops(self, tmp_path):
+        result = _run(tmp_path, _files({"address": "K", "engine": {"attribute": "voltage"}}))
+        assert _lines(result) == [
+            "facility: engine-invalid: wiring SR/K — K: no element to read a start value "
+            "from; fix: name an element or slices for the record, or leave the channel unwired"
+        ]
+
     def test_a_stop_on_a_fix_added_record_names_fixes_yaml(self, tmp_path):
         files = _files()
         files["fixes.yaml"] = {
