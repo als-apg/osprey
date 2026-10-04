@@ -55,6 +55,7 @@ from osprey_connectors.simulation.archive import (
 )
 from tests._container_support import is_docker_available
 from tests._mongo_container import started_mongo
+from tests._simulator_view import write_scenarios_view
 
 PRESSURE = "SR:VAC:IP07:PRESSURE"
 TEMPERATURE = "SR:RF:CAV01:TEMP:BODY"
@@ -176,10 +177,16 @@ def mongo_store():
         }
 
 
-def _write_project(root: Path, store: dict | None, *, password: str | None) -> Path:
-    """Lay out a built project on disk: model, config, and its ``.env``."""
+def _write_model(root: Path, machine: dict) -> None:
+    """Write the machine model and the simulator view's scenarios from one source."""
     (root / "data" / "simulation").mkdir(parents=True, exist_ok=True)
-    (root / "data" / "simulation" / "machine.json").write_text(json.dumps(_machine()))
+    (root / "data" / "simulation" / "machine.json").write_text(json.dumps(machine))
+    write_scenarios_view(root, machine["scenarios"])
+
+
+def _write_project(root: Path, store: dict | None, *, password: str | None) -> Path:
+    """Lay out a built project on disk: model, simulator view, config, and its ``.env``."""
+    _write_model(root, _machine())
 
     config: dict = {
         "project_name": "rewrite-project",
@@ -596,24 +603,45 @@ class TestPersistedAnchor:
 class TestComposedEvents:
     def test_the_active_set_s_scripts_are_composed(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)
-        machine = root / "data" / "simulation" / "machine.json"
 
-        assert active_archiver_events(machine, ["nominal"]) == {}
-        assert list(active_archiver_events(machine, ["burst"])) == [PRESSURE]
+        assert active_archiver_events(root, ["nominal"]) == {}
+        assert list(active_archiver_events(root, ["burst"])) == [PRESSURE]
+        assert active_archiver_events(root, ["twin-burst"]) == {
+            PRESSURE: [_spike(SPIKE_OFFSET_S), _spike(LATE_OFFSET_S)],
+            TEMPERATURE: [_spike(LATE_OFFSET_S, amplitude=3.0)],
+        }
+
+    def test_the_scripts_are_read_from_the_simulator_view(self, tmp_path):
+        root = _write_project(tmp_path / "proj", None, password=None)
+        write_scenarios_view(
+            root, {"burst": {"archiver": [{"channel": FAULT, "events": [_spike(-60.0)]}]}}
+        )
+
+        assert active_archiver_events(root, ["burst"]) == {FAULT: [_spike(-60.0)]}
+
+    def test_the_view_is_found_under_a_deployment_repo_s_render(self, tmp_path):
+        root = _write_project(tmp_path / "proj", None, password=None)
+        render = root / "build"
+        render.mkdir()
+        (render / "config.yml").write_text((root / "config.yml").read_text())
+        write_scenarios_view(
+            render, {"burst": {"archiver": [{"channel": FAULT, "events": [_spike(-60.0)]}]}}
+        )
+
+        assert list(active_archiver_events(root, ["burst"])) == [FAULT]
 
     def test_an_unknown_scenario_is_refused(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)
 
         with pytest.raises(ValueError, match="Unknown scenario"):
-            active_archiver_events(root / "data" / "simulation" / "machine.json", ["nope"])
+            active_archiver_events(root, ["nope"])
 
-    def test_a_machine_file_that_is_not_json_is_refused_by_name(self, tmp_path):
+    def test_a_render_without_a_simulator_view_is_refused_by_name(self, tmp_path):
         root = _write_project(tmp_path / "proj", None, password=None)
-        machine = root / "data" / "simulation" / "machine.json"
-        machine.write_text("{")
+        (root / "data" / "simulator" / "scenarios.json").unlink()
 
-        with pytest.raises(ValueError, match="Machine file .* is not valid JSON"):
-            active_archiver_events(machine, ["nominal"])
+        with pytest.raises(ValueError, match="No simulator view in .*simulator"):
+            active_archiver_events(root, ["nominal"])
 
 
 # ---------------------------------------------------------------------------
@@ -1214,7 +1242,7 @@ class TestPreflight:
         machine["scenarios"]["burst"]["archiver"][0]["events"] = [
             {"shape": "step", "at": 0.5, "to": 5.0}
         ]
-        self._machine_path(root).write_text(json.dumps(machine))
+        _write_model(root, machine)
 
         with pytest.raises(ValueError, match="at_offset"):
             preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
