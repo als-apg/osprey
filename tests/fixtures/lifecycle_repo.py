@@ -213,7 +213,6 @@ skills:
   - bluesky-plans  # Browse which plans this deployment can run
   # Available — uncomment to enable:
   # - logbook-deep-research  # Multi-phase logbook investigation skill
-  # - sim-scenarios  # List and switch simulated machine scenarios
 
 agents:
   - channel-finder          # Finds channel addresses (the mode above decides how)
@@ -432,7 +431,7 @@ config:
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
   #
   # Mock connector: driven by the simulation machine model below. Switch
-  # scenarios with `osprey sim apply NAME...` (see the sim-scenarios skill).
+  # scenarios with `osprey sim apply NAME...` (see the simulation bundle reference).
   control_system.connector.mock.simulation_file: data/simulation/machine.json
   # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
   # reached over real EPICS Channel Access, with the same gateway shape as the

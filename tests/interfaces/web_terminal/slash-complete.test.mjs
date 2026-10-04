@@ -16,7 +16,7 @@ import { attachSlashComplete } from '../../../src/osprey/interfaces/web_terminal
 const COMMANDS = [
   { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
   { name: 'session-report', description: 'Write a report', argument_hint: '', kind: 'skill' },
-  { name: 'sim-scenarios', description: 'Run scenarios', argument_hint: '', kind: 'skill' },
+  { name: 'setup-mode', description: 'Inspect configuration', argument_hint: '', kind: 'skill' },
   { name: 'ops:nested', description: 'Nested command', argument_hint: '<pv>', kind: 'command' },
 ];
 
@@ -74,7 +74,7 @@ describe('attachSlashComplete', () => {
     expect(textarea.getAttribute('aria-expanded')).toBe('true');
     expect(textarea.getAttribute('role')).toBe('combobox');
     expect(textarea.getAttribute('aria-controls')).toBe(popup().id);
-    expect(rowNames()).toEqual(['/diagnose', '/ops:nested', '/session-report', '/sim-scenarios']);
+    expect(rowNames()).toEqual(['/diagnose', '/ops:nested', '/session-report', '/setup-mode']);
     expect(textarea.getAttribute('aria-activedescendant')).toBe(rows()[0].id);
     expect(rows()[0].getAttribute('aria-selected')).toBe('true');
     expect(rows()[1].querySelector('.op-slash-hint')?.textContent).toBe('<pv>');
@@ -82,9 +82,9 @@ describe('attachSlashComplete', () => {
   });
 
   test('typing narrows by fuzzy match', async () => {
-    type('/sim');
+    type('/set');
     await flush();
-    expect(rowNames()[0]).toBe('/sim-scenarios');
+    expect(rowNames()[0]).toBe('/setup-mode');
   });
 
   test('the list closes off a single leading slash token', async () => {
