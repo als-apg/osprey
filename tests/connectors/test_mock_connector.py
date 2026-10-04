@@ -29,10 +29,10 @@ class TestMockConnector:
     """Test MockConnector functionality."""
 
     @pytest.mark.asyncio
-    async def test_connect_disconnect(self):
+    async def test_connect_disconnect(self, tmp_path):
         """Test connector connection and disconnection."""
         connector = MockConnector()
-        config = {"response_delay_ms": 0, "noise_level": 0.01}
+        config = mock_config(served_tree(tmp_path), response_delay_ms=0)
 
         await connector.connect(config)
         assert connector._connected is True
@@ -41,11 +41,12 @@ class TestMockConnector:
         assert connector._connected is False
 
     @pytest.mark.asyncio
-    async def test_read_pv_accepts_any_name(self):
+    async def test_read_pv_accepts_any_name(self, tmp_path):
         """Test that mock connector accepts any PV name."""
+        view = served_tree(tmp_path, readings=["MADE:UP:CHANNEL", "ANY:RANDOM:NAME"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             # Test with arbitrary PV names
             result1 = await connector.read_channel("MADE:UP:CHANNEL")
@@ -58,13 +59,14 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_returns_tz_aware_timestamps(self):
+    async def test_read_returns_tz_aware_timestamps(self, tmp_path):
         """Live-read timestamps carry an explicit offset (facility zone), not a
         naive datetime — guards the connector render sites against silent
         reversion to ``datetime.now()``."""
+        view = served_tree(tmp_path, readings=["ANY:CHANNEL"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("ANY:CHANNEL")
             assert result.timestamp.tzinfo is not None
@@ -74,11 +76,12 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_pv_infers_units(self):
+    async def test_read_pv_infers_units(self, tmp_path):
         """Test that connector infers units from PV names."""
+        view = served_tree(tmp_path, readings=["BEAM:CURRENT", "MAGNET:VOLTAGE", "VACUUM:PRESSURE"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             # Test beam current units
             beam_result = await connector.read_channel("BEAM:CURRENT")
@@ -161,11 +164,12 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels(self):
+    async def test_read_multiple_channels(self, tmp_path):
         """Test reading multiple PVs concurrently."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3", "PV:4"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             channels = ["PV:1", "PV:2", "PV:3", "PV:4"]
             results = await connector.read_multiple_channels(channels)
@@ -189,11 +193,12 @@ class TestMockConnector:
         connector.read_channel = read_channel
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels_omits_a_failed_read(self):
+    async def test_read_multiple_channels_omits_a_failed_read(self, tmp_path):
         """A read that fails with an ordinary error is left out of the result."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
 
             results = await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
@@ -202,11 +207,12 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels_propagates_a_cancelled_read(self):
+    async def test_read_multiple_channels_propagates_a_cancelled_read(self, tmp_path):
         """A cancelled read raises the cancellation instead of returning it as a value."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", asyncio.CancelledError())
 
             with pytest.raises(asyncio.CancelledError):
@@ -214,11 +220,12 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_validate_pv_always_true(self):
+    async def test_validate_pv_always_true(self, tmp_path):
         """Test that all PV names are valid in mock mode."""
+        view = served_tree(tmp_path, readings=["ANY:PV:NAME", "RANDOM:CHANNEL"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             assert await connector.validate_channel("ANY:PV:NAME") is True
             assert await connector.validate_channel("RANDOM:CHANNEL") is True
@@ -226,11 +233,12 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_metadata(self):
+    async def test_metadata(self, tmp_path):
         """Test getting PV metadata."""
+        view = served_tree(tmp_path, readings=["BEAM:CURRENT"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(mock_config(view, response_delay_ms=0))
 
             metadata = await connector.get_metadata("BEAM:CURRENT")
             assert metadata.units is not None

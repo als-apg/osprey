@@ -22,6 +22,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from osprey.connectors.control_system.base import (
     ChannelWriteResult,
@@ -34,6 +35,7 @@ from osprey.mcp_server.control_system.error_handling import (
     ToolError,
     connector_error_handler,
 )
+from tests.facility.served_tree import mock_config, served_tree
 
 CHANNEL = "TEST:MAG:PS:SP"
 
@@ -262,7 +264,9 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, reason):
     from osprey.mcp_server.control_system.tools.channel_write import channel_write
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    view = served_tree(tmp_path / "served", ["PV:A", "PV:B"])
+    control_system = {"type": "mock", "connector": {"mock": mock_config(view)}}
+    (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     initialize_server_context()
 
     connector = AsyncMock()

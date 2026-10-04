@@ -9,6 +9,7 @@ from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConne
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from tests.facility.served_tree import mock_config, served_tree
 
 
 @pytest.fixture(autouse=True)
@@ -30,11 +31,11 @@ class TestConnectorFactory:
     """Test ConnectorFactory functionality."""
 
     @pytest.mark.asyncio
-    async def test_create_mock_control_system_connector(self):
+    async def test_create_mock_control_system_connector(self, tmp_path):
         """Test creating a mock control system connector."""
         config = {
             "type": "mock",
-            "connector": {"mock": {"response_delay_ms": 0, "noise_level": 0.01}},
+            "connector": {"mock": mock_config(served_tree(tmp_path), response_delay_ms=0)},
         }
 
         connector = await ConnectorFactory.create_control_system_connector(config)
@@ -90,9 +91,12 @@ class TestConnectorFactory:
             )
 
     @pytest.mark.asyncio
-    async def test_factory_creates_independent_instances(self):
+    async def test_factory_creates_independent_instances(self, tmp_path):
         """Test that factory creates independent connector instances."""
-        config = {"type": "mock", "connector": {"mock": {"response_delay_ms": 0}}}
+        config = {
+            "type": "mock",
+            "connector": {"mock": mock_config(served_tree(tmp_path), response_delay_ms=0)},
+        }
 
         connector1 = await ConnectorFactory.create_control_system_connector(config)
         connector2 = await ConnectorFactory.create_control_system_connector(config)
@@ -152,7 +156,7 @@ class TestConnectorFactory:
         assert "custom_test" in ConnectorFactory.list_control_systems()
 
     @pytest.mark.asyncio
-    async def test_switch_between_connectors(self):
+    async def test_switch_between_connectors(self, tmp_path):
         """Test switching between different connector types."""
         from unittest.mock import patch
 
@@ -167,8 +171,9 @@ class TestConnectorFactory:
             mock_config_value.side_effect = config_side_effect
 
             # Create mock connector
-            mock_config = {"type": "mock", "connector": {"mock": {"response_delay_ms": 0}}}
-            mock_connector = await ConnectorFactory.create_control_system_connector(mock_config)
+            view = served_tree(tmp_path, readings=["TEST:PV"])
+            config = {"type": "mock", "connector": {"mock": mock_config(view, response_delay_ms=0)}}
+            mock_connector = await ConnectorFactory.create_control_system_connector(config)
             assert isinstance(mock_connector, MockConnector)
 
             # Test it works

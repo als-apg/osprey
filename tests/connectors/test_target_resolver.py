@@ -166,7 +166,7 @@ def test_live_on_a_simulated_baseline_is_the_one_configured_live_block(baseline:
         baseline,
         {
             "virtual_accelerator": {"timeout_s": 5.0},
-            "mock": {"noise_level": 0.0},
+            "mock": {},
             "epics": {"gateways": {"read_only": {"address": "gw"}}},
         },
     )

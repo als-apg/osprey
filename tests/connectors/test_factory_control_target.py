@@ -27,6 +27,7 @@ import pytest
 from osprey_connectors import factory as factory_module
 from osprey_connectors.control_system.mock_connector import MockConnector
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from tests.facility.served_tree import mock_config, served_tree
 
 #: The mock connector by dotted path, which ``resolve_target`` returns verbatim
 #: for ``live`` — the whole real factory path with no Channel Access anywhere.
@@ -110,9 +111,10 @@ def recording_factory(monkeypatch: pytest.MonkeyPatch) -> _RecordingFactory:
 class TestFactoryStamp:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("registered_mock")
-    async def test_named_target_reaches_the_instance(self):
+    async def test_named_target_reaches_the_instance(self, tmp_path):
         connector = await ConnectorFactory.create_control_system_connector(
-            {"type": "mock", "connector": {"mock": {}}}, control_target="standin"
+            {"type": "mock", "connector": {"mock": mock_config(served_tree(tmp_path))}},
+            control_target="standin",
         )
         try:
             assert connector._control_target == "standin"
@@ -123,10 +125,10 @@ class TestFactoryStamp:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("registered_mock")
-    async def test_target_defaults_to_none(self):
+    async def test_target_defaults_to_none(self, tmp_path):
         """Every pre-existing caller keeps working, naming no target."""
         connector = await ConnectorFactory.create_control_system_connector(
-            {"type": "mock", "connector": {"mock": {}}}
+            {"type": "mock", "connector": {"mock": mock_config(served_tree(tmp_path))}}
         )
         try:
             assert connector._control_target is None
@@ -152,11 +154,12 @@ class TestConnectorHostChild:
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("CONFIG_FILE", raising=False)
+        view = served_tree(tmp_path / "served")
         connector, report = await host._build_connector(
             {
                 "control_system": {
                     "type": MOCK_TYPE,
-                    "connector": {MOCK_TYPE: {"response_delay_ms": 0, "noise_level": 0.0}},
+                    "connector": {MOCK_TYPE: mock_config(view, response_delay_ms=0)},
                 },
                 "target": "live",
             }

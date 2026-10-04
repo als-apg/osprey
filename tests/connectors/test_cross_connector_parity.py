@@ -63,6 +63,7 @@ from osprey.connectors.control_system.base import ChannelValue, WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey_connectors.ipc import frames
+from tests.facility.served_tree import mock_config, served_tree
 
 # The one value every scenario writes, and the value a channel that did not
 # keep it holds instead.
@@ -167,7 +168,7 @@ def _writes_enabled(key, default=None):
     return default
 
 
-async def _run_mock(scenario: Scenario, monkeypatch) -> WriteRun:
+async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     """Drive MockConnector through ``scenario``.
 
     The store is what the mock confirms against, so "value differs" is a ``_put``
@@ -175,8 +176,9 @@ async def _run_mock(scenario: Scenario, monkeypatch) -> WriteRun:
     value the store cannot hold. Both mirror the mock's own unit tests.
     """
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = MockConnector()
-    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+    await connector.connect(mock_config(view, response_delay_ms=0))
 
     reads: list[str] = []
     real_confirming_read = connector._confirming_read
@@ -248,7 +250,7 @@ def _epics_connector(monkeypatch, *, pv, caput=True):
     return connector
 
 
-async def _run_epics(scenario: Scenario, monkeypatch) -> WriteRun:
+async def _run_epics(scenario: Scenario, monkeypatch, _tmp_path) -> WriteRun:
     """Drive EPICSConnector through ``scenario``.
 
     ``caput`` returning False is the put the control system did not take; the
@@ -291,7 +293,7 @@ def _fake_doocs4py(observed):
     return d
 
 
-async def _run_doocs(scenario: Scenario, _monkeypatch) -> WriteRun:
+async def _run_doocs(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
     """Drive DOOCSConnector through ``scenario`` against a fake doocs4py."""
     observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
     mock_d4py = _fake_doocs4py(observed)
@@ -354,7 +356,7 @@ def _fake_tango(observed):
     return t, proxy
 
 
-async def _run_tango(scenario: Scenario, _monkeypatch) -> WriteRun:
+async def _run_tango(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
     """Drive TangoConnector through ``scenario`` against a fake tango module."""
     observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
     mock_tango, proxy = _fake_tango(observed)
@@ -400,14 +402,14 @@ class TestWriteOutcomeParity:
     """The same situation gets the same outcome word from all four connectors."""
 
     async def test_the_outcome_word_is_the_same_for_every_connector(
-        self, connector_name, scenario, monkeypatch
+        self, connector_name, scenario, monkeypatch, tmp_path
     ):
-        run = await _DRIVERS[connector_name](scenario, monkeypatch)
+        run = await _DRIVERS[connector_name](scenario, monkeypatch, tmp_path)
 
         assert run.result.outcome is scenario.outcome
 
     async def test_the_fields_that_travel_with_the_outcome_are_the_same(
-        self, connector_name, scenario, monkeypatch
+        self, connector_name, scenario, monkeypatch, tmp_path
     ):
         """A mismatch names what the channel holds and says nothing else.
 
@@ -415,7 +417,7 @@ class TestWriteOutcomeParity:
         ``error_message`` instead — and confirmation being declined is neither
         a failure nor a finding, so it carries nothing at all.
         """
-        run = await _DRIVERS[connector_name](scenario, monkeypatch)
+        run = await _DRIVERS[connector_name](scenario, monkeypatch, tmp_path)
 
         assert (run.result.observed_value is not None) is scenario.observed_value_set
         assert (run.result.error_message is not None) is scenario.error_message_set
@@ -423,7 +425,7 @@ class TestWriteOutcomeParity:
         assert run.result.refusal_reason is None
 
     async def test_the_channel_is_re_read_exactly_when_there_is_something_to_confirm(
-        self, connector_name, scenario, monkeypatch
+        self, connector_name, scenario, monkeypatch, tmp_path
     ):
         """``unrequested`` and ``failed`` return before any read, everywhere.
 
@@ -431,7 +433,7 @@ class TestWriteOutcomeParity:
         stale value as though it were this write's, and a declined confirmation
         must not quietly pay for one.
         """
-        run = await _DRIVERS[connector_name](scenario, monkeypatch)
+        run = await _DRIVERS[connector_name](scenario, monkeypatch, tmp_path)
 
         assert run.confirming_reads == scenario.confirming_reads
 
@@ -630,21 +632,22 @@ class TestTranslatedReadFailures:
 # ---------------------------------------------------------------------------
 
 
-async def _reading_mock(monkeypatch) -> ChannelValue:
+async def _reading_mock(monkeypatch, tmp_path) -> ChannelValue:
     monkeypatch.setattr("osprey.utils.config.get_config_value", _writes_enabled)
+    view = served_tree(tmp_path, readings=["TEST:CHANNEL:RB"])
     connector = MockConnector()
-    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+    await connector.connect(mock_config(view, response_delay_ms=0))
     reading = await connector.read_channel("TEST:CHANNEL:RB")
     await connector.disconnect()
     return reading
 
 
-async def _reading_epics(monkeypatch) -> ChannelValue:
+async def _reading_epics(monkeypatch, _tmp_path) -> ChannelValue:
     connector = _epics_connector(monkeypatch, pv=_fake_pv(VALUE_SENT))
     return await connector.read_channel("SR:CH")
 
 
-async def _reading_doocs(_monkeypatch) -> ChannelValue:
+async def _reading_doocs(_monkeypatch, _tmp_path) -> ChannelValue:
     mock_d4py = _fake_doocs4py(VALUE_SENT)
 
     with (
@@ -663,7 +666,7 @@ async def _reading_doocs(_monkeypatch) -> ChannelValue:
     return reading
 
 
-async def _reading_tango(_monkeypatch) -> ChannelValue:
+async def _reading_tango(_monkeypatch, _tmp_path) -> ChannelValue:
     mock_tango, _ = _fake_tango(VALUE_SENT)
 
     with (
@@ -694,8 +697,10 @@ _READERS = {
 class TestReadingCrossesTheConnectorHost:
     """A reading served through the connector host arrives as it was read."""
 
-    async def test_a_reading_round_trips_through_an_ipc_frame(self, connector_name, monkeypatch):
-        reading = await _READERS[connector_name](monkeypatch)
+    async def test_a_reading_round_trips_through_an_ipc_frame(
+        self, connector_name, monkeypatch, tmp_path
+    ):
+        reading = await _READERS[connector_name](monkeypatch, tmp_path)
 
         decoded = frames.FrameReader().feed(frames.encode_result("req", reading))
 
