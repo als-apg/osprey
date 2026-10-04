@@ -59,6 +59,7 @@ from osprey_connectors.simulation.series import (
 )
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
+    parse_active_state,
     resolve_active_scenarios,
     validate_composition,
 )
@@ -770,33 +771,8 @@ class SimulationEngine:
 
     @staticmethod
     def _parse_state(text: str) -> tuple[list[str], float | None]:
-        """Parse state-file text into (scenario names, anchor epoch seconds or None).
-
-        Skips blank lines and ``#`` comments; any ``key=value`` line is metadata
-        (only ``anchor=<ISO8601>`` is recognised), everything else is a name.
-        """
-        names: list[str] = []
-        anchor_epoch: float | None = None
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" in stripped:
-                key, _, value = stripped.partition("=")
-                if key.strip() == "anchor":
-                    try:
-                        parsed = datetime.fromisoformat(value.strip())
-                        # Anchors written by apply.py are UTC-aware; attach the
-                        # facility zone to a naive (hand-edited) anchor so
-                        # ``.timestamp()`` does not silently fall back to box-local.
-                        if parsed.tzinfo is None:
-                            parsed = parsed.replace(tzinfo=get_facility_timezone())
-                        anchor_epoch = parsed.timestamp()
-                    except ValueError:
-                        logger.warning(f"Ignoring malformed anchor in state file: {stripped!r}")
-                continue
-            names.append(stripped)
-        return names, anchor_epoch
+        """Parse state-file text into (scenario names, anchor epoch seconds or None)."""
+        return parse_active_state(text)
 
     def _recompose(self) -> None:
         """Merge the active set's overrides and archiver scripts into composed views.
