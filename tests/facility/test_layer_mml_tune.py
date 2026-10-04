@@ -130,11 +130,11 @@ def test_the_built_spear3_tree_serves_measured_tune_as_the_deck_s_tunes(tmp_path
     from osprey.facility.build import build_facility
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.simulation.engines import pyat as engine
-    from tests.facility.test_mml_layer_seed_once import WIDENED, _widen
+    from tests.facility._mml_built import WIDENED, widen
 
     facility = _facility(tmp_path)
     import_mml([EXPORT], facility)
-    _widen(facility, WIDENED["spear3"])
+    widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
     (model,) = [entry for entry in document["models"] if entry["name"] == MODEL]
     wiring = simulator_wiring(document, MODEL)
@@ -152,12 +152,12 @@ def test_the_built_spear3_tree_serves_measured_tune_as_the_deck_s_tunes(tmp_path
 def test_the_built_measured_tune_starts_from_a_waveform_of_its_shape(tmp_path: Path) -> None:
     from osprey.facility.build import build_facility
     from osprey.facility.views.simulator import simulator_wiring
-    from tests.facility.test_mml_layer_seed_once import WIDENED, _widen
+    from tests.facility._mml_built import WIDENED, widen
 
     values = pytest.importorskip("osprey_connectors.simulation.values")
     facility = _facility(tmp_path)
     import_mml([EXPORT], facility)
-    _widen(facility, WIDENED["spear3"])
+    widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
     (record,) = [r for r in simulator_wiring(document, MODEL) if r["address"] == "MeasTune"]
 

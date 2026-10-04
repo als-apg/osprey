@@ -36,7 +36,8 @@ from osprey.facility.response_check import (
     judge,
     report,
 )
-from tests.facility.test_mml_layer_seed_once import OUTSIDE, WIDENED, _widen
+from tests.facility._mml_built import WIDENED, widen
+from tests.facility.test_mml_layer_seed_once import OUTSIDE
 
 at = pytest.importorskip("at")
 
@@ -74,9 +75,9 @@ def _repo(root: Path, tree: str) -> Path:
     target.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
     import_mml([FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], facility)
-    _widen(facility, WIDENED.get(tree, {}))
+    widen(facility, WIDENED.get(tree, {}))
     if tree == "synthetic":
-        _widen(facility, SYNTHETIC_WIDENED)
+        widen(facility, SYNTHETIC_WIDENED)
     (root / "profile.yml").write_text("name: scratch\ndata: data\n", encoding="utf-8")
     return root
 

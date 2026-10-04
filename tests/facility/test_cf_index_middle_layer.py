@@ -707,10 +707,10 @@ def test_an_imported_field_keyed_by_its_signal_role_carries_that_role_s_sentence
 ) -> None:
     pytest.importorskip("at")
     from osprey.facility.build import build_facility
-    from tests.facility.test_mml_layer_seed_once import WIDENED, _import, _widen
+    from tests.facility._mml_built import WIDENED, import_tree, widen
 
-    facility = _import(tmp_path, "spear3")
-    _widen(facility, WIDENED["spear3"])
+    facility = import_tree(tmp_path, "spear3")
+    widen(facility, WIDENED["spear3"])
     doc = build_facility(facility, project_name="demo")
     sentences = {
         group["id"]: group.get("signals", {}) for group in doc["groups"] if "signals" in group

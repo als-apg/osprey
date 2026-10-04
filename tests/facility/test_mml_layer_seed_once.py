@@ -29,6 +29,15 @@ from osprey.facility.layers.mml.importer import (
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
 from osprey.facility.layers.mml.seed import HEADER, READOUT_FILE, TUNING, band
 from osprey.facility.validate import known_classes, run_stages
+from tests.facility._mml_built import (
+    BUILT,
+    TREES,
+    WIDENED,
+    export_files,
+    import_tree,
+    mapped_facility,
+    widen,
+)
 
 at = pytest.importorskip("at")
 
@@ -38,36 +47,8 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 #: The spear3 energy knob's setpoint, which the old chain binds to no element.
 ENERGY_KNOB = "MS1-BD:CurrSetpt"
 
-#: Each tree's exports, by the stem every file of one export is named after.
-TREES: dict[str, tuple[str, ...]] = {
-    "spear3": ("spear3.storagering",),
-    "nsls2": ("nsls2.storagering", "nsls2.ltb"),
-    "synthetic": ("quokka.sr",),
-}
-
-#: The trees the build case runs to a clean exit.
-BUILT = ("nsls2", "spear3")
-
 #: The corrector setpoint the synthetic export starts outside its own ``Range``.
 OUTSIDE = "QK:HC:1:CUR:SP"
-
-
-def _facility(root: Path, tree: str) -> Path:
-    facility = root / "data" / "facility"
-    target = facility / MAPPING_FILE
-    target.parent.mkdir(parents=True)
-    shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
-    return facility
-
-
-def _sources(tree: str) -> list[Path]:
-    return [FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]]
-
-
-def _import(root: Path, tree: str) -> Path:
-    facility = _facility(root, tree)
-    import_mml(_sources(tree), facility)
-    return facility
 
 
 def _edited(root: Path, tree: str, stem: str, edit: Any) -> Path:
@@ -120,17 +101,17 @@ def tree(request: pytest.FixtureRequest) -> str:
 
 @pytest.fixture(scope="module")
 def imported(tree: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp(tree), tree)
+    return import_tree(tmp_path_factory.mktemp(tree), tree)
 
 
 @pytest.fixture(scope="module")
 def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("synthetic-limits"), "synthetic")
+    return import_tree(tmp_path_factory.mktemp("synthetic-limits"), "synthetic")
 
 
 @pytest.fixture(scope="module")
 def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("spear3-seeded"), "spear3")
+    return import_tree(tmp_path_factory.mktemp("spear3-seeded"), "spear3")
 
 
 # --- every seeded file --------------------------------------------------------------
@@ -145,8 +126,8 @@ def test_every_seeded_file_opens_with_the_header(imported: Path) -> None:
 
 
 def test_the_import_returns_each_file_it_seeded(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "spear3")
-    written = import_mml(_sources("spear3"), facility)
+    facility = mapped_facility(tmp_path, "spear3")
+    written = import_mml(export_files("spear3"), facility)
     seeded = {path.relative_to(facility).as_posix() for path in written} - {
         path.relative_to(facility).as_posix() for path in (facility / LAYER_DIR).rglob("*")
     }
@@ -156,14 +137,14 @@ def test_the_import_returns_each_file_it_seeded(tmp_path: Path) -> None:
 def test_a_second_import_leaves_every_seeded_file_as_it_is(tree: str, imported: Path) -> None:
     before = _authored(imported)
     mapping = (imported / MAPPING_FILE).read_bytes()
-    written = import_mml(_sources(tree), imported)
+    written = import_mml(export_files(tree), imported)
     assert _authored(imported) == before
     assert (imported / MAPPING_FILE).read_bytes() == mapping
     assert not [path for path in written if LAYER_DIR not in path.as_posix()]
 
 
 def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "synthetic")
+    facility = mapped_facility(tmp_path, "synthetic")
     authored = {
         "limits.yaml": "records: []\n",
         "seeds.yaml": "{}\n",
@@ -174,7 +155,7 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
     for name, text in authored.items():
         (facility / name).parent.mkdir(parents=True, exist_ok=True)
         (facility / name).write_text(text, encoding="utf-8")
-    import_mml(_sources("synthetic"), facility)
+    import_mml(export_files("synthetic"), facility)
     for name, text in authored.items():
         assert (facility / name).read_text(encoding="utf-8") == text, name
 
@@ -192,9 +173,9 @@ def test_one_import_judges_each_export_once(
         return judge(system, *args, **kwargs)
 
     monkeypatch.setattr(judgments, "judged_family_views", counted)
-    facility = _facility(tmp_path, "nsls2")
+    facility = mapped_facility(tmp_path, "nsls2")
 
-    import_mml(_sources("nsls2"), facility)
+    import_mml(export_files("nsls2"), facility)
 
     assert len(judged) == len(TREES["nsls2"])
     assert len(set(judged)) == len(judged)
@@ -244,7 +225,7 @@ def _emitted_setpoints(root: Path, tree: str) -> set[str]:
 
     root.mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
-    run("mml", "import", *(str(source) for source in _sources(tree)))
+    run("mml", "import", *(str(source) for source in export_files(tree)))
     run("mml", "map", "--init")
     shutil.copy(FIXTURES / tree / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
     run("mml", "emit")
@@ -344,7 +325,7 @@ def test_an_unseeded_setpoint_whose_band_holds_zero_is_no_stop(synthetic: Path) 
 def test_a_later_import_reports_each_differing_range_and_applies_none(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    facility = _import(tmp_path, "synthetic")
+    facility = import_tree(tmp_path, "synthetic")
     before = _authored(facility)
 
     def widen(document: dict[str, Any]) -> None:
@@ -372,7 +353,7 @@ def test_a_wired_setpoint_without_a_band_on_both_edges_is_reported(
         document["IDGAP"]["Setpoint"]["Range"] = ["NaN", "NaN"]
 
     ao = _edited(tmp_path, "synthetic", "quokka.sr", unband)
-    facility = _facility(tmp_path, "synthetic")
+    facility = mapped_facility(tmp_path, "synthetic")
     capsys.readouterr()
 
     import_mml([ao], facility)
@@ -401,7 +382,7 @@ def test_an_import_beside_a_limits_file_reports_no_unbanded_setpoint(
         document["QF"]["Setpoint"]["Range"] = ["NaN", "NaN"]
 
     ao = _edited(tmp_path, "synthetic", "quokka.sr", unband)
-    facility = _facility(tmp_path, "synthetic")
+    facility = mapped_facility(tmp_path, "synthetic")
     (facility / "limits.yaml").write_text("records: []\n", encoding="utf-8")
     capsys.readouterr()
 
@@ -446,8 +427,8 @@ def test_a_nominal_in_physics_units_is_no_seed(synthetic: Path) -> None:
 def test_the_import_counts_the_wired_channels_whose_golden_value_it_skips(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    facility = _facility(tmp_path, "synthetic")
-    import_mml(_sources("synthetic"), facility)
+    facility = mapped_facility(tmp_path, "synthetic")
+    import_mml(export_files("synthetic"), facility)
     lines = [line for line in capsys.readouterr().out.splitlines() if "golden" in line]
     va = json.loads((FIXTURES / "synthetic" / "quokka.sr.va.json").read_text(encoding="utf-8"))
     wired = _wired(facility)
@@ -518,7 +499,7 @@ def test_every_group_and_instrument_of_a_measurement_file_exists(imported: Path)
 
 
 def test_a_single_pass_model_measures_orbit_response_at_most(tmp_path: Path) -> None:
-    facility = _import(tmp_path, "nsls2")
+    facility = import_tree(tmp_path, "nsls2")
     document = _load(facility / "measurement" / "LTB.yaml")
     assert document["kinds"] == []
     assert document["groups"] == {"hcor": "HCM", "vcor": "VCM", "quad": "Q"}
@@ -535,7 +516,7 @@ def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Pat
 def test_the_import_names_the_families_a_group_role_was_not_seeded_from(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _import(tmp_path, "spear3")
+    import_tree(tmp_path, "spear3")
     lines = [line for line in capsys.readouterr().out.splitlines() if "seeded from" in line]
     assert lines == [
         "measurement StorageRing: quad seeded from QF; also wired: QD, QFC, QDX, QFX, QDY, "
@@ -560,7 +541,7 @@ def _readout_rows(facility: Path) -> dict[str, dict[str, float]]:
 def test_the_spear3_offsets_are_in_the_conversion_and_seed_no_scenario(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    facility = _import(tmp_path, "spear3")
+    facility = import_tree(tmp_path, "spear3")
     assert not [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
     assert not (facility / READOUT_FILE).exists()
 
@@ -578,8 +559,8 @@ def test_a_gain_beside_an_offset_the_conversion_holds_is_not_carried(
     document["families"]["BPMx"]["Monitor"]["readout"]["gain"][0] = 2.0
     va.write_text(json.dumps(document), encoding="utf-8")
 
-    facility = _facility(tmp_path, "spear3")
-    import_mml([exports / source.name for source in _sources("spear3")], facility)
+    facility = mapped_facility(tmp_path, "spear3")
+    import_mml([exports / source.name for source in export_files("spear3")], facility)
 
     lines = [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
     assert lines == ["import mml: readout not carried: StorageRing: family BPMx (gain)"]
@@ -606,8 +587,8 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
     }
     assert sum(offset != 0 for _, offset in stated.values()) == 107
 
-    facility = _import(tmp_path, "spear3")
-    _widen(facility, WIDENED["spear3"])
+    facility = import_tree(tmp_path, "spear3")
+    widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
     (model,) = [entry for entry in document["models"] if entry["name"] == "StorageRing"]
     wiring = simulator_wiring(document, model["name"])
@@ -651,7 +632,7 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
 def test_a_readout_the_engine_cannot_carry_is_named_and_not_written(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    facility = _import(tmp_path, "synthetic")
+    facility = import_tree(tmp_path, "synthetic")
     lines = [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
     # The quokka conversions hold neither the stated gain nor the stated offset.
     assert lines == [
@@ -700,7 +681,7 @@ def test_the_classes_of_the_storage_tree_land(spear3: Path) -> None:
 
 
 def test_a_declared_branch_is_a_row_ahead_of_the_classes_that_extend_it(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "synthetic")
+    facility = mapped_facility(tmp_path, "synthetic")
     path = facility / MAPPING_FILE
     document = _load(path)
     document["branches"] = {
@@ -710,7 +691,7 @@ def test_a_declared_branch_is_a_row_ahead_of_the_classes_that_extend_it(tmp_path
     document["families"]["BDM"]["branch"] = "Trim"
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
-    import_mml(_sources("synthetic"), facility)
+    import_mml(export_files("synthetic"), facility)
 
     rows = [(row["class"], row["parent"]) for row in _load(facility / "classes.yaml")]
     assert rows[:2] == [("Steering", "Corrector"), ("Trim", "Steering")]
@@ -738,7 +719,7 @@ def test_identity_is_seeded_from_the_facility_block_which_then_leaves_the_mappin
 
 
 def test_removing_the_facility_block_keeps_every_other_line_of_the_mapping(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "spear3")
+    facility = mapped_facility(tmp_path, "spear3")
     path = facility / MAPPING_FILE
     stated = path.read_text(encoding="utf-8")
     assert stated.startswith("facility:\n")
@@ -749,7 +730,7 @@ def test_removing_the_facility_block_keeps_every_other_line_of_the_mapping(tmp_p
     rest += "# Last line.\n"
     path.write_text(f"# Reviewed by hand.\n{block}{rest}", encoding="utf-8")
 
-    import_mml(_sources("spear3"), facility)
+    import_mml(export_files("spear3"), facility)
 
     assert (
         _load(facility / "identity.yaml") == _load(FIXTURES / "spear3" / MAPPING_FILE)["facility"]
@@ -758,20 +739,20 @@ def test_removing_the_facility_block_keeps_every_other_line_of_the_mapping(tmp_p
 
 
 def test_a_facility_block_in_another_spelling_still_leaves_the_mapping(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "spear3")
+    facility = mapped_facility(tmp_path, "spear3")
     path = facility / MAPPING_FILE
     stated = path.read_text(encoding="utf-8")
     models = stated.index("models:\n")
     path.write_text(f'"facility": {{code: LAB}}\n{stated[models:]}', encoding="utf-8")
 
-    import_mml(_sources("spear3"), facility)
+    import_mml(export_files("spear3"), facility)
 
     assert _load(facility / "identity.yaml") == {"code": "LAB"}
     assert _load(path) == yaml.safe_load(stated[models:])
 
 
 def test_a_mapping_without_a_facility_block_seeds_no_identity(tmp_path: Path) -> None:
-    facility = _import(tmp_path, "nsls2")
+    facility = import_tree(tmp_path, "nsls2")
     assert "facility" not in _load(FIXTURES / "nsls2" / MAPPING_FILE)
     assert not (facility / "identity.yaml").exists()
     assert (facility / MAPPING_FILE).read_bytes() == (
@@ -782,11 +763,11 @@ def test_a_mapping_without_a_facility_block_seeds_no_identity(tmp_path: Path) ->
 def test_a_facility_block_beside_an_identity_file_is_reported_and_left(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    facility = _facility(tmp_path, "spear3")
+    facility = mapped_facility(tmp_path, "spear3")
     (facility / "identity.yaml").write_text("code: LAB\n", encoding="utf-8")
     mapping = (facility / MAPPING_FILE).read_bytes()
 
-    import_mml(_sources("spear3"), facility)
+    import_mml(export_files("spear3"), facility)
 
     assert "facility: block ignored; identity.yaml exists" in capsys.readouterr().out.splitlines()
     assert (facility / "identity.yaml").read_text(encoding="utf-8") == "code: LAB\n"
@@ -798,40 +779,16 @@ def test_a_facility_block_beside_an_identity_file_is_reported_and_left(
 #: The devices each tree's build stops on while ``classes.yaml`` is not seeded.
 UNKNOWN_CLASS_DEVICES = {"spear3": 130, "nsls2": 32}
 
-#: The setpoints each tree's build starts outside the band its export states,
-#: each with the edge that widens its limits record to hold the build's
-#: operating point. A wired setpoint starts where its calibration puts the
-#: deck's strength. For spear3 that is the nominal the export states, outside
-#: the export's own ``Range``. nsls2 widens nothing.
-WIDENED: dict[str, dict[str, tuple[str, float]]] = {
-    "spear3": {
-        "09S-QD1:CurrSetpt": ("min_value", -60.0),
-        "MS1-BDMT:CurrSetpt": ("max_value", 600.0),
-    },
-    "nsls2": {},
-}
-
 #: The nsls2 transport quadrupoles the deck holds at the other sign from the
 #: export: the export states their currents positive and inside the band, the
 #: deck holds them at a negative strength and their curve has a positive gain.
 POLARITY = tuple(f"LTB-MG{{Quad:{number}}}I:Sp1-SP" for number in (1, 3, 4, 6, 9, 11, 14))
 
 
-def _widen(facility: Path, edges: dict[str, tuple[str, float]]) -> None:
-    """Apply the ``seed-invalid`` remedy: widen each named limits record by hand."""
-    path = facility / "limits.yaml"
-    document = _load(path)
-    for row in document["records"]:
-        if row["address"] in edges:
-            key, value = edges[row["address"]]
-            row[key] = value
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-
-
 def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarity(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    facility = _import(tmp_path, "nsls2")
+    facility = import_tree(tmp_path, "nsls2")
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
     va = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.va.json").read_text(encoding="utf-8"))
     addresses = [address.strip() for address in ao["Q"]["Setpoint"]["ChannelNames"]]
@@ -873,8 +830,8 @@ def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarit
 def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_widened(
     name: str, tmp_path: Path
 ) -> None:
-    facility = _facility(tmp_path, name)
-    exports = read_exports(_sources(name))
+    facility = mapped_facility(tmp_path, name)
+    exports = read_exports(export_files(name))
     write_records(exports, read_mapping(facility / MAPPING_FILE), facility)
 
     report = run_stages(facility, project_name="demo", later=LATER_STAGES)
@@ -883,7 +840,7 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
         "class-unknown": UNKNOWN_CLASS_DEVICES[name]
     }
 
-    import_mml(_sources(name), facility)
+    import_mml(export_files(name), facility)
 
     seeded = run_stages(facility, project_name="demo", later=LATER_STAGES)
     assert sorted((error.kind, error.record_kind, error.record_id) for error in seeded.errors) == [
@@ -896,7 +853,7 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
         with pytest.raises(FacilityBuildError):
             build_facility(facility, project_name="demo")
 
-    _widen(facility, WIDENED[name])
+    widen(facility, WIDENED[name])
 
     document = build_facility(facility, project_name="demo")
     assert document is not None
