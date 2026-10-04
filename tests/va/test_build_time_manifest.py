@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
+from osprey.errors import BuildProfileError
 from osprey.services.virtual_accelerator.manifest import classify, loaders
 from osprey.services.virtual_accelerator.manifest.build import (
     LIMITS_FILENAME,
@@ -41,6 +42,7 @@ from osprey.services.virtual_accelerator.manifest.paths import (
     ManifestPaths,
 )
 from tests._facility_file import channel_tree, write_facility_file
+from tests.facility._limits_render import render_limits
 
 # The tiered paradigm databases the manifest expands, derived by subtracting
 # ``graph`` from the paradigm registry: a graph store is seeded from the corpus
@@ -59,7 +61,6 @@ _SOURCE_FILES = (
     *_PARADIGM_DB_FILES,
     "simulation/machine.json",
     "machine_state_channels.json",
-    "channel_limits.json",
 )
 
 # What a tree adds to those to serve a virtual accelerator: the deck, and the
@@ -157,6 +158,19 @@ def served_facility_tree(tmp_path_factory) -> Path:
 def editable_tree(tmp_path) -> Path:
     """A per-test copy, for the tests that edit the facility's data."""
     return _facility_tree(tmp_path / "data")
+
+
+@pytest.fixture(scope="module")
+def limits_view(tmp_path_factory) -> Path:
+    """The limits view a render of the bundle carries, written once per module."""
+    return render_limits(tmp_path_factory.mktemp("limits_view"), "control_assistant")
+
+
+def _project_data(root: Path, limits_view: Path) -> Path:
+    """A render's ``data/`` directory, holding the limits view the render writes."""
+    root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(limits_view, root / LIMITS_FILENAME)
+    return root
 
 
 #: The one remedy a refusal about an unreadable per-tree source names.
@@ -272,11 +286,6 @@ class TestPreparedFromFacilityTree:
 
         assert prepared is not None
         assert prepared.manifest == build_manifest()
-
-    def test_limits_source_points_into_the_facility_tree(self, facility_tree):
-        prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
-
-        assert prepared.limits_source == facility_tree / LIMITS_FILENAME
 
     def test_data_edit_is_reflected_in_the_generated_channel_set(self, editable_tree):
         baseline = prepare_project_manifest(editable_tree, DEFAULT_TIER)
@@ -469,7 +478,7 @@ class TestStagedSubset:
 
 
 class TestSkipGate:
-    """No channel databases at all (or no limits) means: generate nothing."""
+    """No channel databases at all (or no scenario seed) means: generate nothing."""
 
     def test_tree_without_paradigm_databases_skips(self, editable_tree):
         shutil.rmtree(editable_tree / "channel_databases")
@@ -481,12 +490,11 @@ class TestSkipGate:
         # tier has no databases to expand.
         assert prepare_project_manifest(facility_tree, 2) is None
 
-    def test_tree_without_drive_limits_skips(self, editable_tree):
-        (editable_tree / LIMITS_FILENAME).unlink()
+    def test_tree_without_a_limits_file_still_backs_a_manifest(self, editable_tree):
+        # The drive limits are the render's limits view, never a source file.
+        assert not (editable_tree / LIMITS_FILENAME).exists()
 
-        # Limits and manifest ship together or not at all: a manifest without
-        # limits is an accelerator that accepts any setpoint.
-        assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is None
+        assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is not None
 
     def test_tree_without_machine_json_skips(self, editable_tree):
         (editable_tree / "simulation" / "machine.json").unlink()
@@ -494,13 +502,14 @@ class TestSkipGate:
         assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is None
 
     def test_skipping_writes_nothing(self, editable_tree):
+        machine_json = Path("simulation") / "machine.json"
         before = sorted(p.relative_to(editable_tree) for p in editable_tree.rglob("*"))
-        (editable_tree / LIMITS_FILENAME).unlink()
+        (editable_tree / machine_json).unlink()
 
         prepare_project_manifest(editable_tree, DEFAULT_TIER)
 
         after = sorted(p.relative_to(editable_tree) for p in editable_tree.rglob("*"))
-        assert after == [p for p in before if p != Path(LIMITS_FILENAME)]
+        assert after == [p for p in before if p != machine_json]
 
 
 class TestParadigmMismatchYieldsNoManifest:
@@ -679,10 +688,11 @@ class TestCorruptDatabaseDegrades:
 
 
 class TestWriteProjectManifest:
-    def test_both_files_land_in_the_mounted_simulation_directory(self, facility_tree, tmp_path):
+    def test_both_files_land_in_the_mounted_simulation_directory(
+        self, facility_tree, tmp_path, limits_view
+    ):
         prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
-        project_data = tmp_path / "project" / "data"
-        project_data.mkdir(parents=True)
+        project_data = _project_data(tmp_path / "project" / "data", limits_view)
 
         manifest_path = write_project_manifest(prepared, project_data)
 
@@ -692,10 +702,11 @@ class TestWriteProjectManifest:
         assert manifest_path.is_file()
         assert (project_data / "simulation" / LIMITS_FILENAME).is_file()
 
-    def test_written_manifest_loads_through_the_container_reader(self, facility_tree, tmp_path):
+    def test_written_manifest_loads_through_the_container_reader(
+        self, facility_tree, tmp_path, limits_view
+    ):
         prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
-        project_data = tmp_path / "data"
-        project_data.mkdir()
+        project_data = _project_data(tmp_path / "data", limits_view)
 
         manifest_path = write_project_manifest(prepared, project_data)
 
@@ -703,27 +714,26 @@ class TestWriteProjectManifest:
         channels = loaders.load_manifest_file(manifest_path)
         assert len(channels) == prepared.manifest["_metadata"]["total_channels"]
 
-    def test_limits_copy_prefers_the_built_project_tree(self, facility_tree, tmp_path):
+    def test_the_limits_copy_is_the_renders_limits_view(self, facility_tree, tmp_path, limits_view):
         prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
-        project_data = tmp_path / "data"
-        project_data.mkdir()
-        # Stands in for a facility overlay landing on the project's limits.
-        (project_data / LIMITS_FILENAME).write_text('{"channels": {}}\n')
-
-        write_project_manifest(prepared, project_data)
-
-        assert (project_data / "simulation" / LIMITS_FILENAME).read_text() == '{"channels": {}}\n'
-
-    def test_limits_copy_falls_back_to_the_prepared_source(self, facility_tree, tmp_path):
-        prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
-        project_data = tmp_path / "data"
-        project_data.mkdir()
+        project_data = _project_data(tmp_path / "data", limits_view)
 
         write_project_manifest(prepared, project_data)
 
         assert (project_data / "simulation" / LIMITS_FILENAME).read_bytes() == (
-            facility_tree / LIMITS_FILENAME
-        ).read_bytes()
+            limits_view.read_bytes()
+        )
+
+    def test_a_render_without_a_limits_view_refuses(self, facility_tree, tmp_path):
+        """The drive limits come from the render's view, never from a source tree."""
+        prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
+        project_data = tmp_path / "data"
+        project_data.mkdir()
+
+        with pytest.raises(BuildProfileError, match="drive limits are missing"):
+            write_project_manifest(prepared, project_data)
+
+        assert not (project_data / "simulation" / LIMITS_FILENAME).exists()
 
 
 #: A lattice with the shape the copy cares about: valid JSON, and
@@ -849,11 +859,12 @@ class TestSimulationModelSources:
         assert prepared is not None
         assert prepared.model_sources == ()
 
-    def test_lattice_and_bindings_land_beside_the_manifest(self, editable_tree, tmp_path):
+    def test_lattice_and_bindings_land_beside_the_manifest(
+        self, editable_tree, tmp_path, limits_view
+    ):
         _with_simulation_model(editable_tree)
         prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
-        project_data = tmp_path / "project" / "data"
-        project_data.mkdir(parents=True)
+        project_data = _project_data(tmp_path / "project" / "data", limits_view)
 
         manifest_path = write_project_manifest(prepared, project_data)
 
@@ -862,11 +873,12 @@ class TestSimulationModelSources:
         assert built.lattice_json.is_file()
         assert built.va_bindings.is_file()
 
-    def test_the_lattice_and_bindings_copies_are_byte_identical(self, editable_tree, tmp_path):
+    def test_the_lattice_and_bindings_copies_are_byte_identical(
+        self, editable_tree, tmp_path, limits_view
+    ):
         _with_simulation_model(editable_tree)
         prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
-        project_data = tmp_path / "project" / "data"
-        project_data.mkdir(parents=True)
+        project_data = _project_data(tmp_path / "project" / "data", limits_view)
 
         write_project_manifest(prepared, project_data)
 
@@ -875,10 +887,11 @@ class TestSimulationModelSources:
         assert built.lattice_json.read_bytes() == source.lattice_json.read_bytes()
         assert built.va_bindings.read_bytes() == source.va_bindings.read_bytes()
 
-    def test_a_tree_serving_no_lattice_copies_neither_file(self, facility_tree, tmp_path):
+    def test_a_tree_serving_no_lattice_copies_neither_file(
+        self, facility_tree, tmp_path, limits_view
+    ):
         prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
-        project_data = tmp_path / "data"
-        project_data.mkdir()
+        project_data = _project_data(tmp_path / "data", limits_view)
 
         write_project_manifest(prepared, project_data)
 
@@ -886,11 +899,14 @@ class TestSimulationModelSources:
         assert not built.lattice_json.exists()
         assert not built.va_bindings.exists()
 
-    def test_writing_into_the_source_tree_leaves_the_lattice_alone(self, editable_tree):
+    def test_writing_into_the_source_tree_leaves_the_lattice_alone(
+        self, editable_tree, limits_view
+    ):
         """Destination and source are one file when a tree is built in place."""
         _with_simulation_model(editable_tree)
         prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
         paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+        _project_data(editable_tree, limits_view)
 
         write_project_manifest(prepared, editable_tree)
 
@@ -1257,7 +1273,6 @@ def middle_layer_tree(tmp_path_factory) -> Path:
     paths.machine_json.parent.mkdir(parents=True, exist_ok=True)
     paths.machine_json.write_text(json.dumps({"name": "zz", "channels": {}}))
     paths.machine_state_channels.write_text("{}")
-    paths.channel_limits.write_text(json.dumps({"_version": "1.0"}))
     return root
 
 
@@ -1445,7 +1460,6 @@ def _graph_tree(root: Path, tree: dict | None = _SMALL_TREE) -> tuple[Path, dict
     (root / "simulation").mkdir(parents=True)
     (root / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
     (root / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
-    (root / LIMITS_FILENAME).write_text("{}\n")
     config = {
         "channel_finder": {"pipeline_mode": "graph"},
         "services": {"graphdb": {"ttl_path": "./facility.ttl"}},
@@ -1578,11 +1592,10 @@ class TestRosterSourcedManifest:
         assert metadata["machine_json_novel_addresses"] == ["SR:VAC:GAUGE:99:PRESSURE:RB"]
         assert metadata["total_channels"] == 6
 
-    def test_written_graph_manifest_loads_through_the_container_reader(self, tmp_path):
+    def test_written_graph_manifest_loads_through_the_container_reader(self, tmp_path, limits_view):
         root, config = _graph_tree(tmp_path / "data")
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
-        project_data = tmp_path / "project" / "data"
-        project_data.mkdir(parents=True)
+        project_data = _project_data(tmp_path / "project" / "data", limits_view)
 
         manifest_path = write_project_manifest(prepared, project_data)
 
@@ -1655,7 +1668,9 @@ class TestGraphStatedPairs:
         assert metadata["setpoint_count"] == 1
         assert metadata["total_channels"] == 4
 
-    def test_the_written_manifest_loads_and_the_container_pairs_the_echo(self, tmp_path):
+    def test_the_written_manifest_loads_and_the_container_pairs_the_echo(
+        self, tmp_path, limits_view
+    ):
         """The shape the IOC reads: through the file loader, then the pvdb pairing.
 
         ``build_serving_pvdb`` is what pairs the two halves on their identity
@@ -1667,8 +1682,7 @@ class TestGraphStatedPairs:
 
         root, config = _graph_tree(tmp_path / "data", tree=_STATED_PAIR_TREE)
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
-        project_data = tmp_path / "project" / "data"
-        project_data.mkdir(parents=True)
+        project_data = _project_data(tmp_path / "project" / "data", limits_view)
 
         manifest_path = write_project_manifest(prepared, project_data)
 
@@ -1791,14 +1805,12 @@ class TestGraphYieldsNothing:
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
         assert "missing simulation/machine.json" in reason
 
-    def test_a_graph_tree_missing_its_drive_limits_is_named(self, tmp_path):
-        """Limits and manifest ship together on the graph path too."""
+    def test_a_graph_tree_without_a_limits_file_backs_a_manifest(self, tmp_path):
+        """The render's limits view supplies the drive limits on the graph path too."""
         root, config = _graph_tree(tmp_path / "data")
-        (root / LIMITS_FILENAME).unlink()
 
-        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
-        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
-        assert f"missing {LIMITS_FILENAME}" in reason
+        assert not (root / LIMITS_FILENAME).exists()
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is not None
 
     def test_a_graph_tree_missing_its_machine_state_list_is_named(self, tmp_path):
         root, config = _graph_tree(tmp_path / "data")

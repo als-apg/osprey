@@ -83,7 +83,6 @@ def _write_profile(
     *,
     deploy_va: bool = False,
     live_standin: int | None = None,
-    config: dict | None = None,
     model: bool = True,
 ) -> Path:
     """A profile sourcing its own copy of the bundled control-assistant tree.
@@ -112,11 +111,6 @@ def _write_profile(
     ``live_standin`` adds that block's stand-in port, which deploys a SECOND
     soft-IOC and gives the deployment a THIRD control target, ``standin``. It
     implies ``deploy_va``.
-
-    ``config`` carries dotted overrides into the rendered ``config.yml`` — the
-    profile's own escape hatch for a value the bundle's template pins, used
-    here by the one test that has to build a deployment holding no
-    channel-limits database.
     """
     repo_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(_bundle_data_dir(), repo_dir / "data")
@@ -137,8 +131,6 @@ def _write_profile(
         profile["virtual_accelerator"] = {"port": 5064}
         if live_standin is not None:
             profile["virtual_accelerator"]["live_standin"] = live_standin
-    if config:
-        profile["config"].update(config)
     path = repo_dir / "profile.yml"
     path.write_text(yaml.dump(profile, default_flow_style=False))
     return path
@@ -391,20 +383,6 @@ class TestSkippedWithoutParadigmDatabases:
 
         assert "VA_CHANNELS_FILE" in caplog.text
         assert _repo_env(repo_dir)["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
-
-    def test_the_build_still_succeeds(self, tmp_path):
-        repo_dir = tmp_path / "repo"
-        # The limits database is what this tree loses, so the deployment is
-        # read-only: writes ON with no limits file to enforce is a refusal of
-        # its own (`resolve_limits_mount`), and letting that fire here would
-        # decide this test on a fact it is not about.
-        _write_profile(repo_dir, config={"control_system.writes_enabled": False})
-        (repo_dir / "data" / LIMITS_FILENAME).unlink()
-
-        # Profile data is user-owned: a tree the generator can't use is not a
-        # build failure, it just leaves the container's package fallback.
-        project_dir = _build(repo_dir)
-        assert (project_dir / "config.yml").is_file()
 
 
 class TestCorruptFacilityDataIsNamed:

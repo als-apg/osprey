@@ -162,9 +162,8 @@ class ManifestPaths:
         The one list: both the presence check below and the failure-path probe
         that names a corrupt file (``build._first_unreadable_source``) walk it,
         so a source added here cannot be missed by either. ``channel_limits``
-        is deliberately absent -- it is asked of every tree alike, and the
-        build step requires it separately, as the file that must ship *beside*
-        a manifest.
+        is absent: a source tree carries no limits file, and the drive limits
+        that ship beside a manifest are the render's limits view.
 
         Only the paradigm databases the tree STAGES are here, because those are
         the ones the generator reads. The scenario seed and the machine-state
