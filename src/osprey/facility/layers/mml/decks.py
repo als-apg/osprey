@@ -83,7 +83,6 @@ import contextlib
 import copy
 import io
 import json
-import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -96,6 +95,7 @@ from osprey.facility.layers.mml.mapping import (
     MappingError,
     Model,
     WiringFamily,
+    exported_number,
 )
 
 __all__ = [
@@ -391,8 +391,8 @@ def _harmonic(ad_block: Mapping[str, Any] | None) -> int | None:
     """How many buckets the deck holds, as whole a number as it must be."""
     if not isinstance(ad_block, Mapping):
         return None
-    number = _number(ad_block.get(HARMONIC_KEY))
-    if number is None or not math.isfinite(number) or number != int(number) or number < 1:
+    number = exported_number(ad_block.get(HARMONIC_KEY))
+    if number is None or number != int(number) or number < 1:
         return None
     return int(number)
 
@@ -720,30 +720,16 @@ def _index_rows(value: Any) -> list[list[Any]]:
 
 def _index(value: Any) -> int | None:
     """One stated position, or ``None`` for a slot the device does not have."""
-    number = _number(value)
-    if number is None or not math.isfinite(number) or number != int(number):
+    number = exported_number(value)
+    if number is None or number != int(number):
         return None
     return int(number)
 
 
 def _whole(value: Any) -> int:
     """One device number, as the name spells it."""
-    number = _number(value)
-    return int(number) if number is not None and math.isfinite(number) else 0
-
-
-def _number(value: Any) -> float | None:
-    """One exported number, which an export may spell as a word."""
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
+    number = exported_number(value)
+    return int(number) if number is not None else 0
 
 
 def served_deck(addressing: Addressing) -> Any:

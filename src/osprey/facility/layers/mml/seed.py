@@ -42,9 +42,9 @@ from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     Mapping,
     Model,
-    _number,
     _text,
     dump_mapping,
+    exported_number,
     field_roles,
 )
 
@@ -270,7 +270,7 @@ def band(declared: Any, indices: Sequence[int], devices: int) -> tuple[float | N
     for pair in pairs:
         if not isinstance(pair, (list, tuple)) or len(pair) != 2:
             continue
-        low, high = _number(pair[0]), _number(pair[1])
+        low, high = exported_number(pair[0]), exported_number(pair[1])
         if low is not None and high is not None and low > high:
             low, high = high, low
         if low is not None:
@@ -313,7 +313,7 @@ def _limit_records(
 
 
 def _edge(value: Any) -> str:
-    number = _number(value)
+    number = exported_number(value)
     return "-" if number is None else f"{number:g}"
 
 
@@ -330,8 +330,8 @@ def _differences(document: Any, records: list[dict[str, Any]]) -> list[str]:
         row = stated.get(record["address"])
         if row is None:
             continue
-        ours = (_number(record.get("min_value")), _number(record.get("max_value")))
-        theirs = (_number(row.get("min_value")), _number(row.get("max_value")))
+        ours = (exported_number(record.get("min_value")), exported_number(record.get("max_value")))
+        theirs = (exported_number(row.get("min_value")), exported_number(row.get("max_value")))
         if ours != theirs:
             lines.append(
                 f"limits differ: {record['address']} "
@@ -367,7 +367,7 @@ def _golden(claims: dict[str, _Claim], exports: Exports) -> dict[str, float]:
             if len(values) != claim.view.n_devices:
                 continue
             values = values[claim.indices[0]]
-        value = _number(values)
+        value = exported_number(values)
         if value is not None:
             golden[address] = value
     return golden

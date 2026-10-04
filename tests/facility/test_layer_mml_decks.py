@@ -302,6 +302,30 @@ def test_a_split_device_names_each_piece_by_its_stated_slot() -> None:
     ]
 
 
+@pytest.mark.parametrize("word", ["NaN", "Inf", "3"])
+def test_a_slot_spelled_as_text_is_no_slot(word: str) -> None:
+    deck = _deck(at.Quadrupole("Q", 0.1, 1.0), at.Drift("D", 1.0), at.Quadrupole("Q", 0.1, 1.0))
+    va = {"families": {"QF": _family("Setpoint", [[1, word, 3]], [[2, 1]])}}
+    model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
+    (binding,) = address_elements(model, deck, va).bindings["QF"]
+    assert [piece.slot for piece in binding.slices] == [1, 3]
+
+
+@pytest.mark.parametrize("word", ["NaN", "Inf", "3"])
+def test_a_device_number_spelled_as_text_names_device_0(word: str) -> None:
+    deck = _deck(at.Drift("D", 1.0), at.Quadrupole("Q", 0.1, 1.0))
+    va = {"families": {"QF": _family("Setpoint", [2], [[word, 1]])}}
+    model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
+    assert address_elements(model, deck, va).deck[1].FamName == "QF_0_1"
+
+
+@pytest.mark.parametrize("word", ["NaN", "Inf", "3"])
+def test_a_harmonic_number_spelled_as_text_builds_no_cavity(word: str) -> None:
+    model, deck, va, _ad = _fixture(*STORAGE[1])
+    with pytest.raises(ValueError, match="family RF drives a cavity the deck does not hold"):
+        address_elements(model, deck, va, {"HarmonicNumber": word})
+
+
 def test_a_corrector_is_served_polynomials_as_wide_as_it_carries() -> None:
     corrector = at.Corrector("C", 0.1, [0.0, 0.0], PolynomB=[0.0, 0.5, 0.2], MaxOrder=1)
     deck = _deck(at.Drift("D", 1.0), corrector)

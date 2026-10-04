@@ -79,7 +79,7 @@ from osprey.facility.layers.mml.mapping import (
     MappingError,
     Model,
     WiringFamily,
-    _number,
+    exported_number,
 )
 from osprey.simulation.engines.calibration import Calibration, Linear, Table, evaluate
 
@@ -566,7 +566,7 @@ def _device_key(row: Any) -> tuple[int, ...] | None:
     """One device row as the whole numbers that name it, or ``None``."""
     if not isinstance(row, (list, tuple)):
         return None
-    numbers = [_number(cell) for cell in row]
+    numbers = [exported_number(cell) for cell in row]
     return tuple(int(number) for number in numbers if number is not None) or None
 
 
@@ -612,7 +612,7 @@ def _nominal_gap(block: Map[str, Any], field: str, devices: int) -> str | None:
         return "states no hardware nominal: its nominal is in physics units"
     values = nominal.get("values")
     rows = list(values) if isinstance(values, (list, tuple)) else [values] * max(devices, 1)
-    missing = sum(1 for value in rows if _number(value) is None)
+    missing = sum(1 for value in rows if exported_number(value) is None)
     if not missing:
         return None
     return f"states no hardware nominal for {missing} of its {len(rows)} devices"
@@ -628,7 +628,7 @@ def _nominal_for(
         return None
     if _word(nominal.get("units")).lower() == _PHYSICS_UNITS:
         return None
-    return _number(
+    return exported_number(
         _per_device_entry(nominal.get("values"), device, devices, f"{where} {field} nominal")
     )
 
@@ -678,8 +678,10 @@ def _curve_for_device(
         return None
     kind = _word(spec.get("kind"))
     if kind == "linear":
-        gain = _number(_per_device_entry(spec.get("gain"), device, devices, f"{where} {key} gain"))
-        offset = _number(
+        gain = exported_number(
+            _per_device_entry(spec.get("gain"), device, devices, f"{where} {key} gain")
+        )
+        offset = exported_number(
             _per_device_entry(spec.get("offset"), device, devices, f"{where} {key} offset")
         )
         return None if gain is None or offset is None else Linear(gain=gain, offset=offset)
@@ -703,7 +705,8 @@ def _sampled_curve(grid: Any, values: Any) -> Table | None:
     pairs = [
         (point, value)
         for point, value in (
-            (_number(one), _number(other)) for one, other in zip(grid, values, strict=False)
+            (exported_number(one), exported_number(other))
+            for one, other in zip(grid, values, strict=False)
         )
         if point is not None and value is not None
     ]
