@@ -223,6 +223,8 @@ class Composite(LUMEModel):
         instance: The serving instance the model log names, one of
             :data:`INSTANCES`.
         clock: Returns the current instant in epoch seconds.
+        model_log: ``False`` sends the model log records to the process logger
+            only, for a composite no instance serves.
 
     Raises:
         ValueError: ``instance`` is not one of :data:`INSTANCES`.
@@ -235,6 +237,7 @@ class Composite(LUMEModel):
         state_dir: Path | str | None = None,
         instance: str = "inprocess",
         clock: Callable[[], float] = time.time,
+        model_log: bool = True,
     ) -> None:
         if instance not in INSTANCES:
             raise ValueError(f"instance is {instance!r}; use one of {list(INSTANCES)}")
@@ -244,7 +247,8 @@ class Composite(LUMEModel):
         self._state_path = (
             None if state_dir is None else Path(state_dir) / ACTIVE_SCENARIOS_FILENAME
         )
-        self._log_dir = log_dir()
+        self._log_dir = log_dir() if model_log else None
+        self._active: list[str] = []
 
         variables = _read_json(self._view_dir / _VARIABLES_FILE)
         seeds = _read_json(self._view_dir / _SEEDS_FILE)
@@ -440,6 +444,7 @@ class Composite(LUMEModel):
                         name, overlap_record(overlap, instance=self._instance, pid=os.getpid())
                     )
             active = resolve_active_scenarios([])
+        self._active = list(active)
 
         overrides: dict[str, Any] = {}
         faults: dict[str, dict[str, Any]] = {}
@@ -512,6 +517,12 @@ class Composite(LUMEModel):
     def models(self) -> list[str]:
         """The served physics models, sorted by name."""
         return list(self._children)
+
+    @property
+    def active(self) -> list[str]:
+        """The scenarios served: the active set, or ``nominal`` alone when its scenarios overlap."""
+        self._refresh()
+        return list(self._active)
 
     def get(self, names: list[str] | str) -> dict[str, Any] | Any:
         """Read channels; a waveform reads as a flat list.
@@ -618,6 +629,92 @@ class Composite(LUMEModel):
                     value_type, channel.get("options"), channel.get("shape")
                 )
         return outputs
+
+    def readout_group(self, address: str) -> tuple[str, ...]:
+        """The channels a read of ``address`` reads with it, ``address`` among them.
+
+        A monitor plane of a physics child is read with its partner planes;
+        any other channel alone.
+
+        Raises:
+            ValueError: ``address`` is not a channel of the view.
+        """
+        self._require([address])
+        owner = self._owner[address]
+        if owner == TEXTURE_OWNER or not self._is_moving_readback(address):
+            return (address,)
+        return self._children[owner].partners.get(address, (address,))
+
+    def readings(self, levels: Mapping[str, Any], t_s: Any) -> dict[str, np.ndarray]:
+        """Float channels as served at epoch seconds, from levels in place of held values.
+
+        A moving channel, a texture float or a physics float readback, reads
+        its level plus its motion on that level, through its child's
+        ``readout`` when the engine exports one, then clamped; a physics
+        setpoint reads its level. A failed child's readbacks read NaN.
+
+        Args:
+            levels: Float channel levels by address, each a scalar or an array
+                shaped like ``t_s``; a monitor plane needs every channel of its
+                :meth:`readout_group`.
+            t_s: Epoch seconds, one-dimensional.
+
+        Returns:
+            One float64 array shaped like ``t_s`` per address of ``levels``.
+
+        Raises:
+            ValueError: A name is not a float channel of the view, or a
+                monitor plane's partner has no level.
+        """
+        names = sorted(levels)
+        self._require(names)
+        for name in names:
+            channel = self._channels.get(name)
+            if (
+                channel is None
+                or (channel.get("value_type") or values.DEFAULT_VALUE_TYPE) != "float"
+            ):
+                raise ValueError(f"{name} is not a float channel of the view")
+        self._refresh()
+        times = np.asarray(t_s, dtype=np.float64).reshape(-1)
+        out: dict[str, np.ndarray] = {}
+        readbacks: dict[str, list[str]] = {}
+        unread: set[str] = set()
+        for name in names:
+            level = np.broadcast_to(np.asarray(levels[name], dtype=np.float64), times.shape)
+            owner = self._owner[name]
+            if owner != TEXTURE_OWNER and not self._is_moving_readback(name):
+                out[name] = np.array(level, dtype=np.float64)
+                unread.add(name)
+                continue
+            out[name] = level + self._texture.motion(name, times, base=level)
+            if owner != TEXTURE_OWNER:
+                readbacks.setdefault(owner, []).append(name)
+        for model, owned in readbacks.items():
+            child = self._children[model]
+            if child.model is None:
+                for name in owned:
+                    out[name] = np.full(times.shape, math.nan)
+                unread.update(owned)
+                continue
+            readout = getattr(child.engine, "readout", None)
+            if not callable(readout):
+                continue
+            for index, instant in enumerate(times):
+                read = readout(
+                    child.model,
+                    {name: float(out[name][index]) for name in owned},
+                    int(round(float(instant) * _MS_PER_S)),
+                )
+                for name in owned:
+                    out[name][index] = float(read[name])
+        for name in names:
+            if name not in unread:
+                out[name] = np.array(
+                    [self._texture.clamp(name, float(value)) for value in out[name]],
+                    dtype=np.float64,
+                )
+        return out
 
     def held(self, names: Sequence[str]) -> dict[str, Any]:
         """Each channel's held value: no motion, no readout, no clamp.
