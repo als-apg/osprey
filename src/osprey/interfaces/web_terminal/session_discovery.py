@@ -1,7 +1,7 @@
 """Session discovery for Claude Code JSONL conversation files.
 
 Scans ``<config-dir>/projects/<encoded-path>/`` for JSONL session files,
-extracting metadata (first message, modification time, message count)
+extracting metadata (first message, modification time, readable-record count)
 for the session picker UI.
 """
 
@@ -18,9 +18,34 @@ from osprey.agent_runner.project_paths import claude_project_dir
 logger = logging.getLogger(__name__)
 
 
+def _user_preview(entry: dict) -> str:
+    """Return the first 80 characters of a user record's text, or ``""``."""
+    if entry.get("type") != "user":
+        return ""
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content", "")
+    if isinstance(content, list):
+        # Multi-part content — extract first text block
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                content = part.get("text", "")
+                break
+        else:
+            content = ""
+    if isinstance(content, str) and content:
+        return content[:80]
+    return ""
+
+
 @dataclass
 class SessionInfo:
-    """Metadata for a single Claude Code session."""
+    """Metadata for a single Claude Code session.
+
+    ``message_count`` counts the transcript's readable records, the lines that
+    parse as a JSON object.
+    """
 
     session_id: str
     first_message: str
@@ -46,7 +71,8 @@ class SessionDiscovery:
     def list_sessions(self) -> list[SessionInfo]:
         """Return sessions sorted newest-first.
 
-        Skips empty JSONL files and any file that cannot be read.
+        Skips zero-byte files, files that cannot be opened or stat'ed, and
+        files with no readable record — a line that parses as a JSON object.
         """
         sessions_dir = self._resolve_sessions_dir()
         if not sessions_dir.is_dir():
@@ -59,7 +85,11 @@ class SessionDiscovery:
                 if info is not None:
                     results.append(info)
             except Exception:
-                logger.debug("Skipping corrupt session file: %s", path.name)
+                logger.debug(
+                    "Skipping session file that could not be opened or stat'ed: %s",
+                    path.name,
+                    exc_info=True,
+                )
 
         results.sort(key=lambda s: s.last_modified, reverse=True)
         return results
@@ -90,27 +120,18 @@ class SessionDiscovery:
                 line = line.strip()
                 if not line:
                     continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:  # json.JSONDecodeError is a ValueError
+                    continue
+                if not isinstance(entry, dict):
+                    continue
                 message_count += 1
                 if not first_message:
-                    try:
-                        entry = json.loads(line)
-                        if entry.get("type") == "user":
-                            msg = entry.get("message", {})
-                            content = msg.get("content", "")
-                            if isinstance(content, list):
-                                # Multi-part content — extract first text block
-                                for part in content:
-                                    if isinstance(part, dict) and part.get("type") == "text":
-                                        content = part.get("text", "")
-                                        break
-                                else:
-                                    content = ""
-                            if content:
-                                first_message = content[:80]
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
+                    first_message = _user_preview(entry)
 
         if message_count == 0:
+            logger.debug("Skipping session file with no readable record: %s", path.name)
             return None
 
         return SessionInfo(

@@ -320,7 +320,9 @@
            (aria-label repeats it verbatim, as the rail entries do); `title`
            carries the longer phrase the label abbreviates.
            The docs href is filled in at boot from GET /api/panels.docs_url;
-           the anchor stays hidden until it has one (rail-utility.js). -->
+           the anchor stays hidden until it has one (rail-utility.js).
+           Activity opens the Session Activity Log in a new tab on the
+           session the terminal is on at click time (activity-log-link.js). -->
       <div class="panel-utility" id="panel-utility">
         <a class="panel-utility-btn" id="panel-docs-link"
            target="_blank" rel="noopener"
@@ -352,6 +354,15 @@
             </svg>
           </span>
           <span class="panel-utility-label">Tour</span>
+        </button>
+        <button class="panel-utility-btn" id="panel-activity-btn" type="button"
+                title="Open the activity log in a new tab" aria-label="Activity">
+          <span class="panel-utility-icon" data-icon="activity" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 8.5H5L6.5 4.5L9.5 11.5L11 8.5H14"/>
+            </svg>
+          </span>
+          <span class="panel-utility-label">Activity</span>
         </button>
       </div>
     </div>

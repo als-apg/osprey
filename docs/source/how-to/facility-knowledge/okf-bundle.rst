@@ -196,7 +196,9 @@ Working with a Bundle
       Each of the three read tools also names a ``url`` per concept — the link
       that opens it in the KNOWLEDGE panel. It is relative to the page the
       operator is on, so the agent can cite a concept as a markdown link on a
-      single-user deployment and behind a per-user mount alike.
+      single-user deployment and behind a per-user mount alike. In the web
+      terminal's Simple view, clicking such a link opens the KNOWLEDGE panel in
+      the workspace at that concept.
 
       **The facility-knowledge subagent.** When it is enabled in a project's
       config, the main OSPREY agent delegates facility knowledge questions to this

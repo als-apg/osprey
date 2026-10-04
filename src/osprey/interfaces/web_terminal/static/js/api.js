@@ -151,20 +151,34 @@ export const WS_CLOSE_SESSION_ATTACHED = 4409;
 export const WS_CLOSE_OUTGOING_RUNNING = 4503;
 
 /**
+ * Close code for a hand-off refused until the operator agrees to end the
+ * commands the other view's agent started and still has running. A
+ * `handoff_refused` frame carrying their list arrives just before it. Mirrors
+ * the server's constant.
+ */
+export const WS_CLOSE_STARTED_COMMANDS = 4428;
+
+/**
  * Whether a close code is one of the server's deliberate refusals, which are
  * final for the connection that received them.
  *
  * The distinction the reconnect loop needs is *why* the socket closed. A
  * dropped link says nothing about the session, so backing off and trying again
  * is right. A refusal is an answer: the session is demonstrably alive and held
- * by someone else, or its previous process has not died yet. Reconnecting on
- * one would fight the holder or hammer an unfinished teardown, so these codes
- * end the loop and reach the caller instead.
+ * by someone else, its previous process has not died yet, or ending it would
+ * end commands its agent started and the operator has not agreed to that.
+ * Reconnecting on one would fight the holder, hammer an unfinished teardown or
+ * ask the same unanswered question forever, so these codes end the loop and
+ * reach the caller instead.
  * @param {number} code
  * @returns {boolean}
  */
 export function isRefusalCloseCode(code) {
-  return code === WS_CLOSE_SESSION_ATTACHED || code === WS_CLOSE_OUTGOING_RUNNING;
+  return (
+    code === WS_CLOSE_SESSION_ATTACHED ||
+    code === WS_CLOSE_OUTGOING_RUNNING ||
+    code === WS_CLOSE_STARTED_COMMANDS
+  );
 }
 
 /**

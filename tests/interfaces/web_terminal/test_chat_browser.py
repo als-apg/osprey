@@ -20,7 +20,10 @@ markdown/sanitiser globals and the SSE transport against a live event stream:
  10. the view taking the session over shows the transitional state while the
      outgoing agent finishes: ended by "Stop and switch now" on either side,
      and by the turn's own idle edge on the Simple side;
- 11. a second tab holding the session gets the refusal in words.
+ 11. a second tab holding the session gets the refusal in words;
+ 12. a panel citation in a streamed answer opens the KNOWLEDGE tile on the
+     cited concept — the one companion panel this module serves for real, the
+     okf panel over its own fixture bundle.
 
 Harness: the panels-browser ``_live_server`` machinery (a real uvicorn server on
 a background thread, with ``_load_web_config``/``_load_panel_config``/
@@ -60,6 +63,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 import requests
@@ -68,7 +72,7 @@ from fastapi import Request
 
 from osprey.agent_runner.project_paths import claude_project_dir
 from tests.interfaces._browser import wait_for_dock_settled
-from tests.interfaces._panel_launch import publish_artifact_url
+from tests.interfaces._panel_launch import publish_panel_urls
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
 # The shared SDK-message builders, so the fake yields the real messages the
@@ -380,7 +384,13 @@ def _record_pty_spawns(app) -> None:
 
 
 @contextmanager
-def _live_chat_server(tmp_path, ui_mode: str = "simple"):
+def _live_chat_server(
+    tmp_path,
+    ui_mode: str = "simple",
+    *,
+    enabled_panels: frozenset[str] = frozenset({"artifacts"}),
+    panel_urls: dict[str, str] | None = None,
+):
     """Launch a real web terminal with the SDK faked at the operator_session seam.
 
     Mirrors the panels-browser ``_live_server`` patch set (web/panel config +
@@ -395,6 +405,13 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
     or reads through — Claude's config directory (transcripts) and the
     agent-data root (posture and transcript-map stores) — are pinned beside it,
     so a run neither reads nor writes developer state.
+
+    Args:
+        enabled_panels: The builtin panel ids the hub enables.
+        panel_urls: The address each companion server is published at, by
+            registry key, for a panel a test serves itself. A panel not named
+            is published unlaunched, so by default no companion tab is
+            advertised.
 
     Yields:
         (base_url, app) — live server address and the FastAPI app. The project
@@ -421,11 +438,11 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
         ),
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
+            return_value=(set(enabled_panels), [], None),
         ),
         patch(
             "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(None),
+            side_effect=publish_panel_urls(panel_urls or {}),
         ),
         # ---- Claude Agent SDK seam ----
         patch(f"{_SEAM}.HAS_SDK", True),
@@ -1354,3 +1371,55 @@ def test_handoff_refused_while_another_tab_holds_the_session(tmp_path, chromium_
         second.close()
         holder.close()
         context.close()
+
+
+# ---------------------------------------------------------------------------
+# 12. A panel citation in an answer opens the KNOWLEDGE tile on that concept
+# ---------------------------------------------------------------------------
+
+#: The knowledge bundle the okf panel's own suite serves; ``devices/bpm`` is in it.
+_OKF_BUNDLE = Path(__file__).resolve().parents[1] / "okf_panel" / "fixtures" / "bundle"
+
+
+def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromium_browser):
+    """A citation in a streamed answer is a click that opens KNOWLEDGE on that concept.
+
+    The whole path runs for real: the fake SDK streams the markdown, the browser
+    renders it through the vendored marked and DOMPurify, the hub classifies the
+    click and navigates the okf panel's iframe to the linked URL, fragment
+    included, and the panel — served here from its fixture bundle — follows the
+    fragment to the concept. The Simple view boots chat-only on an empty
+    workspace, so the click is also what reveals the dock.
+    """
+    from osprey.interfaces.okf_panel.app import create_app as create_okf_app
+
+    with (
+        _run_app_server(create_okf_app(str(_OKF_BUNDLE))) as okf_url,
+        _live_chat_server(
+            tmp_path, enabled_panels=frozenset({"artifacts", "okf"}), panel_urls={"okf": okf_url}
+        ) as (base_url, _app),
+    ):
+        _PLANS["where is the bpm documented"] = [
+            ("text", "The monitor is described under [BPM](panel/okf#devices/bpm)."),
+            ("result",),
+        ]
+        page = _open_chat_page(chromium_browser, base_url)
+        _send(page, "where is the bpm documented")
+
+        citation = page.locator(f"{_OP} .op-entry.assistant .osprey-md-rendered a")
+        expect(citation).to_have_attribute("href", "panel/okf#devices/bpm", timeout=10_000)
+        citation.click()
+
+        tile = page.locator('.dock-iframe-overlay iframe[data-panel-id="okf"]')
+        expect(tile).to_be_visible(timeout=10_000)
+        # The tile was navigated to the linked URL, fragment included (the hub
+        # adds its own embed query on the way).
+        src = urlsplit(tile.get_attribute("src") or "")
+        assert (src.path, src.fragment) == ("/panel/okf", "devices/bpm"), src
+        reader = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="okf"]')
+        expect(reader.locator("#reader-content h1.concept-title")).to_have_text(
+            "Beam Position Monitor", timeout=10_000
+        )
+        # The hub itself never navigated away.
+        assert page.url.startswith(base_url), page.url
+        page.close()

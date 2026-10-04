@@ -301,6 +301,7 @@ async def acquire(
     *,
     interrupt: bool = False,
     spawn: SpawnCallback | None = None,
+    end_started: bool = False,
 ) -> AcquireResult:
     """``acquire_surface`` with :func:`must_not_spawn` unless *spawn* is given."""
     return await acquire_surface(
@@ -310,6 +311,7 @@ async def acquire(
         channel,
         interrupt=interrupt,
         spawn=spawn or must_not_spawn,
+        end_started=end_started,
     )
 
 

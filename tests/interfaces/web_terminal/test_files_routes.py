@@ -144,10 +144,40 @@ class TestFileTree:
         names = [c["name"] for c in resp.json()["children"]]
         assert names == ["test.txt"]
 
-    def test_a_traversal_shaped_session_id_falls_back_to_the_base(self, client, workspace):
+    @pytest.mark.parametrize("route", ["/api/files/tree", "/api/files/content/base_file.txt"])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "../../../etc",
+            "-" * 36,
+            "0" * 36,
+            "AAAAAAAA-1111-2222-3333-444444444444",
+            "operator-deadbeef",
+        ],
+        ids=["traversal", "dashes-36", "zeros-36", "uppercase", "operator-key"],
+    )
+    def test_a_session_id_outside_the_key_grammar_is_400(self, client, workspace, route, bad):
         (workspace / "base_file.txt").write_text("safe")
 
-        resp = client.get("/api/files/tree?session_id=../../../etc")
+        resp = client.get(route, params={"session_id": bad})
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "invalid_session_id"
+
+    def test_a_loose_shaped_session_directory_is_never_served(self, client, workspace):
+        loose = "0" * 36
+        session_dir = workspace / "sessions" / loose
+        session_dir.mkdir(parents=True)
+        (session_dir / "secret.txt").write_text("not a session's")
+
+        resp = client.get("/api/files/content/secret.txt", params={"session_id": loose})
+
+        assert resp.status_code == 400
+
+    def test_an_empty_session_id_serves_the_base(self, client, workspace):
+        (workspace / "base_file.txt").write_text("base content")
+
+        resp = client.get("/api/files/tree?session_id=")
 
         assert resp.status_code == 200
         assert "base_file.txt" in [c["name"] for c in resp.json()["children"]]

@@ -202,6 +202,31 @@ def tail_state(path: Path, busy_since: float | None) -> Literal["busy", "idle", 
     return "busy"
 
 
+def _transcript_file(directory: Path, name: str) -> Path | None:
+    """The ``<name>.jsonl`` file directly inside *directory*, or ``None``.
+
+    An id is a file name, never a path: it names a transcript only when the
+    joined path, with symlinks followed, sits directly in *directory* with
+    symlinks followed too. A separator, an absolute id, an empty id, a name
+    the OS cannot represent, or a link leading out of the directory reads
+    as a transcript that does not exist, so every caller gets the answer a
+    missing file gives and no id reaches a file outside the directory.
+
+    The unresolved joined path is what is returned, so callers see the same
+    path the directory listing shows.
+    """
+    if not name:
+        return None
+    candidate = directory / f"{name}.jsonl"
+    try:
+        contained = candidate.resolve().parent == directory.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not contained or not candidate.is_file():
+        return None
+    return candidate
+
+
 class TranscriptReader:
     """Read Claude Code native JSONL transcripts and extract MCP events."""
 
@@ -439,7 +464,8 @@ class TranscriptReader:
         """Find the transcript file for a specific session ID.
 
         Claude Code uses session UUIDs as filenames, so this constructs
-        the expected path directly without scanning.
+        the expected path directly without scanning; an id that is not a
+        plain file name in the transcript directory reads as not found.
 
         Returns:
             Path to the ``.jsonl`` file, or None if not found.
@@ -447,10 +473,7 @@ class TranscriptReader:
         transcript_dir = self.find_transcript_dir()
         if not transcript_dir:
             return None
-        path = transcript_dir / f"{session_id}.jsonl"
-        if path.is_file():
-            return path
-        return None
+        return _transcript_file(transcript_dir, session_id)
 
     def read_session_by_id(self, session_id: str, **kwargs) -> list[dict]:
         """Read a specific session's events by session ID.
@@ -496,7 +519,9 @@ class TranscriptReader:
         subagent's transcript — everything the agent "said to itself".
 
         Args:
-            agent_id: The subagent filename stem.
+            agent_id: The subagent filename stem. Anything that is not a
+                plain file name in the subagent directory reads as an agent
+                with no transcript.
             session_id: If provided, look up the parent transcript by
                 session ID instead of using the most recent transcript.
 
@@ -510,9 +535,8 @@ class TranscriptReader:
         if not transcript:
             return []
 
-        subagent_dir = transcript.parent / transcript.stem / "subagents"
-        agent_file = subagent_dir / f"{agent_id}.jsonl"
-        if not agent_file.is_file():
+        agent_file = _transcript_file(transcript.parent / transcript.stem / "subagents", agent_id)
+        if agent_file is None:
             return []
 
         return self._parse_agent_timeline(agent_file)

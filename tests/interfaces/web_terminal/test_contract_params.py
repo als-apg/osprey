@@ -419,11 +419,6 @@ _CHROME_CONTRACT_PANELS = [
     ),
 ]
 
-#: Pages whose theme-manager runs in the follower role even when opened
-#: standalone: they apply a pick but never persist one (theme-manager.js,
-#: ``initTheme({role})``). session.html is always a follower.
-_FOLLOWER_PAGES = frozenset({"web_terminal_session"})
-
 _CHROME_CONTRACT_ARGNAMES = (
     "_panel_name",
     "launch",
@@ -537,8 +532,7 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
         expect(page.locator(theme_control_selector)).to_be_visible()
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
-        # Act -- toggle via the panel's theme chrome (the only path a
-        # follower ever reaches setTheme() through).
+        # Act -- toggle via the panel's theme chrome.
         toggle_action(page)
 
         # Assert -- toggleTheme() cycled dark -> light, and the leftover
@@ -551,13 +545,10 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
 
         # Assert -- the stale param can't be resurrected because it was
         # actually stripped (not just visually ignored): reload falls back to
-        # localStorage, then the OS preference. A hub-role page persisted the
-        # toggled pick, so it comes back light rather than the OS's dark; a
-        # follower-role page persists nothing, so it comes back on the OS
-        # preference — and in neither case on the param's dark by way of the
-        # param, which the URL check below rules out.
-        after_reload = "dark" if _panel_name in _FOLLOWER_PAGES else "light"
-        expect(page.locator(f"html[data-theme='{after_reload}']")).to_have_count(1)
+        # localStorage, then the OS preference. Every standalone page runs
+        # theme-manager.js in the hub role and persisted the toggled pick, so
+        # it comes back light rather than the OS's dark.
+        expect(page.locator("html[data-theme='light']")).to_have_count(1)
         assert "theme=" not in page.url
 
         page.close()

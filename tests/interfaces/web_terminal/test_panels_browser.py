@@ -111,7 +111,7 @@ _CUSTOM_DATA_VIZ: dict = {
 
 
 @contextmanager
-def _stub_backend(hits: list[str] | None = None):
+def _stub_backend(hits: list[str] | None = None, *, down: threading.Event | None = None):
     """Serve 200 on every path, for a custom panel that must become healthy.
 
     Panels with a ``healthEndpoint`` are the only ones that reach the
@@ -121,6 +121,8 @@ def _stub_backend(hits: list[str] | None = None):
     Args:
         hits: When given, every request path the stub answers is appended to
             it, so a caller can prove a health poll really reached the stub.
+        down: When given, the stub answers ``503`` on every path while the
+            event is set, so a caller can take the backend dark mid-test.
 
     Yields:
         base URL of the stub, e.g. ``"http://127.0.0.1:54321"``.
@@ -130,6 +132,12 @@ def _stub_backend(hits: list[str] | None = None):
         def do_GET(self):
             if hits is not None:
                 hits.append(self.path)
+            if down is not None and down.is_set():
+                self.send_response(503)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"down")
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -1954,6 +1962,80 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             ).to_have_count(0)
             expect(_service_tab(page, "DATA VIZ")).to_have_count(0)
             expect(_overlay_iframe(page, "data-viz")).not_to_be_visible(timeout=5_000)
+
+            page.close()
+
+
+def test_tile_notice_follows_backend_outage(tmp_path, chromium_browser):
+    """A polled panel whose backend stops answering says so over its own tile.
+
+    The notice covers data-viz's whole tile, not its neighbour's, paints its
+    grey wash, takes no pointer events (the page under it still receives
+    clicks and scrolls), and clears on the backend's next answer. The test
+    waits on the real 10 s health cadence, about 45 s in total: faking the
+    page clock would also fake the dock's own timers.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    down = threading.Event()
+    with _stub_backend(down=down) as backend_url:
+        polled_panel = {
+            "id": "data-viz",
+            "label": "DATA VIZ",
+            "url": backend_url,
+            "healthEndpoint": "/health",
+            "path": "/",
+        }
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[polled_panel],
+        ) as (base_url, app):
+            app.state.visible_panels = ["artifacts", "data-viz"]
+
+            page = _open_page(chromium_browser, base_url)
+            expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
+            expect(
+                page.locator('button.panel-rail-button[data-panel-id="data-viz"]:not(.disabled)')
+            ).to_have_count(1, timeout=15_000)
+            _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
+            frame = _overlay_iframe(page, "data-viz")
+            expect(frame).to_be_visible(timeout=5_000)
+
+            down.set()
+
+            notice = page.locator('.tile-notice[data-panel="data-viz"][data-unreachable]')
+            expect(notice).to_be_visible(timeout=35_000)
+
+            # The wash covers the whole page: the notice spans the iframe's box.
+            nbox = notice.bounding_box()
+            fbox = frame.bounding_box()
+            assert nbox is not None and fbox is not None
+            for key in ("x", "y", "width", "height"):
+                assert abs(nbox[key] - fbox[key]) <= 1, (key, nbox, fbox)
+
+            look = notice.evaluate(
+                "el => { const cs = getComputedStyle(el);"
+                " return { bg: cs.backgroundColor, pe: cs.pointerEvents }; }"
+            )
+            assert look["bg"] != "rgba(0, 0, 0, 0)", look
+            assert look["pe"] == "none", look
+
+            # Clicks and scrolls still reach the page under the wash.
+            hit = page.evaluate(
+                "([x, y]) => { const el = document.elementFromPoint(x, y);"
+                " return el ? (el.dataset.panelId ?? el.className) : null; }",
+                [fbox["x"] + fbox["width"] / 2, fbox["y"] + fbox["height"] / 2],
+            )
+            assert hit == "data-viz", hit
+
+            expect(
+                page.locator('.tile-notice[data-panel="artifacts"][data-unreachable]')
+            ).to_have_count(0)
+
+            down.clear()
+            expect(page.locator(".tile-notice[data-unreachable]")).to_have_count(0, timeout=15_000)
 
             page.close()
 

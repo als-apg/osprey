@@ -26,10 +26,16 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 import {
   setArtifacts,
   setSelectedArtifact,
+  getPickedIds,
+  setPicked,
+  clearPicked,
+  getPickAnchor,
+  setPickAnchor,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import {
   createSidebarRenderer,
   isNearListEnd,
+  pickRange,
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs, byId } from '../_support/dom.mjs';
@@ -66,6 +72,8 @@ function makeCallbacks() {
 beforeEach(() => {
   mountFixture();
   setSelectedArtifact(null);
+  clearPicked();
+  setPickAnchor(null);
 });
 
 describe('tree-mode grouping by type (pinned promoted)', () => {
@@ -432,5 +440,230 @@ describe('isNearListEnd', () => {
     const el = { scrollHeight: 1000, scrollTop: 450, clientHeight: 400 };
     expect(isNearListEnd(el, 100)).toBe(false);
     expect(isNearListEnd(el, 150)).toBe(true);
+  });
+});
+
+describe('picking several rows', () => {
+  /**
+   * @param {string} id
+   * @param {MouseEventInit} [init]
+   */
+  function clickRow(id, init = {}) {
+    qs(document, `[data-id="${id}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true, ...init }));
+  }
+
+  /** @returns {string[]} ids of the rows carrying the `picked` class, in DOM order */
+  function pickedRows() {
+    return Array.from(document.querySelectorAll('#sidebar-body .picked')).map(
+      (el) => /** @type {HTMLElement} */ (el).dataset.id || ''
+    );
+  }
+
+  /** @param {any} callbacks */
+  function renderer(callbacks) {
+    const r = createSidebarRenderer(callbacks);
+    r.renderSidebar();
+    return r;
+  }
+
+  describe('pickRange', () => {
+    const order = ['a', 'b', 'c', 'd', 'e'];
+
+    test('returns the inclusive run from the anchor down to the target', () => {
+      expect(pickRange(order, 'b', 'd')).toEqual(['b', 'c', 'd']);
+    });
+
+    test('returns the inclusive run from the anchor up to the target, in list order', () => {
+      expect(pickRange(order, 'd', 'b')).toEqual(['b', 'c', 'd']);
+    });
+
+    test('returns just the target when it is the anchor', () => {
+      expect(pickRange(order, 'c', 'c')).toEqual(['c']);
+    });
+
+    test('returns just the target when the anchor is not in the list', () => {
+      expect(pickRange(order, 'zz', 'c')).toEqual(['c']);
+    });
+  });
+
+  test('in tree mode a Shift-click picks the run in DOM order across section boundaries', () => {
+    // Tree order: Pinned [2, 4], then visualization [3, 1].
+    setArtifacts(makeFixtureArtifacts());
+    renderer(makeCallbacks());
+
+    clickRow('2');
+    clickRow('3', { shiftKey: true });
+
+    expect([...getPickedIds()]).toEqual(['2', '4', '3']);
+    expect(pickedRows()).toEqual(['2', '4', '3']);
+  });
+
+  test('a Shift-click skips rows inside a collapsed section', () => {
+    // Nothing pinned: visualization [3, 1], channel_values [2], document [4].
+    setArtifacts(makeFixtureArtifacts().map((a) => ({ ...a, pinned: false })));
+    renderer(makeCallbacks());
+
+    qs(document, '.tree-section[data-type="channel_values"] .tree-section-header').click();
+    clickRow('3');
+    clickRow('4', { shiftKey: true });
+
+    expect([...getPickedIds()]).toEqual(['3', '1', '4']);
+  });
+
+  test('a Shift-click with no anchor starts the run at the selected row', () => {
+    setArtifacts(makeFixtureArtifacts());
+    setSelectedArtifact(makeFixtureArtifacts()[1]); // id 2
+    renderer(makeCallbacks());
+
+    clickRow('4', { shiftKey: true });
+    expect([...getPickedIds()]).toEqual(['2', '4']);
+  });
+
+  test('a Shift-click keeps the anchor, so a second one re-picks the run from the same row', () => {
+    setArtifacts(makeFixtureArtifacts());
+    renderer(makeCallbacks());
+
+    clickRow('4');
+    clickRow('1', { shiftKey: true });
+    expect([...getPickedIds()]).toEqual(['4', '3', '1']);
+    clickRow('2', { shiftKey: true });
+    expect([...getPickedIds()]).toEqual(['2', '4']);
+    expect(getPickAnchor()).toBe('4');
+  });
+
+  test.each([['metaKey'], ['ctrlKey']])('a %s-click toggles one row and moves the anchor', (key) => {
+    setArtifacts(makeFixtureArtifacts());
+    renderer(makeCallbacks());
+
+    clickRow('2');
+    clickRow('3', { [key]: true });
+    expect([...getPickedIds()].sort()).toEqual(['2', '3']);
+    expect(getPickAnchor()).toBe('3');
+
+    clickRow('1', { [key]: true });
+    expect([...getPickedIds()].sort()).toEqual(['1', '2', '3']);
+
+    clickRow('3', { [key]: true });
+    expect([...getPickedIds()].sort()).toEqual(['1', '2']);
+    expect(getPickAnchor()).toBe('3');
+    expect(pickedRows().sort()).toEqual(['1', '2']);
+  });
+
+  test('a plain click clears the picks and sets the anchor', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const callbacks = makeCallbacks();
+    renderer(callbacks);
+
+    clickRow('2');
+    clickRow('3', { shiftKey: true });
+    expect(getPickedIds().size).toBe(3);
+
+    clickRow('1');
+    expect(getPickedIds().size).toBe(0);
+    expect(getPickAnchor()).toBe('1');
+    expect(pickedRows()).toEqual([]);
+    expect(qs(document, '[data-id="1"]').classList.contains('selected')).toBe(true);
+  });
+
+  test('picked rows carry the class `picked` and aria-selected="true"; others carry neither', () => {
+    setArtifacts(makeFixtureArtifacts());
+    renderer(makeCallbacks());
+
+    clickRow('2');
+    clickRow('4', { shiftKey: true });
+
+    const picked = qs(document, '[data-id="4"]');
+    expect(picked.classList.contains('picked')).toBe(true);
+    expect(picked.getAttribute('aria-selected')).toBe('true');
+    const other = qs(document, '[data-id="1"]');
+    expect(other.classList.contains('picked')).toBe(false);
+    expect(other.getAttribute('aria-selected')).toBeNull();
+  });
+
+  test('a Shift- or Cmd/Ctrl-click calls neither onSelect nor onPreviewNeeded', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const callbacks = makeCallbacks();
+    renderer(callbacks);
+
+    clickRow('2');
+    expect(callbacks.onSelect).toHaveBeenCalledTimes(1);
+    expect(callbacks.onPreviewNeeded).toHaveBeenCalledTimes(1);
+
+    clickRow('3', { shiftKey: true });
+    clickRow('1', { metaKey: true });
+    clickRow('4', { ctrlKey: true });
+
+    expect(callbacks.onSelect).toHaveBeenCalledTimes(1);
+    expect(callbacks.onPreviewNeeded).toHaveBeenCalledTimes(1);
+    expect(qs(document, '[data-id="2"]').classList.contains('selected')).toBe(true);
+  });
+
+  test('every pick change and every render calls onPicksChanged', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const callbacks = { ...makeCallbacks(), onPicksChanged: vi.fn() };
+    renderer(callbacks);
+    expect(callbacks.onPicksChanged).toHaveBeenCalledTimes(1);
+
+    clickRow('2');
+    clickRow('3', { shiftKey: true });
+    clickRow('1', { metaKey: true });
+    expect(callbacks.onPicksChanged).toHaveBeenCalledTimes(4);
+  });
+
+  test('the picks survive a renderSidebar() for rows still shown, and drop rows no longer shown', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const r = renderer(makeCallbacks());
+
+    clickRow('2');
+    clickRow('3', { shiftKey: true });
+    r.renderSidebar();
+    expect(pickedRows()).toEqual(['2', '4', '3']);
+
+    setArtifacts(makeFixtureArtifacts().filter((a) => a.id !== '4'));
+    r.renderSidebar();
+    expect([...getPickedIds()]).toEqual(['2', '3']);
+    expect(pickedRows()).toEqual(['2', '3']);
+  });
+
+  test('the same run works in activity mode', () => {
+    stampFacilityZone('UTC');
+    try {
+      setArtifacts(makeFixtureArtifacts());
+      const r = createSidebarRenderer(makeCallbacks());
+      r.setBrowseMode('activity');
+      r.renderSidebar();
+
+      const order = Array.from(document.querySelectorAll('.timeline-item')).map(
+        (el) => /** @type {HTMLElement} */ (el).dataset.id
+      );
+      clickRow(/** @type {string} */ (order[0]));
+      clickRow(/** @type {string} */ (order[2]), { shiftKey: true });
+
+      expect([...getPickedIds()]).toEqual(order.slice(0, 3));
+      expect(pickedRows()).toEqual(order.slice(0, 3));
+      expect(document.querySelectorAll('.timeline-item.picked').length).toBe(3);
+    } finally {
+      stampFacilityZone(null);
+    }
+  });
+
+  test('the same run works in the gallery card layout', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const r = createSidebarRenderer(makeCallbacks());
+    r.setSidebarLayout('gallery');
+    r.renderSidebar();
+
+    clickRow('2');
+    clickRow('3', { shiftKey: true });
+
+    expect([...getPickedIds()]).toEqual(['2', '4', '3']);
+    expect(document.querySelectorAll('.gallery-card.picked').length).toBe(3);
+  });
+
+  test('picked rows render with the class after a fresh render', () => {
+    setArtifacts(makeFixtureArtifacts());
+    setPicked(['1', '3']);
+    renderer(makeCallbacks());
+    expect(pickedRows()).toEqual(['3', '1']);
   });
 });

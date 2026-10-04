@@ -1,9 +1,11 @@
 // @ts-check
 /* OSPREY Web Terminal — Session Activity Log: Entry Point
  *
- * Bootstraps session.html: theme + embedded-mode wiring, the same-origin
- * osprey-session-change receiver (the receiver-rejects-foreign-origin
- * contract is pinned by test_contract_params.py), the four-view nav, the
+ * Bootstraps session.html: theme + embedded-mode wiring, the session id
+ * (first from the page's own ?session_id=, then from a host frame's
+ * same-origin osprey-session-change message — the
+ * receiver-rejects-foreign-origin contract is pinned by
+ * test_contract_params.py), the four-view nav, the
  * shared api/toast helpers the view renderers (session-views.js) depend
  * on, the periodic refresh loop, and the activity strip's SSE feed.
  *
@@ -11,12 +13,13 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded } from '/design-system/js/frame-params.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-theme-switcher.js';
 import { renderAgents, renderToolLog, renderArtifacts, renderConversation } from './session-views.js';
 import { withPrefix, createEventSource } from './api.js';
 import { bootActivityStrip } from './activity-strip.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
+import { sessionIdFromQuery } from './activity-log-link.js';
 
 /** @typedef {'agents'|'toollog'|'artifacts'|'conversation'} ViewName */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -31,12 +34,13 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 
 applyEmbedded();
 
-// Follower role: session.html is opened directly (new tab) or embedded
-// read-only; it never persists a preference or broadcasts — it only
-// applies whatever theme-boot.js already resolved pre-paint, a validated
-// ?theme= query param, and whatever the hub broadcasts if this page is
-// ever embedded. Manifest validation here is what closes the arbitrary
-// data-theme injection hole the old hand-rolled ?theme= handling had.
+// Standalone, this page owns its own theme chrome (the header
+// <osprey-theme-switcher>), so it runs theme-manager.js in the hub role:
+// persistence, OS auto-follow and ?theme= handling all come with it, and
+// broadcast is a structural no-op on a page with no iframes. Framed
+// (?embedded=true) it is a follower instead: theme-boot.js already applied
+// data-theme pre-paint, and this attaches the postMessage listener for the
+// host's live broadcasts.
 //
 // The osprey-theme-switcher.js side-effect import above registers the
 // custom element before this call runs: module imports always evaluate
@@ -45,13 +49,17 @@ applyEmbedded();
 // <osprey-theme-switcher> tag in session.html's header) has been parsed
 // and connected — so the button already exists by the time initTheme()
 // wires its click handler.
-initTheme({ role: 'follower' });
+initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 // ---- State ----
 /** @type {ViewName} */
 let activeView = 'agents';
-/** @type {string|null} */
-let currentSessionId = null;
+/**
+ * The session a link named, or `null` for the project's most recent
+ * transcript; a host frame's `osprey-session-change` replaces it.
+ * @type {string|null}
+ */
+let currentSessionId = sessionIdFromQuery(window.location.search);
 /** @type {SessionCache} */
 let cache = { agents: null, toollog: null, artifacts: null, conversation: null };
 

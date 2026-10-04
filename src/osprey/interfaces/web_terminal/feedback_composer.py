@@ -12,9 +12,9 @@ render tiers work from that struct.
 Two things in here look like over-caution and are not:
 
 * **The session id is validated as a UUID before anything touches it.** It
-  arrives from the browser and lands in ``transcript_dir / f"{session_id}.jsonl"``
-  with no sanitising of its own, so anything that is not the canonical UUID
-  spelling is refused here rather than resolved on disk.
+  arrives from the browser, so anything that is not the canonical UUID spelling
+  is refused here, before the reader is asked; the reader's own refusal of an
+  id that is not a plain file name is the second line, not the first.
 
 * **Timestamps are parsed before they are compared.** Claude Code transcripts
   stamp ``2026-08-20T18:04:44.210Z``; :class:`~osprey.stores.artifact_store.ArtifactEntry`

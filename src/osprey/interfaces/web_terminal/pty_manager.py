@@ -19,6 +19,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator
 
 from osprey.agent_runner.clean_env import build_base_child_env
+from osprey.interfaces.web_terminal import process_tree
 from osprey.utils.logger import get_logger
 
 logger = get_logger("pty_manager")
@@ -281,18 +282,31 @@ class PtySession:
         self._last_cols = cols
 
     def terminate(self) -> None:
-        """Terminate the subprocess and close the PTY.
+        """End the child and every process descending from it, and close the PTY.
 
-        Blocking, and best-effort: it hangs up the terminal, then escalates
-        SIGTERM to SIGKILL, waiting between steps, so it can occupy the
-        calling thread for about seven seconds. A caller that must not block
-        that long runs it in a worker thread.
+        The descendants are ended by process group, the child's own group
+        included, so a command the agent ran in a group of its own ends too;
+        the server's own group never is. Blocking, and best-effort: it hangs up
+        the terminal, escalates SIGTERM to SIGKILL against the child, then does
+        the same to the started groups, waiting between steps, so it can occupy
+        the calling thread for about seven seconds for the child plus about
+        five more for started processes that ignore SIGTERM. A caller that
+        must not block that long runs it in a worker thread.
 
         It may also return with the child still running — the SIGKILL wait can
         expire, which is logged and then let go. Returning is therefore not
         proof of death: :attr:`is_alive` is, and it is the probe anything that
-        needs to *know* the child is gone must poll.
+        needs to *know* the child is gone must poll. What became of the started
+        processes is in the log line this method writes.
         """
+        # Taken before the hang-up: a process the agent started in a session
+        # of its own keeps its parent link only until the agent exits.
+        groups = (
+            process_tree.tree_groups(self._process.pid)
+            if self._process is not None and self._process.poll() is None
+            else []
+        )
+
         # Close master fd FIRST — the kernel sends SIGHUP to the entire
         # session (all process groups under this session leader), which is the
         # standard Unix mechanism for cleaning up terminal sessions.  Shells
@@ -332,6 +346,33 @@ class PtySession:
                             "PTY process %d did not exit after SIGKILL — orphaned",
                             self._process.pid,
                         )
+
+        if groups and self._process is not None:
+            ended, survivors = process_tree.end_groups(groups)
+            if ended:
+                logger.info(
+                    "Ended %d process group(s) the PTY child %d started: %s",
+                    len(ended),
+                    self._process.pid,
+                    process_tree.describe(ended),
+                )
+            if survivors:
+                logger.warning(
+                    "Process group(s) the PTY child %d started survived SIGKILL: %s",
+                    self._process.pid,
+                    process_tree.describe(survivors),
+                )
+
+    def started_commands(self) -> list[process_tree.ProcessGroup]:
+        """The commands the agent started in process groups of their own, still running.
+
+        What ending this session would also end, beyond the agent and the
+        helpers in its own group. Empty once the child has exited. Blocking
+        (it runs ``ps``): call it off the loop.
+        """
+        if self._process is None or self._process.poll() is not None:
+            return []
+        return process_tree.started_groups(self._process.pid)
 
     @property
     def pid(self) -> int | None:
@@ -427,6 +468,12 @@ class PtyRegistry:
         to one session. Everything else counts, so a reconnect keeps its
         session alive while a privilege change never fails to reach the child.
 
+        The kill this method performs on a mismatch blocks the calling thread
+        (see :meth:`PtySession.terminate`). A caller on an event loop calls
+        :meth:`pop_env_mismatch` first with the same ``extra_env`` and kills
+        what it returns in a worker thread, after which this method finds the
+        key empty and only spawns.
+
         Args:
             cwd: Working directory for the spawned process (issue #313). Only
                 used when a new session is created; reused live sessions keep
@@ -436,33 +483,18 @@ class PtyRegistry:
             (session, was_reused) — True if an existing live session was reattached.
         """
         fingerprint = env_fingerprint(extra_env)
+        stale = self.pop_env_mismatch(session_key, extra_env)
+        if stale is not None:
+            stale.terminate()
         existing = self._sessions.get(session_key)
         if existing is not None:
-            # An entry with no recorded fingerprint never came through this
-            # registry's own spawn path (every insertion site records one), so
-            # the only thing that can be assumed about its child is the base
-            # environment — no overlay, and therefore no sandbox marker.
-            recorded = self._env_fingerprints.get(session_key, EMPTY_ENV_FINGERPRINT)
-            if existing.is_alive and recorded == fingerprint:
-                # LRU bump — move to end
+            if existing.is_alive:
+                # pop_env_mismatch left only a live entry whose launch env matches.
                 self._sessions.move_to_end(session_key)
                 existing.resize(rows, cols)
                 return existing, True
-
-            if existing.is_alive:
-                # Launch env changed under a live child. Values are never
-                # logged — extra_env carries the panel token.
-                logger.info(
-                    "Launch env changed for session %s — terminating the warm PTY "
-                    "so the new environment reaches a fresh child",
-                    session_key,
-                )
-                self.terminate_session(session_key)
-            else:
-                # Dead — remove silently, respawn below
-                self._sessions.pop(session_key, None)
-                self._env_fingerprints.pop(session_key, None)
-                self._attached.pop(session_key, None)
+            # Dead — remove silently, respawn below.
+            self.pop_session(session_key)
 
         # Evict if at capacity
         self._evict_lru()
@@ -564,6 +596,43 @@ class PtyRegistry:
     def attached_owner(self, session_key: str) -> object | None:
         """The token currently holding *session_key*, or None if it is free."""
         return self._attached.get(session_key)
+
+    def pop_env_mismatch(
+        self, session_key: str, extra_env: dict[str, str] | None = None
+    ) -> PtySession | None:
+        """Remove and return a live entry whose launch env no longer matches, unkilled.
+
+        The selection half of the env-mismatch respawn in
+        :meth:`get_or_create_session`, for a caller on an event loop that is
+        about to call :meth:`get_or_create_session` and cannot afford the
+        blocking kill it performs there. A live entry whose launch fingerprint
+        differs from *extra_env*'s is taken out of the pool, forgotten exactly
+        as :meth:`pop_session` forgets one, and the caller must kill it —
+        nothing else holds a reference any more. A dead entry is left for
+        :meth:`get_or_create_session` to discard; a matching one is left to be
+        reattached.
+
+        Returns:
+            The popped live session, or None when *session_key* names no live
+            entry or its launch env matches.
+        """
+        existing = self._sessions.get(session_key)
+        if existing is None or not existing.is_alive:
+            return None
+        # An entry with no recorded fingerprint never came through this
+        # registry's own spawn path (every insertion site records one), so
+        # the only thing that can be assumed about its child is the base
+        # environment — no overlay, and therefore no sandbox marker.
+        recorded = self._env_fingerprints.get(session_key, EMPTY_ENV_FINGERPRINT)
+        if recorded == env_fingerprint(extra_env):
+            return None
+        # Values are never logged — extra_env carries the panel token.
+        logger.info(
+            "Launch env changed for session %s — terminating the warm PTY "
+            "so the new environment reaches a fresh child",
+            session_key,
+        )
+        return self.pop_session(session_key)
 
     def pop_lru_victim(self) -> PtySession | None:
         """Remove and return the session a spawn at capacity would evict, unkilled.

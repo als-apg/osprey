@@ -5,8 +5,8 @@ pending Future (concurrent double-submits share one creation), LRU capacity
 eviction, idle reaping, and busy-safe teardown. It builds sessions through an
 injected ``factory`` and drives them only through the public
 :class:`~osprey.interfaces.web_terminal.operator_session.OperatorSession`
-surface (``start``/``is_active``/``is_busy``/``last_activity``/``teardown``),
-so any conforming double can stand in.
+surface (``start``/``is_active``/``is_busy``/``last_activity``/
+``started_commands``/``teardown``), so any conforming double can stand in.
 """
 
 from __future__ import annotations
@@ -24,6 +24,24 @@ if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.operator_session import OperatorSession
 
 logger = logging.getLogger(__name__)
+
+
+def _has_running_commands(key: str, session: OperatorSession) -> bool:
+    """Whether the agent of chat *key* still has a command it started running.
+
+    Blocking (it runs ``ps``); the reaper runs it in a worker thread. A failed
+    look counts as nothing running: it has the reach the reaper had without
+    one.
+    """
+    try:
+        return bool(session.started_commands())
+    except Exception:
+        logger.warning(
+            "Could not look for commands chat session %r started; treating it as running none",
+            key,
+            exc_info=True,
+        )
+        return False
 
 
 class ChatCapacityError(RuntimeError):
@@ -52,7 +70,10 @@ class ChatSessionPool:
     """LRU-ordered pool of chat sessions with capacity eviction and idle reaping.
 
     The lock is held only for map inspection/mutation, never across
-    ``session.start()`` or teardown. ``factory(cwd, env, session_key)`` returns
+    ``session.start()``, teardown, or the reaper's look for commands an agent
+    started. The pool drives a session through ``start``/``is_active``/
+    ``is_busy``/``last_activity``/``started_commands``/``teardown``.
+    ``factory(cwd, env, session_key)`` returns
     an unstarted session; the pool starts it outside the lock, naming there the
     transcript it should resume.
     """
@@ -410,14 +431,37 @@ class ChatSessionPool:
         """Tear down every idle chat session; return how many were reaped.
 
         Idle = not busy (no in-flight turn, or a zombie whose reader and quiesce
-        are both done) AND ``last_activity`` older than ``idle_seconds``.
+        are both done), no command the agent started still running, AND
+        ``last_activity`` older than ``idle_seconds``. A chat found running
+        such a command has its ``last_activity`` refreshed. The look is one
+        ``ps`` per non-busy chat per sweep, in worker threads, with the lock
+        released. Reaping ends the agent's process; the next message to that
+        chat resumes its transcript in a new child.
         """
+        async with self._lock:
+            looks = [(k, s) for k, s in self._sessions.items() if not s.is_busy]
+        # The look runs ``ps``, so it runs off the loop and with the lock
+        # released: a creation or terminate must not wait on it.
+        running = await asyncio.gather(
+            *(asyncio.to_thread(_has_running_commands, k, s) for k, s in looks)
+        )
         now = time.monotonic()
         async with self._lock:
-            idle_keys = [k for k, s in self._sessions.items() if self._is_idle(s, now)]
-            victims = [self._sessions.pop(k) for k in idle_keys]
-            for key in idle_keys:
-                self._launches.pop(key, None)
+            victims = []
+            for (key, session), has_running in zip(looks, running, strict=True):
+                # An entry added, replaced, popped or turned busy between the
+                # passes is left for the next sweep.
+                if self._sessions.get(key) is not session:
+                    continue
+                if has_running:
+                    # Stamping a running chat makes its idle timeout count from
+                    # the last sweep that saw a started command, which places
+                    # the reap within one sweep interval of the timeout after
+                    # the last command exits.
+                    session.last_activity = now
+                elif self._is_idle(session, now, running_commands=False):
+                    victims.append(self._sessions.pop(key))
+                    self._launches.pop(key, None)
         if victims:
             await asyncio.gather(*(s.teardown() for s in victims))
         return len(victims)
@@ -446,9 +490,14 @@ class ChatSessionPool:
         if pending is not None:
             self._superseded.add(pending)
 
-    def _is_idle(self, session: OperatorSession, now: float) -> bool:
-        """Not busy AND ``last_activity`` older than ``idle_seconds``."""
-        if session.is_busy:
+    def _is_idle(self, session: OperatorSession, now: float, *, running_commands: bool) -> bool:
+        """Not busy, no started command running, AND ``last_activity`` older than ``idle_seconds``.
+
+        A chat whose agent still has a command it started running is busy, so
+        it is never reaped mid-command; its idle clock starts at the last
+        sweep that saw such a command.
+        """
+        if session.is_busy or running_commands:
             return False
         return (now - session.last_activity) >= self._idle_seconds
 

@@ -108,7 +108,14 @@ class TestRenderedDataTheme:
             pytest.param("high-contrast", "main", "high-contrast-dark", None, id="env-family"),
         ],
     )
-    def test_rendered_theme(self, workspace_dir, monkeypatch, env, configured, theme, mode):
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("/", id="index"),
+            pytest.param("/static/session.html", id="session-page"),
+        ],
+    )
+    def test_rendered_theme(self, workspace_dir, monkeypatch, env, configured, theme, mode, path):
         """``web.theme`` (or ``OSPREY_WEB_THEME`` over it) reaches ``<html>``.
 
         ``data-theme-mode`` is rendered only when the value pinned a mode:
@@ -118,7 +125,7 @@ class TestRenderedDataTheme:
         if env is not None:
             monkeypatch.setenv("OSPREY_WEB_THEME", env)
         with started_client(workspace_dir, config_values={"web.theme": configured}) as client:
-            body = client.get("/").text
+            body = client.get(path).text
 
         assert f'data-theme="{theme}"' in body
         if mode is None:
