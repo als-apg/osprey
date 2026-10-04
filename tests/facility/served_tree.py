@@ -44,6 +44,8 @@ def served_tree(
     root: Path,
     setpoints: Iterable[str] | Mapping[str, str] = (),
     readings: Iterable[str] = (),
+    *,
+    channels: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Path:
     """Build and render a tree serving the given addresses.
 
@@ -54,13 +56,18 @@ def served_tree(
             mapping pairs each setpoint with its readback address, which joins
             the tree as a readback.
         readings: The addresses a test only reads, each a readback.
+        channels: Further channel-record fields by address, in the facility
+            schema's own spelling (``value_type``, ``options``, ``unit``,
+            ``description``, ``simulation``), merged into that address's
+            record.
 
     Returns:
         The render's simulator view, ``root/build/data/simulator``.
 
     Raises:
-        AssertionError: The view does not serve every address given, or a
-            setpoint given is not writable in it.
+        AssertionError: An address of ``channels`` is not among the setpoints,
+            their pairs or the readings; the view does not serve every address
+            given; or a setpoint given is not writable in it.
     """
     from osprey.facility.build import build_facility
     from osprey.facility.render import render_facility_outputs
@@ -75,6 +82,11 @@ def served_tree(
             record["pair"] = pairs[address]
         records.append(record)
     records.extend({"id": address} for address in sorted(readbacks))
+    further = dict(channels or {})
+    unknown = sorted(set(further) - set(pairs) - readbacks)
+    assert not unknown, f"channels names addresses the tree does not hold: {unknown}"
+    for record in records:
+        record.update(further.get(record["id"], {}))
 
     facility_dir = root / "data" / "facility"
     (facility_dir / "records").mkdir(parents=True)
