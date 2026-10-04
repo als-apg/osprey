@@ -362,6 +362,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("engine_invalid__twiss_length", "engine-invalid", "wrong `twiss_in` length"),
     ("engine_invalid__periodic_twiss", "engine-invalid", "`twiss_in` on a periodic model"),
     (
+        "engine_invalid__single_pass_tunes",
+        "engine-invalid",
+        "a tune or chromaticity record wired to a `single_pass` model",
+    ),
+    (
         "engine_invalid__frozen_cavity",
         "engine-invalid",
         "periodic deck with an `RFCavity` whose `longt_motion` is False",
@@ -1426,6 +1431,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: model SR — settings key pyat.twiss_in is set on a periodic "
             "model; fix: remove twiss_in or set solve to single_pass"
+        ),
+    ),
+    "engine_invalid__single_pass_tunes": (
+        _deck(
+            append("records/channels.yaml", {"id": "LTUNE:X", "on": {"place": "LINE"}}),
+            wire("LINE", {"address": "LTUNE:X", "engine": {"attribute": "tune", "axis": "x"}}),
+        ),
+        (
+            "facility: engine-invalid: wiring LINE/LTUNE:X — LTUNE:X: a single_pass model serves "
+            "no tunes or chromaticity; fix: remove the record from the model's wiring"
         ),
     ),
     "engine_invalid__frozen_cavity": (
