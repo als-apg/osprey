@@ -282,11 +282,13 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
 def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
     """Copy each file a scenario's logbook entries attach into the view.
 
-    Every entry is read first (:func:`~osprey.facility.scenarios.scenario_logbook`),
-    so an attachment that leaves its scenario directory, names a missing file
-    or holds a malformed picture is refused before anything is copied.
+    Every scenario's entries are read first
+    (:func:`~osprey.facility.scenarios.scenario_logbook`), so an attachment
+    that leaves its scenario directory, names a missing file or holds a
+    malformed picture is refused before anything is copied. A file two entries
+    attach is copied, and listed, once.
     """
-    copied: list[Path] = []
+    copies: dict[Path, Path] = {}
     for scenario in inputs.doc.get("scenarios", []):
         name = str(scenario["name"])
         source = inputs.facility_dir / SCENARIOS_DIR / name
@@ -294,11 +296,11 @@ def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
         for entry in scenario.get("logbook") or []:
             for item in entry.get("attachments") or []:
                 for rel in item.values():
-                    target = root / SCENARIOS_DIR / name / rel
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes((source / rel).read_bytes())
-                    copied.append(target)
-    return copied
+                    copies.setdefault(root / SCENARIOS_DIR / name / rel, source / rel)
+    for target, origin in copies.items():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(origin.read_bytes())
+    return list(copies)
 
 
 def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
