@@ -312,7 +312,8 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     if stale:
         click.echo("these scenario files name channels that no longer exist:", err=True)
         for path in stale:
-            click.echo(f"  rm {shlex.quote(_shown(path, repo_root))}", err=True)
+            lines = [f"  rm {shlex.quote(_shown(path, repo_root))}"]
             attached = path.with_suffix("")
             if attached.is_dir():
-                click.echo(f"  rm -r {shlex.quote(_shown(attached, repo_root) + '/')}", err=True)
+                lines.append(f"  rm -r {shlex.quote(_shown(attached, repo_root) + '/')}")
+            click.echo("\n".join(lines), err=True)

@@ -194,13 +194,16 @@ def _resolving_scenarios() -> tuple[str, ...]:
 
     Read off the packaged preset, so a demo scenario added later is counted
     without a name being typed here. A scenario stating none of these slots
-    names nothing an import can take away.
+    names nothing an import can take away. A scenario's folder of attached
+    files follows its file, as the import lists it.
     """
     found: list[str] = []
     for path in sorted((PACKAGED_DATA / "facility" / "scenarios").glob("*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         if any(slot in document for slot in _RESOLVING_SLOTS):
             found.append(f"data/facility/scenarios/{path.name}")
+            if path.with_suffix("").is_dir():
+                found.append(f"data/facility/scenarios/{path.stem}/")
     return tuple(found)
 
 
@@ -322,7 +325,8 @@ def remove_stale_scenarios(repo: Path, imported: Result) -> tuple[str, ...]:
     """Remove exactly the scenario files a clean ``facility import mml`` listed.
 
     Nothing here decides what to delete: every path removed was named by one
-    ``  rm`` line under the list's header, one path per line.
+    ``  rm`` line under the list's header (``rm -r`` for a scenario's folder of
+    attached files), one path per line.
 
     Returns:
         The removed paths, in the order they were printed; empty when the
