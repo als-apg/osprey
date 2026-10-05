@@ -28,9 +28,10 @@ to ``<simulation state dir>/mock/writes.json``, a document
 scenario set first, then the journal: when ``seq`` moved, the composite is
 reset and the journal applied as one write, provided every entry is a setpoint
 of the view, writable, inside its band, and was written under the current
-active set; otherwise nothing from it is applied and one line
-``writes journal rejected: <address>: <reason>`` is logged, and a
-``journal-rejected`` record is appended to every physics model's log. A reset or a
+active set; otherwise nothing from it is applied, one line
+``writes journal rejected: <address>: <reason>`` is logged, a
+``journal-rejected`` record is appended to every physics model's log, and the
+journal is emptied, so the writes that follow are journalled afresh. A reset or a
 change of the active set empties the journal. The journal is the mock's alone:
 no hardware path reads it.
 
@@ -248,6 +249,12 @@ def _seq(document: Any) -> int | None:
     return seq if isinstance(seq, int) and not isinstance(seq, bool) else None
 
 
+def _mark(document: Any, text: str) -> int | str:
+    """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
+    seq = _seq(document)
+    return (0 if not text else text) if seq is None else seq
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     return document
@@ -384,12 +391,11 @@ class MockConnector(ControlSystemConnector):
             self._holds_writes = False
             self._journal_mark = None
         document, text = self._journal.read()
-        seq = _seq(document)
-        mark: int | str = (0 if not text else text) if seq is None else seq
+        mark = _mark(document, text)
         if mark == self._journal_mark:
             return
         self._journal_mark = mark
-        self._replay(document if seq is not None else None, text)
+        self._replay(document if _seq(document) is not None else None, text)
 
     def _state_stamp(self) -> int | None:
         """The ``active_scenarios`` file's mtime, ``None`` when there is none."""
@@ -429,10 +435,12 @@ class MockConnector(ControlSystemConnector):
         self._holds_writes = True
 
     def _reject(self, address: str, reason: str) -> None:
-        """Log a journal that is not replayed, in the process log and every physics model's."""
+        """Log a journal that is not replayed, in the process log and every physics
+        model's, then empty it unless another connector moved it since."""
         logger.warning(f"{JOURNAL_REJECTED}: {address}: {reason}")
         if self._composite is not None:
             self._composite.log_event(JOURNAL_REJECTED_EVENT, address=address, reason=reason)
+        self._truncate(unless_moved=True)
 
     def _rejection(self, document: Mapping[str, Any]) -> tuple[str, str] | None:
         """The first address and reason that keep a journal from being replayed."""
@@ -490,18 +498,21 @@ class MockConnector(ControlSystemConnector):
         # the next operation, this write with it.
         self._journal_mark = seq if synced else None
 
-    def _truncate(self, *, unless_current: bool = False) -> bool:
+    def _truncate(self, *, unless_current: bool = False, unless_moved: bool = False) -> bool:
         """Empty the journal under its lock, recording the current active set; with
-        ``unless_current`` a journal already written under that set is kept.
+        ``unless_current`` a journal already written under that set is kept, with
+        ``unless_moved`` a journal that changed since the last look is kept.
         Returns whether the journal was emptied."""
         assert self._journal is not None
         with self._journal.locked():
-            document, _text = self._journal.read()
+            document, text = self._journal.read()
             if (
                 unless_current
                 and _seq(document) is not None
                 and document.get("active_set_sha256") == self._active_sha
             ):
+                return False
+            if unless_moved and _mark(document, text) != self._journal_mark:
                 return False
             seq = (_seq(document) or 0) + 1
             self._journal.write({"active_set_sha256": self._active_sha, "seq": seq, "writes": []})

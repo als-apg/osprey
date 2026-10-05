@@ -336,6 +336,28 @@ async def test_a_forged_entry_is_not_replayed_and_is_logged(view, caplog, entry,
     await connector.disconnect()
 
 
+async def test_a_rejected_journal_is_emptied_so_later_writes_carry_across(view, caplog):
+    view = _limited(view)
+    sha = await _active_sha(view)
+    _plant(view, [[1, "A:SP", 30.0]], sha=sha)
+
+    with caplog.at_level(logging.WARNING):
+        first = await _connected(view)
+        held = (await first.read_channel("A:SP")).value
+        await first.read_channel("A:SP")
+        second = await _connected(view)
+        await second.read_channel("A:SP")
+
+    assert held == 0.0
+    assert caplog.text.count("writes journal rejected") == 1
+    assert json.loads(_journal(view).read_text())["writes"] == []
+    await first.write_channel("A:SP", 4.0)
+    fresh = await _connected(view)
+    assert (await fresh.read_channel("A:SP")).value == 4.0
+    for connector in (first, second, fresh):
+        await connector.disconnect()
+
+
 async def test_an_entry_from_another_active_set_is_not_replayed(view, caplog):
     _plant(view, [[1, "A:SP", 5.0]], sha="0" * 64)
 
