@@ -106,12 +106,12 @@ still settling:
      - ``0.5.0``
      - The generic model contract: ``LUMEModel``, ``ScalarVariable``.
    * - ``lume-pyat``
-     - ``0.1.0``
+     - ``0.2.0``
      - The facility-agnostic pyAT backend --- one persistent lattice, atomic
        multi-variable writes, one solve per batch, rollback on a lost closed
        orbit.
    * - ``lume-pva-apg[ca,pva]``
-     - ``0.1.4``
+     - ``0.1.5``
      - The serving stack ``runner.py`` subclasses --- ``pcaspy`` for Channel
        Access, ``p4p`` for PVAccess. 0.1.3 adds the two hooks the model
        surface is built on: ``_enqueue(..., jobs=)``, which runs a callable on
@@ -119,7 +119,11 @@ still settling:
        and ``_cycle_output_names()``, which lets a subclass narrow the set of
        variables re-read after each cycle. 0.1.4 makes the model info the
        server announces follow the configuration it was given, so a variable
-       held back from the channel namespace is not advertised as one.
+       held back from the channel namespace is not advertised as one. 0.1.5
+       takes each variable's display precision and description from the
+       runner configuration, raises an alarm on an output the model names as
+       failed, serves integer variables as integers on PVAccess, and exposes a
+       public tick period whose ticks coalesce.
 
 ``lume-pva-apg`` and ``pcaspy`` publish wheels for linux-x86_64 only and are
 marked accordingly, so ``serving/runner.py`` alone is unimportable off that
