@@ -24,7 +24,7 @@ plane reads its partner too. A texture channel reads as the texture serves it.
 **Writes.** :meth:`Composite.set` coerces each value to its channel's
 ``value_type``, then sets the physics children in name order and the texture
 last. When any child refuses, every earlier child gets its previous inputs back
-and the refusal is raised. A setpoint the active scenarios mark ``stuck``
+and the refusal is raised as a ``ValueError`` carrying the child's text. A setpoint the active scenarios mark ``stuck``
 accepts a write and does not forward it.
 
 **A failed child.** A child whose engine raises while it is built or read is
@@ -823,10 +823,12 @@ class Composite(LUMEModel):
                         for name, value in texture.items()
                     }
                 )
-        except Exception:
+        except Exception as exc:
             for restore in reversed(restores):
                 restore()
-            raise
+            if isinstance(exc, ValueError | ReadOnlyError):
+                raise
+            raise ValueError(str(exc) or type(exc).__name__) from exc
 
     def _set_child(self, child: _Child, batch: Mapping[str, Any]) -> Callable[[], None]:
         """Write one child's batch; returns what puts its previous inputs back."""
