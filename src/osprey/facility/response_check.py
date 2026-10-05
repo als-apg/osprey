@@ -68,6 +68,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Any
 
+from osprey.facility.layers.mml.decks import KICK
+from osprey.facility.layers.mml.mapping import (
+    LAYER_DIR,
+    MAPPING_FILE,
+    exported_number,
+    read_mapping,
+)
+
 __all__ = [
     "FLOOR_FRACTION",
     "MEASURED_RATIO",
@@ -117,13 +125,8 @@ MEASURED_SIGN = 0.95
 #: File-name suffix of a model's kept response export under the layer.
 RESPONSE_SUFFIX = ".response.json"
 
-#: Where the mml layer's sources live, relative to ``data/facility/``.
-_LAYER_DIR = "imported/mml"
-
 #: The two transverse planes and the orbit coordinate each one is read at.
 _COORDINATE = {"x": 0, "y": 2}
-
-_KICK = "KickAngle"
 
 
 # -- the figures -------------------------------------------------------------
@@ -556,13 +559,6 @@ def _word(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _number(value: Any) -> float | None:
-    """A finite number, or ``None`` for anything else."""
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value) if math.isfinite(value) else None
-
-
 def _first(value: Any) -> Any:
     """A one-entry list unwrapped, the way an exported column vector writes a scalar."""
     while isinstance(value, list) and len(value) == 1:
@@ -585,7 +581,7 @@ def _row_key(row: Any) -> tuple[int, ...] | None:
     values = row if isinstance(row, list | tuple) else [row]
     key: list[int] = []
     for value in values:
-        number = _number(value)
+        number = exported_number(value)
         if number is None or number != int(number):
             return None
         key.append(int(number))
@@ -603,7 +599,7 @@ def _widths(block: Mapping[str, Any]) -> list[float | None]:
     values = list(stated) if isinstance(stated, list) else [stated] * rows
     if len(values) != rows:
         return [None] * rows
-    widths = [_number(_first(value)) for value in values]
+    widths = [exported_number(_first(value)) for value in values]
     return [width if width else None for width in widths]
 
 
@@ -622,7 +618,7 @@ def _kept_rows(
     kept: dict[int, Any] = {}
     unwired = 0
     for index, row in enumerate(_list(body, "device_list")):
-        status = _number(_first(statuses[index])) if index < len(statuses) else None
+        status = exported_number(_first(statuses[index])) if index < len(statuses) else None
         if status is not None and status == 0.0:
             continue
         key = _row_key(row)
@@ -640,7 +636,7 @@ def _matrix(data: Any, row: int, column: int) -> float | None:
     line = data[row]
     if not isinstance(line, list) or column >= len(line):
         return None
-    return _number(line[column])
+    return exported_number(line[column])
 
 
 def _well_shaped(block: Mapping[str, Any]) -> bool:
@@ -706,7 +702,7 @@ def _plane(engine: Any) -> str | None:
         return None
     if engine.axis in _COORDINATE:
         return str(engine.axis)
-    if engine.attribute == _KICK:
+    if engine.attribute == KICK:
         return {0: "x", 1: "y"}.get(engine.index)
     return None
 
@@ -800,10 +796,8 @@ def compare(
         The banded blocks, in the order the export writes them; empty when the
         export states none.
     """
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-
     name = model["name"]
-    layer = facility_dir / _LAYER_DIR
+    layer = facility_dir / LAYER_DIR
     response = json.loads((layer / f"{name}{RESPONSE_SUFFIX}").read_text(encoding="utf-8"))
     stated = response.get("blocks") if isinstance(response, dict) else None
     blocks = [block for block in stated or [] if isinstance(block, dict)]
@@ -908,7 +902,7 @@ def check_responses(facility_dir: Path, document: Mapping[str, Any]) -> list[Mod
         One check per model with ``imported/mml/<model>.response.json``,
         sorted by model name; empty when no export is kept.
     """
-    layer = facility_dir / _LAYER_DIR
+    layer = facility_dir / LAYER_DIR
     checks: list[ModelCheck] = []
     for model in sorted(document.get("models", []), key=lambda entry: str(entry.get("name"))):
         if not (layer / f"{model.get('name')}{RESPONSE_SUFFIX}").is_file():

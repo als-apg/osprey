@@ -87,6 +87,7 @@ from osprey.simulation.engines.pyat_faults import (
     FAULT_BOUNDS,
     FAULT_SEPARATOR,
     POLARITY_OPTIONS,
+    READOUT_IDENTITY,
     ROLL,
     ROLL_IDENTITY,
     SUPPLY_IDENTITY,
@@ -120,15 +121,6 @@ __all__ = [
 # Element-attribute prefix of a readout fault. No pyAT pass method reads an
 # attribute under it, which is what keeps a fault off the orbit.
 _READOUT_PREFIX = "readout_"
-
-#: The readout fields every monitor readback carries on its own axis, each at
-#: its identity: a monitor that reports the true orbit position exactly.
-READOUT_IDENTITY: dict[str, float] = {
-    "offset": 0.0,
-    "gain": 1.0,
-    "noise": 0.0,
-    "polarity": 1.0,
-}
 
 #: The calibration fields a magnet setpoint carries, each at its identity: a
 #: magnet that delivers exactly what it was commanded.

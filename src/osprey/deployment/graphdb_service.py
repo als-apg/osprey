@@ -96,6 +96,7 @@ __all__ = [
     "GRAPHDB_PASSWORD_ENV",
     "GRAPHDB_PORT_CONFIG_KEY",
     "GRAPHDB_REBUILD_HINT",
+    "GRAPH_INDEX_BUILD_SUGGESTIONS",
     "GRAPHDB_SERVICE_NAME",
     "GRAPHDB_TTL_PATH_CONFIG_KEY",
     "GraphdbConnection",
@@ -225,6 +226,14 @@ GRAPHDB_HTTP_PORT_CONFIG_KEY = "services.graphdb.http_port_host"
 #: same reason those do -- modules that spell one operator-facing string
 #: separately agree only by coincidence.
 GRAPHDB_REBUILD_HINT = "osprey build && osprey up"
+
+#: What an operator does about an index that is missing, unreadable or stale.
+#: Two facts: the rebuild hint, and that ``osprey build`` alone writes the index
+#: while it renders the project.
+GRAPH_INDEX_BUILD_SUGGESTIONS: tuple[str, str] = (
+    f"Build the index with `{GRAPHDB_REBUILD_HINT}`.",
+    "`osprey build` renders the project and builds the index in one step.",
+)
 
 #: Config key naming the Turtle corpus the store is seeded from and the search
 #: index is derived from. Spelled once, because the surfaces that read it or

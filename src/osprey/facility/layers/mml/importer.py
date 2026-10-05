@@ -84,7 +84,10 @@ import click
 from osprey.facility.layers.mml.decks import DECKS_DIR, write_deck
 from osprey.facility.layers.mml.identity import common_class, device_ids, endpoints
 from osprey.facility.layers.mml.mapping import (
+    LAYER_DIR,
     MAPPING_FILE,
+    READBACK_ROLE,
+    SETPOINT_ROLE,
     FieldAnswer,
     ImportStop,
     Mapping,
@@ -114,9 +117,6 @@ __all__ = [
     "write_records",
 ]
 
-#: Where the layer's sources live, relative to ``data/facility/``.
-LAYER_DIR = "imported/mml"
-
 #: The engine every imported model runs on: an MML deck is a pyAT lattice.
 ENGINE = "pyat"
 
@@ -133,8 +133,6 @@ _TWISS_KEYS: tuple[tuple[str, str], ...] = (
     ("dispersion", "Dispersion"),
     ("closed_orbit", "ClosedOrbit"),
 )
-
-_SETPOINT = "setpoint"
 
 #: The keys of a channel record, in the order they are written.
 _CHANNEL_KEYS = (
@@ -560,14 +558,14 @@ def _channels(
                 address = _text(slot)
                 if address is None:
                     continue
-                writes = role is not None and role.role == _SETPOINT
+                writes = role is not None and role.role == SETPOINT_ROLE
                 pair = _text(pairs[index]) if index < len(pairs) else None
                 if pair in shared:
                     pair = None
                 found = channels.get(address)
                 if found is not None:
-                    if writes and found.get("role") != _SETPOINT:
-                        found["role"] = _SETPOINT
+                    if writes and found.get("role") != SETPOINT_ROLE:
+                        found["role"] = SETPOINT_ROLE
                         if pair is not None and pair != address:
                             found["pair"] = pair
                         if signal is not None:
@@ -625,7 +623,7 @@ def _tune_channels(tune: TuneBlock | None, channels: dict[str, dict[str, Any]]) 
     if tune is None:
         return
     for address in dict.fromkeys(tune.planes.values()):
-        channel = channels.setdefault(address, {"id": address, "role": "readback"})
+        channel = channels.setdefault(address, {"id": address, "role": READBACK_ROLE})
         if tune.address is not None:
             channel["value_type"] = "waveform"
             channel["shape"] = [len(tune.planes)]
