@@ -203,9 +203,9 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
 ) -> None:
     """The standalone logbook is the control-assistant scenarios' narrative, by construction.
 
-    The packaged ariel_standalone template ships no logbook and no machine
-    corpus of its own (its data/ holds only a README); its ``shared_data.yml`` takes both from the
-    control-assistant template. So what a standalone deploy seeds is read off
+    The packaged ariel_standalone template ships no logbook of its own (its
+    data/ holds only a README beside its facility/ tree); its ``shared_data.yml``
+    takes the logbook from the control-assistant template. So what a standalone deploy seeds is read off
     the same files the control-assistant scenarios carry, and this pins that
     it is ALL of them: every scenario's entries, in nominal-first order, each
     with the very picture bytes the scenario attaches.
@@ -219,7 +219,9 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
         p.relative_to(templates / "ariel_standalone" / "data").as_posix()
         for p in (templates / "ariel_standalone" / "data").rglob("*")
     )
-    assert own == ["README.md"], (
+    assert [p for p in own if p != "facility" and not p.startswith("facility/")] == [
+        "README.md"
+    ], (
         "ariel_standalone ships data of its own again -- one copy of each file lives "
         "in control_assistant and is taken through shared_data.yml"
     )
@@ -248,9 +250,6 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
     for got, want in zip(seeded, expected, strict=True):
         assert _pictures(got.attachments) == _pictures(want.attachments), got.entry_id
     assert sum(len(e.attachments) for e in seeded) == 3
-
-    corpus = templates / "control_assistant" / "data" / "demo_machine.ttl"
-    assert (render / "data" / "demo_machine.ttl").read_bytes() == corpus.read_bytes()
 
 
 def test_preset_control_assistant_ships_live_openobserve_telemetry(

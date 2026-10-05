@@ -5,7 +5,6 @@ everything in it is yours to replace.
 
 ```
 data/
-├── demo_machine.ttl          # Knowledge-graph corpus (services.graphdb.ttl_path)
 └── logbook_seed/             # Demo logbook (ariel.demo_narrative)
     └── <scenario>/
         ├── logbook.json      # The scenario's logbook entries

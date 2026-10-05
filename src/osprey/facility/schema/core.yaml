@@ -620,14 +620,22 @@ classes:
         description: >-
           `[{channel, events}]`, the history each channel's archive shows. An
           event's `at_offset` is in seconds relative to the moment the scenario
-          is applied (negative is the past), and an anchored spike's `width` is
-          its Gaussian sigma in seconds. An event meant to be sampled densely
-          sits inside the archive's dense tier, with a `width` of at least twice
-          the sampling interval.
+          is applied (negative is the past); a step or spike may instead state
+          `at_when` `{days_ago, time}`, a logbook entry's own `when`, so the
+          event and the entry narrating it fall at one instant. An anchored
+          spike's `width` is its Gaussian sigma in seconds. An event meant to be
+          sampled densely sits inside the archive's dense tier, with a `width`
+          of at least twice the sampling interval.
       logbook:
         range: Any
         multivalued: true
         list_elements_ordered: true
+        description: >-
+          `[{entry_id, when, author, title, text, tags?, categories?, loto_tag?,
+          extra?, attachments?}]`, the entries the scenario narrates.
+          `attachments` lists the entry's pictures, each `{path: <picture
+          file>}` or `{plot: <plot spec .json>}`, relative to the scenario's
+          own directory `scenarios/<name>/`.
       drivers:
         range: Any
         description: >-

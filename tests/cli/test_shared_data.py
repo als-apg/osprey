@@ -106,13 +106,12 @@ def test_scaffold_pull_lists_and_copies_shared_files_like_its_own(tmp_path):
     assert all(a.source.is_file() for a in actions)
 
 
-def test_the_standalone_template_offers_the_control_assistant_narrative_and_corpus():
+def test_the_standalone_template_offers_the_control_assistant_narrative():
     import osprey
 
     apps = Path(osprey.__file__).parent / "templates" / "apps"
     listing = list_pullable_paths(apps / "ariel_standalone")
 
-    assert "data/demo_machine.ttl" in listing
     narratives = sorted(entry for entry in listing if entry.endswith("logbook.json"))
     scenarios = apps / "control_assistant" / "data" / "simulation" / "scenarios"
     expected = sorted(
