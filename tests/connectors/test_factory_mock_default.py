@@ -46,7 +46,7 @@ def registered_connectors():
 
 class TestFactoryTypeFallback:
     @pytest.mark.asyncio
-    async def test_empty_config_creates_mock_connector(self, caplog, tmp_path):
+    async def test_unset_type_creates_mock_connector(self, caplog, tmp_path):
         config = {"connector": {types.MOCK: mock_config(served_tree(tmp_path))}}
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):

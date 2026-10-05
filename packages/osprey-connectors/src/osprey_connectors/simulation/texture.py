@@ -6,13 +6,14 @@ channel whose ``owner`` is ``texture`` or names a model the view marks
 unserved, and the MOTION (keyed noise and drift) and clamp of every channel
 the view declares, so a served model's readbacks can carry the same motion.
 
-A texture channel reads ``clamp(held + drift(t) + couplings(t) + noise(t))``. ``held`` starts
-at the channel's nominal: the seed's ``nominal``, else the unserved model's
-wiring ``default``, else the zero of the channel's ``value_type``. A paired readback
-starts at its setpoint's nominal. A ``linear`` channel holds the weighted sum
-of its inputs' held values, a ``linear`` input counting as its own sum. Noise and drift
-are pure functions of the address and the epoch millisecond, so a live read
-and an archived sample at the same instant agree. Writing a setpoint holds the
+A texture channel reads ``clamp(held + drift(t) + couplings(t) + noise(t))``.
+``held`` starts at the channel's nominal: the seed's ``nominal``, else the
+unserved model's wiring ``default``, else the zero of the channel's
+``value_type``. A paired readback starts at its setpoint's nominal. A
+``linear`` channel holds the weighted sum of its inputs' held values, a
+``linear`` input counting as its own sum. Noise and drift are pure functions
+of the address and the epoch millisecond, so a live read and an archived
+sample at the same instant agree. Writing a setpoint holds the
 value and echoes it into the readback its ``pair`` names.
 
 The active scenarios add motion through :meth:`TextureModel.set_motion`: a

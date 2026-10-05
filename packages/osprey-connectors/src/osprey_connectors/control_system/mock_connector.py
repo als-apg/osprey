@@ -123,10 +123,13 @@ JOURNAL_NOT_UPDATED = "writes journal not updated"
 #: Why an operation on a connector that is not connected is refused.
 NOT_CONNECTED = "mock connector is not connected"
 
+#: Why an address the built facility file does not hold is refused.
+_NOT_IN_FACILITY = "not in build/facility.json"
+
 
 def not_in_facility(address: str) -> str:
     """The refusal for an address the built facility file does not hold."""
-    return f"{address} is not in build/facility.json"
+    return f"{address} is {_NOT_IN_FACILITY}"
 
 
 def _loaded_config_path() -> str | None:
@@ -459,7 +462,7 @@ class MockConnector(ControlSystemConnector):
         for _seq_no, address, value in writes:
             record = self._records.get(address)
             if record is None or address not in self._channels:
-                return address, "not in build/facility.json"
+                return address, _NOT_IN_FACILITY
             if record.get("role") != "setpoint":
                 return address, "not a setpoint"
             if record.get("writable") is not True:
