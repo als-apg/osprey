@@ -1,6 +1,8 @@
-"""``osprey sim status``: each served physics model's status, then its log.
+"""``osprey sim status`` and ``osprey sim list`` on the simulator view.
 
-The command connects the deployment's mock connector to the simulator view
+``sim list`` names the view's scenarios, marking the active set with ``*``.
+
+``sim status`` connects the deployment's mock connector to the simulator view
 the build wrote, prints ``<model>: <status>`` per served physics model, then
 ``log: <absolute path>`` per model, the path being the file the composite
 appends to. Overlap records from a model's log follow its ``log:`` line,
@@ -165,3 +167,17 @@ def test_a_render_without_a_view_is_refused(lifecycle_repo: Path) -> None:
 
     assert result.exit_code == 1
     assert "No simulator view" in result.output
+
+
+def test_list_names_the_views_scenarios_and_marks_the_active_set(deployment: Path) -> None:
+    _activate(deployment, "nominal", "sr-broken")
+
+    result = CliRunner().invoke(sim_group, ["list", "--repo", str(deployment)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "* nominal  (logbook: no)",
+        "    Baseline machine.",
+        "* sr-broken  (logbook: no)",
+        "    SR cannot find a closed orbit.",
+    ]
