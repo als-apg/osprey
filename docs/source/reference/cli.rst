@@ -1143,8 +1143,9 @@ into it. See :doc:`/how-to/import-mml-export` for the import end to end.
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
    counted on the left-out line. If you need a more elaborate BPM calibration
-   in the check, open an issue. Otherwise every error of the first failing stage
-   prints on stderr, one line each and sorted, and the command exits 1. A stale
+   in the check, open an issue. A tree that is not clean prints every error of
+   the first failing stage on stderr, one line each and sorted, and the command
+   exits 1. A stale
    fix's line carries the block to paste in its place. ``--repo`` names the
    deployment repo; without it, the nearest ``profile.yml`` at or above the
    current directory is used.
@@ -1174,6 +1175,59 @@ into it. See :doc:`/how-to/import-mml-export` for the import end to end.
 ``osprey facility import mml --print-exporter``
    Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
    export.
+
+.. _cli-osprey-sim:
+
+osprey sim
+==========
+
+List, inspect and apply the scenarios of a simulated deployment. The scenarios
+are authored under ``data/facility/scenarios/`` and served from the simulator
+view the build writes under ``build/data/simulator/``; a repo with no build, or
+a build with no simulator view, exits 1 with ``run 'osprey build' first``. All
+three verbs take ``--repo DIRECTORY``; without it, the nearest ``profile.yml``
+at or above the current directory is used.
+
+``osprey sim list [--repo DIRECTORY]``
+   Print one line per scenario of the view, sorted by name:
+   ``<marker> <name>  (logbook: yes|no)``, where the marker is ``*`` for a
+   scenario in the active set and a space otherwise, and ``logbook`` says
+   whether the scenario narrates logbook entries. The scenario's description
+   follows on its own indented line when it has one. ``nominal`` is always in
+   the active set.
+
+``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
+   Print one ``<model>: <status>`` line per served physics model, sorted by
+   name, where the status is ``ok`` or the model's error text. One
+   ``log: <absolute path>`` line per model follows, naming the log the
+   simulator appends to under ``var/simulator/``, each followed by any
+   scenario-overlap records from that log. ``--target`` selects the control
+   target to report on and defaults to the deployment's own; a target the
+   deployment does not configure exits 1. A target served by anything but the
+   mock connector exits 1 with
+   ``sim status: <type> targets do not report model status yet``.
+
+``osprey sim apply NAMES... [--no-seed] [--no-seed-logbook] [--no-seed-archiver] [--yes] [--now ISO8601] [--repo DIRECTORY]``
+   Make ``NAMES`` the active scenario set, with ``nominal`` always included,
+   and seed their stored data: the ARIEL logbook is purged and reseeded from
+   the set's logbook entries, and the affected windows of the stored archive
+   are rewritten from the set's archiver events. The set is judged on the
+   simulator view before anything is written: two scenarios that write one
+   target are refused, naming that target, and the command exits 1.
+   ``--no-seed-logbook`` leaves the logbook untouched, ``--no-seed-archiver``
+   the stored archive, and ``--no-seed`` both. ``--yes`` (``-y``) skips the
+   confirmation prompts before the purge and the archive rewrite. ``--now``
+   freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
+   dates are reproducible; a naive value takes the facility timezone, and the
+   ``OSPREY_SIM_NOW`` environment variable is read when the option is absent.
+   A scenario's physics faults are written into the repo's ``.env`` for the
+   virtual accelerator to read at its next boot.
+
+.. code-block:: bash
+
+   osprey sim list
+   osprey sim apply rf-thermal
+   osprey sim status
 
 osprey ariel
 ============
