@@ -37,7 +37,6 @@ disagreement is the bypass.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -67,10 +66,13 @@ from osprey_connectors.types import TARGET_STANDIN
 
 from .field_names import _unstorable_field_name
 
-#: Where the compose template mounts the project's ``data/simulation`` tree,
-#: matching the virtual accelerator's own mount so a relative
-#: ``VA_CHANNELS_FILE`` resolves to the same file on both sides.
-DEFAULT_DATA_DIR = "/data/simulation"
+#: Where the compose template mounts the render's simulator view,
+#: ``build/data/simulator``: the same directory the virtual accelerator serves
+#: from, so the recorder and the IOC read one ``addresses.json``.
+DEFAULT_DATA_DIR = "/data/simulator"
+
+#: The view's document listing the addresses the simulator serves.
+ADDRESSES_FILE = "addresses.json"
 
 #: Rendered-config subtree holding the connection keys (mirrors
 #: ``build_profile_archiver.CONNECTION_CONFIG_PREFIX``).
@@ -240,84 +242,60 @@ def read_control_system_type(config_path: Path) -> str:
 
 
 def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
-    """The addresses to record, in the order the channel source lists them.
+    """The addresses to record, in the order the simulator view lists them.
 
-    The source is the build-generated channel MANIFEST, named by
-    ``VA_CHANNELS_FILE`` exactly as the virtual accelerator reads it, so the
-    recorder covers precisely the channels the IOC serves. Required, again
-    matching the IOC: unset or empty is refused rather than defaulted, because
-    the only channel set this service could pick on its own is the framework's
-    bundled demo one, and an archive filled with those addresses under this
-    facility's name is indistinguishable, later, from a real record of the
-    facility. ``osprey build`` writes the variable into the deployment's
-    ``.env`` and the recorder's compose service passes it through, so a built
-    deployment always has it; a deployment whose data tree stages no channel
-    database has nothing to record and says so here rather than recording
-    somebody else's machine.
-
-    It must never be ``channel_limits.json``. That file is a *write-safety
-    projection* of the same manifest rather than a second copy of it: it holds
-    one entry per address, read-only ones included, alongside top-level metadata
-    keys (``_comment``, ``_version``, ``_description``, ``defaults``). Its key
-    set is therefore not a channel list, and recording from it would ask the
-    IOC for names that are not channels at all. The manifest is the one source
-    the IOC and this service share; reading anything else makes a second source
-    that is free to drift from what is actually being served.
+    The source is the ``channels`` list of the build's simulator view,
+    ``addresses.json``, the file the virtual accelerator serves its namespace
+    from, so the recorder covers precisely the facility's channels. The view's
+    ``status`` list names the simulator's own model status channels and is not
+    recorded. There is no fallback: a view that is missing or unreadable is
+    refused, because the only channel set this service could pick on its own is
+    one that is not this facility's, and an archive filled with those addresses
+    under this facility's name is indistinguishable, later, from a real record
+    of the facility.
 
     An address the archive cannot hold as a field name is refused here on the
-    same terms (see :func:`_unstorable_field_name`), rather than started and
-    discovered a tick at a time.
+    same terms (see :func:`~osprey.services.archiver_recorder.field_names._unstorable_field_name`),
+    rather than started and discovered a tick at a time. ``osprey build`` stops
+    on such an address whenever the recorder is configured, so a built
+    deployment never reaches this refusal.
+
+    Args:
+        data_dir: The simulator view's directory; :data:`DEFAULT_DATA_DIR`
+            when ``None``.
 
     Raises:
-        RecorderConfigError: if ``VA_CHANNELS_FILE`` names nothing, if the
-            manifest it names cannot be loaded, or if it lists an address the
-            archive cannot store as a field name. A recorder that fell back to
-            the built-in channel set on either of the first two paths would
-            record another facility's namespace into this facility's archive.
+        RecorderConfigError: if ``addresses.json`` cannot be read, holds no
+            ``channels`` list of strings, or lists an address the archive
+            cannot store as a field name.
     """
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
-    raw = os.environ.get("VA_CHANNELS_FILE", "").strip()
-    if not raw:
+    path = root / ADDRESSES_FILE
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
         raise RecorderConfigError(
-            "cannot record: VA_CHANNELS_FILE names no channel manifest, and there "
-            "is no built-in channel set to fall back on -- recording the "
-            "framework's bundled demo addresses would put another facility's "
-            "namespace in this facility's archive. `osprey build` writes the "
-            "variable into the deployment's .env when it generates a manifest; if "
-            "it did not, this project's data tree stages no channel database."
+            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) could not be "
+            f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
+        ) from exc
+    channels = document.get("channels") if isinstance(document, dict) else None
+    if not isinstance(channels, list) or not all(isinstance(c, str) for c in channels):
+        raise RecorderConfigError(
+            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) holds no "
+            f"`channels` list of addresses. Rebuild the project with `osprey build`."
         )
 
-    # Imported here rather than at module scope: the manifest package pulls in
-    # the channel-database parsers, which a config-only caller has no use for.
-    from osprey.services.virtual_accelerator.manifest.loaders import (
-        ManifestFileError,
-        load_manifest_file,
-    )
-
-    path = Path(raw)
-    if not path.is_absolute():
-        path = root / path
-    try:
-        channels = load_manifest_file(path)
-    except (ManifestFileError, json.JSONDecodeError, OSError) as exc:
-        raise RecorderConfigError(
-            f"cannot record: the channel manifest named by VA_CHANNELS_FILE ({path}) "
-            f"could not be loaded: {exc}"
-        ) from exc
-
-    addresses = [str(channel["address"]) for channel in channels]
-    for address in addresses:
+    for address in channels:
         refusal = _unstorable_field_name(address)
         if refusal is not None:
             raise RecorderConfigError(
-                f"cannot record: the channel manifest named by VA_CHANNELS_FILE ({path}) "
-                f"lists {address!r}, which cannot be stored: it {refusal}. Every tick is "
-                f"one document with a field per address, so this channel would be dropped "
+                f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) lists "
+                f"{address!r}, which cannot be stored: it {refusal}. Every tick is one "
+                f"document with a field per address, so this channel would be dropped "
                 f"from the archive -- or take the whole write with it -- rather than "
-                f"recorded. Rename the channel, or leave it out of the manifest the "
-                f"recorder is pointed at."
+                f"recorded. Rename the channel in the facility description and rebuild."
             )
-    return addresses
+    return list(channels)
 
 
 # ---------------------------------------------------------------------------

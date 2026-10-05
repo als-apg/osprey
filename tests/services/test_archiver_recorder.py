@@ -43,7 +43,11 @@ from osprey.services.archiver_recorder import (
 
 # Not re-exported by the package: the enablement facts are this service's own
 # internal contract, and the package surface stays the narrow reader it was.
-from osprey.services.archiver_recorder.config import RecordingFacts, read_recording_facts
+from osprey.services.archiver_recorder.config import (
+    DEFAULT_DATA_DIR,
+    RecordingFacts,
+    read_recording_facts,
+)
 
 # The session-scoped MongoDB container, reused rather than re-declared: one
 # container for the whole test session, skipping cleanly without Docker.
@@ -241,89 +245,63 @@ def test_a_missing_knob_is_an_error_naming_it(tmp_path: Path, block: str, key: s
 
 
 # ---------------------------------------------------------------------------
-# Channel source: the manifest, never the limits DB
+# Channel source: the simulator view's addresses.json, channels only
 # ---------------------------------------------------------------------------
 
 
-def test_channel_source_is_the_manifest_named_by_va_channels_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Resolved exactly as the IOC resolves it — a relative name against the
-    shared data mount — so the recorder covers the channels actually served."""
-    manifest = {
-        "channels": [
-            {
-                "address": "SR:BPM01:X",
-                "ring": "SR",
-                "system": "diagnostics",
-                "family": "BPM",
-                "device": "BPM01",
-                "field": "X",
-                "subfield": "",
-                "record_type": "ai",
-                "noise": True,
-                "partition": "static_noisy",
-            }
-        ]
+def _addresses(view: Path, channels: list[str], status: list[str] | None = None) -> None:
+    """Write a simulator view's ``addresses.json`` listing ``channels`` and ``status``."""
+    view.mkdir(parents=True, exist_ok=True)
+    document = {
+        "schema": "osprey.facility.addresses/1",
+        "channels": channels,
+        "status": status or [],
     }
-    (tmp_path / "channel_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
+    (view / "addresses.json").write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_channel_source_is_the_simulator_views_channels(tmp_path: Path) -> None:
+    """The recorder covers the channels the view lists, in the order it lists them."""
+    _addresses(tmp_path, ["SR:BPM01:X", "SR:BPM01:Y"])
+
+    assert resolve_channel_addresses(tmp_path) == ["SR:BPM01:X", "SR:BPM01:Y"]
+
+
+def test_the_status_addresses_are_not_recorded(tmp_path: Path) -> None:
+    """``status`` names the simulator's own model status channels, not the facility's."""
+    _addresses(tmp_path, ["SR:BPM01:X"], status=["demo:SIM:SR:STATUS"])
 
     assert resolve_channel_addresses(tmp_path) == ["SR:BPM01:X"]
 
 
-def test_an_unnamed_manifest_is_fatal_not_a_fallback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Unset is refused on the same terms as unloadable, and for the same
-    reason: the only channel set this service could choose unasked is the
-    framework's demo one, and an archive of those addresses under this
-    facility's name is indistinguishable later from a real record of it. The
-    refusal names the variable and where it should have come from."""
-    monkeypatch.delenv("VA_CHANNELS_FILE", raising=False)
+def test_the_default_view_is_the_mounted_simulator_directory() -> None:
+    """The compose template mounts ``build/data/simulator`` at this path."""
+    assert DEFAULT_DATA_DIR == "/data/simulator"
 
-    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE") as excinfo:
+
+def test_a_missing_view_is_fatal_not_a_fallback(tmp_path: Path) -> None:
+    """Falling back to a built-in channel set would record another facility's
+    namespace into this facility's archive -- worse than not recording."""
+    with pytest.raises(RecorderConfigError, match="addresses.json") as excinfo:
         resolve_channel_addresses(tmp_path)
     assert "osprey build" in str(excinfo.value)
 
-    # The compose passthrough sends "" when the host variable is absent, so
-    # empty has to be refused exactly as unset is.
-    monkeypatch.setenv("VA_CHANNELS_FILE", "  ")
-    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE"):
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "not json",
+        json.dumps(["SR:BPM01:X"]),
+        json.dumps({"status": []}),
+        json.dumps({"channels": "SR:BPM01:X"}),
+        json.dumps({"channels": [1]}),
+    ],
+)
+def test_an_unreadable_view_is_fatal(tmp_path: Path, document: str) -> None:
+    (tmp_path / "addresses.json").write_text(document, encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match="addresses.json"):
         resolve_channel_addresses(tmp_path)
-
-
-def test_an_unloadable_manifest_is_fatal_not_a_fallback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Falling back to the built-in channel set would record another facility's
-    namespace into this facility's archive — worse than not recording."""
-    monkeypatch.setenv("VA_CHANNELS_FILE", "missing.json")
-
-    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE"):
-        resolve_channel_addresses(tmp_path)
-
-
-def _manifest_with(tmp_path: Path, *addresses: str) -> None:
-    """Write a manifest listing exactly ``addresses`` and point the env at it."""
-    manifest = {
-        "channels": [
-            {
-                "address": address,
-                "ring": "SR",
-                "system": "diagnostics",
-                "family": "BPM",
-                "device": "BPM1",
-                "field": "VAL",
-                "subfield": "",
-                "record_type": "ai",
-                "noise": True,
-                "partition": "static_noisy",
-            }
-            for address in addresses
-        ]
-    }
-    (tmp_path / "channel_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -334,15 +312,14 @@ def _manifest_with(tmp_path: Path, *addresses: str) -> None:
     ],
 )
 def test_an_address_the_archive_cannot_store_is_refused_by_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, address: str, cause: str
+    tmp_path: Path, address: str, cause: str
 ) -> None:
     """Refused at startup, not warned about once a tick with nothing archived.
 
     A tick is one flat document keyed by channel address. An address the store
     cannot hold as a field name is not archivable, and a recorder that started
     anyway would leave an archive that quietly does not hold that channel."""
-    _manifest_with(tmp_path, address)
-    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
+    _addresses(tmp_path, [address])
 
     with pytest.raises(RecorderConfigError) as excinfo:
         resolve_channel_addresses(tmp_path)
@@ -350,11 +327,10 @@ def test_an_address_the_archive_cannot_store_is_refused_by_name(
     assert cause in str(excinfo.value)
 
 
-def test_a_storable_address_is_not_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_storable_address_is_not_refused(tmp_path: Path) -> None:
     """The guard is about field names, not about an address grammar: a
     facility that separates its levels with ``_`` or ``-`` records fine."""
-    _manifest_with(tmp_path, "ZZEXP_MAG_Q1_CURRENT_SP", "ZZEXP-VAC-V1")
-    monkeypatch.setenv("VA_CHANNELS_FILE", "channel_manifest.json")
+    _addresses(tmp_path, ["ZZEXP_MAG_Q1_CURRENT_SP", "ZZEXP-VAC-V1"])
 
     assert resolve_channel_addresses(tmp_path) == [
         "ZZEXP_MAG_Q1_CURRENT_SP",

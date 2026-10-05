@@ -2122,13 +2122,6 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
             continue
         _refresh_service_dir(src_dir, dest_services_root / name, name, owned)
 
-    # 1a. The recorder bind-mounts the simulation data dir read-only to read the
-    # channel manifest. An app bundle that ships no such tree would leave the
-    # mount source missing, and the container runtime materializes a missing
-    # source itself, root-owned — which then locks the host out of a directory
-    # inside its own project. Same guard, same reason, as the VA injector's.
-    (project_path / "data" / "simulation").mkdir(parents=True, exist_ok=True)
-
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
