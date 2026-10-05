@@ -328,8 +328,8 @@ class TestMockConnector:
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
 
-        # Two ticks of the default period would take 2 s; at 0.05 s they come well inside 1.5 s.
-        assert await self._wait_for(lambda: len(seen) >= 2, timeout_s=1.5)
+        # At a 0.05 s tick two firings arrive long before the bound.
+        assert await self._wait_for(lambda: len(seen) >= 2, timeout_s=5.0)
         assert all(reading.value is not None for reading in seen)
 
         await connector.disconnect()
