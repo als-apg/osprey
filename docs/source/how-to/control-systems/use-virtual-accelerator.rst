@@ -462,8 +462,9 @@ the live block by name, so no later per-type ``true`` can lift it.
    borrowed from the deployment-wide block, so both settings have to be written
    out. A block stating one of them alone is refused by ``osprey build`` and
    ``osprey validate``, naming the one that is missing. The limits database
-   itself stays deployment-wide — ``limits_checking.database_path`` is one file
-   for every target, and a per-type block does not take a path.
+   itself stays deployment-wide — the build renders one limits database from
+   ``data/facility/limits.yaml`` for every target, and a per-type block does
+   not take a path.
 
    With the pair above, a write to the simulator is still checked against the
    ranges the records in ``data/facility/limits.yaml`` give; what changes

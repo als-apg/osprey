@@ -301,7 +301,8 @@ block:
   every write until it is completed.
 - **The database stays deployment-wide.** ``database_path`` is not a per-type
   setting: the deployment mounts one limits file, and every target is checked
-  against it. A profile does not state it either: ``osprey build`` writes
+  against it. A profile that states it is refused by ``osprey build``,
+  ``osprey validate`` and ``osprey facility validate``: ``osprey build`` writes
   ``data/channel_limits.json`` from ``data/facility/limits.yaml`` and sets
   ``control_system.limits_checking.database_path`` to it in the rendered config.
 - **Only explicit values decide.** ``mode`` is ``exclusive``, ``optional``, or

@@ -348,9 +348,9 @@ quirks worth knowing:
    :doc:`../control-systems/use-virtual-accelerator`.
 
    One timing detail worth knowing: the channel limits a plan's writes are
-   checked against come from the file
-   ``control_system.limits_checking.database_path`` names, and ``osprey build``
-   stages its **own copy** of that file for the plan lane. So widening or
+   checked against come from the records in ``data/facility/limits.yaml``,
+   which ``osprey build`` renders into the limits database it stages for the
+   plan lane. So widening or
    tightening a limit in your deployment repository reaches the queue server at
    the next ``osprey build`` (and ``osprey up``) — not the moment you save the
    file.
