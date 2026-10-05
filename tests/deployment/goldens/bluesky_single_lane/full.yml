@@ -634,15 +634,40 @@ services:
     # "fix" this back to three slashes.
     #
     # --api-key is quoted with a `:?` guard, not the bare `${BLUESKY_TILED_API_KEY}`
-    # used elsewhere in this file: compose splits this string `command:` form
-    # shlex-style, so an unset-or-empty value contributes NO argument at all —
-    # not an empty one. `--api-key` then silently swallows the next token
-    # (`-w`) as its operand and a writable target vanishes, with the resulting
-    # error pointing at `-w`, never at the empty key. `:?` aborts `osprey up`
-    # with an explicit message instead. The quotes are belt-and-braces: if the
-    # `:?` is ever relaxed, an empty value becomes an explicit empty argument
-    # rather than a vanished one.
-    command: tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
+    # used elsewhere in this file: the shell splits the line below, so an
+    # unset-or-empty value contributes NO argument at all — not an empty one.
+    # `--api-key` then silently swallows the next token (`-w`) as its operand
+    # and a writable target vanishes, with the resulting error pointing at
+    # `-w`, never at the empty key. `:?` aborts `osprey up` with an explicit
+    # message instead. The quotes are belt-and-braces: if the `:?` is ever
+    # relaxed, an empty value becomes an explicit empty argument rather than a
+    # vanished one.
+    #
+    # `--init` creates a missing catalog but refuses one written by an older
+    # Tiled (DatabaseUpgradeNeeded), so an existing catalog is migrated first.
+    # `upgrade-database` aborts on a catalog with no revision stamp, so it runs
+    # only when the file exists and is non-empty; a fresh volume goes straight
+    # to `--init`. Upgrading a catalog already at the latest revision is a
+    # no-op.
+    #
+    # A failed upgrade does NOT exit: an exit hands the container to
+    # `restart: unless-stopped`, which retries forever with nothing reading the
+    # failure. The shell holds instead, so the reason is logged once and the
+    # healthcheck below turns the container `unhealthy` — the state
+    # `osprey health` and the `osprey up` card report. The trap ends the hold
+    # on `docker stop` without waiting out the kill timeout. `exec` hands PID 1
+    # to the server, so signals reach it directly.
+    command:
+      - "sh"
+      - "-c"
+      - >-
+        if [ -s /storage/catalog.db ]
+        && ! tiled catalog upgrade-database sqlite+aiosqlite:////storage/catalog.db;
+        then
+        echo "ERROR: tiled catalog upgrade-database failed for /storage/catalog.db; not serving. Repair or migrate the catalog, then restart this container." >&2;
+        sleep 2147483647 & trap 'kill $$! 2>/dev/null; exit 1' TERM INT; wait; exit 1;
+        fi;
+        exec tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
     ports:
       # The container half stays 8000 — Tiled's own port inside its namespace,
       # the same number the `--port` above serves on and the one every
