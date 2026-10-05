@@ -1,8 +1,8 @@
-"""Data-driven simulation engine for OSPREY mock connectors.
+"""Data-driven simulation engine.
 
 Provides :class:`SimulationEngine`, which loads a machine description
 (``machine.json``) and serves channel reads/writes plus synthesized archiver
-time-series to the mock control-system and archiver connectors.
+time-series.
 """
 
 from osprey_connectors.simulation.engine import (
