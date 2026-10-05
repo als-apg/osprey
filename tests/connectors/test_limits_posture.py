@@ -1107,6 +1107,14 @@ def _not_a_block(connector_type: str | None, value: Any) -> str:
     return f"{key} is {value!r}, not a block; a limits block is a mapping stating enabled and mode"
 
 
+def _not_a_leaf(connector_type: str, leaf: str) -> str:
+    """The line the build refusal is expected to carry for one undefined leaf."""
+    return (
+        f"control_system.connector.{connector_type}.limits_checking.{leaf} is not a limits "
+        "leaf; a limits block states enabled and limits_checking.mode: exclusive | optional"
+    )
+
+
 def _unreadable(connector_type: str | None, leaf: str, value: Any) -> str:
     """The line the build refusal is expected to carry for one unreadable leaf.
 
@@ -1155,11 +1163,11 @@ class TestIncompleteBlocks:
         """A complete block and no block at all are both legal configs."""
         assert incomplete_limits_blocks(section) == []
 
-    def test_a_block_carrying_both_leaves_and_a_path_is_complete(self) -> None:
-        """``database_path`` is deployment-wide, so carrying one per type is legal."""
+    def test_a_per_type_block_carrying_a_path_is_refused(self) -> None:
+        """``database_path`` is deployment-wide only, so a per-type one is no leaf."""
         block = {**_block(True, "exclusive"), "database_path": "/limits.db"}
         section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: block}})
-        assert incomplete_limits_blocks(section) == []
+        assert incomplete_limits_blocks(section) == [_not_a_leaf(EPICS, "database_path")]
 
     @pytest.mark.parametrize("value", UNREADABLE_LEAVES)
     def test_an_unreadable_per_type_leaf_is_reported(self, value: Any) -> None:
@@ -1258,12 +1266,11 @@ class TestIncompleteBlocks:
 
     def test_a_block_missing_both_leaves_names_both_in_leaf_order(self) -> None:
         """One line per leaf, so an operator can add them without re-running the build."""
-        section = _section(
-            connector={EPICS: {LIMITS_CHECKING_LEAF: {"database_path": "/limits.db"}}}
-        )
+        section = _section(connector={EPICS: {LIMITS_CHECKING_LEAF: {"retired": True}}})
         assert incomplete_limits_blocks(section) == [
             _missing(EPICS, ENABLED_LEAF),
             _missing(EPICS, MODE_LEAF),
+            _not_a_leaf(EPICS, "retired"),
         ]
 
     def test_an_empty_block_is_incomplete_rather_than_absent(self) -> None:

@@ -267,6 +267,16 @@ class TestALeafTheBlockDoesNotDefineFailsTheBuild:
 
         assert _render_errors(tmp_path, {"limits_checking": block}) == []
 
+    def test_a_per_type_block_takes_no_database_path(self) -> None:
+        block = {"enabled": True, "mode": "optional", "database_path": "data/channel_limits.json"}
+
+        errors = incomplete_limits_blocks({"connector": {VA: {"limits_checking": block}}})
+
+        assert errors == [
+            f"control_system.connector.{VA}.limits_checking.database_path is not a limits "
+            "leaf; a limits block states enabled and limits_checking.mode: exclusive | optional"
+        ]
+
     @pytest.mark.parametrize(
         "key",
         [

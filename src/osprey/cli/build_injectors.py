@@ -2208,9 +2208,8 @@ def _inject_limits_database(project_path: Path) -> None:
 
     A render that states a limits block, deployment-wide or for one connector
     type, reads its limits from the file the limits view writes. The path is
-    written deployment-wide: a deployment mounts one limits database. A path
-    the config already states is kept, and a config stating no limits block
-    gains nothing.
+    written deployment-wide: a deployment mounts one limits database. A config
+    stating no limits block gains nothing.
 
     Args:
         project_path: Root of the render.
@@ -2229,7 +2228,7 @@ def _inject_limits_database(project_path: Path) -> None:
     )
     if block is None and not per_type:
         return
-    if block is not None and (not isinstance(block, Mapping) or "database_path" in block):
+    if block is not None and not isinstance(block, Mapping):
         return
     config_update_fields(
         config_path, {f"control_system.{leaf}.database_path": LIMITS_DATABASE_PATH}

@@ -245,12 +245,16 @@ class TestTheBuildDerivesTheDatabasePath:
         assert rendered["control_system"]["limits_checking"] == {"database_path": LIMITS}
         assert rendered["control_system"]["connector"]["epics"]["limits_checking"] == block
 
-    def test_a_stated_path_is_kept(self, tmp_path: Path) -> None:
+    def test_the_view_path_replaces_a_stated_one(self, tmp_path: Path) -> None:
         block = {"enabled": True, "mode": "optional", "database_path": "/srv/limits.json"}
 
         rendered = _injected(tmp_path, {"limits_checking": dict(block)})
 
-        assert rendered["control_system"]["limits_checking"] == block
+        assert rendered["control_system"]["limits_checking"] == {
+            "enabled": True,
+            "mode": "optional",
+            "database_path": LIMITS,
+        }
 
     @pytest.mark.parametrize("control_system", [None, {"type": "mock"}])
     def test_a_config_stating_no_limits_block_gains_nothing(
