@@ -31,3 +31,5 @@ logbook:
   - response-matrix
   categories:
   - Operations
+  attachments:
+  - path: plots/corrector_bump_test.png

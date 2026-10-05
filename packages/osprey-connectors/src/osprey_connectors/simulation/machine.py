@@ -164,16 +164,18 @@ class PlotSpec:
 
 @dataclass(frozen=True)
 class ScenarioLogEntry:
-    """A logbook entry owned by a scenario bundle.
+    """A logbook entry owned by a scenario.
 
-    Single source of truth for both the ARIEL DB seed (via ``apply``) and the
-    fast per-scenario unit tests, so the telemetry overlay and its narrative
-    ship together in one bundle.
+    The one entry shape the ARIEL DB seed (via ``apply``) reads, whether the
+    entry came from a scenario bundle's ``logbook.json`` or a facility
+    scenario's ``logbook`` block, so the telemetry overlay and its narrative
+    ship together.
 
     ``attachments`` are the pictures the entry carries, in the order its
-    ``logbook.json`` lists them: a shipped picture as an absolute path inside
-    the bundle directory (checked at load time to exist and to be an image),
-    or a :class:`PlotSpec` the seeder draws against the entry's timestamp.
+    ``attachments`` list names them: a shipped picture as an absolute path
+    inside the scenario directory (checked at load time to exist and to be an
+    image), or a :class:`PlotSpec` the seeder draws against the entry's
+    timestamp.
     """
 
     entry_id: str

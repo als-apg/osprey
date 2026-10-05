@@ -6,7 +6,8 @@ under ``data/facility/scenarios/`` of the control-assistant preset:
 
 * ``description``, ``overrides``, ``archiver``, ``drivers``, ``couple`` and
   ``noise`` are carried as they are;
-* the bundle's ``logbook.json`` becomes ``logbook``;
+* the bundle's ``logbook.json`` becomes ``logbook``, and each file its
+  entries' ``attachments`` name is copied to ``scenarios/<name>/<path>``;
 * ``physics`` becomes ``faults {<model>: {<address>: {<fault field>: value}}}``.
   A per-element monitor error names no plane, so ``offset``, ``gain``,
   ``polarity`` and ``noise`` land on both the x and the y reading of the
@@ -149,6 +150,20 @@ def files(bundles: Path = BUNDLES, facility: Path = FACILITY) -> dict[str, str]:
     }
 
 
+def attached(bundles: Path = BUNDLES) -> dict[str, Path]:
+    """Each file a logbook entry attaches, keyed by its path under the facility tree."""
+    copies: dict[str, Path] = {}
+    for bundle in sorted(path for path in bundles.iterdir() if path.is_dir()):
+        logbook = bundle / "logbook.json"
+        if not logbook.is_file():
+            continue
+        for entry in json.loads(logbook.read_text(encoding="utf-8")):
+            for item in entry.get("attachments", []):
+                for rel in item.values():
+                    copies[f"scenarios/{bundle.name}/{rel}"] = bundle / rel
+    return copies
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the demo's scenario files.")
     parser.parse_args(argv)
@@ -156,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
         path = FACILITY / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+    for rel, source in attached().items():
+        path = FACILITY / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(source.read_bytes())
     return 0
 
 

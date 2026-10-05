@@ -166,6 +166,8 @@ logbook:
   - cavity
   categories:
   - Operations
+  attachments:
+  - plot: plots/cavity_temperatures.json
 - entry_id: DEMO-028
   when:
     days_ago: 2

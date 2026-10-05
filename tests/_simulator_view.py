@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from osprey.facility.sources import read_yaml
 from osprey.facility.views import view_bytes
-from osprey.facility.views.simulator import SCENARIOS_FILE, SCENARIOS_SCHEMA
+from osprey.facility.views.simulator import SCENARIOS_DIR, SCENARIOS_FILE, SCENARIOS_SCHEMA
 
 
-def write_scenarios_view(render: Path, scenarios: Mapping[str, Mapping[str, Any]]) -> Path:
+def write_scenarios_view(
+    render: Path,
+    scenarios: Mapping[str, Mapping[str, Any]],
+    files: Path | None = None,
+) -> Path:
     """Write ``<render>/data/simulator/scenarios.json`` listing ``scenarios``.
 
     Args:
         render: The render's root.
         scenarios: Scenario name -> its blocks (``description``, ``archiver``,
             ``logbook``, ...), carried verbatim.
+        files: A facility ``scenarios/`` directory whose ``<name>/``
+            subdirectories, holding the files the entries attach, are copied
+            beside the view as the build copies them.
 
     Returns:
         The file written.
@@ -29,6 +37,10 @@ def write_scenarios_view(render: Path, scenarios: Mapping[str, Mapping[str, Any]
     path = render / "data" / "simulator" / SCENARIOS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(view_bytes(document))
+    if files is not None:
+        for name in scenarios:
+            if (files / name).is_dir():
+                shutil.copytree(files / name, path.parent / SCENARIOS_DIR / name)
     return path
 
 

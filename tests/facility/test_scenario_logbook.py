@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import time
 from pathlib import Path
 
@@ -78,17 +79,63 @@ def test_a_malformed_entry_is_refused_by_name(fields, match):
     assert "'burst'" in str(raised.value)
 
 
+def _shipped(entries: tuple[ScenarioLogEntry, ...], directory: Path) -> list:
+    """The entries with each shipped picture as its path in ``directory`` and its bytes."""
+    return [
+        replace(
+            entry,
+            attachments=tuple(
+                (item.relative_to(directory.resolve()), item.read_bytes())
+                if isinstance(item, Path)
+                else item
+                for item in entry.attachments
+            ),
+        )
+        for entry in entries
+    ]
+
+
 def test_the_demo_translations_narrate_what_their_bundles_narrate():
     for bundle in sorted((DATA / "simulation" / "scenarios").iterdir()):
         logbook_file = bundle / "logbook.json"
         if not logbook_file.is_file():
             continue
+        directory = DATA / "facility" / "scenarios" / bundle.name
         translation = read_yaml(
             (DATA / "facility" / "scenarios" / f"{bundle.name}.yaml").read_text(encoding="utf-8")
         )
         bundled = json.loads(logbook_file.read_text(encoding="utf-8"))
 
-        entries = scenario_logbook({"name": bundle.name, **translation})
+        entries = scenario_logbook({"name": bundle.name, **translation}, directory)
 
         assert entries
-        assert entries == scenario_logbook({"name": bundle.name, "logbook": bundled})
+        assert _shipped(entries, directory) == _shipped(
+            scenario_logbook({"name": bundle.name, "logbook": bundled}, bundle), bundle
+        )
+
+
+def test_an_entrys_pictures_resolve_against_the_scenario_directory(tmp_path):
+    picture = tmp_path / "plots" / "trend.png"
+    picture.parent.mkdir()
+    picture.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 16)
+    scenario = {"name": "burst", "logbook": [_entry(attachments=[{"path": "plots/trend.png"}])]}
+
+    (entry,) = scenario_logbook(scenario, tmp_path)
+
+    assert entry.attachments == (picture.resolve(),)
+
+
+def test_an_entry_attaching_a_picture_needs_the_scenario_directory():
+    scenario = {"name": "burst", "logbook": [_entry(attachments=[{"path": "plots/trend.png"}])]}
+
+    with pytest.raises(ValueError, match="'attachments'") as raised:
+        scenario_logbook(scenario)
+
+    assert "'burst'" in str(raised.value)
+
+
+def test_an_attachment_outside_the_scenario_directory_is_refused(tmp_path):
+    scenario = {"name": "burst", "logbook": [_entry(attachments=[{"path": "../trend.png"}])]}
+
+    with pytest.raises(ValueError, match="relative to the scenario directory"):
+        scenario_logbook(scenario, tmp_path)

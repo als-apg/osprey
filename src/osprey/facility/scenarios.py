@@ -15,19 +15,23 @@ one of its ``options``.
 A scenario's ``logbook`` block reads as :class:`ScenarioLogEntry` records
 through :func:`scenario_logbook`; each entry's ``when`` is ``{days_ago,
 time}``, resolved against the activation anchor when the entry is seeded.
+An entry's ``attachments`` list names its pictures, each item one of
+``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative to the
+scenario's own directory ``scenarios/<name>/``.
 """
 
 from __future__ import annotations
 
 import difflib
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
 from datetime import time
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 
 from osprey.facility.errors import FacilityBuildError
 from osprey_connectors.relative_time import RelativeTimestamp
+from osprey_connectors.simulation.machine import ScenarioLogEntry, _parse_log_attachments
 
 __all__ = [
     "FaultRoster",
@@ -39,55 +43,36 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
-class ScenarioLogEntry:
-    """One logbook entry a scenario narrates.
-
-    Attributes:
-        entry_id: The entry's identifier, unique across the logbook.
-        when: Days before the activation anchor and the local time of day.
-        author: Who wrote the entry.
-        title: The entry's title.
-        text: The entry's body.
-        tags: Free-form tags.
-        categories: Logbook categories.
-        loto_tag: The lock-out/tag-out tag the entry cites, if any.
-        extra: Further metadata, carried as stated.
-    """
-
-    entry_id: str
-    when: RelativeTimestamp
-    author: str
-    title: str
-    text: str
-    tags: tuple[str, ...]
-    categories: tuple[str, ...]
-    loto_tag: str | None
-    extra: dict[str, Any]
-
-
-def scenario_logbook(scenario: Mapping[str, Any]) -> tuple[ScenarioLogEntry, ...]:
+def scenario_logbook(
+    scenario: Mapping[str, Any], directory: Path | None = None
+) -> tuple[ScenarioLogEntry, ...]:
     """The entries a scenario's ``logbook`` block narrates, in block order.
 
     Args:
         scenario: One scenario record: its ``name`` and, when stated, its
             ``logbook`` list.
+        directory: The scenario's own directory, which its entries'
+            ``attachments`` resolve against; needed only when an entry
+            attaches a picture.
 
     Returns:
-        The entries; empty when the scenario states no logbook.
+        The entries; empty when the scenario states no logbook. A shipped
+        picture is its absolute path inside ``directory``, a plot spec its
+        parsed spec.
 
     Raises:
-        ValueError: An entry is malformed; the message names the scenario,
-            the entry and the key.
+        ValueError: An entry is malformed, or attaches a picture with no
+            ``directory`` given; the message names the scenario, the entry and
+            the key.
     """
     name = str(scenario.get("name"))
     raw = scenario.get("logbook") or []
     if not isinstance(raw, list):
         raise ValueError(f"Scenario {name!r} logbook: must be a list of entries")
-    return tuple(_log_entry(name, item) for item in raw)
+    return tuple(_log_entry(name, item, directory) for item in raw)
 
 
-def _log_entry(scenario: str, raw: Any) -> ScenarioLogEntry:
+def _log_entry(scenario: str, raw: Any, directory: Path | None) -> ScenarioLogEntry:
     prefix = f"Scenario {scenario!r} logbook"
     if not isinstance(raw, Mapping):
         raise ValueError(f"{prefix}: each entry must be a mapping")
@@ -114,6 +99,9 @@ def _log_entry(scenario: str, raw: Any) -> ScenarioLogEntry:
     extra = raw.get("extra", {})
     if not isinstance(extra, Mapping):
         raise ValueError(f"{prefix}: 'extra' must be a mapping, got {extra!r}")
+    attachments = raw.get("attachments", [])
+    if attachments and directory is None:
+        raise ValueError(f"{prefix}: 'attachments' resolve against the scenario's directory")
     return ScenarioLogEntry(
         entry_id=entry_id,
         when=_relative_timestamp(prefix, raw.get("when")),
@@ -124,6 +112,9 @@ def _log_entry(scenario: str, raw: Any) -> ScenarioLogEntry:
         categories=strings("categories"),
         loto_tag=loto_tag,
         extra=dict(extra),
+        attachments=(
+            _parse_log_attachments(prefix, attachments, directory) if directory is not None else ()
+        ),
     )
 
 

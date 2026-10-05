@@ -8,6 +8,7 @@ Written into ``<render>/data/simulator/``::
     variables.json       {schema: osprey.facility.simulator/1, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/1, seeds: {<address>: <seed record>}}
     scenarios.json       {schema: osprey.facility.scenarios/1, scenarios: [...]}
+    scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
 
 ``models`` lists the served physics models sorted by name, then ``texture``;
 readers building physics children or selectors skip engine ``texture``.
@@ -34,7 +35,10 @@ is not writable.
 ``seeds.json`` maps each channel carrying a seed record to that record.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
 states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
-plus ``inactive: model not served`` when the render does not serve it.
+plus ``inactive: model not served`` when the render does not serve it. Each
+file a logbook entry's ``attachments`` names, relative to the facility's
+``scenarios/<name>/``, is copied to the same path under the view's
+``scenarios/<name>/``, so the entries read back against the view's copy.
 
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the channel facts
@@ -51,6 +55,7 @@ from typing import Any
 
 from osprey.facility import TEXTURE
 from osprey.facility.build import FacilityDocument
+from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
 
 __all__ = [
@@ -58,6 +63,7 @@ __all__ = [
     "ADDRESSES_SCHEMA",
     "DECKS_DIR",
     "INACTIVE_UNSERVED",
+    "SCENARIOS_DIR",
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
     "SEEDS_FILE",
@@ -81,6 +87,9 @@ VARIABLES_SCHEMA = "osprey.facility.simulator/1"
 SEEDS_FILE = "seeds.json"
 SEEDS_SCHEMA = "osprey.facility.seeds/1"
 SCENARIOS_FILE = "scenarios.json"
+#: The directory holding each scenario's attached files, ``scenarios/<name>/``,
+#: under the facility tree and under the view alike.
+SCENARIOS_DIR = "scenarios"
 SCENARIOS_SCHEMA = "osprey.facility.scenarios/1"
 
 #: The mark a scenario's faults carry for a model the render does not serve.
@@ -270,6 +279,28 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
     return {"schema": SCENARIOS_SCHEMA, "scenarios": scenarios}
 
 
+def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
+    """Copy each file a scenario's logbook entries attach into the view.
+
+    Every entry is read first (:func:`~osprey.facility.scenarios.scenario_logbook`),
+    so an attachment that leaves its scenario directory, names a missing file
+    or holds a malformed picture is refused before anything is copied.
+    """
+    copied: list[Path] = []
+    for scenario in inputs.doc.get("scenarios", []):
+        name = str(scenario["name"])
+        source = inputs.facility_dir / SCENARIOS_DIR / name
+        scenario_logbook(scenario, source)
+        for entry in scenario.get("logbook") or []:
+            for item in entry.get("attachments") or []:
+                for rel in item.values():
+                    target = root / SCENARIOS_DIR / name / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((source / rel).read_bytes())
+                    copied.append(target)
+    return copied
+
+
 def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """Write the simulator view into ``root``.
 
@@ -301,6 +332,8 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
         target = root / name
         target.write_bytes(view_bytes(document))
         written.append(target)
+
+    written.extend(_copy_scenario_files(root, inputs))
 
     decks = root / DECKS_DIR
     for model in doc.get("models", []):

@@ -6,7 +6,8 @@ channel address of the facility file and one status address per served physics
 model), ``decks/<model>.json`` (a byte copy of each deck-bearing model's deck,
 served or not), ``variables.json`` (every model with its wiring and every
 channel with its write facts), ``seeds.json`` (each channel's seed record) and
-``scenarios.json`` (every scenario's writes) into each render's
+``scenarios.json`` (every scenario's writes, with a byte copy of each file
+its logbook entries attach under ``scenarios/<name>/``) into each render's
 ``data/simulator/``.
 """
 
@@ -38,6 +39,11 @@ DECK = "data/simulator/decks/SR.json"
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "data/simulator/seeds.json"
 SCENARIOS = "data/simulator/scenarios.json"
+SCENARIO_FILES = (
+    "data/simulator/scenarios/bpm-polarity/plots/corrector_bump_test.png",
+    "data/simulator/scenarios/nominal/plots/orbit_rms.json",
+    "data/simulator/scenarios/rf-thermal/plots/cavity_temperatures.json",
+)
 LIMITS = "data/channel_limits.json"
 FACTS = ("data/facility_facts.json", "data/facility_facts.md")
 BLUESKY = "data/bluesky_devices.yml"
@@ -64,6 +70,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 ADDRESSES,
                 DECK,
                 SCENARIOS,
+                *SCENARIO_FILES,
                 SEEDS,
                 SERVED,
                 VARIABLES,
@@ -434,6 +441,37 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
     authored = yaml.safe_load((source / "rf-thermal-live.yaml").read_text())
     for block in ("drivers", "couple", "noise"):
         assert live[block] == authored[block]
+
+
+def test_each_attached_file_is_a_byte_copy_beside_the_scenarios(
+    built_control_assistant: BuiltProject,
+) -> None:
+    source = built_control_assistant.facility_dir
+    for relative in SCENARIO_FILES:
+        copied = built_control_assistant.build_dir / relative
+        assert (
+            copied.read_bytes() == (source / relative.removeprefix("data/simulator/")).read_bytes()
+        )
+
+
+def test_an_attachment_naming_a_missing_file_is_refused(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    facility = copy.deepcopy(built_control_assistant.facility)
+    entry = {
+        "entry_id": "E-1",
+        "when": {"days_ago": 1, "time": "02:00:00"},
+        "author": "A. Author",
+        "title": "Title",
+        "text": "Body",
+        "attachments": [{"plot": "plots/absent.json"}],
+    }
+    facility["scenarios"] = [{"name": "bare", "logbook": [entry]}]
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+
+    with pytest.raises(ValueError, match="plots/absent.json"):
+        render_facility_outputs(render_dir, facility, {}, built_control_assistant.facility_dir)
 
 
 def test_a_fault_on_an_unserved_model_is_inactive(

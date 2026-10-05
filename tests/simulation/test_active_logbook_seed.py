@@ -43,7 +43,8 @@ def _make_project(tmp_path: Path) -> Path:
     sim_dst = tmp_path / "data" / "simulation"
     sim_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(TEMPLATE_SIM, sim_dst)
-    write_scenarios_view(tmp_path, facility_scenarios(TEMPLATE_DATA / "facility" / "scenarios"))
+    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
         "control_system": {
             "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
@@ -157,7 +158,7 @@ def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch)
 
 
 def test_seed_active_logbook_hands_over_each_entrys_pictures(tmp_path, monkeypatch):
-    """The pictures a bundle entry names travel with it into the seed, keyed by the
+    """The pictures a view entry names travel with it into the seed, keyed by the
     entry they belong to: each drawn from its plot spec at the entry's timestamp."""
     # Arrange
     project = _make_project(tmp_path)

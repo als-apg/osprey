@@ -45,9 +45,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
     from zoneinfo import ZoneInfo
 
-    from osprey.facility.scenarios import ScenarioLogEntry
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
-    from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario
+    from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario, ScenarioLogEntry
     from osprey_connectors.simulation.archive import SeedKnobs
 
 logger = get_logger("simulation_apply")
@@ -247,9 +246,7 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            # The engine's entries carry the fields of ScenarioLogEntry, one for one,
-            # plus the pictures they attach.
-            with seed_payload(engine.active_logbook(), t0) as (entries, pictures):  # type: ignore[arg-type]
+            with seed_payload(engine.active_logbook(), t0) as (entries, pictures):
                 seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
@@ -377,7 +374,8 @@ def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogb
     fresh anchor would slide the narrative to a T0 nobody asked for.
 
     The entries are the ``logbook`` blocks of the simulator view's scenarios, in
-    active-set order; a state-file name the view does not list is skipped.
+    active-set order; a state-file name the view does not list is skipped. Their
+    pictures resolve against the view's copies under ``scenarios/<name>/``.
 
     Args:
         config: The project's loaded ``config.yml``.
@@ -399,6 +397,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
     carries no simulator view.
     """
     from osprey.facility.scenarios import scenario_logbook
+    from osprey.facility.views.simulator import SCENARIOS_DIR
 
     # Read in the facility zone, as the engine reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
@@ -416,11 +415,12 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
             names.append(name)
         else:
             logger.warning(f"Unknown scenario {name!r} in the active set; ignoring")
+    files = _simulator_view(project_dir) / SCENARIOS_DIR
     logbook = [
         entry
         for name in resolve_active_scenarios(names)
         if name in scenarios
-        for entry in scenario_logbook(scenarios[name])
+        for entry in scenario_logbook(scenarios[name], files / name)
     ]
     return logbook, anchor
 
