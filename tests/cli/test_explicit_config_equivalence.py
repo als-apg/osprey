@@ -1005,6 +1005,26 @@ def _simulation_tick_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _default_scenarios_deltas() -> tuple[Delta, ...]:
+    """The start set every control-assistant document gains.
+
+    The root preset states ``simulation.default_scenarios: [rf-thermal]`` and
+    every persona inherits it; the fixtures were frozen before the key existed.
+
+    Returns:
+        One delta per control-assistant document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="simulation.default_scenarios",
+            fixture=ABSENT,
+            live=["rf-thermal"],
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+    )
+
+
 def _dispatcher_name_deltas() -> tuple[Delta, ...]:
     """The facility name the dispatcher dashboard shows.
 
@@ -1346,6 +1366,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
@@ -1376,6 +1397,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
@@ -1406,6 +1428,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
@@ -1436,6 +1459,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()

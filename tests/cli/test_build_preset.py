@@ -219,9 +219,7 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
         p.relative_to(templates / "ariel_standalone" / "data").as_posix()
         for p in (templates / "ariel_standalone" / "data").rglob("*")
     )
-    assert [p for p in own if p != "facility" and not p.startswith("facility/")] == [
-        "README.md"
-    ], (
+    assert [p for p in own if p != "facility" and not p.startswith("facility/")] == ["README.md"], (
         "ariel_standalone ships data of its own again -- one copy of each file lives "
         "in control_assistant and is taken through shared_data.yml"
     )
@@ -953,7 +951,7 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     from there, so a second declaration would be a divergence waiting to
     happen. No ``active_scenarios`` state file ships in ``data/``: the active
     set is runtime state under ``_agent_data/simulation/``, and the first deploy
-    writes it from the machine's ``default_scenarios`` (``rf-thermal``, the
+    writes it from ``simulation.default_scenarios`` (``rf-thermal``, the
     incident the getting-started tutorial walks through).
     """
     import json
@@ -968,7 +966,7 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     machine = json.loads(machine_path.read_text(encoding="utf-8"))
     assert "channels" in machine
     assert "scenarios" not in machine, "scenarios moved to bundle tree, not the machine file"
-    assert machine["default_scenarios"] == ["rf-thermal"]
+    assert "default_scenarios" not in machine, "the start set is the profile's to state"
 
     # Self-contained scenario bundles (telemetry + optional logbook).
     for name in ("nominal", "vacuum-burst", "rf-thermal"):
@@ -992,6 +990,7 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     assert "simulation_file" not in config["archiver"].get("mock_archiver", {}), (
         "the archiver repeats the machine path; it derives it now"
     )
+    assert config["simulation"]["default_scenarios"] == ["rf-thermal"]
 
 
 def test_preset_yaml_must_be_mapping(

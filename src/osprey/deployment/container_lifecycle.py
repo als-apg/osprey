@@ -5469,7 +5469,7 @@ def _stage_archiver_store(
 
     Whatever the base, the active scenarios' event windows are re-applied onto a
     rebuilt one, and onto a matching one when this deploy has just activated the
-    machine's default scenarios (which that base has never seen).
+    default scenarios (which that base has never seen).
 
     Both rebuild paths quiesce the recorder first. It is one operation — stop the
     writer, drop the collection, rebuild it, re-apply the active scenarios — and
@@ -5486,8 +5486,8 @@ def _stage_archiver_store(
     :param provider: The compose provider this deploy resolved, so the staging
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
-    :param scenarios_activated: Whether this deploy just activated the machine's
-        default scenarios (see :func:`_activate_default_scenarios`).
+    :param scenarios_activated: Whether this deploy just activated the
+        ``simulation.default_scenarios`` set (see :func:`_activate_default_scenarios`).
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
@@ -5773,7 +5773,7 @@ def _stage_ariel_store(
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
     :param scenarios_activated: The scenario set this deploy just activated as
-        the machine's default, empty when it activated none. A logbook that
+        ``simulation.default_scenarios``, empty when it activated none. A logbook that
         already holds entries keeps them, and the warning names the command that
         brings in that set's narrative.
     """
@@ -5837,7 +5837,7 @@ def _stage_ariel_store(
 
 
 def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, ...]:
-    """Activate the machine's default scenarios when the deployment never chose a set.
+    """Activate ``simulation.default_scenarios`` when the deployment never chose a set.
 
     Run before the archiver and ARIEL stages, which then seed the history and the
     narrative of the set written here. Never fatal: a deployment whose defaults
@@ -5854,9 +5854,9 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
         active = activate_default_scenarios(config, project_dir)
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
-            f"The machine's default scenarios could not be activated, so this deployment "
-            f"runs `nominal` only. Run `osprey sim apply <names>` from {project_dir} to "
-            f"choose a set. Cause: {exc}"
+            f"The default scenarios (simulation.default_scenarios) could not be activated, "
+            f"so this deployment runs `nominal` only. Run `osprey sim apply <names>` from "
+            f"{project_dir} to choose a set. Cause: {exc}"
         )
         return ()
     if active:
@@ -6858,8 +6858,8 @@ def _start_stack(
     # No-op unless this project deploys the store itself. Anchored on the repo
     # root: the single root `.env` is the secret store the seeder authenticates
     # from, and every compose invocation on this path reads it with --env-file.
-    # A deployment that never chose a scenario set starts in the one its machine
-    # model names, activated before the two stages below so the archive and the
+    # A deployment that never chose a scenario set starts in the one its profile
+    # names, activated before the two stages below so the archive and the
     # logbook are seeded with that set's history and narrative.
     activated = _activate_default_scenarios(config, Path(repo_root))
 

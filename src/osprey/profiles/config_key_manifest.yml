@@ -842,6 +842,14 @@ keys:
     evidence: 'resolve_tick_s\('
     note: seconds between the simulator's ticks; a value at or below 0 stops the build
     default: 1.0
+  simulation.default_scenarios:
+    evidence: '\.get\("default_scenarios"\)'
+    note: >-
+      Per-preset: control-assistant alone states it ([rf-thermal]), the one
+      preset whose facility tree ships scenarios. Read at deploy time by
+      `simulation.apply.activate_default_scenarios`, only while the deployment
+      has no scenario state.
+    default: []
 
   # ── Control system ──────────────────────────────────────────────────
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
@@ -3537,7 +3545,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 357
+  expected_union_size: 358
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

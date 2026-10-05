@@ -145,6 +145,7 @@ Present only where the deployment has the capability.
 | `bluesky.*`, `claude_code.servers.bluesky.enabled` | `control-assistant` | the plan queue |
 | `claude_code.permissions.deny` | `control-assistant` | the tier floor every persona inherits |
 | `web.*` | `ariel-standalone`, `channel-finder-standalone`, `control-assistant` | `hello-world` selects no panel and states no web key, so it renders no `web:` block at all |
+| `simulation.default_scenarios` | `control-assistant` | the only preset whose facility tree ships scenarios to start in |
 
 ### Deliberately divergent defaults
 

@@ -59,10 +59,8 @@ scenario set, therefore lives under the agent-data root instead
 ================
 
 The top-level keys the loader reads are ``channels`` (required, a mapping of
-channel name to channel entry), ``name`` and ``description`` (optional
-strings), and ``default_scenarios`` (optional, a list of scenario names the
-bundle defines; see :ref:`simulation-bundle-composition`). Other top-level keys
-are not read by the loader.
+channel name to channel entry), and ``name`` and ``description`` (optional
+strings). Other top-level keys are not read by the loader.
 
 .. list-table:: Channel entry
    :header-rows: 1
@@ -471,11 +469,12 @@ file when it changes. On the mock connectors, writing it clears the values
 written during the session.
 
 A deployment with no state file has never chosen a set. ``osprey up`` then
-activates the machine's ``default_scenarios`` the way ``osprey sim apply`` would,
-before it seeds the archive and the logbook, so both carry that set's history
-and narrative. A machine with no ``default_scenarios`` runs ``nominal`` alone.
-The names are resolved then, as ``osprey sim apply`` resolves its arguments: a
-default the bundle does not define, or a set that does not compose, leaves the
+activates the config's ``simulation.default_scenarios`` (see
+:ref:`config-simulation`) the way ``osprey sim apply`` would, before it seeds
+the archive and the logbook, so both carry that set's history and narrative. A
+config with no ``simulation.default_scenarios`` runs ``nominal`` alone. The
+names are resolved then, as ``osprey sim apply`` resolves its arguments: a
+default the project does not define, or a set that does not compose, leaves the
 deployment on ``nominal`` with a warning.
 Once the file exists, ``osprey up`` leaves it alone, and ``osprey sim apply``
 always means exactly the set it names (``osprey sim apply nominal`` included).
@@ -612,8 +611,6 @@ message names.
        null``
    * - ``extra`` not a mapping
      - ``Scenario '<name>' logbook entry '<id>': 'extra' must be a mapping``
-   * - ``default_scenarios`` not a list of names
-     - ``'default_scenarios' must be a list of scenario names``
    * - ``attachments`` not a list, or an item not a mapping
      - ``Scenario '<name>' logbook entry '<id>': 'attachments' must be a list``
        (or ``each attachment must be a mapping``)

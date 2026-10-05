@@ -245,27 +245,33 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # a different demo logbook, so the staleness advisory firing on
     # already-deployed projects is the correct signal. Every other preset
     # stands still.
+    # The thirty-third move, and control-assistant's family alone: the root
+    # preset states `simulation.default_scenarios: [rf-thermal]`, the set a
+    # deployment that never chose one starts in, which the machine model named
+    # before. A rebuilt project starts in the same set, from its profile; the
+    # five `extends` children inherit the line, and the other three presets
+    # state no start set and stand still.
     "ariel-standalone": ("sha256:f77debeb01c502cfbc55bf0d7d7d11e1993fc5ef555e88cafe19b6482aaf83a7"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:74ff54a1b535a83eaf323d755d21bb04fe4d54b67b5bb6a8f4b674b9bb7d2592"
+        "sha256:917738c962e6359206a0f148fd5321169780fcb1bb70d3db7372680d00a9a6b6"
     ),
     "control-assistant-admin": (
-        "sha256:e1bd6a9490edb2217dd42e3e4c7a4a01650f80d647c3fb9082da6bb1a04225fc"
+        "sha256:c6dd4d3169d4a7596dae0191971671b179b306a2fb1670fb26c5dae2c196a397"
     ),
     "control-assistant-knowledge": (
-        "sha256:7abc23193fa37ddd77c13ae0e4bd0a485f7f80958573f63ad8e129344ca70817"
+        "sha256:51b78c4003548ad41b7c84bcb96b8775c90a082ac471dc7a37cc72a753e657f2"
     ),
     "control-assistant-logbook": (
-        "sha256:896b24334f6bbeb12bade704addc65ef4fe00b9ad5fdab71ab34c58f9d065977"
+        "sha256:4bf519a68f0ebc09bf2db4bea7da603bd3ef25f2f6df9f782e0dcbfd9f1c5d17"
     ),
     "control-assistant-readonly": (
-        "sha256:d7b0d0825c2c0dba0d201f9a5037968a60423667b252413ad85c0a32ac6a81a6"
+        "sha256:ab5b2ed25a927e7b606038d94d7986f79cf4227e98a700c0486c10b2fff3b3dd"
     ),
     "control-assistant-readwrite": (
-        "sha256:196b956047224fbda07de962684a615eeb2757e0d955f84b8fc2845ed66d7dd3"
+        "sha256:3f5e006966c8b9c202f2b449626245178218dbe72015ff32514ea1d50a5db67f"
     ),
     "hello-world": ("sha256:d9328877c94d4e066e6bb98e54f38f9bb2918025928ed37f598141c91082c5d7"),
 }

@@ -378,7 +378,9 @@ def test_root_render_is_partitioned_between_its_sources(
     # which was a number fixed in the keyword module; and control-assistant
     # gains the readiness-probe bound, which was a constant when the freeze ran;
     # and every preset gains `simulation.models` and `simulation.tick_s`, which
-    # did not exist when the freeze ran either; and every preset that reaches no
+    # did not exist when the freeze ran either, and control-assistant gains
+    # `simulation.default_scenarios`, its start set, for the same reason; and
+    # every preset that reaches no
     # machine gains `web.control_target_picker`, which did not exist when the
     # freeze ran; and every preset that carries an `ariel:` block gains the
     # picture modules (`image_caption`, `image_embedding`) and the two
@@ -411,6 +413,8 @@ def test_root_render_is_partitioned_between_its_sources(
         expected_gain = expected_gain | {"simulation.models"}
     if "simulation.tick_s" in config:
         expected_gain = expected_gain | {"simulation.tick_s"}
+    if "simulation.default_scenarios" in config:
+        expected_gain = expected_gain | {"simulation.default_scenarios"}
     if "web.control_target_picker" in config:
         expected_gain = expected_gain | {"web.control_target_picker"}
     for key in _PICTURE_MODULE_KEYS:

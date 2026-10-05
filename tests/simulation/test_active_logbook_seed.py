@@ -21,6 +21,7 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey.simulation.apply import (
@@ -262,15 +263,23 @@ def _state_file(project: Path) -> Path:
     return resolve_state_dir(config, project) / ACTIVE_SCENARIOS_FILENAME
 
 
-def test_a_deployment_that_never_chose_starts_in_the_machines_default_set(tmp_path):
-    """The shipped machine names rf-thermal; a deploy with no scenario state
-    activates it, anchored, and the deploy-time seed then narrates it."""
+def _start_in(project: Path, names) -> dict:
+    """State ``simulation.default_scenarios`` in the project's config; return the config."""
+    config = yaml.safe_load((project / "config.yml").read_text())
+    config["simulation"] = {"default_scenarios": names}
+    (project / "config.yml").write_text(yaml.safe_dump(config))
+    return config
+
+
+def test_a_deployment_that_never_chose_starts_in_the_configured_default_set(tmp_path):
+    """The config names rf-thermal; a deploy with no scenario state activates it,
+    anchored, and the deploy-time seed then narrates it."""
     from osprey.simulation.apply import activate_default_scenarios
 
     project = _make_project(tmp_path)
     assert not _state_file(project).exists()
 
-    config = yaml.safe_load((project / "config.yml").read_text())
+    config = _start_in(project, ["rf-thermal"])
     active = activate_default_scenarios(config, project)
 
     assert active == ("nominal", "rf-thermal")
@@ -288,22 +297,28 @@ def test_a_chosen_set_is_never_replaced_by_the_default(tmp_path, monkeypatch):
     project = _make_project(tmp_path)
     _activate(project, monkeypatch, ["nominal"])
     before = _state_file(project).read_text()
-    config = yaml.safe_load((project / "config.yml").read_text())
+    config = _start_in(project, ["rf-thermal"])
 
     assert activate_default_scenarios(config, project) == ()
     assert _state_file(project).read_text() == before
 
 
-def test_a_machine_without_defaults_activates_nothing(tmp_path):
-    import json
-
+@pytest.mark.parametrize("names", [None, []])
+def test_a_config_without_defaults_activates_nothing(tmp_path, names):
     from osprey.simulation.apply import activate_default_scenarios
 
     project = _make_project(tmp_path)
-    machine_path = project / "data" / "simulation" / "machine.json"
-    machine = json.loads(machine_path.read_text())
-    del machine["default_scenarios"]
-    machine_path.write_text(json.dumps(machine))
+    config = _start_in(project, names)
+
+    assert activate_default_scenarios(config, project) == ()
+    assert not _state_file(project).exists()
+
+
+def test_the_shipped_machine_names_no_default_set(tmp_path):
+    """The start set is the profile's to state; the machine model no longer carries one."""
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
     config = yaml.safe_load((project / "config.yml").read_text())
 
     assert activate_default_scenarios(config, project) == ()
@@ -311,22 +326,35 @@ def test_a_machine_without_defaults_activates_nothing(tmp_path):
 
 
 def test_a_default_naming_an_unknown_scenario_is_refused_like_sim_apply(tmp_path):
-    import json
-
-    import pytest
-
     from osprey.simulation.apply import activate_default_scenarios
 
     project = _make_project(tmp_path)
-    machine_path = project / "data" / "simulation" / "machine.json"
-    machine = json.loads(machine_path.read_text())
-    machine["default_scenarios"] = ["ghost"]
-    machine_path.write_text(json.dumps(machine))
-    config = yaml.safe_load((project / "config.yml").read_text())
+    config = _start_in(project, ["ghost"])
 
     with pytest.raises(ValueError, match="ghost"):
         activate_default_scenarios(config, project)
     assert not _state_file(project).exists()
+
+
+@pytest.mark.parametrize("names", ["rf-thermal", [1], [""]])
+def test_a_malformed_default_list_is_refused_by_its_key(tmp_path, names):
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
+    config = _start_in(project, names)
+
+    with pytest.raises(ValueError, match="simulation.default_scenarios must be a list"):
+        activate_default_scenarios(config, project)
+    assert not _state_file(project).exists()
+
+
+def test_each_default_is_activated_once_in_order(tmp_path):
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
+    config = _start_in(project, ["rf-thermal", "rf-thermal"])
+
+    assert activate_default_scenarios(config, project) == ("nominal", "rf-thermal")
 
 
 def test_a_project_without_a_machine_model_activates_nothing(tmp_path):

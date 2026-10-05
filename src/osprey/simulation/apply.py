@@ -325,16 +325,37 @@ def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | N
     return parse_active_state(path.read_text(encoding="utf-8"))
 
 
+#: The config key naming the scenarios a deployment that never chose a set starts in.
+_DEFAULT_SCENARIOS_KEY = "simulation.default_scenarios"
+
+
+def _default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
+    """The scenario names ``simulation.default_scenarios`` states, in order, once each.
+
+    Absent, null or empty states none. The names are resolved when the set is
+    activated, exactly as ``osprey sim apply`` resolves its arguments, not here.
+
+    Raises:
+        ValueError: If the value is not a list of non-empty scenario names.
+    """
+    raw = (config.get("simulation") or {}).get("default_scenarios")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(name, str) and name for name in raw):
+        raise ValueError(f"{_DEFAULT_SCENARIOS_KEY} must be a list of scenario names, got {raw!r}")
+    return tuple(dict.fromkeys(raw))
+
+
 def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[str, ...]:
-    """Activate the machine's ``default_scenarios`` on a deployment that never chose a set.
+    """Activate ``simulation.default_scenarios`` on a deployment that never chose a set.
 
     A deployment with no scenario state has never been told which world to run,
-    and the machine model it ships names the one it should start in. That set is
-    activated exactly as ``osprey sim apply`` would, physics block and anchor
-    included, but without seeding: the deploy seeds the archive and the logbook
-    in their own stages, each of which reads the set written here. Once any set
-    has been activated -- by this, or by ``osprey sim apply`` naming any set at
-    all -- the state file exists and this does nothing again.
+    and its profile names the one it should start in. That set is activated
+    exactly as ``osprey sim apply`` would, physics block and anchor included,
+    but without seeding: the deploy seeds the archive and the logbook in their
+    own stages, each of which reads the set written here. Once any set has been
+    activated -- by this, or by ``osprey sim apply`` naming any set at all --
+    the state file exists and this does nothing again.
 
     Args:
         config: The project's loaded ``config.yml``.
@@ -343,12 +364,12 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
     Returns:
         The activated set (``nominal`` first), or ``()`` when nothing was
         activated: the project is not simulation-backed, a set is already
-        active, or the machine names no defaults.
+        active, or the config names no defaults.
 
     Raises:
-        ValueError: If a default names a scenario the bundle does not define, or
-            the defaults do not compose -- the refusals ``osprey sim apply``
-            gives the same set.
+        ValueError: If the key is malformed, a default names a scenario the
+            project does not define, or the defaults do not compose -- the
+            refusals ``osprey sim apply`` gives the same set.
     """
     project_dir = Path(project_dir)
     machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
@@ -356,7 +377,7 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
         return ()
     if (resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
         return ()
-    defaults = parse_machine(read_machine_json(machine_path), machine_path).default_scenarios
+    defaults = _default_scenarios(config)
     if not defaults:
         return ()
     render_scenario_physics_env(project_dir, defaults)
