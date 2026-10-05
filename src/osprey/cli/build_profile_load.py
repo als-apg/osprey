@@ -15,7 +15,7 @@ from __future__ import annotations
 import difflib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from osprey.config_guards import is_positive_int
@@ -39,7 +39,7 @@ from osprey_connectors.types import (
 )
 
 from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
-from .build_profile_deploy import parse_deploy_block
+from .build_profile_deploy import _limits_block_leaf, _rendered_leaf_paths, parse_deploy_block
 from .build_profile_document import (
     _normalize_empty_collections,
     _read_profile_document,
@@ -543,6 +543,58 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
         ) from error
 
 
+#: The limits leaf that names a limits database file.
+_LIMITS_DATABASE_LEAF = "database_path"
+
+
+def _check_limits_database_path(raw: dict[str, Any]) -> None:
+    """Stop a profile that names its own limits database.
+
+    The build writes ``data/channel_limits.json`` from
+    ``<data>/facility/limits.yaml`` and names it as the limits database, so a
+    profile stating ``database_path`` in a limits block, deployment-wide or per
+    connector type, in any spelling, is refused. The deployment-wide key is
+    named before a per-type one, and per-type keys in sorted type order.
+
+    Args:
+        raw: The resolved raw profile dict.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` naming the rendered key, if the
+            profile states one.
+    """
+    config = raw.get("config")
+    if not isinstance(config, dict):
+        return
+    stated: set[tuple[str, ...]] = set()
+    for _written, rendered, _value in _rendered_leaf_paths(config):
+        if _limits_block_leaf(rendered) != _LIMITS_DATABASE_LEAF:
+            continue
+        # The leaf sits at index 2 deployment-wide and at index 4 per type.
+        depth = 3 if rendered[1] != "connector" else 5
+        stated.add(tuple(rendered[:depth]))
+    if not stated:
+        return
+    first = min(stated, key=lambda path: (len(path), path))
+    key = ".".join(first)
+
+    from .build_injectors import LIMITS_DATABASE_PATH
+
+    written_data = raw.get("data")
+    data = PurePosixPath(written_data).as_posix() if isinstance(written_data, str) else "data"
+    raise FacilityBuildError(
+        "profile-invalid",
+        key,
+        ["profile.yml"],
+        f"move its limits into {data}/facility/limits.yaml and remove {key} from the profile",
+        record_kind="path",
+        detail=(
+            f"the build writes {LIMITS_DATABASE_PATH} from {data}/facility/limits.yaml "
+            "and names it as the limits database"
+        ),
+    )
+
+
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """Reject unknown top-level profile keys, naming every one at once.
 
@@ -990,11 +1042,18 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     A present-but-empty selection key is flattened here as well as in the
     document pass: the document pass flattens it before the merge, and this
     pass flattens it for a hand-assembled mapping that never went through one.
+
+    Raises:
+        BuildProfileError: If the profile is malformed.
+        FacilityBuildError: ``profile-invalid`` for a retired ``tier`` key, an
+            unusable simulation tick or start set, or a limits database path
+            the profile states.
     """
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
     _check_tick_s(raw)
     _check_default_scenarios(raw)
+    _check_limits_database_path(raw)
     _apply_connector_shorthand(raw)
     _apply_port_base_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}

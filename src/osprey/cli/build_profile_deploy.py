@@ -29,7 +29,6 @@ from typing import Any
 from osprey.errors import BuildProfileError
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.types import (
-    LIMITS_BLOCK_LEAVES,
     LIMITS_CHECKING_LEAF,
     LIMITS_LEAVES,
     LIMITS_MODES,
@@ -448,9 +447,12 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
         * a per-type block stating one of its two leaves — the message names
           the connector type, the leaf the profile did state, and the missing
           leaf;
-        * a limits block, deployment-wide or per type, writing a leaf the
-          block does not define, or a ``mode`` that is not one of the two
-          modes — the message names the entry and the two allowed values.
+        * a limits block, deployment-wide or per type, writing a leaf other
+          than ``enabled`` and ``mode``, or a ``mode`` that is not one of the
+          two modes — the message names the entry and the two allowed values.
+          The database path is not a profile leaf: the build names it, and
+          :func:`osprey.cli.build_profile_load._check_limits_database_path`
+          stops a profile that states it before this check runs.
     """
     if not isinstance(config, dict):
         return []
@@ -467,7 +469,7 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
 
     for written, rendered, value in _rendered_leaf_paths(config):
         leaf = _limits_block_leaf(rendered)
-        if leaf is not None and leaf not in LIMITS_BLOCK_LEAVES:
+        if leaf is not None and leaf not in LIMITS_LEAVES:
             errors.append(
                 f"The profile's config: block writes `{written}`, which is not a limits "
                 f"leaf. A limits block states `{LIMITS_LEAVES[0]}` and "

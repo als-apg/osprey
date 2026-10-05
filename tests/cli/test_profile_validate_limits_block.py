@@ -153,7 +153,7 @@ def test_the_deployment_wide_block_is_untouched() -> None:
     """Only ``control_system.connector.*`` paths are per-type; the pair above is not."""
     config = {
         "control_system.limits_checking.enabled": True,
-        "control_system.limits_checking.database_path": "limits.yml",
+        "control_system.limits_checking.mode": "optional",
     }
     assert limits_block_errors(config) == []
 
