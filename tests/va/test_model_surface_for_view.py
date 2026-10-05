@@ -23,6 +23,7 @@ from lume.variables import ScalarVariable, Variable
 
 from osprey.services.virtual_accelerator.serving.model_rpc import ModelRpcError
 from osprey.services.virtual_accelerator.serving.model_surface import (
+    SURFACE_MODEL_ONLY,
     SURFACE_SERVED,
     WRITES_DISABLED,
     ModelSurface,
@@ -33,6 +34,7 @@ from osprey_connectors.simulation.composite import Composite
 TOKEN = "s3cret"
 STATUS = "T:SIM:M:STATUS"
 CHANNELS = ("M:BPM:X", "M:SP", "T:RB", "T:SP")
+MODEL_VARIABLES = ("M/knob", "M/gain")
 T0 = 1_760_000_000.0
 
 
@@ -170,20 +172,34 @@ def _surface(
 # -- read verbs ----------------------------------------------------------------
 
 
-def test_info_lists_every_served_address_and_the_status(tmp_path: Path) -> None:
+def test_info_lists_the_served_addresses_then_the_model_variables(tmp_path: Path) -> None:
     surface, _ = _surface(tmp_path)
 
     info = surface.info()
 
     assert set(info) == {"variables"}
-    assert [entry["name"] for entry in info["variables"]] == [*CHANNELS, STATUS]
+    assert [entry["name"] for entry in info["variables"]] == [*CHANNELS, STATUS, *MODEL_VARIABLES]
     for entry in info["variables"]:
         assert set(entry) == {"name", "unit", "value_range", "read_only", "surface"}
-        assert entry["surface"] == SURFACE_SERVED
+    surfaces = {entry["name"]: entry["surface"] for entry in info["variables"]}
+    assert surfaces == {
+        **dict.fromkeys([*CHANNELS, STATUS], SURFACE_SERVED),
+        **dict.fromkeys(MODEL_VARIABLES, SURFACE_MODEL_ONLY),
+    }
     by_name = {entry["name"]: entry for entry in info["variables"]}
     assert by_name["M:BPM:X"]["unit"] == "mm"
     assert by_name["M:SP"]["read_only"] is False
     assert by_name[STATUS]["read_only"] is True
+    assert by_name["M/knob"]["read_only"] is False
+    assert by_name["M/gain"]["read_only"] is True
+
+
+def test_info_of_a_failed_model_lists_no_model_variable(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path, settings={"fail": "the deck has no stable orbit"})
+
+    names = [entry["name"] for entry in surface.info()["variables"]]
+
+    assert names == [*CHANNELS, STATUS]
 
 
 def test_status_carries_the_view_keyset(tmp_path: Path) -> None:
@@ -297,14 +313,23 @@ def test_set_the_model_refuses_carries_its_text(tmp_path: Path) -> None:
     assert composite.model_get(["M/knob"]) == {"M/knob": 1.0}
 
 
-def test_reset_is_refused_naming_why(tmp_path: Path) -> None:
+def test_reset_restores_a_model_variable_and_leaves_a_setpoint_as_written(
+    tmp_path: Path,
+) -> None:
     surface, composite = _surface(tmp_path)
     surface.set({"M/knob": 3.0}, TOKEN)
+    composite.set({"M:SP": 4.0})
 
-    with pytest.raises(ModelRpcError, match="reset"):
-        surface.reset(TOKEN)
+    assert surface.reset(TOKEN) == ["M/knob"]
 
-    assert composite.model_get(["M/knob"]) == {"M/knob": 3.0}
+    assert composite.model_get(["M/knob"]) == {"M/knob": 1.0}
+    assert composite.held(["M:SP"]) == {"M:SP": 4.0}
+
+
+def test_reset_with_nothing_drifted_writes_nothing(tmp_path: Path) -> None:
+    surface, _ = _surface(tmp_path)
+
+    assert surface.reset(TOKEN) == []
 
 
 def test_reset_without_the_token_is_refused_on_the_token(tmp_path: Path) -> None:

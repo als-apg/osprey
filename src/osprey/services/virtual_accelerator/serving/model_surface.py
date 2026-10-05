@@ -44,7 +44,9 @@ leave the machine where the control system put it.
 keyed on its simulator view's address set: the served side is
 ``addresses.json``'s channels and status addresses, and a physics model's own
 variables are reached as ``<model>/<name>`` through the composite alone, whose
-refusal of one -- a failed model's included -- is the verb's refusal.
+refusal of one -- a failed model's included -- is the verb's refusal. There
+``reset`` writes each drifted writable model variable back to the value its
+model held when it was built, and touches no served address.
 
 Nothing here imports the serving runtime -- the runner, the Channel Access
 server or lume-pva -- so the partition and the verbs are decided and tested
@@ -451,11 +453,6 @@ class ModelSurface:
         return ModelRpcError(text)
 
 
-#: The refusal ``reset`` meets on a surface keyed on a simulator view: the
-#: composite names no list of its models' own variables to reset.
-VIEW_RESET_UNAVAILABLE = "reset is not available: write each model variable back with set"
-
-
 class _ViewSurface(ModelSurface):
     """The model RPC's verbs over a composite, keyed on its view's address set.
 
@@ -484,16 +481,23 @@ class _ViewSurface(ModelSurface):
         )
 
     def info(self) -> dict[str, Any]:
-        """Describe every served address; no value is read.
+        """Describe every served address and every model variable; no value is read.
 
         Returns:
             ``variables``: one entry per served address -- the view's
-            channels, then its status addresses -- carrying ``name``,
-            ``unit``, ``value_range``, ``read_only`` and ``surface``
-            (:data:`SURFACE_SERVED`).
+            channels, then its status addresses -- with ``surface``
+            :data:`SURFACE_SERVED`, then one per variable of each built
+            model, named ``<model>/<name>``, with ``surface``
+            :data:`SURFACE_MODEL_ONLY`. Each carries ``name``, ``unit``,
+            ``value_range``, ``read_only`` and ``surface``.
         """
         declared = self._composite.supported_variables
-        return {"variables": [_describe(declared[name], SURFACE_SERVED) for name in self._served]}
+        served = [_describe(declared[name], SURFACE_SERVED) for name in self._served]
+        model = [
+            _describe(variable, SURFACE_MODEL_ONLY, name=name)
+            for name, (variable, _) in self._composite.model_variables().items()
+        ]
+        return {"variables": [*served, *model]}
 
     def get(self, names: Iterable[str]) -> dict[str, Any]:
         """Read served addresses from the composite and model variables from their model.
@@ -574,14 +578,37 @@ class _ViewSurface(ModelSurface):
         return list(batch)
 
     def reset(self, token: str | None) -> list[str]:
-        """Refuse: the composite names no list of its models' own variables.
+        """Write every drifted writable model variable back to its start value.
+
+        A start value is what the model held when it was built at the active
+        scenarios. The current values are read once and the drifted ones are
+        written in one ``composite.model_set``. No served address -- a
+        setpoint, a held value, a session write -- is written.
+
+        Returns:
+            The names reset, ``<model>/<name>``. An empty list -- nothing had
+            drifted -- is not an error, and writes nothing.
 
         Raises:
-            ModelRpcError: always -- the token's refusal when it is refused,
-                else :data:`VIEW_RESET_UNAVAILABLE`. Nothing is written.
+            ModelRpcError: the token is refused, or the composite refuses the
+                read or the write; its text is the refusal.
         """
         self._authorize(token)
-        raise self._refusal(VIEW_RESET_UNAVAILABLE)
+        starts = {
+            name: start
+            for name, (variable, start) in self._composite.model_variables().items()
+            if not variable.read_only and start is not None
+        }
+        if not starts:
+            return []
+        try:
+            current = self._composite.model_get(list(starts))
+        except ValueError as exc:
+            raise self._refusal(str(exc)) from exc
+        drifted = {name: start for name, start in starts.items() if current[name] != start}
+        if drifted:
+            self._apply(self._composite.model_set, drifted)
+        return list(drifted)
 
 
 def _finite_or_not_a_number(value: Any) -> bool:
@@ -598,11 +625,15 @@ def _finite_or_not_a_number(value: Any) -> bool:
         return False
 
 
-def _describe(variable: Variable, surface: str) -> dict[str, Any]:
-    """One ``info`` entry: the fields a client needs to address ``variable``."""
+def _describe(variable: Variable, surface: str, *, name: str | None = None) -> dict[str, Any]:
+    """One ``info`` entry: the fields a client needs to address ``variable``.
+
+    ``name`` is the name a client addresses it by, when that is not the
+    variable's own.
+    """
     value_range = getattr(variable, "value_range", None)
     return {
-        "name": variable.name,
+        "name": variable.name if name is None else name,
         "unit": getattr(variable, "unit", None),
         "value_range": None if value_range is None else [float(v) for v in value_range],
         "read_only": bool(variable.read_only),
@@ -613,7 +644,6 @@ def _describe(variable: Variable, surface: str) -> dict[str, Any]:
 __all__ = [
     "SURFACE_MODEL_ONLY",
     "SURFACE_SERVED",
-    "VIEW_RESET_UNAVAILABLE",
     "WRITES_DISABLED",
     "ModelSurface",
     "VariablePartition",
