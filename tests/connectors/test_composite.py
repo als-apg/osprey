@@ -76,6 +76,8 @@ class StubModel(LUMEModel):
         for name, value in values.items():
             if float(value) > 100.0:
                 raise ValueError(f"{name} cannot reach {value}")
+            if float(value) < -100.0:
+                raise RuntimeError(f"no stable solve with {name} at {value}")
         self.inputs.update({name: float(value) for name, value in values.items()})
 
     def _get(self, names: list[str]) -> dict[str, Any]:
@@ -357,6 +359,18 @@ def test_an_engine_refusal_fails_the_write_only(tmp_path: Path) -> None:
         composite.set({"M:SP": 500.0})
 
     assert composite.held(["M:SP"]) == {"M:SP": 2.0}
+    assert composite.status("M") == "ok"
+
+
+def test_an_engine_raising_on_a_write_refuses_it_with_its_text(tmp_path: Path) -> None:
+    composite = _composite(tmp_path)
+
+    with pytest.raises(ValueError) as refused:
+        composite.set({"M:SP": -500.0, "T:SP": 6.5})
+
+    assert str(refused.value) == "no stable solve with M:SP at -500.0"
+    assert isinstance(refused.value.__cause__, RuntimeError)
+    assert composite.held(["M:SP", "T:SP"]) == {"M:SP": 2.0, "T:SP": 5.0}
     assert composite.status("M") == "ok"
 
 
