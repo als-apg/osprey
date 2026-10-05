@@ -1405,6 +1405,10 @@ config:
   simulation.models:
   # Seconds between the simulator's ticks; must be greater than 0.
   simulation.tick_s: 1.0
+  # Scenarios a deployment that never chose a set starts in, by name from
+  # data/facility/scenarios/; `osprey sim apply` replaces the set. Absent or
+  # [] starts in nominal alone.
+  simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
