@@ -1253,22 +1253,69 @@ def test_the_nominal_read_asks_for_hardware_units_and_for_the_units_statement(
 
     assert calls, "the nominal is read through the Middle Layer's own model read"
     for arguments in calls:
-        assert arguments[3] == "'Hardware'", arguments
-    assert [arguments[4] for arguments in calls] == ["'Struct'", "'Numeric'"]
+        assert arguments[4] == "'Hardware'", arguments
+    assert [arguments[5] for arguments in calls] == ["'Struct'", "'Numeric'"]
     assert "units = local_text(local_field(answer, 'Units'));" in body
     assert "answer = local_field(answer, 'Data');" in body
 
 
-def test_the_nominal_read_takes_the_whole_device_list_and_passes_no_time(
+def test_the_nominal_read_takes_the_whole_device_list_and_its_turn_count_from_local_turns(
     exporter_source: str,
 ) -> None:
-    """The model read converts at the model's own energy; a fourth number is a time."""
+    """The model read converts at the model's own energy; a fourth number is a turn count.
+
+    The count is passed only as ``local_turns`` decides it, so every other
+    read passes no fourth number, which the read would take as a time.
+    """
     calls = _sampling_calls(_function_body(exporter_source, "local_sample_nominal"), "getpvmodel")
 
-    assert calls
+    assert [arguments[5] for arguments in calls] == ["'Struct'", "'Numeric'"]
     for arguments in calls:
-        assert len(arguments) == 5, arguments
-        assert arguments[:3] == ["family", "field", "DeviceList"], arguments
+        assert arguments == [
+            "family",
+            "field",
+            "DeviceList",
+            "turns{:}",
+            "'Hardware'",
+            arguments[5],
+        ]
+
+
+def test_a_turn_by_turn_monitor_is_read_for_one_pass_on_a_transport_line_only(
+    exporter_source: str,
+) -> None:
+    """Only the lattice types whose reading is one number per device per turn are listed.
+
+    ``Turns``, ``FirstTurn`` and ``LinePass`` answer six coordinates per
+    device whatever the count, so a count would change nothing they read.
+    """
+    body = _code(_function_body(exporter_source, "local_turns"))
+
+    listed = re.search(r"types = \{([^}]*)\};", body)
+    assert listed is not None
+    assert _arguments(listed.group(1)) == [
+        "'xTurns'",
+        "'PxTurns'",
+        "'yTurns'",
+        "'PyTurns'",
+        "'dPTurns'",
+        "'dLTurns'",
+    ]
+    for kept_out in ("'Turns'", "'FirstTurn'", "'LinePass'"):
+        assert kept_out not in body, kept_out
+    assert "istransport" in body
+    assert "turns = {1};" in body
+    assert "turns = {};" in body
+
+
+def test_the_model_state_reads_the_orbit_for_the_turn_count_local_turns_decides(
+    exporter_source: str,
+) -> None:
+    body = _code(_function_body(exporter_source, "local_model_state"))
+
+    assert "turns = local_turns(local_at_of(AO, family, field));" in body
+    (arguments,) = _sampling_calls(body, "getpvmodel")
+    assert arguments[3] == "turns{:}", arguments
 
 
 def test_a_nominal_answered_in_physics_units_is_refused_for_the_hardware_nominal(

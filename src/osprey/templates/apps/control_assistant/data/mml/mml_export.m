@@ -80,7 +80,9 @@ function files = mml_export(outdir)
 %       fields            every field the family answers to, by name;
 %                         Setpoint and Monitor are the two that are sampled
 %       nominals          what the family is set to, per field name:
-%                         values, units, at_type, at_index, synthetic
+%                         values, units, at_type, at_index, synthetic;
+%                         a monitor whose lattice type reads turn by turn
+%                         is read for one pass on a transport line
 %       Setpoint          calibration, energy_scaling, energy_deviation
 %       Monitor           calibration, monitor_inverse, readout
 %       energy_candidate  whether the ring's energy is read from this family
@@ -393,8 +395,9 @@ for m = 1:numel(monitors)
     family = monitors{m};
     DeviceList = family2dev(family);
     block = struct('device_list', DeviceList);
+    turns = local_turns(local_at_of(AO, family, field));
     for u = 1:numel(units)
-        block.(lower(units{u})) = getpvmodel(family, field, DeviceList, units{u}, 'Numeric');
+        block.(lower(units{u})) = getpvmodel(family, field, DeviceList, turns{:}, units{u}, 'Numeric');
     end
     section.orbit.(family) = block;
 end
@@ -1556,7 +1559,7 @@ try
     end
 
     at = local_at_of(AO, family, field);
-    [values, units] = local_sample_nominal(family, field, DeviceList, nDev);
+    [values, units] = local_sample_nominal(family, field, DeviceList, nDev, local_turns(at));
 
     record = struct();
     record.values = values;
@@ -1597,7 +1600,7 @@ end
 end
 
 
-function [values, units] = local_sample_nominal(family, field, DeviceList, nDev)
+function [values, units] = local_sample_nominal(family, field, DeviceList, nDev, turns)
 % One field's nominal as the Middle Layer's model read answers it, and the
 % units the read says the answer is in.
 %
@@ -1620,13 +1623,14 @@ function [values, units] = local_sample_nominal(family, field, DeviceList, nDev)
 % its refusal.
 %
 % The whole device list goes in one call - the model read is written for a
-% list of devices, unlike the per-device energy conversions - and no fourth
-% number is passed: the read converts at the model's own energy, and a fourth
-% argument is read as a time.
+% list of devices, unlike the per-device energy conversions - and a fourth
+% number is passed only as the turn count TURNS holds (see local_turns): the
+% read converts at the model's own energy, and a fourth argument is otherwise
+% read as a time.
 try
-    answer = getpvmodel(family, field, DeviceList, 'Hardware', 'Struct');
+    answer = getpvmodel(family, field, DeviceList, turns{:}, 'Hardware', 'Struct');
 catch
-    answer = getpvmodel(family, field, DeviceList, 'Hardware', 'Numeric');
+    answer = getpvmodel(family, field, DeviceList, turns{:}, 'Hardware', 'Numeric');
 end
 
 units = '';
@@ -1635,6 +1639,25 @@ if isstruct(answer)
     answer = local_field(answer, 'Data');
 end
 values = local_column(family, field, 'getpvmodel', answer, nDev);
+end
+
+
+function turns = local_turns(at)
+% The turn count the model read is asked for through the AT block AT, as the
+% arguments it goes in: {1} for one pass, {} for none.
+%
+% The model read takes a fourth number as the count of turns for a monitor
+% whose lattice type reads turn by turn, and asks 50 turns when it is given
+% none. A transport line is passed once, so one pass is its reading: one
+% number per device, launched from the deck's TwissData. A ring's
+% turn-by-turn reading is a history and is asked as the Middle Layer asks it,
+% with no count. Turns, FirstTurn and LinePass answer six coordinates per
+% device whatever the count, so they are not in the list.
+types = {'xTurns', 'PxTurns', 'yTurns', 'PyTurns', 'dPTurns', 'dLTurns'};
+turns = {};
+if istransport && any(strcmpi(local_text(local_field(at, 'ATType')), types))
+    turns = {1};
+end
 end
 
 
