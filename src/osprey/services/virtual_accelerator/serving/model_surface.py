@@ -40,6 +40,12 @@ readings -- which names changed. ``reset`` writes the seeds back through
 return every served setpoint to its default, and a reset of the faults must
 leave the machine where the control system put it.
 
+:meth:`ModelSurface.for_view` answers the same verbs over a composite instead,
+keyed on its simulator view's address set: the served side is
+``addresses.json``'s channels and status addresses, and a physics model's own
+variables are reached as ``<model>/<name>`` through the composite alone, whose
+refusal of one -- a failed model's included -- is the verb's refusal.
+
 Nothing here imports the serving runtime -- the runner, the Channel Access
 server or lume-pva -- so the partition and the verbs are decided and tested
 in process, the same way the write path is. The verbs see the Channel Access
@@ -70,6 +76,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.variables import Variable
 
     from osprey.services.virtual_accelerator.serving.pvdb import ServingRecords
+    from osprey_connectors.simulation.composite import Composite
 
 #: The side of the partition a variable is on, as the model RPC's ``info``
 #: verb reports it in each variable's ``surface`` field.
@@ -199,6 +206,48 @@ class ModelSurface:
         self._last_cycle_ms: float | None = None
         self._queue_depth = 0
         self._last_refused_write: str | None = None
+
+    @classmethod
+    def for_view(
+        cls,
+        composite: Composite,
+        addresses_json: Mapping[str, Any],
+        *,
+        instance: str,
+        endpoint: str,
+        model_write_token: str | None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> ModelSurface:
+        """Answer for a composite, keyed on its simulator view's address set.
+
+        The served side is ``addresses_json``'s ``channels`` and ``status``;
+        a physics model's own variables are reached as ``<model>/<name>``
+        through ``composite.model_get`` and ``composite.model_set`` alone.
+
+        Args:
+            composite: the composite the runner serves. Read and written on
+                the calling thread, which must be the run loop's.
+            addresses_json: the view's ``addresses.json`` document.
+            instance: this server's instance name.
+            endpoint: where this server is reached.
+            model_write_token: the token ``set`` and ``reset`` require.
+                ``None`` or empty disables model writes.
+            clock: seconds on a monotonic scale; ``uptime_s`` counts from
+                the reading taken here.
+
+        Returns:
+            The surface. ``status`` reports ``instance``, ``endpoint``,
+            ``last_cycle_ms``, ``queue_depth``, ``uptime_s`` and
+            ``last_refused_write``.
+        """
+        return _ViewSurface(
+            composite,
+            addresses_json,
+            instance=instance,
+            endpoint=endpoint,
+            model_write_token=model_write_token,
+            clock=clock,
+        )
 
     def info(self) -> dict[str, Any]:
         """Describe every model variable; no value is read.
@@ -388,6 +437,150 @@ class ModelSurface:
         return ModelRpcError(text)
 
 
+#: The refusal ``reset`` meets on a surface keyed on a simulator view: the
+#: composite names no list of its models' own variables to reset.
+VIEW_RESET_UNAVAILABLE = "reset is not available: write each model variable back with set"
+
+
+class _ViewSurface(ModelSurface):
+    """The model RPC's verbs over a composite, keyed on its view's address set.
+
+    Built by :meth:`ModelSurface.for_view`. A served name is an address of
+    ``addresses.json``; any other name is a model variable, ``<model>/<name>``,
+    and the composite's refusal of one -- an unknown name, or a model that
+    has failed -- is the verb's refusal, its text unchanged.
+    """
+
+    def __init__(
+        self,
+        composite: Composite,
+        addresses_json: Mapping[str, Any],
+        *,
+        instance: str,
+        endpoint: str,
+        model_write_token: str | None,
+        clock: Callable[[], float],
+    ) -> None:
+        self._composite = composite
+        self._channels = [str(address) for address in addresses_json.get("channels", [])]
+        self._served = [*self._channels, *(str(a) for a in addresses_json.get("status", []))]
+        self._served_set = frozenset(self._served)
+        self._write_token = model_write_token.encode() if model_write_token else None
+        self._instance = instance
+        self._endpoint = endpoint
+        self._clock = clock
+        self._started = clock()
+        self._last_cycle_ms = None
+        self._queue_depth = 0
+        self._last_refused_write = None
+
+    def info(self) -> dict[str, Any]:
+        """Describe every served address; no value is read.
+
+        Returns:
+            ``variables``: one entry per served address -- the view's
+            channels, then its status addresses -- carrying ``name``,
+            ``unit``, ``value_range``, ``read_only`` and ``surface``
+            (:data:`SURFACE_SERVED`).
+        """
+        declared = self._composite.supported_variables
+        return {"variables": [_describe(declared[name], SURFACE_SERVED) for name in self._served]}
+
+    def get(self, names: Iterable[str]) -> dict[str, Any]:
+        """Read served addresses from the composite and model variables from their model.
+
+        Raises:
+            ModelRpcError: the composite refuses a name; its text is the
+                refusal, and nothing is returned.
+        """
+        requested = list(names)
+        served = [name for name in requested if name in self._served_set]
+        model = [name for name in requested if name not in self._served_set]
+        try:
+            values = dict(self._composite.get(served)) if served else {}
+            if model:
+                values.update(self._composite.model_get(model))
+        except ValueError as exc:
+            raise ModelRpcError(str(exc)) from exc
+        return {name: values[name] for name in requested}
+
+    def diff(self, get_param: Callable[[str], Any]) -> dict[str, dict[str, Any]]:
+        """Each view channel's served value beside the value the composite holds.
+
+        Args:
+            get_param: reads the value the control system serves for an
+                address -- the Channel Access driver's ``getParam``.
+
+        Returns:
+            ``{address: {"served": ..., "truth": ...}}`` for every channel of
+            ``addresses.json``, the truth read without motion or readout in
+            one batch.
+        """
+        if not self._channels:
+            return {}
+        truth = self._composite.held(self._channels)
+        return {
+            address: {"served": get_param(address), "truth": truth[address]}
+            for address in self._channels
+        }
+
+    def status(self) -> dict[str, Any]:
+        """The server around the composite, as the runner last recorded it."""
+        return {
+            "instance": self._instance,
+            "endpoint": self._endpoint,
+            "last_cycle_ms": self._last_cycle_ms,
+            "queue_depth": self._queue_depth,
+            "uptime_s": self._clock() - self._started,
+            "last_refused_write": self._last_refused_write,
+        }
+
+    def set(self, values: Mapping[str, Any], token: str | None) -> list[str]:
+        """Write model variables in one ``composite.model_set``.
+
+        Checked in this order, each check refusing the whole call and naming
+        every name it fails, sorted: the token; then any served address;
+        then any number that is not finite. The composite's own refusal --
+        a name it does not know, a model that has failed, a value the model
+        refuses -- comes last, its text unchanged. An empty ``values``
+        writes nothing.
+
+        Returns:
+            The names written, in the order given.
+
+        Raises:
+            ModelRpcError: the write is refused; the reason is what
+                ``status`` reports as the last refusal.
+        """
+        self._authorize(token)
+        batch = dict(values)
+        checks: tuple[tuple[str, Callable[[str], bool]], ...] = (
+            ("a served address, written through the control system", self._served_set.__contains__),
+            ("not a finite value", lambda name: not _finite_or_not_a_number(batch[name])),
+        )
+        for reason, fails in checks:
+            offenders = sorted(name for name in batch if fails(name))
+            if offenders:
+                raise self._refusal(f"{reason}: {', '.join(offenders)}")
+        if not batch:
+            return []
+        try:
+            self._composite.model_set(batch)
+        except (ValueError, TypeError) as exc:
+            raise self._refusal(str(exc) or type(exc).__name__) from exc
+        return list(batch)
+
+    def reset(self, token: str | None) -> list[str]:
+        """Refuse: the composite names no list of its models' own variables.
+
+        Raises:
+            ModelRpcError: always -- the token's refusal when it is refused,
+                else :data:`VIEW_RESET_UNAVAILABLE`. Nothing is written.
+        """
+        self._authorize(token)
+        raise self._refusal(VIEW_RESET_UNAVAILABLE)
+
+
 def _finite_or_not_a_number(value: Any) -> bool:
     """False only for a real number that is not finite.
 
@@ -417,6 +610,7 @@ def _describe(variable: Variable, surface: str) -> dict[str, Any]:
 __all__ = [
     "SURFACE_MODEL_ONLY",
     "SURFACE_SERVED",
+    "VIEW_RESET_UNAVAILABLE",
     "WRITES_DISABLED",
     "ModelSurface",
     "VariablePartition",
