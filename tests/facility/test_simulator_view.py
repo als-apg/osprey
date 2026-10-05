@@ -454,6 +454,68 @@ def test_each_attached_file_is_a_byte_copy_beside_the_scenarios(
         )
 
 
+def test_a_rebuild_drops_the_copy_of_a_file_no_entry_attaches_any_more(tmp_path: Path) -> None:
+    from tests._builds import init_project, run_build
+
+    repo = init_project(tmp_path, "control-assistant", "demo")
+    copy_of = repo / BUILD_DIR_NAME / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
+    assert run_build(repo).exit_code == 0
+    assert copy_of.is_file()
+    nominal = repo / "data" / "facility" / "scenarios" / "nominal.yaml"
+    authored = yaml.safe_load(nominal.read_text(encoding="utf-8"))
+    for entry in authored["logbook"]:
+        entry.pop("attachments", None)
+    nominal.write_text(yaml.safe_dump(authored, sort_keys=False), encoding="utf-8")
+
+    result = run_build(repo)
+
+    assert result.exit_code == 0, result.output
+    assert not copy_of.exists()
+
+
+def test_a_file_two_entries_attach_is_copied_and_listed_once(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    facility = copy.deepcopy(built_control_assistant.facility)
+    (nominal,) = [s for s in facility["scenarios"] if s["name"] == "nominal"]
+    (attached,) = [e for e in nominal["logbook"] if e.get("attachments")]
+    twin = {**copy.deepcopy(attached), "entry_id": "TWIN"}
+    nominal["logbook"].append(twin)
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+
+    written = render_facility_outputs(
+        render_dir, facility, {}, built_control_assistant.facility_dir
+    )
+
+    copied = render_dir / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
+    assert written.count(copied) == 1
+
+
+def test_a_bad_attachment_in_any_scenario_stops_before_any_file_is_copied(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    facility = copy.deepcopy(built_control_assistant.facility)
+    (vacuum,) = [s for s in facility["scenarios"] if s["name"] == "vacuum-burst"]
+    vacuum["logbook"] = [
+        {
+            "entry_id": "E-1",
+            "when": {"days_ago": 1, "time": "02:00:00"},
+            "author": "A. Author",
+            "title": "Title",
+            "text": "Body",
+            "attachments": [{"plot": "plots/absent.json"}],
+        }
+    ]
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+
+    with pytest.raises(ValueError, match="plots/absent.json"):
+        render_facility_outputs(render_dir, facility, {}, built_control_assistant.facility_dir)
+
+    assert not (render_dir / "data/simulator/scenarios").exists()
+
+
 def test_an_attachment_naming_a_missing_file_is_refused(
     tmp_path: Path, built_control_assistant: BuiltProject
 ) -> None:

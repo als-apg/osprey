@@ -181,6 +181,27 @@ def test_seed_active_logbook_hands_over_each_entrys_pictures(tmp_path, monkeypat
     assert all(entry["attachments"] == [] for entry in seen["seeded"])
 
 
+def test_seed_active_logbook_hands_over_a_shipped_picture_from_the_view(tmp_path, monkeypatch):
+    """A shipped picture travels as the view's copy of the scenario's file, byte for byte."""
+    # Arrange
+    project = _make_project(tmp_path)
+    _activate(project, monkeypatch, ["bpm-polarity"])
+    config = yaml.safe_load((project / "config.yml").read_text())
+    seen = _stub_ariel(monkeypatch, existing=0)
+
+    # Act
+    seed_active_logbook(config, project, ARIEL_CONFIG)
+
+    # Assert
+    (path,) = seen["pictures"]["DEMO-031"]
+    view = project / "data" / "simulator" / "scenarios" / "bpm-polarity"
+    assert path == (view / "plots" / "corrector_bump_test.png").resolve()
+    source = TEMPLATE_DATA / "facility" / "scenarios" / "bpm-polarity"
+    assert seen["bytes"]["DEMO-031"] == [
+        (source / "plots" / "corrector_bump_test.png").read_bytes()
+    ]
+
+
 def test_seed_active_logbook_never_overwrites_an_existing_logbook(tmp_path, monkeypatch):
     """A logbook with entries in it is history this deploy was not asked to touch --
     an operator's own entries, or a narrative already seeded and since edited."""
