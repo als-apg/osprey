@@ -67,9 +67,13 @@ LIVE_SUITES = (
     "tests/va/test_apply_fault.py",
 )
 
-#: Added in --pva mode. Its served-boot branch needs the PVA transport and the
-#: serving package on top of pcaspy.
-PVA_SUITES = ("tests/va/test_facility_seam.py",)
+#: Added in --pva mode. Each needs the PVA transport and the serving package on
+#: top of pcaspy: the seam test's served-boot branch, and the model runner's
+#: suite, which serves a composite on both transports.
+PVA_SUITES = (
+    "tests/va/test_facility_seam.py",
+    "tests/va/test_lume_pva_seam.py",
+)
 
 #: Modules that must import in --pva mode. This is a precondition, not a
 #: preference, and it is checked *before* pytest runs.

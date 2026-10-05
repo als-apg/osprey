@@ -29,6 +29,7 @@ WHITELIST: dict[str, set[str]] = {
     # ones at the same moment for the same reason.
     "va/test_record_factory.py": {"os.environ", "socket"},
     "va/test_apply_fault.py": {"os.environ", "socket"},
+    "va/test_lume_pva_seam.py": {"os.environ", "socket"},
     # Deploying suites reserve their CA / gallery ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.
