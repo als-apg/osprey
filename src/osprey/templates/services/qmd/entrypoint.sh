@@ -484,6 +484,9 @@ start_daemon() {
     # rootless podman on RHEL-family hosts, where the [::1]-only probe made
     # the sidecar die at HEALTH_TIMEOUT and crash-loop the container). Probe
     # both families and remember the one that answers for the forwarder.
+    # The probe targets this container's own loopback, so it bypasses any
+    # proxy the environment names: no_proxy rarely lists ::1, and a probe
+    # sent to a proxy never reaches the daemon.
     DAEMON_TARGET=""
     _waited=0
     while :; do
@@ -492,7 +495,7 @@ start_daemon() {
             die "qmd daemon exited during startup; see its output above"
         fi
         for _a in "[::1]" "127.0.0.1"; do
-            if curl -fsS -o /dev/null --max-time 5 "http://$_a:$INTERNAL_PORT/health" 2>/dev/null; then
+            if curl -fsS --noproxy '*' -o /dev/null --max-time 5 "http://$_a:$INTERNAL_PORT/health" 2>/dev/null; then
                 DAEMON_TARGET="$_a"
                 log "daemon healthy after ${_waited}s on $_a"
                 return 0
