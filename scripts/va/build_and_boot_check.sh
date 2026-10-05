@@ -12,8 +12,9 @@
 # The channel namespace is named, never inferred: the IOC has no default one
 # and refuses to boot without VA_CHANNELS_FILE. So for the default run the gate
 # assembles the demo data root itself -- the preset's simulation tree plus the
-# packaged channel manifest and the preset's channel_limits.json, the layout
-# `osprey build` stages for a project -- and boots against that. Those three
+# packaged channel manifest and the limits view rendered from the preset's
+# data/facility, the layout `osprey build` stages for a project -- and boots
+# against that. Those three
 # are the machine every assertion below is written against.
 #
 # The lattice is derived from that tree rather than named: a tree staging the
@@ -151,7 +152,7 @@ EXCITE_VALUE="0.5"
 # at both BPMs, so this sits ~100x below the signal and far above float noise.
 MOVED_THRESHOLD_M="1e-8"
 
-# ${EXCITE_PV}'s drive band is [-12, 12] (channel_limits.json). A put past the
+# ${EXCITE_PV}'s drive band is [-12, 12] (the preset's limits.yaml). A put past the
 # top of it must land clamped at the limit rather than being refused or taken
 # literally.
 DRIVE_HIGH="12.0"
@@ -246,8 +247,8 @@ echo "--- Building ${IMAGE} (linux/amd64) ---"
 # stands.
 #
 # Otherwise this is the default run, and the answer is the packaged demo
-# manifest and the preset's drive limits: the machine every assertion below is
-# written against. The packaged preset tree carries no manifest at all (the
+# manifest and the preset's rendered limits view: the machine every assertion
+# below is written against. The packaged preset tree carries no manifest at all (the
 # framework's is package data), so the layout is assembled in a temp directory
 # and that root is what gets mounted. Assembled rather than overlaid with extra
 # bind mounts because a bind mount INTO a read-only mount cannot create its own
@@ -286,15 +287,16 @@ print(MANIFEST_OUTPUT)')"
         echo "         uv run python -m osprey.services.virtual_accelerator.manifest.build" >&2
         exit 1
     fi
-    # Drive limits for the demo come from the preset's data root, one level above
-    # a simulation tree. The drive-band step below asserts ${EXCITE_PV}'s
-    # [-12, 12] clamp, read from exactly this file, and would pass vacuously
-    # without it -- so its absence is a refusal, phrased as the reinterpretation
-    # it belongs to rather than as a missing framework asset.
-    PRESET_LIMITS="$(cd "${DATA_DIR}/.." && pwd)/channel_limits.json"
-    if [[ ! -f "${PRESET_LIMITS}" ]]; then
-        echo "FATAL: certifying ${DATA_DIR} as a demo data tree needs a" >&2
-        echo "       channel_limits.json at its data root (${PRESET_LIMITS})," >&2
+    # Drive limits for the demo are the limits view a build renders from the
+    # facility tree beside a simulation tree, at its data root. The drive-band
+    # step below asserts ${EXCITE_PV}'s [-12, 12] clamp, read from exactly that
+    # view, and would pass vacuously without it -- so its absence is a refusal,
+    # phrased as the reinterpretation it belongs to rather than as a missing
+    # framework asset.
+    PRESET_FACILITY="$(cd "${DATA_DIR}/.." && pwd)/facility"
+    if [[ ! -f "${PRESET_FACILITY}/limits.yaml" ]]; then
+        echo "FATAL: certifying ${DATA_DIR} as a demo data tree needs a facility" >&2
+        echo "       tree with a limits.yaml at its data root (${PRESET_FACILITY})," >&2
         echo "       the way the packaged preset lays one out. Without it the" >&2
         echo "       drive-band step would pass vacuously." >&2
         exit 1
@@ -311,8 +313,19 @@ print(MANIFEST_OUTPUT)')"
     mkdir -p "${DEMO_DATA_ROOT}/simulation"
     cp -R "${DATA_DIR}/." "${DEMO_DATA_ROOT}/simulation/"
     cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_ROOT}/simulation/channel_manifest.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/channel_limits.json"
+    "${VENV_PY}" - "${PRESET_FACILITY}" "${DEMO_DATA_ROOT}/channel_limits.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from osprey.facility.build import build_facility
+from osprey.facility.views.limits import limits_document
+
+facility, target = Path(sys.argv[1]), Path(sys.argv[2])
+document = limits_document(build_facility(facility, project_name="control_assistant"))
+target.write_text(json.dumps(document, indent=2), encoding="utf-8")
+PY
+    cp "${DEMO_DATA_ROOT}/channel_limits.json" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
     MOUNT_DIR="${DEMO_DATA_ROOT}/simulation"
 fi
 CHANNELS_FILE_VALUE="channel_manifest.json"

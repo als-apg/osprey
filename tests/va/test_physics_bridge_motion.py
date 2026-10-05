@@ -28,6 +28,7 @@ from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 from osprey.simulation.engine import SimulationEngine
+from tests.va._served_tree import packaged_served_root
 
 #: Two tick instants, far enough apart on a one-hour wander for the texture to
 #: have visibly moved between them.
@@ -98,7 +99,7 @@ def _served(
     *,
     bpm_errors: dict[str, dict[str, float]] | None = None,
 ) -> tuple[PhysicsBridge, PyATRingModel, dict[str, FakeRecord]]:
-    model = PyATRingModel(PACKAGE_PATHS.data_root, channels, bpm_errors=bpm_errors)
+    model = PyATRingModel(packaged_served_root(), channels, bpm_errors=bpm_errors)
     bridge = PhysicsBridge(model, motion=engine, clock=clock)
     records = {address: FakeRecord() for address in _readings(document)}
     bridge.bind(records)
@@ -281,7 +282,7 @@ class TestReadoutFaultsApplyOnTopOfTheMotion:
         self, tmp_path: Path, channels: list[dict], document: BindingsDocument
     ) -> None:
         address, element = _first_monitor(document)
-        axis = PyATRingModel(PACKAGE_PATHS.data_root, channels).supported_variables[address].axis
+        axis = PyATRingModel(packaged_served_root(), channels).supported_variables[address].axis
         engine = _engine(tmp_path, {address: {"texture": _WANDER, "noise_abs": _NOISE_ABS}})
         clock = Clock(_T1)
         bridge, _model, records = _served(

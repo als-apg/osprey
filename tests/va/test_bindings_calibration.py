@@ -39,6 +39,7 @@ from osprey.services.virtual_accelerator.lattice.calibration import to_physics
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+from tests.va._served_tree import packaged_served_root
 
 #: Which row of a pyAT orbit vector a monitor's transverse axis reads.
 _ORBIT_ROW = {"x": 0, "y": 2}
@@ -74,13 +75,13 @@ def channels() -> list[dict]:
 @pytest.fixture(scope="module")
 def booted(channels: list[dict]) -> PyATRingModel:
     """One model on the served tree, for the tests that only read it."""
-    return PyATRingModel(PACKAGE_PATHS.data_root, channels)
+    return PyATRingModel(packaged_served_root(), channels)
 
 
 @pytest.fixture
 def model(channels: list[dict]) -> PyATRingModel:
     """A fresh model, for the test that writes to the lattice."""
-    return PyATRingModel(PACKAGE_PATHS.data_root, channels)
+    return PyATRingModel(packaged_served_root(), channels)
 
 
 def _writable(document: BindingsDocument) -> list[Binding]:

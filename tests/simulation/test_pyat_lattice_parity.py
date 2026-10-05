@@ -34,6 +34,7 @@ from osprey.services.virtual_accelerator.model.pyat import (
 )
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_model import TUNES
+from tests.va._served_tree import packaged_served_root
 
 MODEL = "SR"
 CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
@@ -70,7 +71,7 @@ def models(built_control_assistant: Any) -> tuple[PyATRingModel, Any]:
         model.get("settings"),
         {},
     )
-    old = PyATRingModel(PACKAGE_PATHS.data_root, build_manifest()["channels"])
+    old = PyATRingModel(packaged_served_root(), build_manifest()["channels"])
     return old, new
 
 

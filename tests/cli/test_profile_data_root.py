@@ -23,6 +23,8 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.cli.templates.scaffolding import copy_template_data
+from osprey.facility.build import build_facility
+from osprey.facility.views.limits import limits_document
 
 
 def _bundle_data_dir() -> Path:
@@ -118,17 +120,11 @@ class TestFullReplacement:
 
     def test_bundle_files_absent_from_build(self, tmp_path: Path) -> None:
         profile_dir = tmp_path / "profile"
-        # One of the two artifacts dropped below is the channel-limits
-        # database, and a deployment holding none has to be read-only: writes
-        # ON with no limits file to enforce is its own refusal at render time
-        # (`resolve_limits_mount`), and letting it fire here would decide this
-        # test on a fact it is not about.
-        profile_path = _write_profile(profile_dir, config={"control_system.writes_enabled": False})
+        profile_path = _write_profile(profile_dir)
 
-        # Drop two distinctive bundle artifacts from the profile's copy: if the
-        # bundle tree were layered under (or merged into) the profile tree,
-        # they would reappear in the rendered project.
-        (profile_dir / "data" / "channel_limits.json").unlink()
+        # Drop a distinctive bundle artifact from the profile's copy: if the
+        # bundle tree were layered under (or merged into) the profile tree, it
+        # would reappear in the rendered project.
         shutil.rmtree(profile_dir / "data" / "lattice")
         (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
 
@@ -138,11 +134,12 @@ class TestFullReplacement:
             "profile-only file did not land — the profile tree was not the source"
         )
         # The build writes the limits database itself, from the profile tree's
-        # `facility/limits.yaml`; the bundle's hand-written file is not its source.
+        # `facility/limits.yaml`.
         limits = json.loads((project_dir / "data" / "channel_limits.json").read_text())
-        assert "defaults" not in limits, (
-            "bundle channel_limits.json leaked into a full-replacement build"
-        )
+        facility_dir = profile_dir / "data" / "facility"
+        assert limits == limits_document(
+            build_facility(facility_dir, project_name=project_dir.name)
+        ), "the limits database is not the view of the profile tree's limits.yaml"
         assert not (project_dir / "data" / "lattice").exists(), (
             "bundle lattice/ leaked into a full-replacement build"
         )

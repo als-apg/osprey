@@ -23,11 +23,10 @@ from tests.e2e.sdk_helpers import (
 from tests.facility.served_tree import mock_config, served_tree
 
 # Dedicated, preset-decoupled limits DB for the write-safety scenarios. The
-# generic safety e2e must not depend on any preset's production
-# channel_limits.json (which is a pure projection of the VA manifest and
-# carries no example read-only/bounded channels). This fixture supplies exactly
-# the two channels those tests need: a bounded writable setpoint and a
-# read-only readback.
+# generic safety e2e must not depend on the build's limits view (which is a
+# pure projection of the VA manifest and carries no example read-only/bounded
+# channels). This fixture supplies exactly the two channels those tests need: a
+# bounded writable setpoint and a read-only readback.
 SAFETY_LIMITS_DB = Path(__file__).parent / "fixtures" / "safety_limits.json"
 
 

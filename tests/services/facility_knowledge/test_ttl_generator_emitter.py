@@ -34,16 +34,14 @@ from osprey.services.facility_knowledge.ttl_generator.ontology_map import (
     OntologyMap,
     load_demo_ontology,
 )
-from osprey_connectors.control_system.limits_validator import LimitsValidator
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CONTROL_ASSISTANT_DATA = _REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 _TIER3_HIERARCHICAL = _CONTROL_ASSISTANT_DATA / "channel_databases/tiers/tier3/hierarchical.json"
-_CHANNEL_LIMITS = _CONTROL_ASSISTANT_DATA / "channel_limits.json"
 
-# Facts the model task established about the shipped tier-3 database; the
-# direction task established the 396/2512 split (writable iff the address ends
-# in ``:SP``).
+# Facts about the shipped tier-3 database: its bindings, its devices, and the
+# 396/2512 split the grammar rule draws (writable iff the address ends in
+# ``:SP``).
 _REAL_BINDINGS = 2908
 _REAL_DEVICES = 512
 _REAL_WRITES = 396
@@ -120,11 +118,11 @@ def synthetic_ttl(synthetic_model: model.GraphModel, ontology: OntologyMap) -> s
 
 @pytest.fixture(scope="module")
 def real_model() -> model.GraphModel:
-    """The full demo machine, with directions resolved from the shipped limits file."""
+    """The full demo machine, with directions resolved by the address grammar."""
     database = HierarchicalChannelDatabase(str(_TIER3_HIERARCHICAL))
     built = model.build_model(database.channel_map)
-    directed, report = direction.assign_directions(built, _CHANNEL_LIMITS)
-    assert report.source is direction.DirectionSource.LIMITS
+    directed, report = direction.assign_directions(built, None)
+    assert report.source is direction.DirectionSource.GRAMMAR
     return directed
 
 
@@ -572,14 +570,6 @@ class TestShippedDemoMachine:
         }
         assert len(written) == _REAL_WRITES
         assert all(pv.endswith(":SP") for pv in written)
-
-    def test_limits_file_and_corpus_agree_on_the_writable_set(self, real_graph: Graph) -> None:
-        writable = LimitsValidator.writable_addresses(_CHANNEL_LIMITS)
-        written = {
-            str(next(real_graph.objects(subject, _prop("fullPv"))))
-            for subject in real_graph.subjects(_prop("writesSignal"), None)
-        }
-        assert written == set(writable)
 
     def test_every_device_property_the_examples_read_is_present(self, real_graph: Graph) -> None:
         for name in ("sourceName", "sectionCode", "sPositionM", "ordinalInSection"):

@@ -62,7 +62,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PRESET_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 PRESET_SIM_DIR = PRESET_DATA / "simulation"
 MACHINE_JSON = PRESET_SIM_DIR / "machine.json"
-LIMITS_JSON = PRESET_DATA / "channel_limits.json"
+PRESET_FACILITY = PRESET_DATA / "facility"
 MANIFEST_JSON = REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
 
 #: The mock connector's noise level when the preset sets none, which the
@@ -158,8 +158,14 @@ def _stage_still_tree(root: Path) -> list[str]:
     served = root / "simulation"
     shutil.copytree(PRESET_SIM_DIR, served)
     shutil.copy2(MANIFEST_JSON, served / "channel_manifest.json")
-    shutil.copy2(LIMITS_JSON, served / "channel_limits.json")
-    shutil.copy2(LIMITS_JSON, root / "channel_limits.json")
+    from osprey.facility.build import build_facility
+    from osprey.facility.views.limits import LIMITS_FILE, limits_document
+
+    # The limits view a build renders from the preset's data/facility, staged
+    # where a build stages it: the served directory and the data root.
+    limits = limits_document(build_facility(PRESET_FACILITY, project_name="control_assistant"))
+    (root / LIMITS_FILE).write_text(json.dumps(limits, indent=2), encoding="utf-8")
+    shutil.copy2(root / LIMITS_FILE, served / LIMITS_FILE)
     machine_path = served / "machine.json"
     machine = json.loads(machine_path.read_text(encoding="utf-8"))
     stripped: set[str] = set()

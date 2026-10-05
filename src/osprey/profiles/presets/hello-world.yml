@@ -50,7 +50,7 @@ hooks:
   # whose write tools it guarded. Only a read-only deployment may drop them.
   - writes-check   # Kill switch: refuse every write while writes_enabled is false
   - approval       # Gate hardware-write tool calls on human approval prompt
-  - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
+  - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
   - memory-guard   # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - config-drift   # Warn at session start when the build is out of date
   - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt

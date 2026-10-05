@@ -39,6 +39,7 @@ from osprey.services.virtual_accelerator.ioc.physics_bridge import (
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+from tests.va._served_tree import packaged_served_root
 
 #: How far the orbit tests move an actuator from where it sits, in the
 #: hardware unit the facility states for it. Large enough to move an orbit far
@@ -69,7 +70,7 @@ def channels() -> list[dict]:
 @pytest.fixture
 def model(channels: list[dict]) -> PyATRingModel:
     """A fresh model per test; every bridge below owns its own lattice."""
-    return PyATRingModel(PACKAGE_PATHS.data_root, channels)
+    return PyATRingModel(packaged_served_root(), channels)
 
 
 @pytest.fixture
@@ -152,8 +153,8 @@ class TestWritesComposeLikeTheirPhysicalCounterparts:
         first, second = _actuators(document)[0], _actuators(document)[-1]
         assert first.setpoint_address != second.setpoint_address
 
-        forward = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
-        reverse = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
+        forward = PhysicsBridge(PyATRingModel(packaged_served_root(), channels))
+        reverse = PhysicsBridge(PyATRingModel(packaged_served_root(), channels))
         for bridge, order in ((forward, (first, second)), (reverse, (second, first))):
             for binding in order:
                 bridge.on_setpoint(binding.setpoint_address, _STEP)
@@ -167,7 +168,7 @@ class TestWritesComposeLikeTheirPhysicalCounterparts:
         however it got there."""
         first, second = _actuators(document)[0], _actuators(document)[-1]
 
-        wandered = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
+        wandered = PhysicsBridge(PyATRingModel(packaged_served_root(), channels))
         for address, value in (
             (first.setpoint_address, _STEP),
             (second.setpoint_address, -_STEP),
@@ -176,7 +177,7 @@ class TestWritesComposeLikeTheirPhysicalCounterparts:
         ):
             wandered.on_setpoint(address, value)
 
-        direct = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
+        direct = PhysicsBridge(PyATRingModel(packaged_served_root(), channels))
         direct.on_setpoint(first.setpoint_address, -_STEP)
         direct.on_setpoint(second.setpoint_address, _STEP)
 
@@ -255,7 +256,7 @@ class TestTheSeededReadoutErrorIsOnTheReadingNotTheTruth:
         """
         monitor = next(binding for binding in document.bindings if binding.kind == "monitor")
         bridge = PhysicsBridge(
-            PyATRingModel(PACKAGE_PATHS.data_root, channels, bpm_errors={monitor.element: error})
+            PyATRingModel(packaged_served_root(), channels, bpm_errors={monitor.element: error})
         )
         records = {address: FakeRecord() for address in _readings(document)}
         bridge.bind(records)
@@ -323,7 +324,7 @@ class TestSeededNoiseIsReproducible:
         for _ in range(2):
             bridge = PhysicsBridge(
                 PyATRingModel(
-                    PACKAGE_PATHS.data_root,
+                    packaged_served_root(),
                     channels,
                     bpm_errors={monitor.element: {"noise_x": _OFFSET}},
                 ),

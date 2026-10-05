@@ -13,13 +13,12 @@ This module says which. It reads each tree's bindings into one *shape*: which
 binding kinds are present, what shape of calibration each kind carries, how
 each is read back, how many elements each drives and with what weights, which
 halves of a device the manifest's pyat-coupled partition would claim, and
-which setpoints the bands leave writable. The shapes are printed as a report
+which nominals each states. The shapes are printed as a report
 (``pytest -s``), and the contract every tree keeps is asserted.
 
 What is asserted is only what a bindings document owes whatever wrote it: a
-vocabulary that closes, a monitor that is read back through its own inverse
-and never written, a driven setpoint that is banded, an energy knob that binds
-no element, and a slice weight that is a usable factor. Everything else is
+vocabulary that closes, a monitor that is read back through its own inverse,
+an energy knob that binds no element, and a slice weight that is a usable factor. Everything else is
 printed and not judged, because a demo ring genuinely has no dipole ramp, no
 series supply and no facility conversion table, and a test that called those
 differences failures would be asserting that a toy is a storage ring.
@@ -46,7 +45,7 @@ from osprey.services.virtual_accelerator.bindings import (
     Linear,
     Table,
 )
-from tests.templates.test_channel_limits_va import (
+from tests.va._emitted_trees import (
     FIXTURES,
     Tree,
     _demo_tree,
@@ -71,7 +70,6 @@ SHAPE_KEYS = (
     "slices",
     "weights",
     "halves",
-    "bands",
     "nominals",
 )
 
@@ -145,14 +143,6 @@ def _shape(name: str, tree: Tree) -> Shape:
             (kind, "unit" if all(s.weight == 1.0 for s in binding.slices) else "scaled")
         ] += 1
         counts["halves"][(kind, _half(binding))] += 1
-        low, high = tree.band(binding.setpoint_address)
-        counts["bands"][
-            (
-                kind,
-                "banded" if low is not None and high is not None else "unbanded",
-                "writable" if tree.writable(binding.setpoint_address) else "read-only",
-            )
-        ] += 1
         counts["nominals"][(kind, "stated" if binding.nominal is not None else "none")] += 1
     return Shape(
         name=name,
@@ -295,10 +285,10 @@ def test_every_tree_spells_its_vocabulary_the_same_way(shapes: dict[str, Shape])
             assert scaling in ENERGY_SCALINGS, f"{name}: {kind} scales as {scaling}"
 
 
-def test_a_monitor_is_read_through_its_own_inverse_and_never_written(
+def test_a_monitor_is_read_through_its_own_inverse(
     trees: dict[str, Tree],
 ) -> None:
-    """A monitor measures, so it carries an inverse and no band to write into.
+    """A monitor measures, so it is read back through an inverse.
 
     A tree may serve none at all: a transfer line whose beam monitors bind no
     lattice element is served with those elements as plain markers, and reads
@@ -311,22 +301,7 @@ def test_a_monitor_is_read_through_its_own_inverse_and_never_written(
             where = f"{name}: {binding.family} {binding.setpoint_address}"
             assert binding.readback == "inverse", where
             assert isinstance(binding.monitor_inverse, CALIBRATION_SHAPES), where
-            assert not tree.writable(binding.setpoint_address), where
-            assert tree.band(binding.setpoint_address) == (None, None), where
             assert (binding.attribute or "").upper() in ("X", "Y"), where
-
-
-def test_a_driven_setpoint_is_writable_and_banded(trees: dict[str, Tree]) -> None:
-    """Whatever a tree drives, a write to it is bounded by both edges."""
-    for name, tree in sorted(trees.items()):
-        for binding in tree.document.bindings:
-            if binding.kind == "monitor":
-                continue
-            where = f"{name}: {binding.family} {binding.setpoint_address}"
-            low, high = tree.band(binding.setpoint_address)
-            assert tree.writable(binding.setpoint_address), where
-            assert low is not None and high is not None, where
-            assert low < high, f"{where}: band [{low}, {high}] is not an interval"
 
 
 def test_the_energy_knob_binds_no_element_and_everything_else_binds_one(

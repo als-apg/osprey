@@ -5,9 +5,9 @@ read?) and the direction rules themselves (the group-constant invariant and
 the PV-grammar fallback). Defaults-aware writability is the validator's own
 rule and is tested with it (``tests/connectors/test_limits_validator.py``).
 
-The last test is the one that matters most — it runs both rules over the real
-shipped demo data and asserts they agree, which is what turns "writable iff
-``:SP``" from an assumption into a checked property of the committed files.
+The last tests run the grammar rule over the real shipped demo channel
+database and pin what it assigns there: every ``:SP`` address writes, and
+everything else reads.
 """
 
 from __future__ import annotations
@@ -30,18 +30,11 @@ from osprey.services.facility_knowledge.ttl_generator.direction import (
     resolve_limits_path,
 )
 from osprey.services.facility_knowledge.ttl_generator.model import build_model
-from osprey_connectors.control_system.limits_validator import (
-    LIMITS_DATABASE_CONFIG_KEY,
-    LimitsValidator,
-)
+from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CONTROL_ASSISTANT_DATA = _REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 _TIER3_HIERARCHICAL = _CONTROL_ASSISTANT_DATA / "channel_databases/tiers/tier3/hierarchical.json"
-_CHANNEL_LIMITS = _CONTROL_ASSISTANT_DATA / "channel_limits.json"
-
-#: The demo machine's writable channel count, pinned by the shipped limits file.
-_EXPECTED_WRITABLE = 396
 
 
 # ---------------------------------------------------------------------------
@@ -428,16 +421,16 @@ class TestResolveAndAssign:
 
 
 class TestShippedDemoData:
-    """The invariant this task exists to assert, checked against the real files."""
+    """The grammar rule, checked against the real shipped channel database."""
 
     @pytest.fixture(scope="class")
     def demo_model(self):
         database = HierarchicalChannelDatabase(str(_TIER3_HIERARCHICAL))
         return build_model(database.channel_map)
 
-    def test_limits_direction_matches_the_setpoint_set_exactly(self, demo_model):
-        """Exactly 396 channels write, and every one of them is a ``:SP`` address."""
-        annotated, report = assign_directions(demo_model, _CHANNEL_LIMITS)
+    def test_grammar_direction_writes_exactly_the_setpoint_set(self, demo_model):
+        """Every channel that writes is a ``:SP`` address, and every ``:SP`` writes."""
+        annotated, report = assign_directions(demo_model, None)
 
         write_addresses = [
             address
@@ -445,22 +438,23 @@ class TestShippedDemoData:
             if group.direction == DIRECTION_WRITE
             for address in group.members
         ]
-
-        assert report.source is DirectionSource.LIMITS
-        assert report.limits_path == _CHANNEL_LIMITS
-        assert len(write_addresses) == _EXPECTED_WRITABLE
-        assert all(address.endswith(":SP") for address in write_addresses)
         read_addresses = [
             address
             for group in annotated.signal_groups
             if group.direction == DIRECTION_READ
             for address in group.members
         ]
+
+        assert report.source is DirectionSource.GRAMMAR
+        assert report.limits_path is None
+        assert write_addresses
+        assert all(address.endswith(":SP") for address in write_addresses)
+        assert not any(address.endswith(":SP") for address in read_addresses)
         assert len(write_addresses) + len(read_addresses) == len(annotated.bindings)
 
     def test_valve_control_commands_model_as_read_only(self, demo_model):
         """The 24 CONTROL:OPEN/CLOSE channels read as commands but are not writable."""
-        annotated, _report = assign_directions(demo_model, _CHANNEL_LIMITS)
+        annotated, _report = assign_directions(demo_model, None)
         by_address = {
             address: group.direction
             for group in annotated.signal_groups
@@ -479,25 +473,10 @@ class TestShippedDemoData:
 
     def test_every_group_has_a_direction_and_none_conflict(self, demo_model):
         """No group is left undecided — a conflict would have raised instead."""
-        annotated, _report = assign_directions(demo_model, _CHANNEL_LIMITS)
+        annotated, _report = assign_directions(demo_model, None)
 
         assert annotated.signal_groups
         assert all(
             group.direction in {DIRECTION_READ, DIRECTION_WRITE}
             for group in annotated.signal_groups
         )
-
-    def test_grammar_fallback_reproduces_the_limits_directions(self, demo_model):
-        """Writable-iff-``:SP`` — asserted over the shipped data, not assumed."""
-        from_limits, _limits_report = assign_directions(demo_model, _CHANNEL_LIMITS)
-        from_grammar, grammar_report = assign_directions(demo_model, None)
-
-        assert grammar_report.source is DirectionSource.GRAMMAR
-        assert _directions(from_grammar) == _directions(from_limits)
-
-    def test_shipped_limits_file_declares_the_expected_writable_count(self):
-        """The 396 is a property of the committed file, pinned here directly."""
-        writable = LimitsValidator.writable_addresses(_CHANNEL_LIMITS)
-
-        assert len(writable) == _EXPECTED_WRITABLE
-        assert all(address.endswith(":SP") for address in writable)

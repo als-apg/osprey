@@ -29,8 +29,9 @@ force a rebuild after editing anything under
 `src/osprey/services/virtual_accelerator/`, this `Containerfile`, or the
 `virtual-accelerator` extra in `pyproject.toml`), then serves CA on
 `localhost:5064` using the packaged control_assistant preset's own
-`data/simulation/` as a zero-argument default. Point it at a real project
-instead:
+`data/simulation/` as a zero-argument default, with the drive bands of the
+limits view a build renders from the preset's `data/facility/limits.yaml`.
+Point it at a real project instead:
 
 ```bash
 scripts/va/run_va.sh /path/to/your/project/data/simulation
@@ -200,7 +201,8 @@ scripts/va/build_and_boot_check.sh [DATA_DIR]
 
 Stages the build context, builds the image, boots a container (bind-mounting
 `DATA_DIR`, defaulting to the packaged control_assistant preset's own
-`data/simulation/`), waits up to 240 s for the ready log line, then reads a PV
+`data/simulation/` with the limits view rendered from its
+`data/facility/limits.yaml`), waits up to 240 s for the ready log line, then reads a PV
 over CA from the host. Exits 0 only if all of that succeeds; tears the
 container down either way.
 

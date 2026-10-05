@@ -55,6 +55,7 @@ from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model import pyat as pyat_module
 from osprey.services.virtual_accelerator.model.pyat import OPTICS_NAMES, PyATRingModel
 from osprey.services.virtual_accelerator.model.variables import PyATReadOnlyNDVariable
+from tests.va._served_tree import packaged_served_root
 
 
 def _an_actuator() -> str:
@@ -127,7 +128,7 @@ class RingModelWithoutOpticsVariables(PyATRingModel):
         declared = pyat_module._optics_variables
         pyat_module._optics_variables = lambda _count: []
         try:
-            super().__init__(PACKAGE_PATHS.data_root, build_manifest()["channels"])
+            super().__init__(packaged_served_root(), build_manifest()["channels"])
         finally:
             pyat_module._optics_variables = declared
 
@@ -224,9 +225,7 @@ def bridges(records) -> tuple[PhysicsBridge, PhysicsBridge]:
     in, and a write means the same amount of physics on each.
     """
     return (
-        _bound_bridge(
-            PyATRingModel(PACKAGE_PATHS.data_root, build_manifest()["channels"]), records
-        ),
+        _bound_bridge(PyATRingModel(packaged_served_root(), build_manifest()["channels"]), records),
         _bound_bridge(RingModelWithoutOpticsVariables(), records),
     )
 

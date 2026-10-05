@@ -20,8 +20,8 @@ assembled from the Control Assistant preset (never the repo's own copy --
 ``osprey sim apply`` mutates ``active_scenarios`` and this suite adds its own
 synthetic scenario), so the fixture is free to write into it. What gets
 assembled is the layout ``osprey build`` stages for a project: the preset's
-``data/simulation`` tree plus the packaged channel manifest and the preset's
-``channel_limits.json`` beside ``machine.json``. The manifest has to be there
+``data/simulation`` tree plus the packaged channel manifest and the limits
+view rendered from the preset's ``data/facility`` beside ``machine.json``. The manifest has to be there
 and has to be named (``VA_CHANNELS_FILE``): the IOC has no default namespace
 and refuses to boot rather than serving the framework's demo channels under
 whatever name a deployment gave the container. See ``stage_demo_data_dir``.
@@ -129,7 +129,32 @@ CA_PORT = _reserve_free_port()
 CONTAINER_BOOT_TIMEOUT_S = 120.0
 
 PRESET_SIM_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
-LIMITS_DB_PATH = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_limits.json"
+PRESET_FACILITY_DIR = PRESET_SIM_DIR.parent / "facility"
+
+
+def _render_limits_view() -> Path:
+    """The limits view of the preset's ``data/facility``, rendered once per session.
+
+    The view is what a build writes as ``channel_limits.json``, so the suite
+    serves and enforces exactly the bands a built project carries. It lands in
+    a per-process temp directory removed at exit.
+    """
+    from osprey.facility.build import build_facility
+    from osprey.facility.views.limits import LIMITS_FILE, limits_document
+
+    root = Path(tempfile.mkdtemp(prefix="osprey-va-e2e-limits-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    document = limits_document(
+        build_facility(PRESET_FACILITY_DIR, project_name="control_assistant")
+    )
+    target = root / LIMITS_FILE
+    target.write_text(json.dumps(document, indent=2), encoding="utf-8")
+    return target
+
+
+# import-time required because lanes read the bands at import
+# (``LIMITS_OVERRIDES`` in test_limits_enforcement), before any fixture runs.
+LIMITS_DB_PATH = _render_limits_view()
 OSPREY_CLI = REPO_ROOT / ".venv" / "bin" / "osprey"
 
 # The framework's own demo channel namespace, as a committed file. The IOC has
@@ -166,8 +191,9 @@ def stage_demo_data_dir(root: Path) -> Path:
     The layout the IOC reads is the one ``osprey build`` stages for a project:
     ``machine.json``, the channel manifest and ``channel_limits.json`` all in
     one directory. The packaged preset tree is not in that layout -- it carries
-    no manifest (the framework's is package data) and keeps its limits file one
-    level up, at the data root -- so this copies the three together.
+    no manifest (the framework's is package data) and no limits file (a build
+    renders it from ``data/facility/limits.yaml``) -- so this copies the
+    simulation tree and the manifest and stages the rendered limits view.
 
     Assembled rather than layered on with extra bind mounts because a bind
     mount INTO a read-only mount cannot create its own mountpoint: the runtime

@@ -53,6 +53,12 @@ MONITOR_AXIS = "x"
 def main() -> int:
     # Imported here, not at module scope, so --help-style failures surface
     # before the ~165 ms ring build.
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from osprey.facility.build import build_facility
+    from osprey.facility.views.limits import limits_document
     from osprey.services.virtual_accelerator.bindings import load_bindings
     from osprey.services.virtual_accelerator.manifest.build import build_manifest
     from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
@@ -70,57 +76,72 @@ def main() -> int:
         if binding.kind == "monitor" and binding.attribute == MONITOR_AXIS
     )
 
-    print(f"Building PyATRingModel ({document.system} ring, no softioc)...")
-    model = PyATRingModel(PACKAGE_PATHS.data_root, build_manifest()["channels"])
+    with tempfile.TemporaryDirectory() as scratch:
+        # The served tree a build stages: the packaged simulation inputs, and
+        # the limits view of the packaged facility at the served root.
+        served = Path(scratch) / "data"
+        served.mkdir()
+        (served / "simulation").symlink_to(
+            PACKAGE_PATHS.data_root / "simulation", target_is_directory=True
+        )
+        facility = build_facility(
+            PACKAGE_PATHS.data_root / "facility", project_name="control_assistant"
+        )
+        (served / "channel_limits.json").write_text(
+            json.dumps(limits_document(facility), indent=2), encoding="utf-8"
+        )
 
-    catalog = model.supported_variables
-    inputs = [name for name, var in catalog.items() if not var.read_only]
-    outputs = [name for name, var in catalog.items() if var.read_only]
-    print(f"  supported_variables: {len(inputs)} inputs + {len(outputs)} read-only outputs")
+        print(f"Building PyATRingModel ({document.system} ring, no softioc)...")
+        model = PyATRingModel(served, build_manifest()["channels"])
 
-    corrector_var = catalog[corrector]
-    print(f"  {corrector}  range={corrector_var.value_range} unit={corrector_var.unit!r}")
+        catalog = model.supported_variables
+        inputs = [name for name, var in catalog.items() if not var.read_only]
+        outputs = [name for name, var in catalog.items() if var.read_only]
+        print(f"  supported_variables: {len(inputs)} inputs + {len(outputs)} read-only outputs")
 
-    # 1. nominal in, nothing moved yet
-    nominal = model.get(corrector)
-    orbit_before = model.get(readings)
-    print(f"\nBefore write: get({corrector}) = {nominal} A")
-    print(f"              max |reading| = {max(abs(v) for v in orbit_before.values()):.3e} m")
+        corrector_var = catalog[corrector]
+        print(f"  {corrector}  range={corrector_var.value_range} unit={corrector_var.unit!r}")
 
-    # 2. write, and read the moved orbit back
-    model.set({corrector: DRIVE_CURRENT})
-    after = model.get(corrector)
-    orbit_after = model.get(readings)
-    print(f"\nAfter set({DRIVE_CURRENT} A): get({corrector}) = {after} A   <- input retained")
-    print(f"              max |reading| = {max(abs(v) for v in orbit_after.values()):.3e} m")
-    print(f"\n  first {N_READINGS_SHOWN} readings (metres), showing the alternating kick:")
-    for name in readings[:N_READINGS_SHOWN]:
-        print(f"    {name}  {orbit_after[name]:+.4e}")
+        # 1. nominal in, nothing moved yet
+        nominal = model.get(corrector)
+        orbit_before = model.get(readings)
+        print(f"\nBefore write: get({corrector}) = {nominal} A")
+        print(f"              max |reading| = {max(abs(v) for v in orbit_before.values()):.3e} m")
 
-    # 3. reset puts inputs and orbit back
-    model.reset()
-    restored = model.get(corrector)
-    orbit_reset = model.get(readings)
-    print(f"\nAfter reset(): get({corrector}) = {restored} A")
-    print(f"              max |reading| = {max(abs(v) for v in orbit_reset.values()):.3e} m")
+        # 2. write, and read the moved orbit back
+        model.set({corrector: DRIVE_CURRENT})
+        after = model.get(corrector)
+        orbit_after = model.get(readings)
+        print(f"\nAfter set({DRIVE_CURRENT} A): get({corrector}) = {after} A   <- input retained")
+        print(f"              max |reading| = {max(abs(v) for v in orbit_after.values()):.3e} m")
+        print(f"\n  first {N_READINGS_SHOWN} readings (metres), showing the alternating kick:")
+        for name in readings[:N_READINGS_SHOWN]:
+            print(f"    {name}  {orbit_after[name]:+.4e}")
 
-    # Assertions -- this is a gate, not just a printout. The orbit is read
-    # against the nominal one the tree serves rather than against zero: a
-    # monitor reads where the beam is on that ring, and a ring whose nominal
-    # orbit is not flat is a ring, not a fault.
-    moved = max(abs(orbit_after[name] - orbit_before[name]) for name in readings)
-    restored_error = max(abs(orbit_reset[name] - orbit_before[name]) for name in readings)
-    print(f"\n  orbit moved by {moved:.3e} m, restored to {restored_error:.3e} m")
+        # 3. reset puts inputs and orbit back
+        model.reset()
+        restored = model.get(corrector)
+        orbit_reset = model.get(readings)
+        print(f"\nAfter reset(): get({corrector}) = {restored} A")
+        print(f"              max |reading| = {max(abs(v) for v in orbit_reset.values()):.3e} m")
 
-    assert nominal == corrector_var.default_value, "input did not start at its nominal"
-    assert after == DRIVE_CURRENT, "input was not retained"
-    assert moved > MOVED_ORBIT_M, "corrector write did not move the monitors"
-    assert restored == corrector_var.default_value, "reset did not restore the nominal input"
-    assert restored_error < RESTORED_ORBIT_M, "reset did not restore the orbit it started from"
+        # Assertions -- this is a gate, not just a printout. The orbit is read
+        # against the nominal one the tree serves rather than against zero: a
+        # monitor reads where the beam is on that ring, and a ring whose nominal
+        # orbit is not flat is a ring, not a fault.
+        moved = max(abs(orbit_after[name] - orbit_before[name]) for name in readings)
+        restored_error = max(abs(orbit_reset[name] - orbit_before[name]) for name in readings)
+        print(f"\n  orbit moved by {moved:.3e} m, restored to {restored_error:.3e} m")
 
-    print("\nOK: set/get/reset round trip through the LUME interface, softioc never imported.")
-    assert "softioc" not in sys.modules and "cothread" not in sys.modules
-    return 0
+        assert nominal == corrector_var.default_value, "input did not start at its nominal"
+        assert after == DRIVE_CURRENT, "input was not retained"
+        assert moved > MOVED_ORBIT_M, "corrector write did not move the monitors"
+        assert restored == corrector_var.default_value, "reset did not restore the nominal input"
+        assert restored_error < RESTORED_ORBIT_M, "reset did not restore the orbit it started from"
+
+        print("\nOK: set/get/reset round trip through the LUME interface, softioc never imported.")
+        assert "softioc" not in sys.modules and "cothread" not in sys.modules
+        return 0
 
 
 if __name__ == "__main__":

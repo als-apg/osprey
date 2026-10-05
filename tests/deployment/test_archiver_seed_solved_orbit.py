@@ -31,6 +31,7 @@ from osprey.services.virtual_accelerator.manifest.standin_defaults import parse_
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 from osprey.simulation.engine import SimulationEngine
 from osprey_connectors.simulation.archive import synthesize_documents
+from tests.va._served_tree import packaged_served_root
 
 #: Whole seconds, so the instants the seed stores and the ones the bridge is
 #: clocked at are the same float.
@@ -82,7 +83,7 @@ def _project(tmp_path: Path, channels: list[dict], *, lattice: str | None) -> Pa
     """
     build = tmp_path / "build"
     build.mkdir()
-    (build / "data").symlink_to(PACKAGE_PATHS.data_root, target_is_directory=True)
+    (build / "data").symlink_to(packaged_served_root(), target_is_directory=True)
     manifest = tmp_path / "channel_manifest.json"
     manifest.write_text(json.dumps({"channels": channels}))
     lattice_line = "" if lattice is None else f"VA_LATTICE={lattice}\n"
@@ -97,7 +98,7 @@ def _config(extra: dict | None = None) -> dict:
 
 
 def _served_truth(channels: list[dict]) -> dict[str, float]:
-    return PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels)).bpm_positions()
+    return PhysicsBridge(PyATRingModel(packaged_served_root(), channels)).bpm_positions()
 
 
 def _seeded(project: Path, config: dict, addresses: list[str]) -> dict[str, list[float]]:
@@ -121,7 +122,7 @@ def _recorded(
     clock = _Clock()
     clock.now = float(_INSTANTS[0])
     bridge = PhysicsBridge(
-        PyATRingModel(PACKAGE_PATHS.data_root, channels, bpm_errors=bpm_errors),
+        PyATRingModel(packaged_served_root(), channels, bpm_errors=bpm_errors),
         motion=engine,
         clock=clock,
     )
