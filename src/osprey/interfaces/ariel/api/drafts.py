@@ -64,6 +64,7 @@ class DraftResponse(BaseModel):
     tags: list[str] | None = None
     attachment_paths: list[str] | None = None
     metadata: dict | None = None
+    fields: dict[str, Any] | None = None
 
 
 DRAFT_TTL_SECONDS = 3600  # 1 hour

@@ -12,7 +12,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from fastmcp.exceptions import ToolError
 
@@ -30,9 +30,18 @@ from osprey.services.ariel_search.attachments.summaries import (
     build_attachment_summaries,
     file_source_for,
 )
+from osprey.services.ariel_search.entry_fields import (
+    MAX_LISTED_CHOICES,
+    EntryFieldDeclarationError,
+    EntryFieldError,
+    entry_field_descriptors,
+    resolve_entry_write,
+    validate_entry_fields,
+)
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search.base import ParameterDescriptor
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
 
@@ -374,6 +383,65 @@ async def entry_open(
         )
 
 
+def _entry_field_refusal(
+    exc: EntryFieldError, descriptors: list["ParameterDescriptor"]
+) -> NoReturn:
+    """Raise the ``validation_error`` for one invalid entry field.
+
+    The envelope names the field; for a ``select`` it also lists up to
+    :data:`MAX_LISTED_CHOICES` of the allowed values.
+    """
+    details: dict[str, Any] = {"field": exc.field}
+    for descriptor in descriptors:
+        if descriptor.name == exc.field and descriptor.param_type == "select":
+            allowed = [str(option.get("value")) for option in descriptor.options or []]
+            details["allowed"] = allowed[:MAX_LISTED_CHOICES]
+    make_error(
+        "validation_error",
+        exc.message,
+        ["Correct the named field; capabilities lists each entry field and its values."],
+        details=details,
+    )
+
+
+async def _check_entry_fields(
+    fields: dict[str, Any] | None, *, partial: bool
+) -> tuple[list["ParameterDescriptor"], dict[str, Any]]:
+    """Look up the declared entry fields and check ``fields`` against them.
+
+    Nothing is checked live: a ``dynamic_select`` value is checked for its
+    type only. An undeclared key is refused.
+
+    Args:
+        fields: The submitted values keyed by field name.
+        partial: Accept a missing required value (draft mode).
+
+    Returns:
+        The declarations and the coerced declared values.
+    """
+    try:
+        config = get_ariel_context().config
+    except RuntimeError:
+        descriptors: list[ParameterDescriptor] = []
+    else:
+        try:
+            descriptors = entry_field_descriptors(config)
+        except EntryFieldDeclarationError as exc:
+            return make_error(
+                "internal_error",
+                exc.message,
+                ["The facility adapter declares its entry fields wrongly; check its definition."],
+                details={"field": exc.field},
+            )
+    try:
+        declared = await validate_entry_fields(
+            None, descriptors, fields or {}, partial=partial, check_live=False, strict=True
+        )
+    except EntryFieldError as exc:
+        return _entry_field_refusal(exc, descriptors)
+    return descriptors, declared
+
+
 @mcp.tool()
 async def entry_create(
     subject: str,
@@ -385,6 +453,7 @@ async def entry_create(
     file_paths: list[str] | None = None,
     artifact_ids: list[str] | None = None,
     draft: bool = True,
+    fields: dict[str, Any] | None = None,
 ) -> str:
     """Create a new logbook entry, optionally with file attachments.
 
@@ -404,6 +473,10 @@ async def entry_create(
             (e.g. Plotly plots) are auto-converted to PNG.
         draft: If True (default), create a draft for human review in the web UI.
             If False, write directly to the database.
+        fields: Values for the facility's entry fields, keyed by the names
+            ``capabilities`` lists under ``entry_fields``. An undeclared name or
+            a wrong value is refused naming the field. A draft may leave a
+            required field empty; a direct write may not.
 
     Returns:
         JSON with draft_id and URL (draft mode), or entry_id and confirmation (direct mode).
@@ -420,6 +493,12 @@ async def entry_create(
             "details is required.",
             ["Provide details/body for the entry."],
         )
+
+    # --- Check declared entry fields before anything is written ---
+    descriptors: list[ParameterDescriptor] = []
+    declared: dict[str, Any] = {}
+    if fields or not draft:
+        descriptors, declared = await _check_entry_fields(fields, partial=draft)
 
     # --- Resolve artifact_ids to file paths (both modes) ---
     artifact_paths: list[str] = []
@@ -488,6 +567,8 @@ async def entry_create(
                     "session_metadata": gather_session_metadata("ariel-mcp"),
                 },
             }
+            if fields:
+                draft_data["fields"] = declared
             if all_file_paths:
                 draft_data["attachment_paths"] = all_file_paths
             filepath = drafts_dir / f"{draft_id}.json"
@@ -526,6 +607,16 @@ async def entry_create(
         registry = get_ariel_context()
         service = await registry.service()
 
+        resolved = resolve_entry_write(
+            descriptors,
+            declared,
+            logbook=logbook,
+            shift=shift,
+            tags=tags or [],
+            created_via="ariel-mcp",
+            session_metadata=gather_session_metadata("ariel-mcp"),
+        )
+
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
@@ -536,13 +627,7 @@ async def entry_create(
             "author": author or "Anonymous",
             "raw_text": f"{subject}\n\n{details}",
             "attachments": [],
-            "metadata": {
-                "logbook": logbook,
-                "shift": shift,
-                "tags": tags or [],
-                "created_via": "ariel-mcp",
-                "session_metadata": gather_session_metadata("ariel-mcp"),
-            },
+            "metadata": resolved.local_metadata,
             "created_at": now,
             "updated_at": now,
         }
@@ -584,6 +669,8 @@ async def entry_create(
             default=str,
         )
 
+    except EntryFieldError as exc:
+        return _entry_field_refusal(exc, descriptors)
     except ToolError:
         raise
     except Exception as exc:
