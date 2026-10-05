@@ -48,6 +48,9 @@ class ParameterDescriptor:
         section: Grouping label in the advanced panel (e.g. "Retrieval")
         placeholder: Placeholder text for text inputs
         options_endpoint: API endpoint for dynamic_select to fetch options
+        required: Whether a value must be supplied; serialized only when True
+        depends_on: Names of the parameters whose values this one's options
+            depend on; serialized only when non-empty
     """
 
     name: str
@@ -62,6 +65,8 @@ class ParameterDescriptor:
     section: str = "General"
     placeholder: str | None = None
     options_endpoint: str | None = None
+    required: bool = False
+    depends_on: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-friendly dict."""
@@ -85,6 +90,10 @@ class ParameterDescriptor:
             d["placeholder"] = self.placeholder
         if self.options_endpoint is not None:
             d["options_endpoint"] = self.options_endpoint
+        if self.required:
+            d["required"] = True
+        if self.depends_on:
+            d["depends_on"] = list(self.depends_on)
         return d
 
 

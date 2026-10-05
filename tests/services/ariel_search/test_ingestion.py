@@ -1742,3 +1742,88 @@ class TestAdapterUrlFiltering:
             }
         )
         assert [a["url"] for a in entry["attachments"]] == ["https://example.com/a.png"]
+
+
+class TestEntryFieldHooks:
+    """Tests for the FacilityAdapter entry-field hooks and their defaults."""
+
+    @staticmethod
+    def _config(adapter: str, source_url: str) -> ARIELConfig:
+        return ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://test"},
+                "ingestion": {"adapter": adapter, "source_url": source_url},
+            }
+        )
+
+    @staticmethod
+    def _bare_adapter_class():
+        from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+
+        class _BareAdapter(FacilityAdapter):
+            @property
+            def source_system_name(self) -> str:
+                return "Bare"
+
+            async def fetch_entries(self, *_args, **_kwargs):
+                return
+                yield
+
+        return _BareAdapter
+
+    def test_default_descriptors_empty(self):
+        """An adapter that declares nothing has no entry fields."""
+        adapter = self._bare_adapter_class()(self._config("generic_json", "/tmp/x.json"))
+        assert adapter.get_entry_field_descriptors() == []
+
+    @pytest.mark.asyncio
+    async def test_default_options_empty(self):
+        """An adapter that declares nothing offers no dynamic options."""
+        adapter = self._bare_adapter_class()(self._config("generic_json", "/tmp/x.json"))
+        assert await adapter.get_entry_field_options("scan", {"day": "2026-10-04"}) == []
+
+    def test_default_descriptors_fresh_list(self):
+        """Each call returns a new list, so a caller mutating it cannot leak state."""
+        adapter = self._bare_adapter_class()(self._config("generic_json", "/tmp/x.json"))
+        first = adapter.get_entry_field_descriptors()
+        first.append("x")
+        assert adapter.get_entry_field_descriptors() == []
+
+    @pytest.mark.asyncio
+    async def test_override_hooks(self):
+        """A subclass overriding both hooks has its declarations and options used."""
+        from osprey.services.ariel_search.search.base import ParameterDescriptor
+
+        base = self._bare_adapter_class()
+        day = ParameterDescriptor(
+            name="day", label="Day", description="Shift day", param_type="date", default=None
+        )
+
+        class _Declaring(base):
+            def get_entry_field_descriptors(self):
+                return [day]
+
+            async def get_entry_field_options(self, name, values):
+                return [{"value": f"{name}-{values['day']}", "label": "Scan"}]
+
+        adapter = _Declaring(self._config("generic_json", "/tmp/x.json"))
+        assert adapter.get_entry_field_descriptors() == [day]
+        assert await adapter.get_entry_field_options("scan", {"day": "d1"}) == [
+            {"value": "scan-d1", "label": "Scan"}
+        ]
+
+    @pytest.mark.parametrize(
+        ("cls", "adapter_name", "source"),
+        [
+            (ALSLogbookAdapter, "als_logbook", "/fake/path.jsonl"),
+            (GenericJSONAdapter, "generic_json", "/fake/path.json"),
+            (JLabLogbookAdapter, "jlab_logbook", "/fake/path.json"),
+            (ORNLLogbookAdapter, "ornl_logbook", "/fake/path.json"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_shipped_adapters_declare_nothing(self, cls, adapter_name, source):
+        """The shipped adapters keep the built-in entry form: no fields, no options."""
+        adapter = cls(self._config(adapter_name, source))
+        assert adapter.get_entry_field_descriptors() == []
+        assert await adapter.get_entry_field_options("anything", {}) == []
