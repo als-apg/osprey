@@ -126,7 +126,18 @@ Check the result
 ``validate`` runs every check ``osprey build`` makes. For each model whose
 export carried a response matrix it also compares that matrix with the one the
 imported model computes, and prints one ``response check <model>: …`` line. A
-failing check exits 1.
+failing check exits 1. When the check left rows out of the comparison, a second
+line for that model follows on stderr, giving the number of rows left out and
+the count per reason (unwired, no width, unsolved, table calibration); it does
+not change the verdict or the exit code:
+
+``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``
+
+The check converts a monitor reading to position with one slope, taken at the
+centred beam. That is exact for a straight-line (gain and offset) calibration;
+a table-calibrated monitor is left out of the check and counted on the
+left-out line. If you need a more elaborate BPM calibration in the check, open
+an issue.
 
 .. seealso::
 

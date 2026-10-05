@@ -202,15 +202,16 @@ def test_every_entry_names_its_deck_between_engine_and_settings(imported: Path) 
 
 
 def test_every_written_deck_is_the_served_deck_of_its_export(tree: str, imported: Path) -> None:
+    from osprey.facility.layers.mml.importer import read_exports
     from osprey.services.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / MAPPING_FILE)
     for stem in TREES[tree]:
         system = SYSTEMS[stem]
-        va = json.loads((FIXTURES / tree / f"{stem}.va.json").read_text(encoding="utf-8"))
+        ao = read_exports([FIXTURES / tree / f"{stem}.ao.json"]).ao[system]
         ad = json.loads((FIXTURES / tree / f"{stem}.ad.json").read_text(encoding="utf-8"))
         addressing = decks.address_elements(
-            mapping.models[system], load_lattice(FIXTURES / tree / f"{stem}.lattice.mat"), va, ad
+            mapping.models[system], load_lattice(FIXTURES / tree / f"{stem}.lattice.mat"), ao, ad
         )
         written = imported / decks.DECKS_DIR / f"{system}.json"
         assert written.read_text(encoding="utf-8") == decks.deck_text(decks.served_deck(addressing))
@@ -317,18 +318,18 @@ def test_a_deck_of_a_model_the_import_does_not_carry_is_removed(tmp_path: Path) 
 
 def test_a_wired_family_the_export_places_no_device_of_stops_per_family(tmp_path: Path) -> None:
     def unplaced(document: dict[str, Any]) -> None:
-        wiring = document["models"]["LTB"].setdefault("wiring", {})
-        for family, axis in (("BPMx", "x"), ("BPMy", "y")):
+        wiring = document["models"]["StorageRing"].setdefault("wiring", {})
+        for family, axis in (("LTBBPMx", "x"), ("LTBBPMy", "y")):
             wiring[family] = {
                 "element_field": "Monitor",
                 "engine": {"axis": axis},
                 "calibration": "linear",
             }
 
-    assert _stops(tmp_path, "nsls2", TREES["nsls2"], unplaced).splitlines() == [
-        "import mml: export-invalid: LTB: family BPMx is wired through Monitor "
+    assert _stops(tmp_path, "spear3", TREES["spear3"], unplaced).splitlines() == [
+        "import mml: export-invalid: StorageRing: family LTBBPMx is wired through Monitor "
         "and the export places none of its devices",
-        "import mml: export-invalid: LTB: family BPMy is wired through Monitor "
+        "import mml: export-invalid: StorageRing: family LTBBPMy is wired through Monitor "
         "and the export places none of its devices",
     ]
 
@@ -501,7 +502,7 @@ def test_the_transfer_line_keeps_its_single_pass_settings_beside_its_wiring(
     assert transfer["wiring"]
 
 
-def test_the_transfer_line_wires_its_correctors_and_quadrupoles_only(
+def test_the_transfer_line_wires_its_correctors_quadrupoles_and_monitors(
     transfer: dict[str, Any],
 ) -> None:
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
@@ -516,12 +517,46 @@ def test_the_transfer_line_wires_its_correctors_and_quadrupoles_only(
         }
 
     wired = {record["address"] for record in transfer["wiring"]}
-    assert wired == addresses("HCM", "VCM", "Q")
-    assert not wired & addresses("BEND", "Screen", "BPMx", "BPMy")
+    assert len(addresses("BPMx")) == len(addresses("BPMy")) == 6
+    assert wired == addresses("HCM", "VCM", "Q", "BPMx", "BPMy")
+    assert not wired & addresses("BEND", "Screen")
     engines = Counter(
-        (record["engine"]["attribute"], record["engine"]["index"]) for record in transfer["wiring"]
+        record["engine"]["axis"]
+        if "axis" in record["engine"]
+        else (record["engine"]["attribute"], record["engine"]["index"])
+        for record in transfer["wiring"]
     )
-    assert engines == {("KickAngle", 0): 16, ("KickAngle", 1): 16, ("PolynomB", 1): 30}
+    assert engines == {
+        ("KickAngle", 0): 16,
+        ("KickAngle", 1): 16,
+        ("PolynomB", 1): 30,
+        "x": 6,
+        "y": 6,
+    }
+
+
+def test_every_transfer_line_monitor_reads_millimetres_as_metres(
+    transfer: dict[str, Any],
+) -> None:
+    monitors = [record for record in transfer["wiring"] if "axis" in record["engine"]]
+    assert len(monitors) == 12
+    for record in monitors:
+        assert record["calibration"] == {
+            "curve": {"linear": {"gain": 0.001, "offset": 0.0}},
+            "inverse": {"linear": {"gain": 1000.0, "offset": 0.0}},
+            "energy_scaling": "none",
+        }, record["address"]
+
+
+def test_no_transfer_line_monitor_family_is_imported_without_its_nominal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facility = _facility(tmp_path, "nsls2")
+    import_mml([FIXTURES / "nsls2" / f"{stem}.ao.json" for stem in TREES["nsls2"]], facility)
+    unstated = [
+        line for line in capsys.readouterr().out.splitlines() if "nominal not stated" in line
+    ]
+    assert not [line for line in unstated if "family BPM" in line]
 
 
 def test_the_transfer_line_carries_the_calibrations_its_export_states(

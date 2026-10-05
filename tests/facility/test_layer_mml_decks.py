@@ -43,19 +43,21 @@ STORAGE = (
 
 
 def _fixture(tree: str, stem: str, raw: str) -> tuple[Model, Any, dict, dict]:
+    """One model, its saved deck, its export's Accelerator Objects and accelerator data."""
+    from osprey.facility.layers.mml.importer import read_exports
     from osprey.services.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / "imported" / "mml" / "mapping.yaml")
     deck = load_lattice(FIXTURES / tree / f"{stem}.lattice.mat")
-    va = json.loads((FIXTURES / tree / f"{stem}.va.json").read_text(encoding="utf-8"))
+    ao = read_exports([FIXTURES / tree / f"{stem}.ao.json"]).ao[raw]
     ad = json.loads((FIXTURES / tree / f"{stem}.ad.json").read_text(encoding="utf-8"))
-    return mapping.models[raw], deck, va, ad
+    return mapping.models[raw], deck, ao, ad
 
 
 @pytest.fixture(scope="module", params=STORAGE, ids=[tree for tree, _, _ in STORAGE])
 def addressed(request: pytest.FixtureRequest) -> Addressing:
-    model, deck, va, ad = _fixture(*request.param)
-    return address_elements(model, deck, va, ad)
+    model, deck, ao, ad = _fixture(*request.param)
+    return address_elements(model, deck, ao, ad)
 
 
 def _wired(addressing: Addressing) -> set[str]:
@@ -88,15 +90,15 @@ def test_every_wired_family_the_export_places_binds_elements(addressed: Addressi
 
 
 def test_a_device_is_named_for_its_family_and_row() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[0])
-    addressing = address_elements(model, deck, va, ad)
+    model, deck, ao, ad = _fixture(*STORAGE[0])
+    addressing = address_elements(model, deck, ao, ad)
     first = addressing.bindings["BPMx"][0]
     assert (first.device, first.element, first.owner) == ((1, 1), "BPMx_1_1", "BPMx")
 
 
 def test_the_horizontal_corrector_names_the_magnet_both_planes_drive() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[0])
-    addressing = address_elements(model, deck, va, ad)
+    model, deck, ao, ad = _fixture(*STORAGE[0])
+    addressing = address_elements(model, deck, ao, ad)
     horizontal, vertical = addressing.bindings["HCM"][0], addressing.bindings["VCM"][0]
     assert horizontal.element == vertical.element == "HCM_1_1"
     assert vertical.owner == "HCM"
@@ -104,8 +106,8 @@ def test_the_horizontal_corrector_names_the_magnet_both_planes_drive() -> None:
 
 
 def test_a_deck_holding_its_cavity_is_served_that_cavity() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[0])
-    addressing = address_elements(model, deck, va, ad)
+    model, deck, ao, ad = _fixture(*STORAGE[0])
+    addressing = address_elements(model, deck, ao, ad)
     assert addressing.cavity is None
     assert len(addressing.deck) == len(deck)
     (rf,) = addressing.bindings["RF"]
@@ -113,8 +115,8 @@ def test_a_deck_holding_its_cavity_is_served_that_cavity() -> None:
 
 
 def test_a_deck_without_a_cavity_is_built_one_from_the_answered_voltage() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[1])
-    addressing = address_elements(model, deck, va, ad)
+    model, deck, ao, ad = _fixture(*STORAGE[1])
+    addressing = address_elements(model, deck, ao, ad)
     built = addressing.deck
     cavity = built[-1]
     assert len(built) == len(deck) + 1
@@ -131,12 +133,12 @@ def test_a_deck_without_a_cavity_is_built_one_from_the_answered_voltage() -> Non
 
 
 def test_a_cavity_to_build_without_a_voltage_stops_the_import() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[1])
+    model, deck, ao, ad = _fixture(*STORAGE[1])
     unanswered = replace(
         model, wiring={**model.wiring, "RF": replace(model.wiring["RF"], voltage=None)}
     )
     with pytest.raises(ImportStop) as caught:
-        address_elements(unanswered, deck, va, ad)
+        address_elements(unanswered, deck, ao, ad)
     assert caught.value.lines == (
         "models.StorageRing.wiring.RF.voltage: answer the cavity voltage in volts; "
         "the deck holds no cavity",
@@ -144,34 +146,34 @@ def test_a_cavity_to_build_without_a_voltage_stops_the_import() -> None:
 
 
 def test_a_voltage_on_a_deck_holding_its_cavity_is_refused() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[0])
+    model, deck, ao, ad = _fixture(*STORAGE[0])
     answered = replace(
         model, wiring={**model.wiring, "RF": replace(model.wiring["RF"], voltage=1.0)}
     )
     with pytest.raises(MappingError) as caught:
-        address_elements(answered, deck, va, ad)
+        address_elements(answered, deck, ao, ad)
     assert str(caught.value) == (
         "models.StorageRing.wiring.RF.voltage: the deck holds a cavity; remove voltage"
     )
 
 
 def test_a_cavity_is_not_built_without_a_harmonic_number() -> None:
-    model, deck, va, _ad = _fixture(*STORAGE[1])
+    model, deck, ao, _ad = _fixture(*STORAGE[1])
     with pytest.raises(ValueError, match="family RF drives a cavity the deck does not hold"):
-        address_elements(model, deck, va, {"HarmonicNumber": []})
+        address_elements(model, deck, ao, {"HarmonicNumber": []})
 
 
 def test_a_cavity_is_not_built_into_one_period_of_a_deck() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[1])
+    model, deck, ao, ad = _fixture(*STORAGE[1])
     deck.periodicity = 2
     with pytest.raises(ValueError, match="saved as 2 periods"):
-        address_elements(model, deck, va, ad)
+        address_elements(model, deck, ao, ad)
 
 
 def test_the_deck_passed_in_is_left_as_it_was() -> None:
-    model, deck, va, ad = _fixture(*STORAGE[0])
+    model, deck, ao, ad = _fixture(*STORAGE[0])
     before = [element.FamName for element in deck]
-    address_elements(model, deck, va, ad)
+    address_elements(model, deck, ao, ad)
     assert [element.FamName for element in deck] == before
 
 
@@ -219,8 +221,8 @@ def test_the_written_deck_reads_back_served(addressed: Addressing, tmp_path: Pat
 
 
 def test_writing_a_deck_twice_writes_the_same_bytes(tmp_path: Path) -> None:
-    model, deck, va, ad = _fixture(*STORAGE[0])
-    served = served_deck(address_elements(model, deck, va, ad))
+    model, deck, ao, ad = _fixture(*STORAGE[0])
+    served = served_deck(address_elements(model, deck, ao, ad))
     first = write_deck(served, tmp_path, "StorageRing").read_bytes()
     assert write_deck(served, tmp_path, "StorageRing").read_bytes() == first
 
@@ -245,8 +247,8 @@ def _model(**wiring: EngineBlock) -> Model:
     )
 
 
-def _family(field: str, at_index: Any, devices: Any) -> dict[str, Any]:
-    return {"device_list": devices, "nominals": {field: {"at_index": at_index}}}
+def _family(at_index: Any, devices: Any) -> dict[str, Any]:
+    return {"DeviceList": devices, "AT": {"ATIndex": at_index}}
 
 
 def _deck(*elements: Any) -> Any:
@@ -255,17 +257,15 @@ def _deck(*elements: Any) -> Any:
 
 def test_a_normal_multipole_outranks_the_skew_one_wound_on_it() -> None:
     deck = _deck(at.Drift("D", 1.0), at.Sextupole("S", 0.2, 1.0), at.Drift("D", 1.0))
-    va = {
-        "families": {
-            "SQ": _family("Setpoint", [2], [[1, 1]]),
-            "SX": _family("Setpoint", [2], [[1, 1]]),
-        }
+    ao = {
+        "SQ": _family([2], [[1, 1]]),
+        "SX": _family([2], [[1, 1]]),
     }
     model = _model(
         SQ=EngineBlock(attribute="PolynomA", index=1),
         SX=EngineBlock(attribute="PolynomB", index=2),
     )
-    addressing = address_elements(model, deck, va)
+    addressing = address_elements(model, deck, ao)
     assert addressing.deck[1].FamName == "SX_1_1"
     assert addressing.owners == {1: "SX"}
     assert addressing.bindings["SQ"][0].element == "SX_1_1"
@@ -273,29 +273,27 @@ def test_a_normal_multipole_outranks_the_skew_one_wound_on_it() -> None:
 
 def test_a_monitor_outranks_every_magnet() -> None:
     deck = _deck(at.Drift("D", 1.0), at.Quadrupole("Q", 0.2, 1.0))
-    va = {
-        "families": {
-            "Q": _family("Setpoint", [2], [[1, 1]]),
-            "BPMx": _family("Monitor", [2], [[1, 1]]),
-        }
+    ao = {
+        "Q": _family([2], [[1, 1]]),
+        "BPMx": _family([2], [[1, 1]]),
     }
     model = _model(Q=EngineBlock(attribute="PolynomB", index=1), BPMx=EngineBlock(axis="x"))
-    assert address_elements(model, deck, va).deck[1].FamName == "BPMx_1_1"
+    assert address_elements(model, deck, ao).deck[1].FamName == "BPMx_1_1"
 
 
 def test_a_marker_a_monitor_family_reads_becomes_a_monitor() -> None:
     deck = _deck(at.Drift("D", 1.0), at.Marker("M"))
-    va = {"families": {"BPMx": _family("Monitor", [2], [[3, 7]])}}
-    addressing = address_elements(_model(BPMx=EngineBlock(axis="x")), deck, va)
+    ao = {"BPMx": _family([2], [[3, 7]])}
+    addressing = address_elements(_model(BPMx=EngineBlock(axis="x")), deck, ao)
     assert isinstance(addressing.deck[1], at.Monitor)
     assert addressing.deck[1].FamName == "BPMx_3_7"
 
 
 def test_a_split_device_names_each_piece_by_its_stated_slot() -> None:
     deck = _deck(at.Quadrupole("Q", 0.1, 1.0), at.Drift("D", 1.0), at.Quadrupole("Q", 0.1, 1.0))
-    va = {"families": {"QF": _family("Setpoint", [[1, float("nan"), 3]], [[2, 1]])}}
+    ao = {"QF": _family([[1, float("nan"), 3]], [[2, 1]])}
     model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
-    (binding,) = address_elements(model, deck, va).bindings["QF"]
+    (binding,) = address_elements(model, deck, ao).bindings["QF"]
     assert [(piece.element, piece.slot) for piece in binding.slices] == [
         ("QF_2_1_1", 1),
         ("QF_2_1_3", 3),
@@ -305,33 +303,33 @@ def test_a_split_device_names_each_piece_by_its_stated_slot() -> None:
 @pytest.mark.parametrize("word", ["NaN", "Inf", "3"])
 def test_a_slot_spelled_as_text_is_no_slot(word: str) -> None:
     deck = _deck(at.Quadrupole("Q", 0.1, 1.0), at.Drift("D", 1.0), at.Quadrupole("Q", 0.1, 1.0))
-    va = {"families": {"QF": _family("Setpoint", [[1, word, 3]], [[2, 1]])}}
+    ao = {"QF": _family([[1, word, 3]], [[2, 1]])}
     model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
-    (binding,) = address_elements(model, deck, va).bindings["QF"]
+    (binding,) = address_elements(model, deck, ao).bindings["QF"]
     assert [piece.slot for piece in binding.slices] == [1, 3]
 
 
 @pytest.mark.parametrize("word", ["NaN", "Inf", "3"])
 def test_a_device_number_spelled_as_text_names_device_0(word: str) -> None:
     deck = _deck(at.Drift("D", 1.0), at.Quadrupole("Q", 0.1, 1.0))
-    va = {"families": {"QF": _family("Setpoint", [2], [[word, 1]])}}
+    ao = {"QF": _family([2], [[word, 1]])}
     model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
-    assert address_elements(model, deck, va).deck[1].FamName == "QF_0_1"
+    assert address_elements(model, deck, ao).deck[1].FamName == "QF_0_1"
 
 
 @pytest.mark.parametrize("word", ["NaN", "Inf", "3"])
 def test_a_harmonic_number_spelled_as_text_builds_no_cavity(word: str) -> None:
-    model, deck, va, _ad = _fixture(*STORAGE[1])
+    model, deck, ao, _ad = _fixture(*STORAGE[1])
     with pytest.raises(ValueError, match="family RF drives a cavity the deck does not hold"):
-        address_elements(model, deck, va, {"HarmonicNumber": word})
+        address_elements(model, deck, ao, {"HarmonicNumber": word})
 
 
 def test_a_corrector_is_served_polynomials_as_wide_as_it_carries() -> None:
     corrector = at.Corrector("C", 0.1, [0.0, 0.0], PolynomB=[0.0, 0.5, 0.2], MaxOrder=1)
     deck = _deck(at.Drift("D", 1.0), corrector)
-    va = {"families": {"HCM": _family("Setpoint", [2], [[1, 1]])}}
+    ao = {"HCM": _family([2], [[1, 1]])}
     model = _model(HCM=EngineBlock(attribute="KickAngle", index=0))
-    served = served_deck(address_elements(model, deck, va))
+    served = served_deck(address_elements(model, deck, ao))
     assert list(served[1].PolynomB) == [0.0, 0.0, 0.0]
     assert list(served[1].PolynomA) == [0.0, 0.0]
 
@@ -339,75 +337,120 @@ def test_a_corrector_is_served_polynomials_as_wide_as_it_carries() -> None:
 def test_a_corrector_winding_leaves_the_magnet_it_is_wound_on_alone() -> None:
     sextupole = at.Sextupole("S", 0.2, 1.5)
     deck = _deck(at.Drift("D", 1.0), sextupole)
-    va = {
-        "families": {
-            "HCM": _family("Setpoint", [2], [[1, 1]]),
-            "SX": _family("Setpoint", [2], [[1, 1]]),
-        }
+    ao = {
+        "HCM": _family([2], [[1, 1]]),
+        "SX": _family([2], [[1, 1]]),
     }
     model = _model(
         HCM=EngineBlock(attribute="KickAngle", index=0),
         SX=EngineBlock(attribute="PolynomB", index=2),
     )
-    served = served_deck(address_elements(model, deck, va))
+    served = served_deck(address_elements(model, deck, ao))
     assert served[1].FamName == "SX_1_1"
     assert served[1].PolynomB[2] == 1.5
 
 
 def test_the_energy_knob_names_the_dipoles_it_is_placed_at() -> None:
     deck = _deck(at.Drift("D", 1.0), at.Dipole("B", 1.0, 0.1))
-    va = {"families": {"BEND": _family("Setpoint", [2], [[1, 1]])}}
-    addressing = address_elements(_model(BEND=EngineBlock(attribute="energy")), deck, va)
+    ao = {"BEND": _family([2], [[1, 1]])}
+    addressing = address_elements(_model(BEND=EngineBlock(attribute="energy")), deck, ao)
     assert addressing.deck[1].FamName == "BEND_1_1"
     assert addressing.owners == {1: "BEND"}
 
 
 def test_a_corrector_outranks_the_energy_knob_on_one_dipole() -> None:
     deck = _deck(at.Drift("D", 1.0), at.Dipole("B", 1.0, 0.1))
-    va = {
-        "families": {
-            "BEND": _family("Setpoint", [2], [[1, 1]]),
-            "HCM": _family("Setpoint", [2], [[1, 1]]),
-        }
+    ao = {
+        "BEND": _family([2], [[1, 1]]),
+        "HCM": _family([2], [[1, 1]]),
     }
     model = _model(
         BEND=EngineBlock(attribute="energy"), HCM=EngineBlock(attribute="KickAngle", index=0)
     )
-    addressing = address_elements(model, deck, va)
+    addressing = address_elements(model, deck, ao)
     assert addressing.deck[1].FamName == "HCM_1_1"
     assert addressing.bindings["BEND"][0].element == "HCM_1_1"
 
 
 def test_a_repeated_monitor_nothing_reads_is_served_as_a_marker() -> None:
     deck = _deck(at.Monitor("G"), at.Drift("D", 1.0), at.Monitor("G"), at.Monitor("B"))
-    va = {"families": {"BPMx": _family("Monitor", [4], [[1, 1]])}}
-    addressing = address_elements(_model(BPMx=EngineBlock(axis="x")), deck, va)
+    ao = {"BPMx": _family([4], [[1, 1]])}
+    addressing = address_elements(_model(BPMx=EngineBlock(axis="x")), deck, ao)
     assert [type(e).__name__ for e in addressing.deck] == ["Marker", "Drift", "Marker", "Monitor"]
     assert [(m.name, m.elements) for m in addressing.markers] == [("G", 2)]
     assert addressing.monitors == 1
 
 
+def test_a_family_is_placed_from_its_lattice_index_alone() -> None:
+    deck = _deck(at.Drift("D", 1.0), at.Quadrupole("Q", 0.1, 1.0))
+    ao = {"QF": {"DeviceList": [[4, 2]], "AT": {"ATType": "QUAD", "ATIndex": [2]}}}
+    model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
+    (binding,) = address_elements(model, deck, ao).bindings["QF"]
+    assert (binding.device, binding.element, binding.slices[0].position) == ((4, 2), "QF_4_2", 1)
+
+
+def test_the_wired_field_s_lattice_index_wins_over_the_family_s() -> None:
+    deck = _deck(at.Drift("D", 1.0), at.Marker("M"), at.Marker("N"))
+    ao = {
+        "BPMx": {
+            "DeviceList": [[1, 1]],
+            "AT": {"ATIndex": [2]},
+            "Monitor": {"AT": {"ATIndex": [3]}},
+        }
+    }
+    addressing = address_elements(_model(BPMx=EngineBlock(axis="x")), deck, ao)
+    assert addressing.bindings["BPMx"][0].slices[0].position == 2
+    assert addressing.deck[2].FamName == "BPMx_1_1"
+    assert addressing.deck[1].FamName == "M"
+
+
+def test_the_transfer_line_places_every_monitor_device_from_its_lattice_index() -> None:
+    model, deck, ao, ad = _fixture("nsls2", "nsls2.ltb", "LTB")
+    monitors = replace(
+        model,
+        wiring={
+            "BPMx": WiringFamily("Monitor", EngineBlock(axis="x"), "linear"),
+            "BPMy": WiringFamily("Monitor", EngineBlock(axis="y"), "linear"),
+        },
+    )
+    addressing = address_elements(monitors, deck, ao, ad)
+    horizontal, vertical = addressing.bindings["BPMx"], addressing.bindings["BPMy"]
+    assert [binding.slices[0].position + 1 for binding in horizontal] == [
+        4,
+        33,
+        58,
+        69,
+        79,
+        105,
+        114,
+    ]
+    names = [f"BPMx_1_{number}" for number in range(1, 8)]
+    assert [binding.element for binding in horizontal] == names
+    assert [binding.element for binding in vertical] == names
+    assert {binding.owner for binding in vertical} == {"BPMx"}
+
+
 def test_a_family_the_export_does_not_place_binds_nothing() -> None:
     deck = _deck(at.Quadrupole("Q", 0.1, 1.0))
     model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
-    assert address_elements(model, deck, {"families": {}}).bindings == {}
+    assert address_elements(model, deck, {}).bindings == {}
 
 
 @pytest.mark.parametrize(
-    ("va", "engine", "message"),
+    ("ao", "engine", "message"),
     [
         (
-            {"families": {"QF": _family("Setpoint", [5], [[1, 1]])}},
+            {"QF": _family([5], [[1, 1]])},
             EngineBlock(attribute="PolynomB", index=1),
             "family QF binds ATIndex 5 of a deck of 1 elements",
         ),
         (
-            {"families": {"QF": _family("Setpoint", [1], None)}},
+            {"QF": _family([1], None)},
             EngineBlock(attribute="PolynomB", index=1),
             "family QF binds 1 element rows and lists no device to name them after",
         ),
         (
-            {"families": {"QF": _family("Setpoint", [1], [[1, 1]])}},
+            {"QF": _family([1], [[1, 1]])},
             EngineBlock(attribute="K", index=1),
             "family QF drives K; wire it to an axis or to PolynomB, PolynomA, KickAngle, "
             "energy or Frequency",
@@ -415,19 +458,19 @@ def test_a_family_the_export_does_not_place_binds_nothing() -> None:
     ],
 )
 def test_what_the_deck_cannot_address_is_refused(
-    va: dict[str, Any], engine: EngineBlock, message: str
+    ao: dict[str, Any], engine: EngineBlock, message: str
 ) -> None:
     deck = _deck(at.Quadrupole("Q", 0.1, 1.0))
     with pytest.raises(ValueError, match=message):
-        address_elements(_model(QF=engine), deck, va)
+        address_elements(_model(QF=engine), deck, ao)
 
 
 def test_two_elements_named_alike_are_refused() -> None:
     deck = _deck(at.Quadrupole("QF_1_1", 0.1, 1.0), at.Quadrupole("Q", 0.1, 1.0))
-    va = {"families": {"QF": _family("Setpoint", [2], [[1, 1]])}}
+    ao = {"QF": _family([2], [[1, 1]])}
     model = _model(QF=EngineBlock(attribute="PolynomB", index=1))
     with pytest.raises(ValueError, match="2 elements named 'QF_1_1', at positions 1, 2"):
-        address_elements(model, deck, va)
+        address_elements(model, deck, ao)
 
 
 # --- the build ----------------------------------------------------------------------
@@ -450,7 +493,7 @@ def test_a_deck_the_layer_serves_passes_the_build_deck_checks(tmp_path: Path) ->
     root = write_tree(tmp_path / "facility", tree)
     raw = sr_deck(frozen, lambda at: at.Monitor("G"), lambda at: at.Monitor("G")).elements(at)
     deck = at.Lattice(raw, energy=3e9, periodicity=1)
-    addressing = address_elements(Model("SR", "SR", None, "stated"), deck, {"families": {}})
+    addressing = address_elements(Model("SR", "SR", None, "stated"), deck, {})
 
     write_deck(served_deck(addressing), root, "SR")
 

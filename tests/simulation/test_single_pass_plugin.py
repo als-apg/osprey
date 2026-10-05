@@ -10,7 +10,6 @@ calculator does.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -33,7 +32,7 @@ from osprey.simulation.engines.pyat_model import (  # noqa: E402
     TUNES,
 )
 from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator  # noqa: E402
-from tests.facility._mml_built import FIXTURES, BuiltModel, mml_built  # noqa: E402, F401
+from tests.facility._mml_built import BuiltModel, mml_built  # noqa: E402, F401
 from tests.facility._model_reference import (  # noqa: E402
     ORM_RMS_FRACTION,
     model_reference,
@@ -243,34 +242,31 @@ class TestFailedSolve:
 
 LTB = ("nsls2", "nsls2.ltb")
 
-#: The orbit row (0 for ``x``, 2 for ``y``) each monitor family of the line reads.
-LTB_PLANES = {"BPMx": 0, "BPMy": 2}
+#: The orbit plane (0 for ``x``, 1 for ``y``) each monitor family of the line reads.
+LTB_PLANES = {"BPMx": 0, "BPMy": 1}
 
 
 def _ltb_row(values: Sequence[float]) -> tuple[int, ...]:
     return tuple(int(value) for value in values)
 
 
-def _ltb_monitor_positions(
-    built: BuiltModel, family: str, device_list: Sequence[Sequence[float]]
-) -> list[int]:
-    """The deck position of each listed monitor, by the export's one-based ``AT.ATIndex``."""
-    ao = json.loads((FIXTURES / built.tree / f"{built.stem}.ao.json").read_text(encoding="utf-8"))
-    body = ao[family]
-    rows = [_ltb_row(row) for row in np.atleast_2d(body["DeviceList"])]
-    index = np.ravel(body["AT"]["ATIndex"])
-    return [int(index[rows.index(_ltb_row(row))]) - 1 for row in device_list]
+def _ltb_wired(
+    built: BuiltModel, family: str, direction: str
+) -> dict[tuple[int, ...], dict[str, Any]]:
+    """The wiring entry each ``DeviceList`` row of a family carries in ``direction``.
 
-
-def _ltb_setpoints(built: BuiltModel, family: str) -> dict[tuple[int, ...], dict[str, Any]]:
-    """The setpoint each ``DeviceList`` row of a corrector family writes, from the wiring."""
+    A family's entries are those whose engine block is the one the mapping
+    wires the family through, on a device the family's group holds.
+    """
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
 
     mapping = read_mapping(built.facility / MAPPING_FILE)
     (model,) = [model for model in mapping.models.values() if model.name == built.name]
     words = model.wiring[family].engine
-    assert words.attribute == "KickAngle", f"{family} is no corrector"
-    engine_words = {"attribute": "KickAngle", "index": int(words.index)}
+    if words.axis is not None:
+        engine_words: dict[str, Any] = {"axis": words.axis}
+    else:
+        engine_words = {"attribute": words.attribute, "index": int(words.index)}
     (members,) = [
         set(group.get("members", []))
         for group in built.document["groups"]
@@ -289,13 +285,35 @@ def _ltb_setpoints(built: BuiltModel, family: str) -> dict[tuple[int, ...], dict
     for entry in built.wiring:
         device = on_device.get(str(entry["address"]))
         if (
-            entry.get("direction") == "write"
+            entry.get("direction") == direction
             and dict(entry.get("engine") or {}) == engine_words
             and device in rows
         ):
-            assert rows[device] not in found, f"{family} {rows[device]} has two setpoints"
+            assert rows[device] not in found, f"{family} {rows[device]} has two {direction}s"
             found[rows[device]] = entry
     return found
+
+
+def _ltb_setpoints(built: BuiltModel, family: str) -> dict[tuple[int, ...], dict[str, Any]]:
+    """The setpoint each ``DeviceList`` row of a corrector family writes, from the wiring."""
+    found = _ltb_wired(built, family, "write")
+    assert {entry["engine"].get("attribute") for entry in found.values()} == {"KickAngle"}, (
+        f"{family} is no corrector"
+    )
+    return found
+
+
+def _ltb_readings(model: Any, entries: Sequence[dict[str, Any]]) -> np.ndarray:
+    """What the plug-in serves at each monitor entry, in the physics units of its wiring."""
+    from osprey.simulation.engines.calibration import curve_from_record, to_physics
+
+    served = model.get([entry["address"] for entry in entries])
+    return np.array(
+        [
+            to_physics(curve_from_record(entry["calibration"]["curve"]), served[entry["address"]])
+            for entry in entries
+        ]
+    )
 
 
 def _ltb_hardware(entry: dict[str, Any], physics: float) -> float:
@@ -320,12 +338,10 @@ def ltb_line(mml_built: Callable[[str, str], BuiltModel]) -> BuiltModel:  # noqa
 class TestImportedLtbLine:
     """The imported NSLS-II LTB line at ``solve: single_pass``, built through ``mml_built``.
 
-    The line's monitors are unwired in this fixture, so the plug-in's deck
-    holds no monitor element and serves no orbit reading. Each corrector is
-    stepped through the plug-in's own setpoint, and the plug-in's lattice is
-    tracked once from its normalised ``twiss_in`` launch orbit to the deck
-    positions the export's ``AT.ATIndex`` gives for the listed ``BPMx`` and
-    ``BPMy`` devices.
+    Each corrector is stepped through the plug-in's own setpoint, and each
+    listed ``BPMx`` and ``BPMy`` device is read through the reading the
+    plug-in serves on its wired address. The replay tracks the deck the build
+    wrote from the same launch orbit to the elements those addresses read.
     """
 
     def test_the_ltb_line_builds_single_pass_from_the_imported_twiss_in(self, ltb_line: BuiltModel):
@@ -353,10 +369,10 @@ class TestImportedLtbLine:
         for block in blocks:
             family = block["actuator"]["family"]
             setpoints = _ltb_setpoints(built, family)
-            monitors = _ltb_monitor_positions(
-                built, block["monitor"]["family"], block["monitor"]["device_list"]
-            )
-            row = LTB_PLANES[block["monitor"]["family"]]
+            readbacks = _ltb_wired(built, block["monitor"]["family"], "read")
+            entries = [readbacks[_ltb_row(device)] for device in block["monitor"]["device_list"]]
+            monitors = [where[str(entry["element"])][0] for entry in entries]
+            plane = LTB_PLANES[block["monitor"]["family"]]
             kicks = np.broadcast_to(
                 np.asarray(block["actuator_delta"], dtype=float),
                 (len(block["actuator"]["device_list"]),),
@@ -365,22 +381,21 @@ class TestImportedLtbLine:
             for device, kick in zip(block["actuator"]["device_list"], kicks, strict=True):
                 entry = setpoints[_ltb_row(device)]
                 (position,) = where[str(entry["element"])]
-                plane = int(entry["engine"]["index"])
-                correctors.append((position, plane))
+                kicked = int(entry["engine"]["index"])
+                correctors.append((position, kicked))
                 element = lattice[position]
-                held = float(element.KickAngle[plane])
+                held = float(element.KickAngle[kicked])
                 arms, applied = [], []
                 for sign in (1.0, -1.0):
                     model.set({entry["address"]: _ltb_hardware(entry, held + sign * kick / 2.0)})
-                    applied.append(float(element.KickAngle[plane]))
-                    tracked = at.lattice_track(lattice, start.reshape(6, 1), refpts=monitors)[0]
-                    arms.append(tracked[row, 0, :, 0])
+                    applied.append(float(element.KickAngle[kicked]))
+                    arms.append(_ltb_readings(model, entries))
                 model.set({entry["address"]: _ltb_hardware(entry, held)})
                 assert applied[0] - applied[1] == pytest.approx(kick, rel=0, abs=1e-15)
                 columns.append((arms[0] - arms[1]) / kick)
             computed.append(np.array(columns).T)
             replay = recipes.loco_transport_full(reference_deck, start, correctors, kicks, monitors)
-            expected.append(replay[:, :, row // 2].T)
+            expected.append(replay[:, :, plane].T)
 
         stated = np.concatenate([matrix.ravel() for matrix in expected])
         band = ORM_RMS_FRACTION * float(np.sqrt(np.mean(stated**2)))

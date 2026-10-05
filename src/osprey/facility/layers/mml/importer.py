@@ -715,6 +715,7 @@ def _wire(
         wired = wire_model(
             model,
             exports.decks.get(system),
+            exports.ao.get(system),
             exports.va.get(system),
             exports.ad.get(system),
             judged[system],
