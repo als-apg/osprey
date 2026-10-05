@@ -105,8 +105,10 @@ TABLE_SAMPLING_RTOL = 3e-2
 
 #: How near an energy knob's start value keeps to the nominal currents the
 #: export states. No model file records a hardware answer for the knob, so
-#: nothing holds it to ``CONVERSION_RTOL``.
-ENERGY_NOMINAL_RTOL = 1e-4
+#: nothing holds it to ``CONVERSION_RTOL``. The knob starts at the energy
+#: table's current for the deck's energy, and SPEAR3's ``BEND`` Setpoint
+#: nominals sit up to 1.35e-4 above that current.
+ENERGY_NOMINAL_RTOL = 2e-4
 
 #: Every model-file section whose hardware answer a test here converts.
 CHECKED = frozenset(

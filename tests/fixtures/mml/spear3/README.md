@@ -73,7 +73,7 @@ are injection elements and are not in the stored-beam model.
   `Spear3/StorageRingOpsData/SPEAR3physdata.mat -> Spear3physdata.mat` the golden
   response file and the physics data are skipped silently and the export measures
   the model instead. A fresh checkout needs them again.
-- **Date:** 2026-09-25.
+- **Date:** 2026-10-05.
 
 The link method defaulted to LabCA, which is not installed on that host, so the
 Middle Layer warned once and every family was switched to simulator mode before the
