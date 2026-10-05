@@ -12,7 +12,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from fastmcp.exceptions import ToolError
 
@@ -383,7 +383,9 @@ async def entry_open(
         )
 
 
-def _entry_field_refusal(exc: EntryFieldError, descriptors: list["ParameterDescriptor"]) -> str:
+def _entry_field_refusal(
+    exc: EntryFieldError, descriptors: list["ParameterDescriptor"]
+) -> NoReturn:
     """Raise the ``validation_error`` for one invalid entry field.
 
     The envelope names the field; for a ``select`` it also lists up to
@@ -394,7 +396,7 @@ def _entry_field_refusal(exc: EntryFieldError, descriptors: list["ParameterDescr
         if descriptor.name == exc.field and descriptor.param_type == "select":
             allowed = [str(option.get("value")) for option in descriptor.options or []]
             details["allowed"] = allowed[:MAX_LISTED_CHOICES]
-    return make_error(
+    make_error(
         "validation_error",
         exc.message,
         ["Correct the named field; capabilities lists each entry field and its values."],
