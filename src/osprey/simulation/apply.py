@@ -1067,7 +1067,6 @@ def _missing_password_message(project_dir: Path, store: dict) -> str:
 def preflight_archive_rewrite(
     project_dir: Path,
     config: dict,
-    machine_path: Path,  # noqa: ARG001 - the CLI passes it; the events come from the view
     names: Sequence[str],
 ) -> dict | None:
     """Decide the archive rewrite *before* anything has been activated.
@@ -1086,7 +1085,6 @@ def preflight_archive_rewrite(
     Args:
         project_dir: Root of the built project.
         config: The project's loaded ``config.yml``.
-        machine_path: The machine model the caller validated the set against.
         names: The requested scenario names.
 
     Returns:
