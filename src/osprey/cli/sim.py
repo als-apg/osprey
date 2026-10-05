@@ -367,6 +367,8 @@ def apply_command(
     virtual accelerator to pick up at its next container boot.
     """
     from osprey.simulation.apply import (
+        _simulator_view,
+        _view_scenarios,
         apply_scenarios,
         compute_scenario_physics_env,
         preflight_archive_rewrite,
@@ -374,6 +376,7 @@ def apply_command(
     )
     from osprey.simulation.engine import resolve_active_scenarios
     from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey_connectors.simulation.state import scenario_targets, validate_composition
 
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)
@@ -387,23 +390,31 @@ def apply_command(
     # Validate pure, write last: every check that can reject the requested set
     # runs here, ahead of the purge prompt and of the first write, so a
     # collision or an aborted prompt leaves the project completely untouched.
-    # A project with no simulation file has neither an engine to validate nor
+    # A project with no simulation file has neither a composition to judge nor
     # physics to render -- apply_scenarios below raises the canonical
     # "not simulation-backed" error for it, which the handler turns into exit 1.
     machine_path, *_ = resolve_simulation_file(config, repo_root)
     physics: dict[str, str] | None = None
     store: dict | None = None
     if machine_path is not None:
-        from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-
-        engine = SimulationEngine.from_file(
-            machine_path, state_dir=resolve_state_dir(config, repo_root)
-        )
-        # validate_composition RETURNS its problems (unknown names, channel
-        # collisions) rather than raising; an empty list is the only "OK".
-        problems = engine.validate_composition(resolve_active_scenarios(names))
-        if problems:
-            output.fail("Cannot activate these scenarios", "; ".join(problems))
+        # The set is judged on the build's simulator view, by the rule the
+        # serving composite applies, so the command refuses exactly the sets the
+        # simulator would refuse to serve.
+        try:
+            scenarios = _view_scenarios(repo_root)
+            if scenarios is None:
+                raise ValueError(
+                    f"No simulator view in {_simulator_view(repo_root)}. Run 'osprey build'."
+                )
+            overlaps = validate_composition(
+                {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
+                resolve_active_scenarios(names),
+            )
+        except ValueError as exc:
+            output.fail("Cannot activate these scenarios", str(exc))
+            raise SystemExit(1) from None
+        if overlaps:
+            output.fail("Cannot activate these scenarios", "; ".join(map(str, overlaps)))
             raise SystemExit(1)
         try:
             physics = compute_scenario_physics_env(repo_root, list(names))
@@ -418,7 +429,7 @@ def apply_command(
         # and narrative saying one thing and the untouched history another.
         if seed_archive:
             try:
-                store = preflight_archive_rewrite(repo_root, config, machine_path, list(names))
+                store = preflight_archive_rewrite(repo_root, config, list(names))
             except (ValueError, RuntimeError) as exc:
                 output.fail("The stored archive cannot be rewritten", str(exc))
                 raise SystemExit(1) from None

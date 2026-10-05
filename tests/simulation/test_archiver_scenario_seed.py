@@ -1255,7 +1255,7 @@ class TestPreflight:
         root = _write_project(tmp_path / "proj", mongo_store, password=None)
 
         with pytest.raises(RuntimeError, match="MONGO_ROOT_PASSWORD"):
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
+            preflight_archive_rewrite(root, self._config(root), ["burst"])
 
         assert persisted_scenario_anchor(self._config(root), root) is None
 
@@ -1268,28 +1268,23 @@ class TestPreflight:
         _write_model(root, machine)
 
         with pytest.raises(ValueError, match="at_offset"):
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
+            preflight_archive_rewrite(root, self._config(root), ["burst"])
 
     def test_an_unknown_scenario_is_refused(self, tmp_path):
         root = _write_project(tmp_path / "plain", None, password=None)
 
         with pytest.raises(ValueError, match="Unknown scenario"):
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["nope"])
+            preflight_archive_rewrite(root, self._config(root), ["nope"])
 
     def test_a_project_with_no_store_has_nothing_to_decide(self, tmp_path):
         root = _write_project(tmp_path / "plain", None, password=None)
 
-        assert (
-            preflight_archive_rewrite(root, self._config(root), self._machine_path(root), ["burst"])
-            is None
-        )
+        assert preflight_archive_rewrite(root, self._config(root), ["burst"]) is None
 
     def test_a_healthy_project_returns_the_store_it_would_rewrite(self, tmp_path, mongo_store):
         root = _write_project(tmp_path / "proj", mongo_store, password=mongo_store["password"])
 
-        store = preflight_archive_rewrite(
-            root, self._config(root), self._machine_path(root), ["burst"]
-        )
+        store = preflight_archive_rewrite(root, self._config(root), ["burst"])
 
         assert store is not None
         assert store["database"] == mongo_store["database"]

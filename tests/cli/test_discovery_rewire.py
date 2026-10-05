@@ -560,6 +560,7 @@ class TestSimResolvesTheRepo:
         running control system.
         """
         build = stub_build(lifecycle_repo, config=SIM_CONFIG)
+        write_simulator_view(build, SIM_SCENARIOS)
 
         result = run_sim(runner, ["apply", "vacuum-burst", "--no-seed"], nested(lifecycle_repo))
 
@@ -571,6 +572,7 @@ class TestSimResolvesTheRepo:
     def test_apply_renders_physics_into_the_repo_root_dotenv(self, runner, lifecycle_repo):
         """``.env`` is the SECRETS zone at the repo root, not a file in the render."""
         build = stub_build(lifecycle_repo, config=SIM_CONFIG)
+        write_simulator_view(build, SIM_SCENARIOS)
 
         result = run_sim(runner, ["apply", "nominal", "--no-seed"], nested(lifecycle_repo))
 
