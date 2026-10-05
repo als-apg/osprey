@@ -1273,7 +1273,7 @@ class Channel(ConfiguredBaseModel):
     value_type: Optional[ValueTypeEnum] = Field(default=None, description="""Absent means float.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     options: Optional[list[str]] = Field(default=None, description="""The labels of a bool or enum channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel'], 'list_elements_ordered': True} })
     shape: Optional[list[int]] = Field(default=None, description="""The dimensions of a waveform channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel'], 'list_elements_ordered': True} })
-    precision: Optional[int] = Field(default=None, description="""The decimals a display shows; only on a float channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    precision: Optional[int] = Field(default=None, description="""The decimals a display shows, 0 to 17; only on a float channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     simulation: Optional[Seed] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
 

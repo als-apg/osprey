@@ -122,6 +122,9 @@ _ROW: dict[str, int] = {kind: row for row, kinds in enumerate(_TABLE_ROWS) for k
 _MAX_OPTIONS = 16
 #: The longest label, in ASCII characters.
 _MAX_LABEL = 25
+#: The most decimals a float channel's display shows: a double carries no more
+#: than 17 significant digits.
+_MAX_PRECISION = 17
 
 _NUMERIC_TYPES = ("float", "int")
 _LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
@@ -1029,8 +1032,8 @@ class _Records:
         if problem is None and precision is not None:
             if value_type != "float":
                 problem = f"a {value_type} channel carries `precision`"
-            elif type(precision) is not int or precision < 0:
-                problem = "`precision` is not an int >= 0"
+            elif type(precision) is not int or not 0 <= precision <= _MAX_PRECISION:
+                problem = f"`precision` is not an int from 0 to {_MAX_PRECISION}"
             if problem is not None:
                 self.broken.add(address)
                 yield self._error(
@@ -1039,7 +1042,7 @@ class _Records:
                     address,
                     stating_files(channel, "precision"),
                     problem,
-                    "state `precision`, an int >= 0, only on float channels",
+                    f"state `precision`, an int from 0 to {_MAX_PRECISION}, only on float channels",
                 )
                 return
         if problem is not None:

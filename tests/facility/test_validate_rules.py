@@ -706,7 +706,8 @@ class TestValueRules:
             ({"value_type": "waveform", "shape": [0]}, "needs `shape`"),
             ({"value_type": "int", "shape": [2]}, "a int channel carries `shape`"),
             ({"value_type": "int", "precision": 2}, "a int channel carries `precision`"),
-            ({"precision": -1}, "`precision` is not an int >= 0"),
+            ({"precision": -1}, "`precision` is not an int from 0 to 17"),
+            ({"precision": 18}, "`precision` is not an int from 0 to 17"),
         ],
         ids=[
             "enum-no-options",
@@ -721,6 +722,7 @@ class TestValueRules:
             "shape-on-int",
             "precision-on-int",
             "precision-negative",
+            "precision-above-17",
         ],
     )
     def test_options_and_shape_presence(
@@ -728,6 +730,9 @@ class TestValueRules:
     ) -> None:
         error = _rule(tmp_path, _with_channels({"id": "T", **channel}), "value-invalid")
         assert detail in error.detail
+
+    def test_a_precision_of_17_is_accepted(self, tmp_path: Path) -> None:
+        assert _run(tmp_path, _with_channels({"id": "T", "precision": 17})).ok
 
     def test_a_bool_gets_its_default_labels(self, tmp_path: Path) -> None:
         result = _run(tmp_path, _with_channels({"id": "T", "value_type": "bool"}))
