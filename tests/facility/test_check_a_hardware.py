@@ -22,10 +22,11 @@ fails naming its family and ``DeviceList`` row.
   family value by the scale its Middle Layer function applies --
   ``k_per_amp * Leff / mean(Leff)`` for the tune response, ``k_per_amp /
   (-RF0 * MCF)`` for the chromaticity response. ``k_per_amp`` is the model
-  file's own record of each device's conversion over its step; these two
-  sections read no calibration from the build. ``meastuneresp`` answers the
-  sum of its per-device columns, and its physics answer carries
-  ``measrespmat``'s units quirk (:func:`_units_quirk`).
+  file's own record of each device's conversion over its step, and each
+  device's write entry in the build, a string supply's slice included, meets
+  it as a secant from the build's start value over that step.
+  ``meastuneresp`` answers the sum of its per-device columns, and its physics
+  answer carries ``measrespmat``'s units quirk (:func:`_units_quirk`).
 
 A transport line's monitors read nothing in its wiring, so its physics values
 are the plug-in's own, read where the export's ``AT.ATIndex`` places each
@@ -34,7 +35,9 @@ export states.
 
 No step or solver stands between the two sides, so they agree to the digits
 the file writes (``CONVERSION_RTOL``); the chromaticity response alone is held
-to the band its two unit runs leave (``CHROMATICITY_RTOL``).
+to the band its two unit runs leave (``CHROMATICITY_RTOL``), and a response
+device's build calibration to the band the import's table sampling of the
+facility's conversion leaves (``TABLE_SAMPLING_RTOL``).
 """
 
 from __future__ import annotations
@@ -92,6 +95,14 @@ Built = Callable[[str, str], BuiltModel]
 #: strengths moves its horizontal chromaticity by 1e-7.
 CHROMATICITY_RTOL = {"spear3.storagering": 2e-8, "nsls2.storagering": 2e-7}
 
+#: How far a tune or chromaticity corrector's secant through the build's
+#: calibration may sit from the model file's ``k_per_amp``. The import samples
+#: the facility's nonlinear conversion (``amp2k``) into a piecewise-linear
+#: table, so a secant over the small ``DeltaRespMat`` step reads the slope of
+#: the table segment it falls in, not the facility function's own slope there;
+#: on the coarsest grids that differs by up to 2.8e-2.
+TABLE_SAMPLING_RTOL = 3e-2
+
 #: Every model-file section whose hardware answer a test here converts.
 CHECKED = frozenset(
     {
@@ -113,33 +124,50 @@ CHECKED = frozenset(
 class Calibrations:
     """One model's wiring entries, found by family and ``DeviceList`` row.
 
-    A family's entry is the one whose engine words are the family's and whose
-    address sits on the listed device.
+    A family's entry is the one whose engine words are the family's and that
+    binds the listed device: an entry with no slices binds the device its
+    address sits on, an entry over slices binds each device a slice names, so
+    a supply driving a whole string binds every device of the string.
     """
 
     def __init__(self, built: BuiltModel) -> None:
         self.built = built
         self.wiring = check_a.Wiring(built)
 
-    def entry(self, family: str, direction: str, device: Sequence[float]) -> dict[str, Any]:
-        """The one ``direction`` entry of ``family`` on the listed device."""
+    def binding(
+        self, family: str, direction: str, device: Sequence[float]
+    ) -> tuple[dict[str, Any], float]:
+        """The one ``direction`` entry of ``family`` binding the listed device, and its weight.
+
+        The weight is the one the entry's first slice on the device states,
+        the share of the entry's physics value the device takes; an entry with
+        no slices, or a slice stating none, weighs 1.
+        """
         row = check_a._row(device)
         words = self.wiring.engine(family)
         members = self.wiring.groups[self.wiring.mapping.mapped(family)]
         owners = [name for name in sorted(members) if self.wiring.rows.get(name) == row]
         assert len(owners) == 1, f"{self.built.name} {family} lists {len(owners)} devices {row}"
         (owner,) = owners
-        found = [
-            entry
-            for entry in self.built.wiring
-            if entry.get("direction") == direction
-            and dict(entry.get("engine") or {}) == words
-            and self.wiring.on_device.get(str(entry["address"])) == owner
-        ]
+        found: list[tuple[dict[str, Any], float]] = []
+        for entry in self.built.wiring:
+            if entry.get("direction") != direction or dict(entry.get("engine") or {}) != words:
+                continue
+            own = self.wiring.on_device.get(str(entry["address"]))
+            pieces = [
+                piece for piece in entry.get("slices") or [{}] if piece.get("device", own) == owner
+            ]
+            if pieces:
+                weight = pieces[0].get("weight")
+                found.append((entry, 1.0 if weight is None else float(weight)))
         assert len(found) == 1, (
             f"{self.built.name} wires {len(found)} {direction} entries for {family} {row} ({owner})"
         )
         return found[0]
+
+    def entry(self, family: str, direction: str, device: Sequence[float]) -> dict[str, Any]:
+        """The one ``direction`` entry of ``family`` binding the listed device."""
+        return self.binding(family, direction, device)[0]
 
     def curve(self, family: str, direction: str, device: Sequence[float]) -> Any:
         """The hardware-to-physics curve of one device's entry."""
@@ -645,6 +673,42 @@ def test_response_hardware_is_the_physics_one_through_k_per_amp(
         )
 
 
+@RINGS
+@RESPONSES
+def test_response_k_per_amp_is_the_build_calibration_over_the_step(
+    tree: str, stem: str, name: str, mml_built: Built
+) -> None:
+    """Each answered device's write entry, as a secant over its step, is its ``k_per_amp``.
+
+    A device's change per ampere in the build is its entry's calibration
+    taken as a secant from the build's start value over the family's
+    ``delta_resp_mat``, times the share its slice takes of a string supply.
+    A device no write entry binds fails naming its family and row. The band
+    is the table sampling of the facility's conversion (``TABLE_SAMPLING_RTOL``).
+    """
+    reference = model_reference(tree, stem)
+    block = section(reference, name)
+    calibrations = _calibrations(mml_built(tree, stem))
+    offenders: list[str] = []
+    for family, facts in check_a._answered(block).items():
+        recorded = check_a._flat(facts, "k_per_amp")
+        widths = check_a._flat(facts, "delta_resp_mat")
+        for row, k_per_amp, width in zip(facts["device_list"], recorded, widths, strict=True):
+            entry, weight = calibrations.binding(family, "write", row)
+            curve = calibrations.curve(family, "write", row)
+            start = calibrations.start(family, row)
+            built = weight * _secant(curve, start, float(width))
+            if not abs(built - k_per_amp) <= TABLE_SAMPLING_RTOL * abs(k_per_amp):
+                offenders.append(
+                    f"{family}{check_a._row(row)} ({entry['address']}): "
+                    f"{built!r} vs k_per_amp {float(k_per_amp)!r}"
+                )
+    assert not offenders, (
+        f"{name}: {len(offenders)} devices' build calibration differs from k_per_amp: "
+        f"{offenders[:10]}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Addressing and the helpers, on hand-built inputs
 # ---------------------------------------------------------------------------
@@ -655,6 +719,21 @@ def test_a_device_the_wiring_does_not_carry_fails_naming_it(mml_built: Built) ->
     calibrations = _calibrations(mml_built(*MATLAB_RINGS[0]))
     with pytest.raises(AssertionError, match=r"BPMx lists 0 devices \(99, 99\)"):
         calibrations.entry("BPMx", "read", [99, 99])
+
+
+def test_a_device_of_a_string_binds_through_its_slice_of_the_supply(mml_built: Built) -> None:
+    """Every device a string supply's slices name binds that one supply, at its slice's weight."""
+    calibrations = _calibrations(mml_built(*MATLAB_RINGS[0]))
+    supplies = {
+        (str(entry["address"]), weight)
+        for row in ([3, 1], [3, 2], [4, 1])
+        for entry, weight in [calibrations.binding("SF", "write", row)]
+    }
+    assert len(supplies) == 1, supplies
+    ((address, weight),) = supplies
+    (entry,) = [item for item in calibrations.built.wiring if item["address"] == address]
+    assert len(entry["slices"]) > 1, f"{address} drives no string"
+    assert weight == 1.0
 
 
 def test_hardware_answers_name_every_answered_section() -> None:
