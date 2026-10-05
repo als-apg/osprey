@@ -3491,7 +3491,11 @@ def _build_repo(
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
-    from .profile_conventions import PROJECT_MIRROR_DIR, facility_mirror_violation
+    from .profile_conventions import (
+        PROJECT_MIRROR_DIR,
+        facility_mirror_violation,
+        handwritten_limits_violation,
+    )
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
     # Whatever the verb at the top of this run installed — this build's own
@@ -3687,6 +3691,11 @@ def _build_repo(
 
         data_root = build_profile.resolved_data_root(repo_root)
         assert data_root is not None  # `data:` required; narrows for type-checkers
+        # A limits file the profile ships itself is a stop: the build writes
+        # that file from the facility's limits.yaml.
+        limits_stop = handwritten_limits_violation(data_root, repo_root)
+        if limits_stop is not None:
+            raise limits_stop
         facility_dir = data_root / "facility"
         facility_sha256 = facility_digest(facility_dir)
         facility = build_facility(facility_dir, project_name=name)

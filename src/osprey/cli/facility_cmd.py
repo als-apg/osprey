@@ -71,7 +71,11 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     from osprey.facility.validate import report, run_stages
 
     from .build_cmd import _render_project, _render_zones, _SharedRenderInputs
-    from .profile_conventions import PROJECT_MIRROR_DIR, facility_mirror_violation
+    from .profile_conventions import (
+        PROJECT_MIRROR_DIR,
+        facility_mirror_violation,
+        handwritten_limits_violation,
+    )
     from .templates.manager import TemplateManager
 
     repo_root = find_repo_root(repo)
@@ -85,6 +89,9 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     resolved, overlays = _main_profile(repo_root)
     build_profile = resolved.profile
     facility_dir = _facility_dir(resolved, repo_root)
+    limits_stop = handwritten_limits_violation(facility_dir.parent, repo_root)
+    if limits_stop is not None:
+        raise limits_stop
 
     result = run_stages(facility_dir, project_name=name, later=LATER_STAGES)
     if not result.ok:

@@ -522,6 +522,21 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "`project/data/graph/facility.ttl`",
     ),
     (
+        "profile_invalid__handwritten_limits",
+        "profile-invalid",
+        "a hand-written `data/channel_limits.json`",
+    ),
+    (
+        "profile_invalid__handwritten_simulation_limits",
+        "profile-invalid",
+        "a hand-written `data/simulation/channel_limits.json`",
+    ),
+    (
+        "profile_invalid__mirrored_limits",
+        "profile-invalid",
+        "`project/data/channel_limits.json`",
+    ),
+    (
         "profile_invalid__unknown_served_model",
         "profile-invalid",
         "`simulation.models` names a model the facility file lacks",
@@ -1826,6 +1841,31 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "author the facility in data/facility/"
         ),
     ),
+    "profile_invalid__handwritten_limits": (
+        _plain(),
+        (
+            "facility: profile-invalid: path data/channel_limits.json — the build writes "
+            "data/channel_limits.json from data/facility/limits.yaml; fix: move its limits "
+            "into data/facility/limits.yaml and remove data/channel_limits.json"
+        ),
+    ),
+    "profile_invalid__handwritten_simulation_limits": (
+        _plain(),
+        (
+            "facility: profile-invalid: path data/simulation/channel_limits.json — the build "
+            "writes data/simulation/channel_limits.json from data/facility/limits.yaml; fix: "
+            "move its limits into data/facility/limits.yaml and remove "
+            "data/simulation/channel_limits.json"
+        ),
+    ),
+    "profile_invalid__mirrored_limits": (
+        _plain(),
+        (
+            "facility: profile-invalid: path project/data/channel_limits.json — the build "
+            "writes data/channel_limits.json from data/facility/limits.yaml; fix: move its "
+            "limits into data/facility/limits.yaml and remove project/data/channel_limits.json"
+        ),
+    ),
     "profile_invalid__unknown_served_model": (
         _deck(),
         (
@@ -1867,6 +1907,7 @@ MIRRORED: dict[str, tuple[str, ...]] = {
     "profile_invalid__mirrored_facts_view": ("data/facility_facts.json",),
     "profile_invalid__mirrored_channel_finder_view": ("data/channel_finder/in_context.json",),
     "profile_invalid__mirrored_graph_view": ("data/graph/facility.ttl",),
+    "profile_invalid__mirrored_limits": ("data/channel_limits.json",),
 }
 
 
@@ -1915,6 +1956,16 @@ def _set_tick_zero(repo: Path) -> None:
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
+def _ship_limits(repo: Path) -> None:
+    (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
+
+
+def _ship_simulation_limits(repo: Path) -> None:
+    target = repo / "data" / "simulation" / "channel_limits.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{"_version": "4.0"}\n', encoding="utf-8")
+
+
 def _persona_serves_models(repo: Path) -> None:
     persona = repo / "personas" / "reader.yml"
     persona.parent.mkdir(parents=True, exist_ok=True)
@@ -1933,6 +1984,8 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__persona_served_models": _persona_serves_models,
     "profile_invalid__tier": _spell_tier,
     "profile_invalid__simulation_tick_s": _set_tick_zero,
+    "profile_invalid__handwritten_limits": _ship_limits,
+    "profile_invalid__handwritten_simulation_limits": _ship_simulation_limits,
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
