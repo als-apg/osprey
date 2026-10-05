@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
   </head>
   
   
@@ -1581,7 +1581,10 @@ osprey<span class="w"> </span>mml<span class="w"> </span>verify
 <section id="osprey-ariel">
 <h2>osprey ariel<a class="headerlink" href="#osprey-ariel" title="Link to this heading">#</a></h2>
 <p>Manage the ARIEL logbook search service.</p>
-<p><code class="docutils literal notranslate"><span class="pre">quickstart</span> <span class="pre">[--source</span> <span class="pre">PATH]</span></code> – Full setup: migrate and ingest demo data.</p>
+<p><code class="docutils literal notranslate"><span class="pre">quickstart</span> <span class="pre">[--source</span> <span class="pre">PATH]</span></code> – Full setup: migrate, then ingest
+<code class="docutils literal notranslate"><span class="pre">--source</span></code> or the configured ingestion source; with neither, seed
+<code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> into an empty logbook and run the enhancement modules
+over it.</p>
 <p><code class="docutils literal notranslate"><span class="pre">status</span> <span class="pre">[--json]</span></code> – Show service status.</p>
 <p><code class="docutils literal notranslate"><span class="pre">migrate</span></code> – Create or update database tables.</p>
 <p><code class="docutils literal notranslate"><span class="pre">sync</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Idempotent migrate + incremental ingest + enhance.

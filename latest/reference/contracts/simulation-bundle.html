@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
   </head>
   
   
@@ -489,6 +489,7 @@ Accelerator container, and the <code class="docutils literal notranslate"><span 
     &lt;name&gt;/
       scenario.json          overrides, archiver events, physics (required)
       logbook.json           the scenario&#39;s logbook narrative (optional)
+      &lt;any subpath&gt;          pictures and plot specs logbook entries attach (optional)
 </pre></div>
 </div>
 <ul class="simple">
@@ -513,8 +514,10 @@ scenario set, therefore lives under the agent-data root instead
 <section id="machine-json">
 <span id="simulation-bundle-machine"></span><h2><code class="docutils literal notranslate"><span class="pre">machine.json</span></code><a class="headerlink" href="#machine-json" title="Link to this heading">#</a></h2>
 <p>The top-level keys the loader reads are <code class="docutils literal notranslate"><span class="pre">channels</span></code> (required, a mapping of
-channel name to channel entry), and <code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code> (optional
-strings). Other top-level keys are not read by the loader.</p>
+channel name to channel entry), <code class="docutils literal notranslate"><span class="pre">name</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code> (optional
+strings), and <code class="docutils literal notranslate"><span class="pre">default_scenarios</span></code> (optional, a list of scenario names the
+bundle defines; see <a class="reference internal" href="#simulation-bundle-composition"><span class="std std-ref">Composition</span></a>). Other top-level keys
+are not read by the loader.</p>
 <div class="pst-scrollable-table-container"><table class="table" id="id1">
 <caption><span class="caption-text">Channel entry</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
 <colgroup>
@@ -710,13 +713,20 @@ string.</p>
 A ramp pairs it with <code class="docutils literal notranslate"><span class="pre">until_offset</span></code>; a spike’s <code class="docutils literal notranslate"><span class="pre">width</span></code> is in
 seconds.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at_time</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at_when</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">{&quot;days_ago&quot;:</span> <span class="pre">&lt;int</span> <span class="pre">≥</span> <span class="pre">0&gt;,</span> <span class="pre">&quot;time&quot;:</span> <span class="pre">&quot;HH:MM:SS&quot;}</span></code>, the logbook’s own
+<code class="docutils literal notranslate"><span class="pre">when</span></code>: the calendar day <code class="docutils literal notranslate"><span class="pre">days_ago</span></code> days before T0’s date, at
+<code class="docutils literal notranslate"><span class="pre">time</span></code>, in the facility time zone. An event and the entry narrating it
+resolve to one instant whatever time of day T0 falls at. <code class="docutils literal notranslate"><span class="pre">step</span></code> and
+<code class="docutils literal notranslate"><span class="pre">spike</span></code> only; a spike’s <code class="docutils literal notranslate"><span class="pre">width</span></code> is in seconds.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at_time</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;HH:MM:SS&quot;</span></code> with no zone offset, recurring daily: the event fires at
 that time of day on every calendar date inside the window read, in the
 facility time zone (<code class="docutils literal notranslate"><span class="pre">system.timezone</span></code>, UTC when unset). <code class="docutils literal notranslate"><span class="pre">step</span></code> and
 <code class="docutils literal notranslate"><span class="pre">spike</span></code> only; a spike’s <code class="docutils literal notranslate"><span class="pre">width</span></code> is in seconds.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at</span></code></p></td>
 <td><p>A fraction in <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1]</span></code> of whatever window a reader asks for. A ramp
 pairs it with <code class="docutils literal notranslate"><span class="pre">until</span></code>, also a fraction; a spike’s <code class="docutils literal notranslate"><span class="pre">width</span></code> is a
 window fraction. A ramp that mixes the fraction and offset flavours is
@@ -739,8 +749,8 @@ the archive rewrite is skipped with <code class="docutils literal notranslate"><
 The refusal holds on every simulation-backed project, whether or not it has
 a stored archive: a fraction names a position in a reader’s window, not an
 instant that can be written. The mock archiver can still draw an <code class="docutils literal notranslate"><span class="pre">at</span></code>
-event at read time, but a bundle meant to be applied uses <code class="docutils literal notranslate"><span class="pre">at_offset</span></code> or
-<code class="docutils literal notranslate"><span class="pre">at_time</span></code>, and the shipped bundles are held to that.</p>
+event at read time, but a bundle meant to be applied uses <code class="docutils literal notranslate"><span class="pre">at_offset</span></code>,
+<code class="docutils literal notranslate"><span class="pre">at_when</span></code> or <code class="docutils literal notranslate"><span class="pre">at_time</span></code>, and the shipped bundles are held to that.</p>
 </div>
 </section>
 <section id="shared-drivers">
@@ -883,17 +893,77 @@ carries no zone offset.</p></td>
 so it can overwrite the <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">categories</span></code> and
 <code class="docutils literal notranslate"><span class="pre">loto_tag</span></code> stored there.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">attachments</span></code></p></td>
+<td><p>List, default empty, in the order the entry shows its pictures. Each
+item holds exactly one key. <code class="docutils literal notranslate"><span class="pre">{&quot;path&quot;:</span> <span class="pre">&quot;&lt;relative</span> <span class="pre">path&gt;&quot;}</span></code> names a
+shipped picture: a <code class="docutils literal notranslate"><span class="pre">.png</span></code>, <code class="docutils literal notranslate"><span class="pre">.jpg</span></code>, <code class="docutils literal notranslate"><span class="pre">.jpeg</span></code>, <code class="docutils literal notranslate"><span class="pre">.gif</span></code> or <code class="docutils literal notranslate"><span class="pre">.webp</span></code>
+file inside the scenario directory whose bytes are that format.
+<code class="docutils literal notranslate"><span class="pre">{&quot;plot&quot;:</span> <span class="pre">&quot;&lt;relative</span> <span class="pre">path&gt;&quot;}</span></code> names a plot spec: a <code class="docutils literal notranslate"><span class="pre">.json</span></code> file
+inside the scenario directory holding a valid spec (below). No two
+pictures of one entry share a file name.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">when</span></code> resolves to the calendar day <code class="docutils literal notranslate"><span class="pre">days_ago</span></code> days before T0, at <code class="docutils literal notranslate"><span class="pre">time</span></code>,
 in T0’s time zone. A <code class="docutils literal notranslate"><span class="pre">days_ago:</span> <span class="pre">0</span></code> entry whose <code class="docutils literal notranslate"><span class="pre">time</span></code> is later than T0 lands
 in the future.</p>
+<p>A plot spec is a time-series picture drawn when its entry is seeded, so its
+time axis shows the dates that entry resolves to. It carries its own data and
+needs no machine model, so a narrative seeded without a simulation draws it
+too. The schema is closed:</p>
+<div class="pst-scrollable-table-container"><table class="table" id="id4">
+<caption><span class="caption-text">Plot spec</span><a class="headerlink" href="#id4" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Rule</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">filename</span></code></p></td>
+<td><p>Required. A <code class="docutils literal notranslate"><span class="pre">.png</span></code> file name with no directory: the name the drawn
+picture is stored under.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">ylabel</span></code></p></td>
+<td><p>Strings, required. The figure title and the y-axis label.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hours_before</span></code></p></td>
+<td><p>Required. The shared time axis: at least two finite numbers,
+non-increasing, ending at <code class="docutils literal notranslate"><span class="pre">0</span></code>, each the hours before the entry’s
+instant.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">series</span></code></p></td>
+<td><p>Required. A non-empty list of <code class="docutils literal notranslate"><span class="pre">{&quot;label&quot;:</span> <span class="pre">&lt;non-empty</span> <span class="pre">string&gt;,</span>
+<span class="pre">&quot;values&quot;:</span> <span class="pre">[&lt;finite</span> <span class="pre">number&gt;,</span> <span class="pre">...]}</span></code>, one <code class="docutils literal notranslate"><span class="pre">values</span></code> element per
+<code class="docutils literal notranslate"><span class="pre">hours_before</span></code> point; <code class="docutils literal notranslate"><span class="pre">label</span></code> is unique and names the line in the
+legend.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ylim</span></code></p></td>
+<td><p>Optional <code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high]</span></code> with <code class="docutils literal notranslate"><span class="pre">low</span> <span class="pre">&lt;</span> <span class="pre">high</span></code>; absent fits the data.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The picture is 800 × 450 pixels: each series is a line on matplotlib’s default
+colour cycle, with a legend, a light grid and date ticks read in T0’s time zone,
+the axis ending at the entry’s instant. Nothing else is drawn on it.</p>
 <p>Applying scenarios purges the logbook and reseeds it from every active
 scenario’s entries in activation order, <code class="docutils literal notranslate"><span class="pre">nominal</span></code> first. Entries are upserted
 by <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>, so when two active scenarios reuse an id only the later one’s
 entry is kept. Seeding needs an <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block in the project config; without
 one it is skipped, and <code class="docutils literal notranslate"><span class="pre">--no-seed-logbook</span></code> or <code class="docutils literal notranslate"><span class="pre">--no-seed</span></code> skips it too.</p>
+<p>Each picture an entry attaches is stored in ARIEL’s own attachment store and
+linked on the entry, with the rendition <code class="docutils literal notranslate"><span class="pre">attachment_view</span></code> returns. A plot spec
+is drawn first, ending at the entry’s resolved timestamp, so a picture of the
+week before an entry carries that week’s dates whatever T0 is; the bundle never
+holds the drawn file. Seeding runs
+no enhancement module, so a picture’s caption, and with it the entry’s
+searchability by what the picture shows, arrives only once <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span>
+<span class="pre">enhance</span></code> or the ingestion poller runs with a vision model configured.</p>
 </section>
 <section id="composition">
 <span id="simulation-bundle-composition"></span><h2>Composition<a class="headerlink" href="#composition" title="Link to this heading">#</a></h2>
@@ -913,14 +983,26 @@ whole, by rename: an optional <code class="docutils literal notranslate"><span c
 Blank lines and lines starting with <code class="docutils literal notranslate"><span class="pre">#</span></code> are skipped. Every reader re-reads the
 file when it changes. On the mock connectors, writing it clears the values
 written during the session.</p>
+<p>A deployment with no state file has never chosen a set. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> then
+activates the machine’s <code class="docutils literal notranslate"><span class="pre">default_scenarios</span></code> the way <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> would,
+before it seeds the archive and the logbook, so both carry that set’s history
+and narrative. A machine with no <code class="docutils literal notranslate"><span class="pre">default_scenarios</span></code> runs <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone.
+The names are resolved then, as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> resolves its arguments: a
+default the bundle does not define, or a set that does not compose, leaves the
+deployment on <code class="docutils literal notranslate"><span class="pre">nominal</span></code> with a warning.
+Once the file exists, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> leaves it alone, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code>
+always means exactly the set it names (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">nominal</span></code> included).
+On a deployment whose logbook already holds entries, the activated set’s
+entries are not added; the deploy warns and names the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code>
+command that reseeds them.</p>
 </section>
 <section id="refusals">
 <span id="simulation-bundle-refusals"></span><h2>Refusals<a class="headerlink" href="#refusals" title="Link to this heading">#</a></h2>
 <p>Every message is quoted up to its first variable part; <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;ch&gt;</span></code>,
 <code class="docutils literal notranslate"><span class="pre">&lt;id&gt;</span></code> and <code class="docutils literal notranslate"><span class="pre">&lt;key&gt;</span></code> stand for the scenario, channel, device and key the
 message names.</p>
-<div class="pst-scrollable-table-container"><table class="table" id="id4">
-<caption><span class="caption-text">Load: every reader, on engine construction and in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code> and <code class="docutils literal notranslate"><span class="pre">apply</span></code></span><a class="headerlink" href="#id4" title="Link to this table">#</a></caption>
+<div class="pst-scrollable-table-container"><table class="table" id="id5">
+<caption><span class="caption-text">Load: every reader, on engine construction and in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code> and <code class="docutils literal notranslate"><span class="pre">apply</span></code></span><a class="headerlink" href="#id5" title="Link to this table">#</a></caption>
 <colgroup>
 <col style="width: 34.0%" />
 <col style="width: 66.0%" />
@@ -1095,6 +1177,63 @@ driver, a driver twice, <code class="docutils literal notranslate"><span class="
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">extra</span></code> not a mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'extra'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">default_scenarios</span></code> not a list of names</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">'default_scenarios'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">list</span> <span class="pre">of</span> <span class="pre">scenario</span> <span class="pre">names</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attachments</span></code> not a list, or an item not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">'attachments'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">list</span></code>
+(or <code class="docutils literal notranslate"><span class="pre">each</span> <span class="pre">attachment</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p>An attachment with a key other than <code class="docutils literal notranslate"><span class="pre">path</span></code> or <code class="docutils literal notranslate"><span class="pre">plot</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">attachment</span> <span class="pre">has</span> <span class="pre">unknown</span> <span class="pre">keys</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>An attachment with both <code class="docutils literal notranslate"><span class="pre">path</span></code> and <code class="docutils literal notranslate"><span class="pre">plot</span></code>, or neither</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">an</span> <span class="pre">attachment</span> <span class="pre">names</span> <span class="pre">exactly</span> <span class="pre">one</span>
+<span class="pre">of</span> <span class="pre">'path'</span> <span class="pre">or</span> <span class="pre">'plot'</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Attachment <code class="docutils literal notranslate"><span class="pre">path</span></code> or <code class="docutils literal notranslate"><span class="pre">plot</span></code> empty or not a string</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">attachment</span> <span class="pre">'path'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span>
+<span class="pre">non-empty</span> <span class="pre">string</span></code> (or <code class="docutils literal notranslate"><span class="pre">attachment</span> <span class="pre">'plot'</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Attachment <code class="docutils literal notranslate"><span class="pre">path</span></code> or <code class="docutils literal notranslate"><span class="pre">plot</span></code> absolute or leaving the scenario
+directory</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">attachment</span> <span class="pre">path</span> <span class="pre">'&lt;path&gt;'</span> <span class="pre">must</span>
+<span class="pre">be</span> <span class="pre">relative</span> <span class="pre">to</span> <span class="pre">the</span> <span class="pre">scenario</span> <span class="pre">directory</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Two pictures of one entry with the same file name</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">two</span> <span class="pre">attachments</span> <span class="pre">are</span> <span class="pre">both</span>
+<span class="pre">named</span> <span class="pre">'&lt;file&gt;'</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Plot spec not a <code class="docutils literal notranslate"><span class="pre">.json</span></code> file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">plot</span> <span class="pre">spec</span> <span class="pre">'&lt;path&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span>
+<span class="pre">.json</span> <span class="pre">file</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Plot spec file missing</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">plot</span> <span class="pre">spec</span> <span class="pre">'&lt;path&gt;'</span> <span class="pre">not</span> <span class="pre">found</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Plot spec not valid JSON</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">plot</span> <span class="pre">spec</span> <span class="pre">'&lt;path&gt;'</span> <span class="pre">is</span> <span class="pre">not</span>
+<span class="pre">valid</span> <span class="pre">JSON</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Plot spec breaking its schema (not an object, a key unknown or missing,
+a value of the wrong type, <code class="docutils literal notranslate"><span class="pre">hours_before</span></code> too short, increasing or not
+ending at <code class="docutils literal notranslate"><span class="pre">0</span></code>, a series of the wrong length or a repeated label, a bad
+<code class="docutils literal notranslate"><span class="pre">ylim</span></code>)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">plot</span> <span class="pre">spec</span> <span class="pre">'&lt;path&gt;':</span></code> followed
+by the rule broken, for example <code class="docutils literal notranslate"><span class="pre">'hours_before'</span> <span class="pre">must</span> <span class="pre">end</span> <span class="pre">at</span> <span class="pre">0</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Attachment suffix not a picture format</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">attachment</span> <span class="pre">'&lt;path&gt;'</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span>
+<span class="pre">picture</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Attachment file missing</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">attachment</span> <span class="pre">file</span> <span class="pre">'&lt;path&gt;'</span> <span class="pre">not</span>
+<span class="pre">found</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Attachment bytes not the suffix’s format</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;'</span> <span class="pre">logbook</span> <span class="pre">entry</span> <span class="pre">'&lt;id&gt;':</span> <span class="pre">attachment</span> <span class="pre">'&lt;path&gt;'</span> <span class="pre">does</span> <span class="pre">not</span>
+<span class="pre">hold</span></code></p></td>
+</tr>
 <tr class="row-even"><td><p>Event not a mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
 </tr>
@@ -1107,9 +1246,9 @@ driver, a driver twice, <code class="docutils literal notranslate"><span class="
 <tr class="row-odd"><td><p>Not exactly one position key</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">requires</span> <span class="pre">exactly</span> <span class="pre">one</span> <span class="pre">of</span> <span class="pre">'at'</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>Ramp positioned by <code class="docutils literal notranslate"><span class="pre">at_time</span></code></p></td>
+<tr class="row-even"><td><p>Ramp positioned by <code class="docutils literal notranslate"><span class="pre">at_time</span></code> or <code class="docutils literal notranslate"><span class="pre">at_when</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'ramp'</span> <span class="pre">events</span> <span class="pre">do</span> <span class="pre">not</span> <span class="pre">support</span>
-<span class="pre">'at_time'</span></code></p></td>
+<span class="pre">'at_time'</span></code> (or <code class="docutils literal notranslate"><span class="pre">'at_when'</span></code>)</p></td>
 </tr>
 <tr class="row-odd"><td><p>Ramp mixing fraction and offset keys</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'ramp'</span> <span class="pre">event</span> <span class="pre">must</span> <span class="pre">not</span> <span class="pre">mix</span> <span class="pre">fraction</span>
@@ -1118,19 +1257,29 @@ driver, a driver twice, <code class="docutils literal notranslate"><span class="
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at_time</span></code> not a string, not a valid time of day, or with a zone offset</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'at_time'</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>A shape other than <code class="docutils literal notranslate"><span class="pre">step</span></code> on a string channel</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at_when</span></code> not a mapping</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'at_when'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">mapping</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at_when</span></code> with a bad <code class="docutils literal notranslate"><span class="pre">days_ago</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'days_ago'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">non-negative</span>
+<span class="pre">integer</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at_when</span></code> with a bad <code class="docutils literal notranslate"><span class="pre">time</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'at_when.time'</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>A shape other than <code class="docutils literal notranslate"><span class="pre">step</span></code> on a string channel</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">'&lt;shape&gt;'</span> <span class="pre">events</span> <span class="pre">are</span> <span class="pre">not</span> <span class="pre">supported</span>
 <span class="pre">on</span> <span class="pre">string-valued</span> <span class="pre">channels</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>A position, until, <code class="docutils literal notranslate"><span class="pre">to</span></code>, <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> or <code class="docutils literal notranslate"><span class="pre">width</span></code> value not a number</p></td>
+<tr class="row-odd"><td><p>A position, until, <code class="docutils literal notranslate"><span class="pre">to</span></code>, <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> or <code class="docutils literal notranslate"><span class="pre">width</span></code> value not a number</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span>
 <span class="pre">number</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">at</span></code> or <code class="docutils literal notranslate"><span class="pre">until</span></code> outside <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1]</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">at</span></code> or <code class="docutils literal notranslate"><span class="pre">until</span></code> outside <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1]</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'&lt;key&gt;'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">between</span>
 <span class="pre">0</span> <span class="pre">and</span> <span class="pre">1</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">width</span></code> not greater than 0</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">width</span></code> not greater than 0</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">Scenario</span> <span class="pre">'&lt;name&gt;',</span> <span class="pre">channel</span> <span class="pre">'&lt;ch&gt;':</span> <span class="pre">event</span> <span class="pre">key</span> <span class="pre">'width'</span> <span class="pre">must</span> <span class="pre">be</span> <span class="pre">a</span> <span class="pre">number</span>
 <span class="pre">&gt;</span> <span class="pre">0</span></code></p></td>
 </tr>
@@ -1140,8 +1289,8 @@ driver, a driver twice, <code class="docutils literal notranslate"><span class="
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> checks the requested set in this order and refuses before
 anything is written: the logbook, the archive, the state file and <code class="docutils literal notranslate"><span class="pre">.env</span></code> are
 all left as they were.</p>
-<div class="pst-scrollable-table-container"><table class="table" id="id5">
-<caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code>, before anything is written</span><a class="headerlink" href="#id5" title="Link to this table">#</a></caption>
+<div class="pst-scrollable-table-container"><table class="table" id="id6">
+<caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code>, before anything is written</span><a class="headerlink" href="#id6" title="Link to this table">#</a></caption>
 <colgroup>
 <col style="width: 34.0%" />
 <col style="width: 66.0%" />
@@ -1172,8 +1321,8 @@ skipped</p></td>
 </tbody>
 </table>
 </div>
-<div class="pst-scrollable-table-container"><table class="table" id="id6">
-<caption><span class="caption-text">Virtual Accelerator container boot</span><a class="headerlink" href="#id6" title="Link to this table">#</a></caption>
+<div class="pst-scrollable-table-container"><table class="table" id="id7">
+<caption><span class="caption-text">Virtual Accelerator container boot</span><a class="headerlink" href="#id7" title="Link to this table">#</a></caption>
 <colgroup>
 <col style="width: 34.0%" />
 <col style="width: 66.0%" />
@@ -1207,8 +1356,8 @@ logged and ignored. The one supported way to change the active set is <code clas
 <p>A machine with one vacuum gauge, a derived margin and a valve, and one
 scenario that raises the pressure, closes the valve in history and records
 why.</p>
-<div class="literal-block-wrapper docutils container" id="id7">
-<div class="code-block-caption"><span class="caption-text">data/simulation/machine.json</span><a class="headerlink" href="#id7" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id8">
+<div class="code-block-caption"><span class="caption-text">data/simulation/machine.json</span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Example ring&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;One vacuum sector of a storage ring.&quot;</span><span class="p">,</span>
@@ -1235,8 +1384,8 @@ why.</p>
 </pre></div>
 </div>
 </div>
-<div class="literal-block-wrapper docutils container" id="id8">
-<div class="code-block-caption"><span class="caption-text">data/simulation/scenarios/vacuum-leak/scenario.json</span><a class="headerlink" href="#id8" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id9">
+<div class="code-block-caption"><span class="caption-text">data/simulation/scenarios/vacuum-leak/scenario.json</span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;A small leak in sector 1: pressure is up and the gate valve is closed.&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;overrides&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
@@ -1260,8 +1409,8 @@ why.</p>
 </pre></div>
 </div>
 </div>
-<div class="literal-block-wrapper docutils container" id="id9">
-<div class="code-block-caption"><span class="caption-text">data/simulation/scenarios/vacuum-leak/logbook.json</span><a class="headerlink" href="#id9" title="Link to this code">#</a></div>
+<div class="literal-block-wrapper docutils container" id="id10">
+<div class="code-block-caption"><span class="caption-text">data/simulation/scenarios/vacuum-leak/logbook.json</span><a class="headerlink" href="#id10" title="Link to this code">#</a></div>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
 <span class="w">  </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;entry_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VAC-001&quot;</span><span class="p">,</span>

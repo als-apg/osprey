@@ -62,11 +62,11 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Bluesky Plans" href="../bluesky/index.html" />
-    <link rel="prev" title="The Search Sidecar (qmd)" href="search-sidecar.html" />
+    <link rel="prev" title="Picture Captions and Picture Search" href="picture-search.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
   </head>
   
   
@@ -447,6 +447,7 @@
 <li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="picture-search.html">Picture Captions and Picture Search</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Standalone Deployment</a></li>
 </ul>
 </details></li>
@@ -611,8 +612,10 @@ background:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p class="sd-card-text">Once the container is running, run database migrations and
-ingest the bundled demo logbook with embeddings:</p>
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds the demo logbook into the empty database:
+the logbook narrative of every control-assistant demo scenario,
+pictures included. Add embeddings (and picture captions, where a
+vision model answers) with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
 </pre></div>
 </div>
@@ -682,15 +685,17 @@ a wiped <code class="docutils literal notranslate"><span class="pre">build/</spa
 <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> or <code class="docutils literal notranslate"><span class="pre">CBORG_API_KEY</span></code>). The default provider is
 <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>. That file is the deployment’s one secret store, and a build
 never rewrites it, so a value set there survives every rebuild.</p></li>
-<li><p><strong>Replace the demo logbook seed.</strong> The bundled
-<code class="docutils literal notranslate"><span class="pre">data/logbook_seed/demo_logbook.json</span></code> is 28 entries of fictional
-accelerator events. Either:</p>
+<li><p><strong>Replace the demo logbook.</strong> <code class="docutils literal notranslate"><span class="pre">data/logbook_seed/</span></code> holds the
+logbook narrative of the control-assistant demo scenarios: 29 entries of
+fictional accelerator events, three of them with a plot, one directory per
+scenario in the scenario-bundle logbook format
+(<a class="reference internal" href="../../reference/contracts/simulation-bundle.html#simulation-bundle-logbook"><span class="std std-ref">logbook.json</span></a>). <code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> names that
+directory, and it is seeded only into an empty logbook. Either:</p>
 <ul class="simple">
-<li><p>Replace the file with a dump from your real logbook (preserve the
-<code class="docutils literal notranslate"><span class="pre">generic_json</span></code> schema), or</p></li>
-<li><p>Edit <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> / <code class="docutils literal notranslate"><span class="pre">source_url</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-to point at your facility’s logbook system (see
-<a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a>).</p></li>
+<li><p>Point <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> / <code class="docutils literal notranslate"><span class="pre">source_url</span></code> at your facility’s
+logbook system (see <a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a>) and remove
+<code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code>, or</p></li>
+<li><p>Replace the narratives with your own, in the same format.</p></li>
 </ul>
 </li>
 </ol>
@@ -770,12 +775,12 @@ after changing it in <code class="docutils literal notranslate"><span class="pre
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="search-sidecar.html"
+       href="picture-search.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</p>
+        <p class="prev-next-title">Picture Captions and Picture Search</p>
       </div>
     </a>
     <a class="right-next"

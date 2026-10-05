@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
   </head>
   
   
@@ -543,29 +543,43 @@ OSPREY agent selects the appropriate tool based on the user’s query.</p>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">semantic_search</span></code></p></td>
 <td><p>Vector similarity search using embeddings</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code></p></td>
+<td><p>Keyword and semantic ranking combined, with optional query expansion
+and reranking (offered when the hybrid module is enabled)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code></p></td>
 <td><p>Direct SQL queries against the logbook database</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">browse</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">browse</span></code></p></td>
 <td><p>Browse entries with pagination and filters</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">filter_options</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">filter_options</span></code></p></td>
 <td><p>Get distinct values for a filterable field (authors or source systems)</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">status</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">status</span></code></p></td>
 <td><p>Check ARIEL service health and configuration</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_publish</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entry_publish</span></code></p></td>
 <td><p>Publish an existing ARIEL entry to the facility logbook</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code></p></td>
 <td><p>List available search capabilities and their status</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_get</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entry_get</span></code></p></td>
 <td><p>Retrieve a single entry by ID</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code></p></td>
 <td><p>Batch retrieve multiple entries by their IDs</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attachment_view</span></code></p></td>
+<td><p>Return one viewable picture attached to an entry, with its summary</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_open</span></code></p></td>
+<td><p>Show an entry, and optionally one of its viewable pictures enlarged, in
+the ARIEL web panel</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code></p></td>
+<td><p>Copy one viewable picture into the artifact gallery and select it there</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_create</span></code></p></td>
 <td><p>Create a new logbook entry</p></td>
@@ -578,7 +592,109 @@ characters of each entry’s <code class="docutils literal notranslate"><span cl
 <code class="docutils literal notranslate"><span class="pre">ariel.entry_text.read_chars</span></code>. An entry cut there also carries
 <code class="docutils literal notranslate"><span class="pre">raw_text_truncated:</span> <span class="pre">true</span></code> and its full <code class="docutils literal notranslate"><span class="pre">raw_text_length</span></code>. <code class="docutils literal notranslate"><span class="pre">entry_get</span></code>
 returns the whole entry. See <a class="reference internal" href="../configuration/config.html#config-ariel-entry-text"><span class="std std-ref">ariel.entry_text: — how much of each entry the agent reads</span></a>.</p>
+<section id="attachment-summaries">
+<h3>Attachment summaries<a class="headerlink" href="#attachment-summaries" title="Link to this heading">#</a></h3>
+<p>Every tool that returns entries describes their attachments with one summary
+shape, listed under <code class="docutils literal notranslate"><span class="pre">attachments</span></code>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>{attachment_id?, filename, mime_type, viewable, copy_status, skip_reason?,
+ caption?, caption_source?, visible_text?, url?}
+</pre></div>
+</div>
+<p>Listings (search results, <code class="docutils literal notranslate"><span class="pre">browse</span></code> and <code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code>) cut <code class="docutils literal notranslate"><span class="pre">caption</span></code>
+and <code class="docutils literal notranslate"><span class="pre">visible_text</span></code> to 200 characters and mark a cut field with
+<code class="docutils literal notranslate"><span class="pre">caption_truncated</span></code> or <code class="docutils literal notranslate"><span class="pre">visible_text_truncated</span></code>; they carry only the first
+few summaries and count them all in <code class="docutils literal notranslate"><span class="pre">attachment_count</span></code>. A search hit that
+matched through an attachment names it in <code class="docutils literal notranslate"><span class="pre">matched_attachment_ids</span></code>.
+<code class="docutils literal notranslate"><span class="pre">entry_get</span></code> returns every summary with its caption in full.</p>
+<p>An attachment is <code class="docutils literal notranslate"><span class="pre">viewable</span></code> when its copy finished (<code class="docutils literal notranslate"><span class="pre">copy_status</span></code> is
+<code class="docutils literal notranslate"><span class="pre">copied</span></code>), it was not skipped (no <code class="docutils literal notranslate"><span class="pre">skip_reason</span></code>), its type is an image,
+and its display rendition is stored. <code class="docutils literal notranslate"><span class="pre">attachment_view</span></code> takes the
+<code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> of a viewable attachment and returns a JSON block (the
+summary plus <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>, <code class="docutils literal notranslate"><span class="pre">source_url</span></code>, <code class="docutils literal notranslate"><span class="pre">size_bytes</span></code>, <code class="docutils literal notranslate"><span class="pre">rendition_size</span></code>
+and <code class="docutils literal notranslate"><span class="pre">rendition_sha256</span></code>) followed by the picture. An unknown id is
+<code class="docutils literal notranslate"><span class="pre">not_found</span></code>; an attachment that is not viewable is <code class="docutils literal notranslate"><span class="pre">no_results</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled</span></code> (default <code class="docutils literal notranslate"><span class="pre">true</span></code>) switches picture viewing
+for the agent. With it off:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">attachment_view</span></code> and <code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code> are absent from
+<code class="docutils literal notranslate"><span class="pre">tools/list</span></code>, and a call to either returns <code class="docutils literal notranslate"><span class="pre">not_supported</span></code>;</p></li>
+<li><p>listings carry no <code class="docutils literal notranslate"><span class="pre">attachments</span></code>, <code class="docutils literal notranslate"><span class="pre">attachment_count</span></code> or
+<code class="docutils literal notranslate"><span class="pre">matched_attachment_ids</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">entry_get</span></code> carries the entry’s stored <code class="docutils literal notranslate"><span class="pre">attachments</span></code> items unchanged,
+without summaries.</p></li>
+</ul>
+<p>The web panel’s attachment display does not depend on this setting.</p>
+<p><code class="docutils literal notranslate"><span class="pre">entry_open</span></code> takes an <code class="docutils literal notranslate"><span class="pre">entry_id</span></code> and an optional <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> and asks
+the web terminal to bring the ARIEL panel forward at
+<code class="docutils literal notranslate"><span class="pre">#entry?id=&lt;entry_id&gt;</span></code>, with <code class="docutils literal notranslate"><span class="pre">&amp;attachment=&lt;attachment_id&gt;</span></code> when that
+attachment is one of the entry’s and is viewable. It returns <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>,
+<code class="docutils literal notranslate"><span class="pre">attachment_id</span></code>, <code class="docutils literal notranslate"><span class="pre">opened</span></code> (<code class="docutils literal notranslate"><span class="pre">entry</span></code> or <code class="docutils literal notranslate"><span class="pre">entry_and_picture</span></code>), the panel
+<code class="docutils literal notranslate"><span class="pre">url</span></code> and a <code class="docutils literal notranslate"><span class="pre">message</span></code>; without a web terminal the <code class="docutils literal notranslate"><span class="pre">url</span></code> is the link to
+follow. An unknown entry, or an attachment that is not the entry’s, is
+<code class="docutils literal notranslate"><span class="pre">not_found</span></code>. The panel route also works in a browser on the standalone ARIEL
+web page.</p>
+<p><code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code> takes the <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> of a viewable attachment
+and saves its display rendition, never the original upload, to the artifact
+gallery as an <code class="docutils literal notranslate"><span class="pre">image</span></code> artifact in the <code class="docutils literal notranslate"><span class="pre">visualization</span></code> category, titled with
+the filename and entry id. The entry id, attachment id, filename, and caption
+with its <code class="docutils literal notranslate"><span class="pre">caption_source</span></code> are recorded in the artifact’s description and in
+<code class="docutils literal notranslate"><span class="pre">metadata.logbook_picture</span></code>. The artifact is keyed by the rendition’s sha256,
+so saving the same picture again returns the same artifact. The result is the
+gallery’s usual artifact response (<code class="docutils literal notranslate"><span class="pre">artifact_id</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code>,
+<code class="docutils literal notranslate"><span class="pre">artifact_type</span></code>, <code class="docutils literal notranslate"><span class="pre">category</span></code>, <code class="docutils literal notranslate"><span class="pre">gallery_url</span></code> …) plus <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>,
+<code class="docutils literal notranslate"><span class="pre">attachment_id</span></code>, <code class="docutils literal notranslate"><span class="pre">created</span></code> and <code class="docutils literal notranslate"><span class="pre">focused</span></code>. Errors match
+<code class="docutils literal notranslate"><span class="pre">attachment_view</span></code>’s.</p>
 <p><strong>Source:</strong> <code class="file docutils literal notranslate"><span class="pre">src/osprey/mcp_server/ariel/tools/</span></code></p>
+</section>
+<section id="captions-and-picture-search-availability">
+<h3>Captions and picture search availability<a class="headerlink" href="#captions-and-picture-search-availability" title="Link to this heading">#</a></h3>
+<p>The presets turn <code class="docutils literal notranslate"><span class="pre">image_caption</span></code>, <code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled</span></code> on. Each picture module runs when its server
+and model answer and is skipped otherwise, like semantic search without
+Ollama; nothing else stops working. See <a class="reference internal" href="../../how-to/ariel/picture-search.html"><span class="doc">Picture Captions and Picture Search</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">capabilities.attachments</span></code> carries:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">captions</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image_caption</span></code> is enabled</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">picture_search</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> and the <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search module are both enabled</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">picture_search_unavailable</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">null</span></code>, or why picture search cannot answer: <code class="docutils literal notranslate"><span class="pre">unreachable</span></code> (the
+embedding server does not answer), <code class="docutils literal notranslate"><span class="pre">model</span></code> (it does not serve the
+configured model), <code class="docutils literal notranslate"><span class="pre">auth</span></code> (it refused the API key) or <code class="docutils literal notranslate"><span class="pre">config</span></code>
+(the module’s configuration or the database schema is incomplete).
+<code class="docutils literal notranslate"><span class="pre">null</span></code> when picture search is off, has not failed, or its last
+attempt succeeded.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A deployment <strong>without llama-server</strong> (or with <code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> not
+reachable for another reason) sees <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> name the skipped
+<code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> module and why, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> answer on text only with
+the diagnostic “Picture search unavailable — results are matched on text
+only, so entries known only by their pictures are missing.”, and
+<code class="docutils literal notranslate"><span class="pre">picture_search_unavailable</span></code> set to the reason.</p>
+<p>A deployment <strong>without the caption model</strong> sees <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> name
+the skipped <code class="docutils literal notranslate"><span class="pre">image_caption</span></code> module and why; entries are searched on their
+text without captions.</p>
+<p>Each module is turned off with its own key:
+<code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_caption.enabled:</span> <span class="pre">false</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_embedding.enabled:</span> <span class="pre">false</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled:</span> <span class="pre">false</span></code> for the view tool.</p>
+</section>
 </section>
 <section id="search-result-structure">
 <h2>Search Result Structure<a class="headerlink" href="#search-result-structure" title="Link to this heading">#</a></h2>
@@ -1172,7 +1288,11 @@ defined per page — they come from the shared design system’s
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integration-architecture">Integration Architecture</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-mcp-tools">ARIEL MCP Tools</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-mcp-tools">ARIEL MCP Tools</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#attachment-summaries">Attachment summaries</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#captions-and-picture-search-availability">Captions and picture search availability</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-result-structure">Search Result Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-factory">Service Factory</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#capabilities-api">Capabilities API</a></li>

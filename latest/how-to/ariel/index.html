@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
   </head>
   
   
@@ -447,6 +447,7 @@
 <li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="picture-search.html">Picture Captions and Picture Search</a></li>
 <li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
@@ -578,6 +579,19 @@ ollama<span class="w"> </span>pull<span class="w"> </span>nomic-embed-text
 if Ollama or pgvector is unavailable. You can install them later and
 re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span></code> to enable semantic search.</p>
 </li>
+<li><p class="sd-card-text"><strong>(Optional) Picture captions</strong> — a local vision model, also served by
+Ollama:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>pull<span class="w"> </span>qwen3-vl:4b
+</pre></div>
+</div>
+</li>
+<li><p class="sd-card-text"><strong>(Optional) Picture search</strong> — a site-run <code class="docutils literal notranslate"><span class="pre">llama-server</span></code> with a
+multimodal embedding model; see <a class="reference internal" href="picture-search.html"><span class="doc">Picture Captions and Picture Search</span></a>.</p>
+<p class="sd-card-text">Both are optional. Like semantic search without Ollama, ARIEL degrades
+gracefully: without the caption model or without <code class="docutils literal notranslate"><span class="pre">llama-server</span></code> the
+module is skipped, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> says why, and search keeps
+working on text.</p>
+</li>
 </ul>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -608,8 +622,9 @@ container images, and start them in the background:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p class="sd-card-text">Once the containers are running, connect to PostgreSQL, run database
-migrations, then ingest the demo logbook data and generate embeddings:</p>
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> creates the schema and seeds the demo logbook. Then
+generate its embeddings (and picture captions, where a vision model
+answers):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
 </pre></div>
 </div>
@@ -706,6 +721,16 @@ mounts, disk footprint, and where it listens.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
+Picture Captions and Picture Search</div>
+<p class="sd-card-text">Captions and picture search over attachments: the site’s llama-server,
+measured values, and upgrade notes.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="picture-search.html"><span class="doc">Picture Captions and Picture Search</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
 Standalone Deployment</div>
 <p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset: ARIEL without the control-system stack.</p>
 </div>
@@ -729,7 +754,7 @@ Standalone Deployment</div>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">quickstart</span></code></p></td>
-<td><p>Quick setup: migrate, ingest demo data, and enable search</p></td>
+<td><p>Quick setup: migrate, load the demo logbook, and enable search</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">status</span></code></p></td>
 <td><p>Show ARIEL service status</p></td>

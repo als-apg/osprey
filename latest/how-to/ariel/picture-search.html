@@ -1,0 +1,1150 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Picture Captions and Picture Search &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/ariel/picture-search';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/ariel/picture-search.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Standalone Deployment" href="standalone-deployment.html" />
+    <link rel="prev" title="The Search Sidecar (qmd)" href="search-sidecar.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Picture Captions and Picture Search</a></li>
+<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Logbook Search Service (ARIEL)</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Picture Captions and Picture Search</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="picture-captions-and-picture-search">
+<span id="ariel-picture-search"></span><h1>Picture Captions and Picture Search<a class="headerlink" href="#picture-captions-and-picture-search" title="Link to this heading">#</a></h1>
+<p>ARIEL can read the pictures attached to logbook entries in two ways, each an
+<a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a> of its own:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">image_caption</span></code> asks a vision model to describe each copied picture and list
+its visible text. The caption is folded into the entry’s searchable text, so
+keyword, semantic and hybrid search find an entry by what its plots show.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> turns each copied picture into a vector with a multimodal
+embedding model served by a site-run <code class="docutils literal notranslate"><span class="pre">llama-server</span></code>. <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search then
+also ranks pictures against the query text, so an entry known only by its
+pictures can still come back.</p></li>
+</ul>
+<p>Both read the picture bytes ARIEL copied at ingest
+(<code class="docutils literal notranslate"><span class="pre">ariel.attachments.copy_on_ingest</span></code>), so they see only copied pictures.
+The agent’s <code class="docutils literal notranslate"><span class="pre">attachment_view</span></code> tool, which returns one stored picture to the
+agent, needs neither module. See <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a> for the
+tool and result contract.</p>
+<section id="agent-tools-for-pictures">
+<h2>Agent tools for pictures<a class="headerlink" href="#agent-tools-for-pictures" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">attachment_view</span></code> shows one stored picture to the agent, so it can answer
+what a plot shows. It is offered while <code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled</span></code> is
+on.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">entry_open</span></code> shows an entry to the operator: it brings the ARIEL panel
+forward with the entry’s detail card open, and with an <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> it
+also opens that picture enlarged. The main agent calls it itself, with the
+entry id and <code class="docutils literal notranslate"><span class="pre">attachment_id</span></code> a logbook subagent reported. The same view is
+a link, <code class="docutils literal notranslate"><span class="pre">#entry?id=&lt;entry_id&gt;&amp;attachment=&lt;attachment_id&gt;</span></code>, on the ARIEL web
+page.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code> keeps one picture: it copies the picture’s stored
+display rendition into the artifact gallery, with the entry id, attachment
+id, filename and caption recorded, and selects it there. Saving the same
+picture twice gives the same artifact. Like <code class="docutils literal notranslate"><span class="pre">attachment_view</span></code> it is offered
+only while <code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled</span></code> is on and only for a
+<code class="docutils literal notranslate"><span class="pre">viewable</span></code> picture. The agent is told to use it rather than redraw a
+logbook plot from its caption.</p></li>
+</ul>
+</section>
+<section id="on-by-default-skipped-when-unavailable">
+<h2>On by default, skipped when unavailable<a class="headerlink" href="#on-by-default-skipped-when-unavailable" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> presets turn captions,
+picture search and the view tool on, and they choose a service and model for
+each: Ollama with <code class="docutils literal notranslate"><span class="pre">qwen3-vl:4b</span></code> for captions, and a site-run llama-server
+with <code class="docutils literal notranslate"><span class="pre">qwen3-vl-embedding-2b</span></code> for picture search. These are preset defaults,
+not requirements. Every one of them is a key in your <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so you
+can point captions at any vision-capable chat provider, run a different
+embedding model, or turn a module off (see <a class="reference internal" href="#captions">Captions</a> and below). The names in
+the rest of this guide are the preset defaults.</p>
+<p>Like semantic search without Ollama, each picture module degrades gracefully:
+it runs when its configured server and model answer, and otherwise it is
+skipped while the rest of ARIEL keeps working.</p>
+<p>A deployment <strong>without its caption model</strong> (with the preset defaults: Ollama
+not running, or <code class="docutils literal notranslate"><span class="pre">qwen3-vl:4b</span></code> not pulled) sees:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> printing a line that names the skipped module and
+why, for example
+<code class="docutils literal notranslate"><span class="pre">image_caption:</span> <span class="pre">skipped,</span> <span class="pre">model</span> <span class="pre">qwen3-vl:4b</span> <span class="pre">not</span> <span class="pre">available</span> <span class="pre">on</span> <span class="pre">ollama</span> <span class="pre">(pull</span> <span class="pre">it,</span> <span class="pre">or</span> <span class="pre">set</span> <span class="pre">ariel.enhancement_modules.image_caption.enabled:</span> <span class="pre">false)</span></code>;</p></li>
+<li><p>entries searchable by their text alone, as before captions existed.</p></li>
+</ul>
+<p>A deployment <strong>without llama-server</strong> sees:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> printing, for example,
+<code class="docutils literal notranslate"><span class="pre">image_embedding:</span> <span class="pre">skipped,</span> <span class="pre">llama-cpp</span> <span class="pre">not</span> <span class="pre">reachable</span> <span class="pre">at</span> <span class="pre">http://localhost:8080</span> <span class="pre">(start</span> <span class="pre">llama-server,</span> <span class="pre">see</span> <span class="pre">the</span> <span class="pre">picture-search</span> <span class="pre">guide,</span> <span class="pre">or</span> <span class="pre">set</span> <span class="pre">ariel.enhancement_modules.image_embedding.enabled:</span> <span class="pre">false)</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> answering on text only, with the diagnostic
+“Picture search unavailable — results are matched on text only, so entries
+known only by their pictures are missing.”;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities.attachments.picture_search_unavailable</span></code> set to the reason
+(<code class="docutils literal notranslate"><span class="pre">unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">auth</span></code> or <code class="docutils literal notranslate"><span class="pre">config</span></code>) once the picture lane has
+failed.</p></li>
+</ul>
+<p>To turn a module off, set its <code class="docutils literal notranslate"><span class="pre">enabled</span></code> key to <code class="docutils literal notranslate"><span class="pre">false</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_caption.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">    </span><span class="c1"># no captions</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_embedding.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># no picture search</span>
+<span class="w">  </span><span class="nt">ariel.attachments.view.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                     </span><span class="c1"># no picture tools</span>
+</pre></div>
+</div>
+</section>
+<section id="picture-formats">
+<h2>Picture formats<a class="headerlink" href="#picture-formats" title="Link to this heading">#</a></h2>
+<p>The format table below is the one ARIEL uses everywhere: what it copies,
+renders, captions, embeds and shows. <em>Accepted</em> formats are rendered and
+viewable; <em>reserved</em> formats are recognised by MIME type and recorded as
+skipped.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 20.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Format</p></th>
+<th class="head"><p>Status</p></th>
+<th class="head"><p>MIME types</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">png</span></code></p></td>
+<td><p>accepted</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/png</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">jpeg</span></code></p></td>
+<td><p>accepted</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/jpeg</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">gif</span></code></p></td>
+<td><p>accepted</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/gif</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">webp</span></code></p></td>
+<td><p>accepted</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/webp</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bmp</span></code></p></td>
+<td><p>accepted</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/bmp</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tiff</span></code></p></td>
+<td><p>accepted</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/tiff</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">svg</span></code></p></td>
+<td><p>reserved</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/svg+xml</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pdf</span></code></p></td>
+<td><p>reserved</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">application/pdf</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">text</span></code></p></td>
+<td><p>reserved</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">text/plain</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">heif</span></code></p></td>
+<td><p>reserved</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">image/heic</span></code>, <code class="docutils literal notranslate"><span class="pre">image/avif</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">video</span></code></p></td>
+<td><p>reserved</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">video/mp4</span></code>, <code class="docutils literal notranslate"><span class="pre">video/quicktime</span></code>, <code class="docutils literal notranslate"><span class="pre">video/webm</span></code>, <code class="docutils literal notranslate"><span class="pre">video/x-msvideo</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">audio</span></code></p></td>
+<td><p>reserved</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">audio/mp4</span></code>, <code class="docutils literal notranslate"><span class="pre">audio/mpeg</span></code>, <code class="docutils literal notranslate"><span class="pre">audio/flac</span></code>, <code class="docutils literal notranslate"><span class="pre">audio/ogg</span></code>, <code class="docutils literal notranslate"><span class="pre">audio/wav</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">archive</span></code></p></td>
+<td><p>reserved</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">application/zip</span></code>, <code class="docutils literal notranslate"><span class="pre">application/gzip</span></code>, <code class="docutils literal notranslate"><span class="pre">application/x-bzip2</span></code>,
+<code class="docutils literal notranslate"><span class="pre">application/x-xz</span></code>, <code class="docutils literal notranslate"><span class="pre">application/x-7z-compressed</span></code>,
+<code class="docutils literal notranslate"><span class="pre">application/vnd.rar</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">capabilities.attachments.formats</span></code> reports the same two lists at run time.</p>
+</section>
+<section id="captions">
+<h2>Captions<a class="headerlink" href="#captions" title="Link to this heading">#</a></h2>
+<p>Captions come from any chat provider with a vision-capable model. The
+provider and model are the module’s own, never the deployment’s main model,
+and the presets set them in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_caption.provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_caption.model.model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-vl:4b</span>
+</pre></div>
+</div>
+<p>Change either line to use another provider or model. With the preset
+defaults, pull the model once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>pull<span class="w"> </span>qwen3-vl:4b
+</pre></div>
+</div>
+<p>On a CPU, a local vision model can spend minutes on one picture; the measured
+values are in
+<a class="reference internal" href="#ariel-picture-search-measurements"><span class="std std-ref">Measured values</span></a>, and
+<code class="docutils literal notranslate"><span class="pre">image_caption.timeout_seconds</span></code> (default 1320) is sized from them.</p>
+</section>
+<section id="the-llama-server-for-picture-search">
+<h2>The llama-server for picture search<a class="headerlink" href="#the-llama-server-for-picture-search" title="Link to this heading">#</a></h2>
+<p>OSPREY ships no image or service for the embedding server: the site builds and
+runs <code class="docutils literal notranslate"><span class="pre">llama-server</span></code> itself, and the <code class="docutils literal notranslate"><span class="pre">llama-cpp</span></code> provider talks to it (see
+the provider table in <a class="reference internal" href="../llm-providers/configure-providers.html"><span class="doc">Configure LLM Providers</span></a>). It
+serves both picture vectors at enhancement time and query vectors at search
+time.</p>
+<section id="build">
+<h3>Build<a class="headerlink" href="#build" title="Link to this heading">#</a></h3>
+<p>Picture search needs multimodal embeddings in llama-server, which llama.cpp
+added in <a class="reference external" href="https://github.com/ggml-org/llama.cpp/pull/29556">PR #29556</a> (merged
+2026-09-28). Until that support reaches the packaged llama.cpp your site
+installs from, build tag <code class="docutils literal notranslate"><span class="pre">b11277</span></code>, the build OSPREY is tested against.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">b11277</span></code> is commit <code class="docutils literal notranslate"><span class="pre">eae11d2217fe9225d1aaba48773b6cca45ae4de9</span></code>. Builds
+from before PR #29556, including Homebrew’s <code class="docutils literal notranslate"><span class="pre">llama.cpp</span> <span class="pre">0.5.0</span></code>, do not
+have the support. A later build that carries the PR is untested here: run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> and one picture search after switching, and treat
+it like a model change in the <a class="reference internal" href="#upgrade-notes">Upgrade notes</a> if the picture vectors move.</p>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>--branch<span class="w"> </span>b11277<span class="w"> </span>https://github.com/ggml-org/llama.cpp.git
+<span class="nb">cd</span><span class="w"> </span>llama.cpp
+cmake<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DLLAMA_CURL<span class="o">=</span>OFF<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w">   </span><span class="c1"># add -DGGML_METAL=ON on a Mac</span>
+cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>--target<span class="w"> </span>llama-server
+</pre></div>
+</div>
+</section>
+<section id="model-files">
+<h3>Model files<a class="headerlink" href="#model-files" title="Link to this heading">#</a></h3>
+<p>Both files come from the Hugging Face repository
+<code class="docutils literal notranslate"><span class="pre">DevQuasar/Qwen.Qwen3-VL-Embedding-2B-GGUF</span></code> at revision
+<code class="docutils literal notranslate"><span class="pre">6a1b927414664e0e17dd379913e3416a1ae1b48d</span></code>. The vectors depend on both, so
+check them:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 15.0%" />
+<col style="width: 45.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Bytes</p></th>
+<th class="head"><p>sha256</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Qwen.Qwen3-VL-Embedding-2B.Q4_K_M.gguf</span></code></p></td>
+<td><p>1107410528</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">42a4ebc629ecc6514649e12b1529b857f54900273bb854f853c970fb90edd09d</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mmproj-Qwen.Qwen3-VL-Embedding-2B.f16.gguf</span></code></p></td>
+<td><p>819395136</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">3f89a7768ffa6606935319f71bf56bb71871249ba549bf1080a0caea7a088613</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sha256sum<span class="w"> </span>Qwen.Qwen3-VL-Embedding-2B.Q4_K_M.gguf<span class="w"> </span>mmproj-Qwen.Qwen3-VL-Embedding-2B.f16.gguf
+</pre></div>
+</div>
+</section>
+<section id="command">
+<h3>Command<a class="headerlink" href="#command" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>llama-server<span class="w"> </span>--embedding<span class="w"> </span>--pooling<span class="w"> </span>last<span class="w"> </span>-m<span class="w"> </span>Qwen.Qwen3-VL-Embedding-2B.Q4_K_M.gguf<span class="w"> </span>--mmproj<span class="w"> </span>mmproj-Qwen.Qwen3-VL-Embedding-2B.f16.gguf<span class="w"> </span>--alias<span class="w"> </span>qwen3-vl-embedding-2b<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span><span class="w"> </span>--no-webui<span class="w"> </span>--no-slots<span class="w"> </span>-c<span class="w"> </span><span class="m">8192</span><span class="w"> </span>-b<span class="w"> </span><span class="m">2048</span><span class="w"> </span>-ub<span class="w"> </span><span class="m">2048</span><span class="w"> </span>-np<span class="w"> </span><span class="m">2</span><span class="w"> </span>--image-max-tokens<span class="w"> </span><span class="m">256</span>
+</pre></div>
+</div>
+<p>Add <code class="docutils literal notranslate"><span class="pre">--n-gpu-layers</span> <span class="pre">99</span></code> on a GPU build. The other flags matter as follows:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--alias</span> <span class="pre">qwen3-vl-embedding-2b</span></code> is the model id the server advertises on
+<code class="docutils literal notranslate"><span class="pre">/v1/models</span></code>. It must equal <code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_embedding.model</span></code>
+in the profile, or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> reports the module skipped with
+reason <code class="docutils literal notranslate"><span class="pre">model</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--image-max-tokens</span> <span class="pre">256</span></code> caps each picture at 256 vision tokens, about
+512x512 px of area for Qwen3-VL. On a CPU-only server, a query that arrives
+while a picture is being embedded waits about one picture time; without the
+cap the measured query p95 under bulk embedding failed the 2 s target, with
+it the p95 passes (see <a class="reference internal" href="#ariel-picture-search-measurements"><span class="std std-ref">Measured values</span></a>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">127.0.0.1</span></code> binds the server to the loopback interface. See the
+next section for why.</p></li>
+<li><p>The command passes no <code class="docutils literal notranslate"><span class="pre">--media-path</span></code>, so the server reads no local files.</p></li>
+</ul>
+</section>
+<section id="why-the-server-listens-on-localhost-only">
+<h3>Why the server listens on localhost only<a class="headerlink" href="#why-the-server-listens-on-localhost-only" title="Link to this heading">#</a></h3>
+<p>Build <code class="docutils literal notranslate"><span class="pre">b11277</span></code> has no switch to disable remote image-URL fetch. Its
+<code class="docutils literal notranslate"><span class="pre">handle_media</span></code> function (<code class="docutils literal notranslate"><span class="pre">tools/server/server-common.cpp:1088-1102</span></code>)
+downloads any <code class="docutils literal notranslate"><span class="pre">http</span></code> or <code class="docutils literal notranslate"><span class="pre">https</span></code> URL a request names as an <code class="docutils literal notranslate"><span class="pre">image_url</span></code>,
+up to 10 MiB with a 10 s timeout; only <code class="docutils literal notranslate"><span class="pre">file://</span></code> URLs are gated, by
+<code class="docutils literal notranslate"><span class="pre">--media-path</span></code>. A request that names an <code class="docutils literal notranslate"><span class="pre">http</span></code> URL makes the server fetch
+it. Probed live against <code class="docutils literal notranslate"><span class="pre">b11277</span></code>, the server sent this request to the URL a
+client named:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>GET /orbit_kick.png HTTP/1.1
+Host: 127.0.0.1:18999
+User-Agent: llama-cpp/b1-eae11d2
+Connection: close
+Accept: */*
+</pre></div>
+</div>
+<p>Anyone who can reach the server can therefore make it issue requests from the
+host’s network position. Binding to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> limits that to processes on
+the same host. OSPREY itself sends only <code class="docutils literal notranslate"><span class="pre">data:</span></code> URLs.</p>
+</section>
+<section id="how-containers-reach-it">
+<h3>How containers reach it<a class="headerlink" href="#how-containers-reach-it" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">llama-cpp</span></code> provider’s default address is <code class="docutils literal notranslate"><span class="pre">http://localhost:8080</span></code>;
+<code class="docutils literal notranslate"><span class="pre">LLAMA_CPP_HOST</span></code> overrides it.</p>
+<ul>
+<li><p><strong>Docker Desktop (macOS, Windows).</strong> A container reaches a server on the
+host’s loopback through the same fallback table OSPREY uses for Ollama: a
+server configured as <code class="docutils literal notranslate"><span class="pre">localhost</span></code> is also tried as <code class="docutils literal notranslate"><span class="pre">host.docker.internal</span></code>
+from a Docker container (<code class="docutils literal notranslate"><span class="pre">host.containers.internal</span></code> from a Podman one). Nothing needs to be configured.</p></li>
+<li><p><strong>Linux host.</strong> A localhost-bound server is reachable only from containers
+on host networking. Run <code class="docutils literal notranslate"><span class="pre">ariel-sync</span></code> with host networking by setting
+<code class="docutils literal notranslate"><span class="pre">services.ariel_sync.network:</span> <span class="pre">host</span></code>, and do the same for any
+bridge-networked container that serves <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>; web terminals
+already use host networking. In <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> that is <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code>
+under the service’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> key:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel_sync</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+</pre></div>
+</div>
+<p>On the default bridge network, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> inside <code class="docutils literal notranslate"><span class="pre">ariel-sync</span></code>
+reports <code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> unreachable and
+<code class="docutils literal notranslate"><span class="pre">picture_search_unavailable:</span> <span class="pre">&quot;unreachable&quot;</span></code>. See
+<a class="reference internal" href="../deploy-project/networking.html"><span class="doc">Network Binding and Security</span></a> for what host networking changes.</p>
+</li>
+</ul>
+</section>
+</section>
+<section id="fusion-of-picture-and-text-results">
+<h2>Fusion of picture and text results<a class="headerlink" href="#fusion-of-picture-and-text-results" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search merges the picture lane into the text results with two
+thresholds: a picture match below a cosine similarity of <code class="docutils literal notranslate"><span class="pre">0.45</span></code>
+(<code class="docutils literal notranslate"><span class="pre">min_similarity</span></code>) is never trusted, and an entry found only through its
+pictures is admitted only within <code class="docutils literal notranslate"><span class="pre">0.08</span></code> (<code class="docutils literal notranslate"><span class="pre">relative_margin</span></code>) of the best
+picture match. <strong>These defaults are uncalibrated</strong>: no labelled set of
+logbook pictures and queries existed to calibrate them against, so no set size
+or precision can be stated. The one check they pass is that <code class="docutils literal notranslate"><span class="pre">0.45</span></code> is below
+the 1024-dimension cosine (<code class="docutils literal notranslate"><span class="pre">0.540</span></code>) between the query “orbit kick near BPM 7”
+and the matching probe picture in the recorded fixtures.
+<code class="docutils literal notranslate"><span class="pre">scripts/benchmark/fusion_calibration.py</span> <span class="pre">--set</span> <span class="pre">&lt;set.json&gt;</span> <span class="pre">--dsn</span> <span class="pre">&lt;store&gt;</span>
+<span class="pre">--threshold</span> <span class="pre">&lt;precision&gt;</span></code> reruns the calibration once a labelled set exists.</p>
+</section>
+<section id="measured-values">
+<span id="ariel-picture-search-measurements"></span><h2>Measured values<a class="headerlink" href="#measured-values" title="Link to this heading">#</a></h2>
+<p>The values below were measured with the command above on one native x86_64
+Linux host, twice: once on its CPU alone, once on its GPU. They describe that
+host; different hardware gives different times. The defaults OSPREY ships
+(the query timeout, <code class="docutils literal notranslate"><span class="pre">image_embedding.timeout_seconds</span></code> and
+<code class="docutils literal notranslate"><span class="pre">image_caption.timeout_seconds</span></code>) are sized from the CPU run, the slower of
+the two, so they hold on a host without a GPU.</p>
+<p><strong>Host:</strong> <code class="docutils literal notranslate"><span class="pre">uname</span> <span class="pre">-m</span></code> <code class="docutils literal notranslate"><span class="pre">x86_64</span></code>; CPU <code class="docutils literal notranslate"><span class="pre">AMD</span> <span class="pre">EPYC</span> <span class="pre">7313</span> <span class="pre">16-Core</span> <span class="pre">Processor</span></code>
+(2 sockets x 16 cores x 2 threads, 64 logical CPUs); 503 GiB RAM; docker host
+architecture <code class="docutils literal notranslate"><span class="pre">x86_64</span></code>; Rocky Linux 8.10, docker 28.0.4.</p>
+<ul class="simple">
+<li><p><strong>CPU run:</strong> llama-server built without CUDA and started without GPU access,
+32 threads and 2 slots; Ollama with no GPU visible. Other users kept the host
+lightly loaded (load average 1.3–2.9 on 64 threads).</p></li>
+<li><p><strong>GPU run:</strong> NVIDIA H100 PCIe 80 GB, driver 590.48.01. llama-server
+<code class="docutils literal notranslate"><span class="pre">b11277</span></code> built with CUDA 12.8 for compute capability 9.0, started with the
+same command on another port and no GPU flags; Ollama 0.15.2 offloaded all
+37 layers of <code class="docutils literal notranslate"><span class="pre">qwen3-vl:4b</span></code> to the GPU. Another job shared the GPU
+throughout (36.4 GiB in use and 43% utilisation before the run), so these
+times are an upper bound for an idle H100.</p></li>
+</ul>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 36.0%" />
+<col style="width: 36.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Value</p></th>
+<th class="head"><p>CPU (AMD EPYC 7313)</p></th>
+<th class="head"><p>GPU (NVIDIA H100)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Time per picture (s/picture, 1024x768 rendition)</p></td>
+<td><p>3.77 s mean (771 tokens) without the cap; 1.14 s (237 tokens) with
+<code class="docutils literal notranslate"><span class="pre">--image-max-tokens</span> <span class="pre">256</span></code></p></td>
+<td><p>0.21 s without the cap; 0.071 s with the cap</p></td>
+</tr>
+<tr class="row-odd"><td><p>Pictures per hour (derived, 3600 / s/picture)</p></td>
+<td><p>about 3,150 with the cap; about 950 without</p></td>
+<td><p>about 50,800 with the cap; about 16,900 without</p></td>
+</tr>
+<tr class="row-even"><td><p>llama-server peak RSS</p></td>
+<td><p>4.74 GiB with the cap; 7.57 GiB without; 3.44 GiB loaded and idle</p></td>
+<td><p>1.86 GiB with the cap; 3.65 GiB without; plus 4.8 GiB of GPU memory</p></td>
+</tr>
+<tr class="row-odd"><td><p>Idle query embed</p></td>
+<td><p>p50 0.059 s, p95 0.072 s</p></td>
+<td><p>p50 0.008 s, p95 0.020 s</p></td>
+</tr>
+<tr class="row-even"><td><p>Query p95 under bulk <code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> (2 s target)</p></td>
+<td><p>3.83 s without the cap (fails); 0.94 s with <code class="docutils literal notranslate"><span class="pre">--image-max-tokens</span> <span class="pre">256</span></code>
+(passes). The latency gate failed, so the documented command carries
+the cap</p></td>
+<td><p>0.18 s without the cap; 0.059 s with it. Both pass</p></td>
+</tr>
+<tr class="row-odd"><td><p>Query timeout chosen</p></td>
+<td><p>5 s (<code class="docutils literal notranslate"><span class="pre">max(5,</span> <span class="pre">2</span> <span class="pre">x</span> <span class="pre">0.94)</span></code>); <code class="docutils literal notranslate"><span class="pre">image_embedding.timeout_seconds</span></code> 120</p></td>
+<td><p>the same defaults, sized from the CPU run</p></td>
+</tr>
+<tr class="row-even"><td><p>Render worker <code class="docutils literal notranslate"><span class="pre">VmSize</span></code></p></td>
+<td><p>30.6 MiB after start-up (target: at most 512 MiB), under a 1 GiB address-space
+limit; a 48 Mpx JPEG renders in 0.43 s with a peak of 119 MiB</p></td>
+<td><p>not GPU-dependent</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">qwen3-vl:4b</span></code> with <code class="docutils literal notranslate"><span class="pre">think:false</span></code> (Ollama)</p></td>
+<td><p>75.7 s, 199.4 s and 119.4 s per caption, mean 131.5 s; resident 4.25
+GiB. <code class="docutils literal notranslate"><span class="pre">think:false</span></code> is not honoured: every reply still carries
+thinking output</p></td>
+<td><p>59.6 s for the first caption, 49.0 s of it loading the model; then
+2.6 s and 9.4 s. 5.0 GiB of GPU memory. <code class="docutils literal notranslate"><span class="pre">think:false</span></code> is still not
+honoured</p></td>
+</tr>
+<tr class="row-even"><td><p>Captions per hour at the defaults (derived, 3600 / mean)</p></td>
+<td><p>about 27</p></td>
+<td><p>about 600 once the model is loaded (mean 6.0 s)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Upgrade fold, 135,000 rows (half captioned)</p></td>
+<td><p>57.6 s (PostgreSQL 16.15)</p></td>
+<td><p>not GPU-dependent</p></td>
+</tr>
+<tr class="row-even"><td><p>v2 full-text index build, 135,000 rows</p></td>
+<td><p>27.2 s (99 MB index)</p></td>
+<td><p>not GPU-dependent</p></td>
+</tr>
+<tr class="row-odd"><td><p>Trigram index build, 135,000 rows</p></td>
+<td><p>2.6 s (24 MB index)</p></td>
+<td><p>not GPU-dependent</p></td>
+</tr>
+<tr class="row-even"><td><p>Fusion calibration</p></td>
+<td><p>Uncalibrated: no labelled set; defaults <code class="docutils literal notranslate"><span class="pre">relative_margin</span></code> 0.08 and
+<code class="docutils literal notranslate"><span class="pre">min_similarity</span></code> 0.45 kept</p></td>
+<td><p>the same</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="upgrade-notes">
+<span id="ariel-picture-search-upgrade"></span><h2>Upgrade notes<a class="headerlink" href="#upgrade-notes" title="Link to this heading">#</a></h2>
+<p><strong>Profile keys.</strong> An existing deployment’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is explicit and does
+not gain the new keys; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> lists them as drift. Add the lines
+shown below, or run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span></code> (it writes every lacking leaf, with
+the same side-effect caveat as <code class="docutils literal notranslate"><span class="pre">--providers</span></code> below); until then
+<code class="docutils literal notranslate"><span class="pre">image_caption</span></code> and <code class="docutils literal notranslate"><span class="pre">image_embedding</span></code> keep their code defaults (off) and the
+view tool its default (on).</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">ariel.attachments.copy_on_ingest</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">images</span>
+<span class="w">  </span><span class="nt">ariel.attachments.view.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_caption.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_caption.provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_caption.model.model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-vl:4b</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_embedding.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_embedding.provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">llama-cpp</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_embedding.model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-vl-embedding-2b</span>
+<span class="w">  </span><span class="nt">ariel.enhancement_modules.image_embedding.dimensions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
+</pre></div>
+</div>
+<p><strong>The</strong> <code class="docutils literal notranslate"><span class="pre">llama-cpp</span></code> <strong>provider entry.</strong> A deployment that keeps its own
+<code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> does not need a <code class="docutils literal notranslate"><span class="pre">llama-cpp</span></code> entry: the adapter’s default
+address and <code class="docutils literal notranslate"><span class="pre">LLAMA_CPP_HOST</span></code> already work. To declare it anyway, paste the
+packaged entry:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">providers</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">llama-cpp</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">llama-cpp</span><span class="w">              </span><span class="c1"># ignored by a server started without --api-key</span>
+<span class="w">    </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${LLAMA_CPP_HOST:-http://localhost:8080}</span>
+<span class="w">    </span><span class="nt">default_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-vl-embedding-2b</span>
+<span class="w">    </span><span class="nt">models</span><span class="p">:</span><span class="w">                         </span><span class="c1"># the name llama-server advertises (--alias)</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen3-vl-embedding-2b</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">expand</span> <span class="pre">--providers</span></code> also writes it, with side effects: it fills
+in every key the profile leaves to its preset and stamps provenance, which turns
+on the strict preset-drift check (see
+<a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a>).</p>
+<p><strong>Search indexes.</strong> The upgrade builds a v2 full-text index and a trigram index
+over attachment text, and keeps the v1 indexes (the full-text index and, with
+the semantic processor on, its search index); a later release drops them. The
+build times on 135,000 rows are in <a class="reference internal" href="#ariel-picture-search-measurements"><span class="std std-ref">Measured values</span></a>.</p>
+<p><strong>Captions already present upstream.</strong> The upgrade folds captions that came with
+the upstream entries into each entry’s searchable text and marks those entries’
+text embeddings as owed again. Count them with the fold’s own predicate, so null
+captions are not counted:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">SELECT</span><span class="w"> </span><span class="k">count</span><span class="p">(</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">enhanced_entries</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">attachments</span><span class="w"> </span><span class="o">@?</span><span class="w"> </span><span class="s1">&#39;$[*] ? (@.caption != null &amp;&amp; @.caption != &quot;&quot;)&#39;</span>
+</pre></div>
+</div>
+<p>With a paid embedding provider, drain that backlog in a maintenance window,
+passing the count as the limit (the default limit is 100):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>enhance<span class="w"> </span>--module<span class="w"> </span>text_embedding<span class="w"> </span>--limit<span class="w"> </span>&lt;N&gt;
+</pre></div>
+</div>
+<p><strong>Emptied attachment lists.</strong> An upstream entry whose attachment list becomes
+empty keeps its stored attachment rows. This is a known limitation.</p>
+<p><strong>Re-running the picture modules.</strong> <code class="docutils literal notranslate"><span class="pre">--force</span></code> does not apply to them:</p>
+<blockquote>
+<div><p>–force does not re-run image_caption/image_embedding: their results are kept per picture and model. Change model.model_id (captions) or model/dimensions (embeddings) to re-run, or use –retry-failed for per-picture failures.</p>
+</div></blockquote>
+<p><strong>Changing the server.</strong> Changing <code class="docutils literal notranslate"><span class="pre">--image-max-tokens</span></code> or the model files
+changes every picture vector while the table name stays the same, so re-embed
+with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">purge</span> <span class="pre">--embeddings-only</span></code> followed by a catch-up (which
+re-embeds text too).</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="search-sidecar.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="standalone-deployment.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Standalone Deployment</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#agent-tools-for-pictures">Agent tools for pictures</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#on-by-default-skipped-when-unavailable">On by default, skipped when unavailable</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#picture-formats">Picture formats</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#captions">Captions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-llama-server-for-picture-search">The llama-server for picture search</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build">Build</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-files">Model files</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#command">Command</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-the-server-listens-on-localhost-only">Why the server listens on localhost only</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-containers-reach-it">How containers reach it</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fusion-of-picture-and-text-results">Fusion of picture and text results</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measured-values">Measured values</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrade-notes">Upgrade notes</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/ariel/picture-search.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

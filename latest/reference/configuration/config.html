@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
   </head>
   
   
@@ -1348,6 +1348,20 @@ and those artifacts hold values: treat them with the access you give the
 control system’s own data. The fields are listed in
 <a class="reference internal" href="../contracts/audit-trail.html#audit-trail-tool-call"><span class="std std-ref">The full tool-call record</span></a>.</p>
 </section>
+<section id="ariel-demo-narrative-a-demo-logbook-for-a-deployment-with-no-simulation">
+<span id="config-ariel-demo-narrative"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook for a deployment with no simulation<a class="headerlink" href="#ariel-demo-narrative-a-demo-logbook-for-a-deployment-with-no-simulation" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> names a directory of scenario narratives: one
+subdirectory per scenario, each holding a <code class="docutils literal notranslate"><span class="pre">logbook.json</span></code> in the
+scenario-bundle format (<a class="reference internal" href="../contracts/simulation-bundle.html#simulation-bundle-logbook"><span class="std std-ref">logbook.json</span></a>) and the pictures its
+entries attach. A relative path resolves against the project root. On a
+deployment with no simulation, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds every narrative in it
+(<code class="docutils literal notranslate"><span class="pre">nominal</span></code> first, then the rest by name) into an empty logbook, pictures
+included, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span></code> does the same and then runs the
+enhancement modules. A logbook that already holds entries is never touched.
+The <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset sets it to <code class="docutils literal notranslate"><span class="pre">data/logbook_seed</span></code>, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> fills from the control-assistant scenario bundles. Unset, no
+demo logbook is seeded.</p>
+</section>
 <section id="ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry">
 <span id="config-ariel-entry-url"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry<a class="headerlink" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> is your logbook’s own address for one entry, with
@@ -1853,6 +1867,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-tool-call-the-full-record-of-every-tool-call"><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-demo-narrative-a-demo-logbook-for-a-deployment-with-no-simulation"><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook for a deployment with no simulation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry"><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-telemetry-signals-which-signals-the-agent-exports"><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> — which signals the agent exports</a></li>

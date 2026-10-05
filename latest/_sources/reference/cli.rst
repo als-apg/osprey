@@ -1278,7 +1278,10 @@ osprey ariel
 
 Manage the ARIEL logbook search service.
 
-``quickstart [--source PATH]`` -- Full setup: migrate and ingest demo data.
+``quickstart [--source PATH]`` -- Full setup: migrate, then ingest
+``--source`` or the configured ingestion source; with neither, seed
+``ariel.demo_narrative`` into an empty logbook and run the enhancement modules
+over it.
 
 ``status [--json]`` -- Show service status.
 

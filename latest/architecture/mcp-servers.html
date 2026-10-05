@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 04, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
   </head>
   
   
@@ -757,9 +757,13 @@ and entry creation with attachments.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">filter_options</span></code> – Get distinct values for a filterable field (authors, systems, etc.).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> – Search the logbook using PostgreSQL full-text keyword search.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> – Search the logbook using embedding-based semantic similarity.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> – Search the logbook with keyword and semantic ranking combined.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code> – Execute a read-only SQL query against the logbook database.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">entry_get</span></code> – Get a single logbook entry by its ID.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code> – Get multiple logbook entries by their IDs in a single call.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">attachment_view</span></code> – Look at one viewable picture attached to an entry (hidden when <code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled</span></code> is off).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">entry_open</span></code> – Show an entry, and optionally one of its pictures enlarged, in the ARIEL web panel.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">attachment_to_artifact</span></code> – Copy one viewable picture into the artifact gallery and select it there (hidden when <code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled</span></code> is off).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">entry_create</span></code> – Create a new logbook entry, optionally with file attachments.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">entry_publish</span></code> – Publish an existing ARIEL entry to the facility logbook.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report available ARIEL search capabilities.</p></li>
