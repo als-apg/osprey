@@ -28,10 +28,10 @@ fails naming its family and ``DeviceList`` row.
   ``meastuneresp`` answers the sum of its per-device columns, and its physics
   answer carries ``measrespmat``'s units quirk (:func:`_units_quirk`).
 
-A transport line's monitors read nothing in its wiring, so its physics values
-are the plug-in's own, read where the export's ``AT.ATIndex`` places each
-monitor on the deck the build wrote, and its monitor conversion is the one the
-export states.
+A transport line's monitors are found through its wiring like every other
+family: its orbit is the plug-in's one-pass orbit at each monitor taken through
+the monitor's calibration, and its dispersion is the twiss dispersion in metres
+in both unit sets.
 
 No step or solver stands between the two sides, so they agree to the digits
 the file writes (``CONVERSION_RTOL``); the chromaticity response alone is held
@@ -350,43 +350,28 @@ def test_closed_orbit_hardware_is_the_physics_one_through_the_monitor_calibratio
         )
 
 
-def _exported_monitors(
-    built: BuiltModel, family: str, device_list: Sequence[Sequence[float]]
-) -> tuple[list[int], np.ndarray]:
-    """Each listed line monitor's deck position and hardware reading per metre, as exported.
-
-    The position is the export's ``AT.ATIndex``; the reading per metre the
-    export's ``Monitor`` ``Physics2HWParams``, one number or one per device.
-    """
-    ao = json.loads((FIXTURES / built.tree / f"{built.stem}.ao.json").read_text(encoding="utf-8"))
-    body = ao[family]
-    rows = [check_a._row(row) for row in np.atleast_2d(body["DeviceList"])]
-    per_metre = np.ravel(np.asarray(body["Monitor"]["Physics2HWParams"], dtype=float))
-    if per_metre.size == 1:
-        per_metre = np.repeat(per_metre, len(rows))
-    assert per_metre.size == len(rows), f"{family} states {per_metre.size} conversions"
-    positions = check_a._exported_positions(built, family, device_list)
-    scale = np.array([per_metre[rows.index(check_a._row(row))] for row in device_list])
-    return positions, scale
-
-
 @LINES
-def test_line_orbit_hardware_is_the_plug_in_orbit_through_the_export_conversion(
+def test_line_orbit_hardware_is_the_plug_in_orbit_through_the_build_calibration(
     tree: str, stem: str, mml_built: Built
 ) -> None:
-    """Each monitor's hardware history is the plug-in's one-pass orbit there, in the export's unit.
+    """Each monitor's hardware reading is the plug-in's one-pass orbit there, through its calibration.
 
-    ``getpvmodel`` on a line answers a reading history per monitor; every
-    reading in it is the orbit the launch twiss tracks to the monitor.
+    ``getpvmodel`` on a line answers each listed monitor's reading of the orbit
+    the launch twiss tracks to it; every value the reference block holds for a
+    monitor is that orbit taken through the monitor's calibration.
     """
     reference = model_reference(tree, stem)
     state = section(reference, "state")
     built = mml_built(tree, stem)
     deck = check_a._deck(built, reference)
+    calibrations = _calibrations(built)
     start, _twiss = check_a._launch(deck)
     for family, row in check_a._planes(reference).items():
         block = state["orbit"][family]
-        positions, per_metre = _exported_monitors(built, family, block["device_list"])
+        positions = deck.positions(family, block["device_list"])
+        per_metre = np.array(
+            [_monitor_per_metre(calibrations, family, device) for device in block["device_list"]]
+        )
         orbit = recipes.track(deck.lattice, start, positions)[row, 0, :]
         hardware = np.asarray(block["hardware"], dtype=float)
         history = hardware.reshape(len(positions), -1)
@@ -443,8 +428,9 @@ def test_line_dispersion_hardware_is_the_plug_in_twiss_dispersion(
     """``modeldisp`` on a line answers ``twissline``'s dispersion, metres, in both unit sets.
 
     Its transport branch reads the twiss dispersion and converts nothing, so
-    the hardware answer is the plug-in's dispersion at each monitor's exported
-    position as it stands; the band adds the one-pass rounding of that replay.
+    the hardware answer is the plug-in's dispersion at the position the wiring
+    gives each monitor, as it stands; the band adds the one-pass rounding of
+    that replay.
     """
     reference = model_reference(tree, stem)
     block = section(reference, "dispersion")
@@ -454,9 +440,7 @@ def test_line_dispersion_hardware_is_the_plug_in_twiss_dispersion(
     _start, twiss = check_a._launch(deck)
     for plane, row in (("x", 0), ("y", 2)):
         monitors = block["monitors"][plane]
-        positions, _per_metre = _exported_monitors(
-            built, monitors["family"], monitors["device_list"]
-        )
+        positions = deck.positions(monitors["family"], monitors["device_list"])
         eta = recipes.twissline_dispersion(deck.lattice, twiss, positions)
         np.testing.assert_allclose(
             np.asarray(block["hardware"][plane], dtype=float),
