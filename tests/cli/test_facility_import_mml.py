@@ -41,6 +41,12 @@ DEMO_STALE = (
     "rf-thermal.yaml",
     "vacuum-burst.yaml",
 )
+#: The files the demo scenarios' logbook entries attach, beside the scenarios.
+DEMO_ATTACHED = (
+    "bpm-polarity/plots/corrector_bump_test.png",
+    "nominal/plots/orbit_rms.json",
+    "rf-thermal/plots/cavity_temperatures.json",
+)
 
 
 def _stop(count: int) -> str:
@@ -216,7 +222,7 @@ def test_the_import_lists_each_demo_scenario_it_leaves_stale_and_deletes_none(
     pytest.importorskip("at")
     scenarios = _facility(cleared) / "scenarios"
     before = _snapshot(scenarios)
-    assert sorted(before) == sorted([*DEMO_STALE, "nominal.yaml"])
+    assert sorted(before) == sorted([*DEMO_STALE, "nominal.yaml", *DEMO_ATTACHED])
 
     first = _import(cleared)
 
