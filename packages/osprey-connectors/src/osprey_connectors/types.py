@@ -789,10 +789,11 @@ LIMITS_MODE_EXCLUSIVE = "exclusive"
 LIMITS_MODE_OPTIONAL = "optional"
 LIMITS_MODES = (LIMITS_MODE_EXCLUSIVE, LIMITS_MODE_OPTIONAL)
 
-#: Every leaf a ``limits_checking`` block defines: the posture pair plus the
-#: deployment-wide database path. A block carrying any other leaf is refused by
-#: :func:`incomplete_limits_blocks`, so a misspelt or retired leaf cannot sit in
-#: a config looking like a posture nobody reads.
+#: Every leaf the deployment-wide ``limits_checking`` block defines: the posture
+#: pair plus the database path, which is deployment-wide only. A per-type block
+#: defines :data:`LIMITS_LEAVES` alone. A block carrying any other leaf is
+#: refused by :func:`incomplete_limits_blocks`, so a misspelt or retired leaf
+#: cannot sit in a config looking like a posture nobody reads.
 LIMITS_BLOCK_LEAVES = (*LIMITS_LEAVES, "database_path")
 
 
@@ -1179,9 +1180,10 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
     - **Either** ``limits_checking`` being present but not a mapping at all,
       which gets one line naming the block and quoting what was found there
       instead of a line per leaf: there are no leaves to name.
-    - **Either** block carrying a leaf outside :data:`LIMITS_BLOCK_LEAVES`. No
-      reader consults such a leaf, so the posture its author meant by it is
-      not the one the deployment runs.
+    - The deployment-wide block carrying a leaf outside
+      :data:`LIMITS_BLOCK_LEAVES`, or a per-type block one outside
+      :data:`LIMITS_LEAVES`. No reader consults such a leaf, so the posture
+      its author meant by it is not the one the deployment runs.
 
     Args:
         section: The ``control_system:`` config section, in the same shape
@@ -1232,7 +1234,8 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
                     f"{posture.key(leaf)} is missing; a per-type limits block must state "
                     f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
                 )
-        for leaf in sorted(str(key) for key in block if key not in LIMITS_BLOCK_LEAVES):
+        defined = LIMITS_LEAVES if whole else LIMITS_BLOCK_LEAVES
+        for leaf in sorted(str(key) for key in block if key not in defined):
             errors.append(
                 f"{posture.key(leaf)} is not a limits leaf; a limits block states "
                 f"{LIMITS_LEAVES[0]} and {LIMITS_CHECKING_LEAF}.{LIMITS_LEAVES[1]}: "

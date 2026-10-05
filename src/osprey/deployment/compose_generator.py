@@ -808,7 +808,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
 
     One configured value — ``control_system.limits_checking.database_path`` —
     names one file, and three parties have to agree about which file that is:
-    the operator who authors it, the compose bind source that resolves on the
+    the build that names it, the compose bind source that resolves on the
     host, and the connector that opens it in the container after reading the
     same key out of the mounted config. Deriving all of it here, once per
     render, is the point: the template consumes finished strings and makes no
@@ -828,10 +828,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
       connector resolves the same relative path against the same directory and
       lands on the mount.
 
-    An absolute path is operator-owned: it names a file outside the repo, is
-    mounted at the identical path inside the container, and is never rewritten
-    (hence ``repo_root=None``) — rewriting it repo-relative would silently
-    re-point the mount at a file that is not there.
+    An absolute path is a hand-edited render's: it names a file outside the
+    repo, is mounted at the identical path inside the container, and is never
+    rewritten (hence ``repo_root=None``) — rewriting it repo-relative would
+    silently re-point the mount at a file that is not there.
 
     Refusals are gated on
     :func:`~osprey_connectors.types.any_armed_target_checks_limits`: a target
@@ -900,11 +900,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     f"they cannot read."
                 ),
                 remedy=(
-                    f"Set {LIMITS_DATABASE_CONFIG_KEY} to the limits file, "
-                    "relative to the deployment repo root, and rebuild:\n"
-                    "    control_system:\n"
-                    "      limits_checking:\n"
-                    "        database_path: data/channel_limits.json\n"
+                    "Rebuild with `osprey build`; it names data/channel_limits.json as "
+                    f"{LIMITS_DATABASE_CONFIG_KEY}, which it renders from "
+                    "data/facility/limits.yaml, whenever the profile states a limits "
+                    "block.\n"
                     "Or turn limits checking off for the armed target — "
                     "limits_checking.enabled: false, deployment-wide or in that "
                     "target's control_system.connector.<type> block — which "
@@ -953,13 +952,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     f"against a limits database it cannot read."
                 ),
                 remedy=(
-                    f"Put the limits database at {on_host}, or point "
-                    f"{LIMITS_DATABASE_CONFIG_KEY} at where it already is, and "
-                    "rebuild. The limits database is authored in the build "
-                    "profile's `data/` tree and copied into the deployment by "
-                    "`osprey build`, so a path that is right in the profile and "
-                    "absent here usually means the build has not been re-run. To "
-                    "deploy without one, set limits_checking.enabled: false for "
+                    "Rebuild with `osprey build`; it writes data/channel_limits.json "
+                    "from data/facility/limits.yaml and names it as "
+                    f"{LIMITS_DATABASE_CONFIG_KEY}, so a file absent here usually "
+                    "means the build has not been re-run. To deploy without one, set limits_checking.enabled: false for "
                     "the armed target — a target that checks no limits opens no "
                     "database."
                 ),

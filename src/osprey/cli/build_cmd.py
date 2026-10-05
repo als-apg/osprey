@@ -2417,9 +2417,9 @@ def _render_project(
             )
 
         # The limits database is read here and not in the `unrunnable` gate above,
-        # because it arrives with the conventions: the profile's `data/` tree is
-        # copied into the render after that gate, and a relative `database_path`
-        # resolves to exactly that copy. Same refusal shape as the gate.
+        # because it arrives with the conventions: the limits view is written into
+        # the render after that gate, and the `database_path` the build names
+        # resolves to that file. Same refusal shape as the gate.
         limits_errors = limits_database_errors(render_dir)
         if limits_errors:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(limits_errors))

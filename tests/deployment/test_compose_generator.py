@@ -7729,7 +7729,7 @@ def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_
     assert "writes_enabled" in excinfo.value.reason, (
         "the reason must say which posture makes the missing key fatal"
     )
-    assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key to set"
+    assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key"
 
 
 def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absent(
