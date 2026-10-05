@@ -1157,7 +1157,9 @@ into it. See :doc:`/how-to/import-mml-export` for the import end to end.
    ``fixes.yaml``, ``classes.yaml``, ``scenarios/`` and ``knowledge/`` are
    never named. After the import, each scenario file that names a channel or
    model the facility no longer has is printed as one ``rm <path>`` line under
-   ``these scenario files name channels that no longer exist:``; the import
+   ``these scenario files name channels that no longer exist:``, followed by
+   an ``rm -r <folder>/`` line for the scenario's folder of attached files
+   when it has one; the import
    deletes nothing, and ``osprey build`` stops while one is left.
 
 ``osprey facility import mml --print-exporter``

@@ -230,9 +230,11 @@ def test_the_import_lists_each_demo_scenario_it_leaves_stale_and_deletes_none(
     assert first.stderr == (
         f"{STALE}\n"
         "  rm data/facility/scenarios/bpm-polarity.yaml\n"
+        "  rm -r data/facility/scenarios/bpm-polarity/\n"
         "  rm data/facility/scenarios/orm-dual-fault.yaml\n"
         "  rm data/facility/scenarios/rf-thermal-live.yaml\n"
         "  rm data/facility/scenarios/rf-thermal.yaml\n"
+        "  rm -r data/facility/scenarios/rf-thermal/\n"
         "  rm data/facility/scenarios/vacuum-burst.yaml\n"
     )
     after = _snapshot(scenarios)
