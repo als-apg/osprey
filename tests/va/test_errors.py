@@ -398,8 +398,7 @@ def _resolve(
     """The monitor-flavoured resolution, spelled as the boot spells it.
 
     The resolver serves magnets on the same terms, and the nouns it is given
-    are what its refusals read as; the magnet side is exercised where the boot
-    wires it, in ``test_serving_entrypoint.py``.
+    are what its refusals read as.
     """
     return resolve_device_seeds(seeded, monitors, device="monitor", seeds="readout errors")
 

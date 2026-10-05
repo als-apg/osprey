@@ -1,151 +1,65 @@
-"""Virtual Accelerator entrypoint.
+"""Virtual accelerator entrypoint.
 
-Assembles the whole virtual accelerator in one process, in dependency order:
+Serves the simulator view a build writes under ``<data root>/simulator/``:
+one :class:`~osprey_connectors.simulation.composite.Composite` over the view,
+served on Channel Access and PVAccess by one
+:class:`~osprey.services.virtual_accelerator.serving.runner.ModelRunner`,
+which also answers the model RPC. The calling thread is handed to the runner,
+which blocks serving until the process is signalled.
 
-    manifest -> serving database -> physics bridge (partition a)
-             -> runner (Channel Access + PVA) -> engine source (partition c)
+Run contract (see docker/virtual-accelerator/README.md for the full version)::
 
-and then hands the calling thread to the runner, which blocks serving until
-the process is signalled.
-
-The order is a contract, not a convenience. The serving database is built
-first and every value that must be on the wire at boot is pushed into it
-*before* the runner exists, because the Channel Access server copies each
-PV's spec when it creates the PV: a value written into a spec afterwards is
-never served. That is why the physics bridge is bound here -- its first push
-of BPM readings is the boot state -- and why nothing re-seeds the database
-from type defaults after that point.
-
-Both transports come from the same runner: the facility's whole channel
-namespace is co-hosted on Channel Access, and the physics model's own
-variables are served on PVA. Channel Access is the authoritative view of the
-machine; see
-:mod:`~osprey.services.virtual_accelerator.serving.runner` for why the two
-are not synchronised.
-
-Run contract (see docker/virtual-accelerator/README.md for the full version):
-
-    -v <project>/data/simulation:/data/simulation             # the DIRECTORY, never a file
-    -v <repo>/var/agent_data/simulation:/state/simulation:ro  # scenario state
-    -e VA_CHANNELS_FILE=channel_manifest.json                 # required; see below
+    -v <render>/data:/data:ro                                 # the render's data root
+    -v <repo>/var/agent_data/simulation:/state/simulation:ro  # the active scenarios
+    -e VA_INSTANCE=virtual_accelerator                        # required
+    -e VA_STATE_DIR=/state/simulation
     -p 5064:5064/tcp
 
-``VA_DATA_DIR`` overrides the mount point (default ``/data/simulation``) for
-local testing without an actual bind mount.
+Environment:
 
-``VA_STATE_DIR`` names the directory holding the ``active_scenarios`` file the
-IOC polls for scenario switches. It is a *separate* mount because the host
-writes it at run time (``osprey sim apply``) while ``data/`` is build-owned and
-checksummed. Unset, it falls back to the data dir — the single-directory layout,
-for a hand-run container whose state file sits next to ``machine.json``.
+``VA_INSTANCE``
+    **Required.** Which instance this process serves as, one of
+    :data:`VA_INSTANCES`. It is written into the composite's log records and
+    the model RPC's ``status`` reply. Missing or unknown refuses the boot.
+``VA_DATA_DIR``
+    The data root the view sits under; :data:`DEFAULT_DATA_DIR` when unset.
+``VA_STATE_DIR``
+    The directory holding the ``active_scenarios`` file ``osprey sim apply``
+    writes; the composite re-reads it when it changes. Unset serves
+    ``nominal`` alone.
+``VA_POLL_INTERVAL_S``
+    The period of the runner's own passes, in seconds, greater than zero;
+    :data:`~osprey_connectors.simulation.DEFAULT_TICK_S` when unset.
+``VA_MODEL_WRITE_TOKEN``
+    The secret a model RPC write must present. Unset refuses every model
+    write.
 
-Facility-neutral source configuration:
-
-``VA_CHANNELS_FILE``
-    **Required.** Path to a ``{"channels": [...]}`` manifest JSON (see
-    ``manifest.loaders.load_manifest_file``). Relative paths resolve against
-    the data dir. The IOC's drive limits come from ``<data dir>/``
-    ``channel_limits.json`` when present (none otherwise) -- the copy ``osprey
-    build`` writes in beside the manifest, so the clamp needs nothing mounted
-    but the served directory -- and boot values from the mounted
-    ``machine.json``. There is no default: the only namespace this process
-    could pick on its own is the framework's bundled demo one, and a
-    container quietly serving that under a facility's name is
-    indistinguishable, on the wire, from one serving the facility. ``osprey
-    build`` writes this variable into a project's ``.env``; a standalone
-    demo names the packaged demo manifest
-    (``manifest/channel_manifest.json``, resolvable as
-    ``manifest.paths.MANIFEST_OUTPUT``) explicitly.
-``VA_LATTICE``
-    The lattice file to serve, named relative to the data dir, or ``none``.
-    Defaults to ``none`` -- a manifest names a facility's channels and says
-    nothing about whether the mounted tree holds a model for them. With
-    ``none``, PyAT is never imported, the served model is the empty stub in
-    ``serving.model_stub``, and pyat-coupled setpoint writes (if any) latch
-    without physics. The name keeps its case: the served tree is searched for
-    that file verbatim, and a name that is not there refuses the boot.
-
-Serving a lattice asks one more thing of the mount than serving a manifest
-does. The model is built from a whole facility data tree, resolved through
-:class:`~osprey.services.virtual_accelerator.manifest.paths.ManifestPaths`:
-the lattice and the bindings that tie channels to it sit under the tree's
-``simulation/``, and the write bands the model builds its variables from sit
-at the tree's root. So the directory this process is given is the tree's
-``simulation/`` directory, the data root is its parent, and that root --
-carrying its ``channel_limits.json`` -- has to be inside the mount as well.
-A lattice-backed boot refuses, by name, both a mount that is not laid out
-that way and a data root whose files the model needs and cannot read, rather
-than modelling a different ring than the one it serves.
-
-Mounting ``simulation/`` alone is a whole mount for the other boot: the
-namespace, the boot values and the IOC's own clamp all come from files
-inside it, so such a container serves the facility's channels with no
-physics behind them.
+Importing this module loads neither the composite nor the server extension:
+both are imported by :func:`main`.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
-import math
 import os
 import signal
-import threading
-import time
-from collections.abc import Callable, Container
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import Any
 
-import pydantic
+#: The data root the view is read under when ``VA_DATA_DIR`` is unset.
+DEFAULT_DATA_DIR = "/data"
 
-from osprey.services.virtual_accelerator.ioc.engine_source import (
-    DEFAULT_NOISE_LEVEL,
-    DEFAULT_POLL_INTERVAL_S,
-    EngineSource,
-)
-from osprey.services.virtual_accelerator.manifest import (
-    PARTITION_PYAT_COUPLED,
-    PARTITION_SP_ECHO,
-    READBACK_SUBFIELD,
-    setpoint_addresses,
-)
-from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-from osprey.services.virtual_accelerator.manifest.loaders import (
-    load_machine_json_channels,
-    load_manifest_file,
-)
-from osprey.services.virtual_accelerator.manifest.paths import (
-    MANIFEST_OUTPUT,
-    ManifestPaths,
-)
+#: The view's directory under the data root.
+SIMULATOR_DIR = "simulator"
 
-# The bound table the model enforces, so a seed that boots is a value the
-# model accepts. The module is lattice-free and imports nothing.
-from osprey.services.virtual_accelerator.model.fault_bounds import (
-    BPM_ERROR_FIELD_BOUNDS as _BPM_ERROR_FIELD_BOUNDS,
-)
-from osprey.services.virtual_accelerator.model.fault_bounds import (
-    BPM_ERROR_FIELDS as _BPM_ERROR_FIELDS,
-)
-from osprey.services.virtual_accelerator.model.fault_bounds import (
-    BPM_NOISE_FIELDS as _BPM_NOISE_FIELDS,
-)
-from osprey.services.virtual_accelerator.model.fault_bounds import (
-    BPM_POLARITY_FIELDS as _BPM_POLARITY_FIELDS,
-)
-from osprey.services.virtual_accelerator.model.fault_bounds import (
-    BPM_POLARITY_OPTIONS as _BPM_POLARITY_OPTIONS,
-)
-from osprey.services.virtual_accelerator.model.fault_bounds import (
-    MAX_CORR_GAIN_FACTOR,
-)
-from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
-from osprey.simulation.engine import SimulationEngine
+#: The instances a process may serve as; the composite's own list names one
+#: more, ``inprocess``, which is never a served instance.
+VA_INSTANCES = ("virtual_accelerator", "live_standin")
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from lume.model import LUMEModel
-
-DEFAULT_DATA_DIR = "/data/simulation"
+#: The view's documents this module reads.
+SERVED_MODELS_FILE = "served_models.json"
+ADDRESSES_FILE = "addresses.json"
+VARIABLES_FILE = "variables.json"
 
 # The line this process prints once it is serving, and the marker everything
 # that waits on that boot greps for: the image boot check
@@ -157,235 +71,63 @@ READY_MARKER = "virtual accelerator IOC serving PVs"
 
 
 def _ready_line(channel_count: int) -> str:
-    """The readiness announcement for a namespace of ``channel_count`` PVs."""
+    """The readiness announcement for a namespace of ``channel_count`` channels."""
     return f"{READY_MARKER}: {channel_count} channels"
 
 
-LATTICE_NONE = "none"
-
-# Fault-seed bounds, checked at parse so an impossible instrument is refused
-# before construction. The table is the model's own
-# (`model.fault_bounds`, which reaches no lattice and imports nothing), so a
-# seed that boots is a value the model accepts -- and a bound stated twice
-# could not drift apart. See that module for what is bounded and what is not.
-_BPM_POLARITY_LOW, _BPM_POLARITY_HIGH = _BPM_POLARITY_OPTIONS
+def view_dir() -> Path:
+    """The simulator view this process serves: ``$VA_DATA_DIR/simulator``."""
+    data_dir = os.environ.get("VA_DATA_DIR", "").strip() or DEFAULT_DATA_DIR
+    return Path(data_dir) / SIMULATOR_DIR
 
 
-def _parse_device_float_map(env_var: str, *, bound: float) -> dict[str, float]:
-    """Parse a `VA_STUCK_SETPOINTS`-shaped `"DEVICE=value,DEVICE=value,..."`
-    env var into `{device: value}`, rejecting a magnitude beyond `bound`."""
-    result: dict[str, float] = {}
-    for entry in os.environ.get(env_var, "").split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        device, sep, raw_value = entry.partition("=")
-        device = device.strip()
-        if not sep or not device or not raw_value.strip():
-            raise SystemExit(f"FATAL: {env_var} entry {entry!r} is not 'DEVICE=value'")
-        try:
-            value = float(raw_value)
-        except ValueError as exc:
-            raise SystemExit(f"FATAL: {env_var} entry {entry!r} has a non-numeric value") from exc
-        if not (-bound <= value <= bound):
-            raise SystemExit(
-                f"FATAL: {env_var} entry {entry!r} magnitude {abs(value)} exceeds bound {bound}"
-            )
-        result[device] = value
-    return result
-
-
-def _parse_bpm_errors(env_var: str = "VA_BPM_ERRORS") -> dict[str, dict[str, float]]:
-    """Parse `"BPM01:offset_x=50e-6,gain_y=1.05;BPM07:polarity_x=-1"` into
-    `{"BPM01": {"offset_x": 5e-5, "gain_y": 1.05}, "BPM07": {"polarity_x": -1.0}}`,
-    refusing a field `_BPM_ERROR_FIELDS` does not name, refusing any value that
-    is not a finite number, and holding the fields that describe an instrument
-    inside `_BPM_ERROR_FIELD_BOUNDS`. A seeded displacement or noise amplitude
-    passes through at whatever size it was written, in the unit the monitor
-    publishes.
-
-    The device token is everything before the LAST colon of an entry, because
-    a field list carries none and a device is as often known by the address
-    its reading is published on -- colon-separated at every level -- as by the
-    element it sits at. Both spellings therefore survive parsing as one token,
-    and which of the two a facility's people use is theirs to decide; an entry
-    with no colon at all names no fields and is refused."""
-    result: dict[str, dict[str, float]] = {}
-    for entry in os.environ.get(env_var, "").split(";"):
-        entry = entry.strip()
-        if not entry:
-            continue
-        device, sep, fields_raw = entry.rpartition(":")
-        device = device.strip()
-        if not sep or not device or not fields_raw.strip():
-            raise SystemExit(
-                f"FATAL: {env_var} entry {entry!r} is not 'DEVICE:field=value[,field=value...]'"
-            )
-        fields: dict[str, float] = {}
-        for field_kv in fields_raw.split(","):
-            field_kv = field_kv.strip()
-            if not field_kv:
-                continue
-            field, fsep, raw_value = field_kv.partition("=")
-            field = field.strip()
-            if not fsep or field not in _BPM_ERROR_FIELDS:
-                raise SystemExit(f"FATAL: {env_var} entry {entry!r} names unknown field {field!r}")
-            try:
-                value = float(raw_value)
-            except ValueError as exc:
-                raise SystemExit(
-                    f"FATAL: {env_var} entry {entry!r} field {field!r} is non-numeric"
-                ) from exc
-            if not math.isfinite(value):
-                # `nan` and `inf` survive float() and name no magnitude, so
-                # every field refuses them here. A seeded one would reach the
-                # error model and be drawn with: a non-finite standard
-                # deviation returns nan rather than raising, and the monitor
-                # would publish nan on every read while the boot log reports
-                # the seed as applied.
-                raise SystemExit(
-                    f"FATAL: {env_var} entry {entry!r} field {field!r}={raw_value.strip()!r} is "
-                    "not a finite number"
-                )
-            if field in _BPM_POLARITY_FIELDS:
-                # A polarity is a sign: only the two values themselves,
-                # nothing between them.
-                if value not in _BPM_POLARITY_OPTIONS:
-                    raise SystemExit(
-                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} must be "
-                        f"exactly {_BPM_POLARITY_HIGH:+g} or {_BPM_POLARITY_LOW:+g}"
-                    )
-            elif field in _BPM_NOISE_FIELDS:
-                if value < 0.0:
-                    raise SystemExit(
-                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} is a standard "
-                        "deviation and cannot be negative"
-                    )
-            elif (bound := _BPM_ERROR_FIELD_BOUNDS.get(field)) is not None:
-                lo, hi = bound
-                if not (lo <= value <= hi):
-                    raise SystemExit(
-                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} outside bound "
-                        f"[{lo}, {hi}]"
-                    )
-            fields[field] = value
-        result[device] = fields
-    return result
-
-
-def _positive_float_env(env_var: str, default: float) -> float:
-    """Read *env_var* as a float greater than zero, or fall back to *default*.
-
-    Args:
-        env_var: Name of the variable to read.
-        default: Value used when the variable is unset or empty.
-
-    Returns:
-        The configured value, or *default*.
+def _resolve_instance() -> str:
+    """Read ``VA_INSTANCE``, one of :data:`VA_INSTANCES`.
 
     Raises:
-        SystemExit: If the variable is set to something that is not a number,
-            or to a value at or below zero — a poll interval of zero is a busy
-            loop, and a negative one is not a duration at all. Refused at boot
-            rather than clamped, so a typo is visible in ``docker logs``.
+        SystemExit: The variable is unset, empty or names no served instance.
     """
-    return _float_env(env_var, default, minimum=0.0, inclusive=False)
+    raw = os.environ.get("VA_INSTANCE", "").strip()
+    if raw not in VA_INSTANCES:
+        raise SystemExit(
+            f"FATAL: VA_INSTANCE={raw!r} names no instance. Set it to one of "
+            f"{', '.join(VA_INSTANCES)}."
+        )
+    return raw
 
 
-def _non_negative_float_env(env_var: str, default: float) -> float:
-    """Read *env_var* as a float of zero or more, or fall back to *default*.
+def _resolve_tick_interval() -> float:
+    """Read ``VA_POLL_INTERVAL_S`` as seconds greater than zero.
 
-    Zero is meaningful here — it asks for no noise at all — so it is accepted
-    where :func:`_positive_float_env` refuses it.
+    Returns:
+        The stated period, or
+        :data:`~osprey_connectors.simulation.DEFAULT_TICK_S` when the variable
+        is unset or empty.
+
+    Raises:
+        SystemExit: The value is not a number, or is zero or below.
     """
-    return _float_env(env_var, default, minimum=0.0, inclusive=True)
+    from osprey_connectors.simulation import DEFAULT_TICK_S
 
-
-def _float_env(env_var: str, default: float, *, minimum: float, inclusive: bool) -> float:
-    """Shared reader behind the two float-env helpers above."""
-    raw = os.environ.get(env_var, "").strip()
+    raw = os.environ.get("VA_POLL_INTERVAL_S", "").strip()
     if not raw:
-        return default
+        return DEFAULT_TICK_S
     try:
         value = float(raw)
     except ValueError:
         raise SystemExit(
-            f"FATAL: {env_var}={raw!r} is not a number. Set it to a decimal "
-            f"value, or unset it for the default of {default}."
+            f"FATAL: VA_POLL_INTERVAL_S={raw!r} is not a number. Set it to seconds "
+            f"greater than 0, or unset it for {DEFAULT_TICK_S}."
         ) from None
-    if value < minimum or (value == minimum and not inclusive):
-        bound = f">= {minimum}" if inclusive else f"> {minimum}"
-        raise SystemExit(f"FATAL: {env_var}={raw!r} must be {bound}.")
+    if not value > 0:
+        raise SystemExit(f"FATAL: VA_POLL_INTERVAL_S={raw!r} must be greater than 0.")
     return value
 
 
-def _resolve_channels_file(data_dir: Path) -> Path:
-    """Resolve ``VA_CHANNELS_FILE`` into the channel source path.
-
-    A relative path resolves against the data dir -- the bind mount is the
-    natural home for facility-supplied data files.
-
-    Unset or empty (the compose passthrough sends ``""`` when the host var is
-    absent) is refused rather than defaulted, and that refusal is the point:
-    the only namespace this process could choose on its own is the
-    framework's bundled demo one, and a container serving those addresses
-    under a facility's name looks, to every client, exactly like one serving
-    the facility. The demo namespace is still available -- it is a committed
-    file
-    (:data:`~osprey.services.virtual_accelerator.manifest.paths.MANIFEST_OUTPUT`)
-    like any other manifest -- but it has to be asked for.
-    """
-    raw = os.environ.get("VA_CHANNELS_FILE", "").strip()
-    if not raw:
-        raise SystemExit(
-            "FATAL: VA_CHANNELS_FILE names no channel manifest. The virtual "
-            "accelerator serves the manifest it is given and never falls back to "
-            "the framework's bundled demo namespace.\n"
-            "  Project deployment: run `osprey build`, which generates "
-            f"{MANIFEST_FILENAME} into the project's data/simulation/ and writes "
-            "VA_CHANNELS_FILE into its .env.\n"
-            "  Standalone demo: ask for the packaged demo manifest by name --\n"
-            f"    -e VA_CHANNELS_FILE={MANIFEST_OUTPUT} "
-            f"-e VA_LATTICE={ManifestPaths(data_root=data_dir.parent).lattice_json.name}\n"
-            "  (that path is where this installation carries it)."
-        )
-    path = Path(raw)
-    return path if path.is_absolute() else data_dir / path
-
-
-def _resolve_lattice(data_dir: Path) -> Path | None:
-    """Resolve ``VA_LATTICE`` into the served lattice file, or ``None``.
-
-    The value names a file in the served tree, relative to the data dir, the
-    way ``VA_CHANNELS_FILE`` names the manifest beside it; :data:`LATTICE_NONE`
-    is the one value naming no file at all, and an empty or unset variable
-    reads as that. A manifest names a facility's channels and says nothing
-    about whether the mounted tree holds a model for them, so a deployment
-    that wants one asks for it by name: ``osprey build`` writes the name it
-    derived from the project's own tree.
-
-    Case is preserved, because the name is looked up in that tree verbatim and
-    a case-folding resolver would find a file on one host and miss it on
-    another.
-
-    Returning a path rather than the bare name is what makes the variable a
-    *source* like the manifest and not a flag: a name the mount does not carry
-    is refused here, against the tree this process was handed, instead of
-    surfacing later as a decoding failure from inside the lattice loader.
-    """
-    raw = os.environ.get("VA_LATTICE", "").strip()
-    if not raw or raw == LATTICE_NONE:
-        return None
-    named = Path(raw)
-    path = named if named.is_absolute() else data_dir / named
-    if not path.is_file():
-        raise SystemExit(
-            f"FATAL: VA_LATTICE={raw!r} names no file in the served tree ({path} "
-            f"is not there). The name is looked up verbatim, case included. Set "
-            f"VA_LATTICE={LATTICE_NONE} to serve the manifest's channels without "
-            f"physics, or mount a tree that carries that lattice."
-        )
-    return path
+def _resolve_state_dir() -> Path | None:
+    """Read ``VA_STATE_DIR``; ``None`` when unset or empty."""
+    raw = os.environ.get("VA_STATE_DIR", "").strip()
+    return Path(raw) if raw else None
 
 
 def _resolve_model_write_token() -> str | None:
@@ -407,139 +149,24 @@ def _resolve_model_write_token() -> str | None:
     return raw if raw.strip() else None
 
 
-def _load_drive_limits(path: Path, *, setpoints: Container[str]) -> dict[str, tuple[float, float]]:
-    """Derive the ``build_records(drive_limits=...)`` map from
-    ``channel_limits.json``: one ``(min_value, max_value)`` entry per
-    writable setpoint, used as the IOC's drive band.
-
-    ``path`` is the file to read, and there is no default: the bands belong to
-    one particular tree, and a process that serves a facility was handed that
-    facility's directory. A caller that wants the bundled tree's bands names
-    the bundled file.
-
-    ``setpoints`` is the manifest's own setpoint set -- the channels
-    whose ``subfield`` says they are written. The limits file carries an
-    entry per address, read-only ones included, so which of them are
-    setpoints has to come from the manifest; reading it off the address text
-    would hand an empty band map to every facility whose setpoints are not
-    spelled ``...:SP``."""
-    raw = json.loads(path.read_text())
-    defaults = raw.get("defaults", {})
-    limits: dict[str, tuple[float, float]] = {}
-    for address, entry in raw.items():
-        if address.startswith("_") or address == "defaults":
-            continue
-        if address not in setpoints:
-            continue
-        merged = {**defaults, **entry}
-        if not merged.get("writable", True):
-            continue
-        min_value = merged.get("min_value")
-        max_value = merged.get("max_value")
-        if min_value is None or max_value is None:
-            continue
-        limits[address] = (float(min_value), float(max_value))
-    return limits
-
-
-def _load_boot_values(machine_path: Path | None = None) -> dict[str, float]:
-    """Derive the ``build_records(boot_values=...)`` map from
-    machine.json's scenario-seed channels (see ``ioc/records.py``'s
-    ``build_records`` docstring). A handful of derived channels (e.g. RF
-    net power, computed via an ``expr`` rather than a stored ``value``)
-    carry no static value and are skipped -- harmless here since none of
-    them are ``:SP``/``:RB`` addresses, the only subfields this map is ever
-    consulted for. ``machine_path`` selects which machine.json to read;
-    ``None`` (the default) reads the bundled template."""
-    return {
-        address: entry["value"]
-        for address, entry in load_machine_json_channels(machine_path).items()
-        if "value" in entry
-    }
-
-
-def _served_tree(data_dir: Path, lattice_path: Path) -> ManifestPaths:
-    """The facility data tree behind the served directory, for the model.
-
-    The model is built from a whole tree, not from a lattice file: the
-    bindings that say which channel drives which element, the ``machine.json``
-    nominals it boots holding and the ``channel_limits.json`` bands those
-    nominals are weighed against all have to come from the same one, and
-    :class:`~osprey.services.virtual_accelerator.manifest.paths.ManifestPaths`
-    is where that layout is written down -- once, for build time and serve
-    time alike. Its ``simulation/`` directory is what this process is given
-    and its root is that directory's parent.
-
-    Refusing a mount that does not match is the point of asking here. The
-    alternative is a process that serves one lattice and models another: the
-    resolution that builds the model is not the one that answered
-    ``VA_LATTICE``, so a disagreement between them is invisible from the wire
-    -- every channel is served, every write is accepted, and the physics
-    behind them belongs to a different ring.
+def _read_view_document(view: Path, name: str) -> dict[str, Any]:
+    """One JSON document of the view.
 
     Raises:
-        SystemExit: the served directory is not the tree's ``simulation/``
-            directory, or ``VA_LATTICE`` names a lattice that is not the one
-            that tree carries.
+        SystemExit: The file is absent or is not JSON; the message names it.
     """
-    paths = ManifestPaths(data_root=data_dir.parent)
-    if paths.lattice_json.parent != lattice_path.parent:
+    path = view / name
+    try:
+        document: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         raise SystemExit(
-            f"FATAL: serving a lattice needs the mounted directory to be a facility "
-            f"tree's simulation/ directory, because the model is built from the whole "
-            f"tree around it (bindings, nominals and write bands included). "
-            f"{data_dir} is not: the model would look for its lattice at "
-            f"{paths.lattice_json}. Bind-mount <project>/build/data/simulation, or "
-            f"point VA_DATA_DIR at it."
-        )
-    if lattice_path != paths.lattice_json:
-        raise SystemExit(
-            f"FATAL: VA_LATTICE names {lattice_path.name}, but the tree's own lattice -- "
-            f"the file its va_bindings.json was derived against, and the only one the "
-            f"model reads -- is {paths.lattice_json.name}. Serving one ring and "
-            f"modelling another is indistinguishable, on the wire, from serving the "
-            f"one the bindings describe. Rename the file, or set "
-            f"VA_LATTICE={paths.lattice_json.name}."
-        )
-    return paths
-
-
-def _refuse_unbound_coupled_channels(channels: list[dict], document: Any, source: Path) -> None:
-    """Refuse a manifest whose pyat-coupled channels the bindings do not bind.
-
-    The manifest's pyat-coupled partition is derived from the bindings
-    document at build time, so the two describe the same addresses whenever
-    they came from one build. When they did not, the model is handed a
-    coupled channel nothing binds: it reaches the variable catalog as a plain
-    declared scalar and the model layer rejects it for its *type*, naming
-    neither the address nor the file the binding is missing from. That is a
-    diagnosable failure here and an opaque one three layers down, so it is
-    answered here.
-
-    Readbacks are excluded, as the catalog excludes them: the serving layer
-    mirrors a setpoint onto its readback record, so a readback is not a
-    variable and is bound by nothing.
-
-    Raises:
-        SystemExit: at least one pyat-coupled channel is unbound; the message
-            names them and the bindings file they are missing from.
-    """
-    bound = {binding.setpoint_address for binding in document.bindings}
-    unbound = sorted(
-        channel["address"]
-        for channel in channels
-        if channel["partition"] == PARTITION_PYAT_COUPLED
-        and channel["subfield"] != READBACK_SUBFIELD
-        and channel["address"] not in bound
-    )
-    if unbound:
-        raise SystemExit(
-            f"FATAL: {len(unbound)} channel(s) the manifest calls pyat-coupled are "
-            f"bound to nothing by {source}: {unbound[:5]}. The manifest's coupled "
-            f"partition is derived from that document, so the two came from "
-            f"different builds -- rebuild the deployment so its manifest and its "
-            f"bindings describe one accelerator."
-        )
+            f"FATAL: no simulator view file at {path}. Bind-mount the render's data "
+            f"directory (<project>/build/data) to {DEFAULT_DATA_DIR}, or point "
+            f"VA_DATA_DIR at it; `osprey build` writes the view."
+        ) from None
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"FATAL: {path} is not JSON: {exc}") from None
+    return document
 
 
 def _raise_keyboard_interrupt(signum: int, _frame: Any) -> None:
@@ -548,152 +175,52 @@ def _raise_keyboard_interrupt(signum: int, _frame: Any) -> None:
 
 
 def _install_shutdown_signals() -> None:
-    """Make SIGTERM behave exactly as Ctrl-C already does.
+    """Make SIGTERM behave exactly as Ctrl-C does.
 
-    The runner's ``run()`` blocks on its queue forever and returns on one
-    thing only: a ``KeyboardInterrupt`` reaching the thread that called it.
-    SIGINT raises one by Python's own default; SIGTERM -- what ``docker
-    stop`` sends -- terminates the process outright unless a handler says
-    otherwise. Pointing both at the same handler is what makes a container
-    stop leave through the runner's documented exit rather than through an
-    abrupt kill. SIGINT is installed explicitly too, so the pair is
-    symmetric and neither depends on an inherited disposition.
-
-    Installed only once the servers are up: before that the process is still
-    assembling, and the default dispositions (die immediately) are the right
-    answer to a stop signal arriving mid-assembly.
+    The runner's ``run()`` returns on one thing only: a ``KeyboardInterrupt``
+    reaching the thread that called it. SIGINT raises one by Python's own
+    default; SIGTERM -- what ``docker stop`` sends -- terminates the process
+    outright unless a handler says otherwise. Pointing both at one handler
+    makes a container stop leave through the runner's own exit. Installed only
+    once the servers are up: before that, dying at once is the right answer to
+    a stop signal.
     """
     signal.signal(signal.SIGINT, _raise_keyboard_interrupt)
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
 
-def _start_engine_source(engine_source: EngineSource, interval: float) -> threading.Thread:
-    """Run the telemetry poll loop on a daemon thread of its own.
+def _configure_logging() -> None:
+    """Give the records this process drives a handler on stderr."""
+    from osprey.utils.logger import configure_logging
 
-    There is no shared dispatcher to schedule it on: the runner owns the
-    calling thread (``run()`` blocks on it) and runs its Channel Access server
-    on one of its own. So the poll loop gets one too.
-
-    Daemon deliberately. It holds nothing worth draining -- each tick reads
-    the scenario files afresh and pushes values it recomputes -- and the
-    process must never wait on a loop that has no end.
-
-    ``run_forever`` rather than a hand-rolled loop, so the source's own
-    per-record failure isolation (see its docstring: an escaping exception
-    would freeze every telemetry channel at its boot value, silently) stays
-    on this path.
-    """
-    thread = threading.Thread(
-        target=lambda: asyncio.run(engine_source.run_forever(interval)),
-        name="engine-source",
-        daemon=True,
-    )
-    thread.start()
-    return thread
-
-
-def _start_monitor_motion(runner: Any, bridge: Any, interval: float) -> threading.Thread:
-    """Re-serve the monitor readings once per telemetry interval.
-
-    A reading the machine file gives a motion of its own changes with time
-    and not only with a write, so it has to be re-served on the same cadence
-    as the rest of the telemetry. The re-serve reads the model, so it runs on
-    the run loop's thread, handed over one job at a time: the next is queued
-    only once the last has run, so a busy loop is never left a backlog of
-    them.
-
-    Daemon for the same reason the telemetry thread is: it holds nothing,
-    and the process must never wait on a loop that has no end.
-    """
-
-    def serve_forever() -> None:
-        while True:
-            served = threading.Event()
-
-            def tick(served: threading.Event = served) -> None:
-                try:
-                    bridge.tick()
-                finally:
-                    served.set()
-
-            runner.call_on_loop(tick)
-            served.wait()
-            time.sleep(interval)
-
-    thread = threading.Thread(target=serve_forever, name="monitor-motion", daemon=True)
-    thread.start()
-    return thread
-
-
-class _RunnerRefresh(TypedDict, total=False):
-    """The runner's one optional keyword this boot fills only when a physics bridge exists."""
-
-    refresh: Callable[[list[str]], None]
+    configure_logging()
 
 
 def main() -> None:
-    from osprey.utils.logger import configure_logging
+    """Serve the simulator view until the process is signalled."""
+    _configure_logging()
 
-    # Container entry point: without this the serving/PyAT/framework log records
-    # this process drives would have no handler. Records go to stderr.
-    configure_logging()
+    instance = _resolve_instance()
+    tick_interval_s = _resolve_tick_interval()
+    state_dir = _resolve_state_dir()
+    model_write_token = _resolve_model_write_token()
+    view = view_dir()
+    served_models = _read_view_document(view, SERVED_MODELS_FILE)["models"]
+    addresses = _read_view_document(view, ADDRESSES_FILE)
+    variables = _read_view_document(view, VARIABLES_FILE)
 
-    data_dir = Path(os.environ.get("VA_DATA_DIR", DEFAULT_DATA_DIR))
-    # Two facility-network facts, read here rather than fixed in the image: how
-    # often the telemetry thread republishes engine values, and how much noise
-    # the synthesised channels carry. Both default to the `engine_source`
-    # constants, which are the one place either number is written down.
-    poll_interval_s = _positive_float_env("VA_POLL_INTERVAL_S", DEFAULT_POLL_INTERVAL_S)
-    noise_level = _non_negative_float_env("VA_NOISE_LEVEL", DEFAULT_NOISE_LEVEL)
-    state_dir = Path(os.environ.get("VA_STATE_DIR", "").strip() or data_dir)
-    machine_path = data_dir / "machine.json"
-    if not machine_path.is_file():
-        raise SystemExit(
-            f"FATAL: no machine.json at {machine_path}. "
-            f"Bind-mount a project's data/simulation/ DIRECTORY (never a single "
-            f"file) to {DEFAULT_DATA_DIR}, or set VA_DATA_DIR -- see README.md."
-        )
-
-    channels_file = _resolve_channels_file(data_dir)
-    lattice_path = _resolve_lattice(data_dir)
-
-    # Every data file comes from the manifest that was named and the mount
-    # beside it -- never from the bundled tutorial data, whose addresses
-    # belong to one particular facility's namespace. The packaged demo
-    # manifest reaches this the same way any other does: by being named.
-    print(f"Loading channel manifest from {channels_file} ...", flush=True)
-    channels = load_manifest_file(channels_file)
-    setpoints = setpoint_addresses(channels)
-    limits_path = data_dir / "channel_limits.json"
-    drive_limits = (
-        _load_drive_limits(limits_path, setpoints=setpoints) if limits_path.is_file() else {}
+    print(f"Instance: {instance}", flush=True)
+    print(f"Serving the simulator view at {view}", flush=True)
+    print(f"Serving models: {', '.join(served_models)}", flush=True)
+    print(
+        f"Active scenarios from {state_dir}"
+        if state_dir is not None
+        else "Active scenarios: nominal (VA_STATE_DIR unset)",
+        flush=True,
     )
-    boot_values = _load_boot_values(machine_path)
-
-    # The same grammar the model RPC writes the stuck set in, so the boot seed
-    # and a runtime write spell one set of addresses the same way.
-    from osprey.services.virtual_accelerator.serving.write_path import parse_stuck_setpoints
-
-    stuck_setpoints = parse_stuck_setpoints(os.environ.get("VA_STUCK_SETPOINTS", ""))
-    if stuck_setpoints:
-        print(f"VA apply-fault active: {sorted(stuck_setpoints)}", flush=True)
-
-    bpm_errors = _parse_bpm_errors("VA_BPM_ERRORS")
-    # VA_CORR_GAIN seeds the model's magnet calibration, which is
-    # family-agnostic (any magnet, not just correctors) despite the "CORR"
-    # name here. One number per device, and it is the multiplicative factor.
-    corr_gain = _parse_device_float_map("VA_CORR_GAIN", bound=MAX_CORR_GAIN_FACTOR)
-    corrector_gains = {device: {"factor": factor} for device, factor in corr_gain.items()}
-    if bpm_errors:
-        print(f"VA apply-fault active: bpm_errors={bpm_errors}", flush=True)
-    if corrector_gains:
-        print(f"VA apply-fault active: corrector_gains={corrector_gains}", flush=True)
-
     # Whether the model RPC will accept a write is operational state, and an
     # operator reads it out of these lines. The token behind it is a secret
-    # and never joins them: a secret printed once is leaked for as long as the
-    # logs are kept.
-    model_write_token = _resolve_model_write_token()
+    # and never joins them.
     print(
         "Model writes armed: VA_MODEL_WRITE_TOKEN set"
         if model_write_token
@@ -701,316 +228,32 @@ def main() -> None:
         flush=True,
     )
 
-    # Loaded before the physics, because both halves of the served machine
-    # read it: the telemetry source serves its channels, and the bridge takes
-    # from it how each monitor's reading moves around the orbit it solves.
-    print(f"Loading simulation engine from {machine_path} ...", flush=True)
-    engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
+    from osprey_connectors.simulation.composite import Composite
 
-    # The physics the runner serves: the ring in a lattice-backed boot, the
-    # empty stub otherwise. One or the other, never both, and never none --
-    # the runner is built around a model.
-    model: LUMEModel
-    # What the bindings document says each writable address does on readback.
-    # Empty with no lattice: there is no document, and every coupled setpoint
-    # (if the manifest names any) latches.
-    bound: dict[str, Any] = {}
-    if lattice_path is not None:
-        # Deferred import: all of these reach PyAT or lume at module level,
-        # and the whole point of VA_LATTICE=none is booting without PyAT
-        # installed or importable.
-        from osprey.services.virtual_accelerator.bindings import BindingsError, load_bindings
-        from osprey.services.virtual_accelerator.ioc.physics_bridge import (
-            OrbitSolveError,
-            PhysicsBridge,
-        )
-        from osprey.services.virtual_accelerator.lattice.errors import (
-            DeviceSeedError,
-            resolve_device_seeds,
-        )
-        from osprey.services.virtual_accelerator.model.pyat import (
-            MAGNET_KINDS,
-            PyATRingModel,
-            UnknownDeviceError,
-        )
-        from osprey.services.virtual_accelerator.serving.write_path import bound_setpoints
+    composite = Composite(view, state_dir=state_dir, instance=instance)
 
-        paths = _served_tree(data_dir, lattice_path)
-        # Read here as well as inside the model: the served path needs the
-        # readback rule each binding declares, and the model needs the
-        # bindings themselves. One file, read twice, rather than a document
-        # threaded through a constructor that has no parameter for it.
-        try:
-            document = load_bindings(paths.va_bindings)
-        except FileNotFoundError as exc:
-            raise SystemExit(
-                f"FATAL: {lattice_path} is served but the tree carries no bindings at "
-                f"{paths.va_bindings}. A lattice on its own models nothing any channel "
-                f"can reach, which is why the bindings file is what makes a tree a "
-                f"virtual-accelerator tree."
-            ) from exc
-        except BindingsError as exc:
-            raise SystemExit(
-                f"FATAL: {paths.va_bindings} is not a bindings document: {exc}"
-            ) from exc
-        _refuse_unbound_coupled_channels(channels, document, paths.va_bindings)
+    # The runner module reaches the Channel Access server extension at import.
+    # Constructing the runner creates the servers and starts serving.
+    from osprey.services.virtual_accelerator.serving.runner import ModelRunner
 
-        # The model is constructed here rather than left to the bridge to
-        # build, because two things now need the same one: the bridge serves
-        # writes through it, and the runner serves its variables on PVA and
-        # owns the thread every access to it happens on. One instance, one
-        # lattice; a second model would be a second lattice, silently
-        # diverging from the one whose orbit the BPM readings come from.
-        #
-        # Every refusal the model raises is turned into a SystemExit naming
-        # the served tree. Ending the process is the serving layer's
-        # decision, which is why the model itself never does it -- and an
-        # unhandled traceback out of a container's PID 1 is the one shape of
-        # boot failure nobody can read.
-        #
-        # A seeded fault names its device the way whoever seeded it knows the
-        # device: by an address the control system carries, or by the element
-        # the deck carries it at. The model holds its faults by element,
-        # because a device is one device whatever its addresses, so the
-        # document -- the one thing that carries both spellings -- is what
-        # turns the seeds into that key. Both kinds are resolved the same way,
-        # because an operator reads a magnet's address off the same screen as
-        # a monitor's. A spelling the document knows neither way ends the boot
-        # here: a machine serving unperturbed readings while looking
-        # configured is the failure a fault seed exists to make visible.
-        monitors = {
-            binding.setpoint_address: binding.element
-            for binding in document.bindings
-            if binding.kind == "monitor" and binding.element is not None
-        }
-        magnets = {
-            binding.setpoint_address: binding.element
-            for binding in document.bindings
-            if binding.kind in MAGNET_KINDS and binding.element is not None
-        }
-        try:
-            bpm_errors = resolve_device_seeds(
-                bpm_errors, monitors, device="monitor", seeds="readout errors"
-            )
-        except DeviceSeedError as exc:
-            raise SystemExit(f"FATAL: VA_BPM_ERRORS: {exc}") from exc
-        try:
-            corrector_gains = resolve_device_seeds(
-                corrector_gains, magnets, device="magnet", seeds="calibrations"
-            )
-        except DeviceSeedError as exc:
-            raise SystemExit(f"FATAL: VA_CORR_GAIN: {exc}") from exc
-        # The second half of the pair printed above: what was asked for, and
-        # the devices it resolved to. An operator reading the log of a
-        # container that serves addresses needs both to see that the device
-        # they meant is the device that was perturbed.
-        if bpm_errors:
-            print(f"VA apply-fault active: bpm_errors at elements {bpm_errors}", flush=True)
-        if corrector_gains:
-            print(
-                f"VA apply-fault active: corrector_gains at elements {corrector_gains}", flush=True
-            )
-
-        try:
-            # The seeds go to the model, not to the bridge: each becomes a
-            # model variable, so a fault is readable, writable and resettable
-            # through the same surface as the physics it perturbs, and the
-            # bridge reads it back at the moment it serves a reading rather
-            # than holding a second copy a runtime write could not move.
-            model = PyATRingModel(
-                paths.data_root,
-                channels,
-                bpm_errors=bpm_errors or None,
-                corrector_gains=corrector_gains or None,
-            )
-        except UnknownDeviceError as exc:
-            # Three things raise this one class: a binding naming an element
-            # the lattice lacks, a misalignment naming one, and a fault seed
-            # naming a device the tree serves none of. The headline names the
-            # condition they share rather than guessing which of them it was --
-            # the message the model raised says that, and naming the wrong one
-            # sends an operator to the wrong file.
-            raise SystemExit(
-                f"FATAL: the tree at {paths.data_root} was asked for an element or a device "
-                f"it does not carry: {exc}"
-            ) from exc
-        except OrbitSolveError as exc:
-            raise SystemExit(
-                f"FATAL: the served lattice has no stable closed orbit at boot ({exc})"
-            ) from exc
-        except BindingsError as exc:
-            raise SystemExit(
-                f"FATAL: the tree at {paths.data_root} does not describe one accelerator: {exc}"
-            ) from exc
-        except FileNotFoundError as exc:
-            raise SystemExit(
-                f"FATAL: the tree at {paths.data_root} is missing a file its model needs: {exc}"
-            ) from exc
-        except pydantic.ValidationError as exc:
-            # The band refusal: a machine.json nominal outside its
-            # channel_limits.json band, on the served files. It is what makes
-            # the model's declared state the facility's own, so it reads as a
-            # statement about this tree rather than as a validation dump. It
-            # is the variable's own model that refuses it, which is why this
-            # clause is narrower than the one below and comes before it.
-            raise SystemExit(
-                f"FATAL: the tree at {paths.data_root} contradicts itself -- a "
-                f"machine.json nominal falls outside the band "
-                f"{paths.channel_limits} states for it ({exc})"
-            ) from exc
-        except ValueError as exc:
-            # Everything else the tree can be wrong about: a slice weight, an
-            # energy table, a file that is not JSON, a binding the model
-            # cannot make a variable of. Each of those names its own file and
-            # key in the text it carries, so the headline stays neutral --
-            # naming a cause here that is not the cause sends an operator to
-            # the wrong file.
-            raise SystemExit(
-                f"FATAL: the model refused the tree at {paths.data_root}: {exc}"
-            ) from exc
-
-        # What each coupled setpoint serves on readback, from the document
-        # rather than from the manifest's setpoint/readback pairing: only the
-        # document knows that a readback is the setpoint's value mapped back
-        # along the facility's own reverse curve. Asked for here, where the
-        # tree is resolved, because the runner resolves no tree of its own.
-        try:
-            bound = dict(bound_setpoints(document, model.supported_variables))
-        except ValueError as exc:
-            raise SystemExit(
-                f"FATAL: {paths.va_bindings} declares a readback the served namespace "
-                f"cannot produce: {exc}"
-            ) from exc
-
-        # The engine is the machine file's own description of how a monitor
-        # moves, and the seeded archive history was synthesized from it: served
-        # through the bridge, the live readings carry the same motion.
-        bridge = PhysicsBridge(model=model, motion=engine)
-        on_pyat_setpoint = bridge.on_setpoint
-    else:
-        if bpm_errors or corrector_gains:
-            raise SystemExit(
-                "FATAL: VA_BPM_ERRORS/VA_CORR_GAIN are lattice-physics faults "
-                "and require VA_LATTICE to name a lattice file in the data dir"
-            )
-        print("No lattice configured (VA_LATTICE=none): PhysicsBridge skipped", flush=True)
-        # The served namespace is the manifest's, whole, either way -- the
-        # model only ever describes the physics behind part of it. With none,
-        # it describes nothing and the co-hosted namespace is all there is.
-        from osprey.services.virtual_accelerator.serving.model_stub import NullModel
-
-        model = NullModel()
-        bridge = None
-        on_pyat_setpoint = None
-
-    # async_setpoints is not optional here: every setpoint that routes through
-    # the model is completed only once the solve behind it has finished, and a
-    # synchronous PV would tell the client its write had landed before the
-    # solve had even started. The write path refuses to be built without it.
-    records = build_serving_pvdb(
-        channels,
-        drive_limits=drive_limits,
-        boot_values=boot_values,
-        async_setpoints=True,
-    )
-    print(
-        f"Built serving database: {len(records.all)} channels "
-        f"({len(records.pyat_coupled)} pyat-coupled, {len(records.static_noisy)} static-noisy)",
-        flush=True,
-    )
-    if bridge is not None:
-        # Pushes the boot BPM readings into the database's specs. Before the
-        # runner exists, and it has to be: these are the values the Channel
-        # Access server comes up serving.
-        bridge.bind(records.pyat_coupled, physics_setpoints=records.physics_setpoints)
-
-    # With no lattice, the engine is the only physics in the process: sync
-    # each sp-echo readback into it every tick so machine-file expression
-    # channels can respond to accepted setpoints (see EngineSource's
-    # setpoint_echo_records docstring). With a lattice, physics coupling
-    # flows through PhysicsBridge and the engine stays a pure scenario source.
-    setpoint_echoes: dict[str, Any] | None = None
-    if lattice_path is None:
-        setpoint_echoes = {
-            ch["address"]: records.all[ch["address"]]
-            for ch in channels
-            if ch["partition"] == PARTITION_SP_ECHO
-            and ch["subfield"] == READBACK_SUBFIELD
-            and ch["address"] in records.all
-        }
-
-    engine_source = EngineSource(
-        engine,
-        channels,
-        records.static_noisy,
-        data_dir,
-        state_dir=state_dir,
-        noise_level=noise_level,
-        setpoint_echo_records=setpoint_echoes,
-    )
-
-    # Import the runner only now: it is the one module here that reaches the
-    # Channel Access server extension, and a lattice-free boot on a host
-    # without it must still get this far.
-    from osprey.services.virtual_accelerator.serving.runner import CohostRunner
-
-    # Constructing the runner creates the servers and starts serving. Nothing
-    # after this may write into a PV spec -- the specs have been copied into
-    # live PVs -- which is why the runner points every record at the driver
-    # itself as its last act.
-    runner = CohostRunner(
-        model,
-        records,
-        on_setpoint=on_pyat_setpoint,
-        # A model RPC write reaches the model and no setpoint, so the bridge is
-        # told afterwards which variables moved and re-serves what they feed;
-        # without this hook a written fault is held but never read. With no
-        # bridge nothing derives a reading from a model variable, so there is
-        # nothing to recompute and the runner's inert default stands.
-        **(_RunnerRefresh(refresh=bridge.refresh) if bridge is not None else _RunnerRefresh()),
-        drive_limits=drive_limits,
-        bound_setpoints=bound,
-        stuck_setpoints=stuck_setpoints,
+    runner = ModelRunner(
+        composite,
+        variables,
+        addresses,
         model_write_token=model_write_token,
-        # What the model RPC's ``status`` answers with. Both are boot facts
-        # nothing downstream can recover: the backend is whichever model was
-        # just built, and the lattice source is the file this boot resolved
-        # rather than the raw env var behind it.
-        backend_name=type(model).__name__,
-        lattice_source=str(lattice_path) if lattice_path is not None else LATTICE_NONE,
+        tick_interval_s=tick_interval_s,
+        instance=instance,
     )
-
-    if bridge is not None:
-        # Which setpoints are stuck is the write path's state and changes at
-        # runtime, so the bridge is handed the reader rather than the set. It
-        # can only be handed over now: the write path is built with the server,
-        # and the bridge had to exist before that to seed the record specs.
-        bridge.follow_stuck_setpoints(runner.write_path.stuck_setpoints)
-
-    # Telemetry starts only once the driver is attached, so its first tick
-    # posts monitor events to the server rather than editing boot specs
-    # behind it.
-    _start_engine_source(engine_source, poll_interval_s)
-    if bridge is not None and bridge.moves:
-        _start_monitor_motion(runner, bridge, poll_interval_s)
 
     _install_shutdown_signals()
-    print(_ready_line(len(records.all)), flush=True)
+    print(_ready_line(len(addresses["channels"])), flush=True)
 
-    # `run()` is the run loop: it blocks on the queue and returns only on a
-    # KeyboardInterrupt, which the handlers installed above raise for SIGINT
-    # and SIGTERM alike. It catches that itself; catching it again here
-    # covers the window in which a signal arrives between the loop's own
-    # try and this call.
-    #
-    # Shutdown is process exit, not a server teardown: there is no stop API
-    # to call, and nothing in this process holds state that outlives it. The
-    # Channel Access server thread is a daemon, the telemetry thread is a
-    # daemon, the PVA server's threads are the server library's own, and
-    # every one of them is released when the process image is. A write
-    # already queued when the signal arrives is never applied and its
-    # put-completion never fires -- the client's put times out rather than
-    # being told a value landed that did not.
+    # `run()` blocks on the run loop and returns on a KeyboardInterrupt, which
+    # the handlers above raise for SIGINT and SIGTERM alike; catching it here
+    # covers a signal arriving between the loop's own try and this call.
+    # Shutdown is process exit: a write already queued when the signal arrives
+    # is never applied, so its client's put times out rather than being told
+    # a value landed that did not.
     try:
         runner.run()
     except KeyboardInterrupt:

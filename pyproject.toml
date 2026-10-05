@@ -386,10 +386,9 @@ screen-capture-linux = [
 # adds no requirement.)
 #
 # pcaspy is the portable Channel Access server. The serving layer hosts one,
-# and tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand
-# one up in-process to assert the write contract from the far side of the wire;
-# without pcaspy installed both suites skip, and a skipped live suite proves
-# nothing.
+# and tests/va/test_apply_fault.py stands one up to assert the scenario faults
+# from the far side of the wire; without pcaspy installed that suite skips, and
+# a skipped live suite proves nothing.
 #
 # `>=0.8.1` is a hard floor, not a preference. 0.8.0's `SimplePV.writeNotify`
 # hands `startAsyncWrite` the wrong object and aborts the server process on any

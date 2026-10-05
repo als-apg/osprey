@@ -242,12 +242,11 @@ jobs:
       # virtual-accelerator: carries the whole serving stack -- pcaspy, and
       # lume-pva-apg[ca,pva] which brings p4p with it -- none of which is in
       # dev. The live Channel Access suites (run in their own step below, one
-      # process per module) and tests/va/test_facility_seam.py's served-boot
-      # branch need all of it. These guard their imports, so without the extra
-      # they SKIP rather than error: the lane stays green having never touched
-      # Channel Access. That is why the extra is pinned here and why
-      # tests/va/test_live_ca_venue_guard.py fails this lane outright if the
-      # server does not import on linux/x86_64.
+      # process per module) need all of it. They guard their imports, so
+      # without the extra they SKIP rather than error: the lane stays green
+      # having never touched Channel Access. That is why the extra is pinned
+      # here and why tests/va/test_live_ca_venue_guard.py fails this lane
+      # outright if the server does not import on linux/x86_64.
       #
       # The bluesky stack (bluesky/ophyd-async/tiled) is a core dependency, so
       # plain `uv sync` carries it. tests/services/bluesky_bridge/* guard their
@@ -429,7 +428,7 @@ jobs:
         # read on fewer events than it is here.
         # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
         # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_apply_fault.py --ignore=tests/va/test_lume_pva_seam.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py --ignore=tests/integration/test_preset_build.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test

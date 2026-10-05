@@ -27,7 +27,6 @@ WHITELIST: dict[str, set[str]] = {
     # libca latches EPICS_CA_* at C-library init, on the first import of
     # epics/softioc anywhere in the process; the ports are picked from free
     # ones at the same moment for the same reason.
-    "va/test_record_factory.py": {"os.environ", "socket"},
     "va/test_apply_fault.py": {"os.environ", "socket"},
     "va/test_lume_pva_seam.py": {"os.environ", "socket"},
     # Deploying suites reserve their CA / gallery ports at import: the value

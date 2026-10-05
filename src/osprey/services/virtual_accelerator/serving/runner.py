@@ -746,6 +746,7 @@ class ModelRunner(Runner):
         *,
         model_write_token: str | None,
         tick_interval_s: float | None = None,
+        instance: str | None = None,
     ) -> None:
         """Serve ``composite``, built from the simulator view ``view`` describes.
 
@@ -757,8 +758,11 @@ class ModelRunner(Runner):
                 ``None`` to refuse every model write. Never logged.
             tick_interval_s: the period of the runner's own passes, or
                 ``None`` for none.
+            instance: the instance name the model RPC's ``status`` reports,
+                or ``None`` for the host this server answers as.
         """
         self._addresses_json = addresses_json
+        self._instance = instance
         self._model_write_token = model_write_token
         self._chromaticity = chromaticity_addresses(view)
         self._write_pass = False
@@ -793,7 +797,7 @@ class ModelRunner(Runner):
         self._surface = ModelSurface.for_view(
             self.model,
             self._addresses_json,
-            instance=_instance_name(),
+            instance=self._instance if self._instance is not None else _instance_name(),
             endpoint=_pva_endpoint(),
             model_write_token=self._model_write_token,
         )

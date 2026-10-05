@@ -682,14 +682,6 @@ def _wired_env(
     return parse_dotenv_file(repo / COMPOSE_ENV_FILENAME)
 
 
-def test_the_none_lattice_spelling_matches_the_containers_own():
-    """A respelled constant that drifts would boot the container on the wrong mode."""
-    from osprey.cli.build_cmd import _VA_LATTICE_NONE
-    from osprey.services.virtual_accelerator import entrypoint
-
-    assert _VA_LATTICE_NONE == entrypoint.LATTICE_NONE
-
-
 def test_a_tree_that_stages_bindings_serves_its_lattice_by_name(tmp_path):
     """The name, not a mode: the entrypoint looks that file up in the tree."""
     paths = ManifestPaths(data_root=tmp_path / "unused")
