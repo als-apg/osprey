@@ -246,7 +246,7 @@ class TestPartitionShape:
 
     def test_the_surface_names_info_reports(self) -> None:
         assert SURFACE_SERVED == "served"
-        assert SURFACE_MODEL_ONLY == "model-only"
+        assert SURFACE_MODEL_ONLY == "model"
 
 
 # ---------------------------------------------------------------------------

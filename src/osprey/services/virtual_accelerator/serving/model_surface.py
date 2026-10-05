@@ -81,7 +81,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: The side of the partition a variable is on, as the model RPC's ``info``
 #: verb reports it in each variable's ``surface`` field.
 SURFACE_SERVED = "served"
-SURFACE_MODEL_ONLY = "model-only"
+SURFACE_MODEL_ONLY = "model"
 
 #: The refusal every write meets on a server configured without a token.
 WRITES_DISABLED = "model writes are disabled"
