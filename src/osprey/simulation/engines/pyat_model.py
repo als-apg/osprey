@@ -122,10 +122,6 @@ __all__ = [
 # attribute under it, which is what keeps a fault off the orbit.
 _READOUT_PREFIX = "readout_"
 
-#: The calibration fields a magnet setpoint carries, each at its identity: a
-#: magnet that delivers exactly what it was commanded.
-CALIBRATION_IDENTITY: dict[str, float] = SUPPLY_IDENTITY
-
 _ROLL_UNIT = "rad"
 
 #: The readout fields whose magnitude is in the monitor reading's own unit.
@@ -230,7 +226,7 @@ def _calibration_faults(
             and variable.bindings[0].attribute in CALIBRATED_ATTRIBUTES
         ):
             continue
-        for field, identity in CALIBRATION_IDENTITY.items():
+        for field, identity in SUPPLY_IDENTITY.items():
             name = _fault_name(variable.name, field)
             faults.append(
                 PyATWritableScalarVariable(
@@ -480,7 +476,7 @@ class PyATLatticeModel(LUMEPyATModel):
                 f"fault seeds name {unknown}, which the model does not declare; a monitor "
                 f"readback takes {sorted(READOUT_IDENTITY)} (and {ROLL!r} on its x-axis or "
                 f"only readback), a PolynomB or KickAngle setpoint takes "
-                f"{sorted(CALIBRATION_IDENTITY)}"
+                f"{sorted(SUPPLY_IDENTITY)}"
             )
         planes = tune_planes(lattice)
         _check_readbacks(channels, planes, solve)
