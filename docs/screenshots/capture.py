@@ -171,6 +171,20 @@ def _driver_start_failure(exc: AttributeError | OSError) -> str:
     return reason
 
 
+def _retrieve_handshake_failure(manager: object) -> None:
+    """Read the failure of a dead driver's connection-init task, so asyncio never logs it.
+
+    A driver that exits before its handshake fails Playwright's connection-init task, and
+    stopping the manager does not read that failure. Left unread, asyncio logs "Task
+    exception was never retrieved" with its traceback whenever the garbage collector
+    reaches the task -- into whatever stream is current by then. The skip already reports
+    the dead driver.
+    """
+    task = getattr(getattr(manager, "_connection", None), "_init_task", None)
+    if task is not None and task.done() and not task.cancelled():
+        task.exception()
+
+
 @contextmanager
 def chromium_context() -> Iterator[Browser]:
     """Yield a headless chromium ``Browser``, stopping Playwright on every exit.
@@ -197,6 +211,7 @@ def chromium_context() -> Iterator[Browser]:
             raise
         with suppress(Exception):
             manager.__exit__(None, None, None)
+        _retrieve_handshake_failure(manager)
         raise ScreenshotSkip(_driver_start_failure(exc)) from exc
 
     try:
