@@ -47,9 +47,9 @@ scenario set: the set's active writes, never a session write. The composite is
 read once, one solve per physics model, and :class:`ArchiveComposite` then
 computes every timestamp from those held values: the active scenarios'
 archiver events, then the texture's drift, couplings and keyed noise, the
-physics engine's readout and the clamp, as the composite serves them. Samples are in the wire representation, so a ``bool`` or ``enum``
-channel archives its option index. ``lume`` is imported inside :func:`build`
-only.
+physics engine's readout and the clamp, as the composite serves them. Samples
+are in the wire representation, so a ``bool`` or ``enum`` channel archives its
+option index. ``lume`` is imported inside :func:`build` only.
 """
 
 from __future__ import annotations
@@ -367,8 +367,9 @@ class ArchiveComposite:
         A ``float`` channel holds its start-state value, moved by the active
         scenarios' archiver events, and reads that level as the composite
         serves it: a moving channel with its motion, its engine's readout and
-        its clamp, a physics setpoint as it is. Any other channel holds its start-state value, moved only
-        by ``step`` events; a ``bool`` or ``enum`` sample is its option index.
+        its clamp, a physics setpoint as it is. Any other channel holds its
+        start-state value, moved only by ``step`` events; a ``bool`` or
+        ``enum`` sample is its option index.
 
         Args:
             address: A channel address of the view.

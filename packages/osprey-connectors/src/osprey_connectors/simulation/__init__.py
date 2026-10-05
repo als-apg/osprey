@@ -1,9 +1,9 @@
 """The simulated machine behind OSPREY's mock connectors.
 
 The package root holds only what every reader needs without loading a model:
-the tick period, value coercion, char-waveform decoding, the
-active-scenario state helpers and the model status lookup. It imports neither numpy nor lume; the engine,
-machine and expression names are imported from their own modules
+the tick period, value coercion, char-waveform decoding, the active-scenario
+state helpers and the model status lookup. It imports neither numpy nor lume;
+the engine, machine and expression names are imported from their own modules
 (:mod:`.engine`, :mod:`.machine`, :mod:`.expressions`).
 """
 

@@ -24,8 +24,9 @@ plane reads its partner too. A texture channel reads as the texture serves it.
 **Writes.** :meth:`Composite.set` coerces each value to its channel's
 ``value_type``, then sets the physics children in name order and the texture
 last. When any child refuses, every earlier child gets its previous inputs back
-and the refusal is raised as a ``ValueError`` carrying the child's text. A setpoint the active scenarios mark ``stuck``
-accepts a write and does not forward it.
+and the refusal is raised as a ``ValueError`` carrying the child's text. A
+setpoint the active scenarios mark ``stuck`` accepts a write and does not
+forward it.
 
 **A failed child.** A child whose engine raises while it is built or read is
 failed, with the engine's error text as its status (``ok`` otherwise), capped
