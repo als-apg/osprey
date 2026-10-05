@@ -210,7 +210,16 @@ def test_cell_env_cborg_open_model():
     assert env["OSPREY_E2E_JUDGE_MODEL"] == "google/claude-haiku-4-5"
     assert env["ALS_APG_API_KEY"] == "cb-key"
     assert env["CBORG_API_KEY"] == "cb-key"
-    assert env["OSPREY_E2E_BUDGET_SCALE"] == "1"
+    # the SDK prices a proxied model at Claude rates, so a $ cap would be fiction
+    assert env["OSPREY_E2E_BUDGET_SCALE"] == "inf"
+
+
+@pytest.mark.usefixtures("keys")
+def test_cell_env_proxy_route_ignores_a_configured_budget_scale():
+    cell = matrix.build_cell(
+        _cfg(), {"id": "gpt-oss-20b", "provider": "cborg", "budget_scale": 3}, 1
+    )
+    assert matrix.cell_env(cell)["OSPREY_E2E_BUDGET_SCALE"] == "inf"
 
 
 @pytest.mark.usefixtures("keys")
@@ -243,7 +252,7 @@ def test_cell_env_ds4_local_keyless_judge_stays_remote():
     assert env["OSPREY_E2E_JUDGE_MODEL"] == "google/claude-haiku-4-5"
     assert env["ALS_APG_API_KEY"] == "cb-key"
     assert env["CBORG_API_KEY"] == "cb-key"
-    assert env["OSPREY_E2E_BUDGET_SCALE"] == "1"  # local inference is free
+    assert env["OSPREY_E2E_BUDGET_SCALE"] == "inf"  # no real price to cap
 
 
 def test_cell_env_non_cborg_sut_exposes_its_own_key_var(monkeypatch):

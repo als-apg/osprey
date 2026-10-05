@@ -31,6 +31,7 @@ travelling on as a URL.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import subprocess
 import sys
@@ -190,7 +191,7 @@ def build_cell(cfg: MatrixConfig, model: dict[str, Any], seed: int) -> Cell:
         provider=provider,
         seed=seed,
         protocol=protocol,
-        budget_scale=float(_model_field(model, cfg.defaults, "budget_scale", 1)),
+        budget_scale=_budget_scale(model, cfg.defaults, protocol),
         judge_base_url=judge_pconf["base_url"],
         judge_model=judge["model"],
         judge_key=resolve_key(judge_pconf),
@@ -285,10 +286,24 @@ def cell_env(cell: Cell) -> dict[str, str]:
     if cell.judge_key_env and cell.judge_key:
         env[cell.judge_key_env] = cell.judge_key
 
-    # --- budget scale (price normalizer; local models stay at 1) ----------
+    # --- budget scale (price normalizer; "inf" on the proxy route) --------
     env["OSPREY_E2E_BUDGET_SCALE"] = _fmt_scale(cell.budget_scale)
 
     return env
+
+
+def _budget_scale(model: dict, defaults: dict, protocol: str) -> float:
+    """The per-query ``$`` cap multiplier for one cell.
+
+    A proxied (OpenAI-protocol) model reaches the SDK under a Claude alias, so
+    the SDK prices its tokens at Claude rates: the cost it computes, and any cap
+    on it, says nothing about that model. Those cells run uncapped, bounded by
+    their turn limit and timeout. A direct cell scales the cap by its
+    ``budget_scale`` (a price ratio to the model the caps were sized for).
+    """
+    if protocol != "anthropic":
+        return math.inf
+    return float(_model_field(model, defaults, "budget_scale", 1))
 
 
 def _fmt_scale(value: float) -> str:

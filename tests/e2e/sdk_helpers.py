@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -998,12 +999,27 @@ def e2e_budget_scale() -> float:
     (``scripts/benchmark/run_e2e_for_model.sh``) sets ``OSPREY_E2E_BUDGET_SCALE``
     per model so the cap **and** the cost-ceiling assertions scale together.
     Unset, the scale is 1.0 and each call site's cap applies as written.
+
+    ``inf`` lifts both: the runner sets it for a model reached through the
+    OpenAI-protocol proxy, whose tokens the SDK prices at Claude rates, so any
+    dollar figure for it is fiction. The turn limit and the timeout still bound
+    such a query.
     """
     try:
         scale = float(os.environ.get("OSPREY_E2E_BUDGET_SCALE", "1.0"))
     except ValueError:
         return 1.0
     return scale if scale > 0 else 1.0
+
+
+def e2e_budget_cap(max_budget_usd: float) -> float | None:
+    """The ``max_budget_usd`` to hand the SDK for a call site's base cap.
+
+    ``None`` when :func:`e2e_budget_scale` is infinite: the SDK then sets no
+    dollar cap at all, rather than being handed an infinity it cannot parse.
+    """
+    cap = max_budget_usd * e2e_budget_scale()
+    return None if math.isinf(cap) else cap
 
 
 # ---------------------------------------------------------------------------
@@ -1051,7 +1067,7 @@ async def run_sdk_query(
         cwd=str(render),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd * e2e_budget_scale(),
+        max_budget_usd=e2e_budget_cap(max_budget_usd),
         env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -1280,7 +1296,7 @@ async def run_sdk_query_with_hooks(
         cwd=str(render),
         permission_mode="default",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd * e2e_budget_scale(),
+        max_budget_usd=e2e_budget_cap(max_budget_usd),
         env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],

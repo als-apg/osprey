@@ -27,7 +27,7 @@ them by hand.
 | `OSPREY_E2E_FORCE_MODEL` | collapse all tiers (haiku/sonnet/opus) → this id | `sdk_helpers._apply_e2e_overrides` |
 | `OSPREY_E2E_PROXY_UPSTREAM` | (open models) start the translation proxy + rewrite base URL | `conftest._e2e_translation_proxy` |
 | `OSPREY_E2E_PROXY_KEY` | upstream auth for the proxy (`""` for keyless local servers — honored by presence, not truthiness) | `conftest._e2e_translation_proxy` |
-| `OSPREY_E2E_BUDGET_SCALE` | multiply per-query `max_budget_usd` (pricier refs need headroom) | `sdk_helpers.e2e_budget_scale` |
+| `OSPREY_E2E_BUDGET_SCALE` | multiply per-query `max_budget_usd` (pricier refs need headroom); `inf` sends no cap | `sdk_helpers.e2e_budget_scale` |
 | `OSPREY_E2E_JUDGE_MODEL` / `ALS_APG_BASE_URL` | redirect the LLM judge to a reachable endpoint | `judge.py` |
 | `OSPREY_E2E_LIVE` | append one JSON line per test as it finishes (live dashboard feed) | `conftest.pytest_runtest_logreport` |
 | `OSPREY_E2E_QUERY_LOG` | append one JSON line per agent query: wall time, time waiting on the model, turns, tokens (dashboard latency columns) | `sdk_helpers._log_query_timing` |
@@ -64,8 +64,10 @@ the Anthropic route and everything else on the OpenAI route under one provider.
 `judge.via` names a provider whose endpoint+key back the grader, which is always
 a reachable remote, **never the model under test** (so a local `ds4` cell judges
 via `cborg`). `budget_scale` multiplies the per-query `$` cap so a pricey
-reference model doesn't blow the haiku-tuned ceiling mid-query (local models stay
-at the default `1` — free).
+reference model doesn't blow the haiku-tuned ceiling mid-query. It applies to
+direct (`anthropic`) cells only: a proxied model reaches the SDK under a Claude
+alias and is priced at Claude rates, so its dollar figure is fiction and the
+runner sends `inf` — no cap, bounded by the turn limit and `timeout_s`.
 
 ## Layer A — portable mechanism
 
