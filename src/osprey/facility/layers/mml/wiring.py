@@ -168,6 +168,7 @@ class _Slice:
 def wire_model(
     model: Model,
     deck_path: Path | None,
+    ao_block: Map[str, Any] | None,
     va_block: Map[str, Any] | None,
     ad_block: Map[str, Any] | None,
     views: Map[str, FamilyView],
@@ -182,7 +183,10 @@ def wire_model(
         model: One model of the layer's mapping, every slot decided.
         deck_path: The deck the export saved for the model (``<stem>.lattice.mat``),
             or ``None`` where it saved none.
-        va_block: The model's sampled facts (``<stem>.va.json``), or ``None``.
+        ao_block: The model's Accelerator Objects, ``{family: body}``, whose
+            ``AT`` blocks place each wired family on the deck; or ``None``.
+        va_block: The model's sampled facts (``<stem>.va.json``), read for
+            calibrations, nominals and device checks; or ``None``.
         ad_block: The model's accelerator data, or ``None``.
         views: The model's families read through the reviewer's judgment
             answers, keyed by raw family token.
@@ -214,8 +218,9 @@ def wire_model(
             )
         return None
     facts: Map[str, Any] = va_block if isinstance(va_block, Map) else {}
+    objects: Map[str, Any] = ao_block if isinstance(ao_block, Map) else {}
     try:
-        addressing = decks.address_elements(model, load_lattice(deck_path), facts, ad_block)
+        addressing = decks.address_elements(model, load_lattice(deck_path), objects, ad_block)
         unplaced = [
             f"{name}: family {family} is wired through {wiring.element_field} "
             "and the export places none of its devices"
