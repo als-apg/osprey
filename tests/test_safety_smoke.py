@@ -297,7 +297,7 @@ def test_1_read_channel_hooks_pass_through(smoke_env):
 
 
 async def test_1_read_channel_tool_returns_data(smoke_env, monkeypatch):
-    """channel_read tool returns mock data for any channel name."""
+    """channel_read tool returns mock data for a channel the built tree serves."""
     monkeypatch.chdir(smoke_env["tmp_path"])
     monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
     initialize_server_context()

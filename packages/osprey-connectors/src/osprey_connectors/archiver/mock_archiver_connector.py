@@ -113,6 +113,8 @@ class MockArchiverConnector(ArchiverConnector):
         from osprey_connectors.simulation.state import parse_active_state
 
         assert self._view is not None
+        # The signature is taken before the file is read, so a rewrite between
+        # the two shows as a change on the next read.
         signature = self._signature()
         names: list[str] = []
         anchor_s: float | None = None
