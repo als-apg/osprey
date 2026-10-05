@@ -97,6 +97,7 @@ function files = mml_export(outdir)
 %   around a hardware setting, and fcn, the conversion function's own name. A
 %   linear one carries no grid: its line is the conversion. A monitor_inverse
 %   carries grid_source and fcn but no anchor.
+%   A Setpoint grid holds each device's nominal and one DeltaRespMat above it.
 %
 %   A readout is what the Middle Layer corrects the family's own readings by,
 %   one value per device under each key the family states:
@@ -681,11 +682,7 @@ function facts = local_model_family_facts(family, energy)
 % What one family's stepped response is made of, read before it is stepped.
 DeviceList = family2dev(family);
 nDev = size(DeviceList, 1);
-nominal = getsp(family, DeviceList, 'Model', 'Hardware', 'Numeric');
-width = getfamilydata(family, 'Setpoint', 'DeltaRespMat', DeviceList);
-if isscalar(width)
-    width = repmat(width, nDev, 1);
-end
+[nominal, width] = local_family_step(family, DeviceList);
 if numel(nominal) ~= nDev || numel(width) ~= nDev ...
         || any(~isfinite(nominal(:))) || any(~isfinite(width(:)))
     error('mml_export:step', ...
@@ -716,6 +713,20 @@ physicsStep = values(:, 2) - values(:, 1);
 misread = local_sample_hw2physics(family, 'Setpoint', DeviceList, ...
     [physicsNominal, physicsNominal + physicsStep], energy);
 facts.physics_step_read_as_amps = misread(:, 2) - misread(:, 1);
+end
+
+
+function [nominal, width] = local_family_step(family, DeviceList)
+% The hardware setting each device of a family is stepped from and the width
+% of its step: the model setpoint and the DeltaRespMat the Middle Layer's own
+% response measurements step by. The model probe's k_per_amp and the Setpoint
+% table's step anchors read this one pair, so the table carries the secant
+% k_per_amp states. A width stated once for the family is every device's.
+nominal = getsp(family, DeviceList, 'Model', 'Hardware', 'Numeric');
+width = getfamilydata(family, 'Setpoint', 'DeltaRespMat', DeviceList);
+if isscalar(width)
+    width = repmat(width, size(DeviceList, 1), 1);
+end
 end
 
 
@@ -1193,12 +1204,21 @@ function [calibration, grid, values] = local_sample_calibration(family, field, D
 % GRID and VALUES are returned beside the calibration because they are what a
 % second sampling at another energy is compared against, which the compact
 % linear form no longer holds.
+%
+% A Setpoint grid also holds the two hardware values each device is stepped
+% between when the Middle Layer measures a response - its nominal and one
+% DeltaRespMat above it - so the table's slope over that step is the Middle
+% Layer's own whatever shape the conversion has between the uniform points,
+% and its physics image puts the nominal on the monitor_inverse as well.
 if isempty(DeviceList)
     error('mml_export:devices', 'Family %s lists no devices to sample.', family);
 end
 
 nDev = size(DeviceList, 1);
 [grid, source, anchor] = local_hardware_grid(local_range(AO, family, field, nDev), nominal, nDev);
+if strcmp(field, 'Setpoint')
+    grid = local_anchored_grid(grid, local_step_anchors(family, DeviceList));
+end
 values = local_sample_hw2physics(family, field, DeviceList, grid, energy);
 local_require_finite(family, field, AO, 'HW2PhysicsFcn', grid, values);
 
@@ -1798,6 +1818,56 @@ else
 end
 
 grid = low + (high - low) .* (0:(points - 1)) / (points - 1);
+end
+
+
+function anchors = local_step_anchors(family, DeviceList)
+% The nominal and the nominal plus DeltaRespMat of each device, one row per
+% device, read through the same seam as the model probe's k_per_amp. A device
+% whose step is not two finite numbers has NaN for both, and a family whose
+% step the Middle Layer cannot read has no anchors at all.
+nDev = size(DeviceList, 1);
+anchors = NaN(nDev, 2);
+try
+    [nominal, width] = local_family_step(family, DeviceList);
+catch
+    return
+end
+if ~isnumeric(nominal) || ~isnumeric(width) ...
+        || numel(nominal) ~= nDev || numel(width) ~= nDev
+    return
+end
+anchors = [nominal(:), nominal(:) + width(:)];
+anchors(~all(isfinite(anchors), 2), :) = NaN;
+end
+
+
+function grid = local_anchored_grid(grid, anchors)
+% A hardware grid with each device's anchors among its points.
+%
+% Every row keeps one count of strictly increasing points, so a family is
+% still one table of equal rows. An anchor that is no number, sits on a point
+% already there, or lies outside the row's own span is replaced by the
+% midpoint of the row's widest gap: no point repeats, and nothing is sampled
+% beyond the span the grid was laid over. A family with no anchor at all
+% keeps its grid as it is.
+if ~any(isfinite(anchors(:)))
+    return
+end
+anchored = zeros(size(grid, 1), size(grid, 2) + size(anchors, 2));
+for r = 1:size(grid, 1)
+    row = grid(r, :);
+    for c = 1:size(anchors, 2)
+        point = anchors(r, c);
+        if ~isfinite(point) || point <= row(1) || point >= row(end) || any(row == point)
+            [~, k] = max(diff(row));
+            point = (row(k) + row(k + 1)) / 2;
+        end
+        row = sort([row, point]);
+    end
+    anchored(r, :) = row;
+end
+grid = anchored;
 end
 
 

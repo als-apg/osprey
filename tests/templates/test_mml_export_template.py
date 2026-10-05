@@ -596,11 +596,14 @@ def test_each_corrector_family_records_what_its_value_is_made_of(
     exporter_source: str,
 ) -> None:
     body = _code(_function_body(exporter_source, "local_model_family_facts"))
+    step = _code(_function_body(exporter_source, "local_family_step"))
     family = _code(_function_body(exporter_source, "local_model_family_response"))
 
     for key in ("device_list", "delta_resp_mat", "leff", "k_per_amp"):
         assert f"facts.{key} =" in body, key
-    assert "getfamilydata(family, 'Setpoint', 'DeltaRespMat', DeviceList)" in body
+    assert "getfamilydata(family, 'Setpoint', 'DeltaRespMat', DeviceList)" in step
+    assert "getsp(family, DeviceList, 'Model', 'Hardware', 'Numeric')" in step
+    assert "[nominal, width] = local_family_step(family, DeviceList);" in body
     assert "getleff(family, DeviceList)" in body
     assert "grid = [nominal(:), nominal(:) + width(:)];" in body, "one-sided, from the nominal"
     assert "facts.k_per_amp = (values(:, 2) - values(:, 1)) ./ width(:);" in body
@@ -751,6 +754,60 @@ def test_a_calibration_is_sampled_at_thirty_three_points(exporter_source: str) -
 
     assert re.search(r"=\s*33;", body), "the point count lives in one place"
     assert _code(exporter_source).count("33") == 1
+    grid = _code(_function_body(exporter_source, "local_hardware_grid"))
+    assert "points = local_grid_points();" in grid
+
+
+def test_the_setpoint_is_sampled_at_the_step_the_middle_layer_measures_over(
+    exporter_source: str,
+) -> None:
+    """A table through the nominal and one DeltaRespMat above it carries the
+    Middle Layer's own secant over that step, so k_per_amp and the table read
+    one pair of numbers."""
+    sampler = _code(_function_body(exporter_source, "local_sample_calibration"))
+    anchors = _code(_function_body(exporter_source, "local_step_anchors"))
+    code = _code(exporter_source)
+
+    assert "[nominal, width] = local_family_step(family, DeviceList);" in anchors
+    assert "anchors = [nominal(:), nominal(:) + width(:)];" in anchors
+    assert "anchors(~all(isfinite(anchors), 2), :) = NaN;" in anchors, "finite steps only"
+    assert re.search(r"^\s*try\b", anchors, re.M), (
+        "a step the Middle Layer cannot read costs no table"
+    )
+    assert code.count("getfamilydata(family, 'Setpoint', 'DeltaRespMat'") == 1
+    assert code.count("local_family_step(") == 3, "one definition, two readers"
+    assert code.count("local_anchored_grid(") == 2
+
+    guard = sampler.index("if strcmp(field, 'Setpoint')")
+    anchored = sampler.index(
+        "grid = local_anchored_grid(grid, local_step_anchors(family, DeviceList));"
+    )
+    assert sampler.index("local_hardware_grid(") < guard < anchored
+    assert anchored < sampler.index("local_sample_hw2physics(")
+    assert sampler.index("end", anchored) < sampler.index("local_sample_hw2physics(")
+
+
+def test_an_anchor_that_cannot_be_a_new_point_takes_the_widest_gap(
+    exporter_source: str,
+) -> None:
+    """Every row keeps one count of strictly increasing points inside its own span."""
+    body = _code(_function_body(exporter_source, "local_anchored_grid"))
+
+    assert re.search(r"if ~any\(isfinite\(anchors\(:\)\)\)\s*\n\s*return", body), (
+        "a family with no step keeps its uniform grid"
+    )
+    assert "size(grid, 2) + size(anchors, 2)" in body, "every row gains the same count"
+    for condition in (
+        "~isfinite(point)",
+        "point <= row(1)",
+        "point >= row(end)",
+        "any(row == point)",
+    ):
+        assert condition in body, condition
+    assert "[~, k] = max(diff(row));" in body
+    assert "point = (row(k) + row(k + 1)) / 2;" in body
+    assert "row = sort([row, point]);" in body
+    assert "local_grid_points" not in body, "the count lives in one place"
 
 
 def test_a_monitor_only_calibration_falls_back_to_ten_millimetres(
