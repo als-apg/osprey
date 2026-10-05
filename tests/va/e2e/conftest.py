@@ -15,25 +15,20 @@ from a crashed prior run, and against a *live* peer sharing one fixed name
 that is not cleanup -- it kills the peer mid-test, which then fails with a
 boot timeout or a dropped connection that reads as environmental rather than
 as a collision. The ``osprey-va-e2e`` prefix is kept so a stray container is
-still recognisable by eye. It's bind-mounted against a *scratch* directory
-assembled from the Control Assistant preset (never the repo's own copy --
+still recognisable by eye. It's bind-mounted against a *scratch* data root
+rendered from the Control Assistant preset (never the repo's own copy --
 ``osprey sim apply`` mutates ``active_scenarios`` and this suite adds its own
 synthetic scenario), so the fixture is free to write into it. What gets
-assembled is the layout ``osprey build`` stages for a project: the preset's
-``data/simulation`` tree plus the packaged channel manifest and the limits
-view rendered from the preset's ``data/facility`` beside ``machine.json``. The manifest has to be there
-and has to be named (``VA_CHANNELS_FILE``): the IOC has no default namespace
-and refuses to boot rather than serving the framework's demo channels under
-whatever name a deployment gave the container. See ``stage_demo_data_dir``.
+rendered is the layout ``osprey build`` writes for a project: the simulator
+view under ``data/simulator/``, from the preset's ``data/facility``. The
+container serves as the instance ``VA_INSTANCE`` names: the entrypoint refuses
+to boot without one. See ``stage_demo_data_dir``.
 
-Process-boundary note (mirrors ``tests/va/test_record_factory.py``): this
-conftest and every test module in this directory may import ``epics``
-(pyepics, a CA *client*) and the softioc-free
-``osprey.services.virtual_accelerator.manifest`` package, but must NEVER
-import ``ioc.records`` or ``softioc.builder`` -- doing so in-process
-permanently breaks this process's ability to act as a CA client (see that
-module's docstring for the empirical finding). The IOC itself only ever runs
-inside the container, in its own process.
+Process-boundary note: this conftest and every test module in this directory
+may import ``epics`` (pyepics, a CA *client*), but must NEVER import a Channel
+Access server -- the server extension exports the ca_* client symbols too, and
+importing it in-process breaks this process's ability to act as a CA client.
+The IOC itself only ever runs inside the container, in its own process.
 
 ``sweep_check`` (below) is loaded here, once, from its file path -- it's a
 script under ``scripts/va/``, not an importable dotted package -- so
@@ -63,9 +58,6 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-
-from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-from tests.e2e._monitor_motion import still_monitor_motion
 
 if TYPE_CHECKING:
     from osprey.services.virtual_accelerator.bindings import Binding
@@ -131,13 +123,22 @@ CONTAINER_BOOT_TIMEOUT_S = 120.0
 PRESET_SIM_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 PRESET_FACILITY_DIR = PRESET_SIM_DIR.parent / "facility"
 
+#: The config a demo view is rendered with: the preset's control-system type
+#: and limits posture, every model served.
+VIEW_CONFIG: dict[str, Any] = {
+    "control_system": {
+        "type": "virtual_accelerator",
+        "limits_checking": {"enabled": True, "mode": "optional"},
+    }
+}
+
 
 def _render_limits_view() -> Path:
     """The limits view of the preset's ``data/facility``, rendered once per session.
 
-    The view is what a build writes as ``channel_limits.json``, so the suite
-    serves and enforces exactly the bands a built project carries. It lands in
-    a per-process temp directory removed at exit.
+    The view is what a build writes as ``channel_limits.json``, so the suite's
+    lanes read exactly the bands a built project carries. It lands in a
+    per-process temp directory removed at exit.
     """
     from osprey.facility.build import build_facility
     from osprey.facility.views.limits import LIMITS_FILE, limits_document
@@ -157,98 +158,70 @@ def _render_limits_view() -> Path:
 LIMITS_DB_PATH = _render_limits_view()
 OSPREY_CLI = REPO_ROOT / ".venv" / "bin" / "osprey"
 
-# The framework's own demo channel namespace, as a committed file. The IOC has
-# no default namespace -- it refuses to boot without VA_CHANNELS_FILE rather
-# than serving these addresses under whatever name a deployment gave the
-# container -- so every container in this suite names this manifest, which is
-# the namespace the whole suite is written against.
-PACKAGED_MANIFEST_PATH = (
-    REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
-)
-
-# The container-side name of the manifest and the lattice that belongs with it.
-# Relative, so the entrypoint resolves it against the served directory -- the
-# same spelling `osprey build` writes into a project's .env.
-DEMO_MANIFEST_FILENAME = "channel_manifest.json"
-
-# The lattice the demo tree carries, named from the layout both halves resolve
-# rather than spelled here: the entrypoint refuses a VA_LATTICE that is not the
-# served tree's own file, so a name typed in this suite and a name the build
-# derives would have to be kept in step by hand.
-DEMO_LATTICE_FILENAME = ManifestPaths(data_root=PRESET_SIM_DIR.parent).lattice_json.name
-
-DEMO_NAMESPACE_RUN_ARGS = (
-    "-e",
-    f"VA_CHANNELS_FILE={DEMO_MANIFEST_FILENAME}",
-    "-e",
-    f"VA_LATTICE={DEMO_LATTICE_FILENAME}",
-)
+#: The instance every container of this suite serves as, and the ``docker
+#: run`` arguments naming it. The entrypoint refuses a boot without one.
+INSTANCE = "virtual_accelerator"
+DEMO_NAMESPACE_RUN_ARGS = ("-e", f"VA_INSTANCE={INSTANCE}")
 
 
 def stage_demo_data_dir(root: Path) -> Path:
-    """Assemble, under *root*, the data directory a demo container mounts.
+    """Render, under *root*, the data root a demo container mounts; return *root*.
 
-    The layout the IOC reads is the one ``osprey build`` stages for a project:
-    ``machine.json``, the channel manifest and ``channel_limits.json`` all in
-    one directory. The packaged preset tree is not in that layout -- it carries
-    no manifest (the framework's is package data) and no limits file (a build
-    renders it from ``data/facility/limits.yaml``) -- so this copies the
-    simulation tree and the manifest and stages the rendered limits view.
+    The layout the IOC reads is the one ``osprey build`` writes for a project:
+    the simulator view under ``<root>/simulator/``. It is rendered from a copy
+    of the preset's ``data/facility`` that also carries this suite's synthetic
+    scenario (:data:`BURST_SCENARIO_NAME`), so the scenario is one the
+    container's composite and ``osprey sim apply`` both know.
 
-    Assembled rather than layered on with extra bind mounts because a bind
+    Rendered rather than layered on with extra bind mounts because a bind
     mount INTO a read-only mount cannot create its own mountpoint: the runtime
-    refuses with EROFS. Mounting the preset tree read-write to make room is not
-    an option either -- it is the checkout.
-
-    The write bands are staged TWICE, at the served directory and at the data
-    root, because two readers ask two different questions of them: the IOC
-    clamps setpoints from the served directory, and the model builds its
-    variable bounds from the root. A tree carrying them in only one place boots
-    without physics or refuses a lattice outright.
+    refuses with EROFS.
     """
-    staged = root / "simulation"
-    shutil.copytree(PRESET_SIM_DIR, staged)
-    shutil.copy2(PACKAGED_MANIFEST_PATH, staged / DEMO_MANIFEST_FILENAME)
-    shutil.copy2(LIMITS_DB_PATH, staged / "channel_limits.json")
-    shutil.copy2(LIMITS_DB_PATH, root / "channel_limits.json")
-    # The suites here hold served readings to the model's truth exactly (an
-    # unseeded BPM reads its true position, a +/- kick is antisymmetric), so
-    # the monitors serve the solved orbit without the drift and noise the
-    # preset's machine file gives them.
-    still_monitor_motion(root)
-    return staged
+    from osprey.facility.build import build_facility
+    from osprey.facility.served import resolve_served
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.simulator import write_simulator_view
+
+    with tempfile.TemporaryDirectory(prefix="osprey-va-e2e-facility-") as scratch:
+        facility = Path(scratch) / "facility"
+        shutil.copytree(PRESET_FACILITY_DIR, facility)
+        (facility / "scenarios" / f"{BURST_SCENARIO_NAME}.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "description": (
+                        "e2e-only synthetic scenario: overrides one VAC gauge to a "
+                        "value unambiguously distinct from its nominal baseline."
+                    ),
+                    "overrides": {BURST_CHANNEL: BURST_VALUE},
+                }
+            ),
+            encoding="utf-8",
+        )
+        doc = build_facility(facility, project_name="control_assistant")
+        write_simulator_view(
+            root / "simulator",
+            ViewInputs(
+                doc=doc,
+                rendered_config=VIEW_CONFIG,
+                facility_dir=facility,
+                served=resolve_served(VIEW_CONFIG, doc),
+                reported=None,
+            ),
+        )
+    return root
 
 
-def data_root_run_args(data_dir: Path) -> tuple[str, ...]:
-    """The ``docker run`` arguments that mount *data_dir* as part of its tree.
+def data_root_run_args(data_root: Path) -> tuple[str, ...]:
+    """The ``docker run`` arguments that mount *data_root* as the container's ``/data``.
 
-    A served directory is never mounted on its own. The model behind it is
-    resolved against the whole facility tree -- the lattice and the bindings
-    inside the served directory, the write bands its variables are built from
-    at the data root beside it -- so what gets mounted is the ROOT, and
-    ``VA_DATA_DIR`` names the served directory inside it. Mounting the served
-    directory alone carries no bands, and a lattice-backed boot against it is
-    refused.
-
-    ``VA_DATA_DIR`` is composed from the directory's own basename rather than
-    the literal ``simulation``, so this helper passes a caller's layout through
-    instead of assuming one. That is not licence to rename the served
-    directory: a lattice-backed boot still requires the basename to BE
-    ``simulation``, because the entrypoint resolves the model through
-    ``ManifestPaths(data_root=<the mounted root>)``, which anchors the lattice
-    at ``<root>/simulation``, and refuses when that is not where the served
-    lattice sits.
+    The entrypoint serves ``/data/simulator/``, its default data root, so the
+    mount is all a container needs to find the view.
     """
-    return (
-        "-v",
-        f"{data_dir.parent}:/data:ro",
-        "-e",
-        f"VA_DATA_DIR=/data/{data_dir.name}",
-    )
+    return ("-v", f"{data_root}:/data:ro")
 
 
 def demo_data_run_args() -> tuple[str, ...]:
-    """:func:`data_root_run_args` for this process's assembled demo tree."""
+    """:func:`data_root_run_args` for this process's rendered demo data root."""
     return data_root_run_args(demo_data_dir())
 
 
@@ -256,12 +229,13 @@ _DEMO_DATA_DIR: Path | None = None
 
 
 def demo_data_dir() -> Path:
-    """The assembled demo data directory, one per pytest process.
+    """The rendered demo data root, one per pytest process.
 
     A plain function rather than a fixture because most of this suite's
     containers are booted from context-manager helpers, not from fixtures, and
-    every one of them wants the same directory. Built on first use and removed
-    at process exit, so a run that skips the whole directory copies nothing.
+    every one of them wants the same directory. Rendered on first use and
+    removed at process exit, so a run that skips the whole directory renders
+    nothing.
     """
     global _DEMO_DATA_DIR
     if _DEMO_DATA_DIR is None:
@@ -275,7 +249,7 @@ def demo_data_dir() -> Path:
 # readiness probe itself.
 READINESS_ADDRESS = "SR:MAG:HCM:01:CURRENT:RB"
 
-# Synthetic scenario this suite adds on top of the copied preset data, so
+# Synthetic scenario this suite adds to the rendered preset view, so
 # test_scenario_reload.py has a scenario with a real ``overrides`` entry to
 # apply (the shipped nominal/rf-thermal/vacuum-burst scenarios only carry
 # archiver history events, not live-telemetry overrides -- see that test's
@@ -405,9 +379,10 @@ async def _disconnect_va_connectors() -> Any:
 @dataclass
 class VaProject:
     """A scratch deployment repo: a ``profile.yml`` root, a render under
-    ``build/`` whose ``config.yml`` names the build-owned ``data/simulation/``
-    model, and the mutable state dir under ``var/agent_data/`` -- the three
-    zones ``osprey sim apply`` resolves, and nothing more."""
+    ``build/`` holding its ``config.yml`` and the simulator view under
+    ``build/data/simulator/`` (``data_dir`` is that render's data root), and the
+    mutable state dir under ``var/agent_data/`` -- the three zones ``osprey sim
+    apply`` resolves, and nothing more."""
 
     project_dir: Path
     data_dir: Path
@@ -429,12 +404,9 @@ def stage_va_project(root: Path) -> VaProject:
     The exemplar repo supplies the root ``profile.yml`` that ``osprey sim
     apply`` discovers by walking up from its working directory, and the state
     zone it writes ``active_scenarios`` into; a stubbed render supplies the
-    ``build/config.yml`` every repo-scoped verb reads. The exemplar's own
-    simulation tree is replaced by a copy of the Control Assistant preset's
-    ``data/simulation`` in the layout the IOC mounts (see
-    ``stage_demo_data_dir``) plus one synthetic scenario, so the ``sim`` CLI's
-    type-aware lookup resolves ``control_system.type: virtual_accelerator`` to
-    that directory's ``machine.json`` while the container reads the same files.
+    ``build/config.yml`` every repo-scoped verb reads, and the preset's
+    simulator view is rendered beside it (see ``stage_demo_data_dir``), so
+    ``osprey sim apply`` and the container read the same view.
 
     A plain function rather than the fixture body so a caller can stage the
     repo and drive ``osprey sim apply`` at it without a pytest session.
@@ -444,22 +416,6 @@ def stage_va_project(root: Path) -> VaProject:
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
     project_dir = build_exemplar_repo(root / "va-e2e")
-    shutil.rmtree(project_dir / "data" / "simulation")
-    data_dir = stage_demo_data_dir(project_dir / "data")
-
-    burst_dir = data_dir / "scenarios" / BURST_SCENARIO_NAME
-    burst_dir.mkdir(parents=True)
-    (burst_dir / "scenario.json").write_text(
-        json.dumps(
-            {
-                "description": (
-                    "e2e-only synthetic scenario: overrides one VAC gauge to a "
-                    "value unambiguously distinct from its nominal baseline."
-                ),
-                "overrides": {BURST_CHANNEL: BURST_VALUE},
-            }
-        )
-    )
 
     config = {
         "control_system": {
@@ -470,7 +426,8 @@ def stage_va_project(root: Path) -> VaProject:
             },
         },
     }
-    stub_build(project_dir, config=yaml.safe_dump(config))
+    build = stub_build(project_dir, config=yaml.safe_dump(config))
+    data_dir = stage_demo_data_dir(build / "data")
 
     state_dir = resolve_state_dir(config, project_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -566,8 +523,7 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
             f"{va_project.state_dir}:/state/simulation:ro",
             "-e",
             "VA_STATE_DIR=/state/simulation",
-            # The namespace, named. Without it the IOC refuses to boot rather
-            # than picking the framework's demo channels on its own.
+            # The instance, named. Without it the IOC refuses to boot.
             *DEMO_NAMESPACE_RUN_ARGS,
             IMAGE,
         ],

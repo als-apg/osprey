@@ -62,30 +62,20 @@ import sys
 import pytest
 
 #: The suites whose assertions are only observable over a real CA wire.
-LIVE_SUITES = (
-    "tests/va/test_record_factory.py",
-    "tests/va/test_apply_fault.py",
-)
+LIVE_SUITES = ("tests/va/test_apply_fault.py",)
 
-#: Added in --pva mode. Each needs the PVA transport and the serving package on
-#: top of pcaspy: the seam test's served-boot branch, and the model runner's
-#: suite, which serves a composite on both transports.
-PVA_SUITES = (
-    "tests/va/test_facility_seam.py",
-    "tests/va/test_lume_pva_seam.py",
-)
+#: Added in --pva mode: the model runner's seam, which serves a composite on
+#: both transports.
+PVA_SUITES = ("tests/va/test_lume_pva_seam.py",)
 
 #: Modules that must import in --pva mode. This is a precondition, not a
 #: preference, and it is checked *before* pytest runs.
 #:
-#: test_facility_seam.py's boot test passes on either of two outcomes: the boot
-#: served, or it stopped on a missing server extension. Both are legitimate --
-#: on a host lacking the transport, stopping there is the honest result -- so
-#: a green tells you nothing about which branch ran, and the served branch is
-#: the one that had never executed. Asserting these import first is what makes
-#: the fallback unreachable, and therefore what makes the green mean "the
-#: served path ran". Without it, --pva mode would quietly re-certify the same
-#: fallback the CA-only venue already covers.
+#: tests/va/test_lume_pva_seam.py calls ``pytest.importorskip`` on pcaspy, p4p
+#: and lume_pva_apg at module level, so on a host lacking any of them the whole
+#: module skips. Asserting the imports before pytest runs turns that skip into
+#: a failure here, with the missing module named, rather than leaving it to the
+#: skip check after the run.
 PVA_REQUIRED_MODULES = ("pcaspy", "p4p", "lume_pva_apg")
 
 #: ``-o addopts=`` drops the repo's default ``-v``; ``-p no:cacheprovider``
@@ -207,11 +197,9 @@ def main(argv: list[str]) -> int:
             print("=" * 72)
             print("live Channel Access gate (--pva)")
             print(f"  VERDICT: FAIL -- cannot import {', '.join(missing)}.")
-            print("           The served-boot branch cannot run without these, and the")
-            print("           seam test PASSES on the fallback branch instead, so")
-            print("           continuing would certify the served path without")
-            print("           exercising it. The `virtual-accelerator` extra installs")
-            print("           all three, so this image is not what it claims to be.")
+            print("           The seam suite skips whole without these. The")
+            print("           `virtual-accelerator` extra installs all three, so")
+            print("           this image is not what it claims to be.")
             print("=" * 72)
             return 1
 

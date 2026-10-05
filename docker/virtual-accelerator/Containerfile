@@ -92,7 +92,7 @@ ARG OSPREY_VERSION=0.0.0.dev0+unknown
 # something is wrong and the build should say so rather than stall.
 #
 # PyAT is the exception, and the pin is not redundant. pyproject.toml declares
-# `accelerator-toolbox[plot]>=0.7.1` and uv.lock resolves that to 0.7.1 --
+# `accelerator-toolbox[plot]>=0.8.0` and uv.lock resolves that to 0.8.0 --
 # which is what the dev venv and every unit test run against -- but this image
 # installs with pip, and pip does not read uv.lock. Without the pin the image
 # silently takes the newest release satisfying the floor, so the physics
@@ -104,7 +104,7 @@ ARG OSPREY_VERSION=0.0.0.dev0+unknown
 #
 # Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
 # carries no C toolchain at all.
-RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
+RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.8.0" \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
        pip install --no-cache-dir ./packages/osprey-connectors \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
@@ -125,16 +125,13 @@ RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
 EXPOSE 5064/tcp
 ENV EPICS_CA_SERVER_PORT=5064
 
-# The entrypoint module is configuration, not a bake-time constant: a facility
-# may supply its own entrypoint module (e.g. one serving a file-backed
-# manifest with no lattice) without rebuilding the image. `exec` replaces the
+# The image runs the shipped entrypoint module by name. `exec` replaces the
 # shell so SIGTERM reaches python directly and entrypoint.py's shutdown
-# handlers still run on `docker stop`. `:-` treats the compose passthrough's
-# empty string the same as unset.
+# handlers still run on `docker stop`.
 #
 # EPICS_CAS_SERVER_PORT is derived here rather than baked as an ENV, because
 # it has to track EPICS_CA_SERVER_PORT: the CA *server* library reads the CAS
 # variable and does not fall back to the client-side one, so an image whose
 # CAS port were frozen at build time would keep binding 5064 while a
 # `-e EPICS_CA_SERVER_PORT=...` run told its clients some other port.
-CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}"]
+CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m osprey.services.virtual_accelerator.entrypoint"]

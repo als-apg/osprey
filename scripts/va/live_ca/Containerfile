@@ -1,8 +1,9 @@
 # The venue that actually runs the live Channel Access suites.
 #
-# tests/va/test_record_factory.py and tests/va/test_apply_fault.py assert the
-# serving write contract from the far side of a real CA wire: a real pcaspy
-# server, the real write path, and a real pyepics client, all in one process.
+# tests/va/test_apply_fault.py asserts the scenario faults from the far side
+# of a real Channel Access wire, and tests/va/test_lume_pva_seam.py asserts the
+# model runner's seam on both transports (the suite --pva requires): a real
+# pcaspy and p4p server, a real composite, and real pyepics and p4p clients.
 # They need pcaspy, which publishes no loadable macOS arm64 wheel, so on a
 # developer's Mac they skip -- loudly, but they skip, and a skipped live suite
 # proves nothing. This image is where they are not allowed to skip.
@@ -56,6 +57,14 @@ FROM --platform=${BASE_PLATFORM} ghcr.io/astral-sh/uv:0.9.30-python3.11-bookworm
 # as docker/virtual-accelerator/Containerfile does, and rebuilding this layer
 # on every source edit.
 #
+# The image carries the root project's entry points as metadata only: a
+# dist-info holding a METADATA file and an entry_points.txt generated from the
+# staged pyproject.toml's [project.entry-points.*] tables, so a plug-in group
+# (the simulation engines a composite loads by name) resolves exactly as it
+# does in an installed project. It is generated from the staged file, never
+# spelled here, so this layer still rebuilds only when a pyproject or uv.lock
+# changes.
+#
 # The build context is therefore just those files, staged by run_live_ca.sh --
 # NOT the repo root, which also holds .git/, .venv/ and the worktrees and would
 # make every build re-tar gigabytes the image never reads.
@@ -75,9 +84,19 @@ RUN site="$(/opt/venv/bin/python -c 'import sysconfig; print(sysconfig.get_path(
         echo "/work/packages/$(basename "${member}")/src"; \
     done > "${site}/osprey-workspace-members.pth"
 
-# Channel Access stays inside this container: the server and the client share
-# this process and this network namespace, so nothing is published and no host
-# port is claimed. That is why this venue never collides with an operator's
+# The root project's entry points, as metadata only (see above). Groups and
+# names are written sorted; the version is a fixed placeholder.
+RUN /opt/venv/bin/python -c 'import pathlib, sysconfig, tomllib; \
+project = tomllib.loads(pathlib.Path("/opt/osprey/pyproject.toml").read_text())["project"]; \
+groups = project.get("entry-points", {}); \
+dist = pathlib.Path(sysconfig.get_path("purelib")) / (project["name"].replace("-", "_") + "-0.dist-info"); \
+dist.mkdir(); \
+(dist / "METADATA").write_text("Metadata-Version: 2.1\nName: " + project["name"] + "\nVersion: 0\n"); \
+(dist / "entry_points.txt").write_text("".join("[" + group + "]\n" + "".join(name + " = " + groups[group][name] + "\n" for name in sorted(groups[group])) + "\n" for group in sorted(groups)))'
+
+# Channel Access stays inside this container: the servers and their clients
+# share this network namespace, so nothing is published and no host port is
+# claimed. That is why this venue never collides with an operator's
 # demo stack on 5064 -- not because it picks a polite port, but because it has
 # no reachable port at all.
 #

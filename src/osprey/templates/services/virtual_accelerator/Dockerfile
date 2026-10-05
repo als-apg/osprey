@@ -200,12 +200,9 @@ RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
     fi \
     && rm -rf /tmp/ctx
 
-# The entrypoint module is configuration, not a bake-time constant: a
-# facility may supply its own entrypoint module (e.g. one serving a
-# file-backed manifest with no lattice) without rebuilding the image.
-# `exec` replaces the shell so SIGTERM reaches python directly and
-# entrypoint.py's shutdown handlers still run on `docker stop`.
-# `:-` treats the compose passthrough's empty string the same as unset.
+# The image runs the shipped entrypoint module by name. `exec` replaces the
+# shell so SIGTERM reaches python directly and entrypoint.py's shutdown
+# handlers still run on `docker stop`.
 #
 # EPICS_CAS_SERVER_PORT is derived here rather than set in the compose
 # environment, because it has to track EPICS_CA_SERVER_PORT and cannot be
@@ -215,7 +212,7 @@ RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
 # the server kept binding 5064 — and a CA search reply carries the server's own
 # port, so clients would be handed an address nothing listens on, with no
 # useful error.
-CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}"]
+CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m osprey.services.virtual_accelerator.entrypoint"]
 
 # Project metadata, kept as the final metadata-only layer so the shared deps
 # cache chain above stays identical across projects (a per-project value here

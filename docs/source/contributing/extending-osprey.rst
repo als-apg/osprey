@@ -264,8 +264,9 @@ served tree's lattice, or the floor,
 ``osprey.services.virtual_accelerator.serving.model_stub.NullModel``, which
 serves a channel list and no physics. A different pyAT deck needs no code (see
 "Bringing your own model" on :doc:`/architecture/virtual-accelerator`). A
-different backend is a replacement entrypoint module named in
-``VA_ENTRYPOINT_MODULE``. For a shipped model wrapped so that setpoint writes
+different backend is a replacement entrypoint module, run by an image whose
+``CMD`` names it; the stock image's ``CMD`` runs
+``osprey.services.virtual_accelerator.entrypoint`` by name. For a shipped model wrapped so that setpoint writes
 carry a calibration and push recomputed readings back onto their channels, see
 ``osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel``.
 
@@ -305,12 +306,11 @@ is its reference implementation:
   SIGINT and SIGTERM once its servers are up, and they leave through the
   runner's own exit.
 - **One module for every instance.** With a live stand-in, both containers
-  run the same image and the same ``VA_ENTRYPOINT_MODULE``.
+  run the same image, so the same module.
 
-The seam is guarded in both directions: ``tests/va/test_facility_seam.py``
-pins that a facility without a lattice boots with no accelerator-physics
-imports on the path at all, and ``tests/va/test_pyat_ring_model.py`` covers
-the shipped ring model. How to deploy a replacement is in
+``tests/va/test_entrypoint.py`` pins what the shipped entrypoint reads and
+refuses, and ``tests/va/test_pyat_ring_model.py`` covers the shipped ring
+model. How to deploy a replacement is in
 :ref:`va-serving-your-own-model`.
 
 .. _extending-agent-harness:

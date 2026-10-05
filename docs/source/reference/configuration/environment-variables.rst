@@ -105,8 +105,9 @@ container that is already running reads nothing from them.
 Virtual accelerator source
 ==========================
 
-Three variables in the deployment's ``.env`` decide what the virtual
-accelerator container runs and serves.
+Two variables in the deployment's ``.env`` decide what the virtual
+accelerator container serves; the image runs
+``osprey.services.virtual_accelerator.entrypoint`` by name.
 
 .. list-table::
    :header-rows: 1
@@ -114,10 +115,6 @@ accelerator container runs and serves.
 
    * - Variable
      - What it does
-   * - ``VA_ENTRYPOINT_MODULE``
-     - The Python module the container runs. Operator-set. Empty or unset runs
-       ``osprey.services.virtual_accelerator.entrypoint``. It must be
-       importable inside the image; see :ref:`va-serving-your-own-model`.
    * - ``VA_CHANNELS_FILE``
      - The generated channel manifest's file name, which ``osprey build``
        writes. Required by the container, which refuses to boot without it.
@@ -125,7 +122,7 @@ accelerator container runs and serves.
      - The served tree's lattice file name, or ``none``, which
        ``osprey build`` writes.
 
-How the build writes the last two --- append-only, with a value already on
+How the build writes them --- append-only, with a value already on
 file winning --- is in :doc:`/how-to/deploy-project/env-chain`.
 
 The Phoebus server's overrides

@@ -1,38 +1,42 @@
-"""The stuck-setpoint apply fault, as a client experiences it.
+"""The stuck-setpoint scenario fault, as the composite holds it and as a client sees it.
 
-A stuck setpoint is a build-time fixture: the named address still records what
-was written to it, and its paired readback never moves again. The point of the
-fault is that it is a property of the *substrate* rather than of one client's
-view -- a client that reads back its own command is told the truth about the
-command, and every client that reads the device sees the same frozen readback.
-That distinction is only observable over a real wire, which is what most of
-this file is.
+A scenario's ``faults`` block marks a setpoint ``stuck`` with the literal
+string as the fault value. While that scenario is active the composite accepts
+a write to the setpoint and does not forward it, so the device behind it never
+moves: its paired readback holds whatever the device last delivered. The point
+of the fault is that it is a property of the served machine rather than of one
+client's view -- every client reading the device sees the same frozen
+readback.
 
-The venue and the in-process topology are the ones
-``tests/va/test_record_factory.py`` documents: one process, a real ``pcaspy``
-server, a real ``pyepics`` client, and ``epics.ca.initialize_libca()`` before
-the pcaspy import so the client binds its own libca rather than the second copy
-the server extension exports. pcaspy has no loadable macOS arm64 wheel, so the
-live classes skip on a developer host and are proven in a linux container and
-on CI; the route-table tests need no server and run everywhere.
+Two halves:
 
-The address set here is deliberately disjoint from every other module's, so two
-servers alive in one pytest session can never answer for each other's names.
+* :class:`TestStuckSetpointInTheComposite` builds the composite over a stub
+  view in process and needs no server, so it runs everywhere;
+* the live classes boot the virtual accelerator's own entrypoint over the same
+  view in a spawned process -- the composite, the model runner and both
+  servers -- and drive it with a real ``pyepics`` client and a real ``p4p``
+  client from the pytest process. The serving stack installs on linux/x86_64
+  only, so they skip on a developer's Mac and run in the live venue
+  (``scripts/va/live_ca/gate.py``) and on CI.
 
-The other two apply faults -- BPM reading errors and magnet calibration -- are
-model state rather than a route, and need no wire: the model is seeded with
-them, holds them as writable variables, and the physics bridge reads them back
-on every push and every write. ``TestApplyFaultsLiveInTheModel`` pins that the
-bridge serves whatever the model holds now, and keeps no copy of its own.
+The stub engine is the one physics child of the view: its readback reads the
+input its paired setpoint was last given, so a readback that moves is a write
+that reached the model, and one that holds is a write that did not.
+
+The address set here is disjoint from every other module's, so two servers
+alive in one pytest session can never answer for each other's names.
 """
 
 from __future__ import annotations
 
+import json
+import multiprocessing
 import os
 import socket
-import threading
 import time
-from queue import Queue
+from collections.abc import Iterator, Mapping
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -47,204 +51,332 @@ def _free_port() -> str:
 
 # import-time required because libca latches the EPICS_CA_* environment when
 # the C library initialises, which happens on the first `import epics` anywhere
-# in the process. Loopback only, on an ephemeral port unless the environment pins one,
-# with the server and CAS ports equal -- a search reply carries the server's own
-# port, so a server listening anywhere else hands clients a dead address.
+# in the process. Loopback only, on an ephemeral port unless the environment
+# pins one, with the server and CAS ports equal -- a search reply carries the
+# server's own port, so a server listening anywhere else hands clients a dead
+# address. The spawned server inherits the same values.
 os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
 os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
 os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())
 os.environ.setdefault("EPICS_CAS_SERVER_PORT", os.environ["EPICS_CA_SERVER_PORT"])
 os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
-from osprey.services.virtual_accelerator.bindings import (  # noqa: E402
-    Binding,
-    BindingsDocument,
-    load_bindings,
-)
-from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge  # noqa: E402
-from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
-    PARTITION_PYAT_COUPLED,
-    PARTITION_SP_ECHO,
-    RECORD_TYPE_ANALOG,
-    build_manifest,
-)
-from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS  # noqa: E402
-from osprey.services.virtual_accelerator.model.pyat import PyATRingModel  # noqa: E402
-from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb  # noqa: E402
-from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E402
-    MODE_ECHO,
-    MODE_LATCH,
-    MODE_PHYSICS,
-    CohostWritePath,
-    physics_setpoint_addresses,
-)
-from tests.va._served_tree import packaged_served_root  # noqa: E402
-
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-MIN_COLLECTED_TESTS = 22
+MIN_COLLECTED_TESTS = 15
 
-CA_TIMEOUT_S = 10.0
-SETTLE_TIMEOUT_S = 10.0
+CA_TIMEOUT_S = 30.0
+SETTLE_TIMEOUT_S = 60.0
+#: How long the spawned entrypoint may take to serve.
+STARTUP_TIMEOUT_S = 300.0
+#: The period of the served runner's own passes.
+TICK_S = 0.2
 
-#: What the model-held fault tests move an actuator by, and the readout offset
-#: they seed, in the hardware units the served tree states. Nothing derives
-#: either from the machine: they are the command and the fault being injected.
-_MODEL_STEP = 1.0
-_MODEL_OFFSET = 0.25
+CODE = "ZZAF"
+MODEL = "M"
+STUB_ENGINE = "zz-apply-fault-echo"
+STUCK_SCENARIO = "zz-af-stuck"
+INSTANCE = "virtual_accelerator"
 
-RING = "ZZAF"
+# A faulted pair and an unfaulted one, so the fault can be shown to be per
+# channel rather than a model-wide switch.
+STUCK_SP = f"{CODE}:RF:CAV:01:VOLTAGE:SP"
+STUCK_RB = f"{CODE}:RF:CAV:01:VOLTAGE:RB"
+LIVE_SP = f"{CODE}:RF:CAV:02:VOLTAGE:SP"
+LIVE_RB = f"{CODE}:RF:CAV:02:VOLTAGE:RB"
+PAIRS = {STUCK_RB: STUCK_SP, LIVE_RB: LIVE_SP}
 
-# A faulted echo pair and an unfaulted one, so the fault can be shown to be per
-# channel rather than a partition-wide switch. Distinct devices, because the
-# setpoint/readback pairing is keyed on device identity and two pairs sharing
-# one key would echo onto each other's readback.
-STUCK_SP = f"{RING}:RF:CAV:01:VOLTAGE:SP"
-STUCK_RB = f"{RING}:RF:CAV:01:VOLTAGE:RB"
-LIVE_SP = f"{RING}:RF:CAV:02:VOLTAGE:SP"
-LIVE_RB = f"{RING}:RF:CAV:02:VOLTAGE:RB"
-
-# A faulted magnet: a pyat-coupled setpoint, so the fault can be shown to
-# suppress the physics hand-off as well as the echo.
-STUCK_MAGNET_SP = f"{RING}:MAG:HCM:01:CURRENT:SP"
-STUCK_MAGNET_RB = f"{RING}:MAG:HCM:01:CURRENT:RB"
-LIVE_MAGNET_SP = f"{RING}:MAG:HCM:02:CURRENT:SP"
-LIVE_MAGNET_RB = f"{RING}:MAG:HCM:02:CURRENT:RB"
-
-# The readbacks are seeded to a nonzero boot value on purpose: a frozen readback
-# holding zero is indistinguishable from an unseeded one, so "never moved" would
-# be a claim the test could not actually make.
-STUCK_BOOT = 2.5
-STUCK_SETPOINTS = frozenset({STUCK_SP, STUCK_MAGNET_SP})
-
-BOOT_VALUES = {
-    STUCK_SP: STUCK_BOOT,
-    STUCK_RB: STUCK_BOOT,
-    STUCK_MAGNET_SP: STUCK_BOOT,
-    STUCK_MAGNET_RB: STUCK_BOOT,
-    LIVE_SP: STUCK_BOOT,
-    LIVE_RB: STUCK_BOOT,
-    LIVE_MAGNET_SP: STUCK_BOOT,
-    LIVE_MAGNET_RB: STUCK_BOOT,
-}
+# The setpoints boot at a nonzero value on purpose: a frozen readback holding
+# zero is indistinguishable from an unseeded one, so "never moved" would be a
+# claim the test could not actually make.
+BOOT = 2.5
+BAND = [-100.0, 100.0]
 
 
-def _channel(
-    address: str,
-    *,
-    partition: str,
-    subfield: str,
-    system: str,
-    family: str,
-    device: str,
-    field: str,
-    record_type: str = RECORD_TYPE_ANALOG,
-    noise: bool = False,
-) -> dict:
-    """One synthetic manifest entry, in the shape ``build_serving_pvdb`` reads."""
+# =============================================================================
+# The stub engine: one echo child, loaded by name
+# =============================================================================
+
+
+def _echo_model_class() -> type:
+    """The stub's LUME model class, defined where LUME is imported."""
+    from lume.model import LUMEModel
+    from lume.variables import ScalarVariable
+
+    class EchoModel(LUMEModel):
+        """Each readback reads the input its paired setpoint was last given."""
+
+        def __init__(self, wiring: list[Mapping[str, Any]], active: Mapping[str, Any]) -> None:
+            self._variables: dict[str, Any] = {}
+            self._defaults: dict[str, float] = {}
+            for entry in wiring:
+                address = str(entry["address"])
+                writes = entry.get("direction") == "write"
+                self._variables[address] = ScalarVariable(name=address, read_only=not writes)
+                if writes:
+                    self._defaults[address] = float(entry.get("default", 0.0))
+            self._defaults.update(
+                {name: float(value) for name, value in active.items() if name in self._defaults}
+            )
+            self.inputs: dict[str, float] = {}
+            self.written: list[str] = []
+            self.reset()
+
+        @property
+        def supported_variables(self) -> dict[str, Any]:
+            return self._variables
+
+        def reset(self) -> None:
+            self.inputs = dict(self._defaults)
+
+        def _set(self, values: dict[str, Any]) -> None:
+            self.written.extend(values)
+            self.inputs.update({name: float(value) for name, value in values.items()})
+
+        def _get(self, names: list[str]) -> dict[str, Any]:
+            return {name: self.inputs[PAIRS.get(name, name)] for name in names}
+
+    return EchoModel
+
+
+#: Every echo model built in this process, newest last.
+BUILT: list[Any] = []
+
+
+def _echo_build(model: str, wiring: Any, deck: Any, settings: Any, active: Any = None) -> Any:
+    del model, deck, settings
+    built = _echo_model_class()(list(wiring), dict(active or {}))
+    BUILT.append(built)
+    return built
+
+
+ECHO = SimpleNamespace(build=_echo_build, error_text=lambda exc: str(exc))
+
+
+def _with_echo_engine() -> None:
+    """Make the composite load :data:`ECHO` for :data:`STUB_ENGINE`."""
+    from osprey_connectors.simulation.composite import Composite
+
+    real = Composite._engine
+
+    def engine(name: str) -> Any:
+        return ECHO if name == STUB_ENGINE else real(name)
+
+    Composite._engine = staticmethod(engine)  # type: ignore[method-assign]
+
+
+# =============================================================================
+# The view
+# =============================================================================
+
+
+def _channel(address: str, role: str) -> dict[str, Any]:
     return {
         "address": address,
-        "ring": RING,
-        "system": system,
-        "family": family,
-        "device": device,
-        "field": field,
-        "subfield": subfield,
-        "partition": partition,
-        "record_type": record_type,
-        "noise": noise,
+        "role": role,
+        "pair": None,
+        "value_type": "float",
+        "unit": None,
+        "description": None,
+        "writable": role == "setpoint",
+        "value_range": BAND if role == "setpoint" else None,
+        "owner": MODEL,
     }
 
 
-def _pair(system: str, family: str, device: str, field: str, partition: str) -> list[dict]:
-    """A setpoint and its paired readback."""
-    prefix = f"{RING}:{system}:{family}:{device}:{field}"
-    return [
-        _channel(
-            f"{prefix}:SP",
-            partition=partition,
-            subfield="SP",
-            system=system,
-            family=family,
-            device=device,
-            field=field,
-        ),
-        _channel(
-            f"{prefix}:RB",
-            partition=partition,
-            subfield="RB",
-            system=system,
-            family=family,
-            device=device,
-            field=field,
-        ),
+def _write_view(data_dir: Path) -> Path:
+    """The stub view under ``data_dir/simulator``; returns the view directory."""
+    channels = [
+        _channel(address, "setpoint" if address in PAIRS.values() else "readback")
+        for address in sorted([*PAIRS, *PAIRS.values()])
     ]
+    wiring = [
+        {"id": str(index), "address": address, "direction": "write", "default": BOOT}
+        for index, address in enumerate(sorted(PAIRS.values()))
+    ] + [
+        {"id": str(index + len(PAIRS)), "address": address, "direction": "read"}
+        for index, address in enumerate(sorted(PAIRS))
+    ]
+    documents = {
+        "served_models.json": {"models": [MODEL, "texture"]},
+        "addresses.json": {
+            "channels": [channel["address"] for channel in channels],
+            "status": [f"{CODE}:SIM:{MODEL}:STATUS"],
+        },
+        "variables.json": {
+            "code": CODE,
+            "models": [
+                {
+                    "name": MODEL,
+                    "engine": STUB_ENGINE,
+                    "served": True,
+                    "deck": None,
+                    "settings": {},
+                    "wiring": wiring,
+                },
+                {
+                    "name": "texture",
+                    "engine": "texture",
+                    "served": True,
+                    "deck": None,
+                    "settings": {},
+                    "wiring": [],
+                },
+            ],
+            "channels": channels,
+        },
+        "seeds.json": {"seeds": {}},
+        "scenarios.json": {
+            "scenarios": [
+                {"name": "nominal"},
+                {"name": STUCK_SCENARIO, "faults": {MODEL: {"writes": {STUCK_SP: "stuck"}}}},
+            ]
+        },
+    }
+    view = data_dir / "simulator"
+    view.mkdir(parents=True)
+    for name, document in documents.items():
+        (view / name).write_text(json.dumps(document), encoding="utf-8")
+    return view
 
 
-SERVED_CHANNELS = [
-    *_pair("RF", "CAV", "01", "VOLTAGE", PARTITION_SP_ECHO),
-    *_pair("RF", "CAV", "02", "VOLTAGE", PARTITION_SP_ECHO),
-    *_pair("MAG", "HCM", "01", "CURRENT", PARTITION_PYAT_COUPLED),
-    *_pair("MAG", "HCM", "02", "CURRENT", PARTITION_PYAT_COUPLED),
-]
+def _activate(state_dir: Path, *names: str) -> None:
+    """Write the active set, moving the file's modification time forward."""
+    path = state_dir / "active_scenarios"
+    before = path.stat().st_mtime_ns if path.exists() else 0
+    path.write_text("".join(f"{name}\n" for name in ("nominal", *names)), encoding="utf-8")
+    stamp = max(before + 1_000_000, path.stat().st_mtime_ns)
+    os.utime(path, ns=(stamp, stamp))
 
 
-def _build_records(**kwargs: Any) -> Any:
-    return build_serving_pvdb(
-        SERVED_CHANNELS, boot_values=BOOT_VALUES, async_setpoints=True, **kwargs
-    )
+# =============================================================================
+# In process: the composite holds the fault
+# =============================================================================
 
 
-class _RunLoop:
-    """The model's thread. See ``test_record_factory.py`` for why it exists."""
-
-    def __init__(self, on_setpoint) -> None:  # test-local callable
-        self._on_setpoint = on_setpoint
-        self._queue: Queue = Queue()
-        self.thread = threading.Thread(target=self._run, daemon=True, name="va-fault-run-loop")
-        self.thread.start()
-
-    def enqueue(self, values: dict, *, done) -> None:  # test-local callable
-        self._queue.put((values, done))
-
-    def _run(self) -> None:
-        while True:
-            values, done = self._queue.get()
-            error = None
-            try:
-                for address, item in values.items():
-                    self._on_setpoint(address, item["value"])
-            except Exception as exc:  # the loop reports, never raises
-                error = str(exc)
-            done(error)
+@pytest.fixture
+def state_dir(tmp_path: Path) -> Path:
+    """The state directory, with the stuck scenario active."""
+    state = tmp_path / "state"
+    state.mkdir()
+    _activate(state, STUCK_SCENARIO)
+    return state
 
 
-class _PhysicsHook:
-    """Records every write the lattice would have been given."""
+@pytest.fixture
+def composite(tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The composite over the stub view, reading ``state_dir``."""
+    from osprey_connectors.simulation.composite import Composite
 
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, float]] = []
-
-    def __call__(self, address: str, value: float) -> None:
-        self.calls.append((address, value))
+    monkeypatch.setattr(Composite, "_engine", staticmethod(lambda name: ECHO))
+    BUILT.clear()
+    return Composite(_write_view(tmp_path / "data"), state_dir=state_dir, model_log=False)
 
 
-class LiveNamespace:
-    """A served namespace with one faulted channel in each partition."""
+class TestStuckSetpointInTheComposite:
+    """The fault, without a server."""
 
-    def __init__(self, records, hook, loop) -> None:
-        self.records = records
-        self.hook = hook
-        self.loop = loop
+    def test_a_write_to_the_stuck_setpoint_is_accepted(self, composite: Any) -> None:
+        composite.set({STUCK_SP: 7.25})
+
+    def test_the_stuck_write_never_reaches_the_model(self, composite: Any) -> None:
+        composite.set({STUCK_SP: 7.25})
+
+        assert STUCK_SP not in BUILT[-1].written
+
+    def test_the_stuck_readback_holds_its_boot_value(self, composite: Any) -> None:
+        for value in (1.0, -3.0, 11.5):
+            composite.set({STUCK_SP: value})
+
+        assert composite.held([STUCK_RB]) == {STUCK_RB: BOOT}
+
+    def test_the_unfaulted_sibling_reaches_the_model(self, composite: Any) -> None:
+        composite.set({LIVE_SP: 4.5})
+
+        assert composite.held([LIVE_RB]) == {LIVE_RB: 4.5}
+
+    def test_one_batch_forwards_the_sibling_and_holds_the_stuck_one(self, composite: Any) -> None:
+        composite.set({STUCK_SP: 8.0, LIVE_SP: 3.0})
+
+        assert composite.held([STUCK_RB, LIVE_RB]) == {STUCK_RB: BOOT, LIVE_RB: 3.0}
+
+    def test_the_fault_is_off_without_the_scenario(self, composite: Any, state_dir: Path) -> None:
+        """No setpoint is stuck unless an active scenario says so."""
+        _activate(state_dir)
+
+        composite.set({STUCK_SP: 6.0})
+
+        assert composite.held([STUCK_RB]) == {STUCK_RB: 6.0}
+
+    def test_the_active_set_names_the_scenario(self, composite: Any) -> None:
+        assert composite.active == ["nominal", STUCK_SCENARIO]
+
+
+# =============================================================================
+# Over the wire: the entrypoint serves the fault
+# =============================================================================
+
+
+def _serve(env: dict[str, str]) -> None:
+    """Server process: boot the entrypoint over the stub view."""
+    os.environ.update(env)
+    _with_echo_engine()
+    from osprey.services.virtual_accelerator import entrypoint
+
+    entrypoint.main()
+
+
+class _Served:
+    """The spawned entrypoint and the PVAccess client that reaches it."""
+
+    def __init__(self, env: dict[str, str]) -> None:
+        from p4p.client.thread import Context
+
+        context = multiprocessing.get_context("spawn")
+        self._proc = context.Process(target=_serve, args=(env,), daemon=True)
+        self._proc.start()
+        # Searched over TCP, straight at this server: a UDP search needs a
+        # broadcast path the venue's network namespace may not offer.
+        self.pva = Context(
+            "pva",
+            conf={
+                "EPICS_PVA_NAME_SERVERS": f"127.0.0.1:{env['EPICS_PVAS_SERVER_PORT']}",
+                "EPICS_PVA_ADDR_LIST": "",
+                "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+            },
+            useenv=False,
+            nt=False,
+        )
+
+    def alive(self) -> bool:
+        return self._proc.is_alive()
+
+    def rpc(self, verb: str) -> Any:
+        from osprey.services.virtual_accelerator.serving.model_rpc import (
+            RPC_PV,
+            build_request,
+            parse_reply,
+        )
+
+        return parse_reply(self.pva.rpc(RPC_PV, build_request(verb), timeout=CA_TIMEOUT_S))
+
+    def stop(self) -> None:
+        self.pva.close()
+        self._proc.kill()
+        self._proc.join(timeout=10)
 
 
 @pytest.fixture(scope="module")
-def live() -> Any:
-    """A live Channel Access server serving a faulted namespace."""
+def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Served]:
+    """The entrypoint serving the stub view with the stuck scenario active."""
     import epics
 
+    # The client binds pyepics' own libca before the server extension is
+    # imported: pcaspy exports the ca_* client symbols too, and whichever
+    # stack binds first wins. The same extra that carries pcaspy carries
+    # lume-pva-apg and p4p, so one skip covers the whole serving stack.
     epics.ca.initialize_libca()
-    pcaspy = pytest.importorskip(
+    pytest.importorskip(
         "pcaspy",
         reason=(
             "the live Channel Access venue needs pcaspy, which has no loadable "
@@ -252,49 +384,37 @@ def live() -> Any:
         ),
     )
 
-    records = _build_records()
-    hook = _PhysicsHook()
-    loop = _RunLoop(hook)
-    path = CohostWritePath(
-        records,
-        enqueue=loop.enqueue,
-        physics_setpoints=physics_setpoint_addresses(records),
-        stuck_setpoints=STUCK_SETPOINTS,
-        refusal_alarm=(pcaspy.Alarm.WRITE_ALARM, pcaspy.Severity.INVALID_ALARM),
-    )
-
-    class LiveDriver(pcaspy.Driver):
-        """The production driver's whole body: delegate to the write path."""
-
-        def write(self, reason: str, value: Any) -> bool:  # pcaspy contract
-            accepted: bool = path.write(self, reason, value)
-            return accepted
-
-    server = pcaspy.SimpleServer()
-    server.createPV("", records.pvdb)
-    driver = LiveDriver()
-    records.attach_driver(driver)
-
-    stop = threading.Event()
-
-    def serve() -> None:
-        while not stop.is_set():
-            server.process(0.05)
-
-    thread = threading.Thread(target=serve, daemon=True, name="va-fault-cas")
-    thread.start()
-
-    if not _wait_until(lambda: _caget(LIVE_RB) is not None):
-        stop.set()
-        pytest.fail("the Channel Access server never became reachable")
-
-    yield LiveNamespace(records, hook, loop)
-
-    stop.set()
-    thread.join(timeout=5)
+    root = tmp_path_factory.mktemp("apply-fault")
+    _write_view(root / "data")
+    state = root / "state"
+    state.mkdir()
+    _activate(state, STUCK_SCENARIO)
+    env = {
+        "VA_DATA_DIR": str(root / "data"),
+        "VA_STATE_DIR": str(state),
+        "VA_INSTANCE": INSTANCE,
+        "VA_POLL_INTERVAL_S": str(TICK_S),
+        "EPICS_PVAS_SERVER_PORT": _free_port(),
+        "EPICS_PVAS_BROADCAST_PORT": _free_port(),
+        "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
+        "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
+        "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
+        "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
+    }
+    served = _Served(env)
+    try:
+        deadline = time.monotonic() + STARTUP_TIMEOUT_S
+        while _caget(LIVE_RB) is None:
+            if not served.alive():
+                pytest.fail("the entrypoint exited before it served")
+            if time.monotonic() > deadline:
+                pytest.fail("the entrypoint never served")
+        yield served
+    finally:
+        served.stop()
 
 
-def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
+def _wait_until(predicate: Any, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = predicate()
@@ -310,22 +430,16 @@ def _caget(address: str) -> Any:
     ``use_monitor=False`` is load-bearing, not stylistic: pyepics' ``caget``
     otherwise returns whatever its monitor subscription last cached, which
     after a write is whatever arrived BEFORE the write did. This suite asserts
-    what a client sees over a real wire, including that a refused write moved
-    NOTHING -- and a stale cache never moves, so that assertion would pass for
-    free. The sibling live suite was observed reading back a previous test's
-    value for exactly this reason.
-
-    Same reasoning, and the same fix, as every read in
-    ``scripts/va/build_and_boot_check.sh``.
+    that a refused forward moved NOTHING, and a stale cache never moves, so
+    that assertion would pass for free.
     """
     import epics
 
-    return epics.caget(
-        address, timeout=CA_TIMEOUT_S, connection_timeout=CA_TIMEOUT_S, use_monitor=False
-    )
+    return epics.caget(address, timeout=2.0, connection_timeout=2.0, use_monitor=False)
 
 
 def _caput(address: str, value: float) -> Any:
+    """Write with put-completion: returns once the write's pass has finished."""
     import epics
 
     return epics.caput(address, value, wait=True, timeout=CA_TIMEOUT_S)
@@ -342,331 +456,61 @@ def _settle(address: str, expected: float) -> Any:
     return last[0]
 
 
-class TestFaultRouting:
-    """The route table, before any server exists.
-
-    A faulted setpoint routes to ``MODE_LATCH`` and owes no echo; that is the
-    whole mechanism, and it is worth pinning separately from its consequences so
-    a regression says which of the two broke.
-    """
-
-    def test_a_faulted_setpoint_latches_and_owes_no_echo(self) -> None:
-        records = _build_records()
-        path = CohostWritePath(
-            records,
-            physics_setpoints=physics_setpoint_addresses(records),
-            stuck_setpoints=STUCK_SETPOINTS,
-        )
-        route = path.routes[STUCK_SP]
-
-        assert route.mode == MODE_LATCH
-        assert route.readback is None
-
-    def test_an_unfaulted_echo_setpoint_still_echoes(self) -> None:
-        records = _build_records()
-        path = CohostWritePath(records, stuck_setpoints=STUCK_SETPOINTS)
-
-        assert path.routes[LIVE_SP].mode == MODE_ECHO
-        assert path.routes[LIVE_SP].readback == LIVE_RB
-
-    def test_an_unfaulted_magnet_still_reaches_the_model(self) -> None:
-        records = _build_records()
-        loop = _RunLoop(_PhysicsHook())
-        path = CohostWritePath(
-            records,
-            enqueue=loop.enqueue,
-            physics_setpoints=physics_setpoint_addresses(records),
-            stuck_setpoints=STUCK_SETPOINTS,
-        )
-
-        assert path.routes[LIVE_MAGNET_SP].mode == MODE_PHYSICS
-        assert path.routes[STUCK_MAGNET_SP].mode == MODE_LATCH
-
-    def test_the_fault_is_off_by_default(self) -> None:
-        """No channel is faulted unless it is named: the fixture is opt-in, so
-        an unconfigured virtual accelerator serves an unfaulted machine."""
-        records = _build_records()
-        loop = _RunLoop(_PhysicsHook())
-        path = CohostWritePath(
-            records,
-            enqueue=loop.enqueue,
-            physics_setpoints=physics_setpoint_addresses(records),
-        )
-
-        # Nothing latches: every setpoint either reaches the model or echoes,
-        # and the address this module faults elsewhere is an ordinary echo here.
-        assert {route.mode for route in path.routes.values()} == {MODE_ECHO, MODE_PHYSICS}
-        assert path.routes[STUCK_SP].mode == MODE_ECHO
-        assert path.routes[STUCK_SP].readback == STUCK_RB
-        assert path.routes[STUCK_MAGNET_SP].mode == MODE_PHYSICS
-
-    def test_an_address_that_is_not_served_is_inert(self) -> None:
-        """``stuck_setpoints`` is a per-channel fixture, not a channel selector:
-        naming something that is not served must not invent a route for it, and
-        must not disturb the ones that are."""
-        records = _build_records()
-        path = CohostWritePath(
-            records, stuck_setpoints=frozenset({"NOT:A:REAL:CHANNEL:SP", STUCK_SP})
-        )
-
-        assert "NOT:A:REAL:CHANNEL:SP" not in path.routes
-        assert path.routes[LIVE_SP].mode == MODE_ECHO
-        assert path.routes[STUCK_SP].mode == MODE_LATCH
-
-    def test_a_faulted_setpoint_is_still_writable(self) -> None:
-        """The fault freezes the device, it does not withdraw the channel: a
-        client must still be able to write the setpoint and read its command
-        back, which is the difference between a broken magnet and a missing
-        one."""
-        records = _build_records()
-        path = CohostWritePath(records, stuck_setpoints=STUCK_SETPOINTS)
-
-        assert STUCK_SP in path.routes
-
-
-# The served tree the model-held faults are shown on: the packaged demo tree,
-# read the way every other model test reads it. Nothing below is served over a
-# wire, so it cannot collide with any live server's names -- and no address is
-# written down here at all: the bindings document names the monitor and the
-# actuator, and these tests only ask it which.
-
-
-class _ReadingRecord:
-    """A monitor readback record reduced to the one method the bridge calls."""
-
-    def __init__(self) -> None:
-        self.value: float | None = None
-
-    def set(self, value: float) -> None:
-        self.value = value
-
-
-class _CommandedRecord(_ReadingRecord):
-    """A setpoint record the bridge reads a standing command out of."""
-
-    def __init__(self, value: float) -> None:
-        super().__init__()
-        self.value = value
-
-    def get(self) -> float | None:
-        return self.value
-
-
-def _faulted_model(**seeds: Any) -> PyATRingModel:
-    """The packaged tree's model, seeded with ``seeds``."""
-    return PyATRingModel(packaged_served_root(), build_manifest()["channels"], **seeds)
-
-
-def _document() -> BindingsDocument:
-    return load_bindings(PACKAGE_PATHS.va_bindings)
-
-
-def _a_monitor(document: BindingsDocument) -> Binding:
-    """The first monitor reading the document publishes."""
-    return next(binding for binding in document.bindings if binding.kind == "monitor")
-
-
-def _an_actuator(document: BindingsDocument) -> Binding:
-    """The first device the document says kicks the beam."""
-    return next(binding for binding in document.bindings if binding.kind == "kick")
-
-
-def _served(model: PyATRingModel, reading: str) -> tuple[PhysicsBridge, _ReadingRecord]:
-    """A bridge over ``model`` with one bound monitor reading."""
-    bridge = PhysicsBridge(model)
-    record = _ReadingRecord()
-    bridge.bind({reading: record})
-    return bridge, record
-
-
-class TestApplyFaultsLiveInTheModel:
-    """The readout and calibration apply faults, without a server.
-
-    Seeded through ``PyATRingModel``, writable through its public ``set()``
-    like any other variable, and read back by the bridge each time it serves
-    -- so the value the model holds now is the only one a client ever sees.
-    """
-
-    def test_a_seeded_readout_fault_reaches_the_served_reading(self) -> None:
-        document = _document()
-        monitor, actuator = _a_monitor(document), _an_actuator(document)
-        model = _faulted_model(bpm_errors={monitor.element: {"offset_x": _MODEL_OFFSET}})
-        bridge, record = _served(model, monitor.setpoint_address)
-
-        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
-
-        truth = bridge.bpm_positions()[monitor.setpoint_address]
-        assert record.value == pytest.approx(truth - _MODEL_OFFSET, abs=1e-12)
-
-    def test_a_readout_fault_written_to_the_model_is_served_on_the_next_push(self) -> None:
-        document = _document()
-        monitor, actuator = _a_monitor(document), _an_actuator(document)
-        model = _faulted_model()
-        bridge, record = _served(model, monitor.setpoint_address)
-
-        model.set({f"{monitor.element}.gain_x": 2.0})
-        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
-
-        truth = bridge.bpm_positions()[monitor.setpoint_address]
-        assert record.value == pytest.approx(2.0 * truth, abs=1e-12)
-
-    def test_a_calibration_written_to_the_model_scales_the_next_setpoint(self) -> None:
-        """A polarity flip is the exact oracle: the ring has to end where the
-        opposite command would have left it."""
-        document = _document()
-        monitor, actuator = _a_monitor(document), _an_actuator(document)
-        flipped = _faulted_model()
-        bridge, _record = _served(flipped, monitor.setpoint_address)
-        flipped.set({f"{actuator.element}.cal_factor": -1.0})
-        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
-
-        plain, _plain_record = _served(_faulted_model(), monitor.setpoint_address)
-        plain.on_setpoint(actuator.setpoint_address, -_MODEL_STEP)
-
-        assert bridge.bpm_positions() == pytest.approx(plain.bpm_positions())
-
-    def test_a_model_reset_restores_the_seeded_fault(self) -> None:
-        document = _document()
-        monitor, actuator = _a_monitor(document), _an_actuator(document)
-        model = _faulted_model(bpm_errors={monitor.element: {"offset_x": _MODEL_OFFSET}})
-        bridge, record = _served(model, monitor.setpoint_address)
-
-        model.set({f"{monitor.element}.offset_x": -_MODEL_OFFSET})
-        model.reset()
-        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
-
-        truth = bridge.bpm_positions()[monitor.setpoint_address]
-        assert record.value == pytest.approx(truth - _MODEL_OFFSET, abs=1e-12)
-
-    def test_a_calibration_change_re_commands_what_the_operator_asked_for(self) -> None:
-        """What ``refresh`` is for: a model write reaches no setpoint, so the
-        magnet would go on delivering the wrong value for its standing command
-        until the bridge re-applies it."""
-        actuator = _an_actuator(_document())
-        address = actuator.setpoint_address
-        model = _faulted_model()
-        bridge = PhysicsBridge(model)
-        command = _CommandedRecord(_MODEL_STEP)
-        bridge.bind({address: command}, physics_setpoints=frozenset({address}))
-        bridge.on_setpoint(address, _MODEL_STEP)
-
-        model.set({f"{actuator.element}.cal_factor": -1.0})
-        bridge.refresh([f"{actuator.element}.cal_factor"])
-
-        plain = PhysicsBridge(_faulted_model())
-        plain.on_setpoint(address, -_MODEL_STEP)
-        assert bridge.bpm_positions() == pytest.approx(plain.bpm_positions())
-        assert command.value == _MODEL_STEP, "the operator's command is read, never rewritten"
-
-    def test_a_calibration_change_leaves_a_stuck_setpoint_where_it_is(self) -> None:
-        """A stuck setpoint records what was written to it and hands the model
-        nothing, so its record carries a value the ring never took. Re-applying
-        that on a calibration change would move the magnet to a value it
-        refused -- which is the one thing being stuck means it cannot do."""
-        actuator = _an_actuator(_document())
-        address = actuator.setpoint_address
-        model = _faulted_model()
-        bridge = PhysicsBridge(model)
-        bridge.follow_stuck_setpoints(lambda: frozenset({address}))
-        # What a latched write leaves behind: the record moved, the model did not.
-        bridge.bind(
-            {address: _CommandedRecord(_MODEL_STEP)}, physics_setpoints=frozenset({address})
-        )
-        before = bridge.bpm_positions()
-
-        model.set({f"{actuator.element}.cal_factor": -1.0})
-        bridge.refresh([f"{actuator.element}.cal_factor"])
-
-        assert model.get(address) == 0.0, "the stuck magnet took the latched command"
-        assert bridge.bpm_positions() == pytest.approx(before)
-
-    def test_clearing_the_stuck_fault_lets_the_next_calibration_change_through(self) -> None:
-        """The set is read when ``refresh`` runs, not copied when the bridge
-        was wired, so clearing the fault at runtime is enough."""
-        actuator = _an_actuator(_document())
-        address = actuator.setpoint_address
-        model = _faulted_model()
-        bridge = PhysicsBridge(model)
-        stuck = {address}
-        bridge.follow_stuck_setpoints(lambda: frozenset(stuck))
-        bridge.bind(
-            {address: _CommandedRecord(_MODEL_STEP)}, physics_setpoints=frozenset({address})
-        )
-
-        stuck.clear()
-        model.set({f"{actuator.element}.cal_factor": 1.0})
-        bridge.refresh([f"{actuator.element}.cal_factor"])
-
-        assert model.get(address) == pytest.approx(_MODEL_STEP)
-
-    @pytest.mark.parametrize("seed_kwarg", ["bpm_errors", "corrector_gains"])
-    def test_the_bridge_takes_no_fault_seed_of_its_own(self, seed_kwarg: str) -> None:
-        with pytest.raises(TypeError, match=seed_kwarg):
-            PhysicsBridge(model=_faulted_model(), **{seed_kwarg: {}})
-
-
-class TestLiveStuckEchoPair:
-    """A faulted sp-echo channel, over the wire."""
+class TestLiveStuckSetpoint:
+    """The stuck pair, over the wire."""
 
     @pytest.mark.usefixtures("live")
-    def test_the_setpoint_latches_the_written_value(self) -> None:
-        assert _caput(STUCK_SP, 7.25) == 1
-
-        assert _settle(STUCK_SP, 7.25) == pytest.approx(7.25)
+    def test_the_write_completes(self) -> None:
+        """A write that never completed would postpone every later write to
+        its channel, and the client would hang rather than be told a lie it
+        could detect."""
+        assert _caput(STUCK_SP, 1.0) == 1
+        assert _caput(STUCK_SP, 2.0) == 1
 
     @pytest.mark.usefixtures("live")
     def test_the_readback_stays_at_its_boot_value(self) -> None:
         assert _caput(STUCK_SP, 4.0) == 1
-        _settle(STUCK_SP, 4.0)
+        time.sleep(3 * TICK_S)
 
-        assert _caget(STUCK_RB) == pytest.approx(STUCK_BOOT)
+        assert _caget(STUCK_RB) == pytest.approx(BOOT)
 
     @pytest.mark.usefixtures("live")
     def test_repeated_writes_never_move_it(self) -> None:
         """Frozen means frozen, not merely lagging by one write."""
         for value in (1.0, -3.0, 11.5):
             assert _caput(STUCK_SP, value) == 1
-            _settle(STUCK_SP, value)
+        time.sleep(3 * TICK_S)
 
-        assert _caget(STUCK_RB) == pytest.approx(STUCK_BOOT)
+        assert _caget(STUCK_RB) == pytest.approx(BOOT)
 
     @pytest.mark.usefixtures("live")
-    def test_a_monitoring_client_is_told_nothing(self) -> None:
-        """The freeze is in the served value, so there is no monitor event to
-        deliver either -- a subscriber sees a device that simply never moves,
-        not one that reports a value identical to the last."""
+    def test_a_monitoring_client_sees_no_other_value(self) -> None:
+        """The freeze is in the served value, so a subscriber sees a device
+        that never moves, whatever the passes after the write publish."""
         import epics
 
         seen: list[float] = []
         readback = epics.PV(STUCK_RB, auto_monitor=True)
         try:
             assert readback.wait_for_connection(timeout=CA_TIMEOUT_S)
-            assert readback.get(use_monitor=False) == pytest.approx(STUCK_BOOT)
+            assert readback.get(use_monitor=False) == pytest.approx(BOOT)
             readback.add_callback(lambda value=None, **_: seen.append(value))
 
             assert _caput(STUCK_SP, 6.0) == 1
-            _settle(STUCK_SP, 6.0)
-            time.sleep(0.5)
+            time.sleep(3 * TICK_S)
         finally:
             # Explicit, in a finally: a PV finalised by the garbage collector
             # tears libca down from the wrong thread.
             readback.disconnect()
 
-        assert [value for value in seen if abs(value - STUCK_BOOT) > 1e-9] == []
+        assert [value for value in seen if abs(value - BOOT) > 1e-9] == []
+
+
+class TestLiveUnfaultedSibling:
+    """The pair the scenario does not name, over the wire."""
 
     @pytest.mark.usefixtures("live")
-    def test_the_write_still_completes(self) -> None:
-        """The server library postpones every later write to a PV whose
-        asynchronous write never completed, so a fault that skipped completion
-        would freeze the setpoint as well as the readback -- and the client
-        would hang rather than be told a lie it could detect."""
-        assert _caput(STUCK_SP, 1.0) == 1
-        assert _caput(STUCK_SP, 2.0) == 1
-
-        assert _settle(STUCK_SP, 2.0) == pytest.approx(2.0)
-
-    @pytest.mark.usefixtures("live")
-    def test_the_unfaulted_sibling_still_echoes(self) -> None:
+    def test_the_sibling_reaches_the_model(self) -> None:
         assert _caput(LIVE_SP, 4.5) == 1
 
         assert _settle(LIVE_RB, 4.5) == pytest.approx(4.5)
@@ -677,46 +521,17 @@ class TestLiveStuckEchoPair:
         _settle(LIVE_RB, 3.0)
 
         assert _caput(STUCK_SP, 8.0) == 1
-        _settle(STUCK_SP, 8.0)
+        time.sleep(3 * TICK_S)
 
         assert _caget(LIVE_RB) == pytest.approx(3.0)
+        assert _caget(STUCK_RB) == pytest.approx(BOOT)
 
 
-class TestLiveStuckMagnet:
-    """A faulted pyat-coupled channel: the machine must not move either.
+class TestLiveInstance:
+    """The instance the entrypoint was started as, as the model RPC reports it."""
 
-    Suppressing only the echo would leave a magnet whose readback lies still
-    while the lattice underneath it tracks every command -- the orbit would
-    move, and no channel would say why.
-    """
-
-    @pytest.mark.usefixtures("live")
-    def test_the_setpoint_latches_the_written_value(self) -> None:
-        assert _caput(STUCK_MAGNET_SP, 5.5) == 1
-
-        assert _settle(STUCK_MAGNET_SP, 5.5) == pytest.approx(5.5)
-
-    @pytest.mark.usefixtures("live")
-    def test_the_readback_stays_at_its_boot_value(self) -> None:
-        assert _caput(STUCK_MAGNET_SP, -2.0) == 1
-        _settle(STUCK_MAGNET_SP, -2.0)
-
-        assert _caget(STUCK_MAGNET_RB) == pytest.approx(STUCK_BOOT)
-
-    def test_the_write_never_reaches_the_model(self, live: Any) -> None:
-        live.hook.calls.clear()
-        assert _caput(STUCK_MAGNET_SP, 3.5) == 1
-        _settle(STUCK_MAGNET_SP, 3.5)
-
-        assert live.hook.calls == []
-
-    def test_an_unfaulted_magnet_still_reaches_the_model_and_echoes(self, live: Any) -> None:
-        live.hook.calls.clear()
-        assert _caput(LIVE_MAGNET_SP, 1.75) == 1
-        _wait_until(lambda: live.hook.calls)
-
-        assert live.hook.calls == [(LIVE_MAGNET_SP, pytest.approx(1.75))]
-        assert _settle(LIVE_MAGNET_RB, 1.75) == pytest.approx(1.75)
+    def test_the_status_reply_names_the_instance(self, live: _Served) -> None:
+        assert live.rpc("status")["instance"] == INSTANCE
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:

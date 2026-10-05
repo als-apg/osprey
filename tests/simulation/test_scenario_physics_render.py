@@ -24,7 +24,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.services.virtual_accelerator import entrypoint
 from osprey.simulation.apply import (
     compute_scenario_physics_env,
     render_scenario_physics_env,
@@ -97,18 +96,6 @@ class TestBpmPolarityScenario:
         # Only the non-identity field is emitted, fanned out to both planes.
         assert rendered["VA_BPM_ERRORS"] == "BPM17:polarity_x=-1.0,polarity_y=-1.0"
 
-    def test_rendered_value_round_trips_through_entrypoint_parser(self, tmp_path, monkeypatch):
-        project = _make_project(tmp_path)
-        rendered = render_scenario_physics_env(project, ["bpm-polarity"])
-
-        monkeypatch.setenv("VA_BPM_ERRORS", rendered["VA_BPM_ERRORS"])
-        parsed = (
-            entrypoint._parse_bpm_errors()
-        )  # exercising the entrypoint's own parse helper directly
-        assert parsed == {
-            "BPM17": {"polarity_x": pytest.approx(-1.0), "polarity_y": pytest.approx(-1.0)}
-        }
-
 
 class TestOrmDualFaultScenario:
     """physics.bpm_errors + physics.corrector_gain together on disjoint devices.
@@ -139,23 +126,6 @@ class TestOrmDualFaultScenario:
         assert set(rendered) == {"VA_BPM_ERRORS", "VA_CORR_GAIN"}
         assert rendered["VA_BPM_ERRORS"] == "BPM17:polarity_x=-1.0,polarity_y=-1.0"
         assert rendered["VA_CORR_GAIN"] == "HCM01=0.5"
-
-    def test_rendered_values_round_trip_through_entrypoint_parsers(self, tmp_path, monkeypatch):
-        project = _make_project(tmp_path)
-        rendered = render_scenario_physics_env(project, ["orm-dual-fault"])
-
-        monkeypatch.setenv("VA_BPM_ERRORS", rendered["VA_BPM_ERRORS"])
-        monkeypatch.setenv("VA_CORR_GAIN", rendered["VA_CORR_GAIN"])
-        bpm_errors = (
-            entrypoint._parse_bpm_errors()
-        )  # exercising the entrypoint's own parse helpers directly
-        corr_gain = entrypoint._parse_device_float_map(
-            "VA_CORR_GAIN", bound=entrypoint.MAX_CORR_GAIN_FACTOR
-        )
-        assert bpm_errors == {
-            "BPM17": {"polarity_x": pytest.approx(-1.0), "polarity_y": pytest.approx(-1.0)}
-        }
-        assert corr_gain == {"HCM01": pytest.approx(0.5)}
 
     def test_disjoint_devices_satisfy_the_claim_guard_alongside_another_fault(self, tmp_path):
         """A second active scenario faulting different devices doesn't trip

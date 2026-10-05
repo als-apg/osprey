@@ -4,24 +4,21 @@
 #
 #   scripts/va/live_ca/run_live_ca.sh [PYTEST_TARGET...]
 #
-# tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand a real
-# pcaspy Channel Access server up in-process and drive it with a real pyepics
-# client, and tests/va/test_facility_seam.py boots the whole serving assembly
-# on both transports. pcaspy publishes manylinux x86_64 wheels only, so on a
+# tests/va/test_apply_fault.py boots the virtual accelerator's entrypoint over
+# a stub view and drives its scenario faults with a real pyepics client, and
+# tests/va/test_lume_pva_seam.py serves composites through the model runner on
+# both transports. pcaspy publishes manylinux x86_64 wheels only, so on a
 # developer's Mac all of that skips. This builds a linux/amd64 container that
 # installs the repo's own `virtual-accelerator` extra from the repo's own
 # lockfile, mounts the worktree read-only, and runs the suites there under a
 # gate that FAILS if anything skips (scripts/va/live_ca/gate.py) -- because a
 # skipped live suite proves nothing.
 #
-# The extra now carries the whole serving stack -- pcaspy, lume-pva-apg and
-# p4p -- so one image runs everything. There is no longer a separate PVA layer
-# or a bind-mounted fork checkout: those existed only while lume-pva-apg was
-# unpublished and had nothing to resolve by name.
+# The extra carries the whole serving stack -- pcaspy, lume-pva-apg and p4p --
+# so one image runs everything.
 #
-# Nothing is published and no host port is claimed. The Channel Access server
-# and its client share one process inside the container's own network
-# namespace, so this cannot collide with a virtual accelerator already running
+# Nothing is published and no host port is claimed. The Channel Access servers
+# and their clients share the container's own network namespace, so this cannot collide with a virtual accelerator already running
 # on 5064. Do not add `-p` to the run below without re-reading that sentence.
 #
 # The image is rebuilt only when a pyproject.toml or uv.lock changes; test and
@@ -128,11 +125,9 @@ else
 fi
 
 # --pva unconditionally, not as a mode. The extra installs all three server
-# roots, so the served-boot branch of tests/va/test_facility_seam.py is
-# reachable in this one image -- and `--pva` is what makes the gate REQUIRE it,
-# by asserting pcaspy, p4p and lume_pva_apg import before pytest starts. That
-# seam test passes on either the served boot or a missing-server-module stop,
-# so without the precondition a green here would not say which branch ran.
+# roots, so tests/va/test_lume_pva_seam.py runs in this one image -- and `--pva`
+# is what makes the gate REQUIRE it, by asserting pcaspy, p4p and lume_pva_apg
+# import before pytest starts rather than letting that module skip whole.
 echo "--- running the live Channel Access + PVAccess gate ---"
 exec "${RUNTIME}" run --rm --platform "${PLATFORM}" \
     -v "${WORKTREE_ROOT}:/work:ro" \

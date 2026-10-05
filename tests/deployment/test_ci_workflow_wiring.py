@@ -1022,7 +1022,6 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 #:    pyproject.toml states the same rule from the other side.
 UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
-        "tests/va/test_record_factory.py",
         "tests/va/test_apply_fault.py",
         "tests/va/test_lume_pva_seam.py",
         "tests/services/channel_finder/graph_index/test_scale.py",

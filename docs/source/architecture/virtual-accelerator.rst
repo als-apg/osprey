@@ -153,9 +153,9 @@ file's name into ``VA_LATTICE``. How a tree comes to carry one is in
 
 **Any other backend is a different entrypoint.** A surrogate, Cheetah or Bmad
 is a different ``LUMEModel``, so it arrives as a replacement entrypoint module.
-The image runs
-``python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}``,
-and the module must be importable inside an image the facility builds.
+The image's ``CMD`` runs ``osprey.services.virtual_accelerator.entrypoint`` by
+name, so a replacement module ships in an image the facility builds, whose own
+``CMD`` names it.
 
 Either way the serving layer does not change. Model variables are keyed by
 their full channel address and resolved before the backend sees them, so a

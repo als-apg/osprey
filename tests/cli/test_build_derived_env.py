@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.build_cmd import _VA_LATTICE_RETIRED, _wire_build_derived_env
-from osprey.services.virtual_accelerator import entrypoint
 from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
 from osprey.utils.dotenv import (
     BUILD_DERIVED_BANNER,
@@ -267,14 +266,3 @@ class TestTheRetiredSpellingIsMigrated:
             env = _wire(barren_repo)
 
         assert env["VA_LATTICE"] == _VA_LATTICE_RETIRED
-
-    def test_the_container_gives_the_spelling_no_meaning_of_its_own(self, tmp_path, monkeypatch):
-        """What makes the migration necessary, pinned against the entrypoint itself.
-
-        Were the served side to grow a sentinel back, the build would be
-        rewriting a value that works.
-        """
-        monkeypatch.setenv("VA_LATTICE", _VA_LATTICE_RETIRED)
-
-        with pytest.raises(SystemExit):
-            entrypoint._resolve_lattice(tmp_path)

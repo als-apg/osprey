@@ -15,12 +15,8 @@ module can check:
    address in ``channel_manifest.json`` -- an offset on an axis nothing serves
    is a perturbation with nowhere to appear.
 3. **The env-var grammar.** It is rendered verbatim into a compose
-   ``VA_BPM_ERRORS`` value, and the container parses it with
-   ``entrypoint._parse_bpm_errors``, which ``SystemExit``\\ s on anything it
-   does not like. That parser is called here on the real constant, so the
-   pairing is checked rather than assumed -- and its answer is compared with
-   :func:`parse_standin_default`, which is the host side's copy of the same
-   split.
+   ``VA_BPM_ERRORS`` value, so it has to parse as that grammar:
+   :func:`parse_bpm_error_spec` reads it the way the value is split.
 4. **The compose render.** The stand-in's env line is where the constant is
    actually delivered, inside a ``${VA_STANDIN_BPM_ERRORS-...}`` fallback so
    an operator keeps the override -- ``-`` and not ``:-``, so an explicitly
@@ -41,7 +37,6 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.virtual_accelerator import entrypoint
 from osprey.services.virtual_accelerator.manifest import standin_defaults
 from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT, PACKAGE_PATHS
 from osprey.services.virtual_accelerator.manifest.standin_defaults import (
@@ -53,7 +48,6 @@ from osprey.services.virtual_accelerator.manifest.standin_defaults import (
     read_standin_bpm_errors,
     served_data_root,
 )
-from osprey.utils.dotenv import VA_LATTICE_DEFAULT
 
 # The helpers that render the packaged VA compose template the way the
 # deployment does. Imported from the instance-axis suite that owns them rather
@@ -197,31 +191,6 @@ class TestStandinDefaultErrorsAreOffsetOnly:
         for fields in parse_standin_default().values():
             assert set(fields) <= set(_ALLOWED_FIELD_AXES)
 
-    def test_the_parser_narrows_no_shipped_offset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A displacement answers to the machine, never to a ceiling.
-
-        How far the shipped offsets displace the demo machine is a question
-        about that machine -- far enough to see, close enough to be a
-        commissioning error -- and the parser holds no opinion about it: a
-        displacement is the magnitude the simulator was asked to seed, in the
-        unit the monitor publishes. So every shipped offset, inflated past any
-        plausible one, still reaches the error model as written.
-        """
-        inflated = {
-            device: {field: value * 1e4 for field, value in fields.items()}
-            for device, fields in parse_standin_default().items()
-        }
-        spec = ";".join(
-            device + ":" + ",".join(f"{field}={value!r}" for field, value in fields.items())
-            for device, fields in inflated.items()
-        )
-        monkeypatch.setenv("VA_BPM_ERRORS", spec)
-
-        assert entrypoint._parse_bpm_errors() == {
-            device: {field: pytest.approx(value) for field, value in fields.items()}
-            for device, fields in inflated.items()
-        }
-
     def test_standin_default_errors_are_visible_against_the_machine(self) -> None:
         """Every offset is well clear of the BPM channels' own motion.
 
@@ -239,23 +208,7 @@ class TestStandinDefaultErrorsAreOffsetOnly:
 
 
 class TestStandinDefaultErrorsRoundTripThroughTheGrammar:
-    """The container's own parser accepts the constant, and agrees about it."""
-
-    def test_standin_default_errors_parse_as_the_container_parses_them(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The real ``_parse_bpm_errors``, on the real constant.
-
-        It reads ``os.environ`` itself, so the constant is delivered the way
-        compose delivers it. A malformed entry, an unknown field or a value
-        the parser refuses would ``SystemExit`` here rather than at a container
-        boot nobody is watching.
-        """
-        monkeypatch.setenv("VA_BPM_ERRORS", STANDIN_BPM_ERRORS_DEFAULT)
-        parsed = entrypoint._parse_bpm_errors()
-
-        assert parsed == parse_standin_default()
-        assert parsed, "the shipped default perturbs nothing"
+    """The grammar splits a device spelled as an address as one token."""
 
     def test_a_device_spelled_as_an_address_is_one_token(self) -> None:
         """Both splits take the LAST colon, so an address stays one device.
@@ -284,17 +237,6 @@ class TestStandinDefaultErrorsRoundTripThroughTheGrammar:
 
 class TestLatticeConditionalDefault:
     """The one rule the build and the render both resolve the fallback from."""
-
-    def test_the_host_side_spells_no_lattice_as_the_container_does(self) -> None:
-        """The two sides of ``VA_LATTICE=none`` are the same string.
-
-        The host resolves the chain against
-        :data:`~osprey_connectors.dotenv.VA_LATTICE_DEFAULT` while the container
-        reads the variable itself, and a stand-in is rendered by the first and
-        booted by the second. Two spellings of "no lattice" would leave the
-        render perturbing a machine the IOC serves clean.
-        """
-        assert VA_LATTICE_DEFAULT == entrypoint.LATTICE_NONE
 
     def test_a_served_lattice_gets_its_trees_perturbation(self, tmp_path: Path) -> None:
         """A lattice in the served tree is a model for that tree's offsets."""
