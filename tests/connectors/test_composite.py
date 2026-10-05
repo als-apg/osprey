@@ -265,6 +265,29 @@ def test_a_childs_own_variables_are_reached_through_model_get_and_set(tmp_path: 
         composite.get("M/knob")
 
 
+def test_model_variables_lists_each_models_own_variables_at_their_start(tmp_path: Path) -> None:
+    scenarios = [{"name": "flip", "faults": {"M": {"writes": {"M:BPM:Y": {"polarity": -1}}}}}]
+    composite = _composite(tmp_path, scenarios=scenarios)
+    _activate(tmp_path / "state", "flip")
+    composite.model_set({"M/knob": 3.0})
+
+    listed = composite.model_variables()
+
+    assert list(listed) == ["M/M:BPM:X/polarity", "M/M:BPM:Y/polarity", "M/knob"]
+    assert {name: start for name, (_, start) in listed.items()} == {
+        "M/M:BPM:X/polarity": 1.0,
+        "M/M:BPM:Y/polarity": -1.0,
+        "M/knob": 1.0,
+    }
+    assert listed["M/knob"][0].name == "knob"
+
+
+def test_a_failed_model_lists_no_variables(tmp_path: Path) -> None:
+    composite = _composite(tmp_path, settings={"fail": "the deck has no stable orbit"})
+
+    assert composite.model_variables() == {}
+
+
 def _model_set_callers(path: Path) -> set[str]:
     """The functions of ``path`` that call ``model_set``, ``<module>`` at top level."""
     callers: set[str] = set()

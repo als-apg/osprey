@@ -216,6 +216,7 @@ class _Child:
     stuck: frozenset[str] = frozenset()
     inputs: dict[str, Any] = field(default_factory=dict)
     last_good: dict[str, Any] = field(default_factory=dict)
+    starts: dict[str, Any] = field(default_factory=dict)
 
 
 class Composite(LUMEModel):
@@ -374,6 +375,7 @@ class Composite(LUMEModel):
         record = child.record
         child.model = None
         child.engine = None
+        child.starts = {}
         child.inputs = self._start_inputs(child)
         try:
             child.engine = self._engine(str(record.get("engine")))
@@ -385,6 +387,12 @@ class Composite(LUMEModel):
                 record.get("settings"),
                 active=dict(child.active),
             )
+            writable = [
+                name
+                for name, variable in child.model.supported_variables.items()
+                if name not in self._channels and not variable.read_only
+            ]
+            child.starts = dict(child.model.get(writable)) if writable else {}
         except Exception as exc:
             self._fail(child, exc)
             return
@@ -893,6 +901,31 @@ class Composite(LUMEModel):
         if variable in self._channels or variable not in child.model.supported_variables:
             raise ValueError(f"model {model!r} has no variable {variable!r}")
         return child, variable
+
+    def model_variables(self) -> dict[str, tuple[Variable, Any]]:
+        """Each built physics model's own variables, named ``<model>/<name>``.
+
+        A model's own variables are the ones it declares beyond the view's
+        channels. A failed model lists none.
+
+        Returns:
+            ``<model>/<name>`` -> ``(variable, start)``, models in name order and
+            each model's variables in its declaration order. ``start`` is what
+            the model held for a writable variable when it was built at the
+            active scenarios; a read-only variable's is ``None``.
+        """
+        self._refresh()
+        listed: dict[str, tuple[Variable, Any]] = {}
+        for child in self._children.values():
+            if child.model is None:
+                continue
+            for name, variable in child.model.supported_variables.items():
+                if name not in self._channels:
+                    listed[f"{child.name}{_MODEL_SEPARATOR}{name}"] = (
+                        variable,
+                        child.starts.get(name),
+                    )
+        return listed
 
     def model_get(self, names: Sequence[str]) -> dict[str, Any]:
         """Read the children's own variables, each named ``<model>/<name>``.
