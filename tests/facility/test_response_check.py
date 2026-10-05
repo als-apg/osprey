@@ -55,12 +55,9 @@ SPEAR3_LINE = (
     "response check StorageRing: measured BPMx/HCM median ratio 0.922 (pass at 0.8 to 1.25)"
 )
 NSLS2_LINES = [
-    "response check LTB: model - judged blocks 0 (pass at 0)",
+    "response check LTB: model BPMx/HCM inside band 1.000 (pass at 0.99)",
     "response check StorageRing: model BPMx/HCM inside band 1.000 (pass at 0.99)",
 ]
-NSLS2_LTB_LEFT_OUT = (
-    "response check LTB: left out 24 rows (24 unwired, 0 no width, 0 unsolved, 0 table calibration)"
-)
 SYNTHETIC_LINE = "response check SR: model BPMx/HC inside band 1.000 (pass at 0.99)"
 
 #: The synthetic tree's one setpoint whose nominal lies outside its stated band,
@@ -166,8 +163,8 @@ def test_a_model_derived_export_passes_block_by_block(nsls2: Path) -> None:
     assert all(check.passed for check in checks)
 
 
-def test_the_rows_left_out_are_named_on_a_second_line(nsls2: Path) -> None:
-    """The LTB export's monitor families are wired to no device; the StorageRing export's all are."""
+def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(nsls2: Path) -> None:
+    """Every monitor family of both nsls2 exports is wired, so no row is left out."""
     facility = _facility(nsls2)
     document = build_facility(facility, project_name="scratch")
     stream = io.StringIO()
@@ -175,11 +172,7 @@ def test_the_rows_left_out_are_named_on_a_second_line(nsls2: Path) -> None:
     passed = report(check_responses(facility, document), stream)
 
     assert passed
-    assert stream.getvalue().splitlines() == [
-        NSLS2_LINES[0],
-        NSLS2_LTB_LEFT_OUT,
-        NSLS2_LINES[1],
-    ]
+    assert stream.getvalue().splitlines() == NSLS2_LINES
 
 
 def test_one_judged_block_scaled_by_a_tenth_exits_1(
@@ -202,8 +195,6 @@ def test_one_judged_block_scaled_by_a_tenth_exits_1(
     assert (result.stdout, result.stderr) == (
         "",
         NSLS2_LINES[0]
-        + "\n"
-        + NSLS2_LTB_LEFT_OUT
         + "\n"
         + "response check StorageRing: model BPMx/HCM inside band 0.022 (fail at 0.99)\n",
     )

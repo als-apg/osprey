@@ -502,7 +502,7 @@ def test_the_transfer_line_keeps_its_single_pass_settings_beside_its_wiring(
     assert transfer["wiring"]
 
 
-def test_the_transfer_line_wires_its_correctors_and_quadrupoles_only(
+def test_the_transfer_line_wires_its_correctors_quadrupoles_and_monitors(
     transfer: dict[str, Any],
 ) -> None:
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
@@ -517,12 +517,46 @@ def test_the_transfer_line_wires_its_correctors_and_quadrupoles_only(
         }
 
     wired = {record["address"] for record in transfer["wiring"]}
-    assert wired == addresses("HCM", "VCM", "Q")
-    assert not wired & addresses("BEND", "Screen", "BPMx", "BPMy")
+    assert len(addresses("BPMx")) == len(addresses("BPMy")) == 6
+    assert wired == addresses("HCM", "VCM", "Q", "BPMx", "BPMy")
+    assert not wired & addresses("BEND", "Screen")
     engines = Counter(
-        (record["engine"]["attribute"], record["engine"]["index"]) for record in transfer["wiring"]
+        record["engine"]["axis"]
+        if "axis" in record["engine"]
+        else (record["engine"]["attribute"], record["engine"]["index"])
+        for record in transfer["wiring"]
     )
-    assert engines == {("KickAngle", 0): 16, ("KickAngle", 1): 16, ("PolynomB", 1): 30}
+    assert engines == {
+        ("KickAngle", 0): 16,
+        ("KickAngle", 1): 16,
+        ("PolynomB", 1): 30,
+        "x": 6,
+        "y": 6,
+    }
+
+
+def test_every_transfer_line_monitor_reads_millimetres_as_metres(
+    transfer: dict[str, Any],
+) -> None:
+    monitors = [record for record in transfer["wiring"] if "axis" in record["engine"]]
+    assert len(monitors) == 12
+    for record in monitors:
+        assert record["calibration"] == {
+            "curve": {"linear": {"gain": 0.001, "offset": 0.0}},
+            "inverse": {"linear": {"gain": 1000.0, "offset": 0.0}},
+            "energy_scaling": "none",
+        }, record["address"]
+
+
+def test_no_transfer_line_monitor_family_is_imported_without_its_nominal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facility = _facility(tmp_path, "nsls2")
+    import_mml([FIXTURES / "nsls2" / f"{stem}.ao.json" for stem in TREES["nsls2"]], facility)
+    unstated = [
+        line for line in capsys.readouterr().out.splitlines() if "nominal not stated" in line
+    ]
+    assert not [line for line in unstated if "family BPM" in line]
 
 
 def test_the_transfer_line_carries_the_calibrations_its_export_states(

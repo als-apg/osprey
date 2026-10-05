@@ -738,9 +738,9 @@ def _exported_positions(
 ) -> list[int]:
     """The deck position of each listed device of a line family, by the export's ``ATIndex``.
 
-    A transport line's monitors read nothing in the model's wiring, so the
-    replay places them where the export's ``AT.ATIndex`` (one-based) puts them
-    on the deck the build wrote, which keeps the export's element order.
+    The replay places a line family's listed devices where the export's
+    ``AT.ATIndex`` (one-based) puts them on the deck the build wrote, which
+    keeps the export's element order.
     """
     from tests.facility._mml_built import FIXTURES
 
