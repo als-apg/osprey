@@ -11,7 +11,8 @@ the wiring record, whichever slice or role it sits on: ``wiring-conflict`` when
 the deck repeats it, ``engine-invalid`` when the deck lacks it
 (``element_stop``). An engine signals such a stop by raising a
 ``FacilityBuildError`` that carries ``element`` and ``count`` (0 absent, above 1
-repeated).
+repeated). Every engine stop on a wiring record names the file that states the
+record as its source.
 """
 
 from __future__ import annotations
@@ -127,8 +128,21 @@ def _fill_model(
         )
     except FacilityBuildError as stop:
         record = next((r for r in model.get("wiring", []) if r["id"] == stop.record_id), None)
-        translated = element_stop(stop, record, model["name"]) if record is not None else None
-        return [translated or stop]
+        if record is None:
+            return [stop]
+        translated = element_stop(stop, record, model["name"])
+        if translated is not None:
+            return [translated]
+        return [
+            FacilityBuildError(
+                stop.kind,
+                stop.record_id,
+                stating_files(record, None, fallback=_MODELS_FILE),
+                stop.remedy,
+                record_kind=stop.record_kind,
+                detail=stop.detail,
+            )
+        ]
     errors: list[FacilityBuildError] = []
     for record in records:
         address = record["address"]

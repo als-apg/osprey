@@ -235,6 +235,14 @@ class TestStops:
             ("engine-invalid", "SR/K", ("models.yaml",))
         ]
 
+    def test_an_engine_stop_on_a_record_names_the_file_stating_it(self, tmp_path):
+        table = {"curve": {"table": {"grid": [0.0, 1.0], "values": [0.0, 2.0]}}}
+        record = {"address": "K", "element": "A", "engine": ENGINE, "calibration": table}
+        result = _run(tmp_path, _files(record))
+        assert [(e.kind, e.record_id, e.sources) for e in result.errors] == [
+            ("engine-invalid", "SR/K", ("models.yaml",))
+        ]
+
     def test_the_other_records_are_still_filled(self, tmp_path):
         result = _run(tmp_path, _files({"address": "K", "engine": ENGINE}))
         records = _records(result)
