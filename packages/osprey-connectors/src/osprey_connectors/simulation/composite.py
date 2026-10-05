@@ -352,6 +352,10 @@ class Composite(LUMEModel):
             return values.coerce(default, value_type, channel.get("options"), channel.get("shape"))
         return values.zero(value_type, channel.get("options"), channel.get("shape"))
 
+    def _start_inputs(self, child: _Child) -> dict[str, Any]:
+        """A child's setpoints at their start values."""
+        return {address: self._start_value(child, address) for address in child.setpoints}
+
     @staticmethod
     def _engine(name: str) -> Any:
         """The plug-in module registered for engine ``name``.
@@ -369,7 +373,7 @@ class Composite(LUMEModel):
         record = child.record
         child.model = None
         child.engine = None
-        child.inputs = {address: self._start_value(child, address) for address in child.setpoints}
+        child.inputs = self._start_inputs(child)
         try:
             child.engine = self._engine(str(record.get("engine")))
             deck = record.get("deck")
@@ -540,19 +544,26 @@ class Composite(LUMEModel):
             if name not in self._variables:
                 raise ValueError(f"Variable '{name}' is not supported by the model.")
 
-    def _get(self, names: list[str]) -> dict[str, Any]:
-        self._refresh()
-        t_s = float(self._clock())
-        outputs: dict[str, Any] = {}
+    def _partition(
+        self, names: Sequence[str]
+    ) -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
+        """Split names into the status values, the texture's names and each child's names."""
+        statuses: dict[str, Any] = {}
         texture: list[str] = []
         physics: dict[str, list[str]] = {}
         for name in names:
             if name in self._status:
-                outputs[name] = self._children[self._status[name]].status
+                statuses[name] = self._children[self._status[name]].status
             elif self._owner[name] == TEXTURE_OWNER:
                 texture.append(name)
             else:
                 physics.setdefault(self._owner[name], []).append(name)
+        return statuses, texture, physics
+
+    def _get(self, names: list[str]) -> dict[str, Any]:
+        self._refresh()
+        t_s = float(self._clock())
+        outputs, texture, physics = self._partition(names)
         if texture:
             outputs.update(
                 {name: _plain(value) for name, value in self._texture.get(texture).items()}
@@ -723,16 +734,7 @@ class Composite(LUMEModel):
         wanted = list(names)
         self._require(wanted)
         self._refresh()
-        outputs: dict[str, Any] = {}
-        physics: dict[str, list[str]] = {}
-        texture: list[str] = []
-        for name in wanted:
-            if name in self._status:
-                outputs[name] = self._children[self._status[name]].status
-            elif self._owner[name] == TEXTURE_OWNER:
-                texture.append(name)
-            else:
-                physics.setdefault(self._owner[name], []).append(name)
+        outputs, texture, physics = self._partition(wanted)
         outputs.update(self._texture.held(texture))
         for model, owned in physics.items():
             child = self._children[model]
@@ -873,9 +875,7 @@ class Composite(LUMEModel):
             except Exception as exc:
                 self._fail(child, exc)
                 continue
-            child.inputs = {
-                address: self._start_value(child, address) for address in child.setpoints
-            }
+            child.inputs = self._start_inputs(child)
         self._texture.reset()
 
     # -- the children's own variables ----------------------------------------
