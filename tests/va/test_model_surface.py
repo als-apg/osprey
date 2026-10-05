@@ -42,7 +42,6 @@ from osprey.services.virtual_accelerator.serving.pvdb import (
     build_serving_pvdb,
 )
 from osprey.services.virtual_accelerator.serving.write_path import (
-    RUNNER_CONFIG_POLICY,
     STUCK_SETPOINTS_VARIABLE,
     SetpointRoutedModel,
 )
@@ -349,12 +348,6 @@ class TestInfo:
         assert [v["name"] for v in info["variables"]] == [STUCK]
         assert info["variables"][0]["surface"] == SURFACE_MODEL_ONLY
 
-    def test_info_reports_the_backend_and_lattice_source(self, records: ServingRecords) -> None:
-        info = _surface(_holding_model(), records).info()
-
-        assert info["backend"] == BACKEND
-        assert info["lattice_source"] == LATTICE_SOURCE
-
     def test_info_reports_the_surface_of_each_variable_by_side(
         self, records: ServingRecords
     ) -> None:
@@ -393,7 +386,7 @@ class TestInfo:
     ) -> None:
         info = _surface(_holding_model(), records).info()
 
-        assert set(info) == {"backend", "lattice_source", "variables"}
+        assert set(info) == {"variables"}
         for entry in info["variables"]:
             assert set(entry) == {"name", "unit", "value_range", "read_only", "surface"}
 
@@ -516,11 +509,8 @@ class TestStatus:
         status = _surface(_holding_model(), records).status()
 
         assert status == {
-            "backend": BACKEND,
-            "lattice_source": LATTICE_SOURCE,
             "instance": INSTANCE,
             "endpoint": ENDPOINT,
-            "update_rate": RUNNER_CONFIG_POLICY["update_rate"],
             "last_cycle_ms": None,
             "queue_depth": 0,
             "uptime_s": 0.0,
@@ -551,11 +541,6 @@ class TestStatus:
         assert status["last_cycle_ms"] == 12.5
         assert status["queue_depth"] == 2
         assert status["last_refused_write"] == f"{MAG_SP}: value out of range"
-
-    def test_status_reports_an_update_rate_the_runner_passes(self, records: ServingRecords) -> None:
-        surface = _surface(_holding_model(), records, update_rate=5.0)
-
-        assert surface.status()["update_rate"] == 5.0
 
     def test_status_never_reads_the_model(self, records: ServingRecords) -> None:
         model = _holding_model()

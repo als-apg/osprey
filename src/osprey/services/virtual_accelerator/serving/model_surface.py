@@ -165,15 +165,15 @@ class ModelSurface:
                 as :func:`partition_variables` decided them at boot.
             records: the built serving database the partition was drawn
                 against.
-            backend_name: the physics backend's name, as ``info`` and
-                ``status`` report it.
-            lattice_source: where the backend's lattice came from.
+            backend_name: the physics backend's name; no verb reports it.
+            lattice_source: where the backend's lattice came from; no verb
+                reports it.
             instance: this server's instance name.
             endpoint: where this server is reached.
             clock: seconds on a monotonic scale; ``uptime_s`` counts from
                 the reading taken here.
             update_rate: the run loop's batching rate in Hz, as the runner
-                configured it; ``0.0`` runs every write as its own cycle.
+                configured it; no verb reports it.
             model_write_token: the token ``set`` and ``reset`` require.
                 ``None`` or empty disables model writes: an unset token must
                 never be matched by an empty one.
@@ -195,9 +195,7 @@ class ModelSurface:
             if not variable.read_only
             and (seed := getattr(variable, "default_value", None)) is not None
         }
-        self._backend_name = backend_name
-        self._lattice_source = lattice_source
-        self._update_rate = float(update_rate)
+        del backend_name, lattice_source, update_rate
         self._start(
             instance=instance, endpoint=endpoint, clock=clock, model_write_token=model_write_token
         )
@@ -266,11 +264,10 @@ class ModelSurface:
         """Describe every model variable; no value is read.
 
         Returns:
-            ``backend`` and ``lattice_source``, and ``variables``: one entry
-            per model variable -- the served side first, then the
-            model-only side, each in declaration order -- carrying its
-            ``name``, ``unit`` and ``value_range`` (``None`` for a kind that
-            has neither), ``read_only`` and ``surface``
+            ``variables``: one entry per model variable -- the served side
+            first, then the model-only side, each in declaration order --
+            carrying its ``name``, ``unit`` and ``value_range`` (``None`` for
+            a kind that has neither), ``read_only`` and ``surface``
             (:data:`SURFACE_SERVED` or :data:`SURFACE_MODEL_ONLY`).
         """
         sides = (
@@ -280,11 +277,7 @@ class ModelSurface:
         variables = [
             _describe(variable, surface) for surface, side in sides for variable in side.values()
         ]
-        return {
-            "backend": self._backend_name,
-            "lattice_source": self._lattice_source,
-            "variables": variables,
-        }
+        return {"variables": variables}
 
     def get(self, names: Iterable[str]) -> dict[str, Any]:
         """What the model holds for ``names``, on either side of the partition.
@@ -321,13 +314,15 @@ class ModelSurface:
         return {name: {"served": get_param(name), "truth": truth[name]} for name in served}
 
     def status(self) -> dict[str, Any]:
-        """The server around the model, as the runner last recorded it; no value is read."""
+        """The server around the model, as the runner last recorded it; no value is read.
+
+        Returns:
+            ``instance``, ``endpoint``, ``last_cycle_ms``, ``queue_depth``,
+            ``uptime_s`` and ``last_refused_write``.
+        """
         return {
-            "backend": self._backend_name,
-            "lattice_source": self._lattice_source,
             "instance": self._instance,
             "endpoint": self._endpoint,
-            "update_rate": self._update_rate,
             "last_cycle_ms": self._last_cycle_ms,
             "queue_depth": self._queue_depth,
             "uptime_s": self._clock() - self._started,
