@@ -315,6 +315,9 @@ classes:
         multivalued: true
         list_elements_ordered: true
         description: The dimensions of a waveform channel.
+      precision:
+        range: integer
+        description: The decimals a display shows; only on a float channel.
       simulation:
         range: Seed
         inlined: true

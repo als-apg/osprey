@@ -705,6 +705,8 @@ class TestValueRules:
             ({"value_type": "waveform"}, "needs `shape`"),
             ({"value_type": "waveform", "shape": [0]}, "needs `shape`"),
             ({"value_type": "int", "shape": [2]}, "a int channel carries `shape`"),
+            ({"value_type": "int", "precision": 2}, "a int channel carries `precision`"),
+            ({"precision": -1}, "`precision` is not an int >= 0"),
         ],
         ids=[
             "enum-no-options",
@@ -717,6 +719,8 @@ class TestValueRules:
             "waveform-no-shape",
             "waveform-zero-dim",
             "shape-on-int",
+            "precision-on-int",
+            "precision-negative",
         ],
     )
     def test_options_and_shape_presence(

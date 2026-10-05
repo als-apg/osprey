@@ -600,6 +600,16 @@ def test_a_channel_omitting_role_and_value_type_takes_their_defaults(
     assert (channel["role"], channel["value_type"], channel["pair"]) == ("readback", "float", None)
 
 
+def test_a_float_channel_stating_precision_carries_it(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    variables = _render_channels(
+        tmp_path, built_control_assistant, {UNLISTED_SETPOINT: {"precision": 3}}, ()
+    )
+
+    assert _channel(variables, UNLISTED_SETPOINT)["precision"] == 3
+
+
 def test_a_setpoint_stating_a_null_pair_pairs_with_itself(
     tmp_path: Path, built_control_assistant: BuiltProject
 ) -> None:
