@@ -90,7 +90,7 @@ write-safety chain), three rules, and one output style:
      # whose write tools it guarded. Only a read-only deployment may drop them.
      - writes-check   # Kill switch: refuse every write while writes_enabled is false
      - approval       # Gate hardware-write tool calls on human approval prompt
-     - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
+     - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
 
 And all remaining configuration lives in the ``config:`` block, one dotted key
 per line:
@@ -321,7 +321,8 @@ shipped file looks like this (comments abridged):
      "SR:MAG:QF:01:CURRENT:SP": {"min_value": 0.0, "max_value": 300.0, "writable": true, "confirm": true}
    }
 
-That file is generated output: edit ``limits.yaml`` and rebuild. A setpoint
+That file is generated output: edit ``limits.yaml`` and rebuild. A profile
+that ships its own ``channel_limits.json`` stops the build. A setpoint
 record with both bounds is writable within them, so ``writable: true`` may be
 left out. ``confirm: true``, the value a record gets when it does not state
 one, means every write is checked: the connector reads the channel back once

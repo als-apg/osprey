@@ -390,7 +390,7 @@ apply`` refuses is the :doc:`/reference/contracts/simulation-bundle`.
 Write limits
 ============
 
-Channels listed in the project's ``channel_limits.json`` carry a min/max range,
+Channels with a record in ``data/facility/limits.yaml`` carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
 in-range write goes through. The mandatory write-approval flow applies
 unchanged — the Virtual Accelerator connector inherits the same write-safety
@@ -466,8 +466,8 @@ the live block by name, so no later per-type ``true`` can lift it.
    for every target, and a per-type block does not take a path.
 
    With the pair above, a write to the simulator is still checked against the
-   ranges ``channel_limits.json`` gives for the channels it lists; what changes
-   is that a channel the file does *not* list is allowed through on the
+   ranges the records in ``data/facility/limits.yaml`` give; what changes
+   is that a channel with *no* record is allowed through on the
    simulator and refused on the live machine and the stand-in. That strict
    posture is what a switch to either real-machine target requires, and
    rehearsing it is what the stand-in is for. See `Rehearsing against a live

@@ -344,19 +344,14 @@ overwriting your answers: it names the file and tells you to pass
 ``--force-va``, which replaces the block.
 
 **Emit writes the model.** The same ``mml emit`` run that writes the channel
-database also writes five files for the virtual accelerator: the deck it runs
+database also writes four files for the virtual accelerator: the deck it runs
 (``data/simulation/lattice.json``), which channel drives which element and how
 (``data/simulation/va_bindings.json``), the machine it stands for
-(``data/simulation/machine.json``), the channels carrying its state
-(``data/machine_state_channels.json``), and the write band of every coupled
-setpoint, in the deployment's shared ``data/channel_limits.json``. Emit stamps
-each band it writes there, leaves every other entry byte-for-byte, and refuses
-an address that file already bands differently without that stamp. That
-collision can only be known once all five documents have been prepared, so when
-it happens the five virtual-accelerator files are withheld while the channel
-database, ontology and knowledge pages of the same run are already on the tree
---- the corpus, which emit writes last, is not; fix or remove the entries it
-named and run emit again.
+(``data/simulation/machine.json``), and the channels carrying its state
+(``data/machine_state_channels.json``). Write bands are not among them:
+``osprey facility import mml`` seeds the export's bands into
+``data/facility/limits.yaml``, which the build renders into the limits
+database.
 
 For a beam position monitor the bindings also carry the calibration your
 control system states for that reading --- its gain, offset, roll and crunch,

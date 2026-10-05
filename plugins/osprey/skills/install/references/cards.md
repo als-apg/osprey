@@ -43,7 +43,7 @@ Header line, then one box per group in this order, then the question.
  │ artifacts framework-managed ×<n> · claimed ×<n|? (never built here)> │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ CONTROL ── <type> · writes <ON|OFF> · archiver <type> ───────────────┐
- │ limits     <n> channels in data/channel_limits.json                  │
+ │ limits     <n> records in data/facility/limits.yaml                  │
  │ archiver   <endpoint or ?>                                           │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ AGENT ── <provider> / <model> · <n> hooks · <n> agents · <n> skills ─┐

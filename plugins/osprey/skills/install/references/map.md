@@ -257,11 +257,12 @@ reference example's own copy — never pull it.
   `example_server` entry under `mcp_servers:` in `profile.yml` and the
   `mcp_servers/example_server/` directory together. One without the other costs every
   session a 20 second wait for a server that cannot start.
-- **`data/channel_limits.json`**, written already populated with demo storage-ring
-  channels and hand-written `min_value` / `max_value` bounds. The limits hook checks
-  every write against them. `keep` is honest only once the facility's own channels are
-  the ones in the file, which they never are on a fresh build; otherwise empty it to
-  `_version` plus `defaults`, or replace it with the facility's own file. The states are
+- **`data/facility/limits.yaml`**, written already populated with demo channels and
+  their `min_value` / `max_value` bounds. The build renders it into the limits
+  database, and the limits hook checks every write against that. `keep` is honest only
+  once the facility's own channels are the ones in the file, which they never are on a
+  fresh build; otherwise empty it to `records: []`, or replace its records with the
+  facility's own. A profile's own `channel_limits.json` stops the build. The states are
   `references/knowledge-starter.md` §5.
 
 ## Hand-off to the devil's advocate
