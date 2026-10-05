@@ -1134,7 +1134,12 @@ into it. See :doc:`/how-to/import-mml-export` for the import end to end.
    Nothing is written into the repo. A clean tree exits 0, and each model with
    a kept ``imported/mml/<model>.response.json`` prints one
    ``response check <model>: …`` line on stderr, pass or fail; a failing check
-   exits 1 before the render. Otherwise every error of the first failing stage
+   exits 1 before the render. When the check left rows out of the comparison,
+   a second line for that model follows on stderr, giving the number of rows
+   left out and the count per reason (unwired, no width, unsolved, table
+   calibration); it does not change the verdict or the exit code:
+   ``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``.
+   Otherwise every error of the first failing stage
    prints on stderr, one line each and sorted, and the command exits 1. A stale
    fix's line carries the block to paste in its place. ``--repo`` names the
    deployment repo; without it, the nearest ``profile.yml`` at or above the

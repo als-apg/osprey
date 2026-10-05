@@ -9,7 +9,10 @@ temporary directory with the build's ``--skip-deps`` semantics and discarded, so
 every view :func:`osprey.facility.render.render_facility_outputs` writes is
 checked against a real render without a file of it reaching the repo. On a clean
 tree the response check runs before the render and prints one line per kept
-response export. Persona and image renders are checked by ``osprey build``
+response export. When the check left rows out of the comparison, a second line
+for that model follows on stderr, giving the number of rows left out and the
+count per reason (unwired, no width, unsolved, table calibration); it does not
+change the verdict or the exit code. Persona and image renders are checked by ``osprey build``
 alone.
 
 ``osprey facility import mml EXPORT...`` writes MML exports as the mml layer's
@@ -59,7 +62,11 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     Exits 0 when the tree builds, every kept response export passes its check
     and every view renders; otherwise prints each error line to stderr and
     exits 1. Each model with a kept response export prints one
-    ``response check <model>:`` line to stderr, pass or fail.
+    ``response check <model>:`` line to stderr, pass or fail. When the check
+    left rows out of the comparison, a second line for that model follows on
+    stderr, giving the number of rows left out and the count per reason
+    (unwired, no width, unsolved, table calibration); it does not change the
+    verdict or the exit code.
     """
     import tempfile
 
