@@ -1139,6 +1139,56 @@ def _hardware_grid(
     return low[:, None] + (high - low)[:, None] * steps[None, :], source, anchor
 
 
+def _step_anchors(
+    ao: dict[str, Any], family: str, nominal: np.ndarray | None, devices: int
+) -> np.ndarray:
+    """The nominal and the nominal plus DeltaRespMat of each device, NaN where not finite.
+
+    The model read is the generator's model setpoint, so the seam's nominal is
+    the one the exporter's step reads.
+    """
+    anchors = np.full((devices, 2), np.nan)
+    body = ao[family].get("Setpoint", {}) if isinstance(ao[family], dict) else {}
+    width = body.get("DeltaRespMat")
+    if width is None or nominal is None:
+        return anchors
+    width = np.asarray(width, dtype=float).flatten()
+    if width.size == 1:
+        width = np.repeat(width, devices)
+    nominal = np.asarray(nominal, dtype=float).flatten()
+    if nominal.size != devices or width.size != devices:
+        return anchors
+    anchors = np.column_stack([nominal, nominal + width])
+    anchors[~np.all(np.isfinite(anchors), axis=1)] = np.nan
+    return anchors
+
+
+def _anchored_grid(grid: np.ndarray, anchors: np.ndarray) -> np.ndarray:
+    """A hardware grid with each device's anchors among its points.
+
+    An anchor that is no number, sits on a point already there, or lies
+    outside the row's own span takes the midpoint of the row's widest gap, so
+    every row keeps one count of strictly increasing points. A family with no
+    anchor at all keeps its grid as it is.
+    """
+    if not np.isfinite(anchors).any():
+        return grid
+    rows = []
+    for row, points in zip(grid, anchors, strict=True):
+        for point in points:
+            if (
+                not math.isfinite(point)
+                or point <= row[0]
+                or point >= row[-1]
+                or bool(np.any(row == point))
+            ):
+                gap = int(np.argmax(np.diff(row)))
+                point = (row[gap] + row[gap + 1]) / 2.0
+            row = np.sort(np.append(row, point))
+        rows.append(row)
+    return np.array(rows)
+
+
 def _family_range(ao: dict[str, Any], family: str, field: str, devices: int) -> np.ndarray | None:
     """A field's Range as one row per device, or nothing when it is no band at all."""
     body = ao[family].get(field, {}) if isinstance(ao[family], dict) else {}
@@ -1233,6 +1283,8 @@ def _sample_calibration(
     grid, source, anchor = _hardware_grid(
         _family_range(ao, family, field, devices), nominal, devices
     )
+    if field == "Setpoint":
+        grid = _anchored_grid(grid, _step_anchors(ao, family, nominal, devices))
     values = _sample(family, "hw2physics", grid, energy)
     _require_finite(family, field, CONVERSIONS[family]["fcn"], grid, values)
 

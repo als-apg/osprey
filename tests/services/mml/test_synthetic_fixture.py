@@ -106,3 +106,25 @@ def test_the_generator_s_inverse_undoes_its_curve() -> None:
         arcsinh(targets), np.array([math.asinh(v) for v in targets]), maxulp=4
     )
     np.testing.assert_array_max_ulp(arcsinh(sinh(CURVE_SPAN)), CURVE_SPAN, maxulp=2)
+
+
+def test_the_generator_anchors_a_stepped_setpoint_grid_the_way_the_exporter_does() -> None:
+    """Each anchor lands as a point; one that cannot takes the row's widest gap."""
+    anchored_grid = _generator()["_anchored_grid"]
+    grid = np.array([[0.0, 1.0, 2.0, 4.0], [0.0, 1.0, 2.0, 3.0], [0.0, 1.0, 2.0, 3.0]])
+    anchors = np.array([[0.5, 2.5], [1.0, 9.0], [np.nan, np.nan]])
+
+    rows = anchored_grid(grid, anchors)
+
+    np.testing.assert_array_equal(rows[0], [0.0, 0.5, 1.0, 2.0, 2.5, 4.0])
+    np.testing.assert_array_equal(rows[1], [0.0, 0.5, 1.0, 1.5, 2.0, 3.0])
+    np.testing.assert_array_equal(rows[2], [0.0, 0.5, 1.0, 1.5, 2.0, 3.0])
+    assert np.all(np.diff(rows, axis=1) > 0)
+
+
+def test_the_generator_keeps_a_grid_with_no_step_uniform() -> None:
+    """A family the Middle Layer states no DeltaRespMat for keeps every point it had."""
+    anchored_grid = _generator()["_anchored_grid"]
+    grid = np.linspace(-1.0, 1.0, 33)[None, :]
+
+    np.testing.assert_array_equal(anchored_grid(grid, np.full((1, 2), np.nan)), grid)
