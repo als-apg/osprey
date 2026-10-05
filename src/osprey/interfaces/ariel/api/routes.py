@@ -5,6 +5,7 @@ REST endpoints for search, entry management, status, and settings.
 
 from __future__ import annotations
 
+import copy
 import json as _json
 import os
 import re
@@ -40,6 +41,7 @@ from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
+    from osprey.services.ariel_search.entry_fields import ResolvedEntryWrite
     from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 
 router = APIRouter(prefix="/api")
@@ -490,8 +492,17 @@ async def get_capabilities(request: Request) -> dict:
     return payload
 
 
-@router.get("/publish-info")
-async def get_publish_info(request: Request) -> dict:
+def entry_field_options_path(name: str) -> str:
+    """Return the options route of entry field ``name``, relative to the ARIEL API base.
+
+    The path carries no ``/api`` prefix: the browser resolves it through the
+    API client, which adds the base the panel proxy rewrites.
+    """
+    return f"/entry-fields/{name}/options"
+
+
+@router.get("/publish-info", response_model=None)
+async def get_publish_info(request: Request) -> dict | JSONResponse:
     """Describe the configured logbook's write capability for the create form.
 
     Lets the UI adapt its credential prompt to the actual adapter instead of
@@ -500,9 +511,19 @@ async def get_publish_info(request: Request) -> dict:
     adapter saves to ARIEL only. ``requires_auth`` is reported as
     ``supports_write and requires_write_auth`` — a read-only adapter cannot
     publish, so credentials are irrelevant there.
+
+    ``entry_fields`` lists the adapter's checked entry-field declarations in
+    form order; each ``dynamic_select`` carries an ``options_endpoint``
+    relative to the ARIEL API base. It is ``[]`` when no adapter is configured
+    or the adapter declares none. A broken declaration returns the 500
+    ``entry_fields_misdeclared`` envelope.
     """
     service = _require_service(request)
 
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        entry_field_descriptors,
+    )
     from osprey.services.ariel_search.exceptions import AdapterNotFoundError
     from osprey.services.ariel_search.ingestion import get_adapter
 
@@ -510,13 +531,102 @@ async def get_publish_info(request: Request) -> dict:
         adapter = get_adapter(service.config)
     except AdapterNotFoundError:
         # No ingestion adapter configured — entries can only be saved locally.
-        return {"supports_write": False, "requires_auth": False, "source_system": None}
+        return {
+            "supports_write": False,
+            "requires_auth": False,
+            "source_system": None,
+            "entry_fields": [],
+        }
+
+    try:
+        descriptors = entry_field_descriptors(service.config)
+    except EntryFieldDeclarationError as exc:
+        return _entry_field_error_response(exc)
+
+    entry_fields = []
+    for descriptor in descriptors:
+        field = descriptor.to_dict()
+        if descriptor.param_type == "dynamic_select":
+            field["options_endpoint"] = entry_field_options_path(descriptor.name)
+        entry_fields.append(field)
 
     return {
         "supports_write": adapter.supports_write,
         "requires_auth": adapter.supports_write and adapter.requires_write_auth,
         "source_system": adapter.source_system_name,
+        "entry_fields": entry_fields,
     }
+
+
+@router.get("/entry-fields/{name}/options", response_model=None)
+async def get_entry_field_options(request: Request, name: str) -> dict | JSONResponse:
+    """List the choices of one ``dynamic_select`` entry field.
+
+    Only the field's ``depends_on`` keys are read from the query string, each
+    coerced against its own declaration; every other key is ignored, and a
+    parent left out or blank is not passed to the adapter. The adapter is asked
+    under the server's options timeout.
+
+    Args:
+        request: The incoming request; its query string carries the parents' values.
+        name: The entry field whose choices are listed.
+
+    Returns:
+        ``{"field": name, "options": [{"value", "label"}, ...]}``, or an error
+        envelope: 422 ``invalid_entry_field`` naming a bad parent, 502
+        ``entry_field_options_unavailable`` when the adapter fails or times
+        out, 500 ``entry_fields_misdeclared`` for a broken declaration.
+
+    Raises:
+        HTTPException: 404 unless ``name`` is a declared ``dynamic_select``;
+            503 when the service is unavailable.
+    """
+    service = _require_service(request)
+
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        EntryFieldError,
+        EntryFieldOptionsUnavailable,
+        coerce_entry_value,
+        entry_field_descriptors,
+        fetch_entry_field_options,
+    )
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+    from osprey.services.ariel_search.ingestion import get_adapter
+
+    not_found = HTTPException(
+        status_code=404, detail=f"No dynamic_select entry field named '{name}'."
+    )
+    try:
+        adapter = get_adapter(service.config)
+    except AdapterNotFoundError:
+        raise not_found from None
+
+    try:
+        descriptors = entry_field_descriptors(service.config)
+    except EntryFieldDeclarationError as exc:
+        return _entry_field_error_response(exc)
+
+    by_name = {descriptor.name: descriptor for descriptor in descriptors}
+    field = by_name.get(name)
+    if field is None or field.param_type != "dynamic_select":
+        raise not_found
+
+    values: dict[str, Any] = {}
+    try:
+        for parent in field.depends_on:
+            value = coerce_entry_value(by_name[parent], request.query_params.get(parent))
+            if value is not None:
+                values[parent] = value
+    except EntryFieldError as exc:
+        return _entry_field_error_response(exc)
+
+    try:
+        options = await fetch_entry_field_options(adapter, name, values)
+    except EntryFieldOptionsUnavailable as exc:
+        return _entry_field_error_response(exc)
+
+    return {"field": name, "options": options}
 
 
 @router.get("/filter-options/{field_name}")
@@ -771,11 +881,130 @@ def _auth_required_response(exc: Exception) -> JSONResponse:
     )
 
 
+def _entry_field_error_response(exc: Exception) -> JSONResponse:
+    """Map an entry-field failure to its JSON error envelope.
+
+    * ``EntryFieldError`` -> 422 ``{detail, code: "invalid_entry_field", field}``:
+      the operator submitted a bad value and can correct it.
+    * ``EntryFieldOptionsUnavailable`` -> 502
+      ``{detail, code: "entry_field_options_unavailable", field}``: the facility
+      adapter could not list a field's choices. The detail is the generic
+      message, never the adapter's own error text.
+    * ``EntryFieldDeclarationError`` -> 500 ``{detail, code: "entry_fields_misdeclared"}``:
+      the adapter declared its fields wrongly; only a deployment fix helps.
+
+    Args:
+        exc: One of the three entry-field exceptions.
+
+    Returns:
+        The JSON response carrying the envelope.
+
+    Raises:
+        TypeError: If ``exc`` is not an entry-field exception.
+    """
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        EntryFieldError,
+        EntryFieldOptionsUnavailable,
+    )
+
+    if isinstance(exc, EntryFieldError):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": exc.message, "code": "invalid_entry_field", "field": exc.field},
+        )
+    if isinstance(exc, EntryFieldOptionsUnavailable):
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": exc.message,
+                "code": "entry_field_options_unavailable",
+                "field": exc.field,
+            },
+        )
+    if isinstance(exc, EntryFieldDeclarationError):
+        return JSONResponse(
+            status_code=500,
+            content={"detail": exc.message, "code": "entry_fields_misdeclared"},
+        )
+    raise TypeError(f"not an entry-field error: {type(exc).__name__}")
+
+
+async def _resolve_create_fields(
+    service: ARIELSearchService,
+    client_metadata: dict[str, Any],
+    *,
+    logbook: str | None,
+    shift: str | None,
+    tags: list[str],
+) -> ResolvedEntryWrite | JSONResponse:
+    """Validate a create request's declared values and resolve what the write uses.
+
+    The declared values are read from the client's ``metadata`` and checked in
+    full, with each ``dynamic_select`` checked against the adapter's live
+    choices; keys that are not declared fields are ignored. A draft's
+    ``session_metadata`` is kept as provenance for ARIEL's local copy only.
+
+    Args:
+        service: The ARIEL search service.
+        client_metadata: The ``metadata`` the client submitted.
+        logbook: The built-in logbook input.
+        shift: The built-in shift input.
+        tags: The entry's tags.
+
+    Returns:
+        The resolved write: request ``logbook``/``shift``, adapter metadata and
+        local-copy metadata; or the entry-field error envelope (see
+        :func:`_entry_field_error_response`) when a submitted value is invalid
+        or missing, a live check cannot list the choices, or the adapter
+        declares its fields wrongly.
+
+    Raises:
+        HTTPException: 500 on any other failure.
+    """
+    from osprey.services.ariel_search.entry_fields import (
+        EntryFieldDeclarationError,
+        EntryFieldError,
+        EntryFieldOptionsUnavailable,
+        entry_field_descriptors,
+        resolve_entry_write,
+        validate_entry_fields,
+    )
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+    from osprey.services.ariel_search.ingestion import get_adapter
+
+    try:
+        descriptors = entry_field_descriptors(service.config)
+        adapter = None
+        if descriptors:
+            try:
+                adapter = get_adapter(service.config)
+            except AdapterNotFoundError:
+                adapter = None
+        declared = await validate_entry_fields(
+            adapter, descriptors, client_metadata, partial=False, check_live=True, strict=False
+        )
+        session_metadata = client_metadata.get("session_metadata")
+        return resolve_entry_write(
+            descriptors,
+            declared,
+            logbook=logbook,
+            shift=shift,
+            tags=tags,
+            created_via="ariel-web",
+            session_metadata=session_metadata if isinstance(session_metadata, dict) else None,
+        )
+    except (EntryFieldError, EntryFieldOptionsUnavailable, EntryFieldDeclarationError) as exc:
+        return _entry_field_error_response(exc)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 async def _publish_or_local(
     service: ARIELSearchService,
     facility_request: Any,
     *,
-    fallback_metadata: dict[str, Any],
+    local_metadata: dict[str, Any],
 ) -> tuple[str, str, str, str]:
     """Publish an entry via the facility adapter, or save local-only if read-only.
 
@@ -786,14 +1015,21 @@ async def _publish_or_local(
     ``IngestionError`` (the publish attempt failed) propagate to the caller so
     nothing is silently saved.
 
+    Both the service's optimistic copy and the local-only insert store
+    ``local_metadata``; the insert sets ``sync_status`` last, so no submitted
+    value overrides it.
+
     Args:
         service: The ARIEL search service.
-        facility_request: A ``FacilityEntryCreateRequest`` for the text entry.
-        fallback_metadata: Fields for the local-only insert (``author``,
-            ``raw_text``, ``metadata``) used when the adapter is read-only.
+        facility_request: A ``FacilityEntryCreateRequest`` for the text entry;
+            its ``author``, ``subject`` and ``details`` also build the local copy.
+        local_metadata: Metadata of ARIEL's own copy, as resolved by
+            ``resolve_entry_write``. Copied, never mutated.
     """
+    from osprey.services.ariel_search.models import SyncStatus
+
     try:
-        result = await service.create_entry(facility_request)
+        result = await service.create_entry(facility_request, local_metadata=local_metadata)
         return (
             result.entry_id,
             result.source_system,
@@ -805,15 +1041,17 @@ async def _publish_or_local(
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
+        metadata = copy.deepcopy(local_metadata)
+        metadata["sync_status"] = SyncStatus.LOCAL_ONLY.value
 
         entry: EnhancedLogbookEntry = {
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
             "timestamp": now,
-            "author": fallback_metadata.get("author") or "Anonymous",
-            "raw_text": fallback_metadata["raw_text"],
+            "author": facility_request.author or "Anonymous",
+            "raw_text": f"{facility_request.subject}\n\n{facility_request.details}",
             "attachments": [],
-            "metadata": fallback_metadata["metadata"],
+            "metadata": metadata,
             "created_at": now,
             "updated_at": now,
         }
@@ -823,7 +1061,7 @@ async def _publish_or_local(
         return (
             entry_id,
             "ARIEL Web",
-            "local_only",
+            SyncStatus.LOCAL_ONLY.value,
             f"Entry {entry_id} created (saved locally, not published to external logbook)",
         )
 
@@ -848,32 +1086,31 @@ async def create_entry(
     )
     from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
+    resolved = await _resolve_create_fields(
+        service,
+        entry_req.metadata or {},
+        logbook=entry_req.logbook,
+        shift=entry_req.shift,
+        tags=entry_req.tags,
+    )
+    if isinstance(resolved, JSONResponse):
+        return resolved
+
     facility_request = FacilityEntryCreateRequest(
         subject=entry_req.subject,
         details=entry_req.details,
         author=entry_req.author,
-        logbook=entry_req.logbook,
-        shift=entry_req.shift,
+        logbook=resolved.logbook,
+        shift=resolved.shift,
         tags=entry_req.tags,
         auth_user=entry_req.auth_user,
         auth_password=entry_req.auth_password,
+        metadata=resolved.adapter_metadata,
     )
 
     try:
         entry_id, source_system, sync_status, message = await _publish_or_local(
-            service,
-            facility_request,
-            fallback_metadata={
-                "author": entry_req.author,
-                "raw_text": f"{entry_req.subject}\n\n{entry_req.details}",
-                "metadata": {
-                    "logbook": entry_req.logbook,
-                    "shift": entry_req.shift,
-                    "tags": entry_req.tags,
-                    "created_via": "ariel-web",
-                    **(entry_req.metadata or {}),
-                },
-            },
+            service, facility_request, local_metadata=resolved.local_metadata
         )
     except AuthenticationRequiredError as e:
         return _auth_required_response(e)
@@ -1045,34 +1282,28 @@ async def create_entry_with_attachments(
         mime_type = declared
         staged.append((upload_file.filename, mime_type, data))
 
+    resolved = await _resolve_create_fields(
+        service, parsed_metadata, logbook=logbook, shift=shift, tags=tag_list
+    )
+    if isinstance(resolved, JSONResponse):
+        return resolved
+
     facility_request = FacilityEntryCreateRequest(
         subject=subject,
         details=details,
         author=author,
-        logbook=logbook,
-        shift=shift,
+        logbook=resolved.logbook,
+        shift=resolved.shift,
         tags=tag_list,
         auth_user=auth_user,
         auth_password=auth_password,
-        metadata=parsed_metadata,
+        metadata=resolved.adapter_metadata,
     )
 
     # Publish the text body (or save local-only for a read-only adapter).
     try:
         entry_id, source_system, sync_status, message = await _publish_or_local(
-            service,
-            facility_request,
-            fallback_metadata={
-                "author": author,
-                "raw_text": f"{subject}\n\n{details}",
-                "metadata": {
-                    "logbook": logbook,
-                    "shift": shift,
-                    "tags": tag_list,
-                    "created_via": "ariel-web",
-                    **parsed_metadata,
-                },
-            },
+            service, facility_request, local_metadata=resolved.local_metadata
         )
     except AuthenticationRequiredError as e:
         return _auth_required_response(e)

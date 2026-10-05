@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -17,6 +17,16 @@ from osprey.services.ariel_search.database.repository import SchemaFacts
 #: The 8-byte PNG signature followed by an IHDR chunk header.
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + b"\x00" * 24
 PDF = b"%PDF-1.4\n%draft pdf body\n%%EOF\n"
+
+
+@pytest.fixture(autouse=True)
+def _no_entry_fields():
+    """The route double declares no entry fields, so no registry lookup is made."""
+    with patch(
+        "osprey.services.ariel_search.entry_fields.entry_field_descriptors",
+        return_value=[],
+    ):
+        yield
 
 
 @pytest.fixture
@@ -124,6 +134,53 @@ def test_draft_response_without_attachment_paths(draft_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["attachment_paths"] is None
+
+
+def test_draft_response_includes_fields(draft_client):
+    """GET /drafts/{id} returns the draft's declared entry-field values."""
+    client, _ = draft_client
+
+    write_draft(
+        "draft-fields1",
+        {
+            "draft_id": "draft-fields1",
+            "subject": "Test",
+            "details": "Details",
+            "fields": {"book": "physics", "beam_current": 401.5, "beam_on": False},
+            "metadata": {"session_metadata": {"id": "s-1"}},
+        },
+    )
+
+    resp = client.get("/api/drafts/draft-fields1")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fields"] == {"book": "physics", "beam_current": 401.5, "beam_on": False}
+    assert data["metadata"] == {"session_metadata": {"id": "s-1"}}
+
+
+def test_draft_response_without_fields(draft_client):
+    """A draft without declared values returns null for fields."""
+    client, _ = draft_client
+
+    write_draft("draft-fields2", {"draft_id": "draft-fields2", "subject": "T", "details": "D"})
+
+    resp = client.get("/api/drafts/draft-fields2")
+    assert resp.status_code == 200
+    assert resp.json()["fields"] is None
+
+
+def test_create_draft_does_not_store_fields(draft_client):
+    """POST /drafts ignores a fields key; only the agent's draft writer sets it."""
+    client, _ = draft_client
+
+    resp = client.post(
+        "/api/drafts",
+        json={"subject": "T", "details": "D", "fields": {"book": "physics"}},
+    )
+    assert resp.status_code == 200
+    draft_id = resp.json()["draft_id"]
+    assert "fields" not in drafts_mod.read_draft(draft_id)
+    assert client.get(f"/api/drafts/{draft_id}").json()["fields"] is None
 
 
 def test_get_draft_attachment_file_missing_on_disk(draft_client):
