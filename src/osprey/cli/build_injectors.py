@@ -1505,7 +1505,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
        ``control_system.connector.live_standin``, is derived earlier on the
        override path (:mod:`osprey.cli.build_profile_standin`); the facility's
        ``epics`` block is the ``live`` target and is never written here.
-    4. Print a post-build hint (data/simulation prerequisite + image note).
+    4. Print a post-build hint (simulator view prerequisite + image note).
 
     Thin mirror of :func:`_inject_bluesky`: one config block per container — no
     source-tree staging, no registry logic. Where the bluesky injector's second
@@ -1621,8 +1621,8 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
             "to a channel your machine model serves to make the target switchable."
         )
     logger.debug(
-        "    Data:       requires <project>/data/simulation/machine.json "
-        "(the simulation preset provisions this; without it the IOC SystemExits)."
+        "    Data:       requires <project>/data/simulator/addresses.json "
+        "(the build writes it from data/facility/; without it the IOC exits)."
     )
     logger.debug(
         "    Images:     `osprey up` builds the virtual-accelerator image "
