@@ -566,7 +566,7 @@ def _chromaticity_per_hardware(reference: dict[str, Any]) -> float:
     hardware, divides it by ``-RF0 * MCF`` (mml/measchro.m ~311-372): ``RF0``
     is ``getrf('Model', 'Hardware')``, recorded as ``rf0_hw``, and ``MCF`` is
     ``getmcf('Model')`` on the saved deck, recorded beside the dispersion. On a
-    ring with no cavity ``getrf`` answers the Middle Layer's own constant, not
+    lattice with no cavity ``getrf`` answers the Middle Layer's own constant, not
     the frequency the deck's circumference gives, so only the recorded value
     holds.
     """

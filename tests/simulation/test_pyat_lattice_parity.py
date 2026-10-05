@@ -44,7 +44,7 @@ TOLERANCE = 1e-9
 
 @pytest.fixture(scope="module")
 def oracle() -> dict[str, str]:
-    """Each address the bindings document binds -> the old model's variable for it.
+    """Each address the bindings document binds -> the kind-keyed model's variable for it.
 
     A setpoint or a monitor reading is its own variable; a readback is the
     setpoint its ``identity`` rule follows.
@@ -64,52 +64,52 @@ def models(built_control_assistant: Any) -> tuple[PyATRingModel, Any]:
     """The kind-keyed model over the packaged tree and the wiring-keyed one over SR."""
     facility = built_control_assistant.facility
     (model,) = [entry for entry in facility["models"] if entry["name"] == MODEL]
-    new = engine.build(
+    wired = engine.build(
         MODEL,
         simulator_wiring(facility, MODEL),
         built_control_assistant.facility_dir / model["deck"],
         model.get("settings"),
         {},
     )
-    old = PyATRingModel(packaged_served_root(), build_manifest()["channels"])
-    return old, new
+    kind_keyed = PyATRingModel(packaged_served_root(), build_manifest()["channels"])
+    return kind_keyed, wired
 
 
-def default_of(old: PyATRingModel, address: str) -> float:
-    return float(old.supported_variables[address].default_value)
+def default_of(kind_keyed: PyATRingModel, address: str) -> float:
+    return float(kind_keyed.supported_variables[address].default_value)
 
 
 OPERATING_POINTS = {
-    "default": lambda old: {},
-    "corrector": lambda old: {CORRECTOR: 3.25},
-    "quadrupole": lambda old: {QUADRUPOLE: default_of(old, QUADRUPOLE) * 1.01},
+    "default": lambda kind_keyed: {},
+    "corrector": lambda kind_keyed: {CORRECTOR: 3.25},
+    "quadrupole": lambda kind_keyed: {QUADRUPOLE: default_of(kind_keyed, QUADRUPOLE) * 1.01},
 }
 
 
 @pytest.fixture(params=sorted(OPERATING_POINTS))
 def operating_point(request, models) -> tuple[PyATRingModel, Any]:
     """Both models reset to their defaults, then given the same single write."""
-    old, new = models
-    old.reset()
-    new.reset()
-    write = OPERATING_POINTS[request.param](old)
+    kind_keyed, wired = models
+    kind_keyed.reset()
+    wired.reset()
+    write = OPERATING_POINTS[request.param](kind_keyed)
     if write:
-        old.set(write)
-        new.set(write)
-    return old, new
+        kind_keyed.set(write)
+        wired.set(write)
+    return kind_keyed, wired
 
 
 def test_the_bindings_document_binds_840_addresses(oracle, models):
-    old, _ = models
+    kind_keyed, _ = models
     assert len(oracle) == 840
-    assert set(oracle.values()) <= set(old.supported_variables)
+    assert set(oracle.values()) <= set(kind_keyed.supported_variables)
     assert TUNES in OPTICS_NAMES
 
 
 def test_every_bound_address_agrees_at_1e_9(oracle, operating_point):
-    old, new = operating_point
-    expected = old.get(sorted(set(oracle.values())))
-    served = new.get(list(oracle))
+    kind_keyed, wired = operating_point
+    expected = kind_keyed.get(sorted(set(oracle.values())))
+    served = wired.get(list(oracle))
     np.testing.assert_allclose(
         [served[address] for address in oracle],
         [expected[source] for source in oracle.values()],
@@ -119,23 +119,26 @@ def test_every_bound_address_agrees_at_1e_9(oracle, operating_point):
 
 
 def test_the_two_transverse_tunes_agree_at_1e_9(operating_point):
-    old, new = operating_point
-    expected = old.get([TUNES])[TUNES]
-    served = new.get([TUNES])[TUNES]
+    kind_keyed, wired = operating_point
+    expected = kind_keyed.get([TUNES])[TUNES]
+    served = wired.get([TUNES])[TUNES]
     assert expected.shape == (2,)
     assert served.shape == (3,)
     np.testing.assert_allclose(served[:2], expected, rtol=0, atol=TOLERANCE)
 
 
 def test_each_write_moves_the_orbit(models):
-    old, _ = models
+    kind_keyed, _ = models
     document = load_bindings(PACKAGE_PATHS.va_bindings)
     readings = [b.setpoint_address for b in document.bindings if b.kind == "monitor"]
-    old.reset()
-    nominal = old.get(readings)
-    for write in (OPERATING_POINTS["corrector"](old), OPERATING_POINTS["quadrupole"](old)):
-        old.reset()
-        old.set(write)
-        moved = old.get(readings)
+    kind_keyed.reset()
+    nominal = kind_keyed.get(readings)
+    for write in (
+        OPERATING_POINTS["corrector"](kind_keyed),
+        OPERATING_POINTS["quadrupole"](kind_keyed),
+    ):
+        kind_keyed.reset()
+        kind_keyed.set(write)
+        moved = kind_keyed.get(readings)
         assert max(abs(moved[name] - nominal[name]) for name in readings) > TOLERANCE
-    old.reset()
+    kind_keyed.reset()

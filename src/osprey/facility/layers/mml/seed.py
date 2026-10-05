@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.layers.mml.decks import FREQUENCY
+from osprey.facility.layers.mml.decks import FREQUENCY, KICK
 from osprey.facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
@@ -137,8 +137,8 @@ _SINGLE_PASS = "single_pass"
 
 #: Measurement group role -> the engine block of the family that fills it.
 _GROUP_ENGINES: tuple[tuple[str, tuple[str, int]], ...] = (
-    ("hcor", ("KickAngle", 0)),
-    ("vcor", ("KickAngle", 1)),
+    ("hcor", (KICK, 0)),
+    ("vcor", (KICK, 1)),
     ("quad", ("PolynomB", 1)),
     ("sext", ("PolynomB", 2)),
 )

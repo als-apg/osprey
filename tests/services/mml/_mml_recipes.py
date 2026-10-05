@@ -10,8 +10,8 @@ differently, which leaves answers a few parts in 1e-8 apart where a finite
 difference divides by a small step; a port repeats the Middle Layer's steps, so
 the only difference left is floating-point rounding.
 
-Positions are 0-based deck indices; ``len(ring)`` is the ring's end. Every
-function works on the ring it is handed and leaves it as it found it.
+Positions are 0-based deck indices; ``len(lattice)`` is the lattice's end. Every
+function works on the lattice it is handed and leaves it as it found it.
 """
 
 from __future__ import annotations
@@ -49,33 +49,33 @@ TUNECHROM_STEP = 1e-8
 LOCO_DISPERSION_STEP = 1e-5
 
 
-def track(ring: Sequence[Any], rin: np.ndarray, refpts: Sequence[int] | int | None = None):
+def track(lattice: Sequence[Any], rin: np.ndarray, refpts: Sequence[int] | int | None = None):
     """``linepass``: track the columns of ``rin`` once, reading them at ``refpts``.
 
     Returns:
-        ``(6, particles, len(refpts))``; ``refpts=None`` reads the ring's end.
+        ``(6, particles, len(refpts))``; ``refpts=None`` reads the lattice's end.
     """
-    where = [len(ring)] if refpts is None else list(np.atleast_1d(refpts))
+    where = [len(lattice)] if refpts is None else list(np.atleast_1d(refpts))
     start = np.asfortranarray(np.array(rin, dtype=float).reshape(6, -1))
-    out = at.lattice_pass(ring, start.copy(order="F"), refpts=where)
+    out = at.lattice_pass(lattice, start.copy(order="F"), refpts=where)
     return out[:, :, :, 0]
 
 
-def circumference(ring: Sequence[Any]) -> float:
+def circumference(lattice: Sequence[Any]) -> float:
     """``findspos(RING, length(RING)+1)``: the sum of the element lengths."""
-    return float(sum(float(getattr(element, "Length", 0.0)) for element in ring))
+    return float(sum(float(getattr(element, "Length", 0.0)) for element in lattice))
 
 
-def cavities(ring: Sequence[Any]) -> list[int]:
+def cavities(lattice: Sequence[Any]) -> list[int]:
     """``findcells(THERING, 'Frequency')``: every element carrying an RF frequency."""
-    return [index for index, element in enumerate(ring) if hasattr(element, "Frequency")]
+    return [index for index, element in enumerate(lattice) if hasattr(element, "Frequency")]
 
 
-def set_cavity(ring: Sequence[Any], state: str) -> None:
+def set_cavity(lattice: Sequence[Any], state: str) -> None:
     """``setcavity``: ``'On'`` passes every cavity through ``CavityPass``; ``'Off'``
     through ``IdentityPass`` (no length) or ``DriftPass``."""
-    for index in cavities(ring):
-        element = ring[index]
+    for index in cavities(lattice):
+        element = lattice[index]
         if state == "On":
             element.PassMethod = "CavityPass"
         elif state == "Off":
@@ -98,7 +98,7 @@ def _newton(start: np.ndarray, step: Callable[[np.ndarray], np.ndarray]) -> np.n
     return guess
 
 
-def findorbit4(ring: Sequence[Any], dp: float, refpts: Sequence[int] | None = None):
+def findorbit4(lattice: Sequence[Any], dp: float, refpts: Sequence[int] | None = None):
     """``findorbit4(RING, dP, REFPTS)``: the 4D closed orbit at fixed momentum.
 
     Returns:
@@ -108,7 +108,7 @@ def findorbit4(ring: Sequence[Any], dp: float, refpts: Sequence[int] | None = No
     def step(ri: np.ndarray) -> np.ndarray:
         rin = np.tile(ri[:, None], (1, 5))
         rin[:4, :4] += ORBIT_STEP * np.eye(4)
-        rout = track(ring, rin)[:, :, 0]
+        rout = track(lattice, rin)[:, :, 0]
         jac = (rout[:4, :4] - rout[:4, [4] * 4]) / ORBIT_STEP
         update = np.linalg.solve(np.eye(4) - jac, rout[:4, 4] - ri[:4])
         return ri + np.concatenate([update, [0.0, 0.0]])
@@ -118,10 +118,10 @@ def findorbit4(ring: Sequence[Any], dp: float, refpts: Sequence[int] | None = No
     fixed = _newton(start, step)
     if refpts is None:
         return fixed, None
-    return fixed, track(ring, fixed, refpts)[:, 0, :]
+    return fixed, track(lattice, fixed, refpts)[:, 0, :]
 
 
-def findsyncorbit(ring: Sequence[Any], dct: float, refpts: Sequence[int] | None = None):
+def findsyncorbit(lattice: Sequence[Any], dct: float, refpts: Sequence[int] | None = None):
     """``findsyncorbit(RING, dCT, REFPTS)``: the closed orbit whose path length
     changes by ``dct`` per turn, solved over ``(x, x', y, y', dp)``."""
     theta = np.array([0.0, 0.0, 0.0, 0.0, dct])
@@ -129,7 +129,7 @@ def findsyncorbit(ring: Sequence[Any], dct: float, refpts: Sequence[int] | None 
     def step(ri: np.ndarray) -> np.ndarray:
         rin = np.tile(ri[:, None], (1, 6))
         rin[:5, :5] += ORBIT_STEP * np.eye(5)
-        rout = track(ring, rin)[:, :, 0]
+        rout = track(lattice, rin)[:, :, 0]
         rows = [0, 1, 2, 3, 5]
         jac = (rout[np.ix_(rows, range(5))] - rout[rows][:, [5] * 5]) / ORBIT_STEP
         rhs = rout[rows, 5] - np.concatenate([ri[:4], [0.0]]) - theta
@@ -139,34 +139,34 @@ def findsyncorbit(ring: Sequence[Any], dct: float, refpts: Sequence[int] | None 
     fixed = _newton(np.zeros(6), step)
     if refpts is None:
         return fixed, None
-    return fixed, track(ring, fixed, refpts)[:, 0, :]
+    return fixed, track(lattice, fixed, refpts)[:, 0, :]
 
 
-def findorbit6(ring: Sequence[Any], refpts: Sequence[int] | None = None):
+def findorbit6(lattice: Sequence[Any], refpts: Sequence[int] | None = None):
     """``findorbit6(RING, REFPTS)``: the 6D closed orbit, the first cavity's
     frequency and harmonic number setting the revolution time."""
-    index = cavities(ring)
+    index = cavities(lattice)
     if not index:
         raise ValueError("findorbit6: The lattice does not have Cavity element")
-    cavity = ring[index[0]]
-    period = circumference(ring) / C_LIGHT
+    cavity = lattice[index[0]]
+    period = circumference(lattice) / C_LIGHT
     theta = np.zeros(6)
     theta[5] = C_LIGHT * (float(cavity.HarmNumber) / float(cavity.Frequency) - period)
 
     def step(ri: np.ndarray) -> np.ndarray:
         rin = np.tile(ri[:, None], (1, 7))
         rin[:, :6] += ORBIT_STEP * np.eye(6)
-        rout = track(ring, rin)[:, :, 0]
+        rout = track(lattice, rin)[:, :, 0]
         jac = (rout[:, :6] - rout[:, [6] * 6]) / ORBIT_STEP
         return ri + np.linalg.solve(np.eye(6) - jac, rout[:, 6] - ri - theta)
 
     fixed = _newton(np.zeros(6), step)
     if refpts is None:
         return fixed, None
-    return fixed, track(ring, fixed, refpts)[:, 0, :]
+    return fixed, track(lattice, fixed, refpts)[:, 0, :]
 
 
-def findm44(ring: Sequence[Any], dp: float, refpts: Sequence[int] | None = None):
+def findm44(lattice: Sequence[Any], dp: float, refpts: Sequence[int] | None = None):
     """``findm44(RING, dP, REFPTS)``: the one-turn 4x4 matrix by central
     differences of ``MATRIX_STEP`` about the 4D closed orbit.
 
@@ -174,30 +174,30 @@ def findm44(ring: Sequence[Any], dp: float, refpts: Sequence[int] | None = None)
         ``M44`` and, with ``refpts``, the ``(4, 4, n)`` matrices from the start
         to each point, and the closed orbit ``(6, n)`` there.
     """
-    fixed, _ = findorbit4(ring, dp)
+    fixed, _ = findorbit4(lattice, dp)
     fixed[4], fixed[5] = dp, 0.0
-    points = [len(ring)] if refpts is None else sorted(set(refpts) | {len(ring)})
+    points = [len(lattice)] if refpts is None else sorted(set(refpts) | {len(lattice)})
     rin = np.tile(fixed[:, None], (1, 9))
     rin[:4, :4] += 0.5 * MATRIX_STEP * np.eye(4)
     rin[:4, 4:8] -= 0.5 * MATRIX_STEP * np.eye(4)
-    rout = track(ring, rin, points)
+    rout = track(lattice, rin, points)
     stack = (rout[:4, 0:4, :] - rout[:4, 4:8, :]) / MATRIX_STEP
-    m44 = stack[:, :, points.index(len(ring))]
+    m44 = stack[:, :, points.index(len(lattice))]
     if refpts is None:
         return m44, None, None
     where = [points.index(position) for position in refpts]
     return m44, stack[:, :, where], rout[:, 8, where]
 
 
-def findm66(ring: Sequence[Any]) -> np.ndarray:
+def findm66(lattice: Sequence[Any]) -> np.ndarray:
     """``findm66(RING)``: the one-turn 6x6 matrix by central differences about
     the 6D closed orbit."""
-    fixed, _ = findorbit6(ring)
+    fixed, _ = findorbit6(lattice)
     rin = np.tile(fixed[:, None], (1, 13))
     delta = np.diag([0.5 * MATRIX_STEP] * 6)
     rin[:, 0:6] += delta
     rin[:, 6:12] -= delta
-    rout = track(ring, rin)[:, :, 0]
+    rout = track(lattice, rin)[:, :, 0]
     return (rout[:, 0:6] - rout[:, 6:12]) / MATRIX_STEP
 
 
@@ -228,23 +228,23 @@ def getnusympmat(matrix: np.ndarray) -> np.ndarray:
     return nu
 
 
-def tunechrom(ring: Sequence[Any], dp: float) -> np.ndarray:
+def tunechrom(lattice: Sequence[Any], dp: float) -> np.ndarray:
     """``tunechrom(RING, dP)``: ``acos`` of the half-traces of ``findm44``, in [0, 0.5]."""
-    m44, _, _ = findm44(ring, dp)
+    m44, _, _ = findm44(lattice, dp)
     cosines = np.array([(m44[0, 0] + m44[1, 1]) / 2.0, (m44[2, 2] + m44[3, 3]) / 2.0])
     return np.arccos(cosines) / (2.0 * math.pi)
 
 
-def tunechrom_chromaticity(ring: Sequence[Any], dp: float = 0.0) -> np.ndarray:
+def tunechrom_chromaticity(lattice: Sequence[Any], dp: float = 0.0) -> np.ndarray:
     """``[~, chrom] = tunechrom(RING, dP, 'chrom')``: a one-sided difference over
     ``TUNECHROM_STEP``."""
-    return (tunechrom(ring, dp + TUNECHROM_STEP) - tunechrom(ring, dp)) / TUNECHROM_STEP
+    return (tunechrom(lattice, dp + TUNECHROM_STEP) - tunechrom(lattice, dp)) / TUNECHROM_STEP
 
 
-def twissring_tune(ring: Sequence[Any]) -> np.ndarray:
+def twissring_tune(lattice: Sequence[Any]) -> np.ndarray:
     """``rem(tune, 1)`` of ``twissring(RING, 0, ...)``: the phase of ``findm44``'s
     one-turn matrix, its sine signed by ``M(1,2)``."""
-    m44, _, _ = findm44(ring, 0.0)
+    m44, _, _ = findm44(lattice, 0.0)
     tunes = []
     for j in (0, 2):
         cos_mu = (m44[j, j] + m44[j + 1, j + 1]) / 2.0
@@ -256,68 +256,68 @@ def twissring_tune(ring: Sequence[Any]) -> np.ndarray:
     return np.array(tunes)
 
 
-def mcf(ring: Sequence[Any], dp0: float = 0.0) -> float:
+def mcf(lattice: Sequence[Any], dp0: float = 0.0) -> float:
     """``mcf(RING)``: the path-length change of one turn from two fixed points
     ``MCF_STEP`` apart in momentum, per unit momentum and circumference."""
-    fp0, _ = findorbit4(ring, dp0)
-    fp, _ = findorbit4(ring, dp0 + MCF_STEP)
+    fp0, _ = findorbit4(lattice, dp0)
+    fp, _ = findorbit4(lattice, dp0 + MCF_STEP)
     x0dp = fp.copy()
     x0dp[4], x0dp[5] = MCF_STEP, 0.0
     x0 = np.concatenate([fp0[:4], [0.0, 0.0]])
-    out = track(ring, np.column_stack([x0, x0dp]))[:, :, 0]
-    return float((out[5, 1] - out[5, 0]) / (MCF_STEP * circumference(ring)))
+    out = track(lattice, np.column_stack([x0, x0dp]))[:, :, 0]
+    return float((out[5, 1] - out[5, 0]) / (MCF_STEP * circumference(lattice)))
 
 
-def modeltune(ring: Sequence[Any]) -> np.ndarray:
+def modeltune(lattice: Sequence[Any]) -> np.ndarray:
     """``modeltune``: ``getnusympmat(findm66)`` with the cavities switched on,
-    ``twissring``'s tunes on a ring with none."""
-    index = cavities(ring)
+    ``twissring``'s tunes on a lattice with none."""
+    index = cavities(lattice)
     if not index:
-        return twissring_tune(ring)
-    held = [ring[i].PassMethod for i in index]
+        return twissring_tune(lattice)
+    held = [lattice[i].PassMethod for i in index]
     try:
-        set_cavity(ring, "On")
-        return getnusympmat(findm66(ring))
+        set_cavity(lattice, "On")
+        return getnusympmat(findm66(lattice))
     finally:
         for i, method in zip(index, held, strict=True):
-            ring[i].PassMethod = method
+            lattice[i].PassMethod = method
 
 
 def modelchro(
-    ring: Sequence[Any], delta_rf_hz: float = 1.0, *, hardware_step: float | None = None
+    lattice: Sequence[Any], delta_rf_hz: float = 1.0, *, hardware_step: float | None = None
 ) -> np.ndarray:
     """``modelchro(DeltaRF, 'Physics')``.
 
     With a cavity: the cavities switched on, ``getnusympmat(findm66)`` at the
     first cavity's frequency and ``delta_rf_hz`` above it (one-sided), scaled by
-    ``-mcf * RF0`` with ``mcf`` taken on the ring as ``modelchro`` holds it --
+    ``-mcf * RF0`` with ``mcf`` taken on the lattice as ``modelchro`` holds it --
     cavities on -- at every call. ``modelchro(..., 'Hardware')`` answers the
     tune change per ``hardware_step``, the RF step in the RF family's hardware
     unit, with no momentum compaction. Without a cavity: ``tunechrom``'s 4D
     chromaticity, in physics units whatever was asked.
     """
-    index = cavities(ring)
+    index = cavities(lattice)
     if not index:
-        return tunechrom_chromaticity(ring)
-    held = [ring[i].PassMethod for i in index]
-    frequencies = [float(ring[i].Frequency) for i in index]
+        return tunechrom_chromaticity(lattice)
+    held = [lattice[i].PassMethod for i in index]
+    frequencies = [float(lattice[i].Frequency) for i in index]
     try:
-        set_cavity(ring, "On")
-        before = getnusympmat(findm66(ring))
+        set_cavity(lattice, "On")
+        before = getnusympmat(findm66(lattice))
         rf0 = frequencies[0]
         for i in index:
-            ring[i].Frequency = rf0 + delta_rf_hz
-        after = getnusympmat(findm66(ring))
+            lattice[i].Frequency = rf0 + delta_rf_hz
+        after = getnusympmat(findm66(lattice))
         for i in index:
-            ring[i].Frequency = rf0
+            lattice[i].Frequency = rf0
         if hardware_step is not None:
             return (after - before) / hardware_step
-        compaction = mcf(ring)
+        compaction = mcf(lattice)
         return (after - before) / delta_rf_hz * (-compaction * rf0)
     finally:
         for i, method, frequency in zip(index, held, frequencies, strict=True):
-            ring[i].PassMethod = method
-            ring[i].Frequency = frequency
+            lattice[i].PassMethod = method
+            lattice[i].Frequency = frequency
 
 
 def findelemm44(element: Any, orbit: np.ndarray) -> np.ndarray:
@@ -331,7 +331,7 @@ def findelemm44(element: Any, orbit: np.ndarray) -> np.ndarray:
 
 
 def loco_linear(
-    ring: Sequence[Any],
+    lattice: Sequence[Any],
     correctors: Sequence[tuple[int, int]],
     monitors: Sequence[int],
     compaction: float,
@@ -349,18 +349,18 @@ def loco_linear(
     Returns:
         ``(correctors, monitors, 2)``: the ``x`` and ``y`` response.
     """
-    end = len(ring)
+    end = len(lattice)
     everywhere = list(range(end + 1))
-    m44, stack, orbit = findm44(ring, 0.0, everywhere)
-    _, shifted = findorbit4(ring, LOCO_DISPERSION_STEP, everywhere)
+    m44, stack, orbit = findm44(lattice, 0.0, everywhere)
+    _, shifted = findorbit4(lattice, LOCO_DISPERSION_STEP, everywhere)
     eta = (shifted[:4] - orbit[:4]) / LOCO_DISPERSION_STEP
-    length = circumference(ring)
+    length = circumference(lattice)
     identity = np.eye(4)
     columns = []
     for position, plane in correctors:
         theta = np.zeros(4)
         theta[1 if plane == 0 else 3] = 1.0
-        own = findelemm44(ring[position], np.concatenate([orbit[:4, position], [0.0, 0.0]]))
+        own = findelemm44(lattice[position], np.concatenate([orbit[:4, position], [0.0, 0.0]]))
         before = stack[:, :, position]
         inverse = np.linalg.inv(before)
         turn = before @ m44 @ inverse
