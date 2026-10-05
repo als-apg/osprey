@@ -42,6 +42,7 @@ os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
 import litellm  # must follow the LITELLM_MODE setdefault above
 from pydantic import BaseModel, ValidationError
 
+from osprey.models.messages import parse_data_url
 from osprey.models.spend_attribution import (
     LITELLM_GATEWAY,
     TAGS_HEADER,
@@ -219,6 +220,8 @@ def execute_litellm_completion(
     chat_request = kwargs.pop("chat_request", None)
     tools = kwargs.pop("tools", None)
     tool_choice = kwargs.pop("tool_choice", None)
+    timeout = kwargs.pop("timeout", None)
+    num_retries = kwargs.pop("num_retries", None)
 
     # Get LiteLLM model name
     litellm_model = get_litellm_model_name(provider, model_id, base_url)
@@ -280,7 +283,12 @@ def execute_litellm_completion(
             # LiteLLM passes this through to the Google API
             completion_kwargs["thinking_config"] = {"thinking_budget": budget_tokens}
 
-    # Allow retries for transient errors (5xx, connection) with short backoff.
+    # A caller's own bound and retry count are sent only when given; otherwise
+    # transient errors (5xx, connection) are retried twice with short backoff.
+    if timeout is not None:
+        completion_kwargs["timeout"] = timeout
+    if num_retries is not None:
+        completion_kwargs["num_retries"] = num_retries
     completion_kwargs.setdefault("num_retries", 2)
 
     # Handle structured output
@@ -309,6 +317,7 @@ def execute_litellm_completion(
             messages=messages,
             base_url=completion_kwargs.get("api_base", "http://localhost:11434"),
             max_tokens=max_tokens,
+            timeout=timeout,
         )
 
     # Regular text completion
@@ -372,6 +381,12 @@ def _handle_structured_output(
     """
     # Ollama: Use direct API to bypass LiteLLM bug #15463 with thinking models
     if provider == "ollama":
+        if chat_request is not None:
+            # The direct structured call sends one user string; a chat request's
+            # system turn and image parts would be dropped without a word.
+            raise ValueError(
+                "ollama structured output takes a single message; chat_request is not supported"
+            )
         base_url = completion_kwargs.get("api_base", "http://localhost:11434")
         max_tokens = completion_kwargs.get("max_tokens", 1024)
         return _execute_ollama_structured_output(
@@ -381,6 +396,7 @@ def _handle_structured_output(
             base_url=base_url,
             max_tokens=max_tokens,
             is_typed_dict_output=is_typed_dict_output,
+            timeout=completion_kwargs.get("timeout"),
         )
 
     schema = output_format.model_json_schema()
@@ -412,9 +428,14 @@ def _handle_structured_output(
             for i in range(len(msgs) - 1, -1, -1):
                 if msgs[i]["role"] == "user":
                     content = msgs[i]["content"]
-                    # Handle content that's already a list (Anthropic cache blocks)
+                    # List content (cache blocks, image parts): the instruction joins
+                    # the last text part, or becomes one when there is none.
                     if isinstance(content, list):
-                        content[-1]["text"] += schema_instruction
+                        text_parts = [p for p in content if p.get("type") == "text"]
+                        if text_parts:
+                            text_parts[-1]["text"] += schema_instruction
+                        else:
+                            content.append({"type": "text", "text": schema_instruction})
                     else:
                         msgs[i]["content"] = content + schema_instruction
                     break
@@ -568,11 +589,57 @@ def _clean_json_response(text: str) -> str:
     return text
 
 
+#: Seconds a direct Ollama request may take when the caller gives no timeout.
+_OLLAMA_DEFAULT_TIMEOUT = 120.0
+
+
+def _ollama_chat_messages(messages: list[dict]) -> tuple[list[dict], bool]:
+    """Convert LiteLLM chat messages to Ollama ``/api/chat`` messages.
+
+    List content becomes one string of its text parts joined by newlines, and
+    its image parts move to the message's ``images`` list as base64 payloads.
+    New dicts are built, so the caller's messages are never edited.
+
+    :param messages: LiteLLM ``{role, content, ...}`` message dicts
+    :return: ``(ollama_messages, has_images)``
+    :raises ValueError: If an image part is not a base64 data URL, or a part
+        has a type other than ``text`` or ``image_url``
+    """
+    converted: list[dict] = []
+    has_images = False
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            converted.append(dict(message))
+            continue
+        texts: list[str] = []
+        images: list[str] = []
+        for part in content:
+            part_type = part.get("type")
+            if part_type == "text":
+                texts.append(str(part.get("text", "")))
+            elif part_type == "image_url":
+                image_url = part.get("image_url")
+                url = image_url.get("url") if isinstance(image_url, dict) else image_url
+                _, _, b64 = parse_data_url(url if isinstance(url, str) else "")
+                images.append(b64)
+            else:
+                raise ValueError(f"ollama cannot send a content part of type {part_type!r}")
+        out = {k: v for k, v in message.items() if k != "content"}
+        out["content"] = "\n".join(texts)
+        if images:
+            out["images"] = images
+            has_images = True
+        converted.append(out)
+    return converted, has_images
+
+
 def _execute_ollama_completion(
     model_id: str,
     messages: list[dict],
     base_url: str,
     max_tokens: int,
+    timeout: float | None = None,
 ) -> str:
     """Direct Ollama API call for text completion.
 
@@ -587,27 +654,37 @@ def _execute_ollama_completion(
         system prompt that callers built via ``chat_request`` — this caused
         every multi-turn / system-prompted ollama call to receive an empty
         prompt and hallucinate.
+        List content is sent as joined text plus base64 ``images``.
     :param base_url: Ollama server URL
     :param max_tokens: Maximum tokens to generate
+    :param timeout: Seconds the request may take; ``None`` means 120
     :return: Response text
+    :raises ValueError: If an image part is not a base64 data URL
     """
     import httpx
 
     url = f"{base_url.rstrip('/')}/api/chat"
+    ollama_messages, has_images = _ollama_chat_messages(messages)
 
     # Thinking models (like gpt-oss) need extra tokens for the thinking phase
     # Ensure minimum of 100 tokens to avoid truncation during thinking
     effective_max_tokens = max(max_tokens, 100)
 
+    body: dict[str, Any] = {
+        "model": model_id,
+        "messages": ollama_messages,
+        "stream": False,
+        "options": {"num_predict": effective_max_tokens},
+    }
+    # A vision request skips the thinking phase, which would spend the token
+    # budget before any caption text is produced.
+    if has_images:
+        body["think"] = False
+
     response = httpx.post(
         url,
-        json={
-            "model": model_id,
-            "messages": messages,
-            "stream": False,
-            "options": {"num_predict": effective_max_tokens},
-        },
-        timeout=120.0,
+        json=body,
+        timeout=_OLLAMA_DEFAULT_TIMEOUT if timeout is None else timeout,
     )
     response.raise_for_status()
 
@@ -624,6 +701,7 @@ def _execute_ollama_structured_output(
     base_url: str,
     max_tokens: int,
     is_typed_dict_output: bool = False,
+    timeout: float | None = None,
 ) -> BaseModel | dict:
     """Direct Ollama API call for structured output.
 
@@ -637,9 +715,12 @@ def _execute_ollama_structured_output(
     :param base_url: Ollama server URL
     :param max_tokens: Maximum tokens to generate
     :param is_typed_dict_output: Whether to convert result to dict
+    :param timeout: Seconds each request may take; ``None`` means 120
     :return: Validated Pydantic model instance or dict
     """
     import httpx
+
+    request_timeout = _OLLAMA_DEFAULT_TIMEOUT if timeout is None else timeout
 
     schema = output_format.model_json_schema()
 
@@ -662,7 +743,7 @@ Respond ONLY with the JSON object, no additional text."""
                 "format": "json",
                 "options": {"num_predict": max_tokens},
             },
-            timeout=120.0,
+            timeout=request_timeout,
         )
         response.raise_for_status()
 

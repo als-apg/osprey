@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.ariel.app import REMEDY_NO_CONFIG_FILE
+from osprey.services.ariel_search.capabilities import attachments_capability
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.exceptions import VocabularyError
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
@@ -66,6 +67,8 @@ def _make_service(search_result=None, search_error=None) -> AsyncMock:
     """Build a mock ARIEL service with a real config and a stubbed search."""
     service = AsyncMock()
     service.repository = AsyncMock()
+    # A migrated store with no attachment rows.
+    service.repository.get_attachment_rows = AsyncMock(return_value={})
     service.config = ARIELConfig.from_dict(
         {
             "database": {"uri": "postgresql://localhost:5432/test"},
@@ -183,7 +186,8 @@ def test_capabilities_configuration_warning_names_the_facility_zone():
 
 def test_capabilities_without_config_state_returns_the_normal_payload():
     """The pre-existing route-test app (service only) behaves exactly as before."""
-    app = _make_app(ariel_service=_make_service())
+    service = _make_service()
+    app = _make_app(ariel_service=service)
 
     response = TestClient(app).get("/api/capabilities")
 
@@ -194,9 +198,11 @@ def test_capabilities_without_config_state_returns_the_normal_payload():
         "default_mode",
         "shared_parameters",
         "vocabulary",
+        "attachments",
         "config_panel_enabled",
         "facility_timezone",
     }
+    assert payload["attachments"] == attachments_capability(service.config)
     assert "status" not in payload
 
 

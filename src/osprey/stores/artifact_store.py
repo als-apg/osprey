@@ -339,6 +339,12 @@ EXAMPLE_ORIGIN = "demo"
 run: the example the gallery seeds into an empty workspace. Listed by the
 gallery, hidden from every agent-facing listing (``exclude_examples``)."""
 
+AUDIT_ORIGIN = "tool_call"
+"""``origin`` of a payload the tool-call audit surface spilled to the store
+(:mod:`osprey.audit.tool_call`). An audit record, not something a tool
+produced: hidden from every listing unless ``include_audit`` is passed, and
+never announced to a live surface."""
+
 EXAMPLE_REMOVED_SENTINEL = ".example-removed"
 """File in the artifact directory written when an example is deleted, so no
 later launch seeds it again. Removing the file brings the example back."""
@@ -452,49 +458,112 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         ``origin`` tags the entry's provenance within the run (``"input"`` for
         an ingested caller file, :data:`EXAMPLE_ORIGIN` for the shipped
         example; empty for produced output)."""
-        if category:
-            from osprey.stores.type_registry import valid_category_keys
-
-            if category not in valid_category_keys():
-                logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
-
         with self._with_index_lock():
-            art_id = self._make_id()
-            # Prefix filename with id to avoid collisions
-            safe_filename = f"{art_id}_{filename}"
-            filepath = self._store_dir / safe_filename
-            filepath.write_bytes(file_content)
-
-            entry = ArtifactEntry(
-                id=art_id,
-                artifact_type=artifact_type,
-                title=title,
+            entry = self._save_file_locked(
+                file_content,
+                filename,
+                artifact_type,
+                title,
                 description=description,
-                filename=safe_filename,
                 mime_type=mime_type,
-                size_bytes=len(file_content),
-                timestamp=datetime.now(UTC).isoformat(),
                 tool_source=tool_source,
-                metadata=metadata or {},
+                metadata=metadata,
                 category=category,
-                session_id=(
-                    session_id
-                    if session_id is not None
-                    else os.environ.get("OSPREY_SESSION_ID", "")
-                ),
-                run_id=(
-                    run_id if run_id is not None else os.environ.get("OSPREY_DISPATCH_RUN_ID", "")
-                ),
+                run_id=run_id,
                 origin=origin,
+                session_id=session_id,
             )
-            self._entries.append(entry)
-            self._save_index()
 
         self._notify_listeners(entry)
 
         self._launch_gallery()
 
         return entry
+
+    def _save_file_locked(
+        self,
+        file_content: bytes,
+        filename: str,
+        artifact_type: str,
+        title: str,
+        description: str = "",
+        mime_type: str = "application/octet-stream",
+        tool_source: str = "unknown",
+        metadata: dict[str, Any] | None = None,
+        category: str = "",
+        run_id: str | None = None,
+        origin: str = "",
+        session_id: str | None = None,
+    ) -> ArtifactEntry:
+        """Write the bytes and the index row and save the index.
+
+        The caller holds :meth:`_with_index_lock` (the flock is not reentrant)
+        and fires the listeners after releasing it.
+        """
+        if category:
+            from osprey.stores.type_registry import valid_category_keys
+
+            if category not in valid_category_keys():
+                logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
+
+        art_id = self._make_id()
+        # Prefix filename with id to avoid collisions
+        safe_filename = f"{art_id}_{filename}"
+        filepath = self._store_dir / safe_filename
+        filepath.write_bytes(file_content)
+
+        entry = ArtifactEntry(
+            id=art_id,
+            artifact_type=artifact_type,
+            title=title,
+            description=description,
+            filename=safe_filename,
+            mime_type=mime_type,
+            size_bytes=len(file_content),
+            timestamp=datetime.now(UTC).isoformat(),
+            tool_source=tool_source,
+            metadata=metadata or {},
+            category=category,
+            session_id=(
+                session_id if session_id is not None else os.environ.get("OSPREY_SESSION_ID", "")
+            ),
+            run_id=(run_id if run_id is not None else os.environ.get("OSPREY_DISPATCH_RUN_ID", "")),
+            origin=origin,
+        )
+        self._entries.append(entry)
+        self._save_index()
+        return entry
+
+    def save_or_touch_by_sha256(
+        self,
+        sha256: str,
+        *,
+        origin: str,
+        save_kwargs: dict[str, Any],
+    ) -> ArtifactEntry:
+        """The entry of *origin* holding bytes with this *sha256*, saved once.
+
+        Under one index lock: an existing entry with this ``origin`` and
+        ``metadata["sha256"]`` gets a fresh timestamp (so retention keeps it as
+        long as it is still being seen); otherwise ``save_kwargs`` (the
+        :meth:`save_file` arguments) are saved as a new entry with *origin*.
+        Lookup and save share the lock, so two concurrent callers with the same
+        bytes produce one entry. Listeners fire for a new entry only; the
+        gallery is not launched for an audit spill.
+        """
+        kwargs = {k: v for k, v in save_kwargs.items() if k != "origin"}
+        with self._with_index_lock():
+            for e in self._entries:
+                if e.origin == origin and e.metadata.get("sha256") == sha256:
+                    e.timestamp = datetime.now(UTC).isoformat()
+                    self._save_index()
+                    return e
+            created = self._save_file_locked(**kwargs, origin=origin)
+
+        self._notify_listeners(created)
+        if origin != AUDIT_ORIGIN:
+            self._launch_gallery()
+        return created
 
     def save_object(
         self,
@@ -766,6 +835,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         run_filter: str | None = None,
         last_n: int | None = None,
         exclude_examples: bool = False,
+        include_audit: bool = False,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered.
 
@@ -778,11 +848,18 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         example is for the person at the gallery, never something the agent
         produced or may cite.
 
+        Audit spills (``origin == AUDIT_ORIGIN``) are dropped unless
+        ``include_audit`` is passed: they are records of what a tool returned,
+        not artifacts. Only the retention sweep and an explicit audit viewer ask
+        for them; :meth:`get_entry` finds them regardless.
+
         ``search`` is a case-insensitive substring match on the title, file
         name, description and artifact type.
         """
         self._refresh_if_stale()
         entries = list(self._entries)
+        if not include_audit:
+            entries = [e for e in entries if e.origin != AUDIT_ORIGIN]
         if exclude_examples:
             entries = [e for e in entries if e.origin != EXAMPLE_ORIGIN]
         if type_filter:

@@ -15,14 +15,18 @@ from osprey.simulation.machine import (
     DEFAULT_SCENARIO,
     BpmErrorSpec,
     ParsedMachine,
+    PlotSeries,
+    PlotSpec,
     Scenario,
     SimChannel,
     TextureSpec,
     _require_event_number,
     _validate_at_time,
     _validate_position_keys,
+    load_narratives,
     load_scenario_bundles,
     parse_machine,
+    parse_plot_spec,
     read_machine_json,
 )
 
@@ -451,6 +455,70 @@ class TestValidatePositionKeys:
         with pytest.raises(ValueError, match=r"missing keys \['until'\]"):
             _validate_position_keys(_PREFIX, {"at": 0.1}, "ramp")
 
+    def test_at_when_is_one_position_key(self):
+        when = {"days_ago": 4, "time": "03:05:00"}
+        _validate_position_keys(_PREFIX, {"at_when": when}, "spike")  # no raise
+        with pytest.raises(ValueError, match="exactly one of"):
+            _validate_position_keys(_PREFIX, {"at_when": when, "at_offset": -60}, "spike")
+
+    def test_ramp_rejects_at_when(self):
+        with pytest.raises(ValueError, match="do not support 'at_when'"):
+            _validate_position_keys(_PREFIX, {"at_when": {"days_ago": 1}}, "ramp")
+
+
+class TestDefaultScenarios:
+    """``default_scenarios`` names the set a deployment that never chose starts in."""
+
+    def test_absent_means_nominal_alone(self):
+        assert parse_machine(_machine(), _PATH).default_scenarios == ()
+
+    def test_names_are_kept_in_order_once(self):
+        model = parse_machine(_machine(default_scenarios=["fault", "fault"]), _PATH)
+        assert model.default_scenarios == ("fault",)
+
+    def test_names_are_resolved_at_activation_not_at_load(self):
+        """A machine file read without its scenario tree is still a channel model."""
+        model = parse_machine(_machine(default_scenarios=["ghost"]), _PATH)
+        assert model.default_scenarios == ("ghost",)
+
+    @pytest.mark.parametrize("raw", ["fault", [1], [""]])
+    def test_a_malformed_list_is_refused(self, raw):
+        with pytest.raises(ValueError, match="must be a list of scenario names"):
+            parse_machine(_machine(default_scenarios=raw), _PATH)
+
+    def test_the_shipped_machine_starts_in_rf_thermal(self):
+        machine_path = _TEMPLATE_SIM / "machine.json"
+        model = parse_machine(json.loads(machine_path.read_text()), machine_path)
+        assert model.default_scenarios == ("rf-thermal",)
+
+
+class TestAtWhenEvents:
+    """``at_when`` is validated by the logbook's ``when`` rules, under its own name."""
+
+    @staticmethod
+    def _parse(at_when):
+        event = {"shape": "spike", "at_when": at_when, "amplitude": 1.0, "width": 60.0}
+        scenarios = {"fault": {"archiver": [{"channel": "PV:A", "events": [event]}]}}
+        return parse_machine(_machine(scenarios=scenarios), _PATH)
+
+    def test_a_calendar_event_parses(self):
+        model = self._parse({"days_ago": 4, "time": "03:05:00"})
+        (event,) = model.scenarios["fault"].archiver["PV:A"]
+        assert event["at_when"] == {"days_ago": 4, "time": "03:05:00"}
+
+    @pytest.mark.parametrize(
+        ("at_when", "message"),
+        [
+            ("4 days", "'at_when' must be a mapping"),
+            ({"days_ago": -1, "time": "03:05:00"}, "'days_ago' must be a non-negative integer"),
+            ({"days_ago": 4, "time": "25:00:00"}, "'at_when.time' must be a valid"),
+            ({"days_ago": 4, "time": "03:05:00+02:00"}, "'at_when.time' is local time"),
+        ],
+    )
+    def test_a_malformed_calendar_event_is_refused_by_its_own_name(self, at_when, message):
+        with pytest.raises(ValueError, match=message):
+            self._parse(at_when)
+
 
 class TestParsePhysicsFault:
     def test_absent_block_is_none(self):
@@ -608,6 +676,227 @@ class TestLogbookTimeRefusal:
             load_scenario_bundles(tmp_path / "scenarios", {})
         assert "Scenario 'fault' logbook entry 'E1': 'when.time'" in str(info.value)
         assert "at_time" not in str(info.value)
+
+
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+
+
+class TestLogbookAttachments:
+    """An entry's ``attachments`` names pictures inside its scenario directory."""
+
+    @staticmethod
+    def _bundle(tmp_path: Path, attachments, files: dict[str, bytes] | None = None) -> Path:
+        bundle = tmp_path / "scenarios" / "fault"
+        bundle.mkdir(parents=True)
+        (bundle / "scenario.json").write_text("{}")
+        for rel, data in (files or {}).items():
+            (bundle / rel).parent.mkdir(parents=True, exist_ok=True)
+            (bundle / rel).write_bytes(data)
+        entry = {
+            "entry_id": "E1",
+            "when": {"days_ago": 1, "time": "08:00:00"},
+            "author": "a",
+            "title": "t",
+            "text": "x",
+            "attachments": attachments,
+        }
+        (bundle / "logbook.json").write_text(json.dumps([entry]))
+        return bundle
+
+    def _load_error(self, tmp_path: Path) -> str:
+        with pytest.raises(ValueError) as info:
+            load_scenario_bundles(tmp_path / "scenarios", {})
+        return str(info.value)
+
+    def test_picture_resolves_to_a_file_in_the_bundle(self, tmp_path):
+        bundle = self._bundle(tmp_path, [{"path": "plots/a.png"}], {"plots/a.png": _PNG})
+        entry = load_scenario_bundles(tmp_path / "scenarios", {})["fault"].logbook[0]
+        assert entry.attachments == ((bundle / "plots" / "a.png").resolve(),)
+
+    def test_entry_without_attachments_carries_none(self, tmp_path):
+        bundle = self._bundle(tmp_path, [])
+        raw = json.loads((bundle / "logbook.json").read_text())
+        del raw[0]["attachments"]
+        (bundle / "logbook.json").write_text(json.dumps(raw))
+        entry = load_scenario_bundles(tmp_path / "scenarios", {})["fault"].logbook[0]
+        assert entry.attachments == ()
+
+    def test_unknown_key_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "a.png", "caption": "orbit"}], {"a.png": _PNG})
+        message = self._load_error(tmp_path)
+        assert "Scenario 'fault' logbook entry 'E1'" in message
+        assert "unknown keys ['caption']" in message
+
+    def test_missing_file_names_the_path(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "plots/gone.png"}])
+        message = self._load_error(tmp_path)
+        assert "'plots/gone.png' not found" in message
+
+    def test_non_image_suffix_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "notes.txt"}], {"notes.txt": b"hello"})
+        assert "'notes.txt' is not a picture" in self._load_error(tmp_path)
+
+    def test_image_suffix_without_image_data_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{"path": "fake.png"}], {"fake.png": b"not a png at all"})
+        assert "'fake.png' does not hold .png image data" in self._load_error(tmp_path)
+
+    @pytest.mark.parametrize("rel", ["../outside.png", "/etc/outside.png"])
+    def test_path_outside_the_bundle_is_refused(self, tmp_path, rel):
+        (tmp_path / "scenarios").mkdir()
+        (tmp_path / "scenarios" / "outside.png").write_bytes(_PNG)
+        self._bundle(tmp_path, [{"path": rel}])
+        assert "must be relative to the scenario directory" in self._load_error(tmp_path)
+
+    @pytest.mark.parametrize("raw", ["a.png", {"path": "a.png"}])
+    def test_attachments_must_be_a_list_of_mappings(self, tmp_path, raw):
+        self._bundle(tmp_path, raw if isinstance(raw, dict) else [raw], {"a.png": _PNG})
+        message = self._load_error(tmp_path)
+        assert "'attachments' must be a list" in message or "must be a mapping" in message
+
+    def test_plot_spec_parses_into_the_entrys_attachments_in_order(self, tmp_path):
+        spec = json.dumps(_plot_spec()).encode()
+        bundle = self._bundle(
+            tmp_path,
+            [{"plot": "plots/orbit.json"}, {"path": "plots/a.png"}],
+            {"plots/orbit.json": spec, "plots/a.png": _PNG},
+        )
+        entry = load_scenario_bundles(tmp_path / "scenarios", {})["fault"].logbook[0]
+        drawn, shipped = entry.attachments
+        assert shipped == (bundle / "plots" / "a.png").resolve()
+        assert drawn == PlotSpec(
+            filename="orbit_rms.png",
+            title="SR orbit RMS",
+            ylabel="µm",
+            hours_before=(2.0, 1.0, 0.0),
+            series=(PlotSeries("X", (1.0, 2.0, 3.0)), PlotSeries("Y", (3.0, 2.0, 1.0))),
+            ylim=(0.0, 20.0),
+        )
+
+    def test_narratives_carry_plot_specs_too(self, tmp_path):
+        self._bundle(
+            tmp_path,
+            [{"plot": "orbit.json"}],
+            {"orbit.json": json.dumps(_plot_spec()).encode()},
+        )
+        (entry,) = load_narratives(tmp_path / "scenarios")["fault"]
+        assert isinstance(entry.attachments[0], PlotSpec)
+
+    def test_an_item_naming_both_a_path_and_a_plot_is_refused(self, tmp_path):
+        self._bundle(
+            tmp_path,
+            [{"path": "a.png", "plot": "orbit.json"}],
+            {"a.png": _PNG, "orbit.json": json.dumps(_plot_spec()).encode()},
+        )
+        assert "exactly one of 'path' or 'plot'" in self._load_error(tmp_path)
+
+    def test_an_empty_item_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{}])
+        assert "exactly one of 'path' or 'plot'" in self._load_error(tmp_path)
+
+    def test_missing_plot_spec_names_the_path(self, tmp_path):
+        self._bundle(tmp_path, [{"plot": "plots/gone.json"}])
+        assert "plot spec 'plots/gone.json' not found" in self._load_error(tmp_path)
+
+    @pytest.mark.parametrize("rel", ["../outside.json", "/etc/outside.json"])
+    def test_plot_spec_outside_the_bundle_is_refused(self, tmp_path, rel):
+        (tmp_path / "scenarios").mkdir()
+        (tmp_path / "scenarios" / "outside.json").write_text(json.dumps(_plot_spec()))
+        self._bundle(tmp_path, [{"plot": rel}])
+        assert "must be relative to the scenario directory" in self._load_error(tmp_path)
+
+    def test_plot_spec_must_be_a_json_file(self, tmp_path):
+        self._bundle(tmp_path, [{"plot": "orbit.png"}], {"orbit.png": _PNG})
+        assert "plot spec 'orbit.png' must be a .json file" in self._load_error(tmp_path)
+
+    def test_plot_spec_that_is_not_json_is_refused(self, tmp_path):
+        self._bundle(tmp_path, [{"plot": "orbit.json"}], {"orbit.json": b"{not json"})
+        assert "plot spec 'orbit.json' is not valid JSON" in self._load_error(tmp_path)
+
+    def test_an_invalid_plot_spec_is_refused_with_the_entry_named(self, tmp_path):
+        spec = _plot_spec(colour="red")
+        self._bundle(tmp_path, [{"plot": "orbit.json"}], {"orbit.json": json.dumps(spec).encode()})
+        message = self._load_error(tmp_path)
+        assert "Scenario 'fault' logbook entry 'E1': plot spec 'orbit.json'" in message
+        assert "unknown keys ['colour']" in message
+
+    def test_two_pictures_with_one_name_are_refused(self, tmp_path):
+        spec = json.dumps(_plot_spec(filename="a.png")).encode()
+        self._bundle(
+            tmp_path,
+            [{"path": "a.png"}, {"plot": "orbit.json"}],
+            {"a.png": _PNG, "orbit.json": spec},
+        )
+        assert "two attachments are both named 'a.png'" in self._load_error(tmp_path)
+
+
+def _plot_spec(**overrides):
+    raw = {
+        "filename": "orbit_rms.png",
+        "title": "SR orbit RMS",
+        "ylabel": "µm",
+        "hours_before": [2, 1, 0],
+        "series": [{"label": "X", "values": [1, 2, 3]}, {"label": "Y", "values": [3, 2, 1]}],
+        "ylim": [0, 20],
+    }
+    raw.update(overrides)
+    return raw
+
+
+class TestPlotSpec:
+    """A plot spec's schema is closed and every rule is a load-time refusal."""
+
+    def test_ylim_is_optional(self):
+        raw = _plot_spec()
+        del raw["ylim"]
+        assert parse_plot_spec(raw).ylim is None
+
+    @pytest.mark.parametrize(
+        ("overrides", "message"),
+        [
+            ({"colour": "red"}, "unknown keys ['colour']"),
+            ({"filename": "plots/orbit.png"}, "'filename' must be a .png file name"),
+            ({"filename": "orbit.jpg"}, "'filename' must be a .png file name"),
+            ({"filename": ".png"}, "'filename' must be a .png file name"),
+            ({"title": 3}, "'title' must be a string"),
+            ({"ylabel": None}, "'ylabel' must be a string"),
+            ({"hours_before": [0]}, "at least two points"),
+            ({"hours_before": [1, 2, 0]}, "non-increasing"),
+            ({"hours_before": [3, 2, 1]}, "must end at 0"),
+            ({"hours_before": [2, "1", 0]}, "'hours_before' must be a list of finite numbers"),
+            ({"hours_before": [2, True, 0]}, "'hours_before' must be a list of finite numbers"),
+            ({"series": []}, "'series' must be a non-empty list"),
+            ({"series": [{"label": "X"}]}, "exactly 'label' and 'values'"),
+            ({"series": [{"label": "X", "values": [1, 2, 3], "c": 1}]}, "exactly 'label'"),
+            ({"series": [{"label": "", "values": [1, 2, 3]}]}, "'label' must be a non-empty"),
+            ({"series": [{"label": "X", "values": [1, 2]}]}, "has 2 values for 3"),
+            (
+                {"series": [{"label": "X", "values": [1, float("nan"), 3]}]},
+                "series 'X' 'values' must be a list of finite numbers",
+            ),
+            (
+                {"series": [{"label": "X", "values": [1, 2, 3]}] * 2},
+                "two series are both labelled 'X'",
+            ),
+            ({"ylim": [20, 0]}, "'ylim' must be [low, high]"),
+            ({"ylim": [0, 10, 20]}, "'ylim' must be [low, high]"),
+        ],
+    )
+    def test_a_rule_broken_is_refused(self, overrides, message):
+        with pytest.raises(ValueError) as info:
+            parse_plot_spec(_plot_spec(**overrides), "spec")
+        assert message in str(info.value)
+        assert str(info.value).startswith("spec: ")
+
+    @pytest.mark.parametrize("key", ["filename", "title", "ylabel", "hours_before", "series"])
+    def test_every_key_but_ylim_is_required(self, key):
+        raw = _plot_spec()
+        del raw[key]
+        with pytest.raises(ValueError, match=rf"missing keys \['{key}'\]"):
+            parse_plot_spec(raw)
+
+    def test_a_spec_must_be_an_object(self):
+        with pytest.raises(ValueError, match="must be a JSON object"):
+            parse_plot_spec([1, 2])
 
 
 class TestReadMachineJson:

@@ -421,3 +421,30 @@ def test_unregistered_process_emits_nothing(project, notified):
     wait_drained()
 
     assert notified == []
+
+
+def test_an_audit_spill_never_emits(project, notified):
+    """An image the tool-call audit spilled is a record of a result, never an
+    agent action: no activity frame."""
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+
+    initialize_workspace_singletons()
+    store = ArtifactStore(workspace_root=project / "_agent_data")
+
+    store.save_or_touch_by_sha256(
+        "c" * 64,
+        origin="tool_call",
+        save_kwargs={
+            "file_content": b"\x89PNG audit",
+            "filename": "toolu_3-image-0.png",
+            "artifact_type": "image",
+            "title": "mcp__x__shot image",
+            "mime_type": "image/png",
+            "tool_source": "audit.tool_call",
+            "metadata": {"sha256": "c" * 64},
+        },
+    )
+    wait_drained()
+
+    assert notified == []
+    assert artifact_activity._is_bookkeeping(store.get_entry(store._entries[-1].id))

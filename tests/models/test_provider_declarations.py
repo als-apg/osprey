@@ -30,6 +30,7 @@ PROVIDER_FACTS = (
     "supports_interactive_login",
     "supports_images",
     "supports_thinking",
+    "self_hosted",
 )
 
 _ENV_REFERENCE = re.compile(r"^\$\{([A-Z0-9_]+)\}$")
@@ -58,6 +59,7 @@ class TestBaseDeclaration:
         assert BaseProvider.supports_interactive_login is False
         assert BaseProvider.supports_images is False
         assert BaseProvider.supports_thinking is False
+        assert BaseProvider.self_hosted is False
 
     def test_the_protocol_type_names_the_catalog_protocols(self):
         protocols = get_args(get_type_hints(BaseProvider)["api_protocol"])
@@ -84,6 +86,10 @@ class TestEveryAdapterDeclares:
                 assert cls.api_protocol == "anthropic", name
                 assert cls.requires_api_key, name
 
+    def test_the_local_servers_are_the_self_hosted_providers(self):
+        hosted = sorted(name for name, cls in _adapters().items() if cls.self_hosted)
+        assert hosted == ["ds4", "llama-cpp", "ollama", "vllm"]
+
     @pytest.mark.parametrize("name", ["ollama", "vllm", "ds4"])
     def test_a_local_server_assumes_no_image_input(self, name):
         assert _adapters()[name].supports_images is False
@@ -105,6 +111,11 @@ class TestTablesAgreeWithTheDeclarations:
             assert cls is not None, name
             assert entry.key_env_var == cls.api_key_env_var, name
             assert entry.api_protocol == cls.api_protocol, name
+            assert entry.chat == cls.supports_chat(), name
+
+    def test_every_builtin_adapter_class_instantiates(self):
+        for name, cls in _adapters().items():
+            assert isinstance(cls(), BaseProvider), name
 
     def test_the_derived_secret_variable_is_the_adapters_for_every_keyed_provider(self):
         for name, cls in _adapters().items():

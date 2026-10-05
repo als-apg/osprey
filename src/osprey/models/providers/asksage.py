@@ -52,6 +52,9 @@ class AskSageProviderAdapter(BaseProvider):
     # The OpenAI route documents no image input, so none is assumed.
     supports_images = False
     supports_thinking = False
+    self_hosted = False
+    # The completion path drops chat_request and ignores the caller's timeout.
+    accepts_chat_request = False
 
     _models_cache: list[str] | None = None
 
@@ -224,7 +227,3 @@ Respond ONLY with the JSON object, no additional text or markdown formatting."""
             return False, f"Connection failed: {str(e)[:50]}"
         except Exception as e:
             return False, f"Health check failed: {str(e)[:50]}"
-
-
-# Ensure ABC doesn't block instantiation if metadata is fully defined
-AskSageProviderAdapter.__abstractmethods__ = frozenset()

@@ -15,6 +15,7 @@ approval:
     entry_create: always
 ariel:
   default_search_mode: hybrid
+  demo_narrative: data/logbook_seed
   embedding:
     provider: ollama
   enhancement_modules:
@@ -33,9 +34,6 @@ ariel:
       - dimension: 768
         name: nomic-embed-text
       provider: ollama
-  ingestion:
-    adapter: generic_json
-    source_url: data/logbook_seed/demo_logbook.json
   search_modules:
     hybrid:
       enabled: true

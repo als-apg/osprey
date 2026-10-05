@@ -6,7 +6,7 @@ import re
 import shutil
 import sys
 import warnings
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -20,6 +20,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
+from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
@@ -252,6 +253,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     # measurement block always come from the one reader.
     facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
     facility = _read_facility(project_dir)
+    ariel_attachment_view = _ariel_attachment_view(config)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -323,6 +325,15 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "served_deck_models": _served_deck_models(facility_facts, facility),
         "pyaml_view_present": bool(facility_facts["measurement_models"]),
         "measurement": hook_measurement(facility_facts),
+        # `ariel.attachments.view.enabled`: whether the ARIEL agents may look at
+        # logbook pictures. resolve_servers reads it to withhold
+        # attachment_view, and the logbook templates read it to leave the tool
+        # and its viewing rules out of the rendered guidance.
+        "ariel_attachment_view": ariel_attachment_view,
+        # The ARIEL read tools the control-assistant CLAUDE.md tells the main
+        # agent never to call itself, from the static registry entry (never
+        # create_server(), which has start-up side effects).
+        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -441,6 +452,46 @@ def _phoebus_agent_access(config: dict) -> str:
         return phoebus_agent_access(config)
     except ValueError as exc:
         raise BuildProfileError(str(exc)) from exc
+
+
+def _ariel_attachment_view(config: dict) -> bool:
+    """The ``ariel.attachments.view.enabled`` value; ``True`` when absent.
+
+    Raises:
+        BuildProfileError: If the value is present but not a boolean, or a
+            parent block is not a mapping.
+    """
+    ariel = config.get("ariel") or {}
+    if not isinstance(ariel, Mapping):
+        return True
+    try:
+        return attachment_view_enabled(ariel)
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
+
+
+#: The ARIEL tools the main agent calls itself rather than through a logbook
+#: subagent: the two introspection tools, and the two verbs that put an entry or
+#: picture the subagent found in front of the operator.
+_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset(
+    {"capabilities", "status", "entry_open", "attachment_to_artifact"}
+)
+
+
+def _ariel_read_tools(view_enabled: bool) -> list[str]:
+    """The ARIEL read tools only the logbook subagents call, in registry order.
+
+    Every ``permissions_allow`` tool of the ``ariel`` registry entry except
+    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, and except
+    ``attachment_view`` while the view is off (the server then does not offer
+    it).
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    excluded = set(_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL)
+    if not view_enabled:
+        excluded.add("attachment_view")
+    return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
 
 
 def _transcripts_retention_days(config: dict) -> int | None:

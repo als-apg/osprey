@@ -148,3 +148,12 @@ providers:
       - deepseek-v4-pro
     # The served model takes images? Enable them on this route:
     # supports_images: true
+  # llama.cpp — the site's llama-server, serving image and text embeddings for
+  # ARIEL's picture search (no chat). OSPREY ships no image or service for it;
+  # the site runs llama-server itself. base_url is the server root, not /v1.
+  llama-cpp:
+    api_key: llama-cpp              # ignored by a server started without --api-key
+    base_url: ${LLAMA_CPP_HOST:-http://localhost:8080}
+    default_model: qwen3-vl-embedding-2b
+    models:                         # the name llama-server advertises (--alias)
+      - qwen3-vl-embedding-2b

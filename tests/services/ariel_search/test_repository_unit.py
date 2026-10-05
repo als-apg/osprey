@@ -17,16 +17,25 @@ their own cases.
 from __future__ import annotations
 
 import json
+import logging
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import psycopg
 import pytest
 
+from osprey.imaging.formats import CAPTION_NOT_DONE_SQL, image_table_not_done_sql, viewable_sql
 from osprey.services.ariel_search.config import ARIELConfig
+from osprey.services.ariel_search.database import repository as repository_module
 from osprey.services.ariel_search.database.repository import (
+    ATTACHMENT_ROW_COLUMNS,
+    ATTACHMENT_SCHEMA_GAP_WARNING,
     MAX_ENHANCEMENT_ATTEMPTS,
+    SCHEMA_FACTS_NEGATIVE_TTL_SECONDS,
     ARIELRepository,
+    SchemaFacts,
 )
 from osprey.services.ariel_search.exceptions import (
     ConfigurationError,
@@ -142,16 +151,6 @@ ERROR_WRAP_CASES = [
         id="store_attachment",
     ),
     pytest.param(
-        lambda r: r.get_attachment("a-1"),
-        "SELECT attachment_id=a-1",
-        id="get_attachment",
-    ),
-    pytest.param(
-        lambda r: r.get_attachments_for_entry("e-1"),
-        "SELECT attachments entry_id=e-1",
-        id="get_attachments_for_entry",
-    ),
-    pytest.param(
         lambda r: r.get_incomplete_entries(module_name="text_embedding"),
         "SELECT incomplete module=text_embedding",
         id="get_incomplete_entries",
@@ -218,7 +217,7 @@ ERROR_WRAP_CASES = [
     ),
     pytest.param(
         lambda r: r.get_last_successful_run("als_logbook"),
-        "SELECT MAX(completed_at) source_system=als_logbook",
+        "SELECT MAX(started_at) source_system=als_logbook",
         id="get_last_successful_run",
     ),
 ]
@@ -634,37 +633,23 @@ class TestAttachments:
         assert "INSERT INTO attachment_files" in _sql_body(sql)
         assert params == ["a-1", "e-1", "shot.png", "image/png", b"\x89PNG", 4]
 
-    async def test_get_attachment_returns_row_as_dict(self, fake_pool_factory) -> None:
-        """A found attachment comes back as a plain dict including its bytes."""
-        row = {"attachment_id": "a-1", "filename": "shot.png", "data": b"\x89PNG"}
-        pool = fake_pool_factory(results=[[row]])
-        repo = ARIELRepository(pool, _make_config())
+    def test_no_select_star_targets_attachment_files_under_src(self) -> None:
+        """Every attachment_files reader names its columns, so no query drags both blobs."""
+        src = Path(__file__).resolve().parents[3] / "src"
+        pattern = re.compile(r"SELECT\s+\*\s+FROM\s+attachment_files", re.IGNORECASE)
+        assert src.is_dir(), src
+        offenders = [
+            str(path.relative_to(src))
+            for path in sorted(src.rglob("*"))
+            if path.suffix in {".py", ".sql"} and pattern.search(path.read_text(encoding="utf-8"))
+        ]
+        assert offenders == []
 
-        assert await repo.get_attachment("a-1") == row
-        assert pool.calls[0][1] == ["a-1"]
-
-    async def test_get_attachment_returns_none_when_absent(self, fake_pool) -> None:
-        """A missing attachment is None, not an empty dict."""
-        repo = ARIELRepository(fake_pool, _make_config())
-
-        assert await repo.get_attachment("gone") is None
-
-    async def test_get_attachments_for_entry_omits_blob_column(self, fake_pool_factory) -> None:
-        """The per-entry listing selects metadata only, never ``data``.
-
-        Hazard: this feeds an entry view that may list many attachments, so
-        adding ``data`` to the projection would pull every blob into memory to
-        render a filename list.
-        """
-        pool = fake_pool_factory(results=[[{"attachment_id": "a-1", "filename": "shot.png"}]])
-        repo = ARIELRepository(pool, _make_config())
-
-        rows = await repo.get_attachments_for_entry("e-1")
-
-        assert rows == [{"attachment_id": "a-1", "filename": "shot.png"}]
-        select_clause = _sql_body(pool.sql[0]).split("FROM", 1)[0]
-        assert "size_bytes" in select_clause
-        assert "data" not in select_clause
+    def test_repository_has_no_whole_row_attachment_reader(self) -> None:
+        """Originals and renditions are read through their own column-listed readers."""
+        assert not hasattr(ARIELRepository, "get_attachment")
+        assert hasattr(ARIELRepository, "get_attachment_original")
+        assert hasattr(ARIELRepository, "get_rendition")
 
 
 # ---------------------------------------------------------------------------
@@ -871,6 +856,164 @@ class TestEnhancementStatus:
         repo = ARIELRepository(fake_pool, _make_config())
 
         assert await repo.mark_enhancement_failed("missing", "text_embedding", "nope") == 0
+
+
+class TestMarkerStatus:
+    """The marker-aware branches: named placeholders, B1 text untouched."""
+
+    async def test_incomplete_with_marker_uses_the_marker_predicate(self, fake_pool) -> None:
+        """A stale marker or a not-given-up pending/failed status makes an entry incomplete."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.get_incomplete_entries(module_name="text_embedding", marker="m-a", limit=9)
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        assert "NOT (e.enhancement_status ? %(module)s)" in body
+        assert "e.enhancement_status->%(module)s->>'marker' IS DISTINCT FROM %(marker)s" in body
+        assert "IN ('pending', 'failed')" in body
+        assert "(e.enhancement_status->%(module)s->>'gave_up')::boolean" in body
+        assert "%s" not in body
+        assert "EXISTS" not in body
+        assert params == {"module": "text_embedding", "marker": "m-a", "limit": 9}
+
+    async def test_incomplete_with_marker_orders_pending_newest_first_then_failed(
+        self, fake_pool
+    ) -> None:
+        """One catch-up order: effective status, effective attempts, newest, entry id."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.get_incomplete_entries(module_name="text_embedding", marker="m-a")
+
+        body = _sql_body(fake_pool.calls[0][0])
+        order = body.split("ORDER BY", 1)[1]
+        assert order.index("= 'failed'") < order.index("'attempts')::int, 0)")
+        assert order.index("'attempts')::int, 0)") < order.index("e.timestamp DESC")
+        assert order.index("e.timestamp DESC") < order.index("e.entry_id")
+        assert "THEN 'pending'" in order
+        assert "COALESCE(e.enhancement_status->%(module)s->>'status', 'pending')" in order
+
+    async def test_caption_todo_requires_a_viewable_picture_not_done(self, fake_pool) -> None:
+        """image_caption walks only entries holding a viewable picture with no caption."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.get_incomplete_entries(module_name="image_caption", marker="vis-a")
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        assert "EXISTS ( SELECT 1 FROM attachment_files f WHERE f.entry_id = e.entry_id" in body
+        assert viewable_sql("f") in body
+        assert CAPTION_NOT_DONE_SQL in body
+        assert params["model"] == "vis-a"
+
+    async def test_embedding_todo_reads_the_marker_table(self, fake_pool) -> None:
+        """image_embedding's not-done fragment names the image table its marker holds."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.get_incomplete_entries(module_name="image_embedding", marker="img_emb_x")
+
+        body = _sql_body(fake_pool.calls[0][0])
+        assert image_table_not_done_sql("img_emb_x") in body
+
+    async def test_embedding_todo_refuses_a_non_identifier_marker(self, fake_pool) -> None:
+        """A table marker is spliced, so it must be a plain identifier."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        with pytest.raises(ValueError):
+            await repo.get_incomplete_entries(module_name="image_embedding", marker="x; DROP")
+        assert fake_pool.calls == []
+
+    async def test_status_filter_keeps_b1_statement_even_with_marker(self, fake_pool) -> None:
+        """``status=`` (retry-failed listing) is B1's exact statement."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.get_incomplete_entries(module_name="text_embedding", status="failed")
+
+        assert fake_pool.calls[0][1] == ["text_embedding", "failed", 100]
+
+    async def test_mark_complete_with_marker_stores_it(self, fake_pool) -> None:
+        """The complete object is ``{status, completed_at, marker}``."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.mark_enhancement_complete("e-1", "image_caption", marker="vis-a")
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        assert "%(path)s::text[]" in body
+        assert "'marker', %(marker)s::text" in body
+        assert "WHERE entry_id = %(entry_id)s" in body
+        assert params == {"path": ["image_caption"], "entry_id": "e-1", "marker": "vis-a"}
+
+    async def test_mark_failed_with_marker_resets_on_a_stale_marker(self, fake_pool) -> None:
+        """A different stored marker restarts attempts at 1; gave_up at the cap."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.mark_enhancement_failed("e-1", "image_caption", "y" * 600, marker="vis-a")
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        assert (
+            "CASE WHEN enhancement_status->%(module)s->>'marker' IS DISTINCT FROM %(marker)s"
+            " THEN 1 ELSE COALESCE((enhancement_status->%(module)s->>'attempts')::int, 0) + 1 END"
+        ) in body
+        assert ">= %(max_attempts)s" in body
+        assert "'marker', %(marker)s::text" in body
+        assert "%s" not in body
+        assert params == {
+            "path": ["image_caption"],
+            "module": "image_caption",
+            "error": "y" * 500,
+            "marker": "vis-a",
+            "max_attempts": MAX_ENHANCEMENT_ATTEMPTS,
+            "entry_id": "e-1",
+        }
+
+    async def test_stats_with_markers_binds_modules_and_markers(self, fake_pool) -> None:
+        """Marker modules and markers are named parameters, never spliced."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.get_enhancement_stats(markers={"image_caption": "vis-a"})
+
+        sql, params = fake_pool.calls[0]
+        assert "image_caption" not in sql
+        assert "vis-a" not in sql
+        body = _sql_body(sql)
+        assert "IS DISTINCT FROM %(marker_0)s THEN 'pending'" in body
+        assert params == {"module_0": "image_caption", "marker_0": "vis-a"}
+
+    async def test_stats_with_markers_adds_gave_up_to_marker_modules_only(
+        self, fake_pool_factory
+    ) -> None:
+        """A module absent from ``markers`` keeps B1's three keys exactly."""
+        pool = fake_pool_factory(
+            rows_for={
+                "jsonb_each(enhancement_status)": [
+                    (10, "image_caption", "complete", 4, 0),
+                    (10, "image_caption", "failed", 3, 2),
+                    (10, "image_caption", "pending", 1, 0),
+                    (10, "text_embedding", "complete", 9, 0),
+                ],
+            }
+        )
+        repo = ARIELRepository(pool, _make_config())
+
+        stats = await repo.get_enhancement_stats(markers={"image_caption": "vis-a"})
+
+        assert stats == {
+            "total_entries": 10,
+            "image_caption": {"complete": 4, "failed": 3, "pending": 3, "gave_up": 2},
+            "text_embedding": {"complete": 9, "failed": 0, "pending": 1},
+        }
+
+    async def test_stats_with_empty_markers_is_b1(self, fake_pool) -> None:
+        """An empty mapping takes B1's statement, which binds nothing."""
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        await repo.get_enhancement_stats(markers={})
+
+        sql, params = fake_pool.calls[0]
+        assert "marker" not in sql
+        assert not params
 
 
 # ---------------------------------------------------------------------------
@@ -1182,22 +1325,38 @@ class TestIngestionRuns:
         assert "status = 'failed'" in _sql_body(sql)
         assert params == ["y" * 500, 7]
 
-    async def test_get_last_successful_run_returns_completion_time(
+    async def test_get_last_successful_run_returns_start_time(
         self,
         fake_pool_factory,
     ) -> None:
-        """The watermark is the MAX(completed_at) over successful runs only."""
-        completed = datetime(2026, 3, 4, 5, 6, tzinfo=UTC)
-        pool = fake_pool_factory(results=[[(completed,)]])
+        """The watermark is the MAX(started_at) over successful runs only.
+
+        An entry written upstream while a run fetched is newer than the run's
+        start, so the start, not the completion, bounds the next poll.
+        """
+        started = datetime(2026, 3, 4, 5, 6, tzinfo=UTC)
+        pool = fake_pool_factory(results=[[(started,)]])
         repo = ARIELRepository(pool, _make_config())
 
-        assert await repo.get_last_successful_run("als_logbook") == completed
+        assert await repo.get_last_successful_run("als_logbook") == started
 
         sql, params = pool.calls[0]
         body = _sql_body(sql)
-        assert "SELECT MAX(completed_at) FROM ingestion_runs" in body
+        assert "SELECT MAX(started_at) FROM ingestion_runs" in body
+        assert "completed_at" not in body
         assert "status = 'success'" in body
         assert params == ["als_logbook"]
+
+    async def test_get_last_ingestion_keeps_completion_time(self, fake_pool_factory) -> None:
+        """The status time stays the last completion, unlike the poll watermark."""
+        completed = datetime(2026, 3, 4, 5, 7, tzinfo=UTC)
+        pool = fake_pool_factory(results=[[(completed,)]])
+        repo = ARIELRepository(pool, _make_config())
+
+        assert await repo.get_last_ingestion() == completed
+
+        sql, _params = pool.calls[0]
+        assert "MAX(completed_at)" in _sql_body(sql)
 
     async def test_get_last_successful_run_without_any_run(self, fake_pool) -> None:
         """No rows at all means no watermark."""
@@ -1615,3 +1774,506 @@ class TestKeywordSearchErrorClassification:
             await repo.keyword_search(where_clauses=[], params=[], search_text="quench")
 
         assert excinfo.value.technical_details["query"] == "KEYWORD SEARCH: quench"
+
+
+# ---------------------------------------------------------------------------
+# schema_facts -- per-pool probe of optional schema objects
+# ---------------------------------------------------------------------------
+
+_PROBE = "information_schema.columns"
+
+
+class _Clock:
+    """Settable monotonic clock for the negative-probe TTL; nothing sleeps."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _probing_repo(pool: Any, config: ARIELConfig | None = None) -> tuple[ARIELRepository, _Clock]:
+    repo = ARIELRepository(pool, config or _make_config())
+    clock = _Clock()
+    repo._clock = clock
+    return repo, clock
+
+
+class TestSchemaFacts:
+    async def test_one_statement_probes_both_facts(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        repo, _ = _probing_repo(fake_pool)
+
+        facts = await repo.schema_facts()
+
+        assert facts == SchemaFacts(has_v2_fts=False, has_copy_state=True)
+        assert len(fake_pool.calls) == 1
+        sql = fake_pool.sql[0]
+        assert "to_regclass('idx_entries_raw_text_fts_v2')" in sql
+        assert "attachment_files" in sql and "copy_status" in sql
+
+    async def test_semantic_processor_adds_the_second_v2_index(self, fake_pool):
+        repo, _ = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+
+        assert "to_regclass('idx_entries_text_search_v2')" in fake_pool.sql[0]
+
+    async def test_without_semantic_processor_only_the_raw_text_index_counts(self, fake_pool):
+        config = _make_config(
+            enhancement_modules={"semantic_processor": {"enabled": False}},
+        )
+        repo, _ = _probing_repo(fake_pool, config)
+
+        await repo.schema_facts()
+
+        assert "idx_entries_text_search_v2" not in fake_pool.sql[0]
+        assert "idx_entries_raw_text_fts_v2" in fake_pool.sql[0]
+
+    async def test_negative_is_cached_within_the_ttl(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False)]
+        repo, clock = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS - 1
+        facts = await repo.schema_facts()
+
+        assert facts.has_copy_state is False
+        assert len(fake_pool.matching(_PROBE)) == 1
+
+    async def test_negative_is_reprobed_after_the_ttl(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False)]
+        repo, clock = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
+        facts = await repo.schema_facts()
+
+        assert facts == SchemaFacts(has_v2_fts=False, has_copy_state=True)
+        assert len(fake_pool.matching(_PROBE)) == 2
+
+    async def test_positive_is_never_reprobed(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(True, True)]
+        repo, clock = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+        clock.now += 100 * SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
+        facts = await repo.schema_facts()
+
+        assert facts == SchemaFacts(has_v2_fts=True, has_copy_state=True)
+        assert len(fake_pool.calls) == 1
+
+    async def test_a_true_fact_stays_true_while_the_other_is_reprobed(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        repo, clock = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+        # A failed later probe must not take back a fact already seen.
+        fake_pool.recorder.rows_for[_PROBE] = RuntimeError("connection reset")
+        clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
+        facts = await repo.schema_facts()
+
+        assert facts == SchemaFacts(has_v2_fts=False, has_copy_state=True)
+        assert len(fake_pool.matching(_PROBE)) == 2
+
+    async def test_invalidate_drops_the_cached_negative(self, fake_pool):
+        fake_pool.recorder.rows_for[_PROBE] = [(False, False)]
+        repo, _ = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        repo.invalidate_schema_facts()
+        facts = await repo.schema_facts()
+
+        assert facts.has_copy_state is True
+        assert len(fake_pool.matching(_PROBE)) == 2
+
+    async def test_a_failing_probe_reads_as_absent(self, fake_pool_factory, caplog):
+        pool = fake_pool_factory(error=psycopg.OperationalError("db down"))
+        repo, _ = _probing_repo(pool)
+
+        with caplog.at_level("WARNING", logger="ariel"):
+            facts = await repo.schema_facts()
+
+        assert facts == SchemaFacts(has_v2_fts=False, has_copy_state=False)
+        assert "Schema probe failed" in caplog.text
+
+    async def test_no_row_reads_as_absent(self, fake_pool):
+        repo, _ = _probing_repo(fake_pool)
+
+        assert await repo.schema_facts() == SchemaFacts(False, False)
+
+
+# ---------------------------------------------------------------------------
+# Attachment readers -- column-explicit, schema-gated
+# ---------------------------------------------------------------------------
+
+_MIGRATED = SchemaFacts(has_v2_fts=False, has_copy_state=True)
+_UNMIGRATED = SchemaFacts(has_v2_fts=False, has_copy_state=False)
+
+
+def _gated_repo(pool: Any, facts: SchemaFacts) -> ARIELRepository:
+    repo = ARIELRepository(pool, _make_config())
+
+    async def _facts() -> SchemaFacts:
+        return facts
+
+    repo.schema_facts = _facts  # type: ignore[method-assign]
+    return repo
+
+
+def _select_clause(sql: str) -> str:
+    return _sql_body(sql).split(" FROM ", 1)[0]
+
+
+def _selected_columns(sql: str) -> tuple[str, ...]:
+    clause = _select_clause(sql).removeprefix("SELECT ")
+    return tuple(column.strip() for column in clause.split(","))
+
+
+@pytest.fixture
+def schema_gap_flag(monkeypatch):
+    """Reset the once-per-process schema-gap flag for the test."""
+    monkeypatch.setattr(repository_module, "_attachment_schema_gap_warned", False)
+
+
+def _gap_warnings(caplog) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.getMessage() == ATTACHMENT_SCHEMA_GAP_WARNING]
+
+
+class TestAttachmentRowColumns:
+    def test_columns_are_the_thirteen_blob_free_names(self):
+        assert ATTACHMENT_ROW_COLUMNS == (
+            "attachment_id",
+            "entry_id",
+            "filename",
+            "mime_type",
+            "size_bytes",
+            "source_url",
+            "copy_status",
+            "skip_reason",
+            "copy_attempts",
+            "rendition_mime",
+            "rendition_w",
+            "rendition_h",
+            "rendition_sha256",
+        )
+        assert "data" not in ATTACHMENT_ROW_COLUMNS
+        assert "rendition_bytes" not in ATTACHMENT_ROW_COLUMNS
+
+
+class TestGetAttachmentRows:
+    async def test_groups_rows_by_entry_with_named_any(self, fake_pool_factory):
+        rows = [
+            {"attachment_id": "a-1", "entry_id": "e-1"},
+            {"attachment_id": "a-2", "entry_id": "e-2"},
+            {"attachment_id": "a-3", "entry_id": "e-1"},
+        ]
+        pool = fake_pool_factory(results=[rows])
+        repo = _gated_repo(pool, _MIGRATED)
+
+        mapping = await repo.get_attachment_rows(["e-1", "e-2", "e-3"])
+
+        assert mapping == {
+            "e-1": [rows[0], rows[2]],
+            "e-2": [rows[1]],
+        }
+        sql, params = pool.calls[0]
+        assert len(pool.calls) == 1
+        assert "entry_id = ANY(%(entry_ids)s)" in _sql_body(sql)
+        assert params == {"entry_ids": ["e-1", "e-2", "e-3"]}
+        assert _selected_columns(sql) == ATTACHMENT_ROW_COLUMNS
+
+    async def test_selects_no_blob(self, fake_pool):
+        repo = _gated_repo(fake_pool, _MIGRATED)
+
+        assert await repo.get_attachment_rows(["e-1"]) == {}
+
+        columns = _selected_columns(fake_pool.sql[0])
+        assert "data" not in columns
+        assert "rendition_bytes" not in columns
+
+    async def test_empty_ids_return_empty_without_a_connection(self, fake_pool):
+        repo = _gated_repo(fake_pool, _MIGRATED)
+
+        assert await repo.get_attachment_rows([]) == {}
+        assert fake_pool.calls == []
+
+    async def test_empty_ids_skip_the_schema_gate(self, fake_pool):
+        repo = ARIELRepository(fake_pool, _make_config())
+
+        async def _raising() -> SchemaFacts:
+            raise AssertionError("schema_facts must not be consulted")
+
+        repo.schema_facts = _raising  # type: ignore[method-assign]
+
+        assert await repo.get_attachment_rows([]) == {}
+        assert fake_pool.calls == []
+
+    @pytest.mark.usefixtures("schema_gap_flag")
+    async def test_unmigrated_store_returns_none_and_warns_once(self, fake_pool, caplog):
+        caplog.set_level(logging.WARNING, logger="ariel")
+        repo = _gated_repo(fake_pool, _UNMIGRATED)
+
+        assert await repo.get_attachment_rows(["e-1"]) is None
+        assert await repo.get_attachment_rows(["e-2"]) is None
+
+        assert fake_pool.calls == []
+        assert len(_gap_warnings(caplog)) == 1
+
+    async def test_driver_failure_is_wrapped(self, fake_pool_factory):
+        driver_error = RuntimeError("connection reset by peer")
+        repo = _gated_repo(fake_pool_factory(error=driver_error), _MIGRATED)
+
+        with pytest.raises(DatabaseQueryError) as exc_info:
+            await repo.get_attachment_rows(["e-1", "e-2"])
+
+        assert exc_info.value.technical_details["query"] == (
+            "SELECT attachment_files rows entry_ids=ANY([2 ids])"
+        )
+        assert exc_info.value.__cause__ is driver_error
+
+
+class TestGetRendition:
+    async def test_selects_row_columns_plus_rendition_bytes(self, fake_pool_factory):
+        row = {"attachment_id": "a-1", "rendition_bytes": b"\xff\xd8"}
+        pool = fake_pool_factory(results=[[row]])
+        repo = _gated_repo(pool, _MIGRATED)
+
+        assert await repo.get_rendition("a-1") == row
+
+        sql, params = pool.calls[0]
+        assert _selected_columns(sql) == (*ATTACHMENT_ROW_COLUMNS, "rendition_bytes")
+        assert "data" not in _selected_columns(sql)
+        assert "attachment_id = %(attachment_id)s" in _sql_body(sql)
+        assert params == {"attachment_id": "a-1"}
+
+    async def test_absent_rendition_is_none(self, fake_pool):
+        repo = _gated_repo(fake_pool, _MIGRATED)
+
+        assert await repo.get_rendition("a-1") is None
+        assert "rendition_bytes IS NOT NULL" in _sql_body(fake_pool.sql[0])
+
+    @pytest.mark.usefixtures("schema_gap_flag")
+    async def test_unmigrated_store_returns_none_without_a_query(self, fake_pool, caplog):
+        caplog.set_level(logging.WARNING, logger="ariel")
+        repo = _gated_repo(fake_pool, _UNMIGRATED)
+
+        assert await repo.get_rendition("a-1") is None
+        assert fake_pool.calls == []
+        assert len(_gap_warnings(caplog)) == 1
+
+    async def test_driver_failure_is_wrapped(self, fake_pool_factory):
+        driver_error = RuntimeError("connection reset by peer")
+        repo = _gated_repo(fake_pool_factory(error=driver_error), _MIGRATED)
+
+        with pytest.raises(DatabaseQueryError) as exc_info:
+            await repo.get_rendition("a-1")
+
+        assert exc_info.value.technical_details["query"] == (
+            "SELECT attachment_files rendition attachment_id=a-1"
+        )
+        assert exc_info.value.__cause__ is driver_error
+
+
+class TestGetAttachmentOriginal:
+    async def test_reads_only_copied_rows_with_data(self, fake_pool_factory):
+        row = {"filename": "shot.png", "mime_type": "image/png", "data": b"\x89PNG"}
+        pool = fake_pool_factory(results=[[row]])
+        repo = _gated_repo(pool, _MIGRATED)
+
+        assert await repo.get_attachment_original("a-1") == row
+
+        sql, params = pool.calls[0]
+        body = _sql_body(sql)
+        assert "copy_status = 'copied'" in body
+        assert "data IS NOT NULL" in body
+        assert "rendition_bytes" not in _selected_columns(sql)
+        assert "data" in _selected_columns(sql)
+        assert params == {"id": "a-1"}
+
+    async def test_absent_original_is_none(self, fake_pool):
+        repo = _gated_repo(fake_pool, _MIGRATED)
+
+        assert await repo.get_attachment_original("gone") is None
+
+    @pytest.mark.usefixtures("schema_gap_flag")
+    async def test_unmigrated_store_falls_back_to_the_b1_statement(self, fake_pool_factory, caplog):
+        caplog.set_level(logging.WARNING, logger="ariel")
+        row = {"filename": "shot.png", "mime_type": "image/png", "data": b"\x89PNG"}
+        pool = fake_pool_factory(results=[[row]])
+        repo = _gated_repo(pool, _UNMIGRATED)
+
+        assert await repo.get_attachment_original("a-1") == row
+
+        sql, params = pool.calls[0]
+        assert _sql_body(sql) == (
+            "SELECT filename, mime_type, data FROM attachment_files WHERE attachment_id = %(id)s"
+        )
+        assert params == {"id": "a-1"}
+        assert len(_gap_warnings(caplog)) == 1
+
+    async def test_driver_failure_is_wrapped(self, fake_pool_factory):
+        driver_error = RuntimeError("connection reset by peer")
+        repo = _gated_repo(fake_pool_factory(error=driver_error), _MIGRATED)
+
+        with pytest.raises(DatabaseQueryError) as exc_info:
+            await repo.get_attachment_original("a-1")
+
+        assert exc_info.value.technical_details["query"] == (
+            "SELECT attachment_files original attachment_id=a-1"
+        )
+        assert exc_info.value.__cause__ is driver_error
+
+
+class TestAttachmentSchemaGapWarning:
+    @pytest.mark.usefixtures("schema_gap_flag")
+    def test_logs_once_per_process(self, caplog):
+        caplog.set_level(logging.WARNING, logger="ariel")
+
+        repository_module.warn_attachment_schema_gap_once()
+        repository_module.warn_attachment_schema_gap_once()
+
+        records = _gap_warnings(caplog)
+        assert len(records) == 1
+        assert records[0].levelno == logging.WARNING
+
+    @pytest.mark.usefixtures("schema_gap_flag")
+    async def test_every_reader_shares_the_one_warning(self, fake_pool, caplog):
+        caplog.set_level(logging.WARNING, logger="ariel")
+        repo = _gated_repo(fake_pool, _UNMIGRATED)
+
+        await repo.get_attachment_rows(["e-1"])
+        await repo.get_rendition("a-1")
+        await repo.get_attachment_original("a-1")
+        repository_module.warn_attachment_schema_gap_once()
+
+        assert len(_gap_warnings(caplog)) == 1
+
+
+# ---------------------------------------------------------------------------
+# V2 search expressions -- selected by the has_v2_fts schema fact
+# ---------------------------------------------------------------------------
+
+
+def _raw_config() -> ARIELConfig:
+    return _make_config(enhancement_modules={"semantic_processor": {"enabled": False}})
+
+
+class TestV2SearchStatements:
+    """``v2=True`` widens rank, headline and fuzzy similarity to ``attachment_text``."""
+
+    async def test_keyword_search_defaults_to_the_v1_expressions(self, fake_pool) -> None:
+        repo = ARIELRepository(fake_pool, _raw_config())
+
+        await repo.keyword_search(where_clauses=[], params=[], search_text="quench")
+
+        body = _sql_body(fake_pool.calls[0][0])
+        assert "to_tsvector('english', raw_text)" in body
+        assert "ts_headline('english', raw_text, plainto_tsquery('english', %s)" in body
+        assert "attachment_text" not in body
+
+    @pytest.mark.parametrize("semantic", [False, True])
+    async def test_keyword_search_v2_ranks_and_highlights_the_v2_document(
+        self, fake_pool, semantic: bool
+    ) -> None:
+        from osprey.services.ariel_search.database import search_fts
+
+        config = _make_config() if semantic else _raw_config()
+        repo = ARIELRepository(fake_pool, config)
+
+        await repo.keyword_search(where_clauses=[], params=[], search_text="quench", v2=True)
+
+        body = _sql_body(fake_pool.calls[0][0])
+        expression, document = (
+            (search_fts.SEMANTIC_FTS_EXPRESSION_V2, search_fts.SEMANTIC_TEXT_SEARCH_DOCUMENT_V2)
+            if semantic
+            else (search_fts.RAW_TEXT_FTS_EXPRESSION_V2, search_fts.RAW_TEXT_SEARCH_DOCUMENT_V2)
+        )
+        assert f"ts_rank( {expression}, plainto_tsquery('english', %s) )" in body
+        assert f"ts_headline('english', {document}, plainto_tsquery('english', %s)" in body
+
+    async def test_fuzzy_search_v2_takes_the_better_of_both_texts(self, fake_pool) -> None:
+        repo = ARIELRepository(fake_pool, _raw_config())
+
+        await repo.fuzzy_search("quench", threshold=0.25, v2=True)
+
+        sql, params = fake_pool.calls[0]
+        body = _sql_body(sql)
+        greatest = (
+            "GREATEST(similarity(raw_text, %s), similarity(COALESCE(attachment_text,''), %s))"
+        )
+        assert f"SELECT e.*, {greatest} AS sim" in body
+        assert f"WHERE {greatest} >= %s" in body
+        assert "ORDER BY sim DESC" in body
+        assert params == ["quench", "quench", "quench", "quench", 0.25, 10]
+
+    async def test_fuzzy_search_v1_is_b1_exact(self, fake_pool) -> None:
+        repo = ARIELRepository(fake_pool, _raw_config())
+
+        await repo.fuzzy_search("quench", v2=False)
+
+        body = _sql_body(fake_pool.calls[0][0])
+        assert "SELECT e.*, similarity(raw_text, %s) AS sim" in body
+        assert "WHERE similarity(raw_text, %s) >= %s" in body
+        assert "attachment_text" not in body
+
+    async def test_probe_requires_the_attachment_text_trigram_index(self, fake_pool) -> None:
+        repo, _ = _probing_repo(fake_pool)
+
+        await repo.schema_facts()
+
+        assert "to_regclass('idx_entries_attachment_text_trgm') IS NOT NULL" in fake_pool.sql[0]
+
+
+_RANK_EXPRESSION = re.compile(r"ts_rank\( (.*?), \(?(?:plainto|websearch)_tsquery")
+
+
+class TestOneQueryOneExpression:
+    """The keyword module reads the fact once; match and rank share one constant."""
+
+    @pytest.mark.parametrize("v2", [False, True])
+    async def test_rank_and_where_use_the_same_constant(self, fake_pool, v2: bool) -> None:
+        from osprey.services.ariel_search.database.search_fts import keyword_fts_expression
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        config = _raw_config()
+        fake_pool.recorder.rows_for[_PROBE] = [(v2, True)]
+        repo, _ = _probing_repo(fake_pool, config)
+
+        await keyword_search("quench", repo, config, fuzzy_fallback=False)
+
+        (search_sql, _params) = fake_pool.recorder.matching("ts_rank")[0]
+        body = _sql_body(search_sql)
+        expected = keyword_fts_expression(config, v2=v2)
+        rank = _RANK_EXPRESSION.search(body)
+        assert rank is not None
+        assert rank.group(1) == expected
+        assert f"WHERE {expected} @@ (plainto_tsquery('english', %s))" in body
+        assert len(fake_pool.recorder.matching(_PROBE)) == 1
+
+    async def test_a_running_panel_flips_to_v2_within_the_ttl(self, fake_pool) -> None:
+        """A store migrated after the panel started is searched with V2 after 60 s."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        config = _raw_config()
+        fake_pool.recorder.rows_for[_PROBE] = [(False, True)]
+        repo, clock = _probing_repo(fake_pool, config)
+
+        async def searched_with_v2() -> bool:
+            fake_pool.recorder.calls.clear()
+            await keyword_search("quench", repo, config, fuzzy_fallback=False)
+            (search_sql, _params) = fake_pool.recorder.matching("ts_rank")[0]
+            return "attachment_text" in search_sql
+
+        assert not await searched_with_v2()
+
+        fake_pool.recorder.rows_for[_PROBE] = [(True, True)]  # the migration ran
+        clock.now += SCHEMA_FACTS_NEGATIVE_TTL_SECONDS - 1
+        assert not await searched_with_v2()
+
+        clock.now += 2
+        assert await searched_with_v2()

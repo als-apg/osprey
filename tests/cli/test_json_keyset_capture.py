@@ -22,9 +22,10 @@ so equality is a real contract rather than a fixture artifact:
 * ``audit`` → ``findings[]`` (the ``AuditFinding`` pydantic model);
 * ``query`` → ``tool_traces[]`` (a literal dict comprehension in
   ``_build_json_output``);
-* ``ariel status`` → ``database``, ``embedding_tables[]``,
-  ``enhancement_modules``, ``search_modules``. ``database`` is a literal dict
-  in ``get_status``; the two module maps are keyed by what the registry
+* ``ariel status`` → ``attachments``, ``database``, ``embedding_tables[]``,
+  ``image_embedding_tables[]``, ``enhancement_modules``, ``search_modules``.
+  Both table lists are literal dict comprehensions in ``get_status``. ``database`` and ``attachments``
+  are literal dicts in ``get_status``; the two module maps are keyed by what the registry
   carries, so this golden also records which modules the framework registers,
   and a module added or renamed lands here. ``enhancement_modules`` is the
   joined table: each registered module's ``enabled`` flag alongside its store
@@ -78,6 +79,7 @@ from osprey.cli.audit_prompts import AuditFinding, AuditReport
 from osprey.cli.health_cmd import health
 from osprey.cli.query_cmd import query
 from osprey.health.models import CheckReport, CheckResult, Status
+from osprey.services.ariel_search.database.repository import SchemaFacts
 from tests.cli._lifecycle_build import stub_build
 
 # --------------------------------------------------------------------------- #
@@ -96,6 +98,8 @@ _NESTED: dict[str, tuple[str, ...]] = {
     "ariel_status": (
         "database",
         "embedding_tables[]",
+        "image_embedding_tables[]",
+        "attachments",
         "enhancement_modules",
         "search_modules",
     ),
@@ -384,6 +388,52 @@ class _StubService:
         return self._search_result
 
 
+def build_ariel_status_repository(stats: dict[str, Any]) -> MagicMock:
+    """Return a repository double answering every query ``get_status`` awaits.
+
+    Shared by every ``ariel status --json`` stub, so no stub awaits a bare
+    ``MagicMock`` when ``get_status`` grows a repository call. The store is on
+    the current schema, with one pending picture and one skip.
+
+    Args:
+        stats: The ``get_enhancement_stats`` payload.
+    """
+    repository = MagicMock()
+    repository.get_enhancement_stats = AsyncMock(return_value=stats)
+    repository.get_embedding_tables = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                table_name="text_embeddings_nomic",
+                entry_count=7,
+                dimension=768,
+                is_active=True,
+            )
+        ]
+    )
+    repository.get_image_embedding_tables = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                table_name="image_embeddings_vis_0123abcd_d1024",
+                entry_count=3,
+                dimension=1024,
+                is_active=False,
+            )
+        ]
+    )
+    repository.get_last_ingestion = AsyncMock(return_value=None)
+    repository.schema_facts = AsyncMock(
+        return_value=SchemaFacts(has_v2_fts=True, has_copy_state=True)
+    )
+    repository.get_attachment_bytes = AsyncMock(return_value=8192)
+    repository.get_attachment_copy_counts = AsyncMock(return_value=(1, {"too_large": 1}))
+    return repository
+
+
+def patch_render_probe_ok() -> Any:
+    """Return a patch context answering the render probe ``ok`` without a worker."""
+    return patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=True))
+
+
 @pytest.fixture
 def ariel_service(monkeypatch: pytest.MonkeyPatch):
     """Route ``create_ariel_service`` to a caller-supplied stub service."""
@@ -402,29 +452,18 @@ def test_ariel_status_json_keyset(
     runner: CliRunner, ariel_service, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``ariel status --json`` emits the recorded ``get_status`` shape."""
-    repository = MagicMock()
-    repository.get_enhancement_stats = AsyncMock(
-        return_value={
+    repository = build_ariel_status_repository(
+        {
             "total_entries": 7,
             "text_embedding": {"complete": 7, "failed": 0, "pending": 0},
             "retired_tagger": {"complete": 2, "failed": 0, "pending": 5},
         }
     )
-    repository.get_embedding_tables = AsyncMock(
-        return_value=[
-            SimpleNamespace(
-                table_name="text_embeddings_nomic",
-                entry_count=7,
-                dimension=768,
-                is_active=True,
-            )
-        ]
-    )
-    repository.get_last_ingestion = AsyncMock(return_value=None)
     ariel_service(_StubService(repository=repository))
     monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_ARIEL_CONFIG))
 
-    result = runner.invoke(ariel_group, ["status", "--json"])
+    with patch_render_probe_ok():
+        result = runner.invoke(ariel_group, ["status", "--json"])
 
     assert result.exit_code == 0, result.output
     _assert_matches_golden(json.loads(result.stdout), "ariel_status")

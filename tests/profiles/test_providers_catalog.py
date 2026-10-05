@@ -18,9 +18,10 @@ from osprey.profiles.providers import (
     packaged_catalog_path,
 )
 
-# The ten providers the control-assistant app template shipped under
-# `api.providers`. Frozen here so a dropped entry is a test failure, not a
-# silently smaller catalog.
+# The eleven providers the packaged catalog ships: the ten chat providers the
+# control-assistant app template carried under `api.providers`, plus the
+# embeddings-only llama-cpp. Frozen here so a dropped entry is a test failure,
+# not a silently smaller catalog.
 EXPECTED_PROVIDERS = {
     "als-apg",
     "amsc-i2",
@@ -29,6 +30,7 @@ EXPECTED_PROVIDERS = {
     "cborg",
     "ds4",
     "google",
+    "llama-cpp",
     "ollama",
     "openai",
     "stanford",
@@ -57,7 +59,7 @@ class TestPackagedCatalog:
         assert path.is_file()
         assert path.parent.name == "profiles"
 
-    def test_packaged_catalog_holds_the_ten_providers(self):
+    def test_packaged_catalog_holds_the_eleven_providers(self):
         catalog = load_provider_catalog(None)
         assert set(catalog.entries) == EXPECTED_PROVIDERS
         assert catalog.source == "packaged"
@@ -92,6 +94,15 @@ class TestPackagedCatalog:
         catalog = load_provider_catalog(None)
         declared = {n for n, e in catalog.entries.items() if "supports_images" in e}
         assert declared == set()
+
+    def test_the_llama_cpp_entry_is_keyless_and_names_the_adapter_default(self):
+        from osprey.models.providers.llama_cpp import LLAMA_CPP_DEFAULT_MODEL
+
+        entry = load_provider_catalog(None).entries["llama-cpp"]
+        assert entry["api_key"] == "llama-cpp"
+        assert entry["base_url"] == "${LLAMA_CPP_HOST:-http://localhost:8080}"
+        assert entry["default_model"] == LLAMA_CPP_DEFAULT_MODEL
+        assert entry["models"] == [LLAMA_CPP_DEFAULT_MODEL]
 
     def test_catalog_carries_no_jinja(self):
         text = packaged_catalog_path().read_text(encoding="utf-8")

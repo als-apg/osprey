@@ -435,6 +435,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "entries_by_ids",
             "browse",
             "entry_get",
+            "attachment_view",
+            "entry_open",
+            "attachment_to_artifact",
             "capabilities",
             "status",
             "filter_options",
@@ -1326,7 +1329,10 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
     A context without ``phoebus_agent_access`` resolves as ``read``: the
     ``phoebus`` server and its ``extends`` clones come back without
-    ``phoebus_drive`` in their permission lists.
+    ``phoebus_drive`` in their permission lists. A context without
+    ``ariel_attachment_view`` resolves as ``True``; with it ``False`` the
+    ``ariel`` server and its ``extends`` clones come back without
+    ``attachment_view`` and ``attachment_to_artifact``.
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -1405,6 +1411,7 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
     # ── Phoebus agent access ──────────────────────────────────
     _withhold_phoebus_drive(servers, ctx.get("phoebus_agent_access", READ))
+    _withhold_ariel_attachment_view(servers, ctx.get("ariel_attachment_view", True))
 
     # ── Build output dicts ────────────────────────────────────
     # Every launch denies the plugin and connector tool namespaces, so a server
@@ -1447,6 +1454,35 @@ def _withhold_phoebus_drive(servers: dict[str, ServerDefinition], access: str) -
             continue
         sdef.permissions_ask = [t for t in sdef.permissions_ask if t != DRIVE_TOOL]
         sdef.permissions_allow = [t for t in sdef.permissions_allow if t != DRIVE_TOOL]
+
+
+ARIEL_SERVER_TEMPLATE = "ariel"
+#: The ariel tools ``ariel.attachments.view.enabled`` withholds: the server's
+#: ``VIEW_GATED_TOOLS``, spelled here so the registry imports no server module.
+ARIEL_VIEW_TOOLS = ("attachment_view", "attachment_to_artifact")
+
+
+def _withhold_ariel_attachment_view(servers: dict[str, ServerDefinition], enabled: bool) -> None:
+    """Remove the picture tools from the ariel permission lists when the view is off.
+
+    Applies to the ``ariel`` server and every ``extends: ariel`` clone, on
+    ``resolve_servers``'s deep copies, never on ``FRAMEWORK_SERVERS``. With
+    ``ariel.attachments.view.enabled: false`` the server hides
+    ``ARIEL_VIEW_TOOLS`` from ``tools/list``, so an allow entry for them would
+    grant nothing the agent can reach and the rendered allow list stays the one
+    without pictures.
+
+    Args:
+        servers: Resolved server definitions, keyed by name; edited in place.
+        enabled: The ``ariel_attachment_view`` context value.
+    """
+    if enabled:
+        return
+    for name, sdef in servers.items():
+        if (sdef.extends_of or name) != ARIEL_SERVER_TEMPLATE:
+            continue
+        sdef.permissions_ask = [t for t in sdef.permissions_ask if t not in ARIEL_VIEW_TOOLS]
+        sdef.permissions_allow = [t for t in sdef.permissions_allow if t not in ARIEL_VIEW_TOOLS]
 
 
 # Extends-clone names are spliced into regex hook matchers, exact permission

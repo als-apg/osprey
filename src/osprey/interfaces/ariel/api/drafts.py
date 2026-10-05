@@ -8,7 +8,6 @@ in _agent_data/drafts/ and expire after 1 hour.
 from __future__ import annotations
 
 import json
-import mimetypes
 import time
 import uuid
 from pathlib import Path
@@ -18,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from osprey.interfaces.ariel.api.attachment_response import attachment_response
 from osprey.utils.workspace import resolve_shared_data_root
 
 
@@ -169,8 +169,4 @@ async def get_draft_attachment(draft_id: str, filename: str) -> Response:
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Attachment file not found on disk")
 
-    content_type, _ = mimetypes.guess_type(str(file_path))
-    return Response(
-        content=file_path.read_bytes(),
-        media_type=content_type or "application/octet-stream",
-    )
+    return attachment_response(file_path.read_bytes(), filename)

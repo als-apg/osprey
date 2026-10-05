@@ -181,6 +181,7 @@ class ArgoProviderAdapter(BaseProvider):
     # The OpenAI route documents no image input, so none is assumed.
     supports_images = False
     supports_thinking = False
+    self_hosted = False
 
     # LiteLLM integration - ARGO is an OpenAI-compatible proxy
     is_openai_compatible = True

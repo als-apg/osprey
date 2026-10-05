@@ -20,8 +20,19 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("ariel")
 
-# Allowed tables (allowlist — reject everything else)
+# Allowed tables (allowlist — reject everything else). The attachment file
+# table holds raw bytes and stays out; the text read from attachments is on
+# enhanced_entries as attachment_text and attachment_captions.
 ALLOWED_TABLES = {"enhanced_entries", "text_embeddings"}
+
+# Appended to every table refusal, so an agent that reached for the stored
+# attachment files learns where their text is.
+_REFUSAL_HINT = (
+    "Allowed tables: enhanced_entries, text_embeddings_*. "
+    "Binary tables are not queryable (attachment_files holds file bytes); "
+    "attachment text is in enhanced_entries.attachment_text and "
+    "enhanced_entries.attachment_captions."
+)
 
 # Forbidden keywords (DML/DDL/DCL)
 FORBIDDEN_KEYWORDS = {
@@ -301,18 +312,13 @@ def validate_sql_query(query: str) -> None:
             table_lower == allowed or table_lower.startswith(f"{allowed}_")
             for allowed in ALLOWED_TABLES
         ):
-            raise ValueError(
-                f"Table '{table_ref}' is not in the allowlist. "
-                f"Allowed tables: enhanced_entries, text_embeddings_*"
-            )
+            raise ValueError(f"Table '{table_ref}' is not in the allowlist. {_REFUSAL_HINT}")
 
     # Nothing to check IS the failure: the loop above passes vacuously for a
     # query that reads no table, which is exactly the shape a server-side file
     # read takes.
     if not table_refs:
-        raise ValueError(
-            "Query reads no allowlisted table. Allowed tables: enhanced_entries, text_embeddings_*"
-        )
+        raise ValueError(f"Query reads no allowlisted table. {_REFUSAL_HINT}")
 
 
 async def sql_query(

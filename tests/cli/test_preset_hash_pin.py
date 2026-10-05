@@ -228,27 +228,44 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # 1.0`, the simulator's tick period, whose value is the one the absent key
     # resolves, so a rebuilt project behaves identically; the digest moves
     # because the preset now states it.
-    "ariel-standalone": ("sha256:2a55ee7fd7f696a83f62ae2d78e3ed715d108d179ca0b66ec77c186544ae86d4"),
+    # The thirty-first move, and the two presets that carry an `ariel:` block:
+    # ariel-standalone and control-assistant turned the ARIEL picture modules
+    # on (`image_caption` and `image_embedding`, each with its own provider and
+    # model) and state `ariel.attachments.copy_on_ingest: images` and
+    # `ariel.attachments.view.enabled: true`. A rebuilt project captions and
+    # embeds pictures where it did not before, so the staleness advisory firing
+    # on already-deployed projects is the correct signal. The five `extends`
+    # children inherit them; channel-finder-standalone and hello-world stand
+    # still.
+    # The thirty-second move, and ariel-standalone alone: it states
+    # `ariel.demo_narrative: data/logbook_seed` in place of its demo ingestion
+    # block (`ariel.ingestion.adapter` / `source_url`, now commented examples),
+    # so its deploy seeds the control-assistant scenario narratives, pictures
+    # included, instead of ingesting a copied JSON file. A rebuilt project seeds
+    # a different demo logbook, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. Every other preset
+    # stands still.
+    "ariel-standalone": ("sha256:f77debeb01c502cfbc55bf0d7d7d11e1993fc5ef555e88cafe19b6482aaf83a7"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:663aac1ad167933c0d17dea2a95bacd2b9082ce89b0827c91d99afb6a5b8e43b"
+        "sha256:74ff54a1b535a83eaf323d755d21bb04fe4d54b67b5bb6a8f4b674b9bb7d2592"
     ),
     "control-assistant-admin": (
-        "sha256:34c4e0d4032dbbdf5dc9ba16f3867f3b1c163ed8fda1cf316664f9196d50d882"
+        "sha256:e1bd6a9490edb2217dd42e3e4c7a4a01650f80d647c3fb9082da6bb1a04225fc"
     ),
     "control-assistant-knowledge": (
-        "sha256:f3f30c1b2754df8845c344277f980e20127f2ab4288005c33310718a001ec3c5"
+        "sha256:7abc23193fa37ddd77c13ae0e4bd0a485f7f80958573f63ad8e129344ca70817"
     ),
     "control-assistant-logbook": (
-        "sha256:080436437e901dcf23c9071f1e500302efe9becf7a6d1767ce39d2d94f1e1536"
+        "sha256:896b24334f6bbeb12bade704addc65ef4fe00b9ad5fdab71ab34c58f9d065977"
     ),
     "control-assistant-readonly": (
-        "sha256:045f15af57ee0a48f57d5df4f7abcac87ecfa19f5d3e8245f0d902de7ec02135"
+        "sha256:d7b0d0825c2c0dba0d201f9a5037968a60423667b252413ad85c0a32ac6a81a6"
     ),
     "control-assistant-readwrite": (
-        "sha256:7fe7c9872738fa3e02a96ca8379c36dbc04751f443b8473569ad8ab1b786c95e"
+        "sha256:196b956047224fbda07de962684a615eeb2757e0d955f84b8fc2845ed66d7dd3"
     ),
     "hello-world": ("sha256:d9328877c94d4e066e6bb98e54f38f9bb2918025928ed37f598141c91082c5d7"),
 }

@@ -25,6 +25,8 @@ from . import output
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from osprey.services.ariel_search.cli_operations import BackfillResult
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -96,6 +98,135 @@ def _report_vocabulary(vocabulary: dict | None) -> None:
         output.report(f"Vocabulary: INVALID ({count} errors). Run: osprey ariel vocab-check")
     else:
         output.report("Vocabulary: disabled")
+
+
+def _report_attachments(attachments: dict | None) -> None:
+    """Print the attachments section of ``osprey ariel status``.
+
+    Args:
+        attachments: The ``attachments`` block of the status result, or None
+            when the result carries none (nothing is printed then).
+    """
+    if not attachments:
+        return
+    from osprey.imaging.formats import skip_reason_text
+
+    output.report("")
+    output.report("Attachments:")
+    output.note(f"render: {attachments.get('render')}")
+    size = attachments.get("bytes")
+    output.note(f"stored bytes: {size if size is not None else 'unknown'}")
+    if attachments.get("pending") is None or attachments.get("skipped") is None:
+        output.note("schema behind code: run osprey ariel migrate")
+        return
+    output.note(f"pending: {attachments['pending']}")
+    for code, count in sorted(attachments["skipped"].items()):
+        if count:
+            output.note(f"skipped {code}: {count}. Reason: {skip_reason_text(code)}.")
+
+
+#: How each local server is started, for the ``unreachable`` line of status.
+_SERVER_START = {
+    "llama-cpp": "start llama-server, see the picture-search guide",
+    "ollama": "start Ollama with `ollama serve`",
+}
+
+
+def _redacted_base_url(url: object) -> str | None:
+    """*url* with any credentials and query removed, or None when there is none."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    if not isinstance(url, str) or not url.strip():
+        return None
+    parts = urlsplit(url.strip())
+    host = parts.netloc.rsplit("@", 1)[-1]
+    return urlunsplit((parts.scheme, host, parts.path, "", "")) or None
+
+
+def _module_route(config_dict: dict, name: str) -> tuple[str, str | None, str | None]:
+    """``(provider, model_id, base_url)`` of a module, read from the ``ariel`` config."""
+    block = (config_dict.get("enhancement_modules") or {}).get(name) or {}
+    if not isinstance(block, dict):
+        block = {}
+    provider = block.get("provider")
+    if isinstance(provider, dict):
+        base_url = provider.get("base_url")
+        provider = provider.get("name")
+    else:
+        base_url = block.get("base_url")
+    if not provider:
+        provider = (config_dict.get("embedding") or {}).get("provider")
+    raw_model = block.get("model")
+    model: dict = raw_model if isinstance(raw_model, dict) else {}
+    model_id = model.get("model_id") or model.get("name")
+    if not model_id and isinstance(block.get("models"), list) and block["models"]:
+        first = block["models"][0]
+        model_id = first.get("name") if isinstance(first, dict) else None
+    if not base_url and provider:
+        try:
+            base_url = get_config_value(f"api.providers.{provider}.base_url", None)
+        except Exception:
+            base_url = None
+    return str(provider or "its provider"), model_id, _redacted_base_url(base_url)
+
+
+def module_skip_line(name: str, reason: str, config_dict: dict) -> str:
+    """The one status line saying why module *name* is skipped.
+
+    Args:
+        name: Module name.
+        reason: The module's ``health.reason``.
+        config_dict: The ``ariel`` config section.
+
+    Returns:
+        ``<name>: skipped, <what is wrong> (<fix>, or set <key>.enabled: false)``.
+    """
+    provider, model_id, base_url = _module_route(config_dict, name)
+    key = f"ariel.enhancement_modules.{name}"
+    model = f"model {model_id}" if model_id else "the configured model"
+    where = f" at {base_url}" if base_url else ""
+    table = {
+        "model": (
+            f"{model} not available on {provider}",
+            "pull it" if provider == "ollama" else f"set {key}.model to a model {provider} serves",
+        ),
+        "unreachable": (
+            f"{provider} not reachable{where}",
+            _SERVER_START.get(provider, f"start the {provider} server"),
+        ),
+        "auth": (
+            f"{provider} refused the API key{where}",
+            f"set the API key of api.providers.{provider}",
+        ),
+        "config": (
+            "its configuration or the database schema is incomplete",
+            f"check {key}, then run osprey ariel migrate",
+        ),
+        "no_reader": (
+            f"{provider} cannot read pictures",
+            "see the picture-search guide",
+        ),
+    }
+    what, fix = table.get(reason, (f"unavailable ({reason})", f"check {key}"))
+    return f"{name}: skipped, {what} ({fix}, or set {key}.enabled: false)"
+
+
+def _report_module_health(modules: dict | None, config_dict: dict) -> None:
+    """Print one line for every enabled module the status found unusable.
+
+    Args:
+        modules: The ``enhancement_modules`` block of the status result.
+        config_dict: The ``ariel`` config section, for the model and server named.
+    """
+    for name, entry in sorted((modules or {}).items()):
+        health = entry.get("health") if isinstance(entry, dict) else None
+        if not isinstance(health, dict) or not entry.get("enabled"):
+            continue
+        reason = health.get("reason")
+        if reason is None and health.get("reachable") is False:
+            reason = "unreachable"
+        if reason is not None:
+            output.report(module_skip_line(name, reason, config_dict))
 
 
 def _handle_db_error(e: Exception) -> None:
@@ -273,6 +404,12 @@ def status_command(output_json: bool) -> None:
             for table in result.get("embedding_tables", []):
                 active = " (active)" if table["active"] else ""
                 output.note(f"- {table['table']}: {table['entries']} entries{active}")
+            image_tables = result.get("image_embedding_tables") or []
+            if image_tables:
+                output.report("Image embedding tables:")
+                for table in image_tables:
+                    active = " (active)" if table["active"] else ""
+                    output.note(f"- {table['table']}: {table['pictures']} pictures{active}")
 
             # Printed only when there is something to clean up: these are rows
             # in the store that no registered module writes any more, and this
@@ -286,6 +423,10 @@ def status_command(output_json: bool) -> None:
                 )
                 output.report(f"Rows from unregistered enhancement modules: {leftovers}")
 
+            _report_module_health(result.get("enhancement_modules"), config_dict)
+
+            _report_attachments(result.get("attachments"))
+
 
 @ariel_group.command("migrate")
 def migrate_command() -> None:
@@ -297,10 +438,14 @@ def migrate_command() -> None:
 
     config_dict = _load_ariel_config()
     try:
-        asyncio.run(run_migrate(config_dict, progress=output.report))
+        busy = asyncio.run(run_migrate(config_dict, progress=output.report))
     except Exception as e:
         _handle_db_error(e)
         raise
+    for name in busy or []:
+        output.report(f"{name}: tables busy, not applied. Run `osprey ariel migrate` again.")
+    if busy:
+        raise SystemExit(1)
 
 
 def _sync_watch_forever(config_dict: dict) -> None:
@@ -438,6 +583,152 @@ def ingest_command(
         raise
 
 
+@ariel_group.group("attachments")
+def attachments_group() -> None:
+    """Attachment copy commands."""
+
+
+def _backfill_project_config() -> dict:
+    """Return the top-level keys the backfill hint names, read without probing anything."""
+    keys = ("container_runtime", "project_name", "project_root")
+    found: dict = {}
+    for key in keys:
+        try:
+            value = get_config_value(key, None)
+        except Exception:
+            value = None
+        if isinstance(value, (str, Path)) and str(value):
+            found[key] = str(value)
+    return found
+
+
+def _report_counts(title: str, counts: dict) -> None:
+    """Print one dry-run counter: its total, then one line per declared type and host."""
+    total = sum(counts.values())
+    output.report(f"{title}: {total}")
+    for (mime, host), n in sorted(counts.items()):
+        output.note(f"{mime} from {host}: {n}")
+
+
+def _report_backfill_plan(result: BackfillResult) -> None:
+    """Print the dry-run and probe sections of a backfill result."""
+    plan = result.plan
+    if plan is None:
+        return
+    output.report(f"Dry run: {plan.entries} entries examined, nothing written")
+    _report_counts("no row yet", plan.no_row)
+    _report_counts("pending", plan.pending)
+    for code, counts in sorted(plan.skipped.items()):
+        _report_counts(f"skipped {code}", counts)
+    _report_counts("would fetch", plan.would_fetch)
+    _report_counts("per_entry_limit (not fetched)", plan.per_entry_limit)
+    for code, counts in sorted(plan.still_skipped.items()):
+        _report_counts(f"stays skipped {code}", counts)
+    _report_counts("not fetchable from this source", plan.not_fetchable)
+    _report_counts("would render (no network)", plan.would_render)
+    probe = result.probe
+    if probe is not None:
+        outcomes = ", ".join(f"{k} {v}" for k, v in sorted(probe.outcomes.items())) or "none"
+        output.report(
+            f"Probe: {probe.sampled} HEAD requests ({outcomes}); estimate: "
+            f"~{probe.estimate} of {sum(plan.would_fetch.values())} would copy"
+        )
+
+
+@attachments_group.command("backfill")
+@click.option("--limit", type=int, help="Maximum entries to visit")
+@click.option("--dry-run", is_flag=True, help="Count what would be fetched; no network, no writes")
+@click.option(
+    "--probe",
+    type=click.IntRange(min=1),
+    default=None,
+    help="HEAD this many sampled pictures and print an estimate (implies --dry-run)",
+)
+@click.option("--wait", is_flag=True, help="Wait for a copy running in another process")
+@click.option(
+    "--retry-decoder-failed",
+    "retry_decoder_failed",
+    is_flag=True,
+    help="Render again the stored pictures the decoder could not read",
+)
+def backfill_command(
+    limit: int | None, dry_run: bool, probe: int | None, wait: bool, retry_decoder_failed: bool
+) -> None:
+    """Record and copy the pictures of every stored entry, newest first.
+
+    Recovers entries ingested before the upgrade, under copy_on_ingest none, or
+    whose record step failed; retries config- and source-skipped pictures and
+    renders stored originals that have no rendition. --retry-decoder-failed
+    also renders again the stored pictures the decoder could not read.
+    """
+    from osprey.services.ariel_search.cli_operations import backfill_exec_line, run_backfill
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    args: list[str] = []
+    if limit is not None:
+        args += ["--limit", str(limit)]
+    if dry_run:
+        args.append("--dry-run")
+    if probe is not None:
+        args += ["--probe", str(probe)]
+    if wait:
+        args.append("--wait")
+    if retry_decoder_failed:
+        args.append("--retry-decoder-failed")
+
+    config_dict = _load_ariel_config()
+    try:
+        result = asyncio.run(
+            run_backfill(
+                config_dict,
+                limit=limit,
+                dry_run=dry_run,
+                probe=probe,
+                wait=wait,
+                retry_decoder_failed=retry_decoder_failed,
+                progress=output.report,
+            )
+        )
+    except DatabaseQueryError as e:
+        _handle_missing_tables(e)
+        raise
+    except Exception as e:
+        _handle_db_error(e)
+        raise
+
+    output.report(f"Run in the deployment: {backfill_exec_line(_backfill_project_config(), args)}")
+    output.note(f"proxy: {result.proxy or 'none (direct)'}")
+    output.note(f"CA: {result.ca_bundle or 'image trust store'}")
+
+    if result.status == "no_copy_state":
+        output.fail(
+            "the attachment copy state is missing",
+            None,
+            "run osprey ariel migrate first",
+        )
+        raise SystemExit(1)
+    if result.status == "locked":
+        output.report("copy: running in another process (use --wait to wait for it)")
+        return
+    if result.dry_run:
+        _report_backfill_plan(result)
+        return
+    skipped = ", ".join(f"{k} {v}" for k, v in sorted(result.skipped.items())) or "none"
+    output.report(
+        f"Backfill complete: {result.entries} entries, {result.fetches} fetches, "
+        f"{result.copied} copied, {result.rendered} rendered, {result.pending} pending, "
+        f"skipped: {skipped}"
+    )
+    if retry_decoder_failed:
+        output.report(f"Decoder failures reset for a re-render: {result.decoder_reset}")
+    if result.record_failed or result.copy_failed:
+        output.warn(
+            f"{result.record_failed} entries not recorded, {result.copy_failed} copies failed",
+            "The ARIEL log names each one; run backfill again to retry them.",
+        )
+        raise SystemExit(1)
+
+
 @ariel_group.command("watch")
 @click.option("--source", "-s", help="Source file path or URL (overrides config)")
 @click.option(
@@ -517,16 +808,38 @@ def watch_command(
 )
 @click.option("--force", is_flag=True, help="Re-process already enhanced entries")
 @click.option("--limit", type=int, default=100, help="Maximum entries to process")
-def enhance_command(module: str | None, force: bool, limit: int) -> None:
+@click.option(
+    "--retry-failed",
+    is_flag=True,
+    help="With --module, retry the entries (and pictures) that module gave up on",
+)
+def enhance_command(module: str | None, force: bool, limit: int, retry_failed: bool) -> None:
     """Run enhancement modules on entries.
 
-    Processes entries that haven't been enhanced yet, or re-processes
-    all entries if --force is specified.
+    Processes entries that haven't been enhanced yet, or re-processes the
+    newest entries with the text modules if --force is specified. Picture
+    modules keep their results per picture and model, so --force never
+    re-runs them; --retry-failed gives a module's failures a new try.
     """
-    from osprey.services.ariel_search.cli_operations import run_enhance
+    from osprey.services.ariel_search.cli_operations import (
+        FORCE_REFUSAL,
+        _runs_in_catchup,
+        run_enhance,
+    )
+
+    if force and module and _runs_in_catchup(module):
+        output.fail(FORCE_REFUSAL)
+        raise SystemExit(1)
+    if retry_failed and not module:
+        output.fail("--retry-failed needs --module: name the module whose failures to retry")
+        raise SystemExit(1)
 
     config_dict = _load_ariel_config()
-    asyncio.run(run_enhance(config_dict, module, force, limit, progress=output.report))
+    asyncio.run(
+        run_enhance(
+            config_dict, module, force, limit, progress=output.report, retry_failed=retry_failed
+        )
+    )
 
 
 @ariel_group.command("models")
@@ -751,12 +1064,14 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
     if embeddings_only:
         detail = (
             f"embedding tables: {info.embedding_tables or '(none)'}\n"
+            f"image embedding tables: {info.image_embedding_tables or '(none)'}\n"
             f"the {info.entry_count} logbook entries are kept"
         )
     else:
         detail = (
             f"all {info.entry_count} logbook entries\n"
             f"all embedding tables: {info.embedding_tables or '(none)'}\n"
+            f"all image embedding tables: {info.image_embedding_tables or '(none)'}\n"
             "all ingestion history"
         )
     output.warn("this deletes ARIEL data for good", detail)

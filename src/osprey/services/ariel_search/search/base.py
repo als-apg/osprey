@@ -255,6 +255,13 @@ class SearchToolDescriptor:
             `QueryExpansion`, but only when an expansion was actually resolved
             for the request -- the argument is never passed as ``None``.
             Modules that leave this false are called exactly as they are today.
+        accepts_include_images: Whether this module can search attachment
+            pictures. When true, the service resolves the caller's
+            ``include_images`` advanced parameter against
+            ``ariel.enhancement_modules.image_embedding.enabled`` and always
+            passes the result as ``include_images=`` (a bool). The raw
+            parameter is stripped either way, so a module that leaves this
+            false never sees it.
         query_parser: Optional pure function turning the raw query string into
             a `ParsedKeywordQuery`. When set, the service calls it once per
             search and passes the result as `parsed=`; when unset, the module
@@ -271,6 +278,7 @@ class SearchToolDescriptor:
     format_result: Callable[..., dict[str, Any]]
     needs_embedder: bool = False
     accepts_expansion: bool = False
+    accepts_include_images: bool = False
     query_parser: Callable[[str], ParsedKeywordQuery] | None = None
 
 

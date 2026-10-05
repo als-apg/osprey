@@ -20,6 +20,7 @@ from osprey.services.ariel_search.search.base import (
     QueryExpansion,
 )
 from osprey.services.ariel_search.search.semantic import get_tool_descriptor, semantic_search
+from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 AMBIGUOUS_GROUPS = (ExpansionGroup(original="ts", alternatives=("troubleshoot", "timing system")),)
 AMBIGUOUS_EXPANSION = QueryExpansion(
@@ -53,8 +54,7 @@ def repository(config):
 @pytest.fixture
 def embedder():
     """An embedding provider that records the texts it was handed."""
-    provider = MagicMock()
-    provider.default_base_url = "http://localhost:11434"
+    provider = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
     provider.execute_embedding = MagicMock(return_value=[[0.1, 0.2, 0.3]])
     return provider
 

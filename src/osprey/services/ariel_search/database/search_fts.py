@@ -19,31 +19,69 @@ if TYPE_CHECKING:
         QueryExpansion,
     )
 
+FTS_CONFIG = "'english'"
+"""The text-search configuration every query-side expression and tsquery uses."""
+
+RAW_TEXT_FTS_EXPRESSION_V1_FROZEN = "to_tsvector('english', raw_text)"
+"""The raw-text index expression of the historical migrations, frozen verbatim.
+
+An index built by an applied migration is never rebuilt, so the migrations that
+created it must keep emitting exactly this string whatever the query side does.
+"""
+SEMANTIC_FTS_EXPRESSION_V1_FROZEN = (
+    "to_tsvector('english', raw_text || ' ' || COALESCE(summary, '') || ' ' || "
+    "COALESCE(osprey_text_array_to_string(keywords), ''))"
+)
+"""The semantic-text index expression of the historical migration, frozen verbatim."""
+
 RAW_TEXT_SEARCH_DOCUMENT = "raw_text"
-RAW_TEXT_FTS_EXPRESSION = f"to_tsvector('english', {RAW_TEXT_SEARCH_DOCUMENT})"
+RAW_TEXT_FTS_EXPRESSION = RAW_TEXT_FTS_EXPRESSION_V1_FROZEN
 SEMANTIC_KEYWORDS_DOCUMENT = "osprey_text_array_to_string(keywords)"
 SEMANTIC_TEXT_SEARCH_DOCUMENT = (
     f"raw_text || ' ' || COALESCE(summary, '') || ' ' || COALESCE({SEMANTIC_KEYWORDS_DOCUMENT}, '')"
 )
-SEMANTIC_FTS_EXPRESSION = f"to_tsvector('english', {SEMANTIC_TEXT_SEARCH_DOCUMENT})"
+SEMANTIC_FTS_EXPRESSION = SEMANTIC_FTS_EXPRESSION_V1_FROZEN
+
+ATTACHMENT_TEXT_DOCUMENT = "COALESCE(attachment_text,'')"
+RAW_TEXT_SEARCH_DOCUMENT_V2 = f"{RAW_TEXT_SEARCH_DOCUMENT} || ' ' || {ATTACHMENT_TEXT_DOCUMENT}"
+RAW_TEXT_FTS_EXPRESSION_V2 = f"to_tsvector({FTS_CONFIG}, {RAW_TEXT_SEARCH_DOCUMENT_V2})"
+SEMANTIC_TEXT_SEARCH_DOCUMENT_V2 = (
+    f"{SEMANTIC_TEXT_SEARCH_DOCUMENT} || ' ' || {ATTACHMENT_TEXT_DOCUMENT}"
+)
+SEMANTIC_FTS_EXPRESSION_V2 = f"to_tsvector({FTS_CONFIG}, {SEMANTIC_TEXT_SEARCH_DOCUMENT_V2})"
 
 
-def keyword_search_expressions(config: ARIELConfig) -> tuple[str, str]:
-    """Return the ranking FTS expression and headline document for keyword search."""
+def keyword_search_expressions(config: ARIELConfig, *, v2: bool) -> tuple[str, str]:
+    """Return the ranking FTS expression and headline document for keyword search.
+
+    Args:
+        config: The ARIEL configuration; the semantic processor widens the document.
+        v2: Whether the store carries the V2 indexes, which also cover
+            ``attachment_text``. Read once per query from
+            ``(await repository.schema_facts()).has_v2_fts`` and handed to every
+            expression of that query, so match, rank and headline never differ.
+
+    Returns:
+        The FTS expression and the headline document of that one selection.
+    """
     if config.is_enhancement_module_enabled("semantic_processor"):
+        if v2:
+            return SEMANTIC_FTS_EXPRESSION_V2, SEMANTIC_TEXT_SEARCH_DOCUMENT_V2
         return SEMANTIC_FTS_EXPRESSION, SEMANTIC_TEXT_SEARCH_DOCUMENT
+    if v2:
+        return RAW_TEXT_FTS_EXPRESSION_V2, RAW_TEXT_SEARCH_DOCUMENT_V2
     return RAW_TEXT_FTS_EXPRESSION, RAW_TEXT_SEARCH_DOCUMENT
 
 
-def keyword_fts_expression(config: ARIELConfig) -> str:
-    """Return the FTS predicate expression available for the configured schema."""
-    expression, _document = keyword_search_expressions(config)
+def keyword_fts_expression(config: ARIELConfig, *, v2: bool) -> str:
+    """Return the FTS predicate expression of :func:`keyword_search_expressions`."""
+    expression, _document = keyword_search_expressions(config, v2=v2)
     return expression
 
 
-PLAIN_TSQUERY_LEG = "plainto_tsquery('english', %s)"
-PHRASE_TSQUERY_LEG = "phraseto_tsquery('english', %s)"
-EMPTY_TSQUERY = "plainto_tsquery('english', '')"
+PLAIN_TSQUERY_LEG = f"plainto_tsquery({FTS_CONFIG}, %s)"
+PHRASE_TSQUERY_LEG = f"phraseto_tsquery({FTS_CONFIG}, %s)"
+EMPTY_TSQUERY = f"plainto_tsquery({FTS_CONFIG}, '')"
 
 
 def build_expanded_tsquery(

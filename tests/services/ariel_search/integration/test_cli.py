@@ -154,15 +154,25 @@ class TestCLIIngestCommand:
 
     @pytest.mark.usefixtures("migrated_pool")
     def test_ingest_command_stores_entries(
-        self, database_url, sample_entries_path, seeded_prefixes
+        self, database_url, sample_entries_path, seeded_prefixes, attachment_fetch
     ):
         """Ingest command stores entries in database."""
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
 
+        import io
         import json
 
+        from PIL import Image
+
         from osprey.cli.ariel import ariel_group
+        from osprey.services.ariel_search.attachments.fetch import FetchOutcome
+
+        # The default copy mode fetches the image attachments of the entries the
+        # limit reaches; every fetch answers with a tiny decodable PNG.
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 6), (40, 90, 160)).save(buf, format="PNG")
+        attachment_fetch.respond(FetchOutcome(data=buf.getvalue()))
 
         runner = CliRunner()
 
@@ -196,6 +206,8 @@ class TestCLIIngestCommand:
 
         assert result.exit_code == 0, f"Exit: {result.exit_code}, Output: {result.output}"
         assert "entries stored" in result.output
+        fetched = [call["url"] for call in attachment_fetch.calls]
+        assert fetched and all(url.endswith(".jpg") for url in fetched), fetched
 
     def test_ingest_command_invalid_source(self, database_url):
         """Ingest command fails gracefully with invalid source path."""

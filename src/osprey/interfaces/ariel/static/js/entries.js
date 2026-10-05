@@ -12,12 +12,12 @@ import {
   renderEmptyState,
   renderErrorState,
 } from './components.js';
-import { showEntry, closeEntryModal, showImageLightbox, getCurrentEntry, initEntryDetail } from './entries-detail.js';
+import { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry, initEntryDetail } from './entries-detail.js';
 import { handleCreateEntry, handleTagInput, handleFilePreview, loadDraft, initEntryTags } from './entries-form.js';
 
 // Re-export the detail-view and form public surface — app.js and window.app
 // import these from entries.js, so this module stays their single point of entry.
-export { showEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
+export { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
 export { loadDraft };
 
 /**

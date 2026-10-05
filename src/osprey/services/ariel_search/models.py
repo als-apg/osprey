@@ -99,6 +99,8 @@ class EnhancedLogbookEntry(TypedDict):
     summary: NotRequired[str | None]
     keywords: NotRequired[list[str]]
     enhancement_status: NotRequired[dict[str, Any]]
+    attachment_text: NotRequired[str | None]
+    attachment_captions: NotRequired[dict[str, Any] | None]
 
 
 def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
@@ -132,6 +134,10 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
         entry["keywords"] = row_dict["keywords"]
     if row_dict.get("enhancement_status") is not None:
         entry["enhancement_status"] = row_dict["enhancement_status"]
+    if row_dict.get("attachment_text") is not None:
+        entry["attachment_text"] = row_dict["attachment_text"]
+    if row_dict.get("attachment_captions") is not None:
+        entry["attachment_captions"] = row_dict["attachment_captions"]
 
     return entry
 
@@ -230,7 +236,6 @@ class ARIELSearchRequest:
         time_range: Default time range filter (see Time Range Semantics)
         facility: Facility filter
         max_results: Maximum results to return (default: 10, range: 1-100)
-        include_images: Include image attachments (default: False)
     """
 
     query: str
@@ -238,7 +243,6 @@ class ARIELSearchRequest:
     time_range: tuple[datetime, datetime] | None = None
     facility: str | None = None
     max_results: int = 10
-    include_images: bool = False
     advanced_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

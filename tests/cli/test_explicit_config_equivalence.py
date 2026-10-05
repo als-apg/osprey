@@ -279,13 +279,39 @@ def _standalone_catalog_delta() -> tuple[Delta, ...]:
     The two standalone app templates carried a shorter ``api.providers`` list
     than the control-assistant one; the packaged ``providers.yml`` is one
     catalog for every preset, so their renders gain exactly the four entries
-    they lacked (Requirement 1).
+    they lacked (Requirement 1), plus the embeddings-only ``llama-cpp`` entry
+    every render gains (:func:`_llama_cpp_catalog_deltas`). One delta carries
+    both, because a second ``api.providers`` delta on the same document would
+    replace the first.
 
     Returns:
         The ``api.providers`` delta, the same for every standalone cell.
     """
     return (
-        Delta(document="root", path="api.providers", added=("amsc-i2", "argo", "ds4", "stanford")),
+        Delta(
+            document="root",
+            path="api.providers",
+            added=("amsc-i2", "argo", "ds4", "stanford", "llama-cpp"),
+        ),
+    )
+
+
+def _llama_cpp_catalog_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The ``llama-cpp`` entry every ``api.providers`` render gains.
+
+    The packaged catalog carries the embeddings-only llama-server entry that
+    an embedding module names as its provider; the fixtures predate it, so
+    each document that renders the catalog gains exactly that name.
+
+    Args:
+        *documents: The documents of the cell that render ``api.providers``.
+
+    Returns:
+        One ``api.providers`` delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="api.providers", added=("llama-cpp",))
+        for document in documents
     )
 
 
@@ -481,6 +507,43 @@ def _embedding_input_limit_deltas(*documents: str) -> tuple[Delta, ...]:
             live=[{"dimension": 768, "max_input_tokens": 2048, "name": "nomic-embed-text"}],
         )
         for document in documents
+    )
+
+
+#: The leaves the ARIEL picture modules add to a preset's render, and their
+#: shipped values.
+_PICTURE_MODULE_LEAVES: tuple[tuple[str, Any], ...] = (
+    ("ariel.attachments.copy_on_ingest", "images"),
+    ("ariel.attachments.view.enabled", True),
+    ("ariel.enhancement_modules.image_caption.enabled", True),
+    ("ariel.enhancement_modules.image_caption.provider", "ollama"),
+    ("ariel.enhancement_modules.image_caption.model.model_id", "qwen3-vl:4b"),
+    ("ariel.enhancement_modules.image_embedding.enabled", True),
+    ("ariel.enhancement_modules.image_embedding.provider", "llama-cpp"),
+    ("ariel.enhancement_modules.image_embedding.model", "qwen3-vl-embedding-2b"),
+    ("ariel.enhancement_modules.image_embedding.dimensions", 1024),
+)
+
+
+def _picture_module_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The picture captions, picture search and view switch the presets turn on.
+
+    The two presets that carry an ``ariel:`` block state what ingest copies, the
+    agents' attachment view, and the caption and picture-embedding modules with
+    their own provider and model, so every document they render gains those
+    leaves. The fixtures were frozen before any of the keys existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per leaf per document.
+    """
+    return tuple(
+        Delta(document=document, path=path, fixture=ABSENT, live=value)
+        for document in documents
+        for path, value in _PICTURE_MODULE_LEAVES
     )
 
 
@@ -1218,6 +1281,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         *_rail_tool_deltas("root"),
         *_simulation_models_deltas("root"),
         *_simulation_tick_deltas("root"),
+        *_llama_cpp_catalog_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
     + _facility_name_deltas()
@@ -1228,6 +1292,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _embedding_input_limit_deltas("root")
     + _simulation_models_deltas("root")
     + _simulation_tick_deltas("root")
+    + _picture_module_deltas("root")
     + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
     + _facility_name_deltas()
@@ -1257,6 +1322,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _standalone_picker_deltas()
     + _middle_layer_index_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1280,11 +1346,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
     + _in_context_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1308,11 +1376,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
     + _hierarchical_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1336,11 +1406,13 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
     + _middle_layer_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/graph": _control_assistant_persona_deltas()
+    + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1364,6 +1436,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas(),
