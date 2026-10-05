@@ -23,19 +23,22 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from osprey.simulation.apply import apply_scenarios
+from tests._simulator_view import facility_scenarios, write_scenarios_view
 
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
+TEMPLATE_DATA = (
+    Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
 )
+TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
 LA = ZoneInfo("America/Los_Angeles")  # non-UTC facility; -7h (PDT) / -8h (PST)
 
 
 def _make_project(tmp_path: Path) -> Path:
-    """Stage a minimal sim-backed project with a non-UTC facility timezone."""
+    """Stage a minimal sim-backed project, and its simulator view, with a non-UTC facility timezone."""
     sim_dst = tmp_path / "data" / "simulation"
     sim_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(TEMPLATE_SIM, sim_dst)
+    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
         "control_system": {
             "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
