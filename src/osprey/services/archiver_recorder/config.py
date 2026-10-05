@@ -65,6 +65,8 @@ from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.types import TARGET_STANDIN
 
+from .field_names import _unstorable_field_name
+
 #: Where the compose template mounts the project's ``data/simulation`` tree,
 #: matching the virtual accelerator's own mount so a relative
 #: ``VA_CHANNELS_FILE`` resolves to the same file on both sides.
@@ -316,27 +318,6 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
                 f"recorder is pointed at."
             )
     return addresses
-
-
-def _unstorable_field_name(address: str) -> str | None:
-    """Why ``address`` cannot be an archive field name, or ``None`` if it can.
-
-    A tick is stored as one flat document keyed by channel address, and the
-    archiver connector projects the same names back out. MongoDB reads ``.``
-    in a field name as a path separator and a leading ``$`` as an operator,
-    and holds no NUL byte at all, so an address carrying one of those is not a
-    field this store can round-trip. Refusing at startup is the same
-    fail-closed stance the rest of this module takes: the alternative is a
-    recorder that runs, warns once a tick, and leaves an archive that quietly
-    does not hold what its operators believe it holds.
-    """
-    if "." in address:
-        return "contains '.', which the archive reads as a document path separator"
-    if address.startswith("$"):
-        return "starts with '$', which the archive reads as an operator"
-    if "\x00" in address:
-        return "contains a NUL byte, which a field name cannot hold"
-    return None
 
 
 # ---------------------------------------------------------------------------
