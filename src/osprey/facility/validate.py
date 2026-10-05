@@ -1025,6 +1025,23 @@ class _Records:
                     problem = "a waveform channel needs `shape`, a list of positive ints"
             elif shape is not None:
                 problem = f"a {value_type} channel carries `shape`"
+        precision = channel.get("precision")
+        if problem is None and precision is not None:
+            if value_type != "float":
+                problem = f"a {value_type} channel carries `precision`"
+            elif type(precision) is not int or precision < 0:
+                problem = "`precision` is not an int >= 0"
+            if problem is not None:
+                self.broken.add(address)
+                yield self._error(
+                    "value-invalid",
+                    "channel",
+                    address,
+                    stating_files(channel, "precision"),
+                    problem,
+                    "state `precision`, an int >= 0, only on float channels",
+                )
+                return
         if problem is not None:
             self.broken.add(address)
             yield self._error(
