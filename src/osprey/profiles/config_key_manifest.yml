@@ -903,10 +903,12 @@ keys:
       other consumer (the compose mount, the build's parse, the bridge's
       startup gate, the roster, the knowledge graph) resolves through; the key
       is spelled once, as `LIMITS_DATABASE_CONFIG_KEY` beside it in
-      `limits_validator.py`, and that call is the anchor.
+      `limits_validator.py`, and that call is the anchor. A profile that
+      states the key, at either scope, is refused by
+      `_check_limits_database_path` in `build_profile_load.py`.
     default: derived
     default_note: >-
-      the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile does not state it
+      the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
   control_system.limits_checking.mode:
     evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
