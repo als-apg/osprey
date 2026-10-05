@@ -9,8 +9,9 @@ from ``--repo`` — so they work from any subdirectory of the repo rather than
 only from its root. Three directories come out of that one decision and they
 are genuinely different files:
 
-- the render (``build/``) holds ``config.yml`` and the build-owned
-  ``data/simulation/`` model the engine loads;
+- the render (``build/``) holds ``config.yml``, the simulator view
+  ``data/simulator/`` that ``list`` and ``status`` read, and the build-owned
+  ``data/simulation/`` model ``apply`` loads;
 - the repo root anchors ``var/agent_data/simulation/``, where the mutable
   active-scenario state lives, because a scenario switch has to survive
   ``osprey build`` wiping the render;
@@ -106,33 +107,6 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
         raise SystemExit(1)
     click.get_current_context().with_resource(config_anchored_at(config_path))
     return repo_root, load_config(str(config_path))
-
-
-def _load_project_engine(repo: Path | None):
-    """Return ``(repo_root, config, engine)`` for the resolved deployment.
-
-    Exits with a clear message if the deployment is not simulation-backed.
-    """
-    from osprey.connectors.types import MOCK
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey_connectors.simulation.engine import resolve_simulation_file
-
-    repo_root, config = _resolve_deployment(repo)
-    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)
-    if machine_path is None:
-        detail = "This project does not use the simulation engine."
-        if active_type == MOCK:
-            output.fail("No mock 'simulation_file' is configured in config.yml", detail)
-        else:
-            output.fail(
-                f"No simulation_file is configured for control_system.type '{active_type}'",
-                f"Tried {type_key} and {mock_key}.\n{detail}",
-            )
-        raise SystemExit(1)
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, repo_root)
-    )
-    return repo_root, config, engine
 
 
 def _require_simulator_view(repo_root: Path) -> Path:
@@ -281,13 +255,24 @@ def sim_group() -> None:
 @repo_option
 def list_command(repo: Path | None) -> None:
     """List available scenarios (the active set is marked with *)."""
-    *_, engine = _load_project_engine(repo)
-    active = set(engine.active_scenarios())
-    for name, description in engine.list_scenarios().items():
-        has_log = len(engine.scenario_logbook(name)) > 0
+    from osprey.facility.views.simulator import SCENARIOS_FILE
+    from osprey_connectors.simulation import (
+        ACTIVE_SCENARIOS_FILENAME,
+        parse_active_state,
+        resolve_active_scenarios,
+    )
+    from osprey_connectors.workspace import resolve_simulation_state_dir
+
+    repo_root, config = _resolve_deployment(repo)
+    view = _require_simulator_view(repo_root)
+    state = resolve_simulation_state_dir(config, repo_root) / ACTIVE_SCENARIOS_FILENAME
+    names = parse_active_state(state.read_text(encoding="utf-8"))[0] if state.is_file() else []
+    active = set(resolve_active_scenarios(names))
+    for scenario in _read_view_file(view, SCENARIOS_FILE)["scenarios"]:
+        name = str(scenario["name"])
         marker = "*" if name in active else " "
-        output.report(f"{marker} {name}  (logbook: {'yes' if has_log else 'no'})")
-        if description:
+        output.report(f"{marker} {name}  (logbook: {'yes' if scenario.get('logbook') else 'no'})")
+        if description := scenario.get("description"):
             # A second step in, on top of the one `note` already applies: the
             # marker column means the name itself does not start at column 0,
             # so a description one step in would line up under the marker
