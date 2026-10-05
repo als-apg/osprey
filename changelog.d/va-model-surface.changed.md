@@ -1,0 +1,1 @@
+The model RPC's `status` reply carries `instance`, `endpoint`, `last_cycle_ms`, `queue_depth`, `uptime_s` and `last_refused_write`, and its `info` reply carries `variables` alone; neither reports a backend, a lattice source or an update rate.
