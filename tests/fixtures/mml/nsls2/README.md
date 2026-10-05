@@ -104,7 +104,7 @@ them from their `AT.ATIndex` and wires the six with a channel. The seventh,
 - **Commands:** `~/mml-reexport/run_reexport.sh nsls2-sr` and
   `~/mml-reexport/run_reexport.sh nsls2-ltb`, one fresh MATLAB each, as described
   in [Re-running the export on a MATLAB host](../../../../src/osprey/templates/apps/control_assistant/data/mml/README.md#re-running-the-export-on-a-matlab-host).
-- **Date:** 2026-09-25 (StorageRing), 2026-10-04 (LTB).
+- **Date:** 2026-10-05 (StorageRing), 2026-10-04 (LTB).
 
 NSLS-II ships no physics-data file, so none of its numbers come from one. The link
 method defaulted to LabCA, which is not installed on that host, so the Middle Layer
