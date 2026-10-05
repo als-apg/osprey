@@ -2,9 +2,15 @@
 
 import json
 
+import pytest
+
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context, reset_ariel_context
 from osprey.registry import get_registry
 from osprey.utils.workspace import reset_config_cache
+from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
+    example_descriptors,
+    example_entry_fields_fixture,
+)
 from tests.mcp_server.ariel.conftest import get_tool_fn
 
 
@@ -385,8 +391,8 @@ async def test_capabilities_docstring_defines_the_attachments_block():
         assert field in doc, field
 
 
-async def test_capabilities_keyset_differs_from_b1_only_by_attachments(keyset_harness):
-    """Against the B1 golden, every new path sits under ``attachments`` and none is lost."""
+async def test_capabilities_keyset_differs_from_b1_only_by_new_blocks(keyset_harness):
+    """Against the B1 golden, every new path sits under ``attachments`` or ``entry_fields``."""
     from tests.mcp_server.ariel.test_tool_keysets import KEYSET_DIR, keyset, run_tool
 
     actual = keyset(json.loads(await run_tool("capabilities", keyset_harness)))
@@ -394,7 +400,11 @@ async def test_capabilities_keyset_differs_from_b1_only_by_attachments(keyset_ha
 
     added = set(actual) - set(golden)
     assert added, "the attachments block must reach the payload"
-    assert all(p == "attachments" or p.startswith("attachments.") for p in added), added
+    assert all(
+        p in ("attachments", "entry_fields")
+        or p.startswith(("attachments.", "entry_fields.", "entry_fields["))
+        for p in added
+    ), added
     assert set(golden) <= set(actual)
     assert {p: actual[p] for p in golden} == golden
     assert {"attachments.view", "attachments.picture_search"} <= added
@@ -414,3 +424,127 @@ async def test_capabilities_reports_the_picture_lanes_last_failure(tmp_path, mon
     assert data["attachments"]["picture_search"] is True
     assert data["attachments"]["picture_search_unavailable"] == "model"
     assert _route_capabilities(get_ariel_context().config)["attachments"] == data["attachments"]
+
+
+# ---------------------------------------------------------------------------
+# entry_fields block
+# ---------------------------------------------------------------------------
+
+
+async def test_capabilities_entry_fields_empty_without_an_adapter(tmp_path, monkeypatch):
+    """No ingestion adapter configured means no declared entry fields, as a list."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    data = json.loads(await _get_capabilities()())
+
+    assert data["entry_fields"] == []
+    assert "entry_fields_error" not in data
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_capabilities_lists_declared_entry_fields(tmp_path, monkeypatch):
+    """Declared fields are their ``to_dict()`` in form order, minus ``options_endpoint``."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    data = json.loads(await _get_capabilities()())
+
+    expected = []
+    for descriptor in example_descriptors():
+        item = descriptor.to_dict()
+        item.pop("options_endpoint", None)
+        expected.append(item)
+    assert data["entry_fields"] == expected
+    assert [f["name"] for f in data["entry_fields"]] == ["book", "day", "scan"]
+    book, _day, scan = data["entry_fields"]
+    assert book["required"] is True
+    assert book["options"] == [
+        {"value": "ops", "label": "Operations"},
+        {"value": "physics", "label": "Physics"},
+    ]
+    assert scan["type"] == "dynamic_select"
+    assert scan["depends_on"] == ["day"]
+    assert "entry_fields_error" not in data
+
+
+async def test_capabilities_entry_fields_never_carry_an_options_endpoint(
+    tmp_path, monkeypatch, example_entry_fields
+):
+    """A descriptor that names an options route still reaches agents without it."""
+    from osprey.services.ariel_search.search.base import ParameterDescriptor
+
+    def declared():
+        descriptors = example_descriptors()
+        descriptors[2] = ParameterDescriptor(
+            **{**descriptors[2].__dict__, "options_endpoint": "/api/entry-fields/scan/options"}
+        )
+        return descriptors
+
+    monkeypatch.setattr(example_entry_fields, "get_entry_field_descriptors", declared)
+    _setup_registry(tmp_path, monkeypatch)
+
+    data = json.loads(await _get_capabilities()())
+
+    assert all("options_endpoint" not in field for field in data["entry_fields"])
+    assert data["entry_fields"][2]["name"] == "scan"
+
+
+async def test_capabilities_reports_a_declaration_error_in_the_payload(
+    tmp_path, monkeypatch, example_entry_fields
+):
+    """A misdeclared field is reported inside the payload; the rest of the tool still answers."""
+    from osprey.services.ariel_search.search.base import ParameterDescriptor
+
+    def misdeclared():
+        return [
+            *example_descriptors(),
+            ParameterDescriptor(
+                name="tags",
+                label="Tags",
+                description="Reserved by ARIEL",
+                param_type="text",
+                default=None,
+            ),
+        ]
+
+    monkeypatch.setattr(example_entry_fields, "get_entry_field_descriptors", misdeclared)
+    _setup_registry(tmp_path, monkeypatch)
+
+    data = json.loads(await _get_capabilities()())
+
+    assert not data.get("error", False)
+    assert data["entry_fields"] == []
+    assert "tags" in data["entry_fields_error"]
+    assert "keyword" in data["search_modes"]
+    assert set(data["attachments"]) == _ATTACHMENT_KEYS
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_capabilities_web_payload_has_no_entry_fields(tmp_path, monkeypatch):
+    """``/api/capabilities`` is unchanged: the web form reads fields from publish-info."""
+    from osprey.mcp_server.ariel.server_context import get_ariel_context
+
+    _setup_registry(tmp_path, monkeypatch)
+    data = json.loads(await _get_capabilities()())
+    web = _route_capabilities(get_ariel_context().config)
+
+    assert data["entry_fields"]
+    assert "entry_fields" not in web
+    assert "entry_fields_error" not in web
+
+
+async def test_capabilities_docstring_defines_the_entry_fields_block():
+    """The docstring says what ``entry_fields`` means and where those values go."""
+    from osprey.mcp_server.ariel.tools.capabilities import capabilities
+
+    doc = get_tool_fn(capabilities).__doc__ or ""
+
+    for word in (
+        "entry_fields",
+        "entry_fields_error",
+        "entry_create",
+        "entry_publish",
+        "fields",
+        "required",
+        "depends_on",
+    ):
+        assert word in doc, word

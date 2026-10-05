@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         EnhancedLogbookEntry,
         FacilityEntryCreateRequest,
     )
+    from osprey.services.ariel_search.search.base import ParameterDescriptor
 
 logger = get_logger(__name__)
 
@@ -235,6 +236,45 @@ class FacilityAdapter(ABC):
         raise NotImplementedError(
             f"{self.source_system_name} adapter does not support creating entries"
         )
+
+    def get_entry_field_descriptors(self) -> list["ParameterDescriptor"]:
+        """Return the entry fields this facility's logbook asks an author for.
+
+        Each descriptor declares one field of the entry form. Its ``name`` is
+        the key the value is stored under in the entry's ``metadata``, except
+        that a field named ``logbook`` or ``shift`` replaces the built-in input
+        of that name and fills the request field of the same name. A
+        descriptor's ``default`` only pre-fills the form; it is never applied to
+        an entry the author did not submit through the form. A field's
+        ``depends_on`` names static fields only (``text``, ``int``, ``float``,
+        ``bool``, ``date`` or ``select``), never another ``dynamic_select``.
+
+        Returns:
+            The declared fields, in form order. Empty by default: the adapter
+            keeps the built-in entry form.
+        """
+        return []
+
+    async def get_entry_field_options(
+        self,
+        name: str,  # noqa: ARG002 - facility adapter contract; an adapter with dynamic fields reads which one is asked for
+        values: dict[str, Any],  # noqa: ARG002 - facility adapter contract; an adapter with dynamic fields reads its parents' values
+    ) -> list[dict[str, str]]:
+        """Return the choices of a ``dynamic_select`` entry field.
+
+        The adapter looks the choices up with its own service-side credentials;
+        the author's credentials are never involved.
+
+        Args:
+            name: The name of the declared ``dynamic_select`` field.
+            values: The values of the fields it ``depends_on``, keyed by field
+                name and already coerced to each field's declared type.
+
+        Returns:
+            The choices as ``{"value": ..., "label": ...}`` dicts, in display
+            order. Empty by default: the adapter declares no dynamic fields.
+        """
+        return []
 
     async def count_entries(
         self,

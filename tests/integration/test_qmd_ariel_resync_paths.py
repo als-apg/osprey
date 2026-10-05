@@ -218,12 +218,10 @@ class TestWebLocalEntryPath:
 
         entry_id, source_system, sync_status, _message = await _publish_or_local(
             service,
-            FacilityEntryCreateRequest(subject="Vacuum trip", details="Sector 7 gauge spiked."),
-            fallback_metadata={
-                "author": "Grace Hopper",
-                "raw_text": "Sector 7 gauge spiked.",
-                "metadata": {},
-            },
+            FacilityEntryCreateRequest(
+                subject="Vacuum trip", details="Sector 7 gauge spiked.", author="Grace Hopper"
+            ),
+            local_metadata={},
         )
 
         assert source_system == "ARIEL Web"
@@ -451,10 +449,25 @@ class TestMcpEntryCreatePath:
         import osprey.mcp_server.ariel.tools.entry as entry_tool
 
         class _Registry:
+            # The tool reads the entry-field declarations from the context's config.
+            config = lane.config
+
             async def service(self):
                 return _ServiceStub(lane.repository)
 
         monkeypatch.setattr(entry_tool, "get_ariel_context", lambda: _Registry())
+        # The lane configures no ingestion adapter, so the real lookup answers
+        # "not found" — after consulting the Osprey registry, which needs a
+        # project this lane does not have. The answer is given here directly.
+        import osprey.services.ariel_search.ingestion as ingestion
+        from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+
+        assert lane.config.ingestion is None
+
+        def _no_adapter(_config):
+            raise AdapterNotFoundError("No ingestion configuration found.", adapter_name="(none)")
+
+        monkeypatch.setattr(ingestion, "get_adapter", _no_adapter)
         # The panel highlight would POST at a web terminal that is not running.
         # tests/mcp_server/ has a conftest stub for this; tests/integration/ does
         # not inherit it, so the seam is stubbed here.

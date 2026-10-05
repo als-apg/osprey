@@ -3,10 +3,16 @@
 import json
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
+    dict_repository_fixture,
+    example_entry_fields_fixture,
+)
 from tests.mcp_server.ariel.conftest import (
     attach_fake_attachment_reader,
     get_tool_fn,
@@ -1217,3 +1223,262 @@ async def test_entry_get_with_a_failing_reader_gives_the_fallback(tmp_path, monk
     assert data == expected
     assert "error" not in data
     assert data["entry_id"] == "e1"
+
+
+# ---------------------------------------------------------------------------
+# entry_create — declared entry fields (example adapter)
+# ---------------------------------------------------------------------------
+
+
+def _setup_example_registry(tmp_path, monkeypatch):
+    """Initialize an ARIEL context whose config names an ingestion adapter.
+
+    The ``example_entry_fields`` fixture patches ``get_adapter``, so the
+    adapter named here is never built; the block only has to exist.
+    """
+    monkeypatch.chdir(tmp_path)
+    ariel = {
+        "database": {"uri": "postgresql://localhost/test"},
+        "ingestion": {"adapter": "generic_json", "source_url": str(tmp_path / "x.json")},
+    }
+    (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
+    initialize_ariel_context()
+
+
+def _use_drafts_dir(tmp_path, monkeypatch):
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    return drafts_dir
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_entry_create_draft_refuses_undeclared_field(tmp_path, monkeypatch):
+    """An undeclared key is refused by name and no draft is written."""
+    _setup_example_registry(tmp_path, monkeypatch)
+    drafts_dir = _use_drafts_dir(tmp_path, monkeypatch)
+
+    fn = _get_entry_create()
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await fn(subject="S", details="D", fields={"book": "ops", "colour": "red"})
+
+    envelope = ctx["envelope"]
+    assert "colour" in envelope["error_message"]
+    assert envelope["details"]["field"] == "colour"
+    assert not drafts_dir.exists() or not list(drafts_dir.iterdir())
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_entry_create_direct_refuses_undeclared_field(tmp_path, monkeypatch):
+    """Direct mode refuses an undeclared key too, before anything is stored."""
+    _setup_example_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_entry_create()
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await fn(subject="S", details="D", fields={"book": "ops", "colour": "red"}, draft=False)
+
+    assert ctx["envelope"]["details"]["field"] == "colour"
+    mock_service.repository.upsert_entry.assert_not_called()
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_entry_create_draft_refuses_wrong_type(tmp_path, monkeypatch):
+    """A value of the wrong type is refused in draft mode, naming the field."""
+    _setup_example_registry(tmp_path, monkeypatch)
+    _use_drafts_dir(tmp_path, monkeypatch)
+
+    fn = _get_entry_create()
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await fn(subject="S", details="D", fields={"day": "not-a-date"})
+
+    assert ctx["envelope"]["details"]["field"] == "day"
+    assert "allowed" not in ctx["envelope"]["details"]
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_entry_create_refused_select_lists_allowed_values(tmp_path, monkeypatch):
+    """A wrong select value is refused with the select's allowed values."""
+    _setup_example_registry(tmp_path, monkeypatch)
+    _use_drafts_dir(tmp_path, monkeypatch)
+
+    fn = _get_entry_create()
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await fn(subject="S", details="D", fields={"book": "novels"})
+
+    details = ctx["envelope"]["details"]
+    assert details["field"] == "book"
+    assert details["allowed"] == ["ops", "physics"]
+
+
+async def test_entry_create_refused_select_lists_at_most_fifty_values(
+    tmp_path, monkeypatch, example_entry_fields
+):
+    """A select with more than fifty options lists only the first fifty."""
+    from osprey.services.ariel_search.entry_fields import MAX_LISTED_CHOICES
+    from osprey.services.ariel_search.search.base import ParameterDescriptor
+
+    _setup_example_registry(tmp_path, monkeypatch)
+    _use_drafts_dir(tmp_path, monkeypatch)
+    many = [{"value": f"v{i}", "label": f"V{i}"} for i in range(MAX_LISTED_CHOICES + 10)]
+    monkeypatch.setattr(
+        example_entry_fields,
+        "get_entry_field_descriptors",
+        lambda: [
+            ParameterDescriptor(
+                name="area",
+                label="Area",
+                description="Machine area",
+                param_type="select",
+                default=None,
+                options=many,
+            )
+        ],
+    )
+
+    fn = _get_entry_create()
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await fn(subject="S", details="D", fields={"area": "nowhere"})
+
+    allowed = ctx["envelope"]["details"]["allowed"]
+    assert allowed == [f"v{i}" for i in range(MAX_LISTED_CHOICES)]
+
+
+async def test_entry_create_draft_accepts_missing_required(
+    tmp_path, monkeypatch, example_entry_fields
+):
+    """Draft mode validates partially: the required book may be left out.
+
+    The coerced values land in the draft's own ``fields`` object, not in its
+    metadata, and the dynamic scan is never checked live.
+    """
+    _setup_example_registry(tmp_path, monkeypatch)
+    drafts_dir = _use_drafts_dir(tmp_path, monkeypatch)
+
+    fn = _get_entry_create()
+    result = await fn(subject="S", details="D", fields={"day": "2026-10-01", "scan": "s-17"})
+
+    data = json.loads(result)
+    contents = json.loads((drafts_dir / f"{data['draft_id']}.json").read_text())
+    assert contents["fields"] == {"day": "2026-10-01", "scan": "s-17"}
+    assert "day" not in contents["metadata"]
+    assert example_entry_fields.state.options_calls == []
+
+
+async def test_entry_create_draft_without_fields_needs_no_context(tmp_path, monkeypatch):
+    """A draft without fields is written with no ARIEL context at all."""
+    drafts_dir = _use_drafts_dir(tmp_path, monkeypatch)
+
+    fn = _get_entry_create()
+    result = await fn(subject="S", details="D")
+
+    data = json.loads(result)
+    contents = json.loads((drafts_dir / f"{data['draft_id']}.json").read_text())
+    assert "fields" not in contents
+
+
+@pytest.mark.usefixtures("example_entry_fields")
+async def test_entry_create_direct_refuses_missing_required(tmp_path, monkeypatch):
+    """Direct mode validates in full: the required book must be given."""
+    _setup_example_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_entry_create()
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await fn(subject="S", details="D", draft=False)
+
+    assert ctx["envelope"]["details"]["field"] == "book"
+    assert ctx["envelope"]["details"]["allowed"] == ["ops", "physics"]
+    mock_service.repository.upsert_entry.assert_not_called()
+
+
+async def test_entry_create_direct_stores_native_values(
+    tmp_path, monkeypatch, example_entry_fields, dict_repository
+):
+    """A valid direct write stores the coerced values with ariel-mcp provenance.
+
+    The values sit at the top level of the stored metadata, where a later
+    publish reads them; the dynamic scan is not checked live.
+    """
+    _setup_example_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.repository = dict_repository
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_entry_create()
+        result = await fn(
+            subject="S",
+            details="D",
+            logbook="Operations",
+            tags=["t"],
+            fields={"book": " physics ", "day": "2026-10-01", "scan": "s-17"},
+            draft=False,
+        )
+
+    entry_id = json.loads(result)["entry_id"]
+    stored = await dict_repository.get_entry(entry_id)
+    metadata = stored["metadata"]
+    assert metadata["book"] == "physics"
+    assert metadata["day"] == "2026-10-01"
+    assert metadata["scan"] == "s-17"
+    assert metadata["logbook"] == "Operations"
+    assert metadata["tags"] == ["t"]
+    assert metadata["created_via"] == "ariel-mcp"
+    assert "session_metadata" in metadata
+    assert example_entry_fields.state.options_calls == []
+
+
+async def test_entry_create_direct_declared_logbook_conflict(
+    tmp_path, monkeypatch, example_entry_fields
+):
+    """A built-in logbook that differs from a declared one is refused by name."""
+    _setup_example_registry(tmp_path, monkeypatch)
+    example_entry_fields.state.declare_logbook = True
+
+    mock_service = AsyncMock()
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_entry_create()
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await fn(
+                subject="S",
+                details="D",
+                logbook="maintenance",
+                fields={"book": "ops", "logbook": "control-room"},
+                draft=False,
+            )
+
+    assert ctx["envelope"]["details"]["field"] == "logbook"
+    mock_service.repository.upsert_entry.assert_not_called()
+
+
+async def test_entry_create_misdeclared_fields_is_internal_error(
+    tmp_path, monkeypatch, example_entry_fields
+):
+    """An adapter that declares its fields wrongly yields an internal_error."""
+    from osprey.services.ariel_search.search.base import ParameterDescriptor
+
+    _setup_example_registry(tmp_path, monkeypatch)
+    _use_drafts_dir(tmp_path, monkeypatch)
+    bad = ParameterDescriptor(
+        name="book", label="Book", description="d", param_type="select", default=None
+    )
+    monkeypatch.setattr(example_entry_fields, "get_entry_field_descriptors", lambda: [bad, bad])
+
+    fn = _get_entry_create()
+    with assert_raises_error(error_type="internal_error"):
+        await fn(subject="S", details="D", fields={"book": "ops"})

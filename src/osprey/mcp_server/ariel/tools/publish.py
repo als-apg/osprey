@@ -2,12 +2,17 @@
 
 import json
 import logging
+from typing import Any
 
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.services.ariel_search.entry_fields import (
+    EntryFieldError,
+    EntryFieldOptionsUnavailable,
+)
 from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.publish")
@@ -17,6 +22,7 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.publish")
 async def entry_publish(
     entry_id: str,
     logbook: str | None = None,
+    fields: dict[str, Any] | None = None,
 ) -> str:
     """Publish an existing ARIEL entry to the configured facility logbook.
 
@@ -27,6 +33,10 @@ async def entry_publish(
     Args:
         entry_id: The ID of the existing ARIEL entry to publish.
         logbook: Target logbook name (required by some facility APIs).
+        fields: Values for the facility's entry fields, keyed by the names
+            ``capabilities`` lists under ``entry_fields``. They are merged over
+            the values stored with the entry. An undeclared name or a wrong
+            value is refused naming the field.
 
     Returns:
         JSON with the facility-assigned entry_id, source_system, sync_status, and message.
@@ -42,13 +52,14 @@ async def entry_publish(
         registry = get_ariel_context()
         service = await registry.service()
 
-        result = await service.publish_entry(entry_id, logbook=logbook)
+        result = await service.publish_entry(entry_id, logbook=logbook, fields=fields)
 
         # Agent-activity highlight for the ARIEL panel. Only reached once the
-        # upstream write succeeded — every refusal (not_found, not_supported,
-        # auth_required, internal_error) raises out of publish_entry above and
-        # emits nothing. Passive: no focus steal. notify_agent_activity_async never
-        # raises; the blocking call runs off the event loop.
+        # upstream write succeeded — every refusal (validation_error, not_found,
+        # not_supported, auth_required, internal_error) raises out of
+        # publish_entry above and emits nothing. Passive: no focus steal.
+        # notify_agent_activity_async never raises; the blocking call runs off
+        # the event loop.
         await notify_agent_activity_async(
             "entry_publish", "panel", panel="ariel", detail=result.entry_id
         )
@@ -87,6 +98,20 @@ async def entry_publish(
                 "This logbook requires credentials to publish. Configure "
                 "ARIEL_WRITE_USER and ARIEL_WRITE_PASSWORD for the service.",
             ],
+        )
+    except EntryFieldError as exc:
+        return make_error(
+            "validation_error",
+            exc.message,
+            ["Correct the named field; capabilities lists each entry field and its values."],
+            details={"field": exc.field},
+        )
+    except EntryFieldOptionsUnavailable as exc:
+        return make_error(
+            "internal_error",
+            exc.message,
+            ["Try the publish again later."],
+            details={"field": exc.field},
         )
     except ToolError:
         raise
