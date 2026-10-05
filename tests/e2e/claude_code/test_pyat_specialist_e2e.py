@@ -62,6 +62,8 @@ pytestmark = [
 
 # The pyAT compute path: the ``python`` MCP server's ``execute`` tool.
 _PY_EXEC_TOOL = "mcp__python__execute"
+# The tool a subagent files its answer with.
+_SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +255,28 @@ def _ground_truth() -> dict:
     }
 
 
+def _filed_answer(sdk_result: SDKWorkflowResult) -> str:
+    """The answer the subagent filed with ``submit_response``: its deliverable.
+
+    Under the hand-back contract the artifact is the answer and the parent's
+    reply only points at it, so a parent that writes "see artifact" in place of
+    the numbers is following the contract, not failing it.
+    """
+    filed = [
+        t.input.get("content") or ""
+        for t in sdk_result.tool_traces
+        if t.name == _SUBMIT_RESPONSE and t.parent_tool_use_id is not None
+    ]
+    assert filed, (
+        f"pyat-specialist never filed its answer with {_SUBMIT_RESPONSE}. "
+        f"Tools called: {sdk_result.tool_names}"
+    )
+    return filed[-1]
+
+
 def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowResult:
-    """Convert an ``SDKWorkflowResult`` into the plain-text shape the judge reads."""
-    response = "\n".join(sdk_result.text_blocks).strip()
+    """The subagent's filed answer and the run's trace, in the shape the judge reads."""
+    response = _filed_answer(sdk_result).strip()
     trace_lines: list[str] = []
     for t in sdk_result.tool_traces:
         trace_lines.append(f"TOOL: {t.name}")
@@ -279,7 +300,8 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     """The numbers in the subagent's answer match ground truth, and it says where
     they came from.
 
-    The answer is the deliverable, so the answer is what gets graded. The judge
+    The answer the subagent files with ``submit_response`` is the deliverable,
+    so that answer is what gets graded, not the parent's pointer to it. The judge
     model only reads each quantity out of it, wherever in the prose or its
     tables the value appears, and never sees the reference values; the
     comparison against them — recomputed in-test with the template's own 4D

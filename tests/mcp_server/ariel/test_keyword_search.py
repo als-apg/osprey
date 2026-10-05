@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
-from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.ariel.conftest import (
+    attach_fake_attachment_reader,
+    get_tool_fn,
+    make_mock_entry,
+)
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
@@ -51,6 +55,7 @@ async def test_keyword_search_basic(tmp_path, monkeypatch):
     mock_result = _make_search_result(entries, reasoning="Keyword: 1 result")
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -73,6 +78,7 @@ async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
 
     mock_result = _make_search_result([])
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -101,6 +107,7 @@ async def test_keyword_search_author_filtering(tmp_path, monkeypatch):
 
     mock_result = _make_search_result([])
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -126,6 +133,7 @@ async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
     mock_result = _make_search_result(entries)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
 
     with patch(
@@ -158,6 +166,7 @@ async def test_keyword_search_service_error(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = RuntimeError("DB connection failed")
 
     with patch(
@@ -179,6 +188,7 @@ async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatc
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.side_effect = VocabularyError(
         ["vocabulary.yml: duplicate term 'ts'"],
     )
@@ -209,6 +219,7 @@ TSLASH_GROUP = {"original": "t/s", "alternatives": ["troubleshoot"]}
 def _service_returning(mock_result):
     """An ARIEL service mock whose search returns *mock_result*."""
     mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
     mock_service.search.return_value = mock_result
     return mock_service
 
@@ -472,3 +483,121 @@ def test_tool_docstring_names_every_operator():
     assert doc is not None
     for word in ALLOWED_OPERATORS:
         assert word in doc
+
+
+# ---------------------------------------------------------------------------
+# Attachment summaries in the listing
+# ---------------------------------------------------------------------------
+
+_PNG = {"url": "https://elog.example/f/plot.png", "type": "image/png", "filename": "plot.png"}
+
+
+async def _run_keyword(mock_service, **kwargs):
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        return json.loads(await _get_keyword_search()(query="beam loss", **kwargs))
+
+
+async def test_a_ten_entry_search_reads_the_attachment_rows_once(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    entries = [make_mock_entry(entry_id=f"e{i}", attachments=[_PNG]) for i in range(10)]
+    mock_service = AsyncMock()
+    reader = attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result(entries)
+
+    data = await _run_keyword(mock_service)
+
+    assert data["results_found"] == 10
+    reader.assert_awaited_once_with([f"e{i}" for i in range(10)])
+
+
+async def test_a_search_with_no_results_reads_no_attachment_rows(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    mock_service = AsyncMock()
+    reader = attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result([])
+
+    data = await _run_keyword(mock_service)
+
+    assert data["results_found"] == 0
+    reader.assert_not_awaited()
+
+
+async def test_an_unmigrated_store_gives_the_fallback_summaries(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service, unmigrated=True)
+    mock_service.search.return_value = _make_search_result(
+        [make_mock_entry(entry_id="e1", attachments=[_PNG])]
+    )
+
+    [entry] = (await _run_keyword(mock_service))["entries"]
+
+    assert entry["attachment_count"] == 1
+    [summary] = entry["attachments"]
+    assert summary["copy_status"] == "pending"
+    assert summary["viewable"] is False
+    assert "attachment_id" not in summary
+
+
+async def test_a_failing_reader_keeps_the_entries_with_the_fallback(tmp_path, monkeypatch):
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+    _setup_registry(tmp_path, monkeypatch)
+    entries = [make_mock_entry(entry_id="e1", attachments=[_PNG])]
+    unmigrated_service = AsyncMock()
+    attach_fake_attachment_reader(unmigrated_service, unmigrated=True)
+    unmigrated_service.search.return_value = _make_search_result(entries)
+    failing_service = AsyncMock()
+    attach_fake_attachment_reader(failing_service, error=DatabaseQueryError("boom"))
+    failing_service.search.return_value = _make_search_result(entries)
+
+    expected = await _run_keyword(unmigrated_service)
+    data = await _run_keyword(failing_service)
+
+    # The unmigrated store also reports its schema as behind; that diagnostic is
+    # the store's, not the reader's, so only the listing itself is compared.
+    def without_diagnostics(envelope: dict) -> dict:
+        return {key: value for key, value in envelope.items() if key != "diagnostics"}
+
+    assert without_diagnostics(data) == without_diagnostics(expected)
+    assert data["results_found"] == 1
+    assert data["diagnostics"] == []
+
+
+async def test_listing_attachments_zero_omits_summaries_and_keeps_the_count(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = {
+        "ariel": {
+            "database": {"uri": "postgresql://localhost/test"},
+            "entry_text": {"listing_attachments": 0},
+        }
+    }
+    (tmp_path / "config.yml").write_text(json.dumps(config))
+    initialize_ariel_context()
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result(
+        [make_mock_entry(entry_id="e1", attachments=[_PNG])]
+    )
+
+    [entry] = (await _run_keyword(mock_service))["entries"]
+
+    assert entry["attachment_count"] == 1
+    assert "attachments" not in entry
+
+
+async def test_match_evidence_reaches_the_listing(tmp_path, monkeypatch):
+    _setup_registry(tmp_path, monkeypatch)
+    entry = make_mock_entry(entry_id="e1", attachments=[_PNG])
+    entry["_matched_attachment_ids"] = ["att-000000000000"]
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result([entry])
+
+    [out] = (await _run_keyword(mock_service))["entries"]
+
+    assert out["matched_attachment_ids"] == ["att-000000000000"]
+    assert "matched_via" not in out

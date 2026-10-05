@@ -1,10 +1,11 @@
 """Declarative relative timestamps, resolved against an anchor at load time.
 
-Demo and seed data (simulation scenario bundles, the standalone ARIEL demo
-logbook) express timestamps *relative* to "now" — ``{days_ago, time}`` — rather
-than as absolute dates. They resolve to concrete datetimes at the moment data
-enters the system (``osprey sim apply`` for scenario bundles; ``osprey ariel
-ingest``/``quickstart`` for the generic adapter), so the data always lands at a
+Demo and seed data (simulation scenario bundles and their narratives, seed
+files the generic ARIEL adapter reads) express timestamps *relative* to "now" —
+``{days_ago, time}`` — rather than as absolute dates. They resolve to concrete
+datetimes at the moment data enters the system (``osprey sim apply`` and the
+deploy-time seed for scenario narratives; ``osprey ariel ingest``/``quickstart``
+for the generic adapter), so the data always lands at a
 recent, deterministic wall-clock position without ever mutating the source file
 at build time.
 

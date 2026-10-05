@@ -216,7 +216,10 @@ Step 4: Search the Electronic Logbook
 
 The control-assistant bundle seeds an electronic logbook with realistic
 operations entries — RF trips, vacuum maintenance, beam-recovery shifts,
-radiation surveys, and more. Ask the agent about past events in natural language:
+radiation surveys, and more. A fresh deployment starts in the ``rf-thermal``
+scenario, so the logbook and the archived history also carry its incident: an RF
+cavity that tripped on a thermal excursion four days ago. Ask the agent about
+past events in natural language:
 
 .. code-block:: text
 
@@ -228,16 +231,16 @@ against the logbook and summarizes what it finds:
 .. code-block:: text
 
    Found 3 related entries:
-   - "Beam dump — RF cavity C1 reflected power trip (thermal excursion)"
-   - "Investigation: Recurring cavity C1 thermal excursions"
-   - "RF cavity C1 cooling manifold repair"
+   - "Beam dump — RF CAVITY01 reflected power trip (thermal excursion)"
+   - "Investigation: Recurring CAVITY01 thermal excursions"
+   - "RF CAVITY01 cooling manifold repair"
 
-   Summary: Cavity C1 tripped on reflected power after its temperature climbed;
+   Summary: CAVITY01 tripped on reflected power after its temperature climbed;
    a follow-up investigation traced it to reduced cooling-water flow, later fixed
    by a manifold repair.
 
 For questions that span several entries and need synthesis (for example, *"trace
-the root cause of the recurring C1 trips and what finally resolved them"*), the
+the root cause of the recurring CAVITY01 trips and what finally resolved them"*), the
 agent can use the **logbook-deep-research** sub-agent, which performs a multi-hop
 search and stitches the entries into a single narrative.
 

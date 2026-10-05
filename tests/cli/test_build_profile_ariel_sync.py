@@ -157,7 +157,7 @@ def test_remote_source_without_the_service_is_advised_once(
 
 
 def test_shipped_standalone_ariel_profile_is_silent(runner: CliRunner, tmp_path: Path) -> None:
-    """The bundled ARIEL app ingests a seed file off disk, so it needs no mirror.
+    """The bundled ARIEL app seeds its demo logbook off disk, so it needs no mirror.
 
     This is the case that keeps the advisory from firing on every ARIEL
     deployment the framework ships.
@@ -165,7 +165,8 @@ def test_shipped_standalone_ariel_profile_is_silent(runner: CliRunner, tmp_path:
     output, repo = _build(runner, tmp_path, _STANDALONE_PROFILE)
 
     assert "osprey.ariel_sync" not in output
-    source_url = _rendered_config(repo)["ariel"]["ingestion"]["source_url"]
-    assert not source_url.startswith(("http://", "https://")), (
-        "the shipped seed source must stay a path on disk for this case to mean anything"
+    ariel = _rendered_config(repo)["ariel"]
+    assert "ingestion" not in ariel, "the shipped app ingests nothing over the network"
+    assert not str(ariel["demo_narrative"]).startswith(("http://", "https://")), (
+        "the shipped demo logbook must stay a path on disk for this case to mean anything"
     )

@@ -444,6 +444,29 @@ class TestEventWindow:
         with pytest.raises(ValueError, match="at_offset"):
             event_window([{"shape": "step", "at": 0.5, "to": 5.0}], self.ANCHOR, self.HORIZON)
 
+    def test_a_calendar_event_sits_on_its_day_in_the_facility_zone(self):
+        """``at_when`` counts calendar days in the zone it is given, like a logbook entry."""
+        zone = ZoneInfo("America/Los_Angeles")
+        start, end = event_window(
+            [
+                {
+                    "shape": "spike",
+                    "at_when": {"days_ago": 1, "time": "03:05:00"},
+                    "amplitude": 1.0,
+                    "width": 60.0,
+                }
+            ],
+            self.ANCHOR,
+            self.ANCHOR - 86400 * 3,
+            tz=zone,
+        )
+
+        local = T0.astimezone(zone)
+        expected = datetime(local.year, local.month, local.day, 3, 5, tzinfo=zone) - timedelta(
+            days=1
+        )
+        assert (start + end) / 2 == pytest.approx(expected.timestamp())
+
     def test_several_events_span_from_the_earliest_to_the_latest(self):
         start, end = event_window(
             [

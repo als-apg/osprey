@@ -14,7 +14,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.exceptions import PatternError, SearchTimeoutError
+from osprey.services.ariel_search.exceptions import (
+    DatabaseQueryError,
+    PatternError,
+    SearchTimeoutError,
+)
 from osprey.services.ariel_search.models import DiagnosticLevel
 from osprey.services.ariel_search.search.base import (
     ExpansionGroup,
@@ -27,6 +31,7 @@ from osprey.services.ariel_search.search.keyword import (
     keyword_search,
     parse_keyword_query,
 )
+from tests.services.ariel_search.repo_fakes import attach_fake_fts
 
 TS_BPM_EXPANSION = QueryExpansion(
     groups=(
@@ -67,6 +72,7 @@ def mock_config() -> ARIELConfig:
 def mock_repository(mock_config: ARIELConfig) -> MagicMock:
     """Repository double whose searches return no rows by default."""
     repo = MagicMock()
+    attach_fake_fts(repo, has_v2=False, has_copy_state=False)
     repo.config = mock_config
     repo.keyword_search = AsyncMock(return_value=[])
     repo.fuzzy_search = AsyncMock(return_value=[])
@@ -109,6 +115,7 @@ class TestDirectCallUnchanged:
             "search_text",
             "max_results",
             "include_highlights",
+            "v2",
         }
 
     @pytest.mark.asyncio
@@ -501,3 +508,297 @@ class TestDescriptor:
         assert descriptor.accepts_expansion is True
         assert descriptor.query_parser is parse_keyword_query
         assert descriptor.search_mode == "keyword"
+
+
+class TestSchemaFactSelection:
+    """``has_v2_fts`` decides whether pattern and fuzzy matching reach attachment text."""
+
+    @pytest.mark.asyncio
+    async def test_schema_fact_is_read_once_and_passed_on(self, mock_repository, mock_config):
+        attach_fake_fts(mock_repository, has_v2=True, has_copy_state=True)
+
+        await keyword_search("beam current", mock_repository, mock_config)
+
+        assert mock_repository.schema_facts.await_count == 1
+        assert repo_call(mock_repository)["v2"] is True
+        assert mock_repository.fuzzy_search.call_args.kwargs["v2"] is True
+
+    @pytest.mark.asyncio
+    async def test_v2_pattern_span_also_matches_attachment_text(self, mock_repository, mock_config):
+        attach_fake_fts(mock_repository, has_v2=True, has_copy_state=True)
+
+        await keyword_search("trip SR01C___BPM*", mock_repository, mock_config)
+
+        kwargs = repo_call(mock_repository)
+        assert kwargs["where_clauses"][1] == (
+            "(raw_text ~* %s OR COALESCE(attachment_text,'') ~* %s)"
+        )
+        body = r"\mSR01C___BPM\S*"
+        assert kwargs["params"] == ["trip", body, body]
+        assert kwargs["where_clauses"][1].count("%s") == 2
+
+    @pytest.mark.asyncio
+    async def test_pattern_second_arm_is_the_trigram_index_expression(
+        self, mock_repository, mock_config
+    ):
+        """The planner can use idx_entries_attachment_text_trgm only on this exact text."""
+        import inspect
+
+        from osprey.services.ariel_search.database.attachment_text_migration import (
+            RawTextFtsIndexV2Migration,
+        )
+        from osprey.services.ariel_search.database.search_fts import ATTACHMENT_TEXT_DOCUMENT
+
+        attach_fake_fts(mock_repository, has_v2=True, has_copy_state=True)
+        await keyword_search("SR01C___BPM*", mock_repository, mock_config)
+
+        (clause,) = pattern_clauses(repo_call(mock_repository))
+        assert f"OR {ATTACHMENT_TEXT_DOCUMENT} ~* %s)" in clause
+        source = inspect.getsource(RawTextFtsIndexV2Migration.up)
+        assert "idx_entries_attachment_text_trgm" in source
+        assert "({ATTACHMENT_TEXT_DOCUMENT}) gin_trgm_ops" in source
+
+    @pytest.mark.asyncio
+    async def test_schema_behind_pattern_is_b1_exact(self, mock_repository, mock_config):
+        attach_fake_fts(mock_repository, has_v2=False, has_copy_state=True)
+
+        await keyword_search("trip SR01C___BPM*", mock_repository, mock_config)
+
+        kwargs = repo_call(mock_repository)
+        assert kwargs["where_clauses"][1] == "raw_text ~* %s"
+        assert kwargs["v2"] is False
+
+
+class TestSchemaBehindStatements:
+    """A store without the V2 indexes is never sent an ``attachment_text`` token."""
+
+    @staticmethod
+    def _repo(pool):
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+
+        config = make_config()
+        repo = ARIELRepository(pool, config)
+        attach_fake_fts(repo, has_v2=False, has_copy_state=False)
+        return repo, config
+
+    @pytest.mark.asyncio
+    async def test_pattern_query_sql_has_no_attachment_text(self, fake_pool):
+        repo, config = self._repo(fake_pool)
+
+        await keyword_search("QX-77*", repo, config)
+
+        statements = fake_pool.recorder.matching("~*")
+        assert statements, "the pattern query reached the database"
+        assert all("attachment_text" not in sql for sql, _ in fake_pool.calls)
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_fallback_sql_has_no_attachment_text(self, fake_pool):
+        repo, config = self._repo(fake_pool)
+
+        await keyword_search("quensh", repo, config)
+
+        assert fake_pool.recorder.matching("similarity(raw_text, %s) >= %s")
+        assert all("attachment_text" not in sql for sql, _ in fake_pool.calls)
+
+
+class TestSchemaBehindDiagnostic:
+    """Searches report a behind schema; the keyword module logs it once."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("has_v2", "has_copy_state", "reported"),
+        [(False, False, True), (False, True, True), (True, False, True), (True, True, False)],
+    )
+    async def test_warning_while_any_fact_is_false(
+        self, mock_repository, has_v2, has_copy_state, reported
+    ):
+        from osprey.services.ariel_search.database.repository import (
+            SCHEMA_BEHIND_SEARCH_MESSAGE,
+            schema_behind_diagnostics,
+        )
+
+        attach_fake_fts(mock_repository, has_v2=has_v2, has_copy_state=has_copy_state)
+
+        found = await schema_behind_diagnostics(mock_repository)
+
+        if reported:
+            (diagnostic,) = found
+            assert diagnostic.level is DiagnosticLevel.WARNING
+            assert diagnostic.message == "schema behind code: run osprey ariel migrate"
+            assert diagnostic.message == SCHEMA_BEHIND_SEARCH_MESSAGE
+        else:
+            assert found == []
+
+    @pytest.mark.asyncio
+    async def test_a_repository_without_facts_reports_nothing(self):
+        from osprey.services.ariel_search.database.repository import schema_behind_diagnostics
+
+        assert await schema_behind_diagnostics(object()) == []
+        assert await schema_behind_diagnostics(MagicMock()) == []
+
+    @pytest.mark.asyncio
+    async def test_keyword_module_logs_a_behind_schema_once(
+        self, mock_repository, mock_config, monkeypatch, caplog
+    ):
+        from osprey.services.ariel_search.database import repository as repository_module
+
+        monkeypatch.setattr(repository_module, "_schema_behind_search_warned", False)
+        with caplog.at_level("WARNING", logger="ariel"):
+            await keyword_search("beam", mock_repository, mock_config)
+            await keyword_search("beam", mock_repository, mock_config)
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert messages.count(repository_module.SCHEMA_BEHIND_SEARCH_MESSAGE) == 1
+
+
+class TestCaptionMatchedIds:
+    """Hits carry the ids of the attachments whose caption matched (requirement 3)."""
+
+    @staticmethod
+    def hits(*entry_ids: str) -> list[tuple[dict, float, list[str]]]:
+        return [({"entry_id": eid, "raw_text": "x"}, 0.5, []) for eid in entry_ids]
+
+    @pytest.mark.asyncio
+    async def test_caption_only_mention_returns_its_attachment_id(
+        self, mock_repository, mock_config
+    ):
+        """`SR:C07 BPM` hit through a caption is marked with that caption's id."""
+        from tests.services.ariel_search.repo_fakes import attach_fake_caption_matches
+
+        mock_repository.keyword_search = AsyncMock(return_value=self.hits("e1", "e2"))
+        fake = attach_fake_caption_matches(mock_repository, {"e1": ["att-plot"]})
+
+        results = await keyword_search("SR:C07 BPM", mock_repository, mock_config)
+
+        assert fake.await_count == 1
+        args, kwargs = fake.call_args.args, fake.call_args.kwargs
+        assert args == (["e1", "e2"], None)
+        assert kwargs["tsquery_sql"] == repo_call(mock_repository)["where_clauses"][0].split(
+            " @@ (", 1
+        )[1].removesuffix(")")
+        assert kwargs["tsquery_params"] == ["SR:C07 BPM"]
+        assert kwargs["pattern_bodies"] == []
+        by_id = {entry["entry_id"]: entry for entry, _s, _h in results}
+        assert by_id["e1"]["_matched_attachment_ids"] == ["att-plot"]
+        assert "_matched_attachment_ids" not in by_id["e2"]
+
+    @pytest.mark.asyncio
+    async def test_glob_matches_caption_and_returns_its_id(self, mock_repository, mock_config):
+        """`QX-77*` passes its pattern body, and the caption-only entry gets its id."""
+        from tests.services.ariel_search.repo_fakes import attach_fake_caption_matches
+
+        mock_repository.keyword_search = AsyncMock(return_value=self.hits("e1"))
+        fake = attach_fake_caption_matches(mock_repository, {"e1": ["att-qx"]})
+
+        results = await keyword_search("QX-77*", mock_repository, mock_config)
+
+        kwargs = fake.call_args.kwargs
+        assert kwargs["pattern_bodies"] == [pattern_clauses_params(repo_call(mock_repository))]
+        assert kwargs["tsquery_sql"] is None
+        assert results[0][0]["_matched_attachment_ids"] == ["att-qx"]
+
+    @pytest.mark.asyncio
+    async def test_expanded_tsquery_is_the_caption_form(self, mock_repository, mock_config):
+        """With expansion applied, the caption check uses the expanded tsquery."""
+        mock_repository.keyword_search = AsyncMock(return_value=self.hits("e1"))
+
+        await keyword_search(
+            "ts bpm",
+            mock_repository,
+            mock_config,
+            parsed=parse_keyword_query("ts bpm"),
+            query_expansion=TS_BPM_EXPANSION,
+        )
+
+        main = repo_call(mock_repository)
+        kwargs = mock_repository.caption_matches.call_args.kwargs
+        assert kwargs["tsquery_sql"] == main["tsquery_sql"]
+        assert kwargs["tsquery_params"] == list(main["tsquery_params"])
+
+    @pytest.mark.asyncio
+    async def test_configured_caption_model_is_passed(self, mock_repository):
+        """The configured `image_caption` model id selects the model captions."""
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost/test"},
+                "search_modules": {"keyword": {"enabled": True}},
+                "enhancement_modules": {
+                    "image_caption": {"enabled": False, "model": {"model_id": "cap-model"}}
+                },
+            }
+        )
+        mock_repository.keyword_search = AsyncMock(return_value=self.hits("e1"))
+
+        await keyword_search("beam", mock_repository, config)
+
+        assert mock_repository.caption_matches.call_args.args[1] == "cap-model"
+
+    @pytest.mark.asyncio
+    async def test_no_hits_asks_nothing(self, mock_repository, mock_config):
+        """Without hits there is nothing to mark, and no statement runs."""
+        await keyword_search("beam", mock_repository, mock_config)
+
+        mock_repository.caption_matches.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_hits_carry_no_ids(self, mock_repository, mock_config):
+        """Fuzzy fallback emits no caption ids."""
+        mock_repository.fuzzy_search = AsyncMock(return_value=self.hits("e1"))
+
+        results = await keyword_search("beaam", mock_repository, mock_config)
+
+        mock_repository.caption_matches.assert_not_called()
+        assert "_matched_attachment_ids" not in results[0][0]
+
+    @pytest.mark.asyncio
+    async def test_service_call_keeps_the_tuple_shape(self, mock_repository, mock_config):
+        """The ids ride on the entry; the result tuples keep their shape."""
+        from tests.services.ariel_search.repo_fakes import attach_fake_caption_matches
+
+        mock_repository.keyword_search = AsyncMock(return_value=self.hits("e1"))
+        attach_fake_caption_matches(mock_repository, {"e1": ["a", "b"]})
+
+        out = await keyword_search(
+            "beam", mock_repository, mock_config, parsed=parse_keyword_query("beam")
+        )
+
+        assert isinstance(out, ModuleOutput)
+        ((entry, score, highlights),) = out.entries
+        assert (score, highlights) == (0.5, [])
+        assert entry["_matched_attachment_ids"] == ["a", "b"]
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            SearchTimeoutError("caption check timed out", timeout_seconds=10, operation="kw"),
+            DatabaseQueryError("caption check failed"),
+        ],
+        ids=["timeout", "database"],
+    )
+    @pytest.mark.asyncio
+    async def test_failure_logs_one_warning_and_keeps_the_hits(
+        self, error, mock_repository, mock_config, caplog
+    ):
+        """Supplementary evidence never fails a search the main statement answered."""
+        import logging
+
+        from tests.services.ariel_search.repo_fakes import attach_fake_caption_matches
+
+        mock_repository.keyword_search = AsyncMock(return_value=self.hits("e1"))
+        attach_fake_caption_matches(mock_repository, error=error)
+
+        with caplog.at_level(logging.WARNING):
+            results = await keyword_search("beam", mock_repository, mock_config)
+
+        assert [entry["entry_id"] for entry, _s, _h in results] == ["e1"]
+        assert "_matched_attachment_ids" not in results[0][0]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len([r for r in warnings if "caption" in r.getMessage()]) == 1
+
+
+def pattern_clauses_params(kwargs: dict) -> str:
+    """Return the single pattern body bound in a repository call."""
+    (clause,) = pattern_clauses(kwargs)
+    index = kwargs["where_clauses"].index(clause)
+    offset = sum(clause_.count("%s") for clause_ in kwargs["where_clauses"][:index])
+    return kwargs["params"][offset]

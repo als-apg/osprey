@@ -280,6 +280,31 @@ class TestUnsupportedProvider:
             ClaudeCodeModelResolver.resolve({"provider": "zzzz-nothing-like-it"})
         assert "Did you mean" not in str(excinfo.value)
 
+    def test_an_embeddings_only_provider_is_neither_listed_nor_suggested(self):
+        """Only chat providers can run the agent, so the near-miss spelling of
+        an embeddings-only entry is not offered as the fix."""
+        llama_cpp = dict(load_provider_catalog(None).entries["llama-cpp"])
+        api_providers = {"llama-cpp": llama_cpp, "stanford": _gateway()}
+        with pytest.raises(ValueError) as excinfo:
+            ClaudeCodeModelResolver.resolve({"provider": "llama-cp"}, api_providers)
+
+        message = str(excinfo.value)
+        assert "Did you mean 'llama-cpp'" not in message
+        available = message.split("Available providers: ", 1)[1].split(" (", 1)[0]
+        assert "llama-cpp" not in available.split(", ")
+        assert "stanford" in available.split(", ")
+        assert "from api.providers in config.yml: stanford)" in message
+
+    def test_an_embeddings_only_provider_is_refused_as_the_agent_provider(self):
+        llama_cpp = dict(load_provider_catalog(None).entries["llama-cpp"])
+        with pytest.raises(ValueError) as excinfo:
+            ClaudeCodeModelResolver.resolve({"provider": "llama-cpp"}, {"llama-cpp": llama_cpp})
+        assert str(excinfo.value) == (
+            "llama-cpp serves embeddings only, no chat; name it as an embedding module's "
+            "provider (ariel.enhancement_modules.image_embedding.provider or "
+            "text_embedding.provider)."
+        )
+
     def test_known_in_api_providers_does_not_raise(self):
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "my-proxy"},

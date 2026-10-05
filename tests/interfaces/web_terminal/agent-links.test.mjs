@@ -71,6 +71,23 @@ describe('classifyAgentLink', () => {
     ).toEqual({ kind: 'window', url: 'http://hub.test/u/bob/panel/okf' });
   });
 
+  test('a root panel link under a per-user mount is this hub\'s panel, prefixed', () => {
+    // A tool spells the route it knows, `/panel/ariel/#entry-27`; only the hub
+    // knows the mount it is served under.
+    expect(
+      classifyAgentLink(
+        '/panel/ariel/#entry-27',
+        ctx('http://hub.test/u/alice/', '/u/alice', (id) => id === 'ariel')
+      )
+    ).toEqual({ kind: 'panel', panel: 'ariel', url: '/u/alice/panel/ariel/#entry-27' });
+  });
+
+  test('a root panel link to a panel this hub does not host opens in a new tab', () => {
+    expect(
+      classifyAgentLink('/panel/other#x', ctx('http://hub.test/u/alice/', '/u/alice'))
+    ).toEqual({ kind: 'window', url: 'http://hub.test/panel/other#x' });
+  });
+
   test('an external https link opens in a new tab', () => {
     expect(classifyAgentLink('https://example.org/doc', ctx('http://hub.test/', ''))).toEqual({
       kind: 'window',

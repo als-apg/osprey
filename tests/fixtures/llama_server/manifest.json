@@ -1,0 +1,13 @@
+{
+  "model": "qwen3-vl-embedding-2b",
+  "pictures": {
+    "orbit_kick": "c0a3fc6a1294fcb3c78b175d2b2d45665eebef79965d39f0f47ff6b2faebf6ab",
+    "tunnel_temp": "2d0381c38d4a72caed13c6f45c987e2e022518639486c0db039d1c52e182eeae"
+  },
+  "queries": {
+    "orbit kick near BPM 7": "0f4a367d93afab9071fb7507533da878c657dc97099b952da036769012ae0bb6",
+    "horizontal orbit distortion after fill": "c1f9c0a26ba910a63c4b8b79127b4446dd0d1bd49720188816607f29d859a642",
+    "tunnel air temperature drift": "a6cd9ce857a46175b9c3790492d189ba61cf3b9de439b6a9f4aadb3378b05b32",
+    "RF cavity trip strip chart": "9a63d0783740d158cfc580598dfdeb10c648fb0c6dc7cba6317241c1ff0ccfbb"
+  }
+}

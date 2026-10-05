@@ -6,6 +6,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 
 import logging
 import os
+import sys
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -634,6 +635,22 @@ def no_authored_plans_in_the_package():
             f"{_first_seen_clause(_PLAN_DIR_FIRST_SEEN)}"
             f"{_GUARD_KNOWN_LIMIT}"
         )
+
+
+@pytest.fixture(autouse=True)
+def render_worker_ends_with_its_test():
+    """Kill the picture render worker a test left cached, when that test ends.
+
+    ``osprey.imaging.render`` keeps one worker subprocess per process, so a test
+    that renders a picture without closing the worker hands it to whichever test
+    runs next on the same xdist worker. A test that asserts no worker was
+    spawned then sees a pid it never started. A test that never imported the
+    module pays nothing.
+    """
+    yield
+    render = sys.modules.get("osprey.imaging.render")
+    if render is not None and render.worker_pid() is not None:
+        render._forget_worker()
 
 
 @pytest.fixture(autouse=True)
@@ -1351,6 +1368,28 @@ def _is_ollama_available() -> bool:
         import requests
 
         return requests.get("http://localhost:11434/api/tags", timeout=2).status_code == 200
+    except Exception:
+        return False
+
+
+def ollama_has_model(name: str, base_url: str = "http://localhost:11434") -> bool:
+    """True if the Ollama server at ``base_url`` lists ``name`` in ``/api/tags``.
+
+    A name without a tag matches its ``:latest`` listing. Never raises: an
+    unreachable server or an unexpected listing reads as ``False``.
+    """
+    wanted = {name, name if ":" in name else f"{name}:latest"}
+    try:
+        import requests
+
+        response = requests.get(f"{base_url.rstrip('/')}/api/tags", timeout=2)
+        if response.status_code != 200:
+            return False
+        models = response.json().get("models") or []
+        return any(
+            isinstance(m, dict) and (m.get("name") in wanted or m.get("model") in wanted)
+            for m in models
+        )
     except Exception:
         return False
 

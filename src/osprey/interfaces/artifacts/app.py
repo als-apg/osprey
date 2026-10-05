@@ -676,6 +676,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.stores.artifact_store import (
+        AUDIT_ORIGIN,
         ArtifactEntry,
         ArtifactStore,
         artifact_mutation_actor,
@@ -754,6 +755,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     )
 
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
+        if entry.origin == AUDIT_ORIGIN:
+            return
         broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
 
     def _on_artifact_deleted(entry: ArtifactEntry) -> None:

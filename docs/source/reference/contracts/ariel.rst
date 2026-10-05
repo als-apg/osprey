@@ -46,6 +46,9 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Full-text keyword search across logbook entries
    * - ``semantic_search``
      - Vector similarity search using embeddings
+   * - ``hybrid_search``
+     - Keyword and semantic ranking combined, with optional query expansion
+       and reranking (offered when the hybrid module is enabled)
    * - ``sql_query``
      - Direct SQL queries against the logbook database
    * - ``browse``
@@ -62,6 +65,13 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Retrieve a single entry by ID
    * - ``entries_by_ids``
      - Batch retrieve multiple entries by their IDs
+   * - ``attachment_view``
+     - Return one viewable picture attached to an entry, with its summary
+   * - ``entry_open``
+     - Show an entry, and optionally one of its viewable pictures enlarged, in
+       the ARIEL web panel
+   * - ``attachment_to_artifact``
+     - Copy one viewable picture into the artifact gallery and select it there
    * - ``entry_create``
      - Create a new logbook entry
 
@@ -71,7 +81,111 @@ characters of each entry's ``raw_text``, and ``entries_by_ids`` the first
 ``raw_text_truncated: true`` and its full ``raw_text_length``. ``entry_get``
 returns the whole entry. See :ref:`config-ariel-entry-text`.
 
+Attachment summaries
+--------------------
+
+Every tool that returns entries describes their attachments with one summary
+shape, listed under ``attachments``:
+
+.. code-block:: text
+
+   {attachment_id?, filename, mime_type, viewable, copy_status, skip_reason?,
+    caption?, caption_source?, visible_text?, url?}
+
+Listings (search results, ``browse`` and ``entries_by_ids``) cut ``caption``
+and ``visible_text`` to 200 characters and mark a cut field with
+``caption_truncated`` or ``visible_text_truncated``; they carry only the first
+few summaries and count them all in ``attachment_count``. A search hit that
+matched through an attachment names it in ``matched_attachment_ids``.
+``entry_get`` returns every summary with its caption in full.
+
+An attachment is ``viewable`` when its copy finished (``copy_status`` is
+``copied``), it was not skipped (no ``skip_reason``), its type is an image,
+and its display rendition is stored. ``attachment_view`` takes the
+``attachment_id`` of a viewable attachment and returns a JSON block (the
+summary plus ``entry_id``, ``source_url``, ``size_bytes``, ``rendition_size``
+and ``rendition_sha256``) followed by the picture. An unknown id is
+``not_found``; an attachment that is not viewable is ``no_results``.
+
+``ariel.attachments.view.enabled`` (default ``true``) switches picture viewing
+for the agent. With it off:
+
+- ``attachment_view`` and ``attachment_to_artifact`` are absent from
+  ``tools/list``, and a call to either returns ``not_supported``;
+- listings carry no ``attachments``, ``attachment_count`` or
+  ``matched_attachment_ids``;
+- ``entry_get`` carries the entry's stored ``attachments`` items unchanged,
+  without summaries.
+
+The web panel's attachment display does not depend on this setting.
+
+``entry_open`` takes an ``entry_id`` and an optional ``attachment_id`` and asks
+the web terminal to bring the ARIEL panel forward at
+``#entry?id=<entry_id>``, with ``&attachment=<attachment_id>`` when that
+attachment is one of the entry's and is viewable. It returns ``entry_id``,
+``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel
+``url`` and a ``message``; without a web terminal the ``url`` is the link to
+follow. An unknown entry, or an attachment that is not the entry's, is
+``not_found``. The panel route also works in a browser on the standalone ARIEL
+web page.
+
+``attachment_to_artifact`` takes the ``attachment_id`` of a viewable attachment
+and saves its display rendition, never the original upload, to the artifact
+gallery as an ``image`` artifact in the ``visualization`` category, titled with
+the filename and entry id. The entry id, attachment id, filename, and caption
+with its ``caption_source`` are recorded in the artifact's description and in
+``metadata.logbook_picture``. The artifact is keyed by the rendition's sha256,
+so saving the same picture again returns the same artifact. The result is the
+gallery's usual artifact response (``artifact_id``, ``title``,
+``artifact_type``, ``category``, ``gallery_url`` ...) plus ``entry_id``,
+``attachment_id``, ``created`` and ``focused``. Errors match
+``attachment_view``'s.
+
 **Source:** :file:`src/osprey/mcp_server/ariel/tools/`
+
+Captions and picture search availability
+----------------------------------------
+
+The presets turn ``image_caption``, ``image_embedding`` and
+``ariel.attachments.view.enabled`` on. Each picture module runs when its server
+and model answer and is skipped otherwise, like semantic search without
+Ollama; nothing else stops working. See :doc:`/how-to/ariel/picture-search`.
+
+``capabilities.attachments`` carries:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Field
+     - Meaning
+   * - ``captions``
+     - ``image_caption`` is enabled
+   * - ``picture_search``
+     - ``image_embedding`` and the ``hybrid`` search module are both enabled
+   * - ``picture_search_unavailable``
+     - ``null``, or why picture search cannot answer: ``unreachable`` (the
+       embedding server does not answer), ``model`` (it does not serve the
+       configured model), ``auth`` (it refused the API key) or ``config``
+       (the module's configuration or the database schema is incomplete).
+       ``null`` when picture search is off, has not failed, or its last
+       attempt succeeded.
+
+A deployment **without llama-server** (or with ``image_embedding`` not
+reachable for another reason) sees ``osprey ariel status`` name the skipped
+``image_embedding`` module and why, ``hybrid_search`` answer on text only with
+the diagnostic "Picture search unavailable --- results are matched on text
+only, so entries known only by their pictures are missing.", and
+``picture_search_unavailable`` set to the reason.
+
+A deployment **without the caption model** sees ``osprey ariel status`` name
+the skipped ``image_caption`` module and why; entries are searched on their
+text without captions.
+
+Each module is turned off with its own key:
+``ariel.enhancement_modules.image_caption.enabled: false``,
+``ariel.enhancement_modules.image_embedding.enabled: false``, and
+``ariel.attachments.view.enabled: false`` for the view tool.
 
 
 Search Result Structure

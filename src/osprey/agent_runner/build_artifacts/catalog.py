@@ -340,12 +340,6 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Scripted web-workspace UI demonstration skill",
         ),
         BuildArtifact(
-            canonical_name="skills/sim-scenarios",
-            template_path="claude/skills/sim-scenarios/SKILL.md",
-            output_path=".claude/skills/sim-scenarios/SKILL.md",
-            description="List and switch simulated machine scenarios",
-        ),
-        BuildArtifact(
             canonical_name="skills/logbook-deep-research",
             template_path="claude/skills/logbook-deep-research/SKILL.md.j2",
             output_path=".claude/skills/logbook-deep-research/SKILL.md",

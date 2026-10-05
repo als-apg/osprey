@@ -45,7 +45,14 @@ def test_serialize_entry_renders_timestamp_in_facility_zone():
         "source_system": "elog",
         "raw_text": "hello",
     }
-    out = serialize_entry(entry, text_limit=DEFAULT_LISTING_TEXT_CHARS)
+    out = serialize_entry(
+        entry,
+        text_limit=DEFAULT_LISTING_TEXT_CHARS,
+        attachment_limit=0,
+        attachment_rows=None,
+        model_id=None,
+        file_source=False,
+    )
     # UTC midnight rendered in Tokyo (+09:00) → 09:00+09:00 on the same date.
     assert out["timestamp"].endswith("+09:00")
     assert "T09:00:00" in out["timestamp"]

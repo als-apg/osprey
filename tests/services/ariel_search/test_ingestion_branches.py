@@ -2051,7 +2051,7 @@ class TestJLabAdapter:
         }
 
     def test_attachment_transform_skips_unusable_entries(self):
-        """Non-dicts and url-less dicts are dropped; thumbnails and captions kept."""
+        """Non-dicts, url-less dicts and relative urls are dropped; thumbnails and captions kept."""
         adapter = _jlab_adapter("/tmp/entries.json")
 
         result = adapter._transform_attachments(
@@ -2076,7 +2076,6 @@ class TestJLabAdapter:
                 "thumbnail_url": "https://logbook.invalid/img/a-thumb.png",
                 "caption": "Orbit",
             },
-            {"url": "bare-name.txt", "type": None, "filename": "bare-name.txt"},
         ]
 
     def test_thumbnails_can_be_disabled(self):

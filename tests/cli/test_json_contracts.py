@@ -72,6 +72,10 @@ from osprey.cli.health_cmd import health
 from osprey.cli.query_cmd import query
 from osprey.health.models import CheckReport, CheckResult, Status
 from tests.cli._lifecycle_build import stub_build
+from tests.cli.test_json_keyset_capture import (
+    build_ariel_status_repository,
+    patch_render_probe_ok,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -293,26 +297,16 @@ def _invoke_ariel_status(
 ) -> Result:
     """Run ``ariel status --json`` against a stub repository."""
 
-    def _stats() -> dict[str, int]:
+    def _stats(**_: object) -> dict[str, int]:
         hook()
         return {"total_entries": 7}
 
-    repository = MagicMock()
+    repository = build_ariel_status_repository({"total_entries": 7})
     repository.get_enhancement_stats = AsyncMock(side_effect=_stats)
-    repository.get_embedding_tables = AsyncMock(
-        return_value=[
-            SimpleNamespace(
-                table_name="text_embeddings_nomic",
-                entry_count=7,
-                dimension=768,
-                is_active=True,
-            )
-        ]
-    )
-    repository.get_last_ingestion = AsyncMock(return_value=None)
 
     with (
         _install_ariel_service(_StubService(repository=repository)),
+        patch_render_probe_ok(),
         patch("osprey.cli.ariel.get_config_value", new=lambda *a, **kw: dict(_ARIEL_CONFIG)),
     ):
         return runner.invoke(ariel_group, ["status", "--json"])
@@ -465,3 +459,48 @@ def test_audit_verbose_keeps_the_reviewer_transcript_off_the_document(
 def test_every_json_verb_has_a_golden_and_an_invoker() -> None:
     """The contracts cover every ``--json`` verb the goldens record."""
     assert {path.stem for path in _GOLDEN_DIR.glob("*.json")} == set(_INVOKERS)
+
+
+def test_ariel_status_module_health_rides_in_the_one_document(runner: CliRunner) -> None:
+    """An enabled module's ``health`` is in the document, its check patched, stdout clean."""
+    from osprey.models.providers.health import HealthResult
+    from osprey.services.ariel_search.enhancement.semantic_processor.processor import (
+        SemanticProcessorModule,
+    )
+
+    async def _unreachable(_self: Any) -> HealthResult:
+        return HealthResult(False, "down", "unreachable")
+
+    config = {
+        **_ARIEL_CONFIG,
+        "enhancement_modules": {"semantic_processor": {"enabled": True, "provider": "cborg"}},
+    }
+
+    def _build(_config: Any, **_kw: Any) -> list[SemanticProcessorModule]:
+        # The registry needs a project on disk; the module itself is real.
+        module = SemanticProcessorModule()
+        module.configure({"provider": "cborg"})
+        return [module]
+
+    repository = build_ariel_status_repository({"total_entries": 7})
+    with (
+        _install_ariel_service(_StubService(repository=repository)),
+        patch_render_probe_ok(),
+        patch.object(SemanticProcessorModule, "health_check", _unreachable),
+        patch(
+            "osprey.services.ariel_search.enhancement.create_enhancers_from_config",
+            new=_build,
+        ),
+        patch("osprey.cli.ariel.get_config_value", new=lambda *a, **kw: dict(config)),
+    ):
+        result = runner.invoke(ariel_group, ["status", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = _sole_document(result.stdout)
+    assert sorted(payload) == _golden_top_level("ariel_status")
+    assert payload["enhancement_modules"]["semantic_processor"]["health"] == {
+        "reachable": False,
+        "reason": "unreachable",
+        "probed_from": "this process",
+    }
+    assert "semantic_processor: skipped" not in result.stdout

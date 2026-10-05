@@ -56,6 +56,7 @@ export function formatHumanTimestamp(timestamp) {
  * @property {Array<*>} [attachments]
  * @property {string[]} [keywords]
  * @property {string[]} [highlights]
+ * @property {string[]|null} [matched_via]
  */
 
 /**
@@ -199,6 +200,7 @@ export function renderEntryCard(entry, isCited = false) {
   const attachmentCount = entry.attachments?.length || 0;
   const keywords = entry.keywords?.slice(0, 5) || [];
   const citedClass = isCited ? ' entry-card-cited' : '';
+  const pictureMatch = Array.isArray(entry.matched_via) && entry.matched_via.includes('image');
 
   // Extract preview from raw_text
   const { details: preview } = parseEntryText(entry.raw_text);
@@ -228,6 +230,7 @@ export function renderEntryCard(entry, isCited = false) {
       </div>
       <div class="entry-card-footer">
         ${attachmentCount > 0 ? `<span class="text-muted">📎 ${attachmentCount}</span>` : ''}
+        ${pictureMatch ? '<span class="text-muted" data-match-marker="image" title="Matched through a picture in this entry">🖼️ picture match</span>' : ''}
         ${keywords.length > 0 ? `<span class="keyword-list">🏷️ ${keywords.map(kw =>
           `<span class="keyword-tag">${escapeHtml(kw)}</span>`
         ).join('')}</span>` : ''}

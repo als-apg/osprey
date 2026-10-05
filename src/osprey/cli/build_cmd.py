@@ -3470,7 +3470,15 @@ def _build_repo(
         catalog_named = (
             PROVIDERS_FILENAME if catalog.source == "repo" else f"the packaged {PROVIDERS_FILENAME}"
         )
-        catalog_names = ", ".join(sorted(catalog.entries))
+        # Only a chat provider can drive the agent; an embeddings-only one is
+        # named by an embedding module instead, so it is left out of the list.
+        from osprey.agent_runner.provider_env import non_chat_provider_refusal
+        from osprey.models.provider_registry import get_provider_registry
+
+        registry = get_provider_registry()
+        catalog_names = ", ".join(
+            name for name in sorted(catalog.entries) if registry.is_chat(name)
+        )
         if not build_profile.provider:
             raise click.UsageError(
                 f"{PROFILE_FILENAME} names no provider. Add `provider: <name>` naming "
@@ -3484,6 +3492,12 @@ def _build_repo(
                 f"{catalog_named} does not declare. Name one of {catalog_names}, or add "
                 f"`{build_profile.provider}` to {PROVIDERS_FILENAME} beside "
                 f"{PROFILE_FILENAME}."
+            )
+        if not registry.is_chat(build_profile.provider):
+            raise click.UsageError(
+                f"{PROFILE_FILENAME} names provider `{build_profile.provider}`. "
+                f"{non_chat_provider_refusal(build_profile.provider)} Name one of "
+                f"{catalog_names} as `provider:`."
             )
         _check_osprey_version_requirement(build_profile)
 

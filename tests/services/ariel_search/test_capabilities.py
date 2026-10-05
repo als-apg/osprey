@@ -644,4 +644,100 @@ class TestVocabularyCapabilities:
             "default_mode",
             "shared_parameters",
             "vocabulary",
+            "attachments",
         ]
+
+
+class TestAttachmentsCapability:
+    """The ``attachments`` block of :func:`get_capabilities`."""
+
+    def _config(self, **sections: dict) -> ARIELConfig:
+        return ARIELConfig.from_dict(
+            {"database": {"uri": "postgresql://localhost:5432/test"}, **sections}
+        )
+
+    def _caps(self, config: ARIELConfig) -> dict:
+        return get_capabilities(config)["attachments"]
+
+    def test_attachments_block_key_order(self):
+        """The block carries exactly its six keys, ``view`` between formats and captions."""
+        assert list(self._caps(self._config())) == [
+            "copy_on_ingest",
+            "formats",
+            "view",
+            "captions",
+            "picture_search",
+            "picture_search_unavailable",
+        ]
+
+    def test_attachments_defaults(self):
+        """An unconfigured store copies images, shows them, and has no image modules."""
+        caps = self._caps(self._config())
+        assert caps["copy_on_ingest"] == "images"
+        assert caps["view"] is True
+        assert caps["captions"] is False
+        assert caps["picture_search"] is False
+
+    def test_attachments_formats_split_the_format_table_by_status(self):
+        """``viewable`` lists the accepted rows and ``reserved`` the reserved ones."""
+        from osprey.imaging.formats import ROWS
+
+        formats = self._caps(self._config())["formats"]
+        assert set(formats) == {"viewable", "reserved"}
+        assert formats["viewable"] == [n for n, r in ROWS.items() if r.status == "accepted"]
+        assert formats["reserved"] == [n for n, r in ROWS.items() if r.status == "reserved"]
+        assert "png" in formats["viewable"]
+        assert "svg" in formats["reserved"]
+        assert not set(formats["viewable"]) & set(formats["reserved"])
+
+    @pytest.mark.parametrize("mode", ["images", "all", "none"])
+    def test_attachments_copy_on_ingest_follows_config(self, mode):
+        caps = self._caps(self._config(attachments={"copy_on_ingest": mode}))
+        assert caps["copy_on_ingest"] == mode
+
+    @pytest.mark.parametrize(("enabled", "expected"), [(True, True), (False, False)])
+    def test_attachments_view_is_false_exactly_when_the_key_is_false(self, enabled, expected):
+        caps = self._caps(self._config(attachments={"view": {"enabled": enabled}}))
+        assert caps["view"] is expected
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_attachments_captions_follow_image_caption(self, enabled):
+        config = self._config(enhancement_modules={"image_caption": {"enabled": enabled}})
+        assert self._caps(config)["captions"] is enabled
+
+    @pytest.mark.parametrize(
+        ("image_embedding", "hybrid", "expected"),
+        [(True, True, True), (True, False, False), (False, True, False), (False, False, False)],
+    )
+    def test_attachments_picture_search_needs_image_embedding_and_hybrid(
+        self, image_embedding, hybrid, expected
+    ):
+        config = self._config(
+            enhancement_modules={"image_embedding": {"enabled": image_embedding}},
+            search_modules={"hybrid": {"enabled": hybrid}},
+        )
+        assert self._caps(config)["picture_search"] is expected
+
+    def test_picture_search_unavailable_is_null_while_the_lane_has_not_failed(self):
+        assert self._caps(self._config())["picture_search_unavailable"] is None
+
+    @pytest.mark.parametrize("reason", ["unreachable", "model", "auth", "config"])
+    def test_picture_search_unavailable_reports_the_lanes_last_reason(self, reason, monkeypatch):
+        """The key reads the picture lane's in-process state; it probes nothing."""
+        from osprey.services.ariel_search.search import image_lane
+
+        monkeypatch.setattr(image_lane, "_last_reason", reason)
+        config = self._config(
+            enhancement_modules={"image_embedding": {"enabled": True}},
+            search_modules={"hybrid": {"enabled": True}},
+        )
+        caps = self._caps(config)
+        assert caps["picture_search"] is True
+        assert caps["picture_search_unavailable"] == reason
+
+    def test_attachments_capability_is_the_get_capabilities_block(self):
+        """The public builder is the one ``get_capabilities`` embeds."""
+        from osprey.services.ariel_search.capabilities import attachments_capability
+
+        config = self._config(attachments={"copy_on_ingest": "all"})
+        assert attachments_capability(config) == self._caps(config)

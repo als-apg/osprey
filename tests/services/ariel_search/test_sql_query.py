@@ -228,6 +228,20 @@ class TestValidateSqlQueryRejects:
             validate_sql_query("SELECT pg_read_file('/etc/passwd')")
         assert "enhanced_entries" in str(exc_info.value)
 
+    def test_binary_attachment_table_is_refused_with_a_hint(self):
+        """``attachment_files`` holds file bytes; the refusal says binary tables are not queryable."""
+        with pytest.raises(
+            ValueError, match="Table 'attachment_files' is not in the allowlist"
+        ) as exc_info:
+            validate_sql_query("SELECT * FROM attachment_files")
+        message = str(exc_info.value)
+        assert "binary tables are not queryable" in message.lower()
+        assert "attachment_text" in message
+        assert "attachment_captions" in message
+
+    def test_binary_tables_stay_out_of_the_allowlist(self):
+        assert "attachment_files" not in ALLOWED_TABLES
+
 
 class TestFromListRule:
     """The FROM/JOIN shape rule.

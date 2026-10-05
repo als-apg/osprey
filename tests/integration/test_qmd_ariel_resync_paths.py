@@ -312,6 +312,120 @@ class TestAttachmentReUpsertPath:
         )
 
 
+def _real_png() -> bytes:
+    """A small real PNG the render worker accepts."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (16, 12), (10, 120, 200)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+class TestNativeAttachmentCopyRows:
+    """``_store_and_link_attachments`` writes copy-state rows a picture view can serve."""
+
+    async def test_native_upload_picture_is_viewable_at_once(self, lane):
+        """The native write renders the picture; nothing else runs in between."""
+        from osprey.interfaces.ariel.api.routes import _store_and_link_attachments
+        from osprey.services.ariel_search.attachments.formats import is_viewable
+
+        row = _row("native-0001", raw_text="Beam picture attached.")
+        await lane.repository.upsert_entry(row)
+        async with lane.repository.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE enhanced_entries SET enhancement_status = "
+                """'{"image_caption": {"status": "completed"}}'::jsonb """
+                "WHERE entry_id = 'native-0001'"
+            )
+        png = _real_png()
+
+        linked = await _store_and_link_attachments(
+            _ServiceStub(lane.repository), "native-0001", [("beam.png", "image/png", png)]
+        )
+
+        assert linked == 1
+        (copy_row,) = await lane.repository.get_copy_rows("native-0001")
+        assert copy_row["copy_status"] == "copied"
+        assert copy_row["source_url"] is None
+        assert copy_row["has_data"]
+        assert copy_row["rendition_sha256"] is not None
+        assert is_viewable(copy_row), copy_row
+        stored = await lane.repository.get_attachment_original(copy_row["attachment_id"])
+        assert bytes(stored["data"]) == png
+        entry = await lane.repository.get_entry("native-0001")
+        assert "image_caption" not in (entry.get("enhancement_status") or {})
+
+    async def test_native_render_unavailable_leaves_rendition_null(self, lane, monkeypatch):
+        from osprey.interfaces.ariel.api.routes import _store_and_link_attachments
+        from osprey.services.ariel_search.attachments import prepare as prepare_module
+
+        async def unavailable(*_args, **_kwargs):
+            raise prepare_module.RenderUnavailable("no worker")
+
+        monkeypatch.setattr(prepare_module, "prepare_picture", unavailable)
+        await lane.repository.upsert_entry(_row("native-0002", raw_text="Worker down."))
+
+        await _store_and_link_attachments(
+            _ServiceStub(lane.repository),
+            "native-0002",
+            [("beam.png", "image/png", _real_png())],
+        )
+
+        (copy_row,) = await lane.repository.get_copy_rows("native-0002")
+        assert copy_row["copy_status"] == "copied"
+        assert copy_row["skip_reason"] is None
+        assert copy_row["rendition_sha256"] is None
+        assert copy_row["has_data"]
+
+    async def test_native_pdf_is_kept_with_reserved_format(self, lane):
+        from osprey.interfaces.ariel.api.routes import _store_and_link_attachments
+
+        await lane.repository.upsert_entry(_row("native-0003", raw_text="Report attached."))
+        pdf = b"%PDF-1.4\n%fake pdf body\n%%EOF\n"
+
+        await _store_and_link_attachments(
+            _ServiceStub(lane.repository), "native-0003", [("r.pdf", "application/pdf", pdf)]
+        )
+
+        (copy_row,) = await lane.repository.get_copy_rows("native-0003")
+        assert copy_row["copy_status"] == "copied"
+        assert copy_row["skip_reason"] == "reserved_format"
+        assert copy_row["mime_type"] == "application/pdf"
+        assert copy_row["rendition_sha256"] is None
+        stored = await lane.repository.get_attachment_original(copy_row["attachment_id"])
+        assert bytes(stored["data"]) == pdf
+
+    async def test_native_schema_without_copy_state_uses_the_b1_insert(self, lane, monkeypatch):
+        """A fake ``schema_facts`` saying no copy state still lets the upload succeed."""
+        from osprey.interfaces.ariel.api.routes import _store_and_link_attachments
+        from osprey.services.ariel_search.attachments import prepare as prepare_module
+        from osprey.services.ariel_search.database.repository import SchemaFacts
+
+        async def facts() -> SchemaFacts:
+            return SchemaFacts(False, False)
+
+        async def never(*_args, **_kwargs):
+            raise AssertionError("prepare_picture must not run without copy state")
+
+        monkeypatch.setattr(lane.repository, "schema_facts", facts)
+        monkeypatch.setattr(prepare_module, "prepare_picture", never)
+        await lane.repository.upsert_entry(_row("native-0004", raw_text="Old schema."))
+        png = _real_png()
+
+        linked = await _store_and_link_attachments(
+            _ServiceStub(lane.repository), "native-0004", [("beam.png", "image/png", png)]
+        )
+
+        assert linked == 1
+        (copy_row,) = await lane.repository.get_copy_rows("native-0004")
+        assert copy_row["rendition_sha256"] is None
+        assert copy_row["mime_type"] == "image/png"
+        stored = await lane.repository.get_attachment_original(copy_row["attachment_id"])
+        assert bytes(stored["data"]) == png
+
+
 class TestMcpEntryCreatePath:
     """``mcp_server/ariel/tools/entry.py`` ``entry_create`` in direct mode.
 

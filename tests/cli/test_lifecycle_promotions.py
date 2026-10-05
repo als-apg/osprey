@@ -2036,6 +2036,42 @@ class TestTheArchiveKnobDiff:
         assert "knobs changed" not in printed.flowed
 
 
+class TestDefaultScenariosReachTheArchive:
+    """A set the deploy just activated is written into a base that never saw it."""
+
+    @staticmethod
+    def _reapplies(monkeypatch, archiver_stubs, tmp_path, *, state, activated) -> int:
+        calls: list = []
+        monkeypatch.setattr(
+            container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: calls.append(a)
+        )
+        archiver_stubs["state"] = _seed_state(state)
+        container_lifecycle._stage_archiver_store(
+            {"deployed_services": ["archiver_store"]},
+            ["compose.yml"],
+            {},
+            tmp_path,
+            scenarios_activated=activated,
+        )
+        return len(calls)
+
+    @pytest.mark.usefixtures("default_altitude", "printed")
+    def test_a_matching_base_is_reapplied_onto_after_defaults_were_activated(
+        self, monkeypatch, archiver_stubs, tmp_path
+    ):
+        assert self._reapplies(monkeypatch, archiver_stubs, tmp_path, state="MATCH", activated=True)
+        assert not self._reapplies(
+            monkeypatch, archiver_stubs, tmp_path, state="MATCH", activated=False
+        )
+
+    @pytest.mark.usefixtures("default_altitude", "printed")
+    def test_a_rebuilt_base_is_reapplied_onto_once(self, monkeypatch, archiver_stubs, tmp_path):
+        assert (
+            self._reapplies(monkeypatch, archiver_stubs, tmp_path, state="ABSENT", activated=True)
+            == 1
+        )
+
+
 @pytest.fixture
 def printed_err(monkeypatch: pytest.MonkeyPatch) -> Iterator[Printed]:
     """Capture what the trouble primitives put on stderr.
