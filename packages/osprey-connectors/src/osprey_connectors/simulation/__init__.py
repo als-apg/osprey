@@ -1,8 +1,8 @@
 """The simulated machine behind OSPREY's mock connectors.
 
 The package root holds only what every reader needs without loading a model:
-the tick period, value coercion, char-waveform decoding and the
-active-scenario state helpers. It imports neither numpy nor lume; the engine,
+the tick period, value coercion, char-waveform decoding, the
+active-scenario state helpers and the model status lookup. It imports neither numpy nor lume; the engine,
 machine and expression names are imported from their own modules
 (:mod:`.engine`, :mod:`.machine`, :mod:`.expressions`).
 """
@@ -20,6 +20,7 @@ from osprey_connectors.simulation.state import (
     resolve_active_scenarios,
     validate_composition,
 )
+from osprey_connectors.simulation.status import model_status
 from osprey_connectors.simulation.values import coerce
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "coerce",
     "decode_char_waveform",
     "format_overlap_record",
+    "model_status",
     "overlap_record",
     "parse_active_state",
     "resolve_active_scenarios",

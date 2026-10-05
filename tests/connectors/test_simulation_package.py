@@ -103,6 +103,20 @@ def test_the_package_root_imports_no_lume_and_no_engine():
     assert "numpy" not in modules
 
 
+def test_the_model_status_lookup_imports_no_lume_and_no_engine():
+    modules = _modules_after("from osprey_connectors.simulation import model_status")
+
+    assert not {m for m in modules if m == "lume" or m.startswith(("lume.", "lume_"))}
+    assert not {
+        m
+        for m in modules
+        if m.startswith("osprey_connectors.simulation.")
+        and m.rsplit(".", 1)[1] in {"engine", "composite", "texture", "archive"}
+    }
+    assert "numpy" not in modules
+    assert "osprey_connectors.simulation.status" in modules
+
+
 def test_the_values_module_imports_no_numpy_and_no_lume():
     modules = _modules_after("import osprey_connectors.simulation.values")
 
