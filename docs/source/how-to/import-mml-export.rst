@@ -131,6 +131,12 @@ not change the verdict or the exit code:
 
 ``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``
 
+The check converts a monitor reading to position with one slope, taken at the
+centred beam. That is exact for a straight-line (gain and offset) calibration;
+a table-calibrated monitor is left out of the check and counted on the
+left-out line. If you need a more elaborate BPM calibration in the check, open
+an issue.
+
 .. seealso::
 
    :ref:`cli-osprey-facility`
