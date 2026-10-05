@@ -4,16 +4,18 @@ The Middle Layer addresses a deck element by its one-based position in the
 saved deck. The model addresses it by name, and a saved deck names a hundred
 elements ``DR``: the join between the two is a renaming, not a lookup. This
 module performs it. It takes one model of the layer's mapping, the deck the
-export saved for it and the export's sampled model facts (``<stem>.va.json``),
+export saved for it and the export's Accelerator Objects (``<stem>.ao.json``),
 and returns the deck renamed plus the table saying, per family and per device,
 which elements that device drives and what they are now called.
 
-A family's elements are the positions its sampled facts state beside the
-nominal of the field the mapping wires it through (``element_field``), one row
-per device of its ``device_list``. The family whose engine attribute is
-``Frequency`` states the deck's own cavities instead: the Middle Layer's index
-into them is not the model's, so the class decides. A wired family whose facts
-state no position binds nothing.
+A family's elements are the positions its Accelerator Objects state as
+``ATIndex`` in an ``AT`` block, one row per device of its ``DeviceList``. The
+block read is the one of the field the mapping wires it through
+(``element_field``) where that field states one, else the family's own -- the
+order the Middle Layer's model access reads them in. The family whose engine
+attribute is ``Frequency`` states the deck's own cavities instead: the Middle
+Layer's index into them is not the model's, so the class decides. A wired
+family whose ``AT`` block states no index binds nothing.
 
 The renaming has one rule, and the rule is ownership. Several families reach
 the same element -- a horizontal and a vertical corrector are one magnet, a
@@ -293,7 +295,7 @@ class _Claim:
 def address_elements(
     model: Model,
     deck: Sequence[Any],
-    va_block: Mapping[str, Any],
+    ao_block: Mapping[str, Any],
     ad_block: Mapping[str, Any] | None = None,
 ) -> Addressing:
     """Address every wired family's elements and name them for their owner.
@@ -308,8 +310,9 @@ def address_elements(
             families addressed, every slot decided.
         deck: The deck the export saved for the model, every element kept and
             in saved order, as the Middle Layer's positions index it.
-        va_block: The model's sampled facts (``<stem>.va.json``), carrying
-            each family's ``device_list`` and the ``at_index`` of its nominals.
+        ao_block: The model's Accelerator Objects, ``{family: body}``, each
+            body carrying its ``DeviceList`` and the ``AT`` block whose
+            ``ATIndex`` places it -- the wired field's own, else the family's.
         ad_block: The model's accelerator data, read for the harmonic number
             of a cavity to build; ``None`` where none was exported.
 
@@ -335,7 +338,7 @@ def address_elements(
     cavity = _cavity_to_build(model, deck, ad_block)
     if cavity is not None:
         deck, cavity = _with_cavity(deck, cavity)
-    claims = _claims(model, va_block, deck)
+    claims = _claims(model, ao_block, deck)
     owners = _owners(claims)
     names = _names(claims, owners)
 
@@ -470,18 +473,16 @@ def _rank_token(family: str, engine: EngineBlock) -> str:
     )
 
 
-def _claims(model: Model, va_block: Mapping[str, Any], deck: Sequence[Any]) -> list[_Claim]:
+def _claims(model: Model, ao_block: Mapping[str, Any], deck: Sequence[Any]) -> list[_Claim]:
     """Read every wired family that drives an element, in mapping order."""
-    sampled = va_block.get("families")
-    families = sampled if isinstance(sampled, dict) else {}
     claims: list[_Claim] = []
     for family, wiring in model.wiring.items():
         engine = wiring.engine
         if engine is None:
             raise ValueError(f"family {family} is wired with no engine block")
         token = _rank_token(family, engine)
-        block = families.get(family)
-        if not isinstance(block, dict):
+        block = ao_block.get(family)
+        if not isinstance(block, Mapping):
             continue
         stated = _stated_rows(family, block, wiring.element_field, token, deck)
         if not stated:
@@ -526,7 +527,7 @@ def _with_devices(
     """Pair each stated row with the device the export lists it under."""
     from osprey.services.mml.family import device_rows
 
-    devices = device_rows(block.get("device_list"))
+    devices = device_rows(block.get("DeviceList"))
     if devices is None:
         raise ValueError(
             f"family {family} binds {len(stated)} element rows and lists no device "
@@ -689,12 +690,12 @@ def _refuse_collisions(deck: Sequence[Any], names: Mapping[int, str]) -> None:
 
 
 def _at_index(block: Mapping[str, Any], element_field: str | None) -> Any:
-    """The positions a family states beside the nominal of its wired field."""
-    nominals = block.get("nominals")
-    if not isinstance(nominals, dict) or element_field is None:
-        return None
-    nominal = nominals.get(element_field)
-    return nominal.get("at_index") if isinstance(nominal, dict) else None
+    """The positions a family's ``AT`` block states: its wired field's, else its own."""
+    field = block.get(element_field) if element_field is not None else None
+    lattice = field.get("AT") if isinstance(field, Mapping) else None
+    if not isinstance(lattice, Mapping):
+        lattice = block.get("AT")
+    return lattice.get("ATIndex") if isinstance(lattice, Mapping) else None
 
 
 def _position(family: str, value: Any, deck: Sequence[Any]) -> int:

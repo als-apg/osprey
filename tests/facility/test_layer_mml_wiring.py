@@ -202,15 +202,16 @@ def test_every_entry_names_its_deck_between_engine_and_settings(imported: Path) 
 
 
 def test_every_written_deck_is_the_served_deck_of_its_export(tree: str, imported: Path) -> None:
+    from osprey.facility.layers.mml.importer import read_exports
     from osprey.services.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / MAPPING_FILE)
     for stem in TREES[tree]:
         system = SYSTEMS[stem]
-        va = json.loads((FIXTURES / tree / f"{stem}.va.json").read_text(encoding="utf-8"))
+        ao = read_exports([FIXTURES / tree / f"{stem}.ao.json"]).ao[system]
         ad = json.loads((FIXTURES / tree / f"{stem}.ad.json").read_text(encoding="utf-8"))
         addressing = decks.address_elements(
-            mapping.models[system], load_lattice(FIXTURES / tree / f"{stem}.lattice.mat"), va, ad
+            mapping.models[system], load_lattice(FIXTURES / tree / f"{stem}.lattice.mat"), ao, ad
         )
         written = imported / decks.DECKS_DIR / f"{system}.json"
         assert written.read_text(encoding="utf-8") == decks.deck_text(decks.served_deck(addressing))
@@ -317,18 +318,18 @@ def test_a_deck_of_a_model_the_import_does_not_carry_is_removed(tmp_path: Path) 
 
 def test_a_wired_family_the_export_places_no_device_of_stops_per_family(tmp_path: Path) -> None:
     def unplaced(document: dict[str, Any]) -> None:
-        wiring = document["models"]["LTB"].setdefault("wiring", {})
-        for family, axis in (("BPMx", "x"), ("BPMy", "y")):
+        wiring = document["models"]["StorageRing"].setdefault("wiring", {})
+        for family, axis in (("LTBBPMx", "x"), ("LTBBPMy", "y")):
             wiring[family] = {
                 "element_field": "Monitor",
                 "engine": {"axis": axis},
                 "calibration": "linear",
             }
 
-    assert _stops(tmp_path, "nsls2", TREES["nsls2"], unplaced).splitlines() == [
-        "import mml: export-invalid: LTB: family BPMx is wired through Monitor "
+    assert _stops(tmp_path, "spear3", TREES["spear3"], unplaced).splitlines() == [
+        "import mml: export-invalid: StorageRing: family LTBBPMx is wired through Monitor "
         "and the export places none of its devices",
-        "import mml: export-invalid: LTB: family BPMy is wired through Monitor "
+        "import mml: export-invalid: StorageRing: family LTBBPMy is wired through Monitor "
         "and the export places none of its devices",
     ]
 
