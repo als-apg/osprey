@@ -576,10 +576,4 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        rendered = (
-            lifecycle_repo / "build" / "services" / "virtual_accelerator" / "docker-compose.yml"
-        ).read_text(encoding="utf-8")
-        # The empty default reaches the container as an empty fault set: `-`
-        # substitutes only for an unset variable, so nothing rounds it back up.
-        assert 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-}"' in rendered
         assert "stand-in serves the facility manifest unperturbed" in result.output

@@ -43,6 +43,7 @@ from osprey.deployment.compose_generator import (
     prepare_compose_files,
     resolve_project_name,
     resolve_user_volume_names,
+    simulator_log_mount_sources,
 )
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.errors import DeploymentPreconditionError
@@ -3306,6 +3307,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "osprey_env_present": False,
         "deployed_services": [],
         "control_system": {},
+        "osprey_simulator_log_sources": simulator_log_mount_sources(),
         **_control_identity_context(),
     }
     ctx.update(overrides)
