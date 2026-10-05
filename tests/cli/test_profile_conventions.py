@@ -47,6 +47,7 @@ from osprey.cli.profile_conventions import (
     facility_mirror_violation,
     flatten_dotted,
     flatten_key_paths,
+    handwritten_limits_violation,
     is_protected_key,
     is_protected_key_path,
     is_reserved_write,
@@ -174,7 +175,7 @@ def test_destination_for_rejects_a_non_convention_root():
         (".env.example", "`env:`"),
         ("CLAUDE.md", "claude_md_template"),
         ("data/simulation/channel_manifest.json", "`data/`"),
-        ("data/simulation/channel_limits.json", "`data/`"),
+        ("data/simulation/channel_limits.json", "limits.yaml"),
         ("docker/web-terminal-context/base.md", "`web-terminal-context/base.md`"),
     ],
 )
@@ -1042,7 +1043,7 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         (".claude/rules/facility.md", "`rules/`"),
         (".claude/rules/nested/deep.md", "`rules/`"),
         (".claude/settings.local.json", "claude_code.permissions"),
-        ("data/channel_limits.json", "`data/`"),
+        ("data/channel_limits.json", "limits.yaml"),
         ("data/bluesky_devices.yml", "`data/`"),
         ("facility.json", "`data/facility/`"),
         ("data/facility/records/devices.yaml", "`data/facility/`"),
@@ -1177,12 +1178,13 @@ def test_skill_files_stay_ownable_while_being_reserved_writes():
     assert is_reserved_write(".claude/skills/foo/SKILL.md") is not None
 
 
-def test_channel_limits_overlay_still_validates_in_the_mirror(profile_dir: Path):
-    """``project/data/channel_limits.json`` is a legitimate profile overlay.
+def test_a_mirrored_limits_file_is_refused_by_the_limits_stop(profile_dir: Path):
+    """``project/data/channel_limits.json`` is the limits stop's to refuse.
 
-    The protected set stops a *running agent* from rewriting the limits table;
-    it must not stop the profile that authored it from shipping one, or the
-    build breaks for every deployment carrying facility limits in the mirror.
+    The mirror validation leaves it alone, so the one stop that names every
+    hand-written limits file is the one that answers: the build writes that
+    file from ``data/facility/limits.yaml``. A running agent still may not
+    rewrite the limits table.
     """
     mirror = profile_dir / "project" / "data"
     _write(mirror / "channel_limits.json", "{}\n")
@@ -1190,6 +1192,64 @@ def test_channel_limits_overlay_still_validates_in_the_mirror(profile_dir: Path)
     validate_project_mirror(profile_dir)  # does not raise
     assert reserved_path_channel("data/channel_limits.json") is None
     assert is_reserved_write("data/channel_limits.json") is not None
+    stop = handwritten_limits_violation(profile_dir / "data", profile_dir)
+    assert stop is not None
+    assert str(stop) == (
+        "facility: profile-invalid: path project/data/channel_limits.json — the build "
+        "writes data/channel_limits.json from data/facility/limits.yaml; fix: move its "
+        "limits into data/facility/limits.yaml and remove project/data/channel_limits.json"
+    )
+
+
+def test_a_tree_shipping_no_limits_file_passes_the_limits_stop(profile_dir: Path):
+    _write(profile_dir / "data" / "facility" / "limits.yaml", "records: []\n")
+
+    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
+
+
+def test_the_limits_stop_names_the_first_file_in_its_fixed_order(profile_dir: Path):
+    data = profile_dir / "data"
+    _write(profile_dir / "project" / "data" / "channel_limits.json", "{}\n")
+    _write(data / "simulation" / "channel_limits.json", "{}\n")
+    _write(data / "channel_limits.json", "{}\n")
+
+    found = []
+    for path in (
+        data / "channel_limits.json",
+        data / "simulation" / "channel_limits.json",
+        profile_dir / "project" / "data" / "channel_limits.json",
+    ):
+        stop = handwritten_limits_violation(data, profile_dir)
+        assert stop is not None
+        found.append(stop.record_id)
+        path.unlink()
+
+    assert found == [
+        "data/channel_limits.json",
+        "data/simulation/channel_limits.json",
+        "project/data/channel_limits.json",
+    ]
+    assert handwritten_limits_violation(data, profile_dir) is None
+
+
+def test_the_limits_stop_never_reads_a_render(profile_dir: Path):
+    _write(profile_dir / "build" / "data" / "channel_limits.json", "{}\n")
+    _write(profile_dir / "build" / "data" / "simulation" / "channel_limits.json", "{}\n")
+
+    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
+
+
+def test_the_limits_stop_names_a_data_tree_outside_the_repo_absolutely(
+    profile_dir: Path, tmp_path: Path
+):
+    data = tmp_path / "elsewhere" / "data"
+    _write(data / "channel_limits.json", "{}\n")
+
+    stop = handwritten_limits_violation(data, profile_dir)
+
+    assert stop is not None
+    assert stop.record_id == str(data / "channel_limits.json")
+    assert f"move its limits into {data}/facility/limits.yaml" in str(stop)
 
 
 def test_reserved_write_normalizes_its_input():
@@ -1212,7 +1272,7 @@ def test_reserved_write_normalizes_its_input():
         (".claude/settings.LOCAL.json", "claude_code.permissions"),
         (".claude/Settings.Local.Json", "claude_code.permissions"),
         (".claude/hooks/OSPREY_limits.py", "`hooks/`"),
-        ("DATA/Channel_Limits.json", "`data/`"),
+        ("DATA/Channel_Limits.json", "limits.yaml"),
     ],
 )
 def test_case_variants_of_a_pattern_are_refused(target: str, channel_hint: str):

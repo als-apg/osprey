@@ -355,7 +355,10 @@ RESERVED_PROJECT_PATHS: tuple[ReservedPath, ...] = (
     ReservedPath(".env.example", "the profile's `.env.example` file and `env:` keys"),
     ReservedPath("CLAUDE.md", "the profile's `claude_md_template:` key"),
     ReservedPath("data/simulation/channel_manifest.json", "the profile's `data/` directory"),
-    ReservedPath("data/simulation/channel_limits.json", "the profile's `data/` directory"),
+    ReservedPath(
+        "data/simulation/channel_limits.json",
+        "the profile's `data/facility/limits.yaml`, which the build renders into it",
+    ),
     ReservedPath(
         "docker/web-terminal-context/base.md",
         "the profile's `web-terminal-context/base.md` slot — the shared baseline "
@@ -445,8 +448,8 @@ class ReservedPattern:
 #: Each entry answers the question "may a running agent rewrite this?", not
 #: "which build channel owns it?". The two differ in both directions: an agent
 #: may still author ``.claude/agents/`` and ``.claude/commands/`` material even
-#: though the mirror may not, and it may not touch a settings overlay or a
-#: limits table that the mirror is free to ship.
+#: though the mirror may not, and it may not touch a settings overlay the mirror
+#: is free to ship.
 #:
 #: Pinned by test_pattern_reserved_write_names_its_channel and
 #: test_unreserved_writes_stay_writable.
@@ -474,8 +477,9 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
     ),
     ReservedPattern(
         "data/channel_limits.json",
-        "the profile's `data/` directory — this is the limits table every setpoint "
-        "is checked against before it reaches the control system",
+        "the profile's `data/facility/limits.yaml`, which the build renders into it — "
+        "this is the limits table every setpoint is checked against before it reaches "
+        "the control system",
     ),
     ReservedPattern(
         "data/bluesky_devices.yml",
@@ -1362,6 +1366,52 @@ def facility_mirror_violation(mirror_dir: Path) -> FacilityBuildError | None:
                 f"the {PROJECT_MIRROR_DIR}/ mirror writes {rel}, which the build writes "
                 f"from {FACILITY_AUTHORING_ROUTE}"
             ),
+        )
+    return None
+
+
+def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBuildError | None:
+    """The stop for a limits file the profile ships itself.
+
+    The build writes the limits database from ``<data>/facility/limits.yaml``,
+    so a profile's own copy at a path the build writes is refused rather than
+    overwritten. The paths are checked in a fixed order and the first match is
+    returned; a render under ``build/`` is never consulted.
+
+    Args:
+        data_root: The profile's resolved ``data:`` tree.
+        repo_root: The repo the profile lives in.
+
+    Returns:
+        A ``profile-invalid`` error naming the file found, the file the build
+        writes in its place and ``<data>/facility/limits.yaml`` as where its
+        limits go, or ``None`` when the profile ships none.
+    """
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.views.limits import LIMITS_FILE
+
+    def shown(path: Path) -> str:
+        return (
+            path.relative_to(repo_root).as_posix() if path.is_relative_to(repo_root) else str(path)
+        )
+
+    candidates = (
+        (data_root / LIMITS_FILE, f"data/{LIMITS_FILE}"),
+        (data_root / "simulation" / LIMITS_FILE, f"data/simulation/{LIMITS_FILE}"),
+        (repo_root / PROJECT_MIRROR_DIR / "data" / LIMITS_FILE, f"data/{LIMITS_FILE}"),
+    )
+    data = shown(data_root)
+    for path, written in candidates:
+        if not path.is_file():
+            continue
+        found = shown(path)
+        return FacilityBuildError(
+            "profile-invalid",
+            found,
+            [found],
+            f"move its limits into {data}/facility/limits.yaml and remove {found}",
+            record_kind="path",
+            detail=f"the build writes {written} from {data}/facility/limits.yaml",
         )
     return None
 
