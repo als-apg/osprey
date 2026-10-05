@@ -600,6 +600,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile-invalid",
         "an empty `simulation.default_scenarios` entry",
     ),
+    (
+        "profile_invalid__limits_database_path",
+        "profile-invalid",
+        "a profile-stated `control_system.limits_checking.database_path`",
+    ),
+    (
+        "profile_invalid__per_type_limits_database_path",
+        "profile-invalid",
+        "a per-type `limits_checking.database_path`",
+    ),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -2007,6 +2017,25 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "fix: set `simulation.default_scenarios` to a list of scenario names"
         ),
     ),
+    "profile_invalid__limits_database_path": (
+        _plain(),
+        (
+            "facility: profile-invalid: path control_system.limits_checking.database_path — "
+            "the build writes data/channel_limits.json from data/facility/limits.yaml and names "
+            "it as the limits database; fix: move its limits into data/facility/limits.yaml and "
+            "remove control_system.limits_checking.database_path from the profile"
+        ),
+    ),
+    "profile_invalid__per_type_limits_database_path": (
+        _plain(),
+        (
+            "facility: profile-invalid: path "
+            "control_system.connector.epics.limits_checking.database_path — the build writes "
+            "data/channel_limits.json from data/facility/limits.yaml and names it as the limits "
+            "database; fix: move its limits into data/facility/limits.yaml and remove "
+            "control_system.connector.epics.limits_checking.database_path from the profile"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -2065,6 +2094,16 @@ def _set_tick_zero(repo: Path) -> None:
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 
+def _state_limits_database(key: str) -> Callable[[Path], None]:
+    def edit(repo: Path) -> None:
+        profile = repo / "profile.yml"
+        data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        data.setdefault("config", {})[key] = "data/my_limits.json"
+        profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    return edit
+
+
 def _start_in(value: Any) -> Callable[[Path], None]:
     def edit(repo: Path) -> None:
         profile = repo / "profile.yml"
@@ -2108,6 +2147,12 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__default_scenarios_entry_empty": _start_in([""]),
     "profile_invalid__handwritten_limits": _ship_limits,
     "profile_invalid__handwritten_simulation_limits": _ship_simulation_limits,
+    "profile_invalid__limits_database_path": _state_limits_database(
+        "control_system.limits_checking.database_path"
+    ),
+    "profile_invalid__per_type_limits_database_path": _state_limits_database(
+        "control_system.connector.epics.limits_checking.database_path"
+    ),
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
