@@ -21,14 +21,17 @@ are genuinely different files:
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import click
 
 from osprey.cli import output
 from osprey.utils.config import load_config
 from osprey.utils.logger import get_logger
+from osprey_connectors.types import CONTROL_TARGETS
 
 from .repo_resolver import find_repo_root, repo_option
 
@@ -132,6 +135,80 @@ def _load_project_engine(repo: Path | None):
     return repo_root, config, engine
 
 
+def _require_simulator_view(repo_root: Path) -> Path:
+    """The simulator view of the repo's render, ``<render>/data/simulator``.
+
+    Exits with a clear message when the render carries none.
+    """
+    from osprey.facility.views.simulator import SCENARIOS_FILE
+    from osprey.utils.workspace import rendered_config_path
+
+    view = rendered_config_path(repo_root).parent / "data" / "simulator"
+    if not (view / SCENARIOS_FILE).is_file():
+        output.fail(
+            f"No simulator view in {view}",
+            "The simulator view is written by the build.",
+            "run 'osprey build' first",
+        )
+        raise SystemExit(1)
+    return view
+
+
+def _read_view_file(view: Path, name: str) -> dict[str, Any]:
+    document: dict[str, Any] = json.loads((view / name).read_text(encoding="utf-8"))
+    return document
+
+
+def _served_physics_models(view: Path) -> list[str]:
+    """The view's served models whose engine is not ``texture``, sorted by name."""
+    from osprey.facility import TEXTURE
+    from osprey.facility.views.simulator import SERVED_MODELS_FILE, VARIABLES_FILE
+
+    engines = {
+        str(record["name"]): record.get("engine")
+        for record in _read_view_file(view, VARIABLES_FILE)["models"]
+    }
+    return sorted(
+        str(name)
+        for name in _read_view_file(view, SERVED_MODELS_FILE)["models"]
+        if str(name) in engines and engines[str(name)] != TEXTURE
+    )
+
+
+async def _model_statuses(section: dict, target: str | None, models: list[str]) -> dict[str, str]:
+    """Each model's status, read from a mock connector built for ``target``."""
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.simulation import model_status
+
+    register_builtin_connectors()
+    connector = await ConnectorFactory.create_control_system_connector(
+        section, control_target=target
+    )
+    try:
+        return {model: model_status(connector, model) for model in models}
+    finally:
+        await connector.disconnect()
+
+
+def _overlap_records(log: Path) -> list[dict[str, Any]]:
+    """The overlap records a model log holds, in file order; none when it is absent."""
+    from osprey_connectors.simulation import OVERLAP_EVENT
+
+    try:
+        text = log.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    records: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and record.get("event") == OVERLAP_EVENT:
+            records.append(record)
+    return records
+
+
 def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
     """Tell the user a changed physics fault needs a container recreate.
 
@@ -220,18 +297,48 @@ def list_command(repo: Path | None) -> None:
 
 @sim_group.command("status")
 @repo_option
-def status_command(repo: Path | None) -> None:
-    """Show the currently active scenario set."""
-    *_, engine = _load_project_engine(repo)
-    active = engine.active_scenarios()
-    logbook = engine.active_logbook()
-    output.section(
-        "",
-        [
-            ("Active scenarios", ", ".join(active)),
-            ("Composed logbook entries", len(logbook)),
-        ],
-    )
+@click.option(
+    "--target",
+    type=click.Choice(CONTROL_TARGETS),
+    default=None,
+    help="The control target to report on. Defaults to the deployment's own.",
+)
+def status_command(repo: Path | None, target: str | None) -> None:
+    """Show each served physics model's status and the log it writes."""
+    from osprey_connectors.types import MOCK, resolve_control_system_type, resolve_target
+
+    repo_root, config = _resolve_deployment(repo)
+    section = config.get("control_system") or {}
+    if target is None:
+        connector_type = resolve_control_system_type(section)
+    else:
+        try:
+            connector_type = resolve_target(section, target)
+        except ValueError as exc:
+            output.fail(f"The {target} target is not configured", str(exc))
+            raise SystemExit(1) from None
+    if connector_type != MOCK:
+        output.fail(
+            f"sim status: {connector_type} targets do not report model status yet", mark=False
+        )
+        raise SystemExit(1)
+
+    models = _served_physics_models(_require_simulator_view(repo_root))
+    statuses = asyncio.run(_model_statuses(section, target, models))
+    for model in models:
+        output.report(f"{model}: {statuses[model]}")
+
+    from osprey_connectors.simulation import format_overlap_record
+    from osprey_connectors.simulation.composite import log_dir
+
+    logs = log_dir()
+    if logs is None:
+        return
+    for model in models:
+        log = logs / f"{model}.log"
+        output.report(f"log: {log}")
+        for record in _overlap_records(log):
+            output.report(format_overlap_record(model, record))
 
 
 @sim_group.command("apply")
