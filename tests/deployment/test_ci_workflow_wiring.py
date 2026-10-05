@@ -1010,9 +1010,10 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 #: run on every event the unit lane does, which is the deliberate trade in each
 #: case:
 #:
-#:  * the two live Channel Access modules run one pytest process per module
-#:    through scripts/va/live_ca/gate.py, in a step of the unit job itself that
-#:    is gated on a single matrix cell. libca is process-global and not
+#:  * every live module scripts/va/live_ca/gate.py runs — its Channel Access
+#:    suites, and in --pva mode its PVAccess suites too — runs one pytest
+#:    process per module through that gate, in a step of the unit job itself
+#:    that is gated on a single matrix cell. libca is process-global and not
 #:    thread-safe, so a shared xdist worker is precisely what they cannot have,
 #:    and the gate — not a path in a run step — is what proves they ran;
 #:  * the search-index scale guard holds latency budgets taken on a workstation
@@ -1023,6 +1024,7 @@ UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
         "tests/va/test_record_factory.py",
         "tests/va/test_apply_fault.py",
+        "tests/va/test_lume_pva_seam.py",
         "tests/services/channel_finder/graph_index/test_scale.py",
     }
 )
