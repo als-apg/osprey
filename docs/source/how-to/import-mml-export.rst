@@ -124,7 +124,12 @@ Check the result
 ``validate`` runs every check ``osprey build`` makes. For each model whose
 export carried a response matrix it also compares that matrix with the one the
 imported model computes, and prints one ``response check <model>: …`` line. A
-failing check exits 1.
+failing check exits 1. When the check left rows out of the comparison, a second
+line for that model follows on stderr, giving the number of rows left out and
+the count per reason (unwired, no width, unsolved, table calibration); it does
+not change the verdict or the exit code:
+
+``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``
 
 .. seealso::
 
