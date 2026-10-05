@@ -32,6 +32,7 @@ __all__ = [
     "overlap_record",
     "parse_active_state",
     "resolve_active_scenarios",
+    "scenario_targets",
     "validate_composition",
 ]
 
@@ -119,6 +120,27 @@ class Overlap:
             f"Channel {self.target!r} is touched by both {self.first!r} and {self.second!r}; "
             f"active scenarios must touch disjoint channel sets"
         )
+
+
+def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
+    """The targets a scenario writes: addresses, engine variables and coupled channels.
+
+    Args:
+        scenario: One entry of the simulator view's scenario list.
+
+    Returns:
+        The keys of its ``overrides``, the keys of every fault's ``writes``,
+        each ``archiver`` entry's channel, and the keys of ``couple`` and
+        ``noise``; a block the scenario does not state contributes nothing.
+    """
+    targets: set[str] = set(scenario.get("overrides") or {})
+    for fault in (scenario.get("faults") or {}).values():
+        targets.update(fault.get("writes") or {})
+    for entry in scenario.get("archiver") or []:
+        targets.add(str(entry["channel"]))
+    targets.update(scenario.get("couple") or {})
+    targets.update(scenario.get("noise") or {})
+    return targets
 
 
 def validate_composition(

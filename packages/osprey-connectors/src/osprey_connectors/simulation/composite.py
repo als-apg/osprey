@@ -74,6 +74,7 @@ from osprey_connectors.simulation.state import (
     overlap_record,
     parse_active_state,
     resolve_active_scenarios,
+    scenario_targets,
     validate_composition,
 )
 from osprey_connectors.simulation.texture import TEXTURE_OWNER, TextureModel, channel_variable
@@ -412,20 +413,9 @@ class Composite(LUMEModel):
                     logger.warning(f"Unknown scenario {name!r} in {self._state_path}; ignoring")
         self._rebuild(resolve_active_scenarios(names))
 
-    def _targets(self, scenario: Mapping[str, Any]) -> set[str]:
-        """The targets a scenario writes: addresses, engine variables and coupled channels."""
-        targets: set[str] = set(scenario.get("overrides") or {})
-        for fault in (scenario.get("faults") or {}).values():
-            targets.update(fault.get("writes") or {})
-        for entry in scenario.get("archiver") or []:
-            targets.add(str(entry["channel"]))
-        targets.update(scenario.get("couple") or {})
-        targets.update(scenario.get("noise") or {})
-        return targets
-
     def _rebuild(self, active: Sequence[str]) -> None:
         """Start every child at the composed state of the ``active`` scenarios."""
-        view = {name: self._targets(scenario) for name, scenario in self._scenarios.items()}
+        view = {name: scenario_targets(scenario) for name, scenario in self._scenarios.items()}
         overlaps = validate_composition(view, list(active))
         if overlaps:
             for overlap in overlaps:
