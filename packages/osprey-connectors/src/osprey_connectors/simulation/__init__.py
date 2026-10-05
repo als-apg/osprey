@@ -18,6 +18,7 @@ from osprey_connectors.simulation.state import (
     overlap_record,
     parse_active_state,
     resolve_active_scenarios,
+    scenario_targets,
     validate_composition,
 )
 from osprey_connectors.simulation.status import model_status
@@ -37,6 +38,7 @@ __all__ = [
     "parse_active_state",
     "resolve_active_scenarios",
     "resolve_tick_s",
+    "scenario_targets",
     "validate_composition",
 ]
 
