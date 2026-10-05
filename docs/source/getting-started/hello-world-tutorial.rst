@@ -4,8 +4,8 @@ Hello World Tutorial
 
 Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The ``hello-world`` preset is the smallest deployment that
-still shows the whole write-safety chain: a mock control system that invents
-channel values, fourteen safety and bookkeeping hooks, and a browser interface.
+still shows the whole write-safety chain: a mock control system that serves
+the channels of your facility file, fourteen safety and bookkeeping hooks, and a browser interface.
 
 Three ``osprey`` commands take you from nothing to a running agent:
 
@@ -98,8 +98,9 @@ per line:
 .. code-block:: yaml
 
    config:
-     # Which control system to talk to. "mock" invents channels in-process, so
-     # reads work with no hardware and no containers behind them.
+     # Which control system to talk to. "mock" serves the addresses of the built
+     # facility file in-process and refuses any other, with no hardware and no
+     # containers behind it.
      control_system.type: mock
      # Writes are refused until this is on. Uncomment it, rebuild, and the limits
      # and approval hooks above take over from there.
@@ -168,8 +169,11 @@ Useful variations: ``osprey web --port 9000`` picks another port,
 Step 5: Read Some Channels
 ---------------------------
 
-The mock connector accepts **any** channel name and invents a plausible value
-for it — that is the whole trick behind a five-minute first session. Try:
+The mock connector serves the channels of ``build/facility.json``, which
+``osprey build`` writes from ``data/facility/``, in-process — that is the whole
+trick behind a five-minute first session. Any other address is refused with
+``<address> is not in build/facility.json``, for example
+``ANY:RANDOM:NAME is not in build/facility.json``. Try:
 
 .. code-block:: text
 
@@ -322,9 +326,10 @@ shipped file looks like this (comments abridged):
    }
 
 That file is generated output: edit ``limits.yaml`` and rebuild. A profile
-that ships its own ``channel_limits.json`` stops the build. A setpoint
-record with both bounds is writable within them, so ``writable: true`` may be
-left out. ``confirm: true``, the value a record gets when it does not state
+that ships its own ``channel_limits.json`` stops the build. ``writable: true`` may be
+left out, and it cannot stand in for the bounds: a setpoint record without both
+``min_value`` and ``max_value`` is written ``writable: false``, so a record is
+either bounded or a block. ``confirm: true``, the value a record gets when it does not state
 one, means every write is checked: the connector reads the channel back once
 and compares what it finds with the value that was sent, so a write that did
 not land is reported rather than assumed.
