@@ -213,8 +213,10 @@ channel:
      - the profile's own ``.env`` file and ``env:`` keys
    * - ``.osprey-manifest.json``
      - the build itself
-   * - ``data/simulation/channel_manifest.json``, ``channel_limits.json``
+   * - ``data/simulation/channel_manifest.json``
      - the profile's ``data/`` directory
+   * - ``data/simulation/channel_limits.json``
+     - the build, from ``data/facility/limits.yaml``
 
 A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).

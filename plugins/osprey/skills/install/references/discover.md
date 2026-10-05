@@ -152,7 +152,7 @@ warning. `overlays/` in a current-generation repo is exactly that. Give it an `u
 and one question: what reads this?
 
 **`data/`** is counted, not summarized: channel-database files and their tiers,
-`channel_limits.json` entries, documents under the facility-knowledge bundle, lattice
+`data/facility/limits.yaml` records, documents under the facility-knowledge bundle, lattice
 files, ARIEL vocabulary, simulation scenarios, benchmark sets. Also count `personas/` and
 `triggers.yml`. The card JSON's machine group gives `<mode> finder · tier <n>`; in `graph`
 mode that is the whole channel-store fact, because graph ships no tiered database — its

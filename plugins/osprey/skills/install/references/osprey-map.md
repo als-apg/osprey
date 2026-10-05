@@ -132,7 +132,6 @@ that document themselves inline, worth opening verbatim:
 
 - `templates/apps/control_assistant/data/channel_databases/TEMPLATE_EXAMPLE.json`
   — channel-database schema, including device-family template expansion.
-- `templates/apps/control_assistant/data/channel_limits.json` — channel-limits schema.
 
 ## Adjacent skills
 

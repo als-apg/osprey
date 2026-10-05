@@ -216,8 +216,9 @@ types none of them.
    still the one being served). A bundle the simulation cannot read is refused too.
    A 2.0 export also writes
    `data/simulation/lattice.json`, `data/simulation/va_bindings.json`,
-   `data/simulation/machine.json`, `data/machine_state_channels.json` and
-   `data/channel_limits.json`. A 1.0 export instead removes
+   `data/simulation/machine.json` and `data/machine_state_channels.json`; the
+   export's write bands reach `data/facility/limits.yaml` through
+   `osprey facility import mml`. A 1.0 export instead removes
    `data/simulation/lattice.json` and `data/simulation/va_bindings.json` if the
    deployment shipped them, and says so: it describes no machine, so the deployment is
    left serving none rather than serving the demo's ring over the facility's channels.
@@ -294,25 +295,24 @@ agent guessed is worse than no database, because the deployment acts on it.
 
 ## 5. Write limits
 
-`data/channel_limits.json` has three legal starting states:
+Limits live in `data/facility/limits.yaml`. The build renders its records into
+the limits database, `data/channel_limits.json`, on every build; a profile's own
+`channel_limits.json` stops the build. `limits.yaml` has two legal starting
+states:
 
-- **Absent.** A deployment that enforces no limits is an ordinary one. Channel
-  direction comes from the facility file's channel records (`role`), never
-  from the limits file.
-- **Empty.** Keep `_version` and a `defaults` block, carry no channel keys. The
-  validator reads it and reports no writable addresses.
-- **Ported.** The facility's own file, unchanged.
+- **Empty.** `records: []`. Channel direction comes from the facility file's
+  channel records (`role`), never from the limits file.
+- **Ported.** The facility's own limits, carried over as `limits.yaml` records.
 
-The packaged file is a projection of the demo virtual accelerator, not a starting
-point. Never hand-write a min or max value.
+Never hand-write a min or max value.
 
-There is a fourth state, and it is the one every build actually starts in.
-`osprey init --preset hello-world` writes `data/channel_limits.json` **already
-populated**, with demo storage-ring channels and hand-written `min_value` and
-`max_value` bounds. It is none of the three above, and it must not survive
-BUILD: the limits hook checks every write against whatever is in that file. Its
-ledger row starts as `reference facility` and the CLOSE gate blocks on it until
-the file is emptied or replaced (`references/map.md`, base demo material).
+There is a third state, and it is the one every build actually starts in.
+`osprey init --preset hello-world` writes `data/facility/limits.yaml` **already
+populated**, with demo channels and their bounds. It is neither of the two above,
+and it must not survive BUILD: the limits hook checks every write against what the
+build renders from it. Its ledger row starts as `reference facility` and the CLOSE
+gate blocks on it until the records are emptied or replaced (`references/map.md`,
+base demo material).
 
 ## 6. Personas and users
 
@@ -359,7 +359,7 @@ the devil's advocate walks the same list against the ledger afterwards.
 | --- | --- |
 | `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
 | `data/channel_databases/examples/`, `data/channel_databases/tiers/` | demo channel databases |
-| `data/channel_limits.json` with entries nobody ported | the demo virtual accelerator's projection |
+| `data/facility/limits.yaml` with records nobody ported | the demo facility's limits |
 | `data/simulation/` | demo scenarios |
 | `data/benchmarks/` | demo query sets |
 | `data/facility_ontology.json`, `data/machine_state_channels.json` | demo machine model |
@@ -370,7 +370,7 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `profile.yml` roster entries `alice`, `bob`, `carol` | demo logins |
 | `.env` keys `OSPREY_AUTH_PW_ALICE`, `_BOB`, `_CAROL` | demo passwords |
 | `personas/*.yml` that no roster entry names | orphaned persona files |
-| `data/channel_limits.json` still holding hello-world's demo channels | the base's own emitted demo file, §5 |
+| `data/facility/limits.yaml` still holding hello-world's demo records | the base's own emitted demo records, §5 |
 | `web-terminal-context/<name>/` for a name no roster entry has | seeded by an earlier build for a user since deleted |
 
 A row that survives on purpose is fine: `keep — <reason>` on the gate, and the

@@ -1043,12 +1043,13 @@ to end.
    boot for want of the machine, whatever they say. Run
    ``osprey build`` afterwards to copy the result into the deployment.
 
-   When the mapping decides a virtual accelerator, emit writes five more files:
+   When the mapping decides a virtual accelerator, emit writes four more files:
    ``data/simulation/lattice.json``, the deck the model runs;
    ``data/simulation/va_bindings.json``, which channel drives which element and
-   how; ``data/simulation/machine.json``, the machine the model stands for;
-   ``data/machine_state_channels.json``, the channels that carry its state; and
-   the write bands of every coupled setpoint in ``data/channel_limits.json``.
+   how; ``data/simulation/machine.json``, the machine the model stands for; and
+   ``data/machine_state_channels.json``, the channels that carry its state.
+   Emit writes no write bands: ``osprey facility import mml`` seeds the
+   export's bands into ``data/facility/limits.yaml``.
    Where the export describes a radio-frequency family and the deck carries no
    cavity of its own, emit builds one onto the end of that deck --- at the
    frequency a whole number of waves fits around it, and at the voltage the
@@ -1069,25 +1070,10 @@ to end.
    nobody harvested onto keeps the ring it shipped with.
 
    The virtual-accelerator lane has refusals of its own, all of them before any
-   of its five files is written: a mapping that decides a virtual accelerator
+   of its four files is written: a mapping that decides a virtual accelerator
    the export does not carry, a block naming a system the export does not, a
    deck that was never imported, and virtual-accelerator files already on the
-   tree that this command did not write. One refusal comes later than the
-   others. ``data/channel_limits.json`` is shared, so emit stamps each band it
-   writes, keeps every other entry byte-for-byte, and refuses an address the
-   file already bands differently without that stamp; that collision is only
-   knowable once all five documents have been rendered, by which point the
-   channel database, ontology, knowledge pages and, where ``--duckdb`` was
-   given, the DuckDB copy of the same run are already on the tree --- the
-   corpus, which emit writes last, is not. The five virtual-accelerator files
-   are the ones withheld. Fix the entries the command named, or remove them,
-   and run emit again.
-   A coupled setpoint the export does not band finitely on both edges --- its
-   family states no ``Setpoint`` ``Range``, an infinite edge, or a non-finite
-   row for its device --- is refused at that same point, by family, device and
-   the row the export states, and the five files are withheld the same way.
-   Emit writes no band of its own for it and does not stop driving the family:
-   state a band in the export, or latch the family in the mapping.
+   tree that this command did not write.
 
 ``osprey mml verify``
    Check the emitted virtual accelerator against the exported response matrix,

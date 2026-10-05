@@ -262,10 +262,11 @@ init` argument; the other two are `osprey set` keys applied after it.
    **Write access and safety**, where enabling writes forces the limits conversation.
    **Project identity**.
 10. **Base demo material.** hello-world emits two demo items of its own: the
-    `example_server` MCP example (keep or remove) and a populated
-    `data/channel_limits.json` (keep only with the facility's own channels, else empty
-    or replace). Both are ledger rows from the first step; the rules are in
-    `references/map.md`.
+    `example_server` MCP example (keep or remove) and demo records in
+    `data/facility/limits.yaml` (keep only with the facility's own channels, else empty
+    or replace). Limits live in `data/facility/limits.yaml`; a profile's own
+    `channel_limits.json` stops the build. Both are ledger rows from the first step;
+    the rules are in `references/map.md`.
 
 No-invention rules, all detailed in `references/knowledge-starter.md`:
 
