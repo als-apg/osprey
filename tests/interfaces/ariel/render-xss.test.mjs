@@ -44,6 +44,7 @@ import { entriesApi, draftsApi, searchApi } from '../../../src/osprey/interfaces
 import { loadEntries, initEntriesListDelegation } from '../../../src/osprey/interfaces/ariel/static/js/entries.js';
 import { showEntry, showImageLightbox, initEntryDetail } from '../../../src/osprey/interfaces/ariel/static/js/entries-detail.js';
 import { loadDraft, initEntryTags } from '../../../src/osprey/interfaces/ariel/static/js/entries-form.js';
+import { renderEntryFields } from '../../../src/osprey/interfaces/ariel/static/js/entry-fields.js';
 import { performSearch, initSearchResultsDelegation } from '../../../src/osprey/interfaces/ariel/static/js/search.js';
 
 /**
@@ -121,7 +122,7 @@ function mountFixture() {
   `;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mountFixture();
   // Attach the delegated listeners once per test, matching production init
   // (initEntries/initSearch) — the fixture's containers exist before each
@@ -131,6 +132,9 @@ beforeEach(() => {
   initEntryDetail();
   initEntryTags();
   initSearchResultsDelegation();
+  // Production init renders the declared entry fields (none here) before a
+  // draft can load; loadDraft waits for that render to settle.
+  await renderEntryFields([]);
   vi.clearAllMocks();
 });
 
