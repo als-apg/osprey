@@ -492,39 +492,6 @@ class TestTheRenderedComposeStandsTwoMachinesUp:
         # their Channel Access stack.
         assert standin["image"] == compose["services"]["virtual-accelerator"]["image"]
 
-    def test_live_standin_render_gives_the_stand_in_an_overridable_variable_of_its_own(
-        self, standin_build
-    ) -> None:
-        """The stand-in's readout perturbation is the operator's, under its own name.
-
-        Two machines, two variables: the stand-in reads ``VA_BPM_ERRORS`` from
-        ``VA_STANDIN_BPM_ERRORS`` and the sandbox accelerator beside it from
-        ``VA_BPM_ERRORS``, so setting a fault on one machine cannot set it on
-        both.
-
-        Substituted on UNSET (``${VAR-default}``) and not on empty
-        (``${VAR:-default}``). An operator who writes ``VA_STANDIN_BPM_ERRORS=``
-        is asking for a stand-in that reads clean, and the form rendered here
-        gives them one: wherever the tree's own default is a perturbation, the
-        colon form would substitute it back over that deliberate empty value.
-
-        The default this deployment's stand-in falls back to is empty, and that
-        is a property of its tree rather than of the render: BPM offsets displace
-        readings taken off a model, and this repo's ``data/`` stages no ring for
-        them to displace, so the render carries no faults nothing could apply.
-        The other side of that rule — a deployment whose tree does serve a
-        lattice, whose stand-in falls back to the shipped perturbation — is
-        pinned in ``tests/deployment/test_va_compose_instances.py``.
-        """
-        services = _compose(standin_build, "virtual_accelerator")["services"]
-
-        assert services["live-standin"]["environment"]["VA_BPM_ERRORS"] == (
-            "${VA_STANDIN_BPM_ERRORS-}"
-        )
-        assert services["virtual-accelerator"]["environment"]["VA_BPM_ERRORS"] == (
-            "${VA_BPM_ERRORS:-}"
-        )
-
     def test_live_standin_render_records_the_stand_in_not_the_sandbox(self, standin_build) -> None:
         """The archive belongs to the machine, so the recorder follows the stand-in.
 

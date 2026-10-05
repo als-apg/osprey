@@ -1823,6 +1823,7 @@ def _inject_project_metadata(config):
     # outside the repo has no relative spelling and is emitted absolute.
     from osprey.utils.workspace import (
         AUDIT_DIR_RELPATH,
+        SIMULATOR_LOG_DIR_RELPATH,
         agent_data_base_dir,
         resolve_simulation_state_dir,
     )
@@ -1879,6 +1880,19 @@ def _inject_project_metadata(config):
         container_project_dir / AUDIT_DIR_RELPATH
     ).as_posix()
     config_with_labels["osprey_audit_mount_source"] = repo_relative_mount_source(AUDIT_DIR_RELPATH)
+
+    # The simulator's model-log directory as an agent container binds it: the
+    # host's `var/simulator` at `<container repo root>/var/simulator`, the path
+    # the in-process composite resolves from the config the container loads.
+    # ``None`` when no simulated target is configured, which renders no mount.
+    config_with_labels["osprey_simulator_log_mount"] = (
+        {
+            "source": repo_relative_mount_source(SIMULATOR_LOG_DIR_RELPATH),
+            "target": (container_project_dir / SIMULATOR_LOG_DIR_RELPATH).as_posix(),
+        }
+        if simulated_target_configured(config)
+        else None
+    )
 
     # The control-identity step, in the two values a template needs: the fixed
     # container path the module is mounted at (the copy
@@ -2050,27 +2064,24 @@ def _inject_project_metadata(config):
                 services[lane_key] = {**services[lane_key], "writes_enabled": armed}
             config_with_labels["services"] = services
 
-    # The BPM readout perturbation the Virtual Accelerator's stand-in instance
-    # ships with, rendered as the default inside its
-    # ``${VA_STANDIN_BPM_ERRORS-...}`` interpolation. Derived here rather than
-    # written into the template for the reason every constant here is: the same
-    # value is consumed host-side by the archiver seed, and a template literal
-    # would be a second copy of it that could drift into a stand-in whose
-    # present and whose recorded past disagree about which machine it is.
-    #
-    # Lattice-conditional (:func:`_standin_perturbation`): a deployment whose
-    # chain serves no lattice renders the EMPTY set, because there is no model
-    # for those offsets to displace. That such a stand-in serves its manifest
-    # unperturbed is reported once per render, by
-    # :func:`prepare_compose_files` — not here, which runs per service template.
-    #
-    # Injected unconditionally — a single-instance render never names the key
-    # (the template gates it on the stand-in branch), so this is inert for every
-    # project that has not asked for a second instance.
-    _, config_with_labels["standin_bpm_errors_default"] = _standin_perturbation(config, repo_root)
+    # The simulated machine's tick period, resolved through the one function the
+    # mock connector and the build's profile check call, so every surface
+    # serving the composite ticks at the period the config states. Rendered as
+    # a value rather than a ``${...}`` passthrough: the config is the only
+    # source of the tick.
+    from osprey_connectors.simulation import resolve_tick_s
 
-    # The Virtual Accelerator's noise level, resolved here for the same reason:
-    # the template cannot follow the fall-through from the VA connector block to
+    config_with_labels["va_tick_s"] = resolve_tick_s(config)
+
+    # Where each Virtual Accelerator instance appends its model logs on the
+    # host, keyed by instance. Instance 1 writes the deployment's simulator log
+    # directory, the stand-in a subdirectory of it, so a record's directory
+    # names the machine that wrote it. Both are provisioned host-side by
+    # :func:`ensure_simulator_log_dirs` before compose runs.
+    config_with_labels["osprey_simulator_log_sources"] = simulator_log_mount_sources()
+
+    # The Virtual Accelerator's noise level, resolved here because the template
+    # cannot follow the fall-through from the VA connector block to
     # the mock one (:func:`_va_noise_level`), and a second copy of that rule is
     # a second answer waiting to disagree with the first.
     config_with_labels["va_noise_level"] = _va_noise_level(config)
@@ -3251,6 +3262,97 @@ def render_service_templates(source_dir, config, out_dir):
     return rendered
 
 
+def simulator_log_mount_sources():
+    """Each Virtual Accelerator instance's model-log bind source, keyed by instance.
+
+    Spelled relative to the repo root with an explicit ``./``, because that is
+    the compose project directory every invocation pins (see
+    :func:`compose_base_cmd`). Instance 1 binds the deployment's simulator log
+    directory, the live stand-in its own subdirectory of it.
+
+    :return: ``{instance key: bind source}``
+    :rtype: dict[str, str]
+    """
+    from osprey.connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
+    from osprey.utils.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+
+    base = PurePosixPath(SIMULATOR_LOG_DIR_RELPATH)
+    return {
+        VIRTUAL_ACCELERATOR: f"./{base}",
+        LIVE_STANDIN: f"./{base / SIMULATOR_STANDIN_LOG_SUBDIR}",
+    }
+
+
+def simulated_target_configured(config):
+    """Whether a session on this deployment can be pointed at a simulated machine.
+
+    True when the deployment's own control system is the mock, the Virtual
+    Accelerator or the live stand-in, or when the ``va`` or ``standin`` target
+    has its connector block. Every such target is served by the composite, in
+    process or in a Virtual Accelerator container, and so writes model logs.
+
+    :param config: The rendered project config
+    :type config: dict
+    :return: Whether any configured target is simulated
+    :rtype: bool
+    """
+    from osprey.connectors.types import (
+        _SIMULATED_TYPES,
+        STANDIN_TYPES,
+        TARGET_STANDIN,
+        TARGET_VA,
+        resolve_control_system_type,
+        target_configured,
+    )
+
+    section = config.get("control_system") if isinstance(config, Mapping) else None
+    try:
+        own_type = resolve_control_system_type(section)
+    except (TypeError, ValueError):
+        own_type = None
+    if own_type in (*_SIMULATED_TYPES, *STANDIN_TYPES):
+        return True
+    return any(target_configured(section, target) for target in (TARGET_VA, TARGET_STANDIN))
+
+
+def ensure_simulator_log_dirs(repo_root, relative_to=None):
+    """Provision the simulator's model-log directories before any bind mounts them.
+
+    ``var/simulator/`` and its stand-in subdirectory, each setgid and
+    group-writable (see :func:`ensure_shared_corpus_dir`): the Virtual
+    Accelerator container and every agent container that runs the composite
+    append to the same ``<model>.log`` files under different uids, and the
+    setgid group is what they share. Created here, before compose runs, for the
+    root-owned-mount-source reason every provisioned bind has.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param relative_to: Root to spell the directories against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The group id of ``var/simulator/``, or ``None`` when it could not
+        be provisioned or the platform reports none
+    :rtype: int | None
+    """
+    from osprey.utils.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+
+    log_dir = Path(repo_root) / SIMULATOR_LOG_DIR_RELPATH
+    gid = _ensure_group_shared_dir(
+        log_dir,
+        relative_to=relative_to,
+        label="Simulator log dir",
+        noun="simulator log directory",
+        consequence="A container may be unable to append to the model logs.",
+    )
+    _ensure_group_shared_dir(
+        log_dir / SIMULATOR_STANDIN_LOG_SUBDIR,
+        relative_to=relative_to,
+        label="Simulator log dir",
+        noun="simulator log directory",
+        consequence="The stand-in may be unable to append to its model logs.",
+    )
+    return gid
+
+
 def _ensure_agent_data_structure(config):
     """Ensure the agent-data directory and subdirectories exist before deployment.
 
@@ -3317,6 +3419,13 @@ def _ensure_agent_data_structure(config):
         state_path = resolve_simulation_state_dir(config, Path(project_root))
         state_path.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Created scenario state directory: {state_path}")
+
+    # The simulator's model-log directories, bound read-write into every
+    # container that runs the composite: the Virtual Accelerator instances, and
+    # the agent containers whenever a simulated target is configured.
+    deployed = {str(name) for name in config.get("deployed_services") or []}
+    if VIRTUAL_ACCELERATOR in deployed or simulated_target_configured(config):
+        ensure_simulator_log_dirs(project_root, relative_to=project_root)
 
     # The facility-knowledge bundle, for the same root-owned-mount-source reason
     # as the scenario state directory above — the qmd sidecar binds it READ-ONLY

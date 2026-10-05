@@ -70,6 +70,15 @@ AUDIT_DIR_RELPATH = f"{STATE_DIR_NAME}/audit"
 #: OSPREY deletes under it.
 ARCHIVE_DIR_RELPATH = f"{STATE_DIR_NAME}/archive"
 
+#: The simulator's model-log directory, relative to the repo root: the composite
+#: appends one ``<model>.log`` per served physics model here, from whichever
+#: process serves it. Durable like the audit root beside it.
+SIMULATOR_LOG_DIR_RELPATH = f"{STATE_DIR_NAME}/simulator"
+
+#: The subdirectory of :data:`SIMULATOR_LOG_DIR_RELPATH` the live stand-in
+#: instance writes, so a record's directory names the machine that wrote it.
+SIMULATOR_STANDIN_LOG_SUBDIR = "standin"
+
 #: The two directories that make up the state zone, created empty and otherwise
 #: the agent's to write. Both ``osprey init`` and ``osprey build`` guarantee they
 #: exist — a fresh clone carries no git-ignored directory, so whichever command

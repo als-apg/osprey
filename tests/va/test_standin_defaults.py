@@ -2,7 +2,7 @@
 
 :data:`STANDIN_BPM_ERRORS_DEFAULT` is the demo machine's own ``machine.json``
 entry -- read from the tree the demo serves rather than written in the module
--- and it has to satisfy four separate contracts at once, none of which that
+-- and it has to satisfy three separate contracts at once, none of which that
 module can check:
 
 1. **The served tree's data.** A deployment's perturbation is the one its own
@@ -14,14 +14,8 @@ module can check:
    lattice actually has, and every axis it perturbs must have a readback
    address in ``channel_manifest.json`` -- an offset on an axis nothing serves
    is a perturbation with nowhere to appear.
-3. **The env-var grammar.** It is rendered verbatim into a compose
-   ``VA_BPM_ERRORS`` value, so it has to parse as that grammar:
+3. **The fault grammar.** It has to parse as a BPM fault spec:
    :func:`parse_bpm_error_spec` reads it the way the value is split.
-4. **The compose render.** The stand-in's env line is where the constant is
-   actually delivered, inside a ``${VA_STANDIN_BPM_ERRORS-...}`` fallback so
-   an operator keeps the override -- ``-`` and not ``:-``, so an explicitly
-   EMPTY override is an unperturbed stand-in rather than a fall back to this
-   constant; and a single-instance render must not so much as mention it.
 
 The offset-only rule earns its own test because it is the load-bearing one:
 with everything else in ``bpm_read``'s keyword set at identity, a reading is
@@ -47,16 +41,6 @@ from osprey.services.virtual_accelerator.manifest.standin_defaults import (
     parse_standin_default,
     read_standin_bpm_errors,
     served_data_root,
-)
-
-# The helpers that render the packaged VA compose template the way the
-# deployment does. Imported from the instance-axis suite that owns them rather
-# than restated, so a render pinned here is the same render pinned there.
-from tests.deployment.test_va_compose_instances import (
-    _context,
-    _instance_block,
-    _render,
-    _render_text,
 )
 
 #: The address a BPM readback is served at: ``SR:DIAG:BPM:<id>:POSITION:<axis>``.
@@ -287,68 +271,6 @@ class TestWhichTreeADeploymentIsHanded:
         (tmp_path / "data").mkdir()
 
         assert served_data_root(tmp_path, tmp_path / "build") is None
-
-
-class TestStandinDefaultErrorsReachTheComposeRender:
-    """Where the constant is actually delivered: the stand-in's env line."""
-
-    def test_standin_default_errors_render_as_the_standin_fallback(self) -> None:
-        """Rendered as the ``-`` fallback, so the host override still wins.
-
-        ``-``, not ``:-``: the default is substituted only for an UNSET
-        variable, so ``VA_STANDIN_BPM_ERRORS=`` reaches the container as the
-        empty fault set an operator asked for instead of being rounded back up
-        to this constant.
-        """
-        text = _render_text(
-            _context(
-                instances={
-                    "virtual_accelerator": _instance_block(5064),
-                    "live_standin": _instance_block(5074),
-                },
-                deployed_services=["virtual_accelerator", "live_standin"],
-                standin_bpm_errors_default=STANDIN_BPM_ERRORS_DEFAULT,
-            )
-        )
-        assert f"${{VA_STANDIN_BPM_ERRORS-{STANDIN_BPM_ERRORS_DEFAULT}}}" in text
-        assert "${VA_STANDIN_BPM_ERRORS:-" not in text
-
-    def test_standin_default_errors_land_on_the_standin_instance_alone(self) -> None:
-        """The baseline instance keeps its own clean ``VA_BPM_ERRORS``.
-
-        Sharing one variable would apply an operator's fault to both machines
-        at once, and leave the two reading alike when neither is set.
-        """
-        rendered = _render(
-            _context(
-                instances={
-                    "virtual_accelerator": _instance_block(5064),
-                    "live_standin": _instance_block(5074),
-                },
-                deployed_services=["virtual_accelerator", "live_standin"],
-                standin_bpm_errors_default=STANDIN_BPM_ERRORS_DEFAULT,
-            )
-        )
-        services = rendered["services"]
-        assert (
-            STANDIN_BPM_ERRORS_DEFAULT in services["live-standin"]["environment"]["VA_BPM_ERRORS"]
-        )
-        assert (
-            STANDIN_BPM_ERRORS_DEFAULT
-            not in services["virtual-accelerator"]["environment"]["VA_BPM_ERRORS"]
-        )
-
-    def test_standin_default_errors_do_not_leak_into_a_single_instance_render(self) -> None:
-        """A project with one instance renders as if the constant did not exist."""
-        text = _render_text(
-            _context(
-                instances={"virtual_accelerator": _instance_block(5064)},
-                deployed_services=["virtual_accelerator"],
-                standin_bpm_errors_default=STANDIN_BPM_ERRORS_DEFAULT,
-            )
-        )
-        assert STANDIN_BPM_ERRORS_DEFAULT not in text
-        assert "VA_STANDIN_BPM_ERRORS" not in text
 
 
 class TestStandinDefaultErrorsMatchTheBuildRefusal:
