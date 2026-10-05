@@ -260,6 +260,24 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
+def _numeric_gaps(diff: dict[str, dict[str, Any]]) -> dict[str, float]:
+    """Each numeric channel's served value minus the value the model holds.
+
+    The model RPC's ``diff`` reports every channel of the view; a channel whose
+    served value or truth is not a real number (an enum, a waveform, a text)
+    has no gap and is left out.
+    """
+
+    def real(value: Any) -> bool:
+        return isinstance(value, int | float) and not isinstance(value, bool)
+
+    return {
+        address: float(entry["served"]) - float(entry["truth"])
+        for address, entry in diff.items()
+        if real(entry["served"]) and real(entry["truth"])
+    }
+
+
 def _monitor_motion_bands(repo: Path, truths: dict[str, float]) -> dict[str, float]:
     """How far each served reading's declared motion can carry it from the model's truth.
 
@@ -1161,8 +1179,8 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         carries and the truth does not; the offset is sized far above it.
 
     No address is hardcoded, as everywhere else in this module: the fault to
-    write is discovered from ``info`` (a writable model-only ``.offset_x``) and
-    the address it is measured on is whichever served one the write actually
+    write is discovered from ``info`` (a writable model variable ending
+    ``/offset``) and the address it is measured on is whichever served one the write actually
     moves — which is also the blast-radius check, since a BPM reading error is
     a diagnostic fault and must perturb that BPM and nothing else.
     """
@@ -1201,36 +1219,31 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
 
     try:
         info = call("info")
-        # A writable model-only monitor offset: model-only because the surface
-        # refuses a write to a served address on principle, so this is what a
-        # write it can accept looks like at all.
+        # A writable monitor offset among the model variables: a model variable
+        # because the surface refuses a write to a served address on principle,
+        # so this is what a write it can accept looks like at all.
         faults = [
             var
             for var in info["variables"]
             if var["surface"] == SURFACE_MODEL_ONLY
             and not var["read_only"]
-            and var["name"].endswith(".offset_x")
+            and var["name"].endswith("/offset")
         ]
         assert faults, (
-            f"the deployed model declares no writable model-only '.offset_x' variable, so "
-            f"there is no fault to write (backend={info['backend']!r}, "
-            f"lattice_source={info['lattice_source']!r} — the reading errors exist only on a "
-            f"lattice-backed boot, which is what naming a lattice file in the repo's .env buys)"
+            "the deployed models declare no writable '<model>/<monitor>/offset' variable, so "
+            "there is no fault to write: the reading errors exist only on a model whose "
+            "engine reads monitors, and served_models.json names the models the view serves"
         )
         fault = faults[0]["name"]
 
         before = call("diff")
-        assert before, (
-            "diff reports no served model variable at all, so there is nowhere to observe "
-            f"a model write (backend={info['backend']!r})"
+        gaps_before = _numeric_gaps(before)
+        assert gaps_before, (
+            "diff reports no numeric channel at all, so there is nowhere to observe a model write"
         )
-        gaps_before = {
-            address: float(entry["served"]) - float(entry["truth"])
-            for address, entry in before.items()
-        }
         bands = _monitor_motion_bands(
             deployed_stack.repo,
-            {address: float(entry["truth"]) for address, entry in before.items()},
+            {address: float(before[address]["truth"]) for address in gaps_before},
         )
         # Two snapshots of one reading each carry an independent draw of its
         # motion, so a reading counts as moved only past twice its band.
@@ -1242,7 +1255,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         # reading on the machine and far above the loosest motion threshold,
         # floored far above the solver's own repeatability. Unmistakable on the
         # one channel it moves, in any unit.
-        scale = max(abs(float(entry["truth"])) for entry in before.values())
+        scale = max(abs(float(before[address]["truth"])) for address in gaps_before)
         offset = max(
             10.0 * scale,
             MODEL_OFFSET_OVER_MOTION * max(quiet.values()),
@@ -1271,10 +1284,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         assert held_after == held_before, (
             f"the refused write still moved {fault} from {held_before!r} to {held_after!r}"
         )
-        gaps_refused = {
-            address: float(entry["served"]) - float(entry["truth"])
-            for address, entry in call("diff").items()
-        }
+        gaps_refused = _numeric_gaps(call("diff"))
         assert gaps_refused.keys() == gaps_before.keys(), (
             f"diff changed which addresses it reports across a REFUSED write: "
             f"{sorted(gaps_refused.keys() ^ gaps_before.keys())}"
@@ -1296,18 +1306,15 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             )
 
             after = call("diff")
-            gaps_after = {
-                address: float(entry["served"]) - float(entry["truth"])
-                for address, entry in after.items()
-            }
+            gaps_after = _numeric_gaps(after)
             moved = sorted(
                 address
                 for address, gap in gaps_after.items()
                 if abs(gap - gaps_before[address]) > quiet[address]
             )
-            # A BPM reading error sits between the ring and the client, never in
-            # the ring: it must perturb the one BPM's served reading and leave
-            # every other served value where the physics put it.
+            # A BPM reading error sits between the served model and the client,
+            # never in the model: it must perturb the one BPM's served reading
+            # and leave every other served value where the physics put it.
             assert len(moved) == 1, (
                 f"writing {fault}={offset:g} should shift exactly one served reading away from "
                 f"the model's truth; it shifted {moved!r}"
@@ -1335,7 +1342,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             )
         finally:
             # The fixture is module-scoped, so a failure above must not hand the
-            # next proof (or a rerun under `-p no:randomly`) a faulted ring.
+            # next proof (or a rerun under `-p no:randomly`) a faulted model.
             with contextlib.suppress(Exception):
                 call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)
     finally:
