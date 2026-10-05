@@ -515,6 +515,34 @@ def _check_tick_s(raw: dict[str, Any]) -> None:
         ) from error
 
 
+def _check_default_scenarios(raw: dict[str, Any]) -> None:
+    """Stop a profile whose start set is not a list of scenario names.
+
+    The names themselves are resolved when the set is activated, not here.
+
+    Args:
+        raw: The resolved raw profile dict.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` naming
+            ``simulation.default_scenarios`` if the value is not a list of
+            non-empty strings.
+    """
+    from osprey.simulation.apply import DEFAULT_SCENARIOS_KEY, resolve_default_scenarios
+
+    try:
+        resolve_default_scenarios(_expand_dotted(raw.get("config")))
+    except ValueError as error:
+        raise FacilityBuildError(
+            "profile-invalid",
+            DEFAULT_SCENARIOS_KEY,
+            ["profile.yml"],
+            f"set `{DEFAULT_SCENARIOS_KEY}` to a list of scenario names",
+            record_kind="path",
+            detail=str(error),
+        ) from error
+
+
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """Reject unknown top-level profile keys, naming every one at once.
 
@@ -966,6 +994,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     _normalize_empty_collections(raw)
     _reject_unknown_keys(raw)
     _check_tick_s(raw)
+    _check_default_scenarios(raw)
     _apply_connector_shorthand(raw)
     _apply_port_base_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}

@@ -326,10 +326,10 @@ def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | N
 
 
 #: The config key naming the scenarios a deployment that never chose a set starts in.
-_DEFAULT_SCENARIOS_KEY = "simulation.default_scenarios"
+DEFAULT_SCENARIOS_KEY = "simulation.default_scenarios"
 
 
-def _default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
+def resolve_default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
     """The scenario names ``simulation.default_scenarios`` states, in order, once each.
 
     Absent, null or empty states none. The names are resolved when the set is
@@ -342,7 +342,7 @@ def _default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
     if raw is None:
         return ()
     if not isinstance(raw, list) or not all(isinstance(name, str) and name for name in raw):
-        raise ValueError(f"{_DEFAULT_SCENARIOS_KEY} must be a list of scenario names, got {raw!r}")
+        raise ValueError(f"{DEFAULT_SCENARIOS_KEY} must be a list of scenario names, got {raw!r}")
     return tuple(dict.fromkeys(raw))
 
 
@@ -377,7 +377,7 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
         return ()
     if (resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
         return ()
-    defaults = _default_scenarios(config)
+    defaults = resolve_default_scenarios(config)
     if not defaults:
         return ()
     render_scenario_physics_env(project_dir, defaults)
