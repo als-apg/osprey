@@ -1191,32 +1191,6 @@ class _SharedRenderInputs(NamedTuple):
     manager: TemplateManager
     """One template manager, so the template root is resolved once."""
 
-    va_manifests: dict[tuple[str, int], Any]
-    """Prepared virtual-accelerator manifests, memoized by ``(data root, tier)``.
-
-    Preparing one parses the channel databases under the data tree, which is
-    seconds of work on a real facility. Personas overwhelmingly share their
-    host's data tree and tier, so the second and third renders would otherwise
-    re-derive a manifest byte-for-byte identical to the first. Keyed on the two
-    inputs that decide it, so a delta that *does* move either still gets its own.
-
-    A tree that stages no channel database gets its entry from the facility
-    file of the first render that asks. Every render of one build is written
-    the same facility file, built once from the data tree the key names, so
-    the answer is the same whichever render asks first.
-    """
-
-    va_reported: set[tuple[str, int]]
-    """``(data root, tier)`` keys whose manifest outcome has already been reported.
-
-    The manifest is prepared once per key and every render sharing that key
-    reuses it, so what the virtual accelerator will actually serve is one fact
-    about the build rather than one per project. Kept apart from
-    :attr:`va_manifests` because the outcome is reported only by a render that
-    deploys the virtual accelerator, which need not be the render that prepared
-    the manifest.
-    """
-
     graph_indexes: dict[str, Path]
     """Graph search indexes this build has already written, by corpus digest.
 
@@ -1240,8 +1214,7 @@ class _SharedRenderInputs(NamedTuple):
 
     Every render pass resolves the same profile, so "no corpus to derive an
     index from" is one fact about the build rather than one per render. The
-    first pass states it; later passes log it at DEBUG, the way
-    :attr:`va_reported` keeps the manifest outcome to one line.
+    first pass states it; later passes log it at DEBUG.
     """
 
     model_facts_reported: set[str]
@@ -1548,185 +1521,6 @@ def _template_host_config(
         return _rendered_config(scratch_dir)
 
 
-def _named_in_prose(names: Sequence[str]) -> str:
-    """Join a NON-EMPTY *names* the way a sentence does: "a", "a and b",
-    "a, b and c". Both callers are guarded -- the manifest build refuses a tree
-    with no staged paradigm, and the absent list is only named when there is
-    one -- so an empty sequence never reaches here."""
-    names = list(names)
-    if len(names) == 1:
-        return names[0]
-    return f"{', '.join(names[:-1])} and {names[-1]}"
-
-
-def _report_va_manifest_outcome(
-    shared: _SharedRenderInputs,
-    build_profile: Any,
-    *,
-    data_root: Path,
-    tier: int,
-    prepared: Any,
-    config: dict[str, Any] | None = None,
-) -> None:
-    """Report the channel set a deployed virtual accelerator will serve.
-
-    A project's accelerator serves the project's own channels. It is built from
-    whatever paradigm channel databases the project's data tree stages, and
-    when the tree names no channels at all the build REFUSES: the alternative
-    is a container serving the framework's demo namespace while its operators
-    read their own facility's name on it, and for a control system that is
-    worse than failing the build. There is no third outcome, and in particular
-    no fallback.
-
-    Two facts, both once per ``(data root, tier)`` because that is the key the
-    prepared manifest is memoized under and one build renders the deployment
-    and every persona from the same tree: which databases fed the channel set
-    (which the tree did not stage, and which it staged but could not read), and
-    how the machine-state list reconciled against it.
-
-    Args:
-        shared: The build's shared render inputs, holding what has been said.
-        build_profile: The profile this render came from.
-        data_root: The ``data/`` tree this build sourced from.
-        tier: The build-resolved tier whose channel databases were expanded.
-        prepared: The prepared manifest, or ``None`` when the tree backs none.
-        config: The rendered project configuration, when this render prepared
-            its manifest through the roster -- what the refusal resolves the
-            facility file from, so its gap is reported as the facility file's
-            rather than as absent database files.
-
-    Raises:
-        BuildProfileError: when a deployed virtual accelerator has no channels
-            of the project's to serve.
-    """
-    from osprey.services.virtual_accelerator.manifest.build import manifest_gap_reason
-
-    if not build_profile.deploy_services or build_profile.virtual_accelerator is None:
-        return
-    key = (str(data_root), tier)
-    if key in shared.va_reported:
-        return
-
-    if prepared is None:
-        if config is not None:
-            # The roster was consulted, so the tier-database framing is the
-            # wrong sentence: the reason names the facility file (or the
-            # per-tree file) that left this accelerator nothing to serve.
-            raise BuildProfileError(
-                f"this deployment runs a virtual accelerator, but no channel manifest "
-                f"could be built from its data tree {data_root}: "
-                f"{manifest_gap_reason(data_root, tier, config=config)}. The accelerator "
-                f"serves the project's own channels or the build stops here. Repair or "
-                f"stage what is named above, or remove the `virtual_accelerator:` block "
-                f"from the profile."
-            )
-        raise BuildProfileError(
-            f"this deployment runs a virtual accelerator, but no channel manifest could "
-            f"be built from its data tree {data_root} at tier {tier}: "
-            f"{manifest_gap_reason(data_root, tier)}. The accelerator serves the "
-            f"project's own channels or the build stops here. Add what is named above to "
-            f"the data tree, or remove the `virtual_accelerator:` block from the profile."
-        )
-
-    shared.va_reported.add(key)
-    metadata = prepared.manifest["_metadata"]
-    # The roster's source as an operator names it: the facility file, by its
-    # file name.
-    facility_source = metadata.get("source_corpus")
-    absent = metadata["absent_paradigms"]
-    novel = metadata["machine_json_novel_addresses"]
-    from_databases = metadata["total_channels"] - len(novel)
-    # The tree is named by what it is rather than by its absolute path: the
-    # operator is being told what the accelerator will serve, not sent to a
-    # path they would have to retype.
-    if facility_source is not None:
-        # The one source that is not a channel database.
-        line = (
-            f"Virtual-accelerator channel set built from this project's facility file "
-            f"({facility_source}): {from_databases} channel(s)"
-        )
-    else:
-        fed = _named_in_prose(metadata["source_paradigms"])
-        line = (
-            f"Virtual-accelerator channel set built from this project's own data tree at "
-            f"tier {tier}: {from_databases} channel(s) from its {fed} channel database(s)"
-        )
-    if novel:
-        # Not all of the count came from the databases the sentence just named,
-        # and a scenario seed is a different kind of source from a channel
-        # database. Naming the file is what lets an operator find the addresses
-        # that exist nowhere else.
-        line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
-    line += "."
-    if facility_source is not None and metadata["setpoint_count"]:
-        # The pairs the facility file states are the only channels an
-        # accelerator built from it can echo a write on, and the operator
-        # driving one should know which count that is.
-        line += (
-            f" The facility file pairs {metadata['setpoint_count']} setpoint(s) with a readback; "
-            "those are served as setpoint-echo channels, every other channel as static-noisy."
-        )
-    if absent:
-        line += f" Not staged at that tier: {_named_in_prose(absent)}."
-    corrupt = metadata["corrupt_paradigms"]
-    if corrupt:
-        # A staged database that could not be read is neither absent nor a
-        # source: it contributed nothing to the count above, and the operator
-        # is handed the file rather than left to work out why the census is
-        # short a database they shipped.
-        line += " Staged but unreadable, contributing no channels: " + _named_in_prose(
-            [f"{entry['paradigm']} ({entry['path']}) -- {entry['detail']}" for entry in corrupt]
-        )
-        line += "."
-    from osprey.services.virtual_accelerator.manifest.classify import PARTITION_STATIC_NOISY
-
-    # The degradation that changes what the accelerator can DO, so it is
-    # spelled out rather than left to be inferred from the list above. The
-    # claim is read off the manifest's own census -- 0 setpoints, everything
-    # static-noisy -- never off the source list, so a source that someday
-    # yields identity keys cannot have this printed falsely over it. The
-    # lead-in names the mechanism per source, and every source has one: for the
-    # graph this is not a missing database at all -- the corpus states
-    # membership and direction but no hierarchy path; for a tree without the
-    # hierarchical database no channel carries identity keys; and a tree that
-    # HAS one is degraded because of what that database says, either levels the
-    # partition rules cannot be evaluated against or tokens no rule matched.
-    # Nothing is invented to classify better than the source can say, and no
-    # source is left without an explanation of a census this thin.
-    degraded = metadata["setpoint_count"] == 0 and set(metadata["by_partition"]) <= {
-        PARTITION_STATIC_NOISY
-    }
-    if degraded:
-        unclassified_reason = metadata.get("unclassified_reason")
-        if facility_source is not None:
-            lead_in = " The facility file carries no hierarchy identity keys, so"
-        elif "hierarchical" not in metadata["source_paradigms"]:
-            lead_in = " Without a hierarchical database the channels carry no identity keys, so"
-        elif unclassified_reason:
-            lead_in = (
-                " The hierarchical database is not levelled the way the partition rules read it "
-                f"({unclassified_reason}), so"
-            )
-        else:
-            tokens = metadata["by_ring"]
-            lead_in = (
-                " The hierarchical database's tokens matched no partition rule (top-level tokens "
-                f"seen: {_named_in_prose(sorted(tokens)) if tokens else 'none'}), so"
-            )
-        line += lead_in + (
-            " this"
-            " accelerator serves 0 setpoints, pairs no readback with a setpoint, and drives"
-            " every channel as static-noisy."
-        )
-    _report_fact(line)
-    reconciliation = metadata["machine_state_reconciliation"]
-    _report_fact(
-        "Virtual-accelerator machine-state channels reconciled against that channel set: "
-        f"{reconciliation['candidates_checked']} checked, "
-        f"{len(reconciliation['valid'])} valid, {len(reconciliation['invalid'])} invalid."
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class GraphIndexTarget:
     """The corpus one render derives its channel search index from, and where it goes.
@@ -1938,7 +1732,7 @@ def _render_project(
 
     The build's whole render pass, and the one place it is written: the base
     template, the profile's config overrides, its services, its convention
-    artifacts, the virtual-accelerator manifest, the MCP servers, the build
+    artifacts, the facility file and its views, the MCP servers, the build
     manifest, and the Claude Code artifacts regenerated over the lot. A
     deployment's own project and a persona's go through it identically — same
     steps, same order, same inputs bar the profile — because a persona that
@@ -1994,11 +1788,6 @@ def _render_project(
     """
     from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.deployment.reach import reach_errors
-    from osprey.services.virtual_accelerator.manifest.build import (
-        prepare_project_manifest,
-        write_project_manifest,
-    )
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths, _manifest_tier
 
     from .build_posture_check import missing_posture_errors
     from .build_profile_archiver import va_archiver_config_overrides
@@ -2097,35 +1886,10 @@ def _render_project(
         else:
             context["profile_owns_facility_rule"] = (repo_root / FACILITY_RULE_RELPATH).is_file()
 
-    # Prepared from the facility tree before the render (which carries no
-    # tiers/ subtree the paradigm databases live in) and written after it, so
-    # the decision is settled before anything is written.
-    #
     # The profile's own tree is the only one there is: `data:` is required of
-    # every profile file, so nothing falls back to a packaged bundle here and
-    # the manifest describes the facility's databases or the build refuses.
+    # every profile file, so nothing falls back to a packaged bundle here.
     data_root = build_profile.resolved_data_root(repo_root)
     assert data_root is not None  # `data:` required; narrows for type-checkers
-    va_key = (str(data_root), _manifest_tier(build_profile.channel_finder_mode))
-    # A tree that stages no paradigm database has nothing to prepare yet: its
-    # channels are the records of the facility file this render is about to be
-    # given, and the outgoing build/ holds the previous build's or none. Its
-    # manifest is prepared once that file is written -- see below, before the
-    # manifest write.
-    va_from_databases = bool(ManifestPaths(data_root=data_root, tier=va_key[1]).staged_paradigms)
-    if va_from_databases:
-        if va_key not in shared.va_manifests:
-            shared.va_manifests[va_key] = prepare_project_manifest(data_root, va_key[1])
-        # Prepared unconditionally (the memoization is the build's, not the
-        # virtual accelerator's); only what is SAID about it is gated on the
-        # virtual accelerator actually being deployed.
-        _report_va_manifest_outcome(
-            shared,
-            build_profile,
-            data_root=data_root,
-            tier=va_key[1],
-            prepared=shared.va_manifests[va_key],
-        )
 
     # Every edit of the render's config.yml — the template's own ownership
     # registration, the overrides, the projections, the service injectors, the
@@ -2360,8 +2124,7 @@ def _render_project(
 
         # The render is on disk, so its config can resolve the two paths that are
         # relative to it: the corpus this render staged and the index derived
-        # from it. Loaded once here and handed to the manifest step below, whose
-        # roster resolves this render's facility file from it.
+        # from it. Loaded once here and handed to the steps below.
         rendered = _rendered_config(render_dir)
         rendered["config_dir"] = str(render_dir)
 
@@ -2389,32 +2152,6 @@ def _render_project(
         graph_target = _graph_index_target(render_dir, rendered, shared.graph_facts_reported)
         if graph_target is not None:
             _build_graph_index(shared, graph_target, progress)
-
-        if not va_from_databases:
-            # This render now holds its facility file, so the roster the manifest
-            # step asks answers for the render being built. The refusal (a
-            # virtual accelerator whose facility file names no channel) fires
-            # here, still before anything is published outside the render zone.
-            if va_key not in shared.va_manifests:
-                shared.va_manifests[va_key] = prepare_project_manifest(
-                    data_root, va_key[1], config=rendered
-                )
-            _report_va_manifest_outcome(
-                shared,
-                build_profile,
-                data_root=data_root,
-                tier=va_key[1],
-                prepared=shared.va_manifests[va_key],
-                config=rendered,
-            )
-
-        prepared_va_manifest = shared.va_manifests[va_key]
-        if prepared_va_manifest is not None:
-            write_project_manifest(prepared_va_manifest, render_dir / "data")
-            progress(
-                "  ✓ Generated virtual-accelerator channel manifest (%d channels)",
-                prepared_va_manifest.manifest["_metadata"]["total_channels"],
-            )
 
         # The limits database is read here and not in the `unrunnable` gate above,
         # because it arrives with the conventions: the limits view is written into
@@ -3193,245 +2930,6 @@ def _render_container_projects(
     return contexts
 
 
-#: The ``VA_LATTICE`` value naming no lattice at all. Respelled from the
-#: container entrypoint's ``LATTICE_NONE`` rather than imported from it: that
-#: module pulls in the whole serving stack, which a build must not import.
-#: Pinned by test against the entrypoint's own.
-_VA_LATTICE_NONE = "none"
-
-#: A ``VA_LATTICE`` spelling with no meaning of its own on either side: the
-#: served tree is searched for a file of this name like any other, and
-#: :data:`_VA_LATTICE_NONE` is the only value naming no file. So a value on
-#: file reading exactly this, over a tree carrying no such file, points the
-#: container at nothing and is rewritten to the name this build derived. A
-#: served file of that name makes it a lattice like any other, and is pinned
-#: by the operator the way every other name is.
-_VA_LATTICE_RETIRED = "builtin"
-
-
-def _served_lattice(data_root: Path, manifest_path: Path) -> str:
-    """The ``VA_LATTICE`` value a published data tree earns.
-
-    A tree serves a lattice when it stages the bindings document that ties its
-    channels to one. That document is the evidence and the lattice file is not:
-    a ring no address reaches moves nothing the manifest names, so the bindings
-    are what make the two halves a model. The value written is the lattice
-    file's own name relative to the directory the container is handed -- the
-    same directory ``VA_CHANNELS_FILE`` names the manifest in -- and the
-    entrypoint looks that name up verbatim, case included.
-
-    Two things have to hold, and they answer one question between them. The
-    manifest has to record that a bindings document claimed its pyat-coupled
-    partition (``_metadata.partition_source``), because a channel set nothing
-    coupled reaches no model however many files sit beside it -- that is the
-    case the facility file produces, which states readback pairs and no
-    bindings at all. And both model files have to be in the published tree --
-    the bindings document and the lattice it names -- because
-    what has to be true at boot is that the model files are in the directory
-    the container mounts; this runs after the swap, on exactly that tree.
-
-    Args:
-        data_root: The published ``data/`` tree in the output zone, whose
-            ``simulation/`` directory is the container's data dir.
-        manifest_path: The generated manifest in that tree, whose ``_metadata``
-            names what claimed its partition.
-
-    Returns:
-        The lattice file's name, or :data:`_VA_LATTICE_NONE` for a tree with
-        nothing for a model to steer.
-    """
-    from osprey.services.virtual_accelerator.manifest.build import PARTITION_SOURCE_NONE
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-
-    try:
-        source = json.loads(manifest_path.read_text())["_metadata"]["partition_source"]
-    except (json.JSONDecodeError, KeyError, OSError, TypeError):
-        # A lattice is the claim that needs evidence, so a manifest that cannot
-        # be read for it answers no rather than guessing yes.
-        return _VA_LATTICE_NONE
-    if source == PARTITION_SOURCE_NONE:
-        return _VA_LATTICE_NONE
-
-    paths = ManifestPaths(data_root=data_root)
-    # The bindings and the lattice are the two halves of one model -- the
-    # document states which channels couple, the lattice is what they steer --
-    # so a tree missing either carries no model to build, whatever its manifest
-    # claims, and the absent half is named rather than discovered at boot.
-    absent = [path.name for path in (paths.va_bindings, paths.lattice_json) if not path.is_file()]
-    if absent:
-        logger.warning(
-            "  The generated channel manifest was partitioned by %s, but %s is not in %s. "
-            "The accelerator is left serving no lattice, since the tree the container "
-            "mounts carries no model to build.",
-            source,
-            " and ".join(absent),
-            data_root,
-        )
-        return _VA_LATTICE_NONE
-    # Both the lattice and the manifest sit in the served directory, so the
-    # lattice's bare name IS its data-dir-relative name.
-    return paths.lattice_json.name
-
-
-def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
-    """Point the deployment's ``.env`` at the manifest this build generated.
-
-    The last link of the virtual accelerator's channel chain, and the only one
-    that reaches outside ``build/``. The generator writes its manifest into the
-    output zone (:func:`_render_project`); the VA compose service mounts that
-    directory; and the address of the manifest *inside* the mount travels as
-    ``VA_CHANNELS_FILE``, which compose can only substitute from the repo-root
-    ``.env`` it is handed as ``--env-file``. Nothing else reads these keys —
-    the container's entrypoint takes them straight from its environment — so
-    this is where the pointer is written or it is not written at all.
-
-    Two rules, and neither is negotiable:
-
-    * **Append-only.** That ``.env`` is the deployment's whole secret store:
-      hand-edited, and written back to by ``osprey up`` with tokens the running
-      volumes are pinned to. The build writes it through the same
-      :func:`~osprey.utils.dotenv.append_profile_env` every other writer uses,
-      so a value already on file always wins and a disagreement is *reported*
-      rather than resolved. Repointing a running IOC's channel set from under
-      an operator, on a rebuild they ran for some unrelated reason, is not a
-      thing a build gets to do.
-    * **After the swap.** Called once ``build/`` is the tree this render
-      produced, and gated on the manifest being in it — so the pointer is only
-      ever written when the file it names is already there to be found. A build
-      that fails leaves ``build/`` as it was and this never runs.
-
-    The reverse case — a repo whose ``.env`` still carries a pointer from a
-    build that could generate a manifest, run again on a tree that cannot — is
-    the one thing append-only cannot fix by itself, so it is warned about by
-    name. The stale pointer is not harmless: the entrypoint *raises* on a
-    manifest file it cannot find rather than falling back to the packaged
-    channel set, so the next start gets a container that will not boot.
-
-    Args:
-        repo_root: The deployment repo — the compose project directory, whose
-            ``.env`` is the file compose interpolates from.
-        build_dir: The output zone, after the swap.
-    """
-    from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import (
-        BUILD_DERIVED_BANNER,
-        BUILD_DERIVED_KEYS,
-        VA_LATTICE_KEY,
-        append_profile_env,
-        parse_dotenv_file,
-    )
-
-    env_path = repo_root / COMPOSE_ENV_FILENAME
-    data_root = build_dir / "data"
-    manifest = data_root / "simulation" / MANIFEST_FILENAME
-
-    if not manifest.is_file():
-        on_file = parse_dotenv_file(env_path) if env_path.is_file() else {}
-        for key in sorted(BUILD_DERIVED_KEYS & on_file.keys()):
-            logger.warning(
-                "  %s is set in %s, but this build generated no virtual-accelerator "
-                "channel manifest for it to point at. The value was left alone, since it is "
-                "yours and not the build's. The IOC will fail to start against a "
-                "manifest that is not there. Remove the line, or restore the channel "
-                "databases the manifest is generated from.",
-                key,
-                env_path,
-            )
-        return
-
-    # A name, not a path: the entrypoint resolves a relative VA_CHANNELS_FILE
-    # against its data mount, which is the directory the manifest was just
-    # written into.
-    #
-    # VA_LATTICE is DERIVED from the same published tree rather than asserted,
-    # and the rule is the one that governs the channel set itself: a project's
-    # accelerator runs on what the project actually has. A tree staging the
-    # bindings that tie its channels to a ring serves that ring, by name; a
-    # tree staging none has nothing for a model to steer, and naming a lattice
-    # over it would put physics behind a namespace it does not describe -- the
-    # half of the fallback this feature removed that a channel set alone
-    # cannot catch. So the lattice's own name is written when the model is in
-    # the tree the container mounts, and `none` otherwise, which is also the
-    # entrypoint's reading of an unset value.
-    #
-    # `none` has no constant outside the container's entrypoint, which the
-    # build cannot import (it pulls in the whole serving stack), so it is
-    # respelled above and pinned by test against `entrypoint.LATTICE_NONE`.
-    lattice = _served_lattice(data_root, manifest)
-    _migrate_retired_lattice_pointer(env_path, data_root, lattice)
-    entries = {
-        "VA_CHANNELS_FILE": MANIFEST_FILENAME,
-        VA_LATTICE_KEY: lattice,
-    }
-    result = append_profile_env(env_path, entries, BUILD_DERIVED_BANNER)
-
-    if result.added:
-        # The build's one write outside the output zone, into a file that is
-        # the operator's rather than a build artifact. It runs after the render
-        # phase has closed, so it is reported rather than stepped.
-        line = (
-            f"Pointed {COMPOSE_ENV_FILENAME} at the generated channel manifest "
-            f"({', '.join(sorted(result.added))})"
-        )
-        if VA_LATTICE_KEY in result.added:
-            # The lattice is named rather than summarised: which ring the
-            # accelerator runs on is the one fact an operator cannot read back
-            # off the channel set, and a file name is what they would go
-            # looking for in the served tree.
-            line += (
-                f", which serves the lattice {lattice}"
-                if lattice != _VA_LATTICE_NONE
-                else ", which serves no lattice: the tree stages no bindings document, so "
-                "its channels reach no model"
-            )
-        _report_fact(line)
-    for conflict in result.conflicts:
-        # Named, never valued: the store this reads is the one holding the
-        # facility's provider keys, and a warning is not a safe place for it.
-        logger.warning(
-            "  %s in %s disagrees with what this build generated. Your value was kept, "
-            "because the build never overwrites this file. The IOC will serve the channel "
-            "set you named, not the one in build/. Remove the line to take the build's.",
-            conflict.key,
-            env_path,
-        )
-
-
-def _migrate_retired_lattice_pointer(env_path: Path, data_root: Path, derived: str) -> None:
-    """Repoint a ``VA_LATTICE`` reading :data:`_VA_LATTICE_RETIRED` at *derived*.
-
-    The one value in this section the build rewrites rather than reports. It is
-    not a hole in append-only: the line sits under the build's own banner, in
-    the section whose whole promise is that every build regenerates it, and the
-    spelling it carries resolves to no file in any served tree. Left alone it
-    would WIN over the value derived above — the append never replaces — and
-    the container refuses to boot on a lattice name it cannot find, which is a
-    worse place to learn it than a build line.
-
-    Every other value is the operator's, including this spelling over a tree
-    that does carry a file of that name: there the pointer resolves, so there
-    is nothing to correct.
-
-    Args:
-        env_path: The deployment repo's ``.env``.
-        data_root: The published ``data/`` tree, whose ``simulation/`` directory
-            is the one the container mounts and looks the name up in.
-        derived: The value :func:`_served_lattice` earned from that tree.
-    """
-    from osprey.utils.dotenv import VA_LATTICE_KEY, replace_profile_env_value
-
-    if (data_root / "simulation" / _VA_LATTICE_RETIRED).is_file():
-        return
-    if not replace_profile_env_value(env_path, VA_LATTICE_KEY, _VA_LATTICE_RETIRED, derived):
-        return
-    _report_fact(
-        f"Repointed {VA_LATTICE_KEY}={_VA_LATTICE_RETIRED} in {env_path.name} at {derived}, "
-        f"the lattice this build's tree serves: {_VA_LATTICE_RETIRED} names no file there, "
-        "and the accelerator refuses to start on a name it cannot find"
-    )
-
-
 def _build_repo(
     repo: Path | None,
     *,
@@ -3741,8 +3239,6 @@ def _build_repo(
             project_deps=project_deps,
             skip_deps=skip_deps,
             manager=TemplateManager(),
-            va_manifests={},
-            va_reported=set(),
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
@@ -3870,17 +3366,12 @@ def _build_repo(
             ],
         )
         _swap_in_render(zones)
-        # The one write outside build/, and last for that reason: it names a
-        # file in the tree the line above just published.
-        _wire_build_derived_env(repo_root, zones.build_dir)
 
         # The build-time half of the stand-in's lattice gate. Validation asks
-        # the same question of the env chain alone; only here is the other half
-        # knowable — whether this render produced a channel manifest, which is
-        # the precondition the line above gates its `VA_LATTICE` write on. A
-        # stand-in with no lattice behind the readout perturbation it
-        # ships exits at container start, so it is refused now rather than
-        # discovered at `osprey up`.
+        # the same question of the env chain alone; only here, over the
+        # published render, is the other half knowable. A stand-in with no
+        # lattice behind the readout perturbation it ships exits at container
+        # start, so it is refused now rather than discovered at `osprey up`.
         va = build_profile.virtual_accelerator
         if va is not None and va.live_standin is not None:
             standin_errors = live_standin_lattice_errors(repo_root, zones.build_dir)

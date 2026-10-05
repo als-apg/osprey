@@ -79,11 +79,11 @@ from tests.cli.test_mml_build_recipes import (
     build_past_the_seed_stops,
     clear_authored,
     drive_emit,
-    env_values,
     import_facility,
     invoke,
     published,
     remove_stale_scenarios,
+    simulator_view,
 )
 from tests.cli.test_mml_build_recipes import (
     TestServedFromATwoZeroExport as _BuildCases,
@@ -342,7 +342,7 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, build = build_past_the_seed_stops(runner, repo)
     first = published(repo)
-    first_env = env_values(repo)
+    first_view = simulator_view(repo)
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
     return {
@@ -356,7 +356,7 @@ def als_build(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         "validate": validate.output,
         "build": build.output,
         "first": first,
-        "first_env": first_env,
+        "first_view": first_view,
     }
 
 

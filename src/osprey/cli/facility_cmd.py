@@ -123,8 +123,6 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
         project_deps=list(build_profile.dependencies or []),
         skip_deps=True,
         manager=TemplateManager(),
-        va_manifests={},
-        va_reported=set(),
         graph_indexes={},
         graph_facts_reported=set(),
         model_facts_reported=set(),

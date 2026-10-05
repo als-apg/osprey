@@ -44,9 +44,8 @@ makes:
   Past that it runs one verb further and one refusal
   further still -- the demo's own machine documents, which only a harvest
   carrying a machine replaces -- and the claims it makes are about what ``osprey build`` then
-  published: the manifest is partitioned by the harvest's own bindings, the
-  ring and the bindings reach the served directory byte for byte, and the
-  ``.env`` names that ring by its file name.
+  published: the ring and the bindings reach the served directory byte for
+  byte, and the simulator view serves the harvest's channels and model.
 
 Every number here is read off a real run of the real verbs. The chain is cheap
 enough (seconds) to drive once per recipe, so nothing about the rendered tree
@@ -146,22 +145,15 @@ TWO_ZERO_TREES = tuple(
     )
 )
 
-#: What the build derives into the deployment's ``.env`` once it has published
-#: a manifest: the manifest's own name inside the mount, and the ring the tree
-#: ties that channel set to.
-MANIFEST_KEY = "VA_CHANNELS_FILE"
-LATTICE_KEY = "VA_LATTICE"
-
-MANIFEST_FILE = "channel_manifest.json"
 LATTICE_FILE = "lattice.json"
 BINDINGS_FILE = "va_bindings.json"
 LIMITS_FILE = "channel_limits.json"
 
-#: What ``VA_LATTICE`` says when the tree carries no model to steer.
-LATTICE_NONE = "none"
-
-#: The sentence that must no longer exist anywhere in a build's output.
-DEAD_FALLBACK_SENTENCE = "built-in demo namespace"
+#: The simulator view the build writes and the virtual accelerator serves,
+#: relative to the repo, and the two files of it these recipes read.
+SIMULATOR_VIEW = "build/data/simulator"
+ADDRESSES_FILE = "addresses.json"
+SERVED_MODELS_FILE = "served_models.json"
 
 
 def _packaged_scenarios() -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -499,16 +491,20 @@ def drive_emit(runner: CliRunner, repo: Path) -> tuple[Result, tuple[tuple[str, 
     raise AssertionError(f"emit never accepted the tree; it refused over {rounds}")
 
 
-def env_values(repo: Path) -> dict[str, str]:
-    """The deployment ``.env`` the build appended its derived keys to."""
-    from osprey.utils.dotenv import parse_dotenv_file
+def simulator_view(repo: Path) -> dict[str, dict]:
+    """The simulator view's addresses and served models, as the container reads them."""
+    view = repo / SIMULATOR_VIEW
+    return {
+        name: json.loads((view / name).read_text(encoding="utf-8"))
+        for name in (ADDRESSES_FILE, SERVED_MODELS_FILE)
+    }
 
-    return parse_dotenv_file(repo / ".env")
 
-
-def served_manifest(repo: Path) -> dict:
-    """The channel manifest the build published, as the container will read it."""
-    return json.loads((repo / SERVED / MANIFEST_FILE).read_text(encoding="utf-8"))
+def served_physics_models(repo: Path) -> list[str]:
+    """The names of the physics models the view serves, ``texture`` left out."""
+    return [
+        name for name in simulator_view(repo)[SERVED_MODELS_FILE]["models"] if name != "texture"
+    ]
 
 
 def published(repo: Path) -> dict[str, bytes]:
@@ -712,7 +708,7 @@ def served_repo(
         runner, repo, responses=expected_response_lines(request.param)
     )
     first = published(repo)
-    first_env = env_values(repo)
+    first_view = simulator_view(repo)
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
     return {
@@ -728,7 +724,7 @@ def served_repo(
         "validate": validate.output,
         "build": build.output,
         "first": first,
-        "first_env": first_env,
+        "first_view": first_view,
     }
 
 
@@ -899,9 +895,8 @@ class TestControlAssistant:
         The harvest re-answers the channel set, and the preset's ring answers
         the demo's: left in place it would be served over the facility's own
         addresses, a model of one machine reached through the names of
-        another. So emit takes the deck and the bindings with it, names what it
-        removed, and the build derives its lattice from the tree it is about to
-        mount -- which now carries none.
+        another. So emit takes the deck and the bindings with it and names what
+        it removed.
         """
         repo = control_assistant_repo["repo"]
         emitted = " ".join(control_assistant_repo["emit"].split())
@@ -909,23 +904,14 @@ class TestControlAssistant:
         for name in (LATTICE_FILE, BINDINGS_FILE):
             assert not (repo / "data" / "simulation" / name).exists(), name
             assert f"data/simulation/{name}" in emitted, name
-        assert env_values(repo)[LATTICE_KEY] == LATTICE_NONE
 
-    def test_the_build_names_no_lattice_twice_over(self, control_assistant_repo: dict) -> None:
-        """Both lines of the build agree, because the tree gives one answer.
-
-        Two questions are being answered, both called "is a lattice served".
-        The stand-in gate asks it of the env chain -- what the profile and the
-        rendered compose say -- and the env writer asks it of the tree about to
-        be mounted. A harvested tree carries no ring for either to find, so an
-        operator reading the build is told the same thing twice instead of
-        being left to pick.
-        """
+    def test_the_build_says_the_standin_has_no_model_to_displace(
+        self, control_assistant_repo: dict
+    ) -> None:
+        """A harvested tree carries no ring, and the build says so once."""
         printed = " ".join(control_assistant_repo["build"].split())
 
-        assert f"{LATTICE_KEY}={LATTICE_NONE}: no model to displace" in printed
-        assert f"serves the lattice {LATTICE_FILE}" not in printed
-        assert "serves no lattice" in printed
+        assert "VA_LATTICE=none: no model to displace" in printed
 
     def test_the_demo_scenarios_survive_because_the_demo_machine_does(
         self, control_assistant_repo: dict
@@ -960,7 +946,7 @@ class TestTheDemoNobodyHarvestedOnto:
             assert (repo / "data" / "simulation" / name).read_bytes() == (
                 packaged / name
             ).read_bytes(), name
-        assert env_values(repo)[LATTICE_KEY] == LATTICE_FILE
+        assert served_physics_models(repo)
 
     def test_the_demo_scenarios_are_all_still_there(self, demo_repo: dict) -> None:
         scenarios = demo_repo["repo"] / "data" / "simulation" / "scenarios"
@@ -1014,80 +1000,6 @@ class TestServedFromATwoZeroExport:
             f"data/simulation/scenarios/{name}" for name in DEMO_CHANNELLED_SCENARIOS
         }
 
-    def test_the_build_publishes_a_manifest_its_own_tree_backs(self, served_repo: dict) -> None:
-        """Nothing the harvested tree needs is missing, and one database fed it.
-
-        Asked of the source tree, which is the one the generator read. The
-        built tree is where the answer is published, not where it is checked:
-        a build prunes ``tiers/``, so the paradigm database the manifest was
-        expanded from is deliberately not in the tree the container mounts --
-        which is the whole reason the manifest has to ship.
-        """
-        from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-
-        repo = served_repo["repo"]
-        harvested = ManifestPaths(data_root=repo / "data")
-        metadata = served_manifest(repo)["_metadata"]
-
-        assert harvested.staged_paradigms == ("middle_layer",)
-        assert harvested.missing_sources() == []
-        assert metadata["source_paradigms"] == ["middle_layer"]
-        assert sorted(metadata["absent_paradigms"]) == ["hierarchical", "in_context"]
-        assert not ManifestPaths(data_root=repo / "build" / "data").tier_dir.exists()
-
-    def test_the_manifest_is_partitioned_by_the_harvests_own_bindings(
-        self, served_repo: dict
-    ) -> None:
-        """Every knob the model moves is one the harvest tied to an element.
-
-        Not a count: the two sets are compared whole, so a binding onto an
-        address the manifest does not serve, or a coupled channel no binding
-        drives, is a difference rather than a number that still matches.
-        """
-        from osprey.services.virtual_accelerator.bindings import load_bindings, setpoints
-        from osprey.services.virtual_accelerator.manifest.classify import (
-            pyat_coupled_setpoint_addresses,
-        )
-
-        repo = served_repo["repo"]
-        manifest = served_manifest(repo)
-        bound = set(setpoints(load_bindings(repo / SERVED / BINDINGS_FILE)))
-
-        assert bound
-        assert manifest["_metadata"]["partition_source"] == f"simulation/{BINDINGS_FILE}"
-        assert pyat_coupled_setpoint_addresses(manifest["channels"]) == bound
-
-    def test_the_setpoints_no_binding_drives_are_exactly_the_echoes(
-        self, served_repo: dict
-    ) -> None:
-        """The writable channels outnumber the driven ones, and the rest echo.
-
-        A harvested namespace holds setpoints with no element behind them --
-        a septum current, a cavity's drive. They stay writable and their
-        readback follows them, which is the sp-echo partition; what they must
-        never be is silently coupled to the ring. So the difference between
-        "writable" and "driven" is named rather than tolerated.
-        """
-        from osprey.services.virtual_accelerator.bindings import load_bindings, setpoints
-        from osprey.services.virtual_accelerator.manifest.classify import (
-            PARTITION_SP_ECHO,
-            SETPOINT_SUBFIELD,
-            setpoint_addresses,
-        )
-
-        repo = served_repo["repo"]
-        channels = served_manifest(repo)["channels"]
-        bound = set(setpoints(load_bindings(repo / SERVED / BINDINGS_FILE)))
-        echoes = {
-            channel["address"]
-            for channel in channels
-            if channel["partition"] == PARTITION_SP_ECHO
-            and channel["subfield"] == SETPOINT_SUBFIELD
-        }
-
-        assert echoes
-        assert setpoint_addresses(channels) - bound == echoes
-
     def test_the_ring_and_the_bindings_reach_the_served_tree_byte_for_byte(
         self, served_repo: dict
     ) -> None:
@@ -1103,29 +1015,24 @@ class TestServedFromATwoZeroExport:
                 repo / "data" / "simulation" / name
             ).read_bytes(), name
 
-    def test_the_env_names_the_ring_the_harvest_emitted(self, served_repo: dict) -> None:
-        """A file name, not a mode and not a path: the entrypoint looks it up.
+    def test_the_view_serves_the_harvests_channels_and_model(self, served_repo: dict) -> None:
+        """The container reads the harvest's addresses and serves a physics model."""
+        view = served_repo["first_view"]
 
-        Both derived keys are names resolved inside the container's data mount,
-        so a path here would point outside the tree that was just published.
-        """
-        env = served_repo["first_env"]
-
-        assert env[LATTICE_KEY] == LATTICE_FILE
-        assert env[MANIFEST_KEY] == MANIFEST_FILE
-        assert "/" not in env[LATTICE_KEY] and "/" not in env[MANIFEST_KEY]
+        assert view[ADDRESSES_FILE]["channels"]
+        assert [name for name in view[SERVED_MODELS_FILE]["models"] if name != "texture"]
 
     def test_a_second_build_changes_no_published_byte(self, served_repo: dict) -> None:
         """The served tree is a function of the harvest, not of the run.
 
         An operator rebuilding for an unrelated reason must not hand the IOC a
         different machine, so every file under the mounted directory -- the
-        manifest included -- is compared whole against the first build's.
+        simulator view included -- is compared whole against the first build's.
         """
         repo = served_repo["repo"]
 
         assert published(repo) == served_repo["first"]
-        assert env_values(repo) == served_repo["first_env"]
+        assert simulator_view(repo) == served_repo["first_view"]
 
 
 class TestTheFacilityImportOfATwoZeroExport:
@@ -1266,67 +1173,17 @@ class TestTheFacilityImportOfATwoZeroExport:
         )
 
 
-def _collapsed(text: str) -> str:
-    """One line, whitespace collapsed -- the phase reporter wraps its facts."""
-    return " ".join(text.split())
+class TestTheBandsOfAHarvestedTree:
+    """The bands ``osprey build`` publishes on the tree the MML chain leaves.
 
-
-class TestTheBuildFactsOfAHarvestedTree:
-    """The facts ``osprey build`` states about the channel set it serves, on a harvested tree.
-
-    tests/cli/test_build_va_manifest_honesty.py holds these facts on trees
-    assembled from the bundle's own sources. These hold them on the tree an
-    operator ends up with after the MML chain and ``osprey build`` over a real
-    export: the one shape of project that reaches that code with a channel set,
-    a ring and the bindings between them all written by the same harvest. They
-    read the ``served_repo`` build above rather than driving the chain again.
+    They read the ``served_repo`` build above rather than driving the chain again.
     """
-
-    def test_a_harvested_trees_fact_names_the_database_the_harvest_wrote(
-        self, served_repo: dict
-    ) -> None:
-        """The channel set is the harvest's, and the fact says which file backs it.
-
-        The same sentence the bundled trees are held to, said about a tree
-        whose one staged database was written minutes earlier by ``mml emit``: it
-        names the paradigm that fed the manifest, names the two the harvest did
-        not write, and claims no channel the tree does not hold.
-        """
-        printed = _collapsed(served_repo["build"])
-        total = served_manifest(served_repo["repo"])["_metadata"]["total_channels"]
-
-        assert f"{total} channel(s) from its middle_layer channel database(s)" in printed
-        assert "Not staged at that tier: hierarchical and in_context" in printed
-        assert DEAD_FALLBACK_SENTENCE not in printed
-
-    def test_the_reconciliation_fact_rides_along_on_a_harvested_tree(
-        self, served_repo: dict
-    ) -> None:
-        """The machine-state list the harvest emitted is checked against that set.
-
-        Both facts are said once per tree, so a harvested tree gets the second one
-        too -- and on a tree where one harvest wrote both documents, every
-        candidate the list names is an address the manifest serves.
-        """
-        printed = _collapsed(served_repo["build"])
-        listed = json.loads(
-            (served_repo["repo"] / "data" / "machine_state_channels.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        # The document is address -> entry, with the provenance stamp and the
-        # note it opens on spelled as underscore keys.
-        checked = len([key for key in listed if not key.startswith("_")])
-
-        assert checked
-        assert f"{checked} checked, {checked} valid, 0 invalid" in printed
 
     def test_the_served_bands_are_the_facility_limits_records(self, served_repo: dict) -> None:
         """What the container reads is the limits view of the facility description.
 
-        The build writes ``channel_limits.json`` from ``data/facility/limits.yaml``
-        and copies it beside the manifest, so the bands the container clamps to
-        are the records the import seeded and the remedy widened: one entry per
+        The build writes ``channel_limits.json`` from ``data/facility/limits.yaml``,
+        so the bands are the records the import seeded and the remedy widened: one entry per
         record, with that record's bounds, and no entry the records do not hold.
         """
         from osprey.facility.views.limits import limits_document
@@ -1334,7 +1191,7 @@ class TestTheBuildFactsOfAHarvestedTree:
         repo = served_repo["repo"]
         records = yaml.safe_load((repo / FACILITY_LIMITS).read_text(encoding="utf-8"))["records"]
         facility = json.loads((repo / "build" / "facility.json").read_text(encoding="utf-8"))
-        bands = json.loads((repo / SERVED / LIMITS_FILE).read_text(encoding="utf-8"))
+        bands = json.loads((repo / "build" / "data" / LIMITS_FILE).read_text(encoding="utf-8"))
 
         assert records
         assert bands == limits_document(facility)
@@ -1344,19 +1201,3 @@ class TestTheBuildFactsOfAHarvestedTree:
         for record in records:
             for bound in ("min_value", "max_value"):
                 assert bands[record["address"]].get(bound) == record.get(bound)
-
-    def test_the_published_bands_sit_at_the_root_and_beside_the_manifest(
-        self, served_repo: dict
-    ) -> None:
-        """Both readers find the same file: the model's, and the IOC's clamp.
-
-        The model resolves the bands from the data root it is mounted at, and the
-        IOC reads them from beside the manifest it serves. One build writes both,
-        and a difference between them would clamp a write at one value while the
-        model believed another.
-        """
-        data_root = served_repo["repo"] / "build" / "data"
-
-        assert (data_root / LIMITS_FILE).read_bytes() == (
-            data_root / "simulation" / LIMITS_FILE
-        ).read_bytes()

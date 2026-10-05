@@ -376,7 +376,6 @@ class TestBuildPhases:
         monkeypatch.setattr(build_cmd, "_backup_outgoing_claude_artifacts", lambda *a, **k: None)
         monkeypatch.setattr(build_cmd, "_prune_runtime_state_from_stage", lambda *a, **k: None)
         monkeypatch.setattr(build_cmd, "_swap_in_render", lambda *a, **k: None)
-        monkeypatch.setattr(build_cmd, "_wire_build_derived_env", lambda *a, **k: None)
         monkeypatch.setattr(build_cmd, "_warn_if_deployment_running", lambda *a, **k: None)
         return seen
 
