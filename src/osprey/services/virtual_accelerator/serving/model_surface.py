@@ -188,7 +188,6 @@ class ModelSurface:
         self._model = model
         self._partition = partition
         self._records = records
-        self._write_token = model_write_token.encode() if model_write_token else None
         self._refresh = refresh
         self._seeds: dict[str, Any] = {
             name: seed
@@ -198,11 +197,25 @@ class ModelSurface:
         }
         self._backend_name = backend_name
         self._lattice_source = lattice_source
+        self._update_rate = float(update_rate)
+        self._start(
+            instance=instance, endpoint=endpoint, clock=clock, model_write_token=model_write_token
+        )
+
+    def _start(
+        self,
+        *,
+        instance: str,
+        endpoint: str,
+        clock: Callable[[], float],
+        model_write_token: str | None,
+    ) -> None:
+        """Take the write token and start the state ``status`` reports."""
+        self._write_token = model_write_token.encode() if model_write_token else None
         self._instance = instance
         self._endpoint = endpoint
         self._clock = clock
         self._started = clock()
-        self._update_rate = float(update_rate)
         self._last_cycle_ms: float | None = None
         self._queue_depth = 0
         self._last_refused_write: str | None = None
@@ -362,13 +375,10 @@ class ModelSurface:
             ("not a model variable", lambda name: name not in declared),
             ("not a finite value", lambda name: not _finite_or_not_a_number(batch[name])),
         )
-        for reason, fails in checks:
-            offenders = sorted(name for name in batch if fails(name))
-            if offenders:
-                raise self._refusal(f"{reason}: {', '.join(offenders)}")
+        self._check(batch, checks)
         if not batch:
             return []
-        self._apply(batch)
+        self._apply(self._model.set, batch)
         written = list(batch)
         self._refresh(written)
         return written
@@ -402,7 +412,7 @@ class ModelSurface:
         try:
             for batch in (faults, stuck):
                 if batch:
-                    self._apply(batch)
+                    self._apply(self._model.set, batch)
                     restored.extend(batch)
         finally:
             if restored:
@@ -424,10 +434,19 @@ class ModelSurface:
         if not hmac.compare_digest(self._write_token, token.encode()):
             raise self._refusal("model write refused: the write token does not match")
 
-    def _apply(self, batch: dict[str, Any]) -> None:
-        """One ``model.set``, its validation failure turned into a refusal."""
+    def _check(
+        self, batch: Mapping[str, Any], checks: Iterable[tuple[str, Callable[[str], bool]]]
+    ) -> None:
+        """Refuse ``batch`` at the first check any name fails, naming every such name, sorted."""
+        for reason, fails in checks:
+            offenders = sorted(name for name in batch if fails(name))
+            if offenders:
+                raise self._refusal(f"{reason}: {', '.join(offenders)}")
+
+    def _apply(self, write: Callable[[dict[str, Any]], Any], batch: dict[str, Any]) -> None:
+        """One ``write`` of ``batch``, its validation failure turned into a refusal."""
         try:
-            self._model.set(batch)
+            write(batch)
         except (ValueError, TypeError) as exc:
             raise self._refusal(str(exc) or type(exc).__name__) from exc
 
@@ -465,14 +484,9 @@ class _ViewSurface(ModelSurface):
         self._channels = [str(address) for address in addresses_json.get("channels", [])]
         self._served = [*self._channels, *(str(a) for a in addresses_json.get("status", []))]
         self._served_set = frozenset(self._served)
-        self._write_token = model_write_token.encode() if model_write_token else None
-        self._instance = instance
-        self._endpoint = endpoint
-        self._clock = clock
-        self._started = clock()
-        self._last_cycle_ms = None
-        self._queue_depth = 0
-        self._last_refused_write = None
+        self._start(
+            instance=instance, endpoint=endpoint, clock=clock, model_write_token=model_write_token
+        )
 
     def info(self) -> dict[str, Any]:
         """Describe every served address; no value is read.
@@ -558,16 +572,10 @@ class _ViewSurface(ModelSurface):
             ("a served address, written through the control system", self._served_set.__contains__),
             ("not a finite value", lambda name: not _finite_or_not_a_number(batch[name])),
         )
-        for reason, fails in checks:
-            offenders = sorted(name for name in batch if fails(name))
-            if offenders:
-                raise self._refusal(f"{reason}: {', '.join(offenders)}")
+        self._check(batch, checks)
         if not batch:
             return []
-        try:
-            self._composite.model_set(batch)
-        except (ValueError, TypeError) as exc:
-            raise self._refusal(str(exc) or type(exc).__name__) from exc
+        self._apply(self._composite.model_set, batch)
         return list(batch)
 
     def reset(self, token: str | None) -> list[str]:
