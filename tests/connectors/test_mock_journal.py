@@ -144,6 +144,30 @@ async def test_a_scenario_change_empties_the_journal(view):
     await connector.disconnect()
 
 
+async def test_a_second_connector_keeps_what_the_first_wrote_after_a_scenario_change(view):
+    root = view.parent.parent.parent
+    (root / "data" / "facility" / "scenarios").mkdir()
+    (root / "data" / "facility" / "scenarios" / "quiet.yaml").write_text(
+        "description: A quiet machine.\n"
+    )
+    view = _rebuild(view)
+    first = await _connected(view)
+    second = await _connected(view)
+
+    state = simulation_state_dir(view)
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "active_scenarios").write_text("quiet\n")
+
+    assert (await first.read_channel("A:SP")).value == 0.0
+    await first.write_channel("A:SP", 7.0)
+    assert (await second.read_channel("A:SP")).value == 7.0
+    assert (await first.read_channel("A:SP")).value == 7.0
+    writes = json.loads(_journal(view).read_text())["writes"]
+    assert [entry[1:] for entry in writes] == [["A:SP", 7.0]]
+    await first.disconnect()
+    await second.disconnect()
+
+
 async def test_a_rewrite_of_the_same_active_set_keeps_the_session_writes(view):
     connector = await _connected(view)
     await connector.write_channel("A:SP", 7.0)

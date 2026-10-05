@@ -371,10 +371,13 @@ class MockConnector(ControlSystemConnector):
         if sha != self._active_sha:
             changed = self._active_sha is not None
             self._active_sha = sha
+            # The first connector to see a new active set empties the journal; one
+            # that sees it later replays what was written under that set.
             if changed:
                 self._holds_writes = False
-                self._truncate()
-                return
+                self._journal_mark = None
+                if self._truncate(unless_current=True):
+                    return
         if rebuilt:
             # The composite rebuilt from a rewrite of the same set and dropped
             # the session writes; the journal still holds them.
@@ -487,14 +490,23 @@ class MockConnector(ControlSystemConnector):
         # the next operation, this write with it.
         self._journal_mark = seq if synced else None
 
-    def _truncate(self) -> None:
-        """Empty the journal under its lock, recording the current active set."""
+    def _truncate(self, *, unless_current: bool = False) -> bool:
+        """Empty the journal under its lock, recording the current active set; with
+        ``unless_current`` a journal already written under that set is kept.
+        Returns whether the journal was emptied."""
         assert self._journal is not None
         with self._journal.locked():
             document, _text = self._journal.read()
+            if (
+                unless_current
+                and _seq(document) is not None
+                and document.get("active_set_sha256") == self._active_sha
+            ):
+                return False
             seq = (_seq(document) or 0) + 1
             self._journal.write({"active_set_sha256": self._active_sha, "seq": seq, "writes": []})
         self._journal_mark = seq
+        return True
 
     async def reset(self) -> None:
         """Return the simulator to its start state and empty the journal.
