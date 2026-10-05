@@ -952,15 +952,6 @@ class TestPromotedFactsOnTheMiscDeployPath:
 
         assert_promoted(default_altitude, printed, "Compose files not rendered")
 
-    def test_the_one_env_write_outside_build_is_reported(self, default_altitude, printed, tmp_path):
-        """The build's only write into the operator's own file, named."""
-        _repo_with_a_channel_manifest(tmp_path)
-
-        build_cmd._wire_build_derived_env(tmp_path, tmp_path / "build")
-
-        assert (tmp_path / ".env").is_file()
-        assert_promoted(default_altitude, printed, "at the generated channel manifest")
-
 
 class TestSubStepRowsOnTheMiscDeployPath:
     """Rows 22, 36 and 37: a ``  · name`` line under the open phase."""
@@ -1321,15 +1312,6 @@ def _offer_the_env_seed(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> Non
     monkeypatch.setenv(secret_var, "sk-from-the-shell")
     monkeypatch.setattr(deploy_cmd, "_stdin_is_a_terminal", lambda: True)
     monkeypatch.setattr(deploy_cmd.click, "confirm", lambda *a, **k: answer)
-
-
-def _repo_with_a_channel_manifest(repo: Path) -> None:
-    """A repo whose build produced the manifest the ``.env`` pointer names."""
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-
-    simulation = repo / "build" / "data" / "simulation"
-    simulation.mkdir(parents=True)
-    (simulation / MANIFEST_FILENAME).write_text('{"channels": []}', encoding="utf-8")
 
 
 def _stub_a_successful_wheel_build(monkeypatch: pytest.MonkeyPatch) -> None:

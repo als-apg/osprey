@@ -9,9 +9,7 @@ here is pure filesystem work -- no container, no EPICS.
 The partial tree matters as much as the whole one: a project's namespace is
 whatever paradigm databases it staged, and a manifest is built from that
 subset. There is no fallback left to take -- a tree that names no channels at
-all backs no manifest, and a build deploying a virtual accelerator on it
-refuses (``tests/cli/test_build_va_manifest_honesty.py``) rather than letting
-the container serve the framework's bundled tutorial namespace.
+all backs no manifest.
 """
 
 from __future__ import annotations
