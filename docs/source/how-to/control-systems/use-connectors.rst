@@ -36,13 +36,19 @@ refuses an address outside the facility file:
    channel_value = await connector.read_channel('SR:BEAM:CURRENT')
    print(f"Value: {channel_value.value} {channel_value.metadata.units}")
 
-   # A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer
-   # state index, with the state names alongside it:
-   mode = await connector.read_channel('SR:DIAG:MODE')
-   print(f"{mode.value} means {mode.metadata.enum_label}")   # e.g. 2 means ACQUIRING
-   print(mode.metadata.enum_labels)  # ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
-
    await connector.disconnect()
+
+A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
+index, with the state names alongside it in the metadata: ``value`` is the
+index, ``metadata.enum_label`` the name of that state and
+``metadata.enum_labels`` every state name in order. A read of a four-state
+channel in its third state gives:
+
+.. code-block:: text
+
+   value                = 2
+   metadata.enum_label  = 'ACQUIRING'
+   metadata.enum_labels = ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
 
 Everything below is configuration only — which machine sits behind that API.
 
