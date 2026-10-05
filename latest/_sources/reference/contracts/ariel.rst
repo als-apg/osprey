@@ -188,6 +188,69 @@ Each module is turned off with its own key:
 ``ariel.attachments.view.enabled: false`` for the view tool.
 
 
+Entry fields
+------------
+
+A facility adapter may declare extra fields an author fills in when an entry
+is written (see the Entry Fields section of
+:doc:`/how-to/ariel/data-ingestion`). ``capabilities`` lists them under
+``entry_fields``, in form order, and ``entry_create`` and ``entry_publish``
+take their values as a ``fields`` object keyed by field name.
+
+``capabilities.entry_fields`` is a list with one item per declared field:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Field
+     - Meaning
+   * - ``name``
+     - The key the value is passed under in ``fields`` and stored under in
+       the entry's ``metadata``
+   * - ``label``, ``description``, ``section``
+     - How the field is shown and grouped in the entry form
+   * - ``type``
+     - ``text``, ``int``, ``float``, ``bool``, ``date``, ``select`` or
+       ``dynamic_select``
+   * - ``default``
+     - The form's pre-filled value; never applied to a value left out
+   * - ``options``
+     - The allowed ``{value, label}`` choices of a ``select``
+   * - ``min``, ``max``, ``step``, ``placeholder``
+     - Present when declared
+   * - ``required``
+     - Present (``true``) when the field must be filled before the entry is
+       written to the logbook
+   * - ``depends_on``
+     - Present when non-empty: the static fields whose values decide a
+       ``dynamic_select``'s choices
+
+The list is empty when no ingestion adapter is configured or the adapter
+declares no fields. When the declarations are broken, ``entry_fields`` is
+empty and ``entry_fields_error`` says what is wrong; the rest of
+``capabilities`` still answers.
+
+``entry_create`` checks ``fields`` against the declarations before anything is
+written. A draft (the default) may leave ``required`` fields out; a direct
+create may not. Its check covers each value's type, length, range and
+``select`` options, but does not ask the adapter for a ``dynamic_select``'s
+current choices. A draft stores the coerced values under ``fields`` in the
+draft JSON. ``entry_publish`` merges its ``fields`` over the values stored on
+the entry and checks the result in full, including the adapter's current
+``dynamic_select`` choices; a ``logbook`` argument wins over a stored or
+passed ``logbook`` field. Both tools refuse a name that is not declared.
+
+A refused value is a ``validation_error`` whose ``details.field`` names the
+field; for a ``select`` the details also carry ``allowed``, the first 50
+allowed values. When the adapter cannot list a ``dynamic_select``'s choices,
+``entry_publish`` returns ``internal_error`` with ``details.field``. Broken
+declarations are an ``internal_error`` from either tool.
+
+The checks cover shape only. Whether a value is right for the facility is
+decided by the adapter and the logbook.
+
+
 Search Result Structure
 =======================
 
@@ -310,8 +373,13 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - Update the ARIEL configuration block
             * - GET
               - ``/api/publish-info``
-              - Describe the configured logbook's write capability (the create
-                form adapts its credential prompt to it)
+              - Describe the configured logbook's write capability and its
+                declared entry fields (the create form adapts its credential
+                prompt and its field sections to it)
+            * - GET
+              - ``/api/entry-fields/{name}/options``
+              - List the current choices of a declared ``dynamic_select``
+                entry field
             * - POST
               - ``/api/drafts``
               - Create a draft entry (pre-fill data for the web form)
@@ -321,6 +389,50 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - GET
               - ``/api/drafts/{draft_id}/attachments/{filename}``
               - Download a draft's attachment
+
+         **Entry fields.** ``GET /api/publish-info`` returns
+         ``{supports_write, requires_auth, source_system, entry_fields}``.
+         ``entry_fields`` is always a list, empty when no adapter is configured
+         or none is declared; its items carry the same keys as the
+         ``capabilities.entry_fields`` items of the MCP server, and a
+         ``dynamic_select`` item also carries ``options_endpoint``
+         (``/entry-fields/{name}/options``, relative to the ``/api`` prefix).
+         ``GET /api/entry-fields/{name}/options`` returns
+         ``{"field": name, "options": [{"value": ..., "label": ...}]}``. It reads
+         only the field's ``depends_on`` values from the query string, each
+         checked against its own declaration, and is 404 unless ``name`` is a
+         declared ``dynamic_select``. ``POST /api/entries`` and
+         ``POST /api/entries/upload`` check the declared values in full,
+         including the adapter's current ``dynamic_select`` choices, before
+         anything is written; the adapter receives the declared values only,
+         and undeclared metadata stays in ARIEL's copy of the entry. A draft
+         read from ``GET /api/drafts/{draft_id}`` carries the values an agent
+         stored as ``fields``; ``POST /api/drafts`` does not accept them.
+
+         An entry-field failure on any of these endpoints returns one of three
+         envelopes:
+
+         .. code-block:: json
+
+            {"detail": "...", "code": "invalid_entry_field", "field": "book"}
+
+         is 422: a submitted value (or an options query's parent value) is
+         invalid and the author can correct it.
+
+         .. code-block:: json
+
+            {"detail": "...", "code": "entry_field_options_unavailable", "field": "scan"}
+
+         is 502: the adapter failed or took longer than 10 seconds to list a
+         ``dynamic_select``'s choices. The detail is a generic message, not the
+         adapter's error text.
+
+         .. code-block:: json
+
+            {"detail": "...", "code": "entry_fields_misdeclared"}
+
+         is 500: the adapter declares its fields wrongly, and only a change to
+         the adapter fixes it.
 
          ``GET /health`` at the root level is the one route the sign-in gate leaves open. It
          reports ``status`` (``healthy`` or ``degraded``), a fixed ``message``, ``config_status``,
@@ -489,6 +601,11 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``entries.js``, ``entries-detail.js``, ``entries-form.js``, ``entries-helpers.js``
               - Browse view with pagination, entry detail view, and the new
                 entry form (split across the four modules)
+            * - ``entry-fields.js``
+              - The new entry form's facility-declared field sections: renders
+                them from ``/api/publish-info``, refetches a ``dynamic_select``'s
+                choices when a field it depends on changes, and marks the input
+                a 422 response names
             * - ``dashboard.js``
               - Status dashboard rendering and periodic health refresh
             * - ``components.js``

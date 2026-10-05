@@ -171,6 +171,18 @@ your build profile, not an ARIEL extension. Pinning test:
 ``tests/registry/test_ariel_module_registrations.py``; deployer view:
 :doc:`/how-to/ariel/data-ingestion`.
 
+A facility adapter may also declare the fields an author fills in when writing
+an entry, through two optional hooks on the same class:
+``get_entry_field_descriptors`` returns ``ParameterDescriptor`` declarations
+and ``get_entry_field_options`` lists a ``dynamic_select`` field's choices.
+Both default to declaring nothing, which keeps the built-in entry form. The
+declaration checks, the value coercion and the reserved names
+(``osprey.services.ariel_search.entry_fields.RESERVED_FIELD_NAMES``) live in
+``osprey.services.ariel_search.entry_fields``. Pinning tests:
+``tests/services/ariel_search/test_entry_fields.py`` and
+``tests/integration/test_ariel_entry_fields_roundtrip.py``; author view: the
+Entry Fields section of :doc:`/how-to/ariel/data-ingestion`.
+
 .. _extending-health-plugin:
 
 Health plugin

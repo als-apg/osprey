@@ -592,6 +592,17 @@ then named from <code class="docutils literal notranslate"><span class="pre">con
 your build profile, not an ARIEL extension. Pinning test:
 <code class="docutils literal notranslate"><span class="pre">tests/registry/test_ariel_module_registrations.py</span></code>; deployer view:
 <a class="reference internal" href="../how-to/ariel/data-ingestion.html"><span class="doc">Data Ingestion</span></a>.</p>
+<p>A facility adapter may also declare the fields an author fills in when writing
+an entry, through two optional hooks on the same class:
+<code class="docutils literal notranslate"><span class="pre">get_entry_field_descriptors</span></code> returns <code class="docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> declarations
+and <code class="docutils literal notranslate"><span class="pre">get_entry_field_options</span></code> lists a <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code> field’s choices.
+Both default to declaring nothing, which keeps the built-in entry form. The
+declaration checks, the value coercion and the reserved names
+(<code class="docutils literal notranslate"><span class="pre">osprey.services.ariel_search.entry_fields.RESERVED_FIELD_NAMES</span></code>) live in
+<code class="docutils literal notranslate"><span class="pre">osprey.services.ariel_search.entry_fields</span></code>. Pinning tests:
+<code class="docutils literal notranslate"><span class="pre">tests/services/ariel_search/test_entry_fields.py</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tests/integration/test_ariel_entry_fields_roundtrip.py</span></code>; author view: the
+Entry Fields section of <a class="reference internal" href="../how-to/ariel/data-ingestion.html"><span class="doc">Data Ingestion</span></a>.</p>
 </section>
 <section id="health-plugin">
 <span id="extending-health-plugin"></span><h2>Health plugin<a class="headerlink" href="#health-plugin" title="Link to this heading">#</a></h2>

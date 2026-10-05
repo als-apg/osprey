@@ -130,6 +130,55 @@ stored as rows in the same Postgres the logbook lives in, so this number is a
 storage decision in both directions --- raise it for a facility that attaches
 raw traces, lower it to keep the database small.
 
+Entry Fields
+~~~~~~~~~~~~
+
+A logbook that files entries by book, shift day or run can ask the author for those values when an entry is written. The adapter declares the fields with two optional hooks: ``get_entry_field_descriptors()`` returns one ``ParameterDescriptor`` per field, in form order, and ``get_entry_field_options(name, values)`` lists the choices of a ``dynamic_select`` field. The create form shows the declared fields as sections after its Metadata section, and every write path --- the web form, the agent's ``entry_create`` and ``entry_publish`` tools --- checks the submitted values against the same declarations.
+
+.. code-block:: python
+
+   from osprey.services.ariel_search.search.base import ParameterDescriptor
+
+   class MyLogbookAdapter(FacilityAdapter):
+       def get_entry_field_descriptors(self):
+           return [
+               ParameterDescriptor(
+                   name="book", label="Book", description="Which book the entry is filed in",
+                   param_type="select", default="ops", section="Entry", required=True,
+                   options=[{"value": "ops", "label": "Operations"},
+                            {"value": "physics", "label": "Physics"}],
+               ),
+               ParameterDescriptor(
+                   name="day", label="Day", description="The shift day the entry is about",
+                   param_type="date", default=None, section="Entry",
+               ),
+               ParameterDescriptor(
+                   name="scan", label="Scan", description="The scan taken on that day",
+                   param_type="dynamic_select", default=None, section="Entry",
+                   depends_on=("day",),
+               ),
+           ]
+
+       async def get_entry_field_options(self, name, values):
+           if name != "scan":
+               return []
+           scans = await self._scans_on(values.get("day"))   # your logbook's lookup
+           return [{"value": s.id, "label": s.title} for s in scans]
+
+**Declarations.** A field's type is one of ``text``, ``int``, ``float``, ``bool``, ``date``, ``select`` or ``dynamic_select``. A ``select`` carries its ``options``; a ``dynamic_select`` gets its choices from ``get_entry_field_options``, which receives only the values of the fields it ``depends_on``, already coerced to their types. ``depends_on`` names static fields only, never another ``dynamic_select``. The adapter looks the choices up with its own service-side credentials, never the author's, and a lookup that fails or takes longer than 10 seconds is reported as "options unavailable" without passing on the adapter's error text. The declarations are checked before anything renders or writes: a duplicate name, an unknown type, a ``select`` without options, a ``depends_on`` that names an undeclared or dynamic field, or a reserved name stops the form and the write paths with one error naming the adapter and the field.
+
+**Reserved names.** ``tags``, ``sync_status``, ``created_via``, ``session_metadata`` and ``title`` belong to ARIEL and cannot be declared.
+
+**Values.** Each submitted value is coerced to its declared type before it is stored: ``int``, ``float`` and ``bool`` become JSON numbers and booleans (``bool`` also reads ``true``/``1``/``yes``/``on`` and ``false``/``0``/``no``/``off``), ``date`` becomes ``YYYY-MM-DD`` (a date-time is refused), and the other types stay strings. Surrounding whitespace is stripped and an empty value counts as not given. A string longer than 200 characters, a number outside ``min_value``/``max_value``, and a ``select`` value that is not one of its options are refused, naming the field. The web form and ``entry_publish`` also ask the adapter for the current choices and refuse a ``dynamic_select`` value it does not list; ``entry_create`` checks such a value's type only. A missing ``required`` field is refused on a direct write and allowed on a draft. A declared ``default`` only pre-fills the form; it never fills a value the author left out.
+
+**Where values land.** A declared field's ``name`` is the key its value is stored under in the entry's ``metadata``. The adapter's ``create_entry`` receives the declared values only, in ``request.metadata``; metadata keys nobody declared stay in ARIEL's own copy of the entry and are not forwarded.
+
+**Logbook and shift.** A field named ``logbook`` or ``shift`` replaces the form's built-in input of that name, and its value fills the request field of the same name, so the adapter can restrict either one to its own choices. Supplying both the built-in value and a declared one with different values is refused.
+
+**Declaring nothing.** The hooks default to no fields and no options. An adapter that overrides neither keeps the built-in entry form, and its ``create_entry`` receives the same request it would without this feature: ``/api/publish-info`` reports an empty ``entry_fields`` list and ``request.metadata`` is empty.
+
+The checks are about shape: type, options, required, range, and the choices the adapter lists. Whether a value makes sense for the facility is the adapter's and the logbook's business. The HTTP endpoints, error codes and tool arguments are in :doc:`/reference/contracts/ariel`.
+
 
 .. _`Enhancement Pipeline`:
 

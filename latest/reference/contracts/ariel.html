@@ -695,6 +695,77 @@ text without captions.</p>
 <code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.image_embedding.enabled:</span> <span class="pre">false</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">ariel.attachments.view.enabled:</span> <span class="pre">false</span></code> for the view tool.</p>
 </section>
+<section id="entry-fields">
+<h3>Entry fields<a class="headerlink" href="#entry-fields" title="Link to this heading">#</a></h3>
+<p>A facility adapter may declare extra fields an author fills in when an entry
+is written (see the Entry Fields section of
+<a class="reference internal" href="../../how-to/ariel/data-ingestion.html"><span class="doc">Data Ingestion</span></a>). <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> lists them under
+<code class="docutils literal notranslate"><span class="pre">entry_fields</span></code>, in form order, and <code class="docutils literal notranslate"><span class="pre">entry_create</span></code> and <code class="docutils literal notranslate"><span class="pre">entry_publish</span></code>
+take their values as a <code class="docutils literal notranslate"><span class="pre">fields</span></code> object keyed by field name.</p>
+<p><code class="docutils literal notranslate"><span class="pre">capabilities.entry_fields</span></code> is a list with one item per declared field:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>The key the value is passed under in <code class="docutils literal notranslate"><span class="pre">fields</span></code> and stored under in
+the entry’s <code class="docutils literal notranslate"><span class="pre">metadata</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">label</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">section</span></code></p></td>
+<td><p>How the field is shown and grouped in the entry form</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">float</span></code>, <code class="docutils literal notranslate"><span class="pre">bool</span></code>, <code class="docutils literal notranslate"><span class="pre">date</span></code>, <code class="docutils literal notranslate"><span class="pre">select</span></code> or
+<code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">default</span></code></p></td>
+<td><p>The form’s pre-filled value; never applied to a value left out</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">options</span></code></p></td>
+<td><p>The allowed <code class="docutils literal notranslate"><span class="pre">{value,</span> <span class="pre">label}</span></code> choices of a <code class="docutils literal notranslate"><span class="pre">select</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">step</span></code>, <code class="docutils literal notranslate"><span class="pre">placeholder</span></code></p></td>
+<td><p>Present when declared</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">required</span></code></p></td>
+<td><p>Present (<code class="docutils literal notranslate"><span class="pre">true</span></code>) when the field must be filled before the entry is
+written to the logbook</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">depends_on</span></code></p></td>
+<td><p>Present when non-empty: the static fields whose values decide a
+<code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>’s choices</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The list is empty when no ingestion adapter is configured or the adapter
+declares no fields. When the declarations are broken, <code class="docutils literal notranslate"><span class="pre">entry_fields</span></code> is
+empty and <code class="docutils literal notranslate"><span class="pre">entry_fields_error</span></code> says what is wrong; the rest of
+<code class="docutils literal notranslate"><span class="pre">capabilities</span></code> still answers.</p>
+<p><code class="docutils literal notranslate"><span class="pre">entry_create</span></code> checks <code class="docutils literal notranslate"><span class="pre">fields</span></code> against the declarations before anything is
+written. A draft (the default) may leave <code class="docutils literal notranslate"><span class="pre">required</span></code> fields out; a direct
+create may not. Its check covers each value’s type, length, range and
+<code class="docutils literal notranslate"><span class="pre">select</span></code> options, but does not ask the adapter for a <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>’s
+current choices. A draft stores the coerced values under <code class="docutils literal notranslate"><span class="pre">fields</span></code> in the
+draft JSON. <code class="docutils literal notranslate"><span class="pre">entry_publish</span></code> merges its <code class="docutils literal notranslate"><span class="pre">fields</span></code> over the values stored on
+the entry and checks the result in full, including the adapter’s current
+<code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code> choices; a <code class="docutils literal notranslate"><span class="pre">logbook</span></code> argument wins over a stored or
+passed <code class="docutils literal notranslate"><span class="pre">logbook</span></code> field. Both tools refuse a name that is not declared.</p>
+<p>A refused value is a <code class="docutils literal notranslate"><span class="pre">validation_error</span></code> whose <code class="docutils literal notranslate"><span class="pre">details.field</span></code> names the
+field; for a <code class="docutils literal notranslate"><span class="pre">select</span></code> the details also carry <code class="docutils literal notranslate"><span class="pre">allowed</span></code>, the first 50
+allowed values. When the adapter cannot list a <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>’s choices,
+<code class="docutils literal notranslate"><span class="pre">entry_publish</span></code> returns <code class="docutils literal notranslate"><span class="pre">internal_error</span></code> with <code class="docutils literal notranslate"><span class="pre">details.field</span></code>. Broken
+declarations are an <code class="docutils literal notranslate"><span class="pre">internal_error</span></code> from either tool.</p>
+<p>The checks cover shape only. Whether a value is right for the facility is
+decided by the adapter and the logbook.</p>
+</section>
 </section>
 <section id="search-result-structure">
 <h2>Search Result Structure<a class="headerlink" href="#search-result-structure" title="Link to this heading">#</a></h2>
@@ -840,24 +911,66 @@ REST API</label><div class="sd-tab-content docutils">
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/publish-info</span></code></p></td>
-<td><p class="sd-card-text">Describe the configured logbook’s write capability (the create
-form adapts its credential prompt to it)</p></td>
+<td><p class="sd-card-text">Describe the configured logbook’s write capability and its
+declared entry fields (the create form adapts its credential
+prompt and its field sections to it)</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text">POST</p></td>
+<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/entry-fields/{name}/options</span></code></p></td>
+<td><p class="sd-card-text">List the current choices of a declared <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>
+entry field</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">POST</p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts</span></code></p></td>
 <td><p class="sd-card-text">Create a draft entry (pre-fill data for the web form)</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts/{draft_id}</span></code></p></td>
 <td><p class="sd-card-text">Read a draft entry</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text">GET</p></td>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/drafts/{draft_id}/attachments/{filename}</span></code></p></td>
 <td><p class="sd-card-text">Download a draft’s attachment</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p class="sd-card-text"><strong>Entry fields.</strong> <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/publish-info</span></code> returns
+<code class="docutils literal notranslate"><span class="pre">{supports_write,</span> <span class="pre">requires_auth,</span> <span class="pre">source_system,</span> <span class="pre">entry_fields}</span></code>.
+<code class="docutils literal notranslate"><span class="pre">entry_fields</span></code> is always a list, empty when no adapter is configured
+or none is declared; its items carry the same keys as the
+<code class="docutils literal notranslate"><span class="pre">capabilities.entry_fields</span></code> items of the MCP server, and a
+<code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code> item also carries <code class="docutils literal notranslate"><span class="pre">options_endpoint</span></code>
+(<code class="docutils literal notranslate"><span class="pre">/entry-fields/{name}/options</span></code>, relative to the <code class="docutils literal notranslate"><span class="pre">/api</span></code> prefix).
+<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/entry-fields/{name}/options</span></code> returns
+<code class="docutils literal notranslate"><span class="pre">{&quot;field&quot;:</span> <span class="pre">name,</span> <span class="pre">&quot;options&quot;:</span> <span class="pre">[{&quot;value&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;label&quot;:</span> <span class="pre">...}]}</span></code>. It reads
+only the field’s <code class="docutils literal notranslate"><span class="pre">depends_on</span></code> values from the query string, each
+checked against its own declaration, and is 404 unless <code class="docutils literal notranslate"><span class="pre">name</span></code> is a
+declared <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>. <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/entries</span></code> and
+<code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/entries/upload</span></code> check the declared values in full,
+including the adapter’s current <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code> choices, before
+anything is written; the adapter receives the declared values only,
+and undeclared metadata stays in ARIEL’s copy of the entry. A draft
+read from <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/drafts/{draft_id}</span></code> carries the values an agent
+stored as <code class="docutils literal notranslate"><span class="pre">fields</span></code>; <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/drafts</span></code> does not accept them.</p>
+<p class="sd-card-text">An entry-field failure on any of these endpoints returns one of three
+envelopes:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;invalid_entry_field&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;book&quot;</span><span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text">is 422: a submitted value (or an options query’s parent value) is
+invalid and the author can correct it.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;entry_field_options_unavailable&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scan&quot;</span><span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text">is 502: the adapter failed or took longer than 10 seconds to list a
+<code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>’s choices. The detail is a generic message, not the
+adapter’s error text.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;entry_fields_misdeclared&quot;</span><span class="p">}</span>
+</pre></div>
+</div>
+<p class="sd-card-text">is 500: the adapter declares its fields wrongly, and only a change to
+the adapter fixes it.</p>
 <p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/health</span></code> at the root level is the one route the sign-in gate leaves open. It
 reports <code class="docutils literal notranslate"><span class="pre">status</span></code> (<code class="docutils literal notranslate"><span class="pre">healthy</span></code> or <code class="docutils literal notranslate"><span class="pre">degraded</span></code>), a fixed <code class="docutils literal notranslate"><span class="pre">message</span></code>, <code class="docutils literal notranslate"><span class="pre">config_status</span></code>,
 and a <code class="docutils literal notranslate"><span class="pre">service</span></code> object carrying <code class="docutils literal notranslate"><span class="pre">entry_count</span></code>, <code class="docutils literal notranslate"><span class="pre">last_ingestion</span></code>,
@@ -1032,16 +1145,22 @@ Frontend</label><div class="sd-tab-content docutils">
 <td><p class="sd-card-text">Browse view with pagination, entry detail view, and the new
 entry form (split across the four modules)</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">dashboard.js</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">entry-fields.js</span></code></p></td>
+<td><p class="sd-card-text">The new entry form’s facility-declared field sections: renders
+them from <code class="docutils literal notranslate"><span class="pre">/api/publish-info</span></code>, refetches a <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code>’s
+choices when a field it depends on changes, and marks the input
+a 422 response names</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">dashboard.js</span></code></p></td>
 <td><p class="sd-card-text">Status dashboard rendering and periodic health refresh</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.js</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.js</span></code></p></td>
 <td><p class="sd-card-text">Shared UI components (entry cards, loading states, error messages)</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">utils.js</span></code></p></td>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">utils.js</span></code></p></td>
 <td><p class="sd-card-text">Small shared helpers</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.js</span></code></p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.js</span></code></p></td>
 <td><p class="sd-card-text">Settings UI: read/write ARIEL config block via <code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
 </tr>
 </tbody>
@@ -1291,6 +1410,7 @@ defined per page — they come from the shared design system’s
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-mcp-tools">ARIEL MCP Tools</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#attachment-summaries">Attachment summaries</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#captions-and-picture-search-availability">Captions and picture search availability</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#entry-fields">Entry fields</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-result-structure">Search Result Structure</a></li>
