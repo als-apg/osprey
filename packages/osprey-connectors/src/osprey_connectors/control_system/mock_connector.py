@@ -29,7 +29,8 @@ scenario set first, then the journal: when ``seq`` moved, the composite is
 reset and the journal applied as one write, provided every entry is a setpoint
 of the view, writable, inside its band, and was written under the current
 active set; otherwise nothing from it is applied and one line
-``writes journal rejected: <address>: <reason>`` is logged. A reset or a
+``writes journal rejected: <address>: <reason>`` is logged, and a
+``journal-rejected`` record is appended to every physics model's log. A reset or a
 change of the active set empties the journal. The journal is the mock's alone:
 no hardware path reads it.
 
@@ -73,6 +74,7 @@ __all__ = [
     "JOURNAL_FILE",
     "JOURNAL_NOT_UPDATED",
     "JOURNAL_REJECTED",
+    "JOURNAL_REJECTED_EVENT",
     "NO_VIEW_MESSAGE",
     "SIMULATOR_VIEW_SETTING",
     "MockConnector",
@@ -110,6 +112,9 @@ _JOURNAL_LOCK = f"{JOURNAL_FILE}.lock"
 
 #: The line a journal that is not replayed logs, before ``<address>: <reason>``.
 JOURNAL_REJECTED = "writes journal rejected"
+
+#: The event a journal that is not replayed appends to every physics model's log.
+JOURNAL_REJECTED_EVENT = "journal-rejected"
 
 #: The line a write the journal could not record logs, before the error.
 JOURNAL_NOT_UPDATED = "writes journal not updated"
@@ -400,14 +405,14 @@ class MockConnector(ControlSystemConnector):
             self._holds_writes = False
         if document is None:
             if text:
-                logger.warning(f"{JOURNAL_REJECTED}: {JOURNAL_FILE}: not a journal")
+                self._reject(JOURNAL_FILE, "not a journal")
             return
         writes = document["writes"]
         if not writes:
             return
         rejection = self._rejection(document)
         if rejection is not None:
-            logger.warning(f"{JOURNAL_REJECTED}: {rejection[0]}: {rejection[1]}")
+            self._reject(*rejection)
             return
         replayed: dict[str, Any] = {}
         for _seq_no, address, value in sorted(writes, key=lambda entry: entry[0]):
@@ -416,9 +421,15 @@ class MockConnector(ControlSystemConnector):
             self._composite.set(replayed)
         except Exception as exc:
             self._composite.reset()
-            logger.warning(f"{JOURNAL_REJECTED}: {next(iter(replayed))}: {exc}")
+            self._reject(next(iter(replayed)), str(exc))
             return
         self._holds_writes = True
+
+    def _reject(self, address: str, reason: str) -> None:
+        """Log a journal that is not replayed, in the process log and every physics model's."""
+        logger.warning(f"{JOURNAL_REJECTED}: {address}: {reason}")
+        if self._composite is not None:
+            self._composite.log_event(JOURNAL_REJECTED_EVENT, address=address, reason=reason)
 
     def _rejection(self, document: Mapping[str, Any]) -> tuple[str, str] | None:
         """The first address and reason that keep a journal from being replayed."""

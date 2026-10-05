@@ -927,6 +927,18 @@ class Composite(LUMEModel):
 
     # -- the model log -------------------------------------------------------
 
+    def log_event(self, event: str, **fields: Any) -> None:
+        """Append one event record to every physics model's log.
+
+        A view with no physics model logs nothing here.
+
+        Args:
+            event: The record's ``event``.
+            **fields: Further fields of the record.
+        """
+        for name in self._children:
+            self._log(name, {**fields, "event": event})
+
     def _log(self, model: str, record: Mapping[str, Any]) -> None:
         """Append one record to ``model``'s log, and hand it to the process logger."""
         entry = {"instance": self._instance, "pid": os.getpid(), "model": model, **record}
