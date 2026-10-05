@@ -86,6 +86,12 @@ which are otherwise seeded from different places: Channel Access from the
 manifest's PV specs, each PVA channel from the model variable it was built
 from. So no channel this module serves moves on one transport and not on
 the other -- not a setpoint, not its echo, and not a reading.
+
+:class:`ModelRunner` serves a composite instead: every channel the composite
+declares is one of its variables, so the base class serves them all on both
+transports from one configuration, and the model RPC is answered over the
+composite's simulator view
+(:meth:`~osprey.services.virtual_accelerator.serving.model_surface.ModelSurface.for_view`).
 """
 
 from __future__ import annotations
@@ -117,6 +123,10 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (
 from osprey.services.virtual_accelerator.serving.model_surface import (
     ModelSurface,
     partition_variables,
+)
+from osprey.services.virtual_accelerator.serving.runner_config import (
+    apply_safety,
+    chromaticity_addresses,
 )
 from osprey.services.virtual_accelerator.serving.write_path import (
     RUNNER_CONFIG_POLICY,
@@ -704,9 +714,179 @@ class CohostRunner(Runner):
         """
 
 
+class ModelRunner(Runner):
+    """Serves a composite's channels on both transports, and its model RPC on PVA.
+
+    The configuration is ``Runner.generate_config`` over the composite with
+    the view's write safety applied
+    (:func:`~osprey.services.virtual_accelerator.serving.runner_config.apply_safety`).
+    A write pass reads back every served channel except those wired to the
+    chromaticity output, which the next periodic pass publishes; a pass with
+    no input values reads them all. A failed pass rolls the composite back to
+    the state cached before it only when ``model.set`` had already succeeded:
+    a refused ``set`` leaves the composite as it was. The model RPC's write
+    verbs reply only after a publishing pass has run.
+    """
+
+    def __init__(
+        self,
+        composite: LUMEModel,
+        view: Mapping[str, Any],
+        addresses_json: Mapping[str, Any],
+        *,
+        model_write_token: str | None,
+        tick_interval_s: float | None = None,
+    ) -> None:
+        """Serve ``composite``, built from the simulator view ``view`` describes.
+
+        Args:
+            composite: the composite over the view.
+            view: the view's ``variables.json`` document.
+            addresses_json: the view's ``addresses.json`` document.
+            model_write_token: the secret a model RPC write must present, or
+                ``None`` to refuse every model write. Never logged.
+            tick_interval_s: the period of the runner's own passes, or
+                ``None`` for none.
+        """
+        self._addresses_json = addresses_json
+        self._model_write_token = model_write_token
+        self._chromaticity = chromaticity_addresses(view)
+        self._write_pass = False
+        self._set_landed = False
+        config = apply_safety(Runner.generate_config(composite, prefix=""), view)
+        if tick_interval_s is not None:
+            config["tick_interval_s"] = tick_interval_s
+        super().__init__(model=composite, config=config)
+
+    def _run_cycle(self, item: dict[str, Any]) -> None:
+        """Note whether this pass carries input values, then run it."""
+        self._write_pass = bool(item["values"])
+        self._set_landed = False
+        super()._run_cycle(item)
+
+    def _cycle_output_names(self) -> list[str]:
+        """The roster read after ``model.set``; a write pass leaves the chromaticity out."""
+        self._set_landed = True
+        roster: list[str] = super()._cycle_output_names()
+        if not self._write_pass:
+            return roster
+        return [name for name in roster if name not in self._chromaticity]
+
+    def _reset_to_cached_state(self) -> None:
+        """Restore the cached state only when the pass failed after ``model.set`` succeeded."""
+        if self._set_landed:
+            super()._reset_to_cached_state()
+
+    def _create_model_info(self) -> None:
+        """Serve the model RPC channel beside the base class's model info."""
+        super()._create_model_info()
+        self._surface = ModelSurface.for_view(
+            self.model,
+            self._addresses_json,
+            instance=_instance_name(),
+            endpoint=_pva_endpoint(),
+            model_write_token=self._model_write_token,
+        )
+        channel = SharedPV(initial=REPLY_TYPE.wrap(""))
+        channel.rpc(self._rpc)
+        self.providers[f"{self.config['prefix']}{RPC_PV}"] = channel
+
+    def _rpc(self, _channel: SharedPV, op: ServerOperation) -> None:
+        """Take one model RPC call and hand the run loop the work.
+
+        A read verb is one jobs-only item that replies in its job. A write
+        verb is two items: a job that dispatches and keeps the reply, then
+        an empty item whose publishing pass runs before its completion sends
+        the kept reply -- or the pass's error. The call is answered by
+        whichever gets there first, the run loop or the timeout.
+        """
+        try:
+            request = parse_request(op.value())
+        except ModelRpcError as exc:
+            op.done(error=str(exc))
+            return
+        driver = self.ca_driver
+        if driver is None:
+            op.done(error=ERR_NOT_READY)
+            return
+
+        call = _RpcCall(op)
+        timeout = threading.Timer(RPC_TIMEOUT_S, call.complete, (error_reply(ERR_TIMEOUT),))
+        timeout.daemon = True
+        timeout.start()
+        if request.verb not in MODEL_WRITE_VERBS:
+            self._enqueue({}, jobs=[partial(self._reply_now, request, driver, call, timeout)])
+            return
+        kept: list[Value] = []
+        self._enqueue({}, jobs=[partial(self._keep_reply, request, driver, kept)])
+        self._enqueue({}, done=partial(self._send_kept, request, call, timeout, kept))
+
+    def _reply_now(
+        self, request: RpcRequest, driver: Any, call: _RpcCall, timeout: threading.Timer
+    ) -> None:
+        """Dispatch a read verb and answer the call, on the run loop's thread."""
+        call.complete(self._reply(request, driver))
+        timeout.cancel()
+
+    def _keep_reply(self, request: RpcRequest, driver: Any, kept: list[Value]) -> None:
+        """Dispatch a write verb and keep its reply for the pass after it."""
+        kept.append(self._reply(request, driver))
+
+    def _send_kept(
+        self,
+        request: RpcRequest,
+        call: _RpcCall,
+        timeout: threading.Timer,
+        kept: list[Value],
+        error: str | None,
+    ) -> None:
+        """Answer a write with its kept reply, or with the error its pass failed on."""
+        if error is not None:
+            self._surface.record_refusal(error)
+            reply = error_reply(error)
+        elif kept:
+            reply = kept[0]
+        else:
+            reply = error_reply(f"the model surface failed on {request.verb}")
+        call.complete(reply)
+        timeout.cancel()
+
+    def _reply(self, request: RpcRequest, driver: Any) -> Value:
+        """Run ``request``'s verb on the surface and return the reply; never raises."""
+        surface = self._surface
+        started = time.monotonic()
+        try:
+            surface.record_queue_depth(self.queue.qsize())
+            verb = request.verb
+            if verb == "info":
+                answer: Any = surface.info()
+            elif verb == "get":
+                answer = surface.get(request.names)
+            elif verb == "diff":
+                answer = surface.diff(driver.getParam)
+            elif verb == "status":
+                answer = surface.status()
+            elif verb == "set":
+                answer = surface.set(request.values, request.token)
+            else:
+                answer = surface.reset(request.token)
+            reply: Value = ok_reply(answer)
+        except ModelRpcError as exc:
+            reply = error_reply(str(exc))
+        except Exception as exc:  # the client is owed an answer, whatever failed
+            text = f"the model surface failed on {request.verb}: {str(exc) or type(exc).__name__}"
+            if request.verb in MODEL_WRITE_VERBS:
+                surface.record_refusal(text)
+            reply = error_reply(text)
+        finally:
+            surface.record_cycle((time.monotonic() - started) * 1000.0)
+        return reply
+
+
 __all__ = [
     "DEFAULT_PROTOCOLS",
     "REFUSAL_ALARM",
     "CohostDriver",
     "CohostRunner",
+    "ModelRunner",
 ]
