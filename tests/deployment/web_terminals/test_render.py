@@ -1782,18 +1782,19 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the four default mounts plus the persona's two
+    # Assert — bob (gui) carries the five default mounts plus the persona's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
         "bob-agent-data:/app/dls-gui/var/agent_data",
         "./var/audit/bob:/app/dls-gui/var/audit/bob",
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
+        "./var/simulator:/app/dls-gui/var/simulator",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
     # alice (default persona, no extra_mounts) keeps exactly the framework's own
-    # four mounts — the persona's list adds to them, never reorders them.
+    # five mounts — the persona's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-agent-data:/app/dls-assistant/var/agent_data",
@@ -1802,14 +1803,15 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
             "./var/agent_data/control_target/alice"
             ":/app/dls-assistant/var/agent_data/control_target/alice"
         ),
+        "./var/simulator:/app/dls-assistant/var/simulator",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A no-personas config (the no-persona default) emits exactly the four
+    """A no-personas config (the no-persona default) emits exactly the five
     framework per-user volume lines — claude-config, agent-data, this user's own
-    audit subdirectory and its own control-context record directory — and the
-    extra_mounts loop adds nothing."""
+    audit subdirectory, its own control-context record directory and the
+    simulator logs of its mock target — and the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1827,6 +1829,7 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
                 f"./var/agent_data/control_target/{user}"
                 f":/app/dls-assistant/var/agent_data/control_target/{user}"
             ),
+            "./var/simulator:/app/dls-assistant/var/simulator",
         ]
 
 

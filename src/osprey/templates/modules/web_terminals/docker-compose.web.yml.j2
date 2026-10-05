@@ -130,6 +130,17 @@
       and for the host's own exporter — the sidecar indexes the union. `""` when
       the deployment runs no qmd export, which emits no mount for anyone.
 
+    simulator_log_source: str, required (may be "")
+      The deployment's simulator model-log directory on the HOST (`var/simulator`),
+      spelled as a compose bind source, and paired with each service's
+      `<container_project_dir>/var/simulator` target, where the in-process
+      composite appends its logs. `""` when no simulated target is configured,
+      which emits no mount for anyone.
+
+    simulator_log_relpath: str, required
+      `var/simulator`, the target's spelling under each service's
+      `container_project_dir`, handed down from the workspace constant.
+
     ariel_mirror_gid: str, required (may be "")
       Group id of that host directory, for the same `group_add:` reason as
       `facility_bundle_gid` below. Like the bundle, the mirror is ALSO named
@@ -1031,6 +1042,11 @@ services:
          can see. #}
       - OSPREY_ARIEL_MIRROR_DIR={{ svc.container_mirror_dir }}
 {%- endif %}
+{%- if simulator_log_source %}
+      {#- The simulator log mount's target, for the same contract: the composite
+         appending to it runs as the DROPPED user. #}
+      - OSPREY_SIMULATOR_LOG_DIR={{ svc.container_project_dir }}/{{ simulator_log_relpath }}
+{%- endif %}
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
@@ -1526,6 +1542,14 @@ services:
       # directory in the container's writable layer that nothing indexes and
       # the next recreate discards.
       - {{ ariel_mirror_source }}:{{ svc.container_mirror_dir }}
+{%- endif %}
+{%- if simulator_log_source %}
+      # The DEPLOYMENT's simulator model logs, read-write: the in-process
+      # composite appends `<model>.log` here, beside the records the Virtual
+      # Accelerator writes, and `osprey sim status` prints these paths. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
+      - {{ simulator_log_source }}:{{ svc.container_project_dir }}/{{ simulator_log_relpath }}
 {%- endif %}
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}

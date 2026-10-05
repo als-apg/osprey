@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly six
+byte-for-byte what it rendered before this feature, with exactly seven
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -77,6 +77,10 @@ exceptions:
      every write. It is a perimeter rule that renders the same under every
      method, carries no account, role or claim, and names only the host
      ``deploy.fqdn`` already sets.
+  7. **the simulator log emitter and bind** — ``OSPREY_SIMULATOR_LOG_DIR`` and
+     the ``./var/simulator`` bind on every per-user container whenever a
+     simulated target is configured. The composite running in the terminal
+     appends its model logs there; nothing about it depends on a login.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -449,6 +453,13 @@ _ALLOWED_COMPOSE_LINES = Counter(
         "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/bob": 1,
         "      - ./var/agent_data/control_target/alice:/app/dls-assistant/var/agent_data/control_target/alice": 1,
         "      - ./var/agent_data/control_target/bob:/app/dls-assistant/var/agent_data/control_target/bob": 1,
+        # The simulator's model logs — the SEVENTH exception to SC6. The
+        # reference roster's deployment runs the mock, so every terminal runs
+        # the composite in process and appends its model logs to the one host
+        # directory `osprey sim status` names. Like the audit pair it carries
+        # no account, role or claim. Count 2 = alice + bob.
+        "      - OSPREY_SIMULATOR_LOG_DIR=/app/dls-assistant/var/simulator": 2,
+        "      - ./var/simulator:/app/dls-assistant/var/simulator": 2,
     }
 )
 
