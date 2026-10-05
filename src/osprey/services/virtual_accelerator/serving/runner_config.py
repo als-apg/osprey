@@ -9,6 +9,7 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
   Access, an out-of-band write is clamped into its band, and the runner claims
   no control channel of its own;
 * each setpoint's ``value_range``, the band the view's limits records give it;
+* each float channel's display ``precision``, when the view states one;
 * each variable's PV ``mode``, stated explicitly: ``rw`` only for a setpoint
   the view marks writable -- the rule the composite itself declares a
   channel settable by -- and ``ro`` for everything else, the status addresses
@@ -39,6 +40,7 @@ SAFETY_KEYS: Mapping[str, Any] = {
 }
 
 _SETPOINT = "setpoint"
+_FLOAT = "float"
 _CHROMATICITY_OUTPUT = "chromaticity"
 
 
@@ -61,8 +63,9 @@ def apply_safety(config: Mapping[str, Any], view: Mapping[str, Any]) -> dict[str
 
     Returns:
         A new configuration: ``config`` with :data:`SAFETY_KEYS` set, every
-        variable's ``mode`` stated, and each setpoint's ``value_range`` set to
-        the view's.
+        variable's ``mode`` stated, each setpoint's ``value_range`` set to
+        the view's, and each float channel's ``precision`` set where the view
+        states one.
     """
     channels = {str(channel["address"]): channel for channel in view.get("channels", [])}
     safe: dict[str, Any] = copy.deepcopy(dict(config))
@@ -72,6 +75,12 @@ def apply_safety(config: Mapping[str, Any], view: Mapping[str, Any]) -> dict[str
         entry["mode"] = "rw" if _settable(channel) else "ro"
         if channel is not None and channel.get("role") == _SETPOINT:
             entry["value_range"] = copy.deepcopy(channel.get("value_range"))
+        if (
+            channel is not None
+            and channel.get("value_type", _FLOAT) == _FLOAT
+            and channel.get("precision") is not None
+        ):
+            entry["precision"] = channel["precision"]
     return safe
 
 
