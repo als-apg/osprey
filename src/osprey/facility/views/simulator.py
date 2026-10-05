@@ -57,6 +57,7 @@ from osprey.facility import TEXTURE
 from osprey.facility.build import FacilityDocument
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
+from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -221,7 +222,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
             "address": address,
             "role": role,
             "pair": (record.get("pair") or address) if role == "setpoint" else None,
-            "value_type": record.get("value_type", "float"),
+            "value_type": record.get("value_type", DEFAULT_VALUE_TYPE),
             "unit": record.get("unit"),
             "description": record.get("description"),
             "writable": writable,
