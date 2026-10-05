@@ -317,7 +317,7 @@ classes:
         description: The dimensions of a waveform channel.
       precision:
         range: integer
-        description: The decimals a display shows; only on a float channel.
+        description: The decimals a display shows, 0 to 17; only on a float channel.
       simulation:
         range: Seed
         inlined: true
