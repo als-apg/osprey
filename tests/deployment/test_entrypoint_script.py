@@ -13,7 +13,7 @@ ownership — so the group has to be in ``/etc/group`` and ``osprey`` has to be
 in it before ``exec gosu``. The set of directories is named by the render
 (``OSPREY_AUDIT_DIR``, ``OSPREY_CONTROL_CONTEXT_DIR``,
 ``OSPREY_CONTROL_CONTEXT_TREE``, ``OSPREY_FACILITY_BUNDLE_DIR``,
-``OSPREY_ARIEL_MIRROR_DIR``)
+``OSPREY_ARIEL_MIRROR_DIR``, ``OSPREY_SIMULATOR_LOG_DIR``)
 and the gid is stat'd off the mount, never passed in. Root and system gids are refused, because a mount
 that presents one must not hand the agent's user a privileged group. The join
 grants membership and says only that. Whether a directory actually grants the
@@ -67,6 +67,9 @@ MAIN_INVOCATION = 'main "$@"'
 AUDIT_VAR = "OSPREY_AUDIT_DIR"
 BUNDLE_VAR = "OSPREY_FACILITY_BUNDLE_DIR"
 MIRROR_VAR = "OSPREY_ARIEL_MIRROR_DIR"
+#: The simulator's model logs, appended to by every container serving the
+#: simulated machine, each under its own uid.
+SIMULATOR_LOG_VAR = "OSPREY_SIMULATOR_LOG_DIR"
 #: The control-target bind this container WRITES: one owner directory, the
 #: account this service acts for.
 CONTROL_DIR_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
@@ -74,7 +77,7 @@ CONTROL_DIR_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
 #: read-only, out of which lanes and the dispatch worker resolve owners.
 CONTROL_TREE_VAR = "OSPREY_CONTROL_CONTEXT_TREE"
 RENDER_NAMED_VARS = frozenset(
-    {AUDIT_VAR, CONTROL_DIR_VAR, CONTROL_TREE_VAR, BUNDLE_VAR, MIRROR_VAR}
+    {AUDIT_VAR, CONTROL_DIR_VAR, CONTROL_TREE_VAR, BUNDLE_VAR, MIRROR_VAR, SIMULATOR_LOG_VAR}
 )
 
 #: The marker that routes the root phase's records to their own file.
@@ -272,7 +275,7 @@ class TestScriptShape:
         ), "the hand-back no longer applies its optional prune expression"
         body = _hand_back_body(text)
         assert '-path "$_hb_dir" -prune -o' in body, body
-        for var in (AUDIT_VAR, CONTROL_DIR_VAR, CONTROL_TREE_VAR):
+        for var in (AUDIT_VAR, CONTROL_DIR_VAR, CONTROL_TREE_VAR, SIMULATOR_LOG_VAR):
             assert f'"${{{var}:-}}"' in body, var
 
     def test_the_sweep_prunes_only_what_lives_under_the_state_zone(self, text: str):
@@ -288,7 +291,7 @@ class TestScriptShape:
         """A future reader deleting a prune as dead weight is the failure
         mode, so the comment names every pruned mount and the reason by name."""
         comment = "\n".join(line for line in text.splitlines() if line.lstrip().startswith("#"))
-        for var in (AUDIT_VAR, CONTROL_DIR_VAR, CONTROL_TREE_VAR):
+        for var in (AUDIT_VAR, CONTROL_DIR_VAR, CONTROL_TREE_VAR, SIMULATOR_LOG_VAR):
             assert var in comment, var
         assert "membership" in comment.lower()
         assert "ownership" in comment.lower()

@@ -31,6 +31,7 @@ from osprey.deployment.compose_generator import (
     repo_relative_mount_source,
     resolve_project_name,
     resolve_repo_root,
+    simulated_target_configured,
 )
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.deployment.qmd_service import is_loopback_bind
@@ -78,7 +79,11 @@ from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suff
 # A stdlib-only leaf of the sidecar: the throttle's defaults and its one
 # validity predicate, shared with the sidecar that builds the throttle.
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
+from osprey.utils.workspace import (
+    AUDIT_DIR_RELPATH,
+    SIMULATOR_LOG_DIR_RELPATH,
+    agent_data_base_dir,
+)
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
@@ -1608,6 +1613,16 @@ def render_web_terminals(
             repo_relative_mount_source(mirror_path) if mirror_path is not None else ""
         ),
         "ariel_mirror_gid": str(ariel_mirror_gid) if ariel_mirror_gid is not None else "",
+        # The ONE host directory every container that runs the composite appends
+        # its model logs to, mounted into each terminal whenever the deployment
+        # configures a simulated target. Empty string otherwise, so the
+        # template gates on plain truthiness.
+        "simulator_log_source": (
+            repo_relative_mount_source(SIMULATOR_LOG_DIR_RELPATH)
+            if simulated_target_configured(root)
+            else ""
+        ),
+        "simulator_log_relpath": SIMULATOR_LOG_DIR_RELPATH,
         **auth_tls_ctx,
     }
 

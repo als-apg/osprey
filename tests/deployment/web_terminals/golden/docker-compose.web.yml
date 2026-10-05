@@ -45,6 +45,7 @@ services:
       - OSPREY_AUDIT_IDENTITY=alice
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/alice
+      - OSPREY_SIMULATOR_LOG_DIR=/app/dls-assistant/var/simulator
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
       - OSPREY_TERMINAL_WEB_PORT=10100
@@ -65,6 +66,12 @@ services:
       - alice-agent-data:/app/dls-assistant/var/agent_data
       - ./var/audit/alice:/app/dls-assistant/var/audit/alice
       - ./var/agent_data/control_target/alice:/app/dls-assistant/var/agent_data/control_target/alice
+      # The DEPLOYMENT's simulator model logs, read-write: the in-process
+      # composite appends `<model>.log` here, beside the records the Virtual
+      # Accelerator writes, and `osprey sim status` prints these paths. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
+      - ./var/simulator:/app/dls-assistant/var/simulator
     healthcheck:
       # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
       # layout's `web` slot at the deployment's own base (resolve_web_port in
@@ -97,6 +104,7 @@ services:
       - OSPREY_AUDIT_IDENTITY=bob
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/bob
+      - OSPREY_SIMULATOR_LOG_DIR=/app/dls-assistant/var/simulator
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
       - OSPREY_TERMINAL_WEB_PORT=10101
@@ -117,6 +125,12 @@ services:
       - bob-agent-data:/app/dls-assistant/var/agent_data
       - ./var/audit/bob:/app/dls-assistant/var/audit/bob
       - ./var/agent_data/control_target/bob:/app/dls-assistant/var/agent_data/control_target/bob
+      # The DEPLOYMENT's simulator model logs, read-write: the in-process
+      # composite appends `<model>.log` here, beside the records the Virtual
+      # Accelerator writes, and `osprey sim status` prints these paths. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
+      - ./var/simulator:/app/dls-assistant/var/simulator
     healthcheck:
       # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
       # layout's `web` slot at the deployment's own base (resolve_web_port in
