@@ -85,9 +85,11 @@ family reads them and the names repeat, so `osprey mml emit` serves all 360 as p
 markers, same name, same place, nothing to read off them. Bind a family to one of
 those names and they come back as monitors.
 
-The LTB's seven `BPMx` and seven `BPMy` monitors drive nothing either. The export
-could sample neither, and says why in its own words, quoted in the refusals table
-below. The transfer line is served with those positions as markers too.
+The LTB's seven `BPMx` and seven `BPMy` monitors are lattice type `xTurns` and
+`yTurns`. On a transport line the export reads them for one pass, one reading per
+device, and the line's straight launch reads 0 at all seven. The import places
+them from their `AT.ATIndex` and wires the six with a channel. The seventh,
+`BPMxBR2SI`, status 0, has none and stays a placed monitor that nothing reads.
 
 ## How the export was made
 
@@ -102,7 +104,7 @@ below. The transfer line is served with those positions as markers too.
 - **Commands:** `~/mml-reexport/run_reexport.sh nsls2-sr` and
   `~/mml-reexport/run_reexport.sh nsls2-ltb`, one fresh MATLAB each, as described
   in [Re-running the export on a MATLAB host](../../../../src/osprey/templates/apps/control_assistant/data/mml/README.md#re-running-the-export-on-a-matlab-host).
-- **Date:** 2026-09-25.
+- **Date:** 2026-09-25 (StorageRing), 2026-10-04 (LTB).
 
 NSLS-II ships no physics-data file, so none of its numbers come from one. The link
 method defaulted to LabCA, which is not installed on that host, so the Middle Layer
@@ -138,7 +140,6 @@ available and compares the fresh exports with these files.
 | StorageRing | `BEND` | "Index exceeds the number of array elements. Index must not exceed 2", and the nominal at 3 GeV is NaN, so the ramp has no nominal |
 | StorageRing | `TUNE` | "The length of ValPhysics must match the number of devices" |
 | StorageRing | `SM1`, `SH3`, `SH4`, `SL1`, `SL3` | `k2amp` answered with nothing usable over the negative-strength grid, for every device |
-| LTB | `BPMx`, `BPMy` | `getpvmodel` answered with 350 values for 7 devices — a 50-turn history where one reading per device was asked for |
 
 None of these is repaired in the Middle Layer. Each is carried as what the facility
 states, and the verdict rules decide what the model does about it.
