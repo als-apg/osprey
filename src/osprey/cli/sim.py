@@ -367,8 +367,7 @@ def apply_command(
     virtual accelerator to pick up at its next container boot.
     """
     from osprey.simulation.apply import (
-        _simulator_view,
-        _view_scenarios,
+        _require_view_scenarios,
         apply_scenarios,
         compute_scenario_physics_env,
         preflight_archive_rewrite,
@@ -401,11 +400,7 @@ def apply_command(
         # serving composite applies, so the command refuses exactly the sets the
         # simulator would refuse to serve.
         try:
-            scenarios = _view_scenarios(repo_root)
-            if scenarios is None:
-                raise ValueError(
-                    f"No simulator view in {_simulator_view(repo_root)}. Run 'osprey build'."
-                )
+            scenarios = _require_view_scenarios(repo_root)
             overlaps = validate_composition(
                 {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
                 resolve_active_scenarios(names),
