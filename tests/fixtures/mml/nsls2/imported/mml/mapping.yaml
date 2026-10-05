@@ -112,6 +112,16 @@ models:
       beam position monitors and fluorescent screens.'
     provenance: stated
     wiring:
+      BPMx:
+        element_field: Monitor
+        engine:
+          axis: x
+        calibration: linear
+      BPMy:
+        element_field: Monitor
+        engine:
+          axis: y
+        calibration: linear
       HCM:
         element_field: Setpoint
         engine:

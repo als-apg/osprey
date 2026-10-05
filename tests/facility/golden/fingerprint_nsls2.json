@@ -16,7 +16,7 @@
     "channels": 4227,
     "groups": 26,
     "models": 3,
-    "wiring": 1840,
+    "wiring": 1852,
     "limits": 808,
     "decks": 2
   },
@@ -34,12 +34,12 @@
       "LTB/BEND2": "7fe1f61754932bf7",
       "LTB/BEND3": "c959d0bb989732df",
       "LTB/BEND4": "50c1083faef31148",
-      "LTB/BPMx1": "350a5275a8ce7c61",
-      "LTB/BPMx2": "a8803738258c6cd8",
-      "LTB/BPMx3": "3039ad0c47a261d1",
-      "LTB/BPMx4": "55bb1175cdcec07b",
-      "LTB/BPMx5": "fd807d66841d3a8c",
-      "LTB/BPMx6": "d1c517323417385c",
+      "LTB/BPMx1": "0d8076114a1d4a8b",
+      "LTB/BPMx2": "7b658b494196ac2b",
+      "LTB/BPMx3": "c14409a5e92c9eb5",
+      "LTB/BPMx4": "d2f7cfdef661c8bd",
+      "LTB/BPMx5": "f6892d73c5dc0a5f",
+      "LTB/BPMx6": "82ab2d43574378e7",
       "LTB/BPMxBR2SI": "e2f88e60453eb354",
       "LTB/HCOR1": "6083ba82643f132d",
       "LTB/HCOR2": "072a87b4f5d4f028",
@@ -5355,11 +5355,23 @@
       "VCM": "f8a8ca2113c2b44c"
     },
     "models": {
-      "LTB": "4ea107270c6d70ef",
+      "LTB": "392a53cca34e7644",
       "StorageRing": "33b797b4a70aafaf",
       "texture": "d806c9c72b11194d"
     },
     "wiring": {
+      "LTB/LTB-BI{BPM:1}Pos:X-I": "54a11471bd0c0e80",
+      "LTB/LTB-BI{BPM:1}Pos:Y-I": "2006a9c00e823098",
+      "LTB/LTB-BI{BPM:2}Pos:X-I": "3d9eadf39fe85751",
+      "LTB/LTB-BI{BPM:2}Pos:Y-I": "2c6755016fa3f9a0",
+      "LTB/LTB-BI{BPM:3}Pos:X-I": "6112534b0cb6128c",
+      "LTB/LTB-BI{BPM:3}Pos:Y-I": "61b430821793f707",
+      "LTB/LTB-BI{BPM:4}Pos:X-I": "5931dbe0a75864a7",
+      "LTB/LTB-BI{BPM:4}Pos:Y-I": "e5ea83bdf6f654cb",
+      "LTB/LTB-BI{BPM:5}Pos:X-I": "d23b0005efe763a6",
+      "LTB/LTB-BI{BPM:5}Pos:Y-I": "b6278a50aa77bef7",
+      "LTB/LTB-BI{BPM:6}Pos:X-I": "15e1b3a9d35f5cf0",
+      "LTB/LTB-BI{BPM:6}Pos:Y-I": "82ea87057380c00a",
       "LTB/LTB-MG{Cor:1}I:Ps1DCCT1-I": "e8760503e2457a0d",
       "LTB/LTB-MG{Cor:1}I:Ps2DCCT1-I": "0a726f47f657ea86",
       "LTB/LTB-MG{Cor:1}I:Sp1-SP": "8b70fb352fb83a8a",
@@ -8012,7 +8024,7 @@
       "SR:C30-MG{PS:SQKH1A}I:Sp1-SP": "9ec79b0b32609287"
     },
     "decks": {
-      "LTB": "95efa4a9424f1d93",
+      "LTB": "71c3e90000fdd460",
       "StorageRing": "8d6abd414ead2e14"
     }
   }

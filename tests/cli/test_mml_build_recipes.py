@@ -437,13 +437,12 @@ def expected_response_lines(tree: str) -> tuple[str, ...]:
     """The response-check lines a fixture tree's clean ``facility validate`` prints."""
     from tests.facility.test_response_check import (
         NSLS2_LINES,
-        NSLS2_LTB_LEFT_OUT,
         SPEAR3_LINE,
         SYNTHETIC_LINE,
     )
 
     return {
-        "nsls2": (NSLS2_LINES[0], NSLS2_LTB_LEFT_OUT, NSLS2_LINES[1]),
+        "nsls2": (NSLS2_LINES[0], NSLS2_LINES[1]),
         "spear3": (SPEAR3_LINE,),
         "synthetic": (SYNTHETIC_LINE,),
     }[tree]
