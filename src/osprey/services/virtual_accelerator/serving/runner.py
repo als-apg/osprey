@@ -228,6 +228,57 @@ class _RpcCall:
         return True
 
 
+def _surface_reply(
+    surface: ModelSurface, request: RpcRequest, driver: Any, queue_depth: int
+) -> Value:
+    """Run ``request``'s verb on ``surface`` and return the reply; never raises.
+
+    Called on the run loop's thread, the one place a model RPC reaches the
+    model. ``queue_depth`` is the run loop's queue as it stood, which
+    ``status`` reports. A refused write is recorded by the surface that
+    refused it -- see ``ModelSurface._refusal`` -- so only a write that
+    failed some other way is recorded here, and a refused read never is.
+    """
+    started = time.monotonic()
+    try:
+        surface.record_queue_depth(queue_depth)
+        reply: Value = ok_reply(_dispatch(request, surface, driver))
+    except ModelRpcError as exc:
+        reply = error_reply(str(exc))
+    except Exception as exc:  # the client is owed an answer, whatever failed
+        text = f"the model surface failed on {request.verb}: {str(exc) or type(exc).__name__}"
+        if request.verb in MODEL_WRITE_VERBS:
+            surface.record_refusal(text)
+        reply = error_reply(text)
+    finally:
+        surface.record_cycle((time.monotonic() - started) * 1000.0)
+    return reply
+
+
+def _dispatch(request: RpcRequest, surface: ModelSurface, driver: Any) -> Any:
+    """Run ``request``'s verb on ``surface``, and return what it answered.
+
+    Every verb the contract admits is dispatched here and nowhere else;
+    ``parse_request`` has already refused anything that is not one of them,
+    which is why the last verb needs no test of its own.
+    """
+    verb = request.verb
+    if verb == "info":
+        return surface.info()
+    if verb == "get":
+        return surface.get(request.names)
+    if verb == "diff":
+        # What the control system serves for an address, read from the
+        # driver that serves it -- the same driver whose existence was
+        # checked before the job was enqueued.
+        return surface.diff(driver.getParam)
+    if verb == "status":
+        return surface.status()
+    if verb == "set":
+        return surface.set(request.values, request.token)
+    return surface.reset(request.token)
+
+
 def _unwrap_put(value: Any) -> Any:
     """The scalar a PVA client put, out of the structure it arrived in.
 
@@ -547,58 +598,17 @@ class CohostRunner(Runner):
     ) -> None:
         """Dispatch one call's verb and answer it, on the run loop's thread.
 
-        Dispatch is the one place a model RPC reaches the model, and it is
-        reached from here alone. Every path replies: the
-        run loop logs a job that raises and moves on to the next item, so a
-        job that returned without answering would leave its client waiting
-        out its own timeout with nothing to show for it.
+        Every path replies: the run loop logs a job that raises and moves on
+        to the next item, so a job that returned without answering would
+        leave its client waiting out its own timeout with nothing to show
+        for it.
 
         The reply goes out before the timer is cancelled, and not after,
         because an answer this method cannot produce is better delivered
         late by the timer than not at all.
         """
-        surface = self._surface
-        started = time.monotonic()
-        try:
-            surface.record_queue_depth(self.queue.qsize())
-            reply = ok_reply(self._dispatch(request, surface, driver))
-        except ModelRpcError as exc:
-            # A refused write is recorded by the surface that refused it --
-            # see ``ModelSurface._refusal`` -- so it is not recorded again
-            # here, where a refused read would be recorded as a write.
-            reply = error_reply(str(exc))
-        except Exception as exc:  # the client is owed an answer, whatever failed
-            text = f"the model surface failed on {request.verb}: {str(exc) or type(exc).__name__}"
-            if request.verb in MODEL_WRITE_VERBS:
-                surface.record_refusal(text)
-            reply = error_reply(text)
-        finally:
-            surface.record_cycle((time.monotonic() - started) * 1000.0)
-            call.complete(reply)
-            timeout.cancel()
-
-    def _dispatch(self, request: RpcRequest, surface: ModelSurface, driver: CohostDriver) -> Any:
-        """Run ``request``'s verb on ``surface``, and return what it answered.
-
-        Every verb the contract admits is dispatched here and nowhere else;
-        ``parse_request`` has already refused anything that is not one of
-        them, which is why the last verb needs no test of its own.
-        """
-        verb = request.verb
-        if verb == "info":
-            return surface.info()
-        if verb == "get":
-            return surface.get(request.names)
-        if verb == "diff":
-            # What the control system serves for an address, read from the
-            # driver that serves it -- the same driver whose existence was
-            # checked before this job was enqueued.
-            return surface.diff(driver.getParam)
-        if verb == "status":
-            return surface.status()
-        if verb == "set":
-            return surface.set(request.values, request.token)
-        return surface.reset(request.token)
+        call.complete(_surface_reply(self._surface, request, driver, self.queue.qsize()))
+        timeout.cancel()
 
     def _extend_pvdb(self) -> dict[str, dict[str, Any]]:
         """Contribute the whole co-hosted database.
@@ -825,12 +835,12 @@ class ModelRunner(Runner):
         self, request: RpcRequest, driver: Any, call: _RpcCall, timeout: threading.Timer
     ) -> None:
         """Dispatch a read verb and answer the call, on the run loop's thread."""
-        call.complete(self._reply(request, driver))
+        call.complete(_surface_reply(self._surface, request, driver, self.queue.qsize()))
         timeout.cancel()
 
     def _keep_reply(self, request: RpcRequest, driver: Any, kept: list[Value]) -> None:
         """Dispatch a write verb and keep its reply for the pass after it."""
-        kept.append(self._reply(request, driver))
+        kept.append(_surface_reply(self._surface, request, driver, self.queue.qsize()))
 
     def _send_kept(
         self,
@@ -850,37 +860,6 @@ class ModelRunner(Runner):
             reply = error_reply(f"the model surface failed on {request.verb}")
         call.complete(reply)
         timeout.cancel()
-
-    def _reply(self, request: RpcRequest, driver: Any) -> Value:
-        """Run ``request``'s verb on the surface and return the reply; never raises."""
-        surface = self._surface
-        started = time.monotonic()
-        try:
-            surface.record_queue_depth(self.queue.qsize())
-            verb = request.verb
-            if verb == "info":
-                answer: Any = surface.info()
-            elif verb == "get":
-                answer = surface.get(request.names)
-            elif verb == "diff":
-                answer = surface.diff(driver.getParam)
-            elif verb == "status":
-                answer = surface.status()
-            elif verb == "set":
-                answer = surface.set(request.values, request.token)
-            else:
-                answer = surface.reset(request.token)
-            reply: Value = ok_reply(answer)
-        except ModelRpcError as exc:
-            reply = error_reply(str(exc))
-        except Exception as exc:  # the client is owed an answer, whatever failed
-            text = f"the model surface failed on {request.verb}: {str(exc) or type(exc).__name__}"
-            if request.verb in MODEL_WRITE_VERBS:
-                surface.record_refusal(text)
-            reply = error_reply(text)
-        finally:
-            surface.record_cycle((time.monotonic() - started) * 1000.0)
-        return reply
 
 
 __all__ = [

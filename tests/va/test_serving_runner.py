@@ -2383,7 +2383,7 @@ class TestRunnerShape:
 
         assert "self.model" not in rpc
         assert "self._surface" not in rpc
-        assert "self._dispatch" not in rpc
+        assert "_surface_reply(" not in rpc
         # Empty values, so the cycle carrying the job runs no model pass of
         # its own: the job is the whole of what this call costs the loop.
         assert "self._enqueue({}, jobs=[" in rpc
@@ -2441,10 +2441,10 @@ class TestRunnerShape:
         """The run loop logs a job that raises and moves on to the next item.
         So a job that returned without answering would cost its client the
         whole timeout, and tell it nothing when the timeout expired."""
-        dispatched = self._try(self._method(tree, "CohostRunner", "_answer"))
-        closing = ast.unparse(dispatched.finalbody)
+        dispatched = self._try(self._function(tree, "_surface_reply"))
+        answer = ast.unparse(self._method(tree, "CohostRunner", "_answer"))
 
-        assert "call.complete(reply)" in closing
+        assert "call.complete(_surface_reply(" in answer
         assert "ok_reply(" in ast.unparse(dispatched.body)
         assert all("error_reply(" in ast.unparse(handler) for handler in dispatched.handlers)
 
@@ -2454,18 +2454,24 @@ class TestRunnerShape:
         answers, late, with the reason."""
         closing = [
             ast.unparse(statement)
-            for statement in self._try(self._method(tree, "CohostRunner", "_answer")).finalbody
+            for statement in self._method(tree, "CohostRunner", "_answer").body
+            if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Constant)
         ]
 
-        assert closing.index("call.complete(reply)") < closing.index("timeout.cancel()")
+        assert closing == [
+            "call.complete(_surface_reply(self._surface, request, driver, self.queue.qsize()))",
+            "timeout.cancel()",
+        ]
 
     def test_the_loop_records_what_only_it_can_see(self, tree: ast.Module) -> None:
         """``status`` reports the run loop's own state, which the surface is
         told from the one thread that can read it."""
         answer = ast.unparse(self._method(tree, "CohostRunner", "_answer"))
+        reply = ast.unparse(self._function(tree, "_surface_reply"))
 
-        assert "surface.record_queue_depth(self.queue.qsize())" in answer
-        assert "surface.record_cycle(" in answer
+        assert "self.queue.qsize()" in answer
+        assert "surface.record_queue_depth(queue_depth)" in reply
+        assert "surface.record_cycle(" in reply
 
     def test_a_write_the_surface_did_not_refuse_itself_is_still_recorded(
         self, tree: ast.Module
@@ -2474,15 +2480,15 @@ class TestRunnerShape:
         some other way is a refused write too, and is the one such failure
         this handler has to record for ``status`` itself -- while a refused
         *read* is recorded by neither, being no write at all."""
-        answer = ast.unparse(self._method(tree, "CohostRunner", "_answer"))
+        reply = ast.unparse(self._function(tree, "_surface_reply"))
 
-        assert "MODEL_WRITE_VERBS" in answer
-        assert "surface.record_refusal(" in answer
+        assert "MODEL_WRITE_VERBS" in reply
+        assert "surface.record_refusal(" in reply
 
     def test_the_diff_verb_reads_what_the_control_system_serves(self, tree: ast.Module) -> None:
         """Its whole answer is the served value beside the model's truth, and
         only the driver knows the first of the two."""
-        dispatch = ast.unparse(self._method(tree, "CohostRunner", "_dispatch"))
+        dispatch = ast.unparse(self._function(tree, "_dispatch"))
 
         assert "driver.getParam" in dispatch
 
@@ -2493,7 +2499,7 @@ class TestRunnerShape:
         pytest.importorskip("p4p")
         from osprey.services.virtual_accelerator.serving.model_rpc import VERBS
 
-        dispatch = self._method(tree, "CohostRunner", "_dispatch")
+        dispatch = self._function(tree, "_dispatch")
         answered = {
             node.func.attr
             for node in ast.walk(dispatch)
