@@ -3188,23 +3188,48 @@ def test_recorder_and_store_agree_on_the_mongo_password_fallback() -> None:
     assert recorder == store == "${MONGO_ROOT_PASSWORD:-osprey}"
 
 
-def test_recorder_reads_the_channel_manifest_the_va_serves() -> None:
-    """The channel list is the same build-derived variable the VA reads,
-    resolved against the same mount path.
+def test_recorder_mounts_the_simulator_view_and_reads_no_channel_variable() -> None:
+    """The channel list is the simulator view the build writes, mounted read-only.
 
-    It must be the manifest. ``channel_limits.json`` is a *write-safety
-    projection* of that manifest, not a second copy of it: it carries one entry
-    per address (read-only ones included — the DCCT current sits there as
-    ``{"writable": false}``), plus top-level metadata keys ``_comment``,
-    ``_version``, ``_description`` and ``defaults``. So its key set is not a
-    channel list, and reading it as one would hand the recorder four names no
-    IOC serves. The manifest is the single channel source the IOC and the
-    recorder have to share; anything else is a second source free to drift.
+    No environment variable names it: the view sits at one place in every
+    render, so a variable could only say the same thing again or say something
+    else.
     """
     svc = _recorder_service(va_co_deployed=True)
-    assert svc["environment"]["VA_CHANNELS_FILE"] == "${VA_CHANNELS_FILE:-}"
-    assert "./build/data/simulation:/data/simulation:ro" in svc["volumes"]
-    assert not any("channel_limits" in mount for mount in svc["volumes"]), svc["volumes"]
+    assert "./build/data/simulator:/data/simulator:ro" in svc["volumes"]
+    assert "VA_CHANNELS_FILE" not in svc["environment"]
+    assert not any("build/data/simulation" in mount for mount in svc["volumes"]), svc["volumes"]
+
+
+def _host_path(volumes: list[str], container_path: str) -> str:
+    """The host path a bind mount in ``volumes`` puts at ``container_path``."""
+    for mount in volumes:
+        source, target = mount.split(":")[:2]
+        if container_path == target or container_path.startswith(target.rstrip("/") + "/"):
+            return source.rstrip("/") + container_path[len(target.rstrip("/")) :]
+    raise AssertionError(f"no mount covers {container_path}: {volumes}")
+
+
+def test_the_va_and_the_recorder_resolve_the_same_addresses_file() -> None:
+    """The IOC serves and the recorder records one ``addresses.json`` on the host."""
+    from osprey.services.archiver_recorder.config import ADDRESSES_FILE
+    from osprey.services.archiver_recorder.config import DEFAULT_DATA_DIR as RECORDER_VIEW
+    from osprey.services.virtual_accelerator import entrypoint
+
+    deployed = ["mongodb", "archiver_recorder", "virtual_accelerator"]
+    va = yaml.safe_load(
+        _render_service_template(
+            "virtual_accelerator/docker-compose.yml.j2", "proj-a", deployed_services=deployed
+        )
+    )["services"]["virtual-accelerator"]
+    recorder = _recorder_service(va_co_deployed=True)
+
+    va_data = va["environment"].get("VA_DATA_DIR") or entrypoint.DEFAULT_DATA_DIR
+    va_file = f"{va_data}/{entrypoint.SIMULATOR_DIR}/{entrypoint.ADDRESSES_FILE}"
+    recorder_file = f"{RECORDER_VIEW}/{ADDRESSES_FILE}"
+
+    assert _host_path(va["volumes"], va_file) == "./build/data/simulator/addresses.json"
+    assert _host_path(recorder["volumes"], recorder_file) == _host_path(va["volumes"], va_file)
 
 
 def test_recorder_reads_config_yml_from_a_read_only_mount() -> None:

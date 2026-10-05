@@ -89,19 +89,6 @@ services:
       # bare `docker compose up` brings up a store the recorder cannot
       # authenticate against.
       MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-osprey}
-      # The channel list to record. Passthrough of the same build-derived
-      # variable the VA reads, resolved against the same /data/simulation
-      # mount, so the recorder covers exactly the channels the IOC serves. It
-      # must be the channel MANIFEST — channel_limits.json is a write-safety
-      # PROJECTION of that manifest (one entry per address, read-only ones
-      # included, plus top-level metadata keys), so its key set is not a
-      # channel list and reading it as one would ask the IOC for names that
-      # are not channels. REQUIRED, exactly as for the VA: unset/empty is
-      # refused rather than defaulted to the framework's bundled demo channel
-      # set, which would put another facility's namespace in this facility's
-      # archive. `osprey build` writes it into the repo-root .env compose
-      # interpolates from, whenever it generated a manifest at all.
-      VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"
 
       # External IOC: the address has to come from the deploy environment, and
       # is REQUIRED (`:?`) rather than a bare reference. Compose resolves an
@@ -122,7 +109,7 @@ services:
     volumes:
       # Bind-mount sources are relative to the pinned compose project
       # directory, which is the deployment REPO ROOT — so `.` is the repo and
-      # `./build/data/simulation` the build-owned data tree.
+      # `./build/data/simulator` the render's simulator view.
       #
       # The REPO ROOT, read-only, and a deliberate exception to the convention
       # every other service follows. The bluesky bridge and the dispatch
@@ -155,11 +142,10 @@ services:
       # host side, so the OSPREY_ARCHIVER_MONGODB_* overrides above replace
       # them.
       - .:/app/project:ro
-      # The simulation data dir, read-only, mounted at the SAME container path
-      # the VA uses so a relative VA_CHANNELS_FILE resolves identically on both
-      # sides. The recorder only reads the channel manifest from here; it never
-      # writes into the build-owned data tree.
-      - ./build/data/simulation:/data/simulation:ro
+      # The simulator view, read-only: the recorder records the `channels` of
+      # its addresses.json, the same file the VA serves its namespace from.
+      # It never writes into the build-owned view.
+      - ./build/data/simulator:/data/simulator:ro
     networks:
       - osprey-network
 
