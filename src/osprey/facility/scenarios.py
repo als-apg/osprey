@@ -23,6 +23,7 @@ scenario's own directory ``scenarios/<name>/``.
 from __future__ import annotations
 
 import difflib
+import json
 from collections.abc import Iterator, Mapping
 from datetime import time
 from importlib import metadata
@@ -36,6 +37,7 @@ from osprey_connectors.simulation.machine import ScenarioLogEntry, _parse_log_at
 __all__ = [
     "FaultRoster",
     "ScenarioLogEntry",
+    "check_scenario_attachments",
     "check_scenario_engines",
     "fault_roster",
     "map_fault_errors",
@@ -318,6 +320,147 @@ def _unknown_field(
     else:
         remedy = f"write a value for {address} itself; it carries no fault fields"
     return _error("value-invalid", name, files, detail, remedy)
+
+
+def check_scenario_attachments(
+    document: Mapping[str, Any], facility_dir: Path
+) -> list[FacilityBuildError]:
+    """Check every file a scenario's logbook entries attach.
+
+    Each item of an entry's ``attachments`` is one of ``{path: <picture>}`` or
+    ``{plot: <plot spec .json>}``, relative to ``scenarios/<name>/``. A path
+    that leaves that directory, an item of another shape, a picture whose
+    suffix or bytes are not an accepted image, or a plot spec that is not a
+    valid ``.json`` spec is ``value-invalid``; a named file that does not
+    exist is ``reference-missing``.
+
+    Args:
+        document: The combined document.
+        facility_dir: The ``data/facility`` directory the scenarios came from.
+
+    Returns:
+        Every stop, in scenario, entry and item order.
+    """
+    errors: list[FacilityBuildError] = []
+    for scenario in document.get("scenarios") or []:
+        if not isinstance(scenario, dict) or not isinstance(scenario.get("logbook"), list):
+            continue
+        name = str(scenario.get("name"))
+        files = [f"scenarios/{name}.yaml"]
+        root = (facility_dir / "scenarios" / name).resolve()
+        for entry in scenario["logbook"]:
+            if not isinstance(entry, dict):
+                continue
+            slot = f"logbook.{entry.get('entry_id')}.attachments"
+            items = entry.get("attachments", [])
+            if not isinstance(items, list):
+                errors.append(
+                    _error(
+                        "value-invalid",
+                        name,
+                        files,
+                        f"`{slot}` must be a list, got {items!r}",
+                        f"write `{slot}` as a list of `path` or `plot` items",
+                    )
+                )
+                continue
+            for item in items:
+                errors.extend(_attachment_errors(name, files, slot, root, item))
+    return errors
+
+
+def _attachment_errors(
+    name: str, files: list[str], slot: str, root: Path, item: Any
+) -> Iterator[FacilityBuildError]:
+    """The stops of one attachment item of a scenario's logbook entry."""
+    from osprey_connectors.simulation.machine import (
+        _IMAGE_SIGNATURES,
+        _SIGNATURE_BYTES,
+        _matches_signature,
+        parse_plot_spec,
+    )
+
+    where = f"scenarios/{name}/"
+    if not isinstance(item, Mapping) or len(item) != 1 or next(iter(item)) not in ("path", "plot"):
+        yield _error(
+            "value-invalid",
+            name,
+            files,
+            f"`{slot}` item {item!r} is not one of `path` or `plot`",
+            f"write each item of `{slot}` as `path: <picture>` or `plot: <plot spec .json>`",
+        )
+        return
+    ((key, rel),) = item.items()
+    if not isinstance(rel, str) or not rel:
+        yield _error(
+            "value-invalid",
+            name,
+            files,
+            f"`{slot}` {key} must be a non-empty path, got {rel!r}",
+            f"name a file inside {where}",
+        )
+        return
+    path = (root / rel).resolve()
+    if Path(rel).is_absolute() or not path.is_relative_to(root):
+        yield _error(
+            "value-invalid",
+            name,
+            files,
+            f"`{slot}` {key} {rel} leaves {where}",
+            f"name a file inside {where}",
+        )
+        return
+    if key == "plot" and path.suffix.lower() != ".json":
+        yield _error(
+            "value-invalid",
+            name,
+            files,
+            f"`{slot}` plot {rel} is not a .json plot spec",
+            "name a .json plot spec, or attach the picture as `path`",
+        )
+        return
+    signatures = _IMAGE_SIGNATURES.get(path.suffix.lower()) if key == "path" else None
+    if key == "path" and signatures is None:
+        accepted = ", ".join(sorted(_IMAGE_SIGNATURES))
+        yield _error(
+            "value-invalid",
+            name,
+            files,
+            f"`{slot}` path {rel} is not a picture (accepted: {accepted})",
+            f"attach a picture with one of the suffixes {accepted}",
+        )
+        return
+    if not path.is_file():
+        yield _error(
+            "reference-missing",
+            name,
+            files,
+            f"`{slot}` names {where}{rel}, which does not exist",
+            f"add {where}{rel} or correct `{slot}`",
+        )
+        return
+    if signatures is not None:
+        with path.open("rb") as handle:
+            head = handle.read(_SIGNATURE_BYTES)
+        if not any(_matches_signature(head, signature) for signature in signatures):
+            yield _error(
+                "value-invalid",
+                name,
+                files,
+                f"`{slot}` path {rel} does not hold {path.suffix.lower()} image data",
+                f"replace {where}{rel} with a {path.suffix.lower()} picture",
+            )
+        return
+    try:
+        parse_plot_spec(json.loads(path.read_text(encoding="utf-8")), f"plot spec {rel}")
+    except (ValueError, UnicodeDecodeError) as exc:
+        yield _error(
+            "value-invalid",
+            name,
+            files,
+            f"`{slot}` plot {rel} is not a valid plot spec: {exc}",
+            f"correct {where}{rel}",
+        )
 
 
 def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildError]:

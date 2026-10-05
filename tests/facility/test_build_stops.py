@@ -150,6 +150,19 @@ def scenario(name: str, body: dict[str, Any]) -> Edit:
     return put(f"scenarios/{name}.yaml", body)
 
 
+def logged(name: str, *attachments: dict[str, Any]) -> Edit:
+    """A scenario narrating one logbook entry, ``E-1``, that attaches ``attachments``."""
+    entry = {
+        "entry_id": "E-1",
+        "when": {"days_ago": 1, "time": "02:00:00"},
+        "author": "A. Author",
+        "title": "Title",
+        "text": "Body",
+        "attachments": list(attachments),
+    }
+    return scenario(name, {"logbook": [entry]})
+
+
 #: A second reading of model SR's BPM1, so the monitor is read on both axes.
 BPM1_Y = {"id": "BPM1:Y", "on": {"device": "SR/BPM1"}}
 
@@ -267,6 +280,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("reference_missing__couple", "reference-missing", "scenario `couple` address"),
     ("reference_missing__noise", "reference-missing", "scenario `noise` address"),
     (
+        "reference_missing__attachment_file",
+        "reference-missing",
+        "a scenario logbook attachment naming a missing file",
+    ),
+    (
         "reference_missing__measurement_model",
         "reference-missing",
         "a measurement file naming a missing model",
@@ -311,6 +329,21 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a fault field the address does not carry",
     ),
     ("value_invalid__fault_field_value", "value-invalid", "coercion refusal of a fault field"),
+    (
+        "value_invalid__attachment_outside",
+        "value-invalid",
+        "a scenario logbook attachment leaving its scenario directory",
+    ),
+    (
+        "value_invalid__attachment_picture_bytes",
+        "value-invalid",
+        "a scenario logbook picture whose bytes do not match its suffix",
+    ),
+    (
+        "value_invalid__attachment_plot_suffix",
+        "value-invalid",
+        "a scenario logbook plot spec that is not a .json file",
+    ),
     ("value_invalid__roll_y_axis", "value-invalid", "`roll` on a y-axis address"),
     ("value_invalid__options_presence", "value-invalid", "`options` presence wrong"),
     ("value_invalid__shape_presence", "value-invalid", "`shape` presence wrong"),
@@ -922,6 +955,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct `noise`"
         ),
     ),
+    "reference_missing__attachment_file": (
+        _plain(logged("warm", {"path": "plots/absent.png"})),
+        (
+            "facility: reference-missing: scenario warm — `logbook.E-1.attachments` names "
+            "scenarios/warm/plots/absent.png, which does not exist; fix: add "
+            "scenarios/warm/plots/absent.png or correct `logbook.E-1.attachments`"
+        ),
+    ),
     "reference_missing__measurement_model": (
         _plain(put("measurement/optics.yaml", {"kinds": ["orm"]})),
         (
@@ -1147,6 +1188,35 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: value-invalid: scenario warm — `faults.SR.BPM1:X.offset`: value 'high' is "
             "not a valid float: expected a finite int or float; fix: write a float value for "
             "`faults.SR.BPM1:X.offset`"
+        ),
+    ),
+    "value_invalid__attachment_outside": (
+        _plain(logged("warm", {"path": "../trend.png"})),
+        (
+            "facility: value-invalid: scenario warm — `logbook.E-1.attachments` path "
+            "../trend.png leaves scenarios/warm/; fix: name a file inside scenarios/warm/"
+        ),
+    ),
+    "value_invalid__attachment_picture_bytes": (
+        _plain(
+            logged("warm", {"path": "plots/trend.png"}),
+            put("scenarios/warm/plots/trend.png", "not a picture\n"),
+        ),
+        (
+            "facility: value-invalid: scenario warm — `logbook.E-1.attachments` path "
+            "plots/trend.png does not hold .png image data; fix: replace "
+            "scenarios/warm/plots/trend.png with a .png picture"
+        ),
+    ),
+    "value_invalid__attachment_plot_suffix": (
+        _plain(
+            logged("warm", {"plot": "plots/trend.txt"}),
+            put("scenarios/warm/plots/trend.txt", "{}\n"),
+        ),
+        (
+            "facility: value-invalid: scenario warm — `logbook.E-1.attachments` plot "
+            "plots/trend.txt is not a .json plot spec; fix: name a .json plot spec, or attach "
+            "the picture as `path`"
         ),
     ),
     "value_invalid__roll_y_axis": (
