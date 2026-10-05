@@ -14,20 +14,17 @@ disk can never disagree about whether a snapshot exists.
 Membership is not decided here. Which channels the facility has is
 :func:`~osprey.channel_roster.registered_channels`' answer, resolved and read
 once per build and shared with every other consumer of that same question --
-so a typeahead can no longer suggest a different set of channels than the one
-the rest of the deployment was built from. What stays here is presentation: the
+so a typeahead suggests the same set of channels the rest of the deployment
+was built from. What stays here is presentation: the
 ``web.channel_suggestions`` feature switch, the size guard that keeps the
 typeahead responsive, and the rule that an empty list is not worth writing.
 Those are properties of a browser widget rather than of the facility, so the
 roster never sees them.
 
-The decision fails soft in almost every direction. A project that configures no
-channel source at all, one whose source is empty, unreadable, or too large to
-be useful as a typeahead, gets no snapshot at all. The build itself is never
-blocked, because a missing autocomplete list is a degraded panel, not a broken
-deployment. The one exception is a ``pipeline_mode`` naming a paradigm that
-does not exist: that is a configuration mistake rather than a degraded panel,
-so it stops the build.
+The decision fails soft in every direction. A render with no facility file,
+one whose file is unreadable, declares no channels, or declares too many to be
+useful as a typeahead, gets no snapshot. The build is never blocked, because a
+missing autocomplete list is a degraded panel, not a broken deployment.
 
 Path preconditions are the roster's (:mod:`osprey.channel_roster.sources`): it
 reads the facility file at the root of the render that holds the ``config.yml``
@@ -134,10 +131,6 @@ def compute_channel_snapshot(config: dict) -> SnapshotDecision:
     Returns:
         The decision. An unreadable or malformed source yields ``emit=False``
         rather than raising.
-
-    Raises:
-        PipelineModeError: If ``channel_finder.pipeline_mode`` names a paradigm
-            that does not exist.
     """
     section = _suggestions_section(config)
 

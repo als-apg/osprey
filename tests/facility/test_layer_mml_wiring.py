@@ -1,9 +1,9 @@
 """The mml layer's wiring pass: each imported model's deck and wiring records.
 
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
-under the tree's new-format mapping. The parity cases also run the old chain
-(``osprey mml import``, ``map`` and ``emit``) over the same exports and hold
-every imported wiring record to the binding that chain emits for its address.
+under the tree's layer mapping. The parity cases also run the ``osprey mml``
+chain (``import``, ``map`` and ``emit``) over the same exports and hold every
+imported wiring record to the binding that chain emits for its address.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ SYSTEMS: dict[str, str] = {
     "nsls2.ltb": "LTB",
 }
 
-#: The model the old chain emits bindings for, in both trees.
+#: The model the ``osprey mml`` chain emits bindings for, in both trees.
 STORAGE = "StorageRing"
 
 Edit = Callable[[dict[str, Any]], None]
@@ -100,11 +100,11 @@ def imported(tree: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
     return facility
 
 
-# --- parity with the old chain ------------------------------------------------------
+# --- parity with the ``osprey mml`` chain -------------------------------------------
 
 
 def _emitted_bindings(root: Path, tree: str) -> list[dict[str, Any]]:
-    """Run the old chain over a tree's exports and return the bindings it emits."""
+    """Run the ``osprey mml`` chain over a tree's exports and return the bindings it emits."""
     pytest.importorskip("linkml_runtime")
     from click.testing import CliRunner
 
@@ -147,7 +147,7 @@ def _names_element(record: dict[str, Any]) -> bool:
 def test_every_wiring_record_equals_the_emitted_binding_for_its_address(
     tree: str, imported: Path, tmp_path: Path
 ) -> None:
-    bindings = _emitted_bindings(tmp_path / "old", tree)
+    bindings = _emitted_bindings(tmp_path / "mml", tree)
     emitted: dict[str, dict[str, Any]] = {}
     for binding in bindings:
         if binding["element"] is None:

@@ -1,9 +1,9 @@
 """The mml layer's seed-once files: authored files an import creates when absent.
 
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
-under the tree's new-format mapping and reads the authored files the import
+under the tree's layer mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
-over the imported tree, and the writable case runs the old command chain over
+over the imported tree, and the writable case runs the ``osprey mml`` chain over
 the same exports.
 """
 
@@ -44,7 +44,7 @@ at = pytest.importorskip("at")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
-#: The spear3 energy knob's setpoint, which the old chain binds to no element.
+#: The spear3 energy knob's setpoint, which the ``osprey mml`` chain binds to no element.
 ENERGY_KNOB = "MS1-BD:CurrSetpt"
 
 #: The corrector setpoint the synthetic export starts outside its own ``Range``.
@@ -209,7 +209,7 @@ def test_every_wired_setpoint_is_writable_inside_its_band(imported: Path) -> Non
 
 
 def _emitted_setpoints(root: Path, tree: str) -> set[str]:
-    """Run the old chain over a tree's exports and return the setpoints it binds.
+    """Run the ``osprey mml`` chain over a tree's exports and return the setpoints it binds.
 
     A monitor binding carries the address it serves under the same key, so the
     setpoints are the bindings of every other kind.
@@ -241,7 +241,7 @@ def test_the_writable_set_is_the_setpoints_the_old_chain_binds(
     spear3: Path, tmp_path: Path
 ) -> None:
     writable = {address for address, row in _limits(spear3).items() if row.get("writable") is True}
-    assert writable == _emitted_setpoints(tmp_path / "old", "spear3") | {ENERGY_KNOB}
+    assert writable == _emitted_setpoints(tmp_path / "mml", "spear3") | {ENERGY_KNOB}
     assert len(writable) == 300
 
 
