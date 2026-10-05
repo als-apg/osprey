@@ -92,6 +92,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.layers.mml.mapping import (
+    LAYER_DIR,
     EngineBlock,
     ImportStop,
     MappingError,
@@ -152,7 +153,7 @@ HARMONIC_KEY = "HarmonicNumber"
 CAVITY_PASS = "RFCavityPass"
 
 #: Where the layer's decks live, relative to ``data/facility/``.
-DECKS_DIR = "imported/mml/decks"
+DECKS_DIR = f"{LAYER_DIR}/decks"
 
 #: The key pyAT stamps its own version into, dropped from every written deck.
 AT_VERSION_KEY = "at_version"

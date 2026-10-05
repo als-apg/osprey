@@ -36,12 +36,15 @@ from osprey.simulation.engines.calibration import field as _slot
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Mapping
 
-#: What each readout attribute reads on an element that does not carry it.
+#: The readout fields every monitor readback carries on its own axis, each at
+#: its identity: a monitor that reports the true orbit position exactly, and
+#: what each readout attribute reads on an element that does not carry it.
+#: The key order is the order a monitor's fault variables are declared in.
 READOUT_IDENTITY: dict[str, float] = {
     "offset": 0.0,
     "gain": 1.0,
-    "polarity": 1.0,
     "noise": 0.0,
+    "polarity": 1.0,
 }
 
 #: The supply calibration fields a magnet setpoint carries, each at its

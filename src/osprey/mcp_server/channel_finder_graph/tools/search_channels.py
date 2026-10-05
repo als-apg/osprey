@@ -28,6 +28,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.deployment.graphdb_service import (
     DEFAULT_INDEX_PATH,
+    GRAPH_INDEX_BUILD_SUGGESTIONS,
     GRAPHDB_REBUILD_HINT,
     GRAPHDB_TTL_PATH_CONFIG_KEY,
     graph_corpus_configured,
@@ -127,8 +128,7 @@ def _absence_suggestions(absence: GraphIndexAbsence, config: dict[str, Any]) -> 
             "there is no index.",
         ]
     return [
-        f"Build the index with `{GRAPHDB_REBUILD_HINT}`.",
-        "`osprey build` renders the project and builds the index in one step.",
+        *GRAPH_INDEX_BUILD_SUGGESTIONS,
         f"The index is read from {DEFAULT_INDEX_PATH} beside config.yml, where the build "
         "writes it.",
         "read_cypher answers the same questions against the graph store while there is no index.",

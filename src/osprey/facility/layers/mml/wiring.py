@@ -84,6 +84,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.facility.layers.mml import decks
 from osprey.facility.layers.mml.mapping import (
     MONITOR_FIELD,
+    PHYSICS_UNITS,
     TUNE_PLANES,
     EngineBlock,
     ImportStop,
@@ -118,9 +119,6 @@ ENERGY_SCALINGS: tuple[str, ...] = ("none", "brho")
 
 #: Electron-volts per GeV: an export states energies in GeV, a deck in eV.
 _EV_PER_GEV = 1.0e9
-
-#: What a nominal's ``units`` reads when it is not a hardware value.
-_PHYSICS_UNITS = "physics"
 
 _MONITOR = "monitor"
 _KICK = "kick"
@@ -801,7 +799,7 @@ def _nominal_gap(block: Map[str, Any], field: str, devices: int) -> str | None:
     nominal = nominals.get(field) if isinstance(nominals, Map) else None
     if not isinstance(nominal, Map):
         return f"states no hardware nominal: {field} states none"
-    if _word(nominal.get("units")).lower() == _PHYSICS_UNITS:
+    if _word(nominal.get("units")).lower() == PHYSICS_UNITS:
         return "states no hardware nominal: its nominal is in physics units"
     values = nominal.get("values")
     rows = list(values) if isinstance(values, (list, tuple)) else [values] * max(devices, 1)
@@ -819,7 +817,7 @@ def _nominal_for(
     nominal = nominals.get(field) if isinstance(nominals, Map) else None
     if not isinstance(nominal, Map):
         return None
-    if _word(nominal.get("units")).lower() == _PHYSICS_UNITS:
+    if _word(nominal.get("units")).lower() == PHYSICS_UNITS:
         return None
     return exported_number(
         _per_device_entry(nominal.get("values"), device, devices, f"{where} {field} nominal")

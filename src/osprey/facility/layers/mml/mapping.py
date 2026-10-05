@@ -91,13 +91,17 @@ from collections.abc import Callable, Iterator, Sequence
 from collections.abc import Mapping as Map
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any, Literal, TypeGuard, overload
+from typing import IO, Any, Final, Literal, TypeGuard, overload
 
 import click
 
 __all__ = [
     "CALIBRATION_KINDS",
+    "LAYER_DIR",
     "MAPPING_FILE",
+    "PHYSICS_UNITS",
+    "READBACK_ROLE",
+    "SETPOINT_ROLE",
     "DIRECTION_VALUES",
     "DeviceIdentity",
     "ENGINE_AXES",
@@ -150,8 +154,11 @@ CALIBRATION_KINDS: frozenset[str] = frozenset({"linear", "table"})
 #: The transverse axes a monitor's engine block may read.
 ENGINE_AXES: frozenset[str] = frozenset({"x", "y"})
 
+#: Where the layer's sources live, relative to ``data/facility/``.
+LAYER_DIR = "imported/mml"
+
 #: Where the mapping lives, relative to ``data/facility/``.
-MAPPING_FILE = "imported/mml/mapping.yaml"
+MAPPING_FILE = f"{LAYER_DIR}/mapping.yaml"
 
 #: A device's local name, the part of its id after ``<model>/``.
 _LOCAL_NAME = re.compile(r"[0-9A-Za-z_]+")
@@ -166,6 +173,13 @@ SHARED_KIND = "shared_pvs"
 #: back through: a family carrying both pairs the first with the second.
 SETPOINT_FIELD = "Setpoint"
 MONITOR_FIELD = "Monitor"
+
+#: The role of a field written through and of one only read.
+SETPOINT_ROLE: Final = "setpoint"
+READBACK_ROLE: Final = "readback"
+
+#: What a nominal's ``units`` reads when it is not a hardware value.
+PHYSICS_UNITS = "physics"
 
 
 class ImportStop(click.ClickException):
@@ -949,13 +963,15 @@ def field_roles(mapping: Mapping) -> dict[str, FieldRole]:
     for key, direction in mapping.directions.items():
         if direction.direction is None:
             raise _undecided_direction(key)
-        roles[key] = FieldRole(role="setpoint" if direction.direction == "write" else "readback")
+        roles[key] = FieldRole(
+            role=SETPOINT_ROLE if direction.direction == "write" else READBACK_ROLE
+        )
     for key, found in roles.items():
         family, _, name = key.partition(".")
         monitor = roles.get(f"{family}.{MONITOR_FIELD}")
-        if name == SETPOINT_FIELD and found.role == "setpoint" and monitor is not None:
-            if monitor.role == "readback":
-                roles[key] = FieldRole(role="setpoint", pair=MONITOR_FIELD)
+        if name == SETPOINT_FIELD and found.role == SETPOINT_ROLE and monitor is not None:
+            if monitor.role == READBACK_ROLE:
+                roles[key] = FieldRole(role=SETPOINT_ROLE, pair=MONITOR_FIELD)
     return roles
 
 

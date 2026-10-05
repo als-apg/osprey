@@ -51,7 +51,11 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.facility.layers.mml.decks import FREQUENCY
 from osprey.facility.layers.mml.mapping import (
+    LAYER_DIR,
     MAPPING_FILE,
+    MONITOR_FIELD,
+    PHYSICS_UNITS,
+    SETPOINT_ROLE,
     Mapping,
     Model,
     _text,
@@ -108,9 +112,6 @@ TUNING: dict[str, int | float] = {
 #: The field key a family states its operating band under.
 _RANGE_KEY = "Range"
 
-#: What a nominal's ``units`` reads when it is not a hardware value.
-_PHYSICS_UNITS = "physics"
-
 #: Each readout field the export states, at its identity.
 _READOUT_IDENTITY: dict[str, float] = {
     "gain": 1.0,
@@ -129,13 +130,9 @@ _GAIN = "gain"
 _OFFSET_REL_TOL = 1.0e-9
 _OFFSET_ABS_TOL = 1.0e-12
 
-#: The family field whose readout block the scenario carries.
-_MONITOR_FIELD = "Monitor"
-
 #: The mapping key that holds the identity block.
 _FACILITY_KEY = "facility"
 
-_SETPOINT = "setpoint"
 _SINGLE_PASS = "single_pass"
 
 #: Measurement group role -> the engine block of the family that fills it.
@@ -191,8 +188,6 @@ def seed_once(
     Returns:
         The files written and the lines to print.
     """
-    from osprey.facility.layers.mml.importer import LAYER_DIR
-
     models = _load(facility_dir / LAYER_DIR / "models.yaml") or []
     wired = {str(record["address"]) for model in models for record in model.get("wiring") or ()}
     claims = _claims(views, mapping)
@@ -264,7 +259,7 @@ def _claims(views: Iterable[FamilyView], mapping: Mapping) -> dict[str, _Claim]:
     for view in views:
         for fld in view.fields.values():
             role = roles.get(f"{view.raw_name}.{fld.name}")
-            writes = role is not None and role.role == _SETPOINT
+            writes = role is not None and role.role == SETPOINT_ROLE
             found: dict[str, list[int]] = {}
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
@@ -272,7 +267,7 @@ def _claims(views: Iterable[FamilyView], mapping: Mapping) -> dict[str, _Claim]:
                     if address is None:
                         continue
                     held = claims.get(address)
-                    if held is not None and (not writes or held.role == _SETPOINT):
+                    if held is not None and (not writes or held.role == SETPOINT_ROLE):
                         continue
                     positions = found.setdefault(address, [])
                     if index not in positions:
@@ -340,7 +335,7 @@ def _limit_records(
     unbanded: list[str] = []
     for address in sorted(claims):
         claim = claims[address]
-        if claim.role != _SETPOINT:
+        if claim.role != SETPOINT_ROLE:
             continue
         low, high = band(claim.fld.body.get(_RANGE_KEY), claim.indices, claim.view.n_devices)
         banded = low is not None and high is not None
@@ -407,7 +402,7 @@ def _golden(claims: dict[str, _Claim], exports: Exports) -> dict[str, float]:
         if not isinstance(nominal, dict):
             continue
         units = nominal.get("units")
-        if isinstance(units, str) and units.strip().lower() == _PHYSICS_UNITS:
+        if isinstance(units, str) and units.strip().lower() == PHYSICS_UNITS:
             continue
         values = nominal.get("values")
         if isinstance(values, (list, tuple)):
@@ -474,7 +469,7 @@ def _measurement(
         for record in entry.get("wiring") or ()
         if (record.get("engine") or {}).get("attribute") == FREQUENCY
         and claims.get(str(record["address"])) is not None
-        and claims[str(record["address"])].role == _SETPOINT
+        and claims[str(record["address"])].role == SETPOINT_ROLE
     )
     if frequency:
         instruments["rf"] = frequency[0]
@@ -545,9 +540,9 @@ def _readout(
         block = exports.va.get(view.system)
         families = block.get("families") if isinstance(block, dict) else None
         family = families.get(view.raw_name) if isinstance(families, dict) else None
-        stated = (family.get(_MONITOR_FIELD) or {}) if isinstance(family, dict) else {}
+        stated = (family.get(MONITOR_FIELD) or {}) if isinstance(family, dict) else {}
         values = stated.get("readout") if isinstance(stated, dict) else None
-        monitor = view.fields.get(_MONITOR_FIELD)
+        monitor = view.fields.get(MONITOR_FIELD)
         if model is None or not isinstance(values, dict) or monitor is None:
             continue
         roster = rosters.get(model.name, set())
