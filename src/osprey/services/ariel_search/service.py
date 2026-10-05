@@ -13,6 +13,7 @@ Higher-level reasoning is handled by the Osprey agent layer.
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import (
@@ -740,6 +741,8 @@ class ARIELSearchService:
     async def create_entry(
         self,
         request: FacilityEntryCreateRequest,
+        *,
+        local_metadata: dict[str, Any] | None = None,
     ) -> FacilityEntryCreateResult:
         """Create a logbook entry through the facility adapter.
 
@@ -749,8 +752,18 @@ class ARIELSearchService:
         3. Optimistic local upsert into ARIEL database
         4. For non-local adapters, attempt re-ingestion to sync
 
+        The optimistic local copy keeps ``local_metadata`` (declared values,
+        ``session_metadata``, ``created_via``) so that provenance stays with the
+        entry until re-ingestion; once the facility record is read back it
+        replaces the local copy as the authority, with nothing merged back.
+
         Args:
             request: Entry creation request
+            local_metadata: Metadata of ARIEL's own copy of the entry, as
+                resolved by :func:`~osprey.services.ariel_search.entry_fields.resolve_entry_write`.
+                Copied, never mutated; ``sync_status`` is always set by this
+                method. When omitted, the copy holds the request's ``logbook``,
+                ``shift`` and ``tags``.
 
         Returns:
             FacilityEntryCreateResult with entry ID and sync status
@@ -779,7 +792,17 @@ class ARIELSearchService:
         is_local = source_system == "Generic JSON"
         sync_status = SyncStatus.LOCAL_ONLY if is_local else SyncStatus.PENDING_SYNC
 
-        # Optimistic local upsert
+        # Optimistic local upsert; the service's sync_status is set last so no
+        # caller-supplied value overrides it.
+        if local_metadata is None:
+            metadata: dict[str, Any] = {
+                "logbook": request.logbook,
+                "shift": request.shift,
+                "tags": request.tags,
+            }
+        else:
+            metadata = copy.deepcopy(local_metadata)
+        metadata["sync_status"] = sync_status.value
         raw_text = f"{request.subject}\n\n{request.details}" if request.details else request.subject
         entry: EnhancedLogbookEntry = {
             "entry_id": facility_entry_id,
@@ -788,12 +811,7 @@ class ARIELSearchService:
             "author": request.author or "",
             "raw_text": raw_text,
             "attachments": [],
-            "metadata": {
-                "logbook": request.logbook,
-                "shift": request.shift,
-                "tags": request.tags,
-                "sync_status": sync_status.value,
-            },
+            "metadata": metadata,
             "created_at": now,
             "updated_at": now,
         }
@@ -837,6 +855,7 @@ class ARIELSearchService:
         entry_id: str,
         *,
         logbook: str | None = None,
+        fields: dict[str, Any] | None = None,
     ) -> FacilityEntryCreateResult:
         """Publish an existing ARIEL entry to the configured facility logbook.
 
@@ -844,9 +863,19 @@ class ARIELSearchService:
         the adapter call, optimistic upsert, and re-ingestion. The ARIEL DB is
         a derived view — the upstream source is always the authority.
 
+        The entry's stored declared values are merged with ``fields`` and the
+        ``logbook`` argument as overrides (the argument wins), and the merged
+        set is checked in full, live choices included. The adapter receives the
+        declared values only; ARIEL's own keys are rebuilt, never copied. The
+        local copy keeps the stored ``created_via`` and ``session_metadata``.
+        With no declared fields the request is the one built without them.
+
         Args:
             entry_id: ID of the existing ARIEL entry to publish
-            logbook: Target logbook name (required by some facility APIs)
+            logbook: Target logbook name (required by some facility APIs);
+                overrides the stored value
+            fields: Entry-field values overriding the stored ones; every key
+                must be a declared field
 
         Returns:
             FacilityEntryCreateResult with the facility-assigned entry ID
@@ -854,10 +883,54 @@ class ARIELSearchService:
         Raises:
             KeyError: If entry_id not found in ARIEL database
             NotImplementedError: If the adapter doesn't support writes
+            EntryFieldError: If a merged value is missing, invalid or
+                undeclared, naming the field
+            EntryFieldOptionsUnavailable: If a live choice check cannot list
+                the choices
         """
+        from osprey.services.ariel_search.entry_fields import (
+            entry_field_descriptors,
+            resolve_entry_write,
+            validate_entry_fields,
+        )
+        from osprey.services.ariel_search.ingestion import get_adapter
+
         entry = await self.repository.get_entry(entry_id)
         if entry is None:
             raise KeyError(f"Entry {entry_id} not found")
+
+        adapter = get_adapter(self.config)
+        if not adapter.supports_write:
+            raise NotImplementedError(
+                f"{adapter.source_system_name} adapter does not support creating entries"
+            )
+
+        stored: dict[str, Any] = entry.get("metadata") or {}
+        descriptors = entry_field_descriptors(self.config)
+        names = {descriptor.name for descriptor in descriptors}
+
+        merged = {
+            name: copy.deepcopy(stored[name]) for name in names if stored.get(name) is not None
+        }
+        merged.update(fields or {})
+        builtin_logbook = logbook
+        if "logbook" in names and logbook is not None and logbook.strip():
+            merged["logbook"] = logbook
+            builtin_logbook = None
+
+        declared = await validate_entry_fields(
+            adapter, descriptors, merged, partial=False, check_live=True, strict=True
+        )
+
+        resolved = resolve_entry_write(
+            descriptors,
+            declared,
+            logbook=builtin_logbook,
+            shift=None,
+            tags=stored.get("tags", []),
+            created_via=stored.get("created_via") or None,
+            session_metadata=stored.get("session_metadata"),
+        )
 
         subject = entry["raw_text"].split("\n", 1)[0].strip()
         details = entry["raw_text"]
@@ -866,11 +939,13 @@ class ARIELSearchService:
             subject=subject,
             details=details,
             author=entry["author"],
-            logbook=logbook,
-            tags=entry["metadata"].get("tags", []),
+            logbook=resolved.logbook,
+            shift=resolved.shift,
+            tags=stored.get("tags", []),
+            metadata=resolved.adapter_metadata,
         )
 
-        return await self.create_entry(request)
+        return await self.create_entry(request, local_metadata=resolved.local_metadata)
 
     async def health_check(self) -> tuple[bool, str]:
         """Check service health.
