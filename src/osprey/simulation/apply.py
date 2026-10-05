@@ -317,6 +317,20 @@ def _view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
     return {str(scenario["name"]): scenario for scenario in document["scenarios"]}
 
 
+def _require_view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]]:
+    """The scenarios the simulator view lists, by name.
+
+    Raises:
+        ValueError: If the render carries no simulator view.
+    """
+    scenarios = _view_scenarios(project_dir)
+    if scenarios is None:
+        raise ValueError(
+            f"No simulator view in {_simulator_view(project_dir)}. Run 'osprey build'."
+        )
+    return scenarios
+
+
 def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | None]:
     """The scenario names and anchor the project's state file records."""
     path = resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME
@@ -718,11 +732,7 @@ def active_archiver_events(project_dir: Path, names: Sequence[str]) -> dict[str,
         ValueError: If the render carries no simulator view, or a requested
             scenario is not in it.
     """
-    scenarios = _view_scenarios(project_dir)
-    if scenarios is None:
-        raise ValueError(
-            f"No simulator view in {_simulator_view(project_dir)}. Run 'osprey build'."
-        )
+    scenarios = _require_view_scenarios(project_dir)
 
     resolved = resolve_active_scenarios(names)
     # The first name is the always-active baseline, which a facility need not state.
