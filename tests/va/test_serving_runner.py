@@ -1676,7 +1676,7 @@ class TestRealNamespace:
     def built(self) -> tuple[ServingRecords, dict[str, Any]]:
         """The database and the catalog one served tree yields.
 
-        Both are derived from the packaged demo tree and from nothing else,
+        Both are derived from a served copy of the packaged demo tree and from nothing else,
         the way the entrypoint derives them for a facility's own tree: the
         manifest that tree resolves, the nominals and bands its
         ``machine.json`` and ``channel_limits.json`` carry, and one variable
@@ -1686,13 +1686,18 @@ class TestRealNamespace:
         """
         from osprey.services.virtual_accelerator.bindings import load_bindings
         from osprey.services.virtual_accelerator.manifest import build_manifest
-        from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
+        from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS, ManifestPaths
         from osprey.services.virtual_accelerator.model.bindings import build_action_variables
         from osprey.services.virtual_accelerator.model.catalog import build_variable_catalog
+        from tests.va._served_tree import packaged_served_root
 
         channels = build_manifest(PACKAGE_PATHS)["channels"]
         document = load_bindings(PACKAGE_PATHS.va_bindings)
-        catalog = build_variable_catalog(PACKAGE_PATHS, channels, build_action_variables(document))
+        catalog = build_variable_catalog(
+            ManifestPaths(data_root=packaged_served_root()),
+            channels,
+            build_action_variables(document),
+        )
         return build_serving_pvdb(channels, async_setpoints=True), catalog
 
     def test_counts(self, built) -> None:

@@ -11,14 +11,21 @@ directory to build in and each caller wraps it in a module-scoped fixture of
 its own. It lives here, outside any test module, because a tree built by the
 chain is not the property of whichever test happened to need it first.
 
+``packaged_served_root`` serves the packaged control-assistant tree the same
+way, with the limits view of its own ``data/facility`` staged where a build
+stages it.
+
 The export describes an invented machine and every family name in it is
 invented too; nothing here spells one.
 """
 
 from __future__ import annotations
 
+import atexit
+import functools
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -28,7 +35,7 @@ from osprey.cli.main import cli
 from osprey.services.virtual_accelerator.manifest.paths import DEFAULT_TIER
 from tests.cli.test_mml_map import _fill
 
-__all__ = ["SYNTHETIC_EXPORT", "emit_served_tree", "limits_view"]
+__all__ = ["SYNTHETIC_EXPORT", "emit_served_tree", "limits_view", "packaged_served_root"]
 
 #: The 2.0 export the chain is run over: an invented ring small enough to read
 #: by eye, covering every binding kind and both slice shapes.
@@ -103,3 +110,24 @@ def limits_view(root: Path) -> Path:
     document = build_facility(facility_dir, project_name=root.name)
     render_facility_outputs(render, document, {}, facility_dir)
     return render / "data" / "channel_limits.json"
+
+
+@functools.cache
+def packaged_served_root() -> Path:
+    """The packaged control-assistant data tree as a build serves it.
+
+    Every packaged entry is linked unchanged, and the limits view of the
+    tree's own ``data/facility`` is staged at the served root, where the
+    served model reads its write bands. Built once per process.
+    """
+    from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
+    from tests.facility._limits_render import render_limits
+
+    root = Path(tempfile.mkdtemp(prefix="osprey-packaged-served-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    data = root / "data"
+    data.mkdir()
+    for entry in sorted(PACKAGE_PATHS.data_root.iterdir()):
+        (data / entry.name).symlink_to(entry.resolve(), target_is_directory=entry.is_dir())
+    shutil.copyfile(render_limits(root, "control_assistant"), data / "channel_limits.json")
+    return data

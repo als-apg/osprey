@@ -33,6 +33,7 @@ from osprey.services.virtual_accelerator.manifest import (
 from osprey.services.virtual_accelerator.manifest.classify import setpoint_addresses
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+from tests.va._served_tree import packaged_served_root
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +48,7 @@ def channels() -> list[dict]:
 
 @pytest.fixture(scope="module")
 def booted(channels: list[dict]) -> PyATRingModel:
-    return PyATRingModel(PACKAGE_PATHS.data_root, channels)
+    return PyATRingModel(packaged_served_root(), channels)
 
 
 @pytest.fixture(scope="module")

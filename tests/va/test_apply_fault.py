@@ -78,6 +78,7 @@ from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E4
     CohostWritePath,
     physics_setpoint_addresses,
 )
+from tests.va._served_tree import packaged_served_root  # noqa: E402
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -453,7 +454,7 @@ class _CommandedRecord(_ReadingRecord):
 
 def _faulted_model(**seeds: Any) -> PyATRingModel:
     """The packaged tree's model, seeded with ``seeds``."""
-    return PyATRingModel(PACKAGE_PATHS.data_root, build_manifest()["channels"], **seeds)
+    return PyATRingModel(packaged_served_root(), build_manifest()["channels"], **seeds)
 
 
 def _document() -> BindingsDocument:

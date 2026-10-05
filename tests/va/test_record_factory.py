@@ -78,14 +78,12 @@ from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     build_manifest,
     setpoint_addresses,
 )
-from osprey.services.virtual_accelerator.manifest.paths import (  # noqa: E402
-    PACKAGE_PATHS,
-)
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb  # noqa: E402
 from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E402
     CohostWritePath,
     physics_setpoint_addresses,
 )
+from tests.facility._limits_render import render_limits  # noqa: E402
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -851,18 +849,18 @@ class TestNonWritableChannels:
 class TestDerivedDriveLimitsMatchChannelLimitsFile:
     """The serving layer is file-blind: ``_load_drive_limits()`` is the only
     place that turns ``channel_limits.json`` into the map the clamp above is
-    built from. This pins that derivation against the file's own contents --
-    read the same path the entrypoint reads, independently re-derive the
-    expected map from the raw JSON, and require full-dict equality -- so a
-    future channel_limits retune that silently changes which setpoint
-    addresses are writable-with-bounds fails here instead of just drifting the
-    deployed clamp unnoticed.
+    built from. This pins that derivation against the contents of the limits
+    view a render of the bundle writes -- independently re-derive the expected
+    map from the raw JSON, and require full-dict equality -- so a change that
+    silently alters which setpoint addresses are writable-with-bounds fails
+    here instead of just drifting the deployed clamp unnoticed.
 
     Needs no server: this is the derivation, not its enforcement.
     """
 
-    def test_derived_map_matches_writable_sp_entries_in_the_file(self) -> None:
-        raw = json.loads(PACKAGE_PATHS.channel_limits.read_text())
+    def test_derived_map_matches_writable_sp_entries_in_the_file(self, tmp_path) -> None:
+        limits_view = render_limits(tmp_path, "control_assistant")
+        raw = json.loads(limits_view.read_text())
         defaults = raw.get("defaults", {})
         setpoints = setpoint_addresses(build_manifest()["channels"])
         expected: dict[str, tuple[float, float]] = {}
@@ -878,12 +876,12 @@ class TestDerivedDriveLimitsMatchChannelLimitsFile:
                 continue
             expected[address] = (float(min_value), float(max_value))
 
-        derived = _load_drive_limits(PACKAGE_PATHS.channel_limits, setpoints=setpoints)
+        derived = _load_drive_limits(limits_view, setpoints=setpoints)
         assert derived == expected
-        # Sanity count: pins today's writable-setpoint-with-bounds population so a
-        # channel_limits.json edit that silently drops or adds entries is caught
-        # here, not only downstream in clamp behavior.
-        assert len(expected) == 396
+        # Sanity count: pins the view's writable-setpoint-with-bounds population
+        # so a change that silently drops or adds entries is caught here, not
+        # only downstream in clamp behavior.
+        assert len(expected) == 2
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:

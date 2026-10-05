@@ -2853,7 +2853,6 @@ data/
 │   ├── tiers/tier{1,3}/<paradigm>.json  # staged, one per paradigm
 │   └── TEMPLATE_EXAMPLE.json            # database format example
 ├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
-├── channel_limits.json                   # per-channel write limits
 ├── machine_state_channels.json           # address list reconciled against the VA manifest
 ├── facility/                             # the facility's authored sources
 │   └── knowledge/                        # markdown knowledge bundle
@@ -2959,14 +2958,6 @@ BENCHMARK_QUERIES_JSON = """\
     "targeted_pv": ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"]
   }
 ]
-"""
-
-CHANNEL_LIMITS_JSON = """\
-{
-  "_comment": "Write limits, enforced by the limits hook before any write reaches the control system. A channel is writable if and only if it is a setpoint (:SP); every other address is read-only, whatever this file says.",
-  "SR:MAG:HCM:01:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true },
-  "SR:MAG:HCM:02:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true }
-}
 """
 
 MACHINE_STATE_CHANNELS_JSON = """\
@@ -3143,7 +3134,6 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/channel_databases/tiers/tier1/in_context.json": CHANNEL_DB_IN_CONTEXT_JSON,
     "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
     "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
-    "data/channel_limits.json": CHANNEL_LIMITS_JSON,
     "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,

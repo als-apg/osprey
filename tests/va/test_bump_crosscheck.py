@@ -48,6 +48,7 @@ from osprey.services.virtual_accelerator.lattice.response import orbit_response
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+from tests.va._served_tree import packaged_served_root
 
 #: The half-width of the two-sided probe each corrector is dithered by, in the
 #: hardware unit the facility states for it.
@@ -147,7 +148,7 @@ def bump(channels: list[dict], document: BindingsDocument) -> _Bump:
     paths are deterministic. Nothing below mutates it, and the bridge is left
     with every driven corrector back at its working point.
     """
-    oracle_model = PyATRingModel(PACKAGE_PATHS.data_root, channels)
+    oracle_model = PyATRingModel(packaged_served_root(), channels)
     monitors_all = [binding for binding in document.bindings if binding.kind == "monitor"]
     kicks = _ring_order(
         oracle_model, [binding for binding in document.bindings if binding.kind == "kick"]
@@ -182,7 +183,7 @@ def bump(channels: list[dict], document: BindingsDocument) -> _Bump:
     assert inside and outside.size, "the chosen correctors span every monitor or none"
     target_row = inside[len(inside) // 2]
 
-    bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
+    bridge = PhysicsBridge(PyATRingModel(packaged_served_root(), channels))
     records = {binding.setpoint_address: FakeRecord() for binding in monitors}
     bridge.bind(records)
 

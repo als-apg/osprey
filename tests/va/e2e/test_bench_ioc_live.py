@@ -107,12 +107,15 @@ BENCH_BPM_X_VALUE = 0.412
 #: Read by anyone, written by no one: the bench IOC's ASG withholds WRITE.
 PROTECTED_SP = bench.PROTECTED_SP
 BENCH_PROTECTED_VALUE = bench.PROTECTED_VALUE
-#: What this module tries to write there. Well inside the channel's shipped
-#: +-12 A band, and load-bearingly so: a value outside it would be refused by
-#: OSPREY's own limits validator BEFORE any caput was issued, and the refusal
-#: this module is about -- the control system's own -- would never be reached.
+#: The write band :func:`limits_database` grants ``PROTECTED_SP``, so OSPREY
+#: passes a write there and the bench IOC is the one that refuses it.
+PROTECTED_BAND = (-12.0, 12.0)
+#: What this module tries to write there. Well inside that band, and
+#: load-bearingly so: a value outside it would be refused by OSPREY's own
+#: limits validator BEFORE any caput was issued, and the refusal this module
+#: is about -- the control system's own -- would never be reached.
 PROTECTED_WRITE_VALUE = -4.0
-#: Writable on both, and listed in the shipped limits database at +-12 A --
+#: Writable on both, and carrying a +-12 A record in the facility's limits --
 #: which is what lets a deliberately out-of-range write be refused by the
 #: reference monitor rather than by the machine.
 WRITABLE_SP = bench.WRITABLE_SP
@@ -137,8 +140,8 @@ VA_ONLY_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
 #: The alarm texture has to be driven here rather than on a setpoint because no
 #: setpoint in ``bench.db`` sets any alarm field -- ``SR:MAG:HCM:01:CURRENT:SP``
 #: carries drive limits and nothing else, so it can never alarm. That this is a
-#: readback is also why :func:`limits_database` exists: the shipped limits mark
-#: readbacks unwritable, correctly, for a deployment.
+#: readback is also why :func:`limits_database` grants it a band: a readback is
+#: never writable in a deployment, correctly.
 ALARM_CHANNEL = "SR:MAG:VCM:02:CURRENT:RB"
 ALARM_SEEDED_VALUE = -3.5
 ALARM_HIHI_THRESHOLD = 11.0
@@ -328,22 +331,28 @@ def va_endpoint() -> Iterator[int]:
 
 @pytest.fixture(scope="module")
 def limits_database(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The shipped limits database, plus the one entry this module has to add.
+    """The rendered limits view, plus the two entries this module has to add.
 
-    Everything these tests write is judged against the *shipped* channel limits,
-    because a switch toward the live machine is only judged on real terms if the
-    limits it is judged against are the real ones. The single exception is the
-    alarm-limit carrier: it is a readback, and the shipped database says
-    readbacks are not writable -- correctly, for a deployment. Driving a bench
-    record into its HIHI band is not a deployment operation, and the bench IOC
-    has no other record carrying alarm limits, so this file grants that one
-    channel a write band and changes nothing else.
+    Everything else these tests write is judged against the limits a build of
+    the preset carries, because a switch toward the live machine is only judged
+    on real terms if the limits it is judged against are the real ones. Limits
+    run ``exclusive`` here, so a channel this module writes needs a record:
 
-    Derived from the shipped file at run time rather than copied into the tree,
-    so the other 2900-odd entries cannot drift away from the ones a deployment
+    - the protected setpoint carries none in the facility's limits.yaml, and
+      the refusal under test is the bench IOC's, so OSPREY has to pass the
+      write -- this file grants it :data:`PROTECTED_BAND`;
+    - the alarm-limit carrier is a readback, never writable in a deployment.
+      Driving a bench record into its HIHI band is not a deployment operation,
+      and the bench IOC has no other record carrying alarm limits, so this file
+      grants that one channel a write band.
+
+    Derived from the rendered view at run time rather than copied into the
+    tree, so the other records cannot drift away from the ones a deployment
     actually enforces.
     """
     database = json.loads(e2e_conftest.LIMITS_DB_PATH.read_text(encoding="utf-8"))
+    low, high = PROTECTED_BAND
+    database[PROTECTED_SP] = {"writable": True, "min_value": low, "max_value": high}
     database[ALARM_CHANNEL] = {"writable": True, "min_value": -50.0, "max_value": 50.0}
     path = tmp_path_factory.mktemp("bench_live_limits") / "channel_limits.json"
     path.write_text(json.dumps(database), encoding="utf-8")
@@ -373,7 +382,7 @@ def raw_config(
 
     The FR-8 posture is set for real -- the operator acknowledgment -- so that
     ``acknowledged=False`` isolates exactly one missing thing. Limits run
-    ``exclusive`` against a database derived from the shipped one.
+    ``exclusive`` against a database derived from the rendered limits view.
     """
 
     def block(port: int) -> dict[str, Any]:

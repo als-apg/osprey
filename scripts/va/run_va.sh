@@ -7,8 +7,8 @@
 # DATA_DIR is your project's data/simulation/ DIRECTORY (never a single
 # file -- see docker/virtual-accelerator/README.md for why). Defaults to the
 # packaged control_assistant preset's own copy, so this runs with zero
-# arguments out of the box; point it at a real project's data/simulation to
-# use that project's channel_limits.json-scoped scenarios instead.
+# arguments out of the box; point it at a built project's data/simulation to
+# serve that project's own channels, scenarios and limits instead.
 #
 # The IOC has no default channel namespace and refuses to boot without one (see
 # src/osprey/services/virtual_accelerator/entrypoint.py), so this script always
@@ -214,17 +214,17 @@ print(MANIFEST_OUTPUT)')"
         echo "         uv run python -m osprey.services.virtual_accelerator.manifest.build" >&2
         exit 1
     fi
-    # Drive limits for the demo come from the preset's data root, one level above
-    # a simulation tree. Named as the reinterpretation it is: this is the demo
-    # branch asking THIS directory to look like the preset, not a missing piece
-    # of the framework's own demo assets.
-    PRESET_LIMITS="$(cd "${DATA_DIR}/.." && pwd)/channel_limits.json"
-    if [[ ! -f "${PRESET_LIMITS}" ]]; then
-        echo "FATAL: serving ${DATA_DIR} as a demo data tree needs a" >&2
-        echo "       channel_limits.json at its data root (${PRESET_LIMITS})," >&2
-        echo "       the way the packaged preset lays one out. Without it the IOC" >&2
-        echo "       would serve every setpoint unbounded. Pass a built project's" >&2
-        echo "       data/simulation, or the packaged preset's, instead." >&2
+    # Drive limits for the demo are the limits view a build renders from the
+    # facility tree beside a simulation tree, at its data root. Named as the
+    # reinterpretation it is: this is the demo branch asking THIS directory to
+    # look like the preset, not a missing piece of the framework's own demo
+    # assets.
+    PRESET_FACILITY="$(cd "${DATA_DIR}/.." && pwd)/facility"
+    if [[ ! -f "${PRESET_FACILITY}/limits.yaml" ]]; then
+        echo "FATAL: serving ${DATA_DIR} as a demo data tree needs a facility" >&2
+        echo "       tree with a limits.yaml at its data root (${PRESET_FACILITY})," >&2
+        echo "       the way the packaged preset lays one out. Pass a built" >&2
+        echo "       project's data/simulation, or the packaged preset's, instead." >&2
         exit 1
     fi
 
@@ -239,8 +239,19 @@ print(MANIFEST_OUTPUT)')"
     mkdir -p "${DEMO_DATA_ROOT}/simulation"
     cp -R "${DATA_DIR}/." "${DEMO_DATA_ROOT}/simulation/"
     cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_ROOT}/simulation/channel_manifest.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/channel_limits.json"
+    "${VENV_PY}" - "${PRESET_FACILITY}" "${DEMO_DATA_ROOT}/channel_limits.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from osprey.facility.build import build_facility
+from osprey.facility.views.limits import limits_document
+
+facility, target = Path(sys.argv[1]), Path(sys.argv[2])
+document = limits_document(build_facility(facility, project_name="control_assistant"))
+target.write_text(json.dumps(document, indent=2), encoding="utf-8")
+PY
+    cp "${DEMO_DATA_ROOT}/channel_limits.json" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
     MOUNT_DIR="${DEMO_DATA_ROOT}/simulation"
 fi
 CHANNELS_FILE_VALUE="channel_manifest.json"

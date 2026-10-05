@@ -802,14 +802,14 @@ class TestPhysicsReadbacksReachPva:
 
     def test_a_solved_bpm_reading_moves_on_both_views(self, channels: list[dict]) -> None:
         from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
-        from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
         from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+        from tests.va._served_tree import packaged_served_root
 
         coupled = [c for c in channels if c["partition"] == PARTITION_PYAT_COUPLED]
         records = build_serving_pvdb(coupled)
         # No seeded faults, so the bridge needs no seed: the reading moves
         # because the corrector moved it, with no noise mixed into the check.
-        bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
+        bridge = PhysicsBridge(PyATRingModel(packaged_served_root(), channels))
         # Bound before the driver exists, exactly as the runner binds it: the
         # first push is the boot state and has to land in the specs.
         bridge.bind(records.pyat_coupled)
@@ -1025,19 +1025,18 @@ class TestFullManifest:
     """The real namespace: pinned counts and database-wide invariants."""
 
     @pytest.fixture(scope="class")
-    def records(self) -> ServingRecords:
+    def records(self, tmp_path_factory: pytest.TempPathFactory) -> ServingRecords:
         from osprey.services.virtual_accelerator.entrypoint import (
             _load_boot_values,
             _load_drive_limits,
         )
-        from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
+        from tests.facility._limits_render import render_limits
 
         channels = build_manifest()["channels"]
+        limits_view = render_limits(tmp_path_factory.mktemp("limits"), "control_assistant")
         return build_serving_pvdb(
             channels,
-            drive_limits=_load_drive_limits(
-                PACKAGE_PATHS.channel_limits, setpoints=setpoint_addresses(channels)
-            ),
+            drive_limits=_load_drive_limits(limits_view, setpoints=setpoint_addresses(channels)),
             boot_values=_load_boot_values(),
         )
 
@@ -1068,13 +1067,15 @@ class TestFullManifest:
         assert len(readbacks) == EXPECTED_MAGNET_READBACKS
         assert len(bpms) == EXPECTED_BPM_READINGS
 
-    def test_every_setpoint_is_paired_and_limited(self, records: ServingRecords) -> None:
+    def test_every_setpoint_is_paired_and_the_banded_ones_are_limited(
+        self, records: ServingRecords
+    ) -> None:
         setpoints = [a for a in records.pvdb if a.endswith(":SP")]
         limited = [a for a, spec in records.pvdb.items() if "hilim" in spec]
 
         assert len(setpoints) == EXPECTED_SETPOINTS
         assert sorted(records.setpoint_readbacks) == sorted(setpoints)
-        assert sorted(limited) == sorted(setpoints)
+        assert sorted(limited) == ["SR:MAG:HCM:01:CURRENT:SP", "SR:RF:CAVITY:01:FREQUENCY:SP"]
 
     def test_no_channel_is_server_scanned(self, records: ServingRecords) -> None:
         """A scanning PV is skipped by the driver's monitor post, so its

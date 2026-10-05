@@ -45,6 +45,7 @@ from osprey.services.virtual_accelerator.lattice.response import orbit_response
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+from tests.va._served_tree import packaged_served_root
 
 #: The full width of the sweep both paths drive, in the hardware unit the
 #: facility states for a corrector. Wide enough to move an orbit far above the
@@ -143,7 +144,7 @@ def _bridge(
     Any keyword is the model's: a fault is model state, and the bridge reads
     it back from there at the moment it serves.
     """
-    bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels, **kwargs))
+    bridge = PhysicsBridge(PyATRingModel(packaged_served_root(), channels, **kwargs))
     records = {monitor.setpoint_address: FakeRecord() for monitor in _monitors(document)}
     bridge.bind(records)
     return bridge, records
@@ -207,7 +208,7 @@ def _held(binding: Binding) -> float:
 @pytest.fixture(scope="module")
 def oracle(channels: list[dict], document: BindingsDocument) -> dict[str, np.ndarray]:
     """One oracle evaluation, on a model nothing else touches."""
-    return _oracle(PyATRingModel(PACKAGE_PATHS.data_root, channels), document)
+    return _oracle(PyATRingModel(packaged_served_root(), channels), document)
 
 
 class TestTheLivePathAndTheOracleAreOnePhysics:

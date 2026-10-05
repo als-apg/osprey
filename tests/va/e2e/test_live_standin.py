@@ -19,7 +19,7 @@ gate for all three (SC-10):
   which is only decidable by reading the same channel at both ends and getting
   different numbers back;
 * and a write on it is judged on hardware's terms: the exclusive limits mode
-  refuses a channel the shipped limits database does not list, on a target whose
+  refuses a channel the limits database does not list, on a target whose
   writes are armed, before anything reaches Channel Access.
 
 None of the three is decidable inside one process and none is decidable against
@@ -83,13 +83,13 @@ them armed, the deployment selects the ``write_access`` gateway for ``standin``
 a verdict about the *database*, not about the network. A database that had
 failed to load refuses everything with ``LIMITS_DATABASE_UNAVAILABLE`` instead,
 so asserting the exact violation type is what separates "the posture read the
-shipped database and this channel is not in it" from "the posture blocked
+limits database and this channel is not in it" from "the posture blocked
 everything because it could not read anything".
 
-Nothing is written to a channel the machine serves. Every channel the packaged
-manifest serves is listed in the shipped limits database, so an unlisted address
-is necessarily one nothing answers on — and the refusal happens before any
-``caput`` is issued, so the stand-in is left exactly as this module found it.
+Nothing is written to a channel the machine serves. The unlisted address is one
+the packaged manifest does not serve, so nothing answers on it — and the refusal
+happens before any ``caput`` is issued, so the stand-in is left exactly as this
+module found it.
 
 What the raw ``docker run`` here is, and is not
 ----------------------------------------------
@@ -226,19 +226,18 @@ CONTROL_BPM = _bpm(CONTROL_DEVICE, "X")
 # -- the write leg's channels -----------------------------------------------
 
 #: The address the write leg attempts, in this deployment's own naming grammar
-#: and absent from the shipped limits database — device 99 of a 72-corrector
-#: ring. Every channel the packaged manifest serves *is* listed, so an unlisted
-#: address is necessarily one nothing answers on; that costs the assertion
+#: and absent from the limits database — device 99 of a 72-corrector ring, so
+#: nothing answers on it either; that costs the assertion
 #: nothing, because ``mode: exclusive`` refuses it in the
 #: validator before any ``caput`` is issued. The guard in
 #: ``TestTheShippedDefaultsAreWhatThisModuleMeasured`` is what keeps it unlisted.
 UNLISTED_CHANNEL = "SR:MAG:HCM:99:CURRENT:SP"
 
-#: A value inside the window the shipped database gives every SR corrector, so
-#: the refusal below cannot be a min/max verdict wearing another name.
+#: A value inside the window the limits database gives the one SR corrector it
+#: lists, so the refusal below cannot be a min/max verdict wearing another name.
 UNLISTED_WRITE_VALUE = 1.0
 
-#: A channel the shipped database *does* list, read only by the guard that
+#: A channel the limits database *does* list, read only by the guard that
 #: proves this module pointed the posture at a database that really loaded.
 LISTED_CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
 
@@ -627,7 +626,7 @@ async def refused_write(manager: ConnectorHostManager, address: str, value: floa
         )
     raise AssertionError(
         f"the exclusive limits mode accepted a write of {value} to {address!r} on the "
-        f"stand-in, which the shipped limits database does not list "
+        f"stand-in, which the limits database does not list "
         f"(result: {result!r})"
     )
 
@@ -949,7 +948,7 @@ class TestTheStrictPostureRefusesAnUnlistedWrite:
     ) -> None:
         """What separates this from every other way a write can fail.
 
-        ``UNLISTED_CHANNEL`` is a verdict about the shipped database: it is
+        ``UNLISTED_CHANNEL`` is a verdict about the limits database: it is
         reached only after that database loaded and was searched. A database
         that could not be read refuses every channel with
         ``LIMITS_DATABASE_UNAVAILABLE`` instead, and an unreachable endpoint
@@ -1006,10 +1005,11 @@ class TestTheShippedDefaultsAreWhatThisModuleMeasured:
     def test_the_control_device_is_untouched_by_the_shipped_default(self) -> None:
         assert CONTROL_DEVICE not in STANDIN_OFFSETS
 
-    def test_the_write_leg_attempts_a_channel_the_shipped_database_omits(self) -> None:
+    def test_the_write_leg_attempts_a_channel_the_limits_view_omits(self) -> None:
         """The write leg's subject, checked against the database it is judged by.
 
-        Read from the same file the deployment points ``database_path`` at. The
+        Read from the same file the deployment points ``database_path`` at: the
+        limits view a build renders from the preset's limits.yaml. The
         listed sibling is the other half: a database this module could not read,
         or one whose grammar had moved on, would fail here rather than turn the
         refusal above into a verdict about nothing.

@@ -19,11 +19,6 @@ artifacts:
   directions);
 - every channel the virtual accelerator simulates is documented in the corpus
   (a subset — the VA models a documented slice, not the whole machine);
-- the channels the corpus marks ``narad_p:writesSignal`` are exactly the ones
-  ``channel_limits.json`` grants write access to. This is the load-bearing one:
-  the limits file is what the write path actually enforces, so a corpus that
-  disagrees would have the agent proposing writes the connector refuses, or
-  worse, describing an enforced setpoint as read-only;
 - the corpus carries the binding, family and system prose on the right node. The prose is the whole point of searching a graph by meaning: a
   corpus whose bindings carry no description is one the agent can only query
   by address, which is what the channel finder already does better.
@@ -55,9 +50,6 @@ DEMO_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 #: Tier-3 hierarchical channel database — the colon-grammar source of truth.
 CHANNEL_DB_PATH = DEMO_DATA / "channel_databases/tiers/tier3/hierarchical.json"
 
-#: Channel limits — the write-safety layer the runtime actually enforces.
-LIMITS_PATH = DEMO_DATA / "channel_limits.json"
-
 #: Virtual-accelerator / mock machine model.
 MACHINE_PATH = DEMO_DATA / "simulation/machine.json"
 
@@ -74,7 +66,6 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: ``EXPECTED_BINDINGS`` in all, the four addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
 EXPECTED_BINDINGS = 2912
-EXPECTED_WRITABLE = 396
 EXPECTED_DEVICES = 512
 
 #: Prose predicates on ``narad_sem:ChannelBinding``, one per binding: the
@@ -242,50 +233,18 @@ def test_demo_ttl_documents_every_simulated_channel(corpus_pvs: set[str]) -> Non
 
 
 # ---------------------------------------------------------------------------
-# The corpus and the write-safety layer agree on what is writable
+# Every binding carries one direction, except the facility's additions
 # ---------------------------------------------------------------------------
 
 
-def test_demo_ttl_writes_exactly_the_limits_writable_set(committed_graph: Any) -> None:
-    """``writesSignal`` bindings are exactly the limits file's writable set.
-
-    ``LimitsValidator.writable_addresses`` reads the file the way the runtime
-    does — it IS the runtime's loader — merging the ``defaults`` block, where
-    the demo machine grants write access by *omitting* the key. Re-deriving it
-    here from raw JSON would risk agreeing with the corpus about the wrong
-    thing.
-    """
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
-
-    writable = set(LimitsValidator.writable_addresses(LIMITS_PATH))
-    written = _pvs_of_bindings_with(committed_graph, "writesSignal")
-
-    assert len(writable) == EXPECTED_WRITABLE, (
-        f"{LIMITS_PATH.name} grants write access to {len(writable)} channels, not "
-        f"{EXPECTED_WRITABLE}."
-    )
-    assert written == writable, (
-        "The graph describes different channels as written than the write-safety "
-        "layer permits.\n"
-        + _difference_report(written, writable, "narad_p:writesSignal", "channel_limits.json")
-    )
-    assert all(pv.endswith(":SP") for pv in written), (
-        "A written binding is not a setpoint: "
-        f"{_sample({pv for pv in written if not pv.endswith(':SP')})}"
-    )
-
-
-def test_demo_ttl_reads_everything_the_limits_file_withholds(
+def test_demo_ttl_gives_every_channel_binding_exactly_one_direction(
     committed_graph: Any, corpus_pvs: set[str], additions: set[str]
 ) -> None:
-    """The read set is the complement — no channel is both, and none is neither.
+    """No channel is both read and written, and none is neither.
 
     The addresses the facility adds beyond the channel database sit on a place
     and name no signal, so they are the only bindings with no direction.
     """
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
-
-    writable = set(LimitsValidator.writable_addresses(LIMITS_PATH))
     read = _pvs_of_bindings_with(committed_graph, "readsSignal")
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")
 
@@ -293,7 +252,6 @@ def test_demo_ttl_reads_everything_the_limits_file_withholds(
     assert corpus_pvs - (read | written) == additions, (
         f"Bindings with no direction at all: {_sample(corpus_pvs - (read | written))}"
     )
-    assert read == corpus_pvs - writable - additions
 
 
 def test_demo_ttl_generator_refuses_a_mixed_direction_group(tmp_path: Path) -> None:

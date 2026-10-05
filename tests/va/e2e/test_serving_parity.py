@@ -217,12 +217,14 @@ CONTAINER_TRUTH = "osprey-va-e2e-parity-truth"
 
 BOOT_TIMEOUT_S = 120.0
 
-# Device ids claimed by this module alone. The rest of this directory works on
-# HCM 01-03; nothing here touches those, and nothing there touches these.
+# Device ids this module works on, in containers of its own, so no other lane
+# in this directory shares their state. The written corrector is the one whose
+# setpoint carries a drive band in the facility's limits.yaml, so the clamp has
+# a band to clamp to.
 REFERENCE_SP = "SR:MAG:HCM:11:CURRENT:SP"
 REFERENCE_RB = "SR:MAG:HCM:11:CURRENT:RB"
-WRITE_SP = "SR:MAG:HCM:12:CURRENT:SP"
-WRITE_RB = "SR:MAG:HCM:12:CURRENT:RB"
+WRITE_SP = "SR:MAG:HCM:01:CURRENT:SP"
+WRITE_RB = "SR:MAG:HCM:01:CURRENT:RB"
 SEEDED_BPM = "SR:DIAG:BPM:11:POSITION:X"
 CONTROL_BPM = "SR:DIAG:BPM:12:POSITION:X"
 BINARY_CHANNEL = "SR:DIAG:BPM:11:STATUS:VALID"
@@ -231,7 +233,7 @@ BINARY_CHANNEL = "SR:DIAG:BPM:11:STATUS:VALID"
 #: republishes on its own 1 Hz tick, with no client involvement whatsoever.
 TELEMETRY = "SR:DIAG:DCCT:01:CURRENT:RB"
 
-#: The drive band this facility's limits file gives every corrector setpoint.
+#: The drive band the facility's limits.yaml gives ``WRITE_SP``.
 BAND_LOW, BAND_HIGH = -12.0, 12.0
 
 #: A current well outside the band, so the clamp is unambiguous.

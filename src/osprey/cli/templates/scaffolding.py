@@ -366,10 +366,10 @@ def copy_template_data(
 ):
     """Copy the profile's data tree to the project root (no src/ package).
 
-    Data files (channel databases, channel_limits.json, logbook seeds,
-    benchmark datasets) are placed at ``project_dir/data/``. The profile's
-    ``data:`` tree is the only source: it is copied verbatim, so a stray
-    ``.j2`` file lands byte-identical rather than being rendered.
+    Data files (channel databases, logbook seeds, benchmark datasets) are
+    placed at ``project_dir/data/``. The profile's ``data:`` tree is the only
+    source: it is copied verbatim, so a stray ``.j2`` file lands
+    byte-identical rather than being rendered.
 
     Args:
         template_root: Path to osprey's bundled templates directory

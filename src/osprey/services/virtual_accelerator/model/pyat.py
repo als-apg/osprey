@@ -26,10 +26,10 @@ directory and every file this model reads is resolved against it through
 :class:`~osprey.services.virtual_accelerator.manifest.paths.ManifestPaths`:
 the lattice, the bindings, the ``machine.json`` nominals and the
 ``channel_limits.json`` bands. There is no default and no fallback -- a
-standalone demo names the packaged tree explicitly, like any other -- because
-the alternative is serving the framework's own demo nominals and bands behind
-a facility's addresses, and the band a nominal is weighed against is the one
-thing a facility must recognise as its own.
+standalone demo stages a served tree and names it explicitly, like any
+other -- because the alternative is serving the framework's own demo
+nominals and bands behind a facility's addresses, and the band a nominal is
+weighed against is the one thing a facility must recognise as its own.
 
 **The channel list is passed in, not resolved here.** It is the set of
 channels the deployment resolved and the IOC is serving on, and the model has

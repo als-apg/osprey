@@ -17,7 +17,6 @@ data/
 │   └── TEMPLATE_EXAMPLE.json             # Database format example
 ├── benchmarks/
 │   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
-├── channel_limits.json                    # Per-channel write limits
 ├── machine_state_channels.json            # Address list reconciled against the VA manifest
 ├── ariel/
 │   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
