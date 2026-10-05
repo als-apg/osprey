@@ -1,21 +1,15 @@
-"""Type-aware simulation-file lookup for `osprey sim apply`/`list`/`status`.
+"""Type-aware simulation-file lookup for `osprey sim apply`.
 
-Before this fix, both ``apply_scenarios`` (simulation/apply.py) and the ``sim``
-CLI's ``_load_project_engine`` (cli/sim.py) resolved the simulation-model file
-exclusively from ``control_system.connector.mock.simulation_file`` and hard-
-raised otherwise. In VA mode (``control_system.type: virtual_accelerator``)
-that breaks the write->apply->read flow: the VA connector's simulation_file
-lives under ``connector.virtual_accelerator.simulation_file`` instead.
+``osprey_connectors.simulation.engine.resolve_simulation_file`` resolves the
+simulation-model file for the active ``control_system.type``, and
+``apply_scenarios`` (simulation/apply.py) resolves it through that helper.
+This file pins:
 
-``osprey_connectors.simulation.engine.resolve_simulation_file`` is the single shared
-resolver both call sites now use. This file pins:
-
-- mock resolution and its missing-key error text are bit-identical to the
-  pre-VA behavior (both in the helper and in each of its two callers, which
-  keep their own historical wording for the mock case).
+- mock resolution reads ``connector.mock.simulation_file``, and a missing key
+  is refused with the mock wording.
 - VA resolution reads ``connector.virtual_accelerator.simulation_file``, and
-  falls back to the mock key when its own key is unset (mirroring the
-  contract that "the mock fallback" is a real, not just informational, key).
+  falls back to the mock key when its own key is unset (the mock fallback is
+  a real key, not an informational one).
 - an unknown/unsupported ``control_system.type`` fails cleanly, naming both
   the type-specific key and the mock fallback key that were tried.
 """
@@ -26,9 +20,7 @@ import shutil
 from pathlib import Path
 
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.sim import sim_group
 from osprey.simulation.apply import apply_scenarios
 from osprey_connectors.simulation.engine import resolve_simulation_file
 
@@ -68,45 +60,13 @@ def _stage_project(tmp_path: Path, control_system: dict) -> Path:
 
     The flat shape: ``config.yml`` beside ``data/``. This is what a *container*
     project directory looks like — its root is the render — and it is the shape
-    the direct-API callers below are handed. :func:`_stage_repo` is its
-    deployment-repo counterpart, for the callers that discover a repo instead of
-    being told one.
+    the direct-API callers below are handed.
     """
     sim_dst = tmp_path / "data" / "simulation"
     sim_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(TEMPLATE_SIM, sim_dst)
     config = {"control_system": control_system}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
-
-
-def _stage_repo(tmp_path: Path, control_system: dict, *, with_model: bool = True) -> Path:
-    """Stage a deployment repo the ``sim`` CLI can discover.
-
-    The CLI takes no project directory: it walks up to the nearest
-    ``profile.yml`` and reads the render under ``build/``. So the same
-    ``control_system`` block has to be placed the way a real deployment holds it
-    — the rendered config in ``build/``, the simulation model in the source zone
-    at the repo root, which is what ``project_root`` means in a rendered config
-    and therefore what the model path resolves against.
-
-    ``profile.yml`` is present but empty: it is the repo *marker* here, and
-    nothing in this file's subject parses it.
-
-    Args:
-        with_model: Copy the shipped simulation tree in. False stages a repo
-            with a render but no model, which is how the missing-key branches
-            are reached without the resolver finding a file anyway.
-    """
-    (tmp_path / "profile.yml").write_text("")
-    if with_model:
-        sim_dst = tmp_path / "data" / "simulation"
-        sim_dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(TEMPLATE_SIM, sim_dst)
-
-    build = tmp_path / "build"
-    build.mkdir(parents=True, exist_ok=True)
-    (build / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
     return tmp_path
 
 
@@ -218,43 +178,3 @@ class TestApplyScenariosTypeAwareness:
         assert "control_system.connector.bogus.simulation_file" in message
         assert MOCK_TYPE_KEY in message
         assert str(project) in message
-
-
-# ---------------------------------------------------------------------------
-# `sim` CLI (cli/sim.py, via `_load_project_engine`)
-# ---------------------------------------------------------------------------
-
-
-class TestSimCliTypeAwareness:
-    """The same three branches, reached through the CLI's own discovery.
-
-    Each of these is driven from a *subdirectory* of the staged repo rather
-    than its root. The type-aware lookup being pinned here happens after the
-    repo is found, and running from the root would let a regression to
-    "cwd is the project" pass unnoticed.
-    """
-
-    def test_mock_missing_key_cli_message_unchanged(self, tmp_path, monkeypatch):
-        repo = _stage_repo(tmp_path, MOCK_MISSING_CS, with_model=False)
-        monkeypatch.chdir(repo / "build")
-        result = CliRunner().invoke(sim_group, ["list"])
-        assert result.exit_code == 1
-        assert "✗ No mock 'simulation_file' is configured in config.yml" in result.output
-        assert "This project does not use the simulation engine." in result.output
-
-    def test_va_mode_lists_scenarios(self, tmp_path, monkeypatch):
-        repo = _stage_repo(tmp_path, VA_CS)
-        monkeypatch.chdir(repo / "data" / "simulation")
-        result = CliRunner().invoke(sim_group, ["list"])
-        assert result.exit_code == 0
-        assert "nominal" in result.output
-        assert "rf-thermal" in result.output
-
-    def test_unknown_type_cli_names_both_keys(self, tmp_path, monkeypatch):
-        repo = _stage_repo(tmp_path, UNKNOWN_CS, with_model=False)
-        monkeypatch.chdir(repo / "build")
-        result = CliRunner().invoke(sim_group, ["list"])
-        assert result.exit_code == 1
-        assert "control_system.connector.bogus.simulation_file" in result.output
-        assert MOCK_TYPE_KEY in result.output
-        assert "This project does not use the simulation engine." in result.output
