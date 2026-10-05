@@ -736,7 +736,7 @@ class SimulationEngine:
                 text = state_file.read_text()
             except FileNotFoundError:
                 text = ""
-            raw_names, anchor_epoch = self._parse_state(text)
+            raw_names, anchor_epoch = parse_active_state(text)
             for raw in raw_names:
                 if raw in self._scenarios:
                     if raw not in names:
@@ -769,11 +769,6 @@ class SimulationEngine:
                 f"Simulation scenarios {list(new_active)!r} re-asserted (session writes cleared)"
             )
         self._recompose()
-
-    @staticmethod
-    def _parse_state(text: str) -> tuple[list[str], float | None]:
-        """Parse state-file text into (scenario names, anchor epoch seconds or None)."""
-        return parse_active_state(text)
 
     def _recompose(self) -> None:
         """Merge the active set's overrides and archiver scripts into composed views.
