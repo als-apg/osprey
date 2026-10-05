@@ -103,6 +103,11 @@ CHROMATICITY_RTOL = {"spear3.storagering": 2e-8, "nsls2.storagering": 2e-7}
 #: on the coarsest grids that differs by up to 2.8e-2.
 TABLE_SAMPLING_RTOL = 3e-2
 
+#: How near an energy knob's start value keeps to the nominal currents the
+#: export states. No model file records a hardware answer for the knob, so
+#: nothing holds it to ``CONVERSION_RTOL``.
+ENERGY_NOMINAL_RTOL = 1e-4
+
 #: Every model-file section whose hardware answer a test here converts.
 CHECKED = frozenset(
     {
@@ -707,6 +712,54 @@ def test_response_k_per_amp_is_the_build_calibration_over_the_step(
         f"{name}: {len(offenders)} devices' build calibration differs from k_per_amp: "
         f"{offenders[:10]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# The energy knob
+# ---------------------------------------------------------------------------
+
+
+@MODELS
+def test_energy_knob_starts_at_the_nominal_currents_the_export_states(
+    tree: str, stem: str, mml_built: Built
+) -> None:
+    """A wired energy knob's start value lies within ``ENERGY_NOMINAL_RTOL`` of each nominal.
+
+    The model files hold no reference answer for the knob, so its start value,
+    the export's energy table read back at the deck energy, is held only near
+    every ``Setpoint`` nominal the export states for the knob's family.
+    """
+    from osprey.simulation.engines import pyat as engine
+
+    built = mml_built(tree, stem)
+    calibrations = _calibrations(built)
+    knobs = sorted(
+        family
+        for family, wired in calibrations.wiring.model.wiring.items()
+        if wired.engine is not None and wired.engine.attribute == "energy"
+    )
+    if not knobs:
+        pytest.skip(f"{built.name} wires no energy knob")
+    va = json.loads((FIXTURES / tree / f"{stem}.va.json").read_text(encoding="utf-8"))
+    for family in knobs:
+        words = calibrations.wiring.engine(family)
+        entries = [
+            entry
+            for entry in built.wiring
+            if entry.get("direction") == "write" and dict(entry.get("engine") or {}) == words
+        ]
+        assert len(entries) == 1, f"{built.name} wires {len(entries)} {family} energy knobs"
+        (entry,) = entries
+        start = engine.start_values(built.deck, [entry], built.settings)[str(entry["address"])]
+        nominals = np.asarray(va["families"][family]["nominals"]["Setpoint"]["values"], dtype=float)
+        assert nominals.size, f"the export states no {family} Setpoint nominal"
+        np.testing.assert_allclose(
+            np.full(nominals.shape, float(start)),
+            nominals,
+            rtol=ENERGY_NOMINAL_RTOL,
+            atol=0,
+            err_msg=f"{family} ({entry['address']}): the build's start value vs the nominals",
+        )
 
 
 # ---------------------------------------------------------------------------
