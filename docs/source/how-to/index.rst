@@ -125,6 +125,7 @@ Facility services
    control-systems/index
    use-channel-finder
    import-mml-export
+   run-scenarios
    facility-knowledge/index
    ariel/index
    bluesky/index
