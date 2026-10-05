@@ -750,6 +750,11 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
 # and reads as flakiness rather than as a limit set too low.
 _VENV_INSTALL_TIMEOUT_S = 1800
 
+# An interpreter or uv that cannot create the venv fails fast with a nonzero
+# exit, so this cap never decides a failure; it bounds only a process that has
+# hung, and leaves an ordinary creation on a loaded host the room it needs.
+_VENV_CREATE_TIMEOUT_S = 300
+
 
 def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     """Create the project venv and install osprey + profile deps.
@@ -806,14 +811,14 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
             [uv_path, "venv", str(venv_path), "--python", base_python_arg, "--quiet", "--clear"],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=_VENV_CREATE_TIMEOUT_S,
         )
     else:
         result = subprocess.run(
             [base_python_arg, "-m", "venv", str(venv_path)],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=_VENV_CREATE_TIMEOUT_S,
         )
     if result.returncode != 0:
         output = (result.stdout + result.stderr).strip()
