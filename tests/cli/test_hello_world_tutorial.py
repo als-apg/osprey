@@ -154,3 +154,17 @@ class TestMockConnectorTutorialChannels:
             result = await connector.read_channel(name)
             assert result is not None
             assert isinstance(result.value, (int, float))
+
+    async def test_the_render_s_mock_reads_a_stored_beam_current(self, hello_world_project: Path):
+        """The tutorial's first reading is a stored beam near its seeded nominal."""
+        from osprey.connectors.control_system.mock_connector import MockConnector
+
+        connector = MockConnector()
+        await connector.connect(mock_config(hello_world_project / "data" / "simulator"))
+        try:
+            result = await connector.read_channel("SR:BEAM:CURRENT")
+        finally:
+            await connector.disconnect()
+
+        assert result.value != 0.0
+        assert result.value == pytest.approx(250.0, abs=5.0)
