@@ -477,6 +477,27 @@ def test_the_log_appends_one_line_per_record_widened_past_the_umask(
     assert not (tmp_path / "var" / "simulator" / "texture.log").exists()
 
 
+def test_an_event_is_appended_to_every_physics_models_log_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    logs = tmp_path / "var" / "simulator"
+    monkeypatch.setattr(composite_module, "log_dir", lambda: logs)
+    composite = _composite(tmp_path)
+
+    composite.log_event("noticed", address="T:SP", reason="why")
+
+    records = [json.loads(line) for line in (logs / "M.log").read_text().splitlines()]
+    assert records[-1] == {
+        "address": "T:SP",
+        "event": "noticed",
+        "instance": "inprocess",
+        "model": "M",
+        "pid": os.getpid(),
+        "reason": "why",
+    }
+    assert sorted(path.name for path in logs.iterdir()) == ["M.log"]
+
+
 # -- the active scenarios ------------------------------------------------------
 
 

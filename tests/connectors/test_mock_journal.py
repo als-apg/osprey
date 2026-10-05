@@ -18,6 +18,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -337,6 +338,86 @@ async def test_an_entry_whose_seq_is_a_bool_is_not_replayed(view, caplog):
     assert "writes journal rejected: writes.json: malformed entry [True, 'A:SP', 5.0]" in (
         caplog.text
     )
+    await connector.disconnect()
+
+
+def _with_physics_model(view: Path, name: str) -> Path:
+    """The view again with one served physics model that owns no channel."""
+    variables = json.loads((view / "variables.json").read_text())
+    variables["models"].append(
+        {
+            "name": name,
+            "engine": "journal-stub",
+            "served": True,
+            "settings": {},
+            "deck": None,
+            "wiring": [],
+        }
+    )
+    (view / "variables.json").write_text(json.dumps(variables))
+    served = json.loads((view / "served_models.json").read_text())
+    served["models"] = sorted([*served["models"], name])
+    (view / "served_models.json").write_text(json.dumps(served))
+    return view
+
+
+async def test_a_rejected_journal_is_appended_to_every_physics_models_log(
+    view, caplog, monkeypatch, tmp_path
+):
+    from osprey_connectors.simulation import composite as composite_module
+    from osprey_connectors.simulation.composite import Composite
+
+    stub = SimpleNamespace(build=lambda *args, **kwargs: object())
+    real = Composite._engine
+    monkeypatch.setattr(
+        Composite,
+        "_engine",
+        staticmethod(lambda name: stub if name == "journal-stub" else real(name)),
+    )
+    logs = tmp_path / "model-logs"
+    monkeypatch.setattr(composite_module, "log_dir", lambda: logs)
+    view = _with_physics_model(view, "M")
+    _plant(view, [[1, "A:SP", 5.0]], sha="0" * 64)
+
+    with caplog.at_level(logging.WARNING):
+        connector = await _connected(view)
+        await connector.read_channel("A:SP")
+
+    records = [json.loads(line) for line in (logs / "M.log").read_text().splitlines()]
+    rejected = [record for record in records if record["event"] == "journal-rejected"]
+    assert rejected == [
+        {
+            "address": "A:SP",
+            "event": "journal-rejected",
+            "instance": "inprocess",
+            "model": "M",
+            "pid": os.getpid(),
+            "reason": "written under another active scenario set",
+        }
+    ]
+    assert "writes journal rejected: A:SP: written under another active scenario set" in (
+        caplog.text
+    )
+    await connector.disconnect()
+
+
+async def test_a_rejected_journal_without_a_physics_model_logs_the_process_line_only(
+    view, caplog, monkeypatch, tmp_path
+):
+    from osprey_connectors.simulation import composite as composite_module
+
+    logs = tmp_path / "model-logs"
+    monkeypatch.setattr(composite_module, "log_dir", lambda: logs)
+    _plant(view, [[1, "A:SP", 5.0]], sha="0" * 64)
+
+    with caplog.at_level(logging.WARNING):
+        connector = await _connected(view)
+        await connector.read_channel("A:SP")
+
+    assert "writes journal rejected: A:SP: written under another active scenario set" in (
+        caplog.text
+    )
+    assert not logs.exists()
     await connector.disconnect()
 
 
