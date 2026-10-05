@@ -618,3 +618,42 @@ def test_a_setpoint_stating_a_null_pair_pairs_with_itself(
     )
 
     assert _channel(variables, UNLISTED_SETPOINT)["pair"] == UNLISTED_SETPOINT
+
+
+def _with_channel(built: BuiltProject, address: str) -> dict[str, Any]:
+    facility = copy.deepcopy(built.facility)
+    facility["channels"].append({"id": address})
+    return facility
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"deployed_services": ["archiver_recorder"]},
+        {"services": {"archiver_recorder": {"path": "./services/archiver_recorder"}}},
+    ],
+    ids=["deployed", "projected"],
+)
+def test_a_configured_recorder_stops_on_an_address_it_cannot_store(
+    tmp_path: Path, built_control_assistant: BuiltProject, config: dict[str, Any]
+) -> None:
+    from osprey.facility.errors import FacilityBuildError
+
+    facility = _with_channel(built_control_assistant, "$LAB:TEMP")
+
+    with pytest.raises(FacilityBuildError) as excinfo:
+        render_facility_outputs(tmp_path, facility, config, built_control_assistant.facility_dir)
+
+    assert (excinfo.value.kind, excinfo.value.record_id) == ("view-unsupported", "$LAB:TEMP")
+    assert "operator" in excinfo.value.detail
+    assert not (tmp_path / ADDRESSES).exists()
+
+
+def test_without_the_recorder_an_unstorable_address_is_served(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    facility = _with_channel(built_control_assistant, "LAB.TEMP")
+
+    render_facility_outputs(tmp_path, facility, {}, built_control_assistant.facility_dir)
+
+    assert "LAB.TEMP" in _view(tmp_path, ADDRESSES)["channels"]
