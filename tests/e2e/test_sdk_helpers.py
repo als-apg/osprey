@@ -8,6 +8,7 @@ about the model under test.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +23,8 @@ from tests.e2e.sdk_helpers import (
     _bind_approval_policy,
     _log_query_timing,
     dump_agent_transcript,
+    e2e_budget_cap,
+    e2e_budget_scale,
     hook_attachments,
 )
 
@@ -431,3 +434,25 @@ def test_query_timing_never_raises(tmp_path, monkeypatch):
     """Instrumentation must never fail the test it observes."""
     monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(tmp_path / "missing-dir" / "q.jsonl"))
     _log_query_timing(_timed_result())
+
+
+# --- the per-query dollar cap handed to the Agent SDK -----------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "base", "cap"),
+    [(None, 2.0, 2.0), ("3", 2.0, 6.0), ("0", 2.0, 2.0), ("junk", 2.0, 2.0)],
+)
+def test_budget_cap_scales_the_call_site_budget(monkeypatch, raw, base, cap):
+    if raw is None:
+        monkeypatch.delenv("OSPREY_E2E_BUDGET_SCALE", raising=False)
+    else:
+        monkeypatch.setenv("OSPREY_E2E_BUDGET_SCALE", raw)
+    assert e2e_budget_cap(base) == cap
+
+
+def test_an_infinite_budget_scale_sends_no_cap_and_passes_every_cost_ceiling(monkeypatch):
+    monkeypatch.setenv("OSPREY_E2E_BUDGET_SCALE", "inf")
+    assert e2e_budget_cap(2.0) is None
+    assert math.isinf(e2e_budget_scale())
+    assert 1e6 < 0.5 * e2e_budget_scale()
