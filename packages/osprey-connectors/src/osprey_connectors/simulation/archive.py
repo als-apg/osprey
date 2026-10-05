@@ -305,9 +305,6 @@ class SeedReport:
 #: The serving instances an archive composite is built for.
 ARCHIVE_INSTANCES = ("virtual_accelerator",)
 
-_VIEW_VARIABLES = "variables.json"
-_VIEW_ADDRESSES = "addresses.json"
-_VIEW_SCENARIOS = "scenarios.json"
 _STEP = "step"
 
 
@@ -477,14 +474,20 @@ def build(
     if instance not in ARCHIVE_INSTANCES:
         raise ValueError(f"instance is {instance!r}; use one of {list(ARCHIVE_INSTANCES)}")
     from osprey_connectors.config import get_facility_timezone
-    from osprey_connectors.simulation.composite import STATUS_OK, Composite
+    from osprey_connectors.simulation.composite import (
+        ADDRESSES_FILE,
+        SCENARIOS_FILE,
+        STATUS_OK,
+        VARIABLES_FILE,
+        Composite,
+    )
 
     view_dir = Path(view)
-    variables = json.loads((view_dir / _VIEW_VARIABLES).read_text(encoding="utf-8"))
-    addresses = json.loads((view_dir / _VIEW_ADDRESSES).read_text(encoding="utf-8"))
+    variables = json.loads((view_dir / VARIABLES_FILE).read_text(encoding="utf-8"))
+    addresses = json.loads((view_dir / ADDRESSES_FILE).read_text(encoding="utf-8"))
     scenarios = {
         str(scenario["name"]): scenario
-        for scenario in json.loads((view_dir / _VIEW_SCENARIOS).read_text(encoding="utf-8"))[
+        for scenario in json.loads((view_dir / SCENARIOS_FILE).read_text(encoding="utf-8"))[
             "scenarios"
         ]
     }

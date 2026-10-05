@@ -43,7 +43,13 @@ from lume.variables import (
 
 from osprey_connectors.simulation import series, values
 
-__all__ = ["TEXTURE_OWNER", "TextureModel", "channel_variable"]
+__all__ = [
+    "TEXTURE_OWNER",
+    "TextureModel",
+    "channel_value_type",
+    "channel_variable",
+    "is_float_channel",
+]
 
 #: The ``owner`` the simulator view writes for a channel no model wires.
 TEXTURE_OWNER = "texture"
@@ -56,12 +62,14 @@ _ABSOLUTE_NOISE_SUBKEY = b":noise_abs"
 _INT_UNBOUNDED = 2**63 - 1
 
 
-def _channel_value_type(channel: Mapping[str, Any]) -> str:
+def channel_value_type(channel: Mapping[str, Any]) -> str:
+    """A channel record's ``value_type``, ``float`` when it states none."""
     return channel.get("value_type") or values.DEFAULT_VALUE_TYPE
 
 
-def _is_float(channel: Mapping[str, Any]) -> bool:
-    return _channel_value_type(channel) == "float"
+def is_float_channel(channel: Mapping[str, Any]) -> bool:
+    """Whether a channel record holds a ``float``."""
+    return channel_value_type(channel) == "float"
 
 
 def _value_range(channel: Mapping[str, Any]) -> tuple[Any, Any] | None:
@@ -72,7 +80,7 @@ def _value_range(channel: Mapping[str, Any]) -> tuple[Any, Any] | None:
     low, high = bounds
     if low is None and high is None:
         return None
-    if _channel_value_type(channel) == "int":
+    if channel_value_type(channel) == "int":
         return (
             -_INT_UNBOUNDED if low is None else int(low),
             _INT_UNBOUNDED if high is None else int(high),
@@ -112,7 +120,7 @@ def channel_variable(channel: Mapping[str, Any], nominal: Any) -> Variable:
     """
     address = str(channel["address"])
     read_only = not (channel.get("role") == _SETPOINT and channel.get("writable") is True)
-    value_type = _channel_value_type(channel)
+    value_type = channel_value_type(channel)
     unit = channel.get("unit")
     if value_type in ("bool", "enum"):
         options = list(channel.get("options") or values.DEFAULT_BOOL_OPTIONS)
@@ -211,7 +219,7 @@ class TextureModel(LUMEModel):
     def _coerce(self, address: str, value: Any) -> Any:
         channel = self._channels[address]
         return values.coerce(
-            value, _channel_value_type(channel), channel.get("options"), channel.get("shape")
+            value, channel_value_type(channel), channel.get("options"), channel.get("shape")
         )
 
     def _nominal(self, address: str, wiring_default: Any) -> Any:
@@ -222,7 +230,7 @@ class TextureModel(LUMEModel):
         if wiring_default is not None:
             return self._coerce(address, wiring_default)
         return values.zero(
-            _channel_value_type(channel), channel.get("options"), channel.get("shape")
+            channel_value_type(channel), channel.get("options"), channel.get("shape")
         )
 
     @property
@@ -323,7 +331,7 @@ class TextureModel(LUMEModel):
         flat = times.reshape(-1)
         total = np.zeros(flat.shape, dtype=np.float64)
         channel = self._channels.get(address)
-        if channel is None or not _is_float(channel):
+        if channel is None or not is_float_channel(channel):
             return total.reshape(times.shape)
         seed = self._seeds.get(address) or {}
         key = series.channel_key_bytes(address)
@@ -392,11 +400,11 @@ class TextureModel(LUMEModel):
         for name in names:
             held = self._held_value(name)
             channel = self._channels[name]
-            if _is_float(channel):
+            if is_float_channel(channel):
                 outputs[name] = self.clamp(
                     name, float(held) + float(self.motion(name, t_s, base=float(held)))
                 )
-            elif _channel_value_type(channel) == "waveform":
+            elif channel_value_type(channel) == "waveform":
                 outputs[name] = np.asarray(held, dtype=np.float64).reshape(
                     tuple(int(size) for size in channel["shape"])
                 )

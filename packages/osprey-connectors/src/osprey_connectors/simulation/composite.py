@@ -77,17 +77,28 @@ from osprey_connectors.simulation.state import (
     scenario_targets,
     validate_composition,
 )
-from osprey_connectors.simulation.texture import TEXTURE_OWNER, TextureModel, channel_variable
+from osprey_connectors.simulation.texture import (
+    TEXTURE_OWNER,
+    TextureModel,
+    channel_value_type,
+    channel_variable,
+    is_float_channel,
+)
 from osprey_connectors.workspace import repo_root_for_config
 
 __all__ = [
+    "ADDRESSES_FILE",
     "ENGINE_GROUP",
     "INSTANCES",
     "LOG_RECORD_MAX_BYTES",
+    "SCENARIOS_FILE",
+    "SEEDS_FILE",
+    "SERVED_MODELS_FILE",
     "STATUS_MAX_BYTES",
     "STATUS_OK",
     "STUCK",
     "UDF",
+    "VARIABLES_FILE",
     "Composite",
     "cap_status",
     "log_dir",
@@ -116,18 +127,19 @@ STUCK = "stuck"
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 UDF = "udf"
 
+#: The files of the simulator view the composite reads.
+SERVED_MODELS_FILE = "served_models.json"
+ADDRESSES_FILE = "addresses.json"
+VARIABLES_FILE = "variables.json"
+SEEDS_FILE = "seeds.json"
+SCENARIOS_FILE = "scenarios.json"
+
 _ELLIPSIS = "…"
 _SETPOINT = "setpoint"
 _FAULT_SEPARATOR = "/"
 _MODEL_SEPARATOR = "/"
 _LOG_MODE = 0o664
 _MS_PER_S = 1000.0
-
-_SERVED_MODELS_FILE = "served_models.json"
-_ADDRESSES_FILE = "addresses.json"
-_VARIABLES_FILE = "variables.json"
-_SEEDS_FILE = "seeds.json"
-_SCENARIOS_FILE = "scenarios.json"
 
 
 def cap_status(text: str, max_bytes: int = STATUS_MAX_BYTES) -> str:
@@ -242,13 +254,13 @@ class Composite(LUMEModel):
         self._log_dir = log_dir() if model_log else None
         self._active: list[str] = []
 
-        variables = _read_json(self._view_dir / _VARIABLES_FILE)
-        seeds = _read_json(self._view_dir / _SEEDS_FILE)
-        addresses = _read_json(self._view_dir / _ADDRESSES_FILE)
-        served = _read_json(self._view_dir / _SERVED_MODELS_FILE)["models"]
+        variables = _read_json(self._view_dir / VARIABLES_FILE)
+        seeds = _read_json(self._view_dir / SEEDS_FILE)
+        addresses = _read_json(self._view_dir / ADDRESSES_FILE)
+        served = _read_json(self._view_dir / SERVED_MODELS_FILE)["models"]
         self._scenarios: dict[str, Mapping[str, Any]] = {
             str(scenario["name"]): scenario
-            for scenario in _read_json(self._view_dir / _SCENARIOS_FILE)["scenarios"]
+            for scenario in _read_json(self._view_dir / SCENARIOS_FILE)["scenarios"]
         }
         self._channels: dict[str, Mapping[str, Any]] = {
             str(channel["address"]): channel for channel in variables["channels"]
@@ -551,8 +563,7 @@ class Composite(LUMEModel):
 
     def _is_moving_readback(self, address: str) -> bool:
         channel = self._channels[address]
-        value_type = channel.get("value_type") or values.DEFAULT_VALUE_TYPE
-        return channel.get("role") != _SETPOINT and value_type == "float"
+        return channel.get("role") != _SETPOINT and is_float_channel(channel)
 
     def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, Any]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""
@@ -598,7 +609,7 @@ class Composite(LUMEModel):
         outputs: dict[str, Any] = {}
         for name in names:
             channel = self._channels[name]
-            value_type = channel.get("value_type") or values.DEFAULT_VALUE_TYPE
+            value_type = channel_value_type(channel)
             if name in child.inputs:
                 outputs[name] = child.inputs[name]
             elif value_type == "float":
@@ -651,10 +662,7 @@ class Composite(LUMEModel):
         self._require(names)
         for name in names:
             channel = self._channels.get(name)
-            if (
-                channel is None
-                or (channel.get("value_type") or values.DEFAULT_VALUE_TYPE) != "float"
-            ):
+            if channel is None or not is_float_channel(channel):
                 raise ValueError(f"{name} is not a float channel of the view")
         self._refresh()
         times = np.asarray(t_s, dtype=np.float64).reshape(-1)
