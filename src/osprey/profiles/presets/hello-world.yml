@@ -120,9 +120,10 @@ mcp_servers:
 # host port (each service has a fixed slot above `deployment.port_base`).
 config:
   # ── Control system ─────────────────────────────────────────────────────────
-  # Which control system to talk to. "mock" invents a value for ANY channel
-  # name in-process, so reads work with no hardware and no containers behind
-  # them. The control-assistant preset shows the EPICS connector configuration,
+  # Which control system to talk to. "mock" serves the addresses of the built
+  # facility file in-process and refuses any other, with no hardware and no
+  # containers behind it. The control-assistant preset shows the EPICS
+  # connector configuration,
   # and `osprey config --defaults` lists every shipped connector type.
   control_system.type: mock
   # The FIRST guard in the write-safety chain: while false, every hardware
