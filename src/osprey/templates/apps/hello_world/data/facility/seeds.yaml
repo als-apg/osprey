@@ -1,0 +1,3 @@
+SR:BEAM:CURRENT:
+  nominal: 250.0
+  noise: 0.1
