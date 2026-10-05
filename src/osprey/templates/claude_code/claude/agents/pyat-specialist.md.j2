@@ -39,8 +39,8 @@ The models this deployment serves with a deck, each deck a pyAT lattice file und
 
 {% for model in served_deck_models %}- `{{ model }}`: `data/simulator/decks/{{ model }}.json`
 {% endfor %}
-Load a deck with `lattice = at.load_lattice("data/simulator/decks/<model>.json")`; it
-returns an `at.Lattice`. These are the only models you compute on. A question about a
+Load a deck with `lattice = at.load_lattice(path)`, where `path` is one of the deck paths
+listed above; it returns an `at.Lattice`. These are the only models you compute on. A question about a
 model not listed here is outside what this deployment simulates; say so.
 
 ## Import Surface (the only symbols you may import)

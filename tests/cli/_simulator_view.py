@@ -21,6 +21,7 @@ from lume.variables import ScalarVariable, Variable
 
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import ENGINE_GROUP
+from tests._simulator_view import write_scenarios_view
 
 #: The rendered config of a mock deployment serving the view.
 MOCK_CONFIG = """\
@@ -147,12 +148,12 @@ def write_simulator_view(
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
         "seeds.json": {"seeds": {_TEXTURE_SP: {"nominal": 5.0}}},
-        "scenarios.json": {
-            "scenarios": sorted((dict(s) for s in scenarios), key=lambda s: str(s["name"]))
-        },
     }
     view = build / "data" / "simulator"
     view.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
         (view / name).write_text(json.dumps(document), encoding="utf-8")
+    write_scenarios_view(
+        build, {str(s["name"]): {k: v for k, v in s.items() if k != "name"} for s in scenarios}
+    )
     return view
