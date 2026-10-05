@@ -90,7 +90,15 @@ VIEW: dict[str, Any] = {
         _channel("M:CHROM", owner="M", value_type="waveform", shape=[2]),
         _channel("M:CHROM:X", owner="M"),
         _channel("M:CHROM:Y", owner="M"),
-        _channel("M:HCM:SP", owner="M", role="setpoint", writable=True, value_range=[-2.0, 2.0]),
+        _channel(
+            "M:HCM:SP",
+            owner="M",
+            role="setpoint",
+            writable=True,
+            value_range=[-2.0, 2.0],
+            precision=4,
+        ),
+        _channel("T:COUNT", value_type="int", precision=2),
         _channel("M:SLICED", owner="M"),
         _channel("M:TUNE:X", owner="M"),
         _channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0.0, 1.0]),
@@ -166,6 +174,14 @@ def test_the_given_configuration_is_left_as_it_was() -> None:
     apply_safety(given, VIEW)
 
     assert given == before
+
+
+def test_a_float_channel_stating_precision_hands_it_to_the_runner() -> None:
+    config = apply_safety(_generated(VIEW), VIEW)
+
+    assert config["variables"]["M:HCM:SP"]["precision"] == 4
+    stated = {address for address, entry in config["variables"].items() if "precision" in entry}
+    assert stated == {"M:HCM:SP"}
 
 
 def test_chromaticity_addresses_are_those_wired_to_the_chromaticity_output() -> None:
