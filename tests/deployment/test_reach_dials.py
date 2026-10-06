@@ -24,11 +24,14 @@ def _dial(service: str, config: dict, index: int = 0):
 
 class TestQmd:
     def test_follows_the_published_port_on_loopback(self):
-        assert _dial("qmd", {"services": {"qmd": {"port": 9180}}}) == ("127.0.0.1", 9180)
+        # Consumer 0 is ARIEL hybrid search, which dials the ariel corpus's
+        # sidecar: the second port of the qmd family.
+        assert _dial("qmd", {"services": {"qmd": {"port": 9180}}}) == ("127.0.0.1", 9181)
 
-    def test_both_consumers_share_the_resolver(self):
+    def test_each_consumer_dials_its_own_corpus_sidecar(self):
         config = {"services": {"qmd": {"port": 9180}}}
-        assert _dial("qmd", config, 0) == _dial("qmd", config, 1)
+        assert _dial("qmd", config, 0) == ("127.0.0.1", 9181)
+        assert _dial("qmd", config, 1) == ("127.0.0.1", 9180)
 
     def test_no_block_is_nothing_to_dial(self):
         assert _dial("qmd", {}) is None

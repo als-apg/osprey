@@ -378,6 +378,18 @@ keys:
       name — the one operator error that would otherwise surface only as an
       unhealthy container an hour later.
     default: null
+  services.qmd.corpora:
+    rendered: false
+    evidence: '_declared_corpora\(block\.get\("corpora"\)\)'
+    note: >-
+      Hidden key, unset in the framework template and the presets. Declares
+      corpora beyond the two OSPREY derives itself (the OKF bundle and ARIEL's
+      mirror), each served by its own sidecar at `port + 2` onwards in list
+      order. An entry is `name`, `index` (`managed`, the default: the sidecar
+      indexes `source`; `prebuilt`: it serves the index in `index_dir`, built
+      elsewhere) and the path that mode needs. `preflight_qmd_corpora` refuses
+      the deploy when a declared path has nothing in it to index or serve.
+    default: null
   # `services.qmd.bind_address` is deliberately absent: the sidecar publishes on
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.

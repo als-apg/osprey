@@ -339,10 +339,10 @@ def _hints() -> list[str]:
     """
     base_url = None
     try:
-        from osprey.deployment.qmd_service import resolve_qmd_service_config
+        from osprey.deployment.qmd_service import ARIEL_CORPUS, resolve_qmd_corpus_config
         from osprey.utils.workspace import load_osprey_config
 
-        qmd_config = resolve_qmd_service_config(load_osprey_config())
+        qmd_config = resolve_qmd_corpus_config(load_osprey_config(), ARIEL_CORPUS)
         base_url = qmd_config.base_url if qmd_config is not None else None
     except Exception:  # a config fault must not replace the real error.
         logger.debug("could not resolve services.qmd while building hybrid_search hints")

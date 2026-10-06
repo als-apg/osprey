@@ -1,8 +1,8 @@
 """The ``services.qmd`` config schema: defaults, resolution, and its base URL.
 
-The qmd sidecar is a container that indexes the deployment's markdown corpora
-and answers semantic queries over HTTP. Three surfaces need to agree on the
-same three numbers — the compose fragment that publishes the port, the sidecar
+The qmd sidecars index the deployment's markdown corpora and answer semantic
+queries over HTTP, one sidecar per corpus. Three surfaces need to agree on the
+same numbers — the compose fragment that publishes the ports, the sidecar
 entrypoint that drives the update loop, and the Python client that queries it —
 so the schema is resolved once here rather than re-spelled at each of them.
 
@@ -14,6 +14,31 @@ Config shape, as it appears in a project's ``config.yml``::
         port: 10060                          # the qmd slot at the default base
         interval: 30
         models_dir: /srv/osprey/qmd-models   # optional; see below
+        corpora:                             # optional; see below
+          - name: papers
+            index: prebuilt
+            index_dir: /srv/qmd/papers-index
+
+One sidecar per corpus
+----------------------
+Each corpus gets its own index, its own sidecar and its own port, so a small
+corpus never shares a vector scan, an update sweep or a rebuild with a large
+one. ``port`` is the first port of a family of :data:`CORPUS_SLOTS`: the
+facility-knowledge bundle (``okf``) is always at ``port + 0`` and ARIEL's
+logbook mirror (``ariel``) always at ``port + 1`` — whether or not this render
+configures them, so a container that only knows one of the two still dials the
+port the deployment published it on. Both are derived from the config that
+produces them (``facility_knowledge.bundle_path``, ARIEL's ``qmd_export``) and
+need no entry here.
+
+``corpora`` declares further corpora, at ``port + 2`` onwards in list order.
+Each names a collection (``name``) and how its index comes to exist:
+
+* ``index: managed`` (the default) — the sidecar indexes ``source``, a
+  directory of markdown, and keeps the index current itself.
+* ``index: prebuilt`` — the index was built elsewhere, typically on a GPU host
+  where embedding is several times faster, and ``index_dir`` is the directory
+  holding its ``.qmd/index.sqlite``. The sidecar only serves it.
 
 ``models_dir`` is the one key that changes how the sidecar is *built*. By
 default the image bakes its three GGUF models in at build time, which needs
@@ -43,14 +68,15 @@ whatever can route to that interface.
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from osprey.config_guards import require_absolute_path, require_positive_int
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey.port_layout import default_port, resolve_port_base
+from osprey.port_layout import QMD_CORPUS_MAX, default_port, resolve_port_base
 
 #: Key of the sidecar's block under ``services:`` — also its compose service
 #: name and its ``deployed_services`` entry. Spelled once so the build-time
@@ -140,13 +166,70 @@ MODEL_FILENAMES = (
     "hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf",
 )
 
+#: Corpus (and collection) name of the facility-knowledge bundle. A contract,
+#: not a label: the OKF bundle and panel query their sidecar under this name.
+OKF_CORPUS = "okf"
+
+#: Corpus (and collection) name of ARIEL's markdown mirror; ARIEL's hybrid
+#: search queries its sidecar under this name.
+ARIEL_CORPUS = "ariel"
+
+#: Port offset, inside the qmd family, of each corpus OSPREY derives itself.
+#: Fixed rather than counted, so the port a corpus is published on does not
+#: depend on which other corpora a given render happens to configure.
+IMPLICIT_CORPUS_OFFSETS: Mapping[str, int] = {OKF_CORPUS: 0, ARIEL_CORPUS: 1}
+
+#: Ports in the qmd family, and so the most corpora one deployment can serve.
+CORPUS_SLOTS = QMD_CORPUS_MAX + 1
+
+#: The most corpora ``services.qmd.corpora`` can declare: the family minus the
+#: two implicit slots.
+MAX_DECLARED_CORPORA = CORPUS_SLOTS - len(IMPLICIT_CORPUS_OFFSETS)
+
+#: Config key declaring the extra corpora.
+CORPORA_CONFIG_KEY = f"services.{QMD_SERVICE_NAME}.corpora"
+
+#: A corpus that is indexed and kept current by its own sidecar.
+INDEX_MANAGED = "managed"
+
+#: A corpus whose index was built elsewhere and is only served.
+INDEX_PREBUILT = "prebuilt"
+
+#: A corpus name is also its collection name, part of its compose service name
+#: (``qmd-<name>``), its container name and its index volume's name, so it is
+#: held to the narrowest of those alphabets.
+_CORPUS_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+
+
+@dataclass(frozen=True)
+class DeclaredCorpus:
+    """One entry of ``services.qmd.corpora``.
+
+    Attributes:
+        name: Corpus and collection name.
+        index: :data:`INDEX_MANAGED` or :data:`INDEX_PREBUILT`.
+        source: The markdown tree, as written (relative paths resolve against
+            the deployment repo root). Required for a managed corpus; optional
+            for a prebuilt one, whose index already holds the text.
+        index_dir: The directory holding a prebuilt index's ``.qmd/``, as
+            written. Required for, and only allowed on, a prebuilt corpus.
+    """
+
+    name: str
+    index: str = INDEX_MANAGED
+    source: str | None = None
+    index_dir: str | None = None
+
 
 @dataclass(frozen=True)
 class QMDServiceConfig:
     """Resolved ``services.qmd`` settings for one deployment.
 
     Attributes:
-        port: Published host port of the sidecar's HTTP endpoint.
+        port: Published host port of one sidecar's HTTP endpoint. On the
+            config :func:`resolve_qmd_service_config` returns it is the first
+            port of the family (the ``okf`` sidecar's);
+            :meth:`for_corpus` returns the config of one corpus's sidecar.
         bind_address: Host interface the port is published on, taken from the
             project-wide ``deployment.bind_address``.
         interval_seconds: Fallback corpus-sweep period for the sidecar's
@@ -158,6 +241,7 @@ class QMDServiceConfig:
             or ``None`` (the default) to bake them into the image at build
             time. Validated for shape here and for contents by
             :func:`preflight_qmd_models_dir` at deploy time.
+        corpora: The corpora ``services.qmd.corpora`` declares, in order.
     """
 
     port: int = DEFAULT_PORT
@@ -165,6 +249,39 @@ class QMDServiceConfig:
     interval_seconds: int = DEFAULT_INTERVAL_SECONDS
     first_index_grace_seconds: int = DEFAULT_FIRST_INDEX_GRACE_SECONDS
     models_dir: str | None = None
+    corpora: tuple[DeclaredCorpus, ...] = ()
+
+    def corpus_offset(self, corpus: str) -> int:
+        """Position of *corpus*'s sidecar in the port family.
+
+        Args:
+            corpus: ``okf``, ``ariel``, or a name ``corpora`` declares.
+
+        Returns:
+            The offset from the family's first port.
+
+        Raises:
+            ValueError: If no corpus of that name is known. A guessed port
+                would dial some other corpus's sidecar and return its results.
+        """
+        if corpus in IMPLICIT_CORPUS_OFFSETS:
+            return IMPLICIT_CORPUS_OFFSETS[corpus]
+        for position, declared in enumerate(self.corpora):
+            if declared.name == corpus:
+                return len(IMPLICIT_CORPUS_OFFSETS) + position
+        known = [*IMPLICIT_CORPUS_OFFSETS, *(declared.name for declared in self.corpora)]
+        raise ValueError(
+            f"no qmd corpus named {corpus!r}; this deployment knows {', '.join(known)} "
+            f"(declare more under {CORPORA_CONFIG_KEY})"
+        )
+
+    def for_corpus(self, corpus: str) -> QMDServiceConfig:
+        """The settings of *corpus*'s own sidecar: the same block, its port.
+
+        Raises:
+            ValueError: As :meth:`corpus_offset`.
+        """
+        return replace(self, port=self.port + self.corpus_offset(corpus))
 
     @property
     def base_url(self) -> str:
@@ -227,7 +344,102 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
             "services.qmd.first_index_grace",
         ),
         models_dir=require_absolute_path(block.get("models_dir"), MODELS_DIR_CONFIG_KEY),
+        corpora=_declared_corpora(block.get("corpora")),
     )
+
+
+def resolve_qmd_corpus_config(
+    config: Mapping[str, Any] | None, corpus: str
+) -> QMDServiceConfig | None:
+    """Resolve the settings of one corpus's sidecar, or ``None`` without qmd.
+
+    What a client hands :class:`~osprey.services.qmd.client.QMDClient`: the
+    deployment's ``services.qmd`` block with the port of *corpus*'s sidecar.
+
+    Args:
+        config: A loaded project config mapping, or ``None``.
+        corpus: ``okf``, ``ariel``, or a name ``services.qmd.corpora`` declares.
+
+    Returns:
+        The corpus's settings, or ``None`` when the config carries no
+        ``services.qmd`` block.
+
+    Raises:
+        ValueError: For a malformed block, or a corpus the deployment does not
+            know.
+    """
+    resolved = resolve_qmd_service_config(config)
+    return None if resolved is None else resolved.for_corpus(corpus)
+
+
+def _declared_corpora(raw: Any) -> tuple[DeclaredCorpus, ...]:
+    """Validate ``services.qmd.corpora`` into :class:`DeclaredCorpus` entries.
+
+    Raises:
+        ValueError: On any malformed entry, naming the key and the entry. A
+            corpus silently dropped or misread would publish its sidecar on a
+            port no client asks, or shift every later corpus onto the port of
+            the one before it.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError(f"{CORPORA_CONFIG_KEY} must be a list of corpora, got {raw!r}")
+    if len(raw) > MAX_DECLARED_CORPORA:
+        raise ValueError(
+            f"{CORPORA_CONFIG_KEY} declares {len(raw)} corpora; the qmd port family has "
+            f"room for {MAX_DECLARED_CORPORA} besides okf and ariel"
+        )
+    corpora: list[DeclaredCorpus] = []
+    for position, entry in enumerate(raw):
+        where = f"{CORPORA_CONFIG_KEY}[{position}]"
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"{where} must be a mapping with a `name`, got {entry!r}")
+        unknown = set(entry) - {"name", "index", "source", "index_dir"}
+        if unknown:
+            raise ValueError(f"{where} has unknown key(s): {', '.join(sorted(map(str, unknown)))}")
+        name = entry.get("name")
+        if not isinstance(name, str) or not _CORPUS_NAME.fullmatch(name):
+            raise ValueError(
+                f"{where}.name must be lowercase letters, digits and underscores, starting "
+                f"with a letter (at most 32), got {name!r}"
+            )
+        if name in IMPLICIT_CORPUS_OFFSETS or any(c.name == name for c in corpora):
+            raise ValueError(
+                f"{where}.name {name!r} is already taken"
+                + (
+                    "; okf and ariel are derived from facility_knowledge and ARIEL's qmd_export"
+                    if name in IMPLICIT_CORPUS_OFFSETS
+                    else ""
+                )
+            )
+        index = entry.get("index", INDEX_MANAGED)
+        if index not in (INDEX_MANAGED, INDEX_PREBUILT):
+            raise ValueError(
+                f"{where}.index must be {INDEX_MANAGED!r} or {INDEX_PREBUILT!r}, got {index!r}"
+            )
+        source = _optional_path(entry.get("source"), f"{where}.source")
+        index_dir = _optional_path(entry.get("index_dir"), f"{where}.index_dir")
+        if index == INDEX_MANAGED and source is None:
+            raise ValueError(f"{where} is a managed corpus and needs a `source` to index")
+        if index == INDEX_MANAGED and index_dir is not None:
+            raise ValueError(
+                f"{where}.index_dir names a prebuilt index, but the corpus is managed; "
+                f"set `index: {INDEX_PREBUILT}` or drop index_dir"
+            )
+        if index == INDEX_PREBUILT and index_dir is None:
+            raise ValueError(f"{where} is a prebuilt corpus and needs the `index_dir` to serve")
+        corpora.append(DeclaredCorpus(name, index, source, index_dir))
+    return tuple(corpora)
+
+
+def _optional_path(raw: Any, key: str) -> str | None:
+    """A non-empty path string, stripped, or ``None`` when absent."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError(f"{key} must be a non-empty path, got {raw!r}")
+    return raw.strip()
 
 
 def resolve_bind_address(config: Mapping[str, Any] | None) -> str:
@@ -381,6 +593,55 @@ def preflight_qmd_models_dir(config: Mapping[str, Any] | None) -> None:
             ),
             remedy=_models_staging_remedy(directory),
         )
+
+
+def preflight_qmd_corpora(config: Mapping[str, Any] | None, repo_root: str | Path) -> None:
+    """Refuse a deploy whose declared corpora have nothing on the host to serve.
+
+    A managed corpus whose ``source`` is missing gets an empty directory from
+    the container runtime, which the sidecar indexes into nothing and then
+    refuses to serve — after an image build. A prebuilt corpus whose
+    ``index_dir`` holds no index refuses the same way. Both are authored paths
+    nothing provisions, so they are checked before the build.
+
+    Args:
+        config: A loaded project config mapping, or ``None``.
+        repo_root: The deployment repo root, which relative paths resolve
+            against (as every bind source in a rendered compose file does).
+
+    Raises:
+        DeploymentPreconditionError: For the first declared corpus whose path
+            does not hold what its index mode needs.
+        ValueError: Propagated from :func:`resolve_qmd_service_config` for a
+            malformed ``services.qmd`` block.
+    """
+    resolved = resolve_qmd_service_config(config)
+    if resolved is None:
+        return
+    root = Path(repo_root)
+    for position, corpus in enumerate(resolved.corpora):
+        where = f"{CORPORA_CONFIG_KEY}[{position}] ({corpus.name})"
+        if corpus.source is not None:
+            source = root / Path(corpus.source).expanduser()
+            if not source.is_dir():
+                raise DeploymentPreconditionError(
+                    reason=f"{where} names a source that is not a directory on this host: {source}",
+                    remedy="Point `source` at the corpus's markdown tree, or remove the corpus.",
+                )
+        if corpus.index_dir is not None:
+            index_dir = root / Path(corpus.index_dir).expanduser()
+            if not (index_dir / ".qmd" / "index.sqlite").is_file():
+                raise DeploymentPreconditionError(
+                    reason=(
+                        f"{where} is prebuilt, but {index_dir} holds no qmd index "
+                        "(.qmd/index.sqlite); the sidecar would have nothing to serve."
+                    ),
+                    remedy=(
+                        "Copy the index built elsewhere into that directory (the whole "
+                        "state directory: .qmd/index.sqlite and .qmd/index.yml), or set "
+                        f"`index: {INDEX_MANAGED}` with a `source` to build it here."
+                    ),
+                )
 
 
 def _models_staging_remedy(directory: Path) -> str:

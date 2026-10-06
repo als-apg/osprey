@@ -62,7 +62,7 @@ from osprey.deployment.host_ports import (
     format_conflict_report,
     parse_host_port_bindings,
 )
-from osprey.deployment.qmd_service import preflight_qmd_models_dir
+from osprey.deployment.qmd_service import preflight_qmd_corpora, preflight_qmd_models_dir
 from osprey.deployment.runtime_helper import (
     PODMAN_COMPOSE_PROVIDER_REMEDY,
     ComposeProvider,
@@ -6626,6 +6626,7 @@ def _start_stack(
     # on a host that was configured this way because it has no route out. Checked
     # here, before the build the setting is meant to shorten.
     preflight_qmd_models_dir(config)
+    preflight_qmd_corpora(config, repo_root)
     _preflight_legacy_ariel_mirror(config, Path(repo_root))
 
     # And the same shape once more for the graph store: a `graphdb` in

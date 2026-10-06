@@ -277,7 +277,8 @@ async def test_sidecar_down_names_the_health_endpoint(tmp_path, monkeypatch):
             await fn(query="beam loss")
 
     suggestions = _exc_ctx["envelope"]["suggestions"]
-    assert any("curl http://127.0.0.1:8199/health" in s for s in suggestions)
+    # ARIEL's corpus is the second sidecar of the qmd family.
+    assert any("curl http://127.0.0.1:8200/health" in s for s in suggestions)
     assert any("keyword_search" in s for s in suggestions)
 
 

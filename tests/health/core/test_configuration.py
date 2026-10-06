@@ -32,6 +32,7 @@ _CANONICAL_NAMES = (
     "ariel",
     "channel_finder",
     "graphdb",
+    "qmd",
     "web_panels",
     "web_terminals",
     "reach",
@@ -69,7 +70,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 17
+        assert len(CORE_CATEGORIES) == 18
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES

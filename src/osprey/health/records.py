@@ -58,6 +58,7 @@ CONFIG_DEPENDENT = frozenset(
         "ariel",
         "channel_finder",
         "graphdb",
+        "qmd",
         "web_panels",
         "web_terminals",
         "reach",
