@@ -1072,9 +1072,6 @@ machine's alone — the stand-in's equivalent is the ``live_standin`` line itsel
 - a stand-in port that collides with ``virtual_accelerator.port``, with another
   port this profile spends, or with a hand-authored virtual-accelerator gateway
   port — the simulator and its stand-in are two endpoints, never one;
-- a stand-in on a build with no built-in lattice behind it, because the shipped
-  readout perturbation needs a model to displace and the IOC treats a
-  perturbation it cannot apply as fatal at boot;
 - ``control_system.type: live_standin`` on a profile that sets no
   ``virtual_accelerator.live_standin`` — a baseline naming a machine the
   deployment does not stand up;

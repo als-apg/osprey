@@ -2987,7 +2987,6 @@ def _build_repo(
         limits_block_errors,
     )
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
-    from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
@@ -3366,19 +3365,6 @@ def _build_repo(
             ],
         )
         _swap_in_render(zones)
-
-        # The build-time half of the stand-in's lattice gate. Validation asks
-        # the same question of the env chain alone; only here, over the
-        # published render, is the other half knowable. A stand-in with no
-        # lattice behind the readout perturbation it ships exits at container
-        # start, so it is refused now rather than discovered at `osprey up`.
-        va = build_profile.virtual_accelerator
-        if va is not None and va.live_standin is not None:
-            standin_errors = live_standin_lattice_errors(repo_root, zones.build_dir)
-            if standin_errors:
-                raise BuildProfileError(
-                    "Profile validation failed:\n  " + "\n  ".join(standin_errors)
-                )
 
     except click.Abort:
         raise

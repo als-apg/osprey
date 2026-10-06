@@ -1813,7 +1813,6 @@ class BuildProfile:
                         va.port,
                         claimed,
                         self.config,
-                        profile_dir,
                     )
                 )
 

@@ -1541,11 +1541,10 @@ def _standin_perturbation(config, repo_root):
     the machine its own tree describes, never another facility's devices.
 
     Read through :func:`~osprey_connectors.dotenv.resolved_va_lattice`, the
-    resolver validation refuses on
-    (:func:`osprey.cli.build_profile_va_faults.live_standin_lattice_errors`),
-    from the same two roots — the deployment repo, then the render zone the
-    containers are actually handed — so a build that validated on one answer
-    cannot render on another.
+    resolver :func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`
+    reads too, from the same two roots — the deployment repo, then the render
+    zone the containers are actually handed — so the build and the render
+    cannot come to two answers.
 
     The manifest package is imported inside the function, following
     ``container_lifecycle``'s own use of it: it pulls in the channel-finder

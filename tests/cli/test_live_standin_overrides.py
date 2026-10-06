@@ -557,18 +557,9 @@ class TestTheRenderedDeploymentDialsTheStandIn:
     ) -> None:
         """``VA_LATTICE=none`` builds, and its stand-in serves the manifest clean.
 
-        This shape used to be refused, on the reasoning that the stand-in ships
-        a readout perturbation and a latticeless IOC exits rather than applying
-        one. The perturbation is the half that gives way: the shipped offsets
-        displace the builtin PyAT model, so a chain that resolves ``VA_LATTICE``
-        elsewhere renders the EMPTY default and gets a stand-in serving the
-        facility's own manifest unperturbed — a facility can rehearse against
-        its real channel set instead of being turned away.
-
-        Only a deployment that ASKED for faults it cannot apply is still
-        refused, and that refusal lives at validation
-        (``build_profile_va_faults.live_standin_lattice_errors``), where a
-        non-empty ``VA_STANDIN_BPM_ERRORS`` beside this pin is read.
+        The stand-in carries no readout errors that need a lattice to displace,
+        so a chain that resolves no lattice still builds a stand-in, serving the
+        facility's own channel set unperturbed.
         """
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
         (lifecycle_repo / ".env").write_text("VA_LATTICE=none\n", encoding="utf-8")

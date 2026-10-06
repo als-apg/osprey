@@ -575,14 +575,13 @@ def resolved_va_lattice(repo_root: Path, build_dir: Path | None = None) -> str:
     """The ``VA_LATTICE`` a deployment's env chain resolves to.
 
     THE single answer to "which lattice will the virtual accelerator boot
-    with", for every caller that has to know before a container exists:
-    :func:`osprey.cli.build_profile_va_faults.live_standin_lattice_errors`
-    refuses a stand-in whose shipped readout perturbation would have no model
-    to displace, and the deployment layer (``compose_generator``,
-    ``container_lifecycle``) renders and probes against the same value. One
-    resolver rather than three readings of the same two files, because a build
-    that refuses on one answer and renders on another is worse than either
-    answer on its own.
+    with", for every caller that has to know before a container exists: the
+    stand-in's readout default
+    (:func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`)
+    and the deployment layer (``compose_generator``, ``container_lifecycle``)
+    render and probe against the same value. One resolver rather than several
+    readings of the same two files, because two callers reading one deployment
+    two ways is worse than either reading on its own.
 
     The value is a lattice file's name relative to the virtual accelerator's
     data directory, or :data:`VA_LATTICE_DEFAULT` (``none``), which names no
