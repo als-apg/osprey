@@ -156,6 +156,14 @@ class TestTheInstance:
         assert recorded.composite["instance"] == instance
         assert recorded.runner["instance"] == instance
 
+    @pytest.mark.usefixtures("served")
+    def test_the_model_logs_are_appended_under_the_mounted_simulator_dir(
+        self, recorded: _Recorded
+    ) -> None:
+        entrypoint.main()
+
+        assert recorded.composite["log_dir"] == Path("/var/simulator")
+
     @pytest.mark.usefixtures("served", "recorded")
     def test_a_missing_instance_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("VA_INSTANCE")
