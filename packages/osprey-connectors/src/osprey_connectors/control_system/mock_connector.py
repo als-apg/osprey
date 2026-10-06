@@ -64,6 +64,7 @@ from osprey_connectors.control_system.base import (
     values_match,
 )
 from osprey_connectors.logger import get_logger
+from osprey_connectors.simulation.view_files import ADDRESSES_FILE, SEEDS_FILE, VARIABLES_FILE
 
 if TYPE_CHECKING:
     from osprey_connectors.simulation.composite import Composite
@@ -100,9 +101,6 @@ UDF_STATUS = "UDF"
 
 _VIEW_RELPATH = ("data", "simulator")
 _RENDERED_CONFIG = "config.yml"
-_ADDRESSES_FILE = "addresses.json"
-_VARIABLES_FILE = "variables.json"
-_SEEDS_FILE = "seeds.json"
 _LABELLED = ("bool", "enum")
 _REFUSED_BY_SIMULATOR = "CONTROL_SYSTEM_REFUSED"
 
@@ -167,7 +165,7 @@ def simulator_view_dir(setting: str | Path | None = None) -> Path:
         if config_path is None:
             raise RuntimeError(NO_VIEW_MESSAGE)
         view = Path(config_path).parent.joinpath(*_VIEW_RELPATH)
-    if not (view / _ADDRESSES_FILE).is_file():
+    if not (view / ADDRESSES_FILE).is_file():
         raise RuntimeError(NO_VIEW_MESSAGE)
     return view
 
@@ -318,9 +316,9 @@ class MockConnector(ControlSystemConnector):
         view = simulator_view_dir(config.get(SIMULATOR_VIEW_SETTING))
         _config_path, rendered = _rendered_config(view)
         self._tick_s = resolve_tick_s(rendered)
-        addresses = _read_json(view / _ADDRESSES_FILE)
-        variables = _read_json(view / _VARIABLES_FILE)
-        seeds = _read_json(view / _SEEDS_FILE).get("seeds") or {}
+        addresses = _read_json(view / ADDRESSES_FILE)
+        variables = _read_json(view / VARIABLES_FILE)
+        seeds = _read_json(view / SEEDS_FILE).get("seeds") or {}
 
         self._records = {str(channel["address"]): channel for channel in variables["channels"]}
         self._served = frozenset(
