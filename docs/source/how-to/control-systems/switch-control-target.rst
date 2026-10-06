@@ -691,9 +691,10 @@ and the stand-in carries no errors of its own. The two machines are told apart
 by a write to the sandbox not showing on the stand-in and by the model RPC
 status naming its instance (``virtual_accelerator`` or ``live_standin``).
 
-**The archive belongs to the machine.** The recorder records the stand-in, and
-the history seeded on the first deploy carries the same offsets the stand-in
-reads — so its past and its present describe one machine, the way a real
+**The archive belongs to the machine.** The history seeded on the first deploy
+is the composite's history over the shared active set, the same samples
+whichever machine the archive belongs to, and the recorder then records the
+stand-in — so its past and its present describe one machine, the way a real
 machine's do. That is also why the live machine is gated while both are running:
 see `Go live`_. ``osprey sim apply`` reaches both machines: a scenario changes
 the world, not one lane.

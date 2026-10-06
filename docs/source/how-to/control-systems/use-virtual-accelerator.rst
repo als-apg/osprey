@@ -522,10 +522,11 @@ samples land on the same timestamps and around the same baselines, so where the
 seed ends and recording begins there is noise, not a step an operator would
 rightly chase.
 
-**With a stand-in deployed, this is the stand-in's archive.** The recorder
-samples the stand-in and the seeded past carries its offsets, so the BPM history
-read out of the store — including from the simulator target — is the
-stand-in's. See `Rehearsing against a live target`_.
+**With a stand-in deployed, this is the stand-in's archive.** The seeded past is
+the composite's history over the shared active set, the same samples whichever
+machine the archive belongs to, and the recorder then samples the stand-in, so
+the history read out of the store — including from the simulator target — is
+the stand-in's. See `Rehearsing against a live target`_.
 
 Retention is enforced by the store itself: dense samples expire after the hot
 span, the coarse ones after the retention window, so a long-running deployment
