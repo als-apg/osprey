@@ -108,6 +108,7 @@ __all__ = [
     "compare_fingerprint",
     "oldest_sample",
     "prepare_collection",
+    "scenario_events",
     "seed_base",
     "seed_fingerprint",
     "seed_grid",
@@ -442,6 +443,27 @@ class ArchiveComposite:
         return value
 
 
+def scenario_events(
+    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """The archiver events a scenario set writes, by channel.
+
+    Args:
+        scenarios: The simulator view's scenarios, by name.
+        names: The scenario names of the set, in set order; a name
+            ``scenarios`` does not list contributes nothing.
+
+    Returns:
+        Each channel's events in set order; a channel an ``archiver`` entry
+        names with no events maps to an empty list.
+    """
+    events: dict[str, list[dict[str, Any]]] = {}
+    for name in names:
+        for entry in scenarios.get(name, {}).get("archiver") or []:
+            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
+    return events
+
+
 def build(
     view: Path | str,
     active_set: Sequence[str],
@@ -513,10 +535,7 @@ def build(
             "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
         )
 
-    events: dict[str, list[dict[str, Any]]] = {}
-    for name in composite.active:
-        for entry in scenarios.get(name, {}).get("archiver") or []:
-            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
+    events = scenario_events(scenarios, composite.active)
 
     return ArchiveComposite(
         {address: records[address] for address in archived},

@@ -732,6 +732,8 @@ def active_archiver_events(project_dir: Path, names: Sequence[str]) -> dict[str,
         ValueError: If the render carries no simulator view, or a requested
             scenario is not in it.
     """
+    from osprey_connectors.simulation.archive import scenario_events
+
     scenarios = _require_view_scenarios(project_dir)
 
     resolved = resolve_active_scenarios(names)
@@ -740,11 +742,7 @@ def active_archiver_events(project_dir: Path, names: Sequence[str]) -> dict[str,
     if unknown:
         raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(scenarios)}")
 
-    events: dict[str, list[dict]] = {}
-    for name in resolved:
-        for entry in scenarios.get(name, {}).get("archiver") or []:
-            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
-    return events
+    return scenario_events(scenarios, resolved)
 
 
 def _refuse_window_fraction(event: Mapping[str, Any]) -> None:
