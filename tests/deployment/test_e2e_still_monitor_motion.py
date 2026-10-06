@@ -2,61 +2,74 @@
 
 The ORM and bump round trips and the live VA suites compare what the stack
 serves with the noiseless model, so ``tests/e2e/_monitor_motion`` removes the
-drift and noise the machine file gives the monitor readings before the tree is
-staged or mounted. These tests run it on the shipped preset's own data tree:
-every monitor the bindings claim is left without motion, and every other
-channel is left exactly as the file declares it.
+noise and drift the facility's ``seeds.yaml`` gives every monitor reading -- an
+address whose wiring in ``models.yaml`` reads an ``axis`` -- before the tree is
+built or mounted. These tests run it on the shipped example facility: every
+moving monitor is left without motion, and every other seed is left exactly as
+the facility declares it.
 """
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
+from typing import Any
 
-from osprey.services.virtual_accelerator.bindings import load_bindings
-from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS, ManifestPaths
-from osprey.simulation.engine import SimulationEngine
+import yaml
+
+#: The example facility the control-assistant preset ships, the tree the live
+#: VA suites render their container's view from.
+PRESET_FACILITY_DIR = (
+    Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates" / "facilities" / "example"
+)
+#: The seed keys that move a reading on its own.
+MOTION_KEYS = ("noise", "drift")
 
 
-def _repo_with_preset_data(tmp_path: Path) -> Path:
-    """A deployment repo whose ``data/simulation`` is the shipped preset's."""
+def _load(path: Path) -> Any:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _repo_with_preset_facility(tmp_path: Path) -> Path:
+    """A deployment repo whose ``data/facility`` is the shipped example facility."""
     repo = tmp_path / "repo"
-    simulation = ManifestPaths(repo / "data").machine_json.parent
-    simulation.mkdir(parents=True)
-    shutil.copy2(PACKAGE_PATHS.machine_json, simulation / "machine.json")
-    shutil.copy2(PACKAGE_PATHS.va_bindings, simulation / "va_bindings.json")
+    shutil.copytree(PRESET_FACILITY_DIR, repo / "data" / "facility")
     return repo
 
 
-def _monitors() -> set[str]:
+def _monitors(models: list[dict[str, Any]]) -> set[str]:
     return {
-        address
-        for binding in load_bindings(PACKAGE_PATHS.va_bindings).bindings
-        if binding.kind == "monitor"
-        for address in (binding.setpoint_address, binding.readback_address)
-        if address is not None
+        str(record["address"])
+        for model in models
+        for record in model.get("wiring") or []
+        if "axis" in (record.get("engine") or {})
     }
 
 
-def test_every_monitor_is_stilled_and_nothing_else_changes(tmp_path: Path) -> None:
+def test_every_moving_monitor_is_stilled_and_nothing_else_changes(tmp_path: Path) -> None:
     from tests.e2e._monitor_motion import still_monitor_motion
 
-    repo = _repo_with_preset_data(tmp_path)
-    machine_json = ManifestPaths(repo / "data").machine_json
-    declared = json.loads(PACKAGE_PATHS.machine_json.read_text(encoding="utf-8"))["channels"]
-    monitors = _monitors()
-    preset = SimulationEngine.from_file(PACKAGE_PATHS.machine_json, state_dir=tmp_path)
-    moving = {address for address in monitors if preset.has_motion(address)}
-    assert moving, "the preset declares no monitor motion, so there is nothing to still"
+    repo = _repo_with_preset_facility(tmp_path)
+    seeds_yaml = repo / "data" / "facility" / "seeds.yaml"
+    declared = _load(PRESET_FACILITY_DIR / "seeds.yaml")
+    monitors = _monitors(_load(PRESET_FACILITY_DIR / "models.yaml"))
+    moving = {
+        address
+        for address in monitors
+        if any(key in (declared.get(address) or {}) for key in MOTION_KEYS)
+    }
+    assert moving, "the example facility declares no monitor motion, so there is nothing to still"
 
     stilled = still_monitor_motion(repo / "data")
 
     assert stilled == moving
-    engine = SimulationEngine.from_file(machine_json, state_dir=tmp_path)
-    assert not [address for address in monitors if engine.has_motion(address)]
-    written = json.loads(machine_json.read_text(encoding="utf-8"))["channels"]
+    written = _load(seeds_yaml)
     assert written.keys() == declared.keys()
-    assert {address: entry for address, entry in written.items() if address not in monitors} == {
-        address: entry for address, entry in declared.items() if address not in monitors
+    assert [
+        address
+        for address in monitors
+        if any(key in (written.get(address) or {}) for key in MOTION_KEYS)
+    ] == []
+    assert {address: seed for address, seed in written.items() if address not in monitors} == {
+        address: seed for address, seed in declared.items() if address not in monitors
     }
