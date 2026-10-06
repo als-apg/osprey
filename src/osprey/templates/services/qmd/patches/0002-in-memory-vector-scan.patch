@@ -1,0 +1,491 @@
+qmd 2.5.3: exact in-memory vector scan for long-running servers
+
+A vec0 KNN query reads every stored vector out of SQLite pages; on a
+large index that read dominates a search. `qmd mcp` (stdio and HTTP)
+now loads the vectors once into a SharedArrayBuffer and scans it with
+a pool of worker threads, using the same cosine distance, so results
+do not change. A collection-scoped search masks other collections out
+before the top k is taken, so a small collection is not crowded out of
+its own results by a large one.
+
+vec0 stays the storage of record. Before each search the server checks
+PRAGMA data_version (other connections' commits) and total_changes()
+(its own); on a change it compares a fingerprint of content_vectors and
+the active documents with the one the matrix was loaded at. A stale or
+missing matrix sends the search to vec0 and starts a background
+reload, so a `qmd embed` or `qmd update` run by another process is
+never answered from old vectors. QMD_VEC_SCAN=vec0 disables the
+matrix; QMD_VEC_SCAN_THREADS sets the pool size (default
+min(16, CPUs)). If the matrix cannot be allocated, search stays on
+vec0 and logs why.
+
+Applies on top of 0001 to the published package (dist/) with
+`patch -p1` from the package root.
+
+diff --git a/dist/mcp/server.js b/dist/mcp/server.js
+index 438643f..8b41657 100644
+--- a/dist/mcp/server.js
++++ b/dist/mcp/server.js
+@@ -20,6 +20,7 @@ import { existsSync } from "fs";
+ import { createStore, extractSnippet, addLineNumbers, getDefaultDbPath, DEFAULT_MULTI_GET_MAX_BYTES, } from "../index.js";
+ import { getConfigPath } from "../collections.js";
+ import { enableProductionMode } from "../store.js";
++import { enableVecScan } from "../vec-scan.js";
+ // =============================================================================
+ // Helper functions
+ // =============================================================================
+@@ -440,6 +441,8 @@ export async function startMcpServer(options = {}) {
+         dbPath: options.dbPath ?? getDefaultDbPath(),
+         ...(existsSync(configPath) ? { configPath } : {}),
+     });
++    // A server answers many searches from one process: hold the vectors in memory.
++    enableVecScan(store.internal.db, store.dbPath);
+     const server = await createMcpServer(store);
+     const transport = new StdioServerTransport();
+     await server.connect(transport);
+@@ -458,6 +461,8 @@ export async function startMcpHttpServer(port, options = {}) {
+         dbPath: options.dbPath ?? getDefaultDbPath(),
+         ...(existsSync(configPath) ? { configPath } : {}),
+     });
++    // A server answers many searches from one process: hold the vectors in memory.
++    enableVecScan(store.internal.db, store.dbPath);
+     // Pre-fetch default collection names for REST endpoint
+     const defaultCollectionNames = await store.getDefaultCollectionNames();
+     // Session map: each client gets its own McpServer + Transport pair (MCP spec requirement).
+diff --git a/dist/store.js b/dist/store.js
+index 8da06a4..da76ad6 100644
+--- a/dist/store.js
++++ b/dist/store.js
+@@ -11,6 +11,7 @@
+  *   const store = createStore();
+  */
+ import { openDatabase, loadSqliteVec } from "./db.js";
++import { vecScanSearch } from "./vec-scan.js";
+ import picomatch from "picomatch";
+ import { createHash } from "crypto";
+ import { readFileSync, realpathSync, statSync, mkdirSync } from "node:fs";
+@@ -2677,8 +2678,10 @@ export async function searchVec(db, query, model, limit = 20, collectionName, se
+     // hang indefinitely when combined with JOINs in the same query. Do NOT try to
+     // "optimize" this by combining into a single query with JOINs - it will break.
+     // See: https://github.com/tobi/qmd/pull/23
+-    // Step 1: Get vector matches from sqlite-vec (no JOINs allowed)
+-    const vecResults = db.prepare(`
++    // Step 1: Get vector matches — from the in-memory matrix when a server has
++    // loaded a current one (exact, and scoped to the collection before the top
++    // k is taken), otherwise from sqlite-vec (no JOINs allowed).
++    const vecResults = await vecScanSearch(db, embedding, limit * 3, collectionName) ?? db.prepare(`
+     SELECT hash_seq, distance
+     FROM vectors_vec
+     WHERE embedding MATCH ? AND k = ?
+diff --git a/dist/vec-scan.js b/dist/vec-scan.js
+new file mode 100644
+index 0000000..34afee2
+--- /dev/null
++++ b/dist/vec-scan.js
+@@ -0,0 +1,406 @@
++/**
++ * vec-scan.ts - Exact vector search over an in-memory copy of the vectors.
++ *
++ * sqlite-vec's vec0 table has no approximate index, so every KNN query reads
++ * every stored vector out of SQLite pages; on a large index that read, not the
++ * arithmetic, is what a vector search costs. A long-running server can instead
++ * hold the vectors in one contiguous Float32Array and scan it with a pool of
++ * worker threads. The scan is exact (the same cosine distance vec0 computes),
++ * so results do not change, only their cost.
++ *
++ * vec0 stays the storage of record. The matrix is a cache of it, read by a
++ * loader thread over its own read-only connection, and is used only while it
++ * matches the index: before each search the store's connection is asked
++ * whether anything was committed since the last check (PRAGMA data_version,
++ * plus total_changes() for this connection's own writes); if so, a fingerprint
++ * of the vector and document tables is compared with the one the matrix was
++ * loaded at. A stale or missing matrix sends the search to vec0 and starts a
++ * reload, so a server never answers from vectors the index no longer holds.
++ *
++ * Each row also carries the set of collections its content is active in, so
++ * a collection-scoped search masks other collections out before it takes the
++ * top k instead of filtering a global top k afterwards.
++ *
++ * The matrix costs 4 bytes per dimension per stored chunk. QMD_VEC_SCAN=vec0
++ * turns it off; if it cannot be allocated, search stays on vec0 and says so.
++ */
++import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
++import { availableParallelism } from "node:os";
++const ROLE = "qmdVecScanRole";
++/** Below this many rows a scan runs on the calling thread; a worker round trip costs more. */
++const INLINE_SCAN_ROWS = 32768;
++const DEFAULT_MAX_THREADS = 16;
++function log(message) {
++    process.stderr.write(`qmd vec-scan: ${message}\n`);
++}
++// =============================================================================
++// Shared by the main thread and the workers
++// =============================================================================
++/**
++ * A fingerprint of everything the matrix is derived from: the stored chunks and
++ * the active documents (which decide each row's collections). Any embed, clear,
++ * re-embed or document change moves at least one of these values.
++ */
++export function vecFingerprint(db) {
++    const v = db.prepare(`SELECT COUNT(*) AS n, MAX(rowid) AS r, MAX(embedded_at) AS t FROM content_vectors`).get();
++    const d = db.prepare(`SELECT COUNT(*) AS n, MAX(id) AS i, MAX(modified_at) AS t FROM documents WHERE active = 1`).get();
++    return [v.n, v.r, v.t, d.n, d.i, d.t].join("|");
++}
++/**
++ * Exact cosine top-k over rows [from, to) of the matrix. `allowed`, when given,
++ * is indexed by a row's collection-set id and masks rows out before ranking.
++ * Returns row indices and distances, nearest first.
++ */
++function scanRange(m, query, k, allowed, from, to) {
++    const { vectors, invNorms, comboOf, dims } = m;
++    let qNorm = 0;
++    for (let j = 0; j < dims; j++)
++        qNorm += query[j] * query[j];
++    const qInv = qNorm > 0 ? 1 / Math.sqrt(qNorm) : 0;
++    const bestDist = new Float64Array(k).fill(Infinity);
++    const bestRow = new Int32Array(k).fill(-1);
++    let worst = Infinity;
++    for (let i = from; i < to; i++) {
++        if (allowed && !allowed[comboOf[i]])
++            continue;
++        const o = i * dims;
++        let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
++        let j = 0;
++        for (; j + 3 < dims; j += 4) {
++            s0 += vectors[o + j] * query[j];
++            s1 += vectors[o + j + 1] * query[j + 1];
++            s2 += vectors[o + j + 2] * query[j + 2];
++            s3 += vectors[o + j + 3] * query[j + 3];
++        }
++        for (; j < dims; j++)
++            s0 += vectors[o + j] * query[j];
++        const dist = 1 - (s0 + s1 + s2 + s3) * invNorms[i] * qInv;
++        if (dist >= worst)
++            continue;
++        let p = k - 1;
++        while (p > 0 && bestDist[p - 1] > dist) {
++            bestDist[p] = bestDist[p - 1];
++            bestRow[p] = bestRow[p - 1];
++            p--;
++        }
++        bestDist[p] = dist;
++        bestRow[p] = i;
++        worst = bestDist[k - 1];
++    }
++    return { rows: bestRow, dists: bestDist };
++}
++function viewsOf(buffers) {
++    return {
++        dims: buffers.dims,
++        rows: buffers.rows,
++        vectors: new Float32Array(buffers.vectors),
++        invNorms: new Float32Array(buffers.invNorms),
++        comboOf: new Uint32Array(buffers.comboOf),
++    };
++}
++// =============================================================================
++// Loader: reads the vectors over its own read-only connection
++// =============================================================================
++async function loadMatrix(dbPath) {
++    const { openDatabase, loadSqliteVec } = await import("./db.js");
++    const db = openDatabase(dbPath);
++    try {
++        loadSqliteVec(db);
++        db.exec("PRAGMA query_only = 1");
++        // One read transaction, so the fingerprint describes exactly the rows read.
++        db.exec("BEGIN");
++        try {
++            const table = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='vectors_vec'`).get();
++            const dims = Number(table?.sql?.match(/float\[(\d+)\]/)?.[1] ?? 0);
++            if (!table || !dims)
++                return { empty: true, fingerprint: vecFingerprint(db) };
++            const fingerprint = vecFingerprint(db);
++            // Collections each content hash is active in, as an id per distinct set.
++            const comboKeyOfHash = new Map();
++            for (const row of db.prepare(`SELECT DISTINCT hash, collection FROM documents WHERE active = 1 ORDER BY hash, collection`).iterate()) {
++                const key = comboKeyOfHash.get(row.hash);
++                comboKeyOfHash.set(row.hash, key === undefined ? row.collection : `${key}\n${row.collection}`);
++            }
++            const comboIds = new Map();
++            const combos = [];
++            const comboOfKey = (key) => {
++                let id = comboIds.get(key);
++                if (id === undefined) {
++                    id = combos.length;
++                    comboIds.set(key, id);
++                    combos.push(key === "" ? [] : key.split("\n"));
++                }
++                return id;
++            };
++            comboOfKey("");
++            // Every stored vector has a content_vectors row, so its count sizes the
++            // matrix; vec0 rows left without one (an interrupted embed) only
++            // cost a second pass sized by vec0 itself.
++            const readRows = (capacity) => {
++                let vectors, invNorms, comboOf;
++                try {
++                    vectors = new SharedArrayBuffer(capacity * dims * 4);
++                    invNorms = new SharedArrayBuffer(capacity * 4);
++                    comboOf = new SharedArrayBuffer(capacity * 4);
++                }
++                catch (err) {
++                    return { error: `cannot allocate ${(capacity * dims * 4 / 2 ** 30).toFixed(2)} GiB for ${capacity} vectors: ${err?.message ?? err}` };
++                }
++                const vecView = new Float32Array(vectors);
++                const normView = new Float32Array(invNorms);
++                const comboView = new Uint32Array(comboOf);
++                const hashIds = new Map();
++                const hashes = [];
++                const hashOf = new Uint32Array(capacity);
++                const seqOf = new Int32Array(capacity);
++                let n = 0;
++                for (const row of db.prepare(`SELECT hash_seq, embedding FROM vectors_vec`).iterate()) {
++                    if (n >= capacity)
++                        return null;
++                    const cut = row.hash_seq.lastIndexOf("_");
++                    const hash = row.hash_seq.slice(0, cut);
++                    let h = hashIds.get(hash);
++                    if (h === undefined) {
++                        h = hashes.length;
++                        hashIds.set(hash, h);
++                        hashes.push(hash);
++                    }
++                    hashOf[n] = h;
++                    seqOf[n] = Number(row.hash_seq.slice(cut + 1));
++                    const e = row.embedding;
++                    const src = new Float32Array(e.buffer, e.byteOffset, e.byteLength / 4);
++                    if (src.length !== dims)
++                        return { error: `vector ${row.hash_seq} has ${src.length} dimensions, table declares ${dims}` };
++                    vecView.set(src, n * dims);
++                    let sq = 0;
++                    for (let j = 0; j < dims; j++)
++                        sq += src[j] * src[j];
++                    normView[n] = sq > 0 ? 1 / Math.sqrt(sq) : 0;
++                    comboView[n] = comboOfKey(comboKeyOfHash.get(hash) ?? "");
++                    n++;
++                }
++                return {
++                    fingerprint,
++                    buffers: { dims, rows: n, vectors, invNorms, comboOf },
++                    hashes,
++                    hashOf: hashOf.subarray(0, n),
++                    seqOf: seqOf.subarray(0, n),
++                    combos,
++                };
++            };
++            return readRows(db.prepare(`SELECT COUNT(*) AS n FROM content_vectors`).get().n)
++                ?? readRows(db.prepare(`SELECT COUNT(*) AS n FROM vectors_vec`).get().n)
++                ?? { error: "vectors_vec changed size inside a read transaction" };
++        }
++        finally {
++            db.exec("COMMIT");
++        }
++    }
++    finally {
++        db.close();
++    }
++}
++// =============================================================================
++// Worker entry points
++// =============================================================================
++if (!isMainThread && workerData?.[ROLE] === "load") {
++    loadMatrix(workerData.dbPath).then((result) => parentPort.postMessage(result), (err) => parentPort.postMessage({ error: String(err?.stack ?? err) }));
++}
++else if (!isMainThread && workerData?.[ROLE] === "scan") {
++    let matrix = null;
++    parentPort.on("message", (msg) => {
++        if (msg.type === "matrix") {
++            matrix = viewsOf(msg.buffers);
++            return;
++        }
++        const { rows, dists } = scanRange(matrix, msg.query, msg.k, msg.allowed, msg.from, msg.to);
++        parentPort.postMessage({ id: msg.id, rows, dists }, [rows.buffer, dists.buffer]);
++    });
++}
++// =============================================================================
++// Main thread
++// =============================================================================
++class ScanPool {
++    workers = [];
++    pending = new Map();
++    nextId = 0;
++    constructor(size) {
++        for (let w = 0; w < size; w++) {
++            const worker = new Worker(new URL(import.meta.url), { workerData: { [ROLE]: "scan" } });
++            worker.unref();
++            worker.on("message", (msg) => {
++                const done = this.pending.get(msg.id);
++                this.pending.delete(msg.id);
++                done?.resolve(msg);
++            });
++            worker.on("error", (err) => {
++                for (const done of this.pending.values())
++                    done.reject(err);
++                this.pending.clear();
++            });
++            this.workers.push(worker);
++        }
++    }
++    install(buffers) {
++        for (const worker of this.workers)
++            worker.postMessage({ type: "matrix", buffers });
++    }
++    scan(rows, query, k, allowed) {
++        const size = this.workers.length;
++        return Promise.all(this.workers.map((worker, w) => new Promise((resolve, reject) => {
++            const id = this.nextId++;
++            this.pending.set(id, { resolve, reject });
++            worker.postMessage({
++                type: "scan", id, query, k, allowed,
++                from: Math.floor((w * rows) / size),
++                to: Math.floor(((w + 1) * rows) / size),
++            });
++        })));
++    }
++    close() {
++        for (const worker of this.workers)
++            void worker.terminate();
++    }
++}
++const states = new WeakMap();
++function scanThreads() {
++    const configured = Number(process.env.QMD_VEC_SCAN_THREADS);
++    if (Number.isInteger(configured) && configured > 0)
++        return configured;
++    return Math.max(1, Math.min(DEFAULT_MAX_THREADS, availableParallelism()));
++}
++/**
++ * Serve vector searches on `db` from an in-memory matrix, loaded in the
++ * background; this returns at once. Meant for long-running servers: a
++ * one-shot CLI search is cheaper on vec0 than loading every vector first.
++ * Until the matrix is loaded, and whenever it is stale, searches use vec0.
++ */
++export function enableVecScan(db, dbPath) {
++    if (!isMainThread || states.has(db))
++        return;
++    if ((process.env.QMD_VEC_SCAN ?? "").toLowerCase() === "vec0") {
++        log("disabled by QMD_VEC_SCAN=vec0; vector search uses vec0");
++        return;
++    }
++    const state = {
++        dbPath,
++        changeKey: "",
++        fingerprint: "",
++        matrix: null,
++        loading: null,
++        failedAt: null,
++        pool: null,
++    };
++    states.set(db, state);
++    // Off the caller's path: a server starts listening, and answers from vec0,
++    // while the loader thread reads the vectors.
++    setImmediate(() => {
++        checkFreshness(db, state);
++        startLoad(db, state);
++    });
++}
++function checkFreshness(db, state) {
++    const key = db.prepare(`SELECT total_changes() AS c, (SELECT data_version FROM pragma_data_version) AS v`).get();
++    const changeKey = `${key.v}|${key.c}`;
++    if (changeKey !== state.changeKey) {
++        state.changeKey = changeKey;
++        state.fingerprint = vecFingerprint(db);
++    }
++}
++function startLoad(db, state) {
++    if (state.loading || state.failedAt === state.fingerprint)
++        return;
++    const started = performance.now();
++    state.loading = new Promise((resolve) => {
++        const worker = new Worker(new URL(import.meta.url), { workerData: { [ROLE]: "load", dbPath: state.dbPath } });
++        worker.unref();
++        let settled = false;
++        const finish = (result) => {
++            if (settled)
++                return;
++            settled = true;
++            void worker.terminate();
++            resolve(result);
++        };
++        worker.once("message", finish);
++        worker.once("error", (err) => finish({ error: String(err?.stack ?? err) }));
++        worker.once("exit", (code) => finish({ error: `loader exited with code ${code}` }));
++    }).then((result) => {
++        state.loading = null;
++        if (result.error) {
++            state.failedAt = state.fingerprint;
++            log(`matrix not loaded, vector search falls back to vec0: ${result.error}`);
++            return;
++        }
++        if (result.empty) {
++            state.matrix = null;
++            return;
++        }
++        const { buffers } = result;
++        const matrix = {
++            fingerprint: result.fingerprint,
++            ...viewsOf(buffers),
++            hashes: result.hashes,
++            hashOf: result.hashOf,
++            seqOf: result.seqOf,
++            combos: result.combos,
++        };
++        if (buffers.rows >= INLINE_SCAN_ROWS) {
++            state.pool ??= new ScanPool(scanThreads());
++            state.pool.install(buffers);
++        }
++        state.matrix = matrix;
++        log(`matrix ready: ${buffers.rows} vectors x ${buffers.dims} dims, ${(buffers.rows * buffers.dims * 4 / 2 ** 20).toFixed(0)} MiB, loaded in ${Math.round(performance.now() - started)} ms` +
++            (buffers.rows >= INLINE_SCAN_ROWS ? `, ${state.pool.workers.length} scan threads` : ", scanned inline"));
++        // The index may have moved on while the loader ran.
++        checkFreshness(db, state);
++        if (matrix.fingerprint !== state.fingerprint)
++            startLoad(db, state);
++    });
++}
++/**
++ * Nearest `k` stored chunks to `embedding`, restricted to `collectionName`
++ * when given, as `{ hash_seq, distance }` nearest first — the rows a vec0
++ * KNN returns. Returns null when no current matrix is available; the caller
++ * then queries vec0.
++ */
++export async function vecScanSearch(db, embedding, k, collectionName) {
++    const state = states.get(db);
++    if (!state)
++        return null;
++    checkFreshness(db, state);
++    const m = state.matrix;
++    if (!m || m.fingerprint !== state.fingerprint) {
++        startLoad(db, state);
++        return null;
++    }
++    if (m.rows === 0 || k <= 0)
++        return [];
++    let allowed = null;
++    if (collectionName) {
++        allowed = new Uint8Array(m.combos.length);
++        let any = false;
++        m.combos.forEach((names, id) => {
++            if (names.includes(collectionName)) {
++                allowed[id] = 1;
++                any = true;
++            }
++        });
++        if (!any)
++            return [];
++    }
++    const query = new Float32Array(embedding);
++    const parts = m.rows >= INLINE_SCAN_ROWS && state.pool
++        ? await state.pool.scan(m.rows, query, k, allowed)
++        : [scanRange(m, query, k, allowed, 0, m.rows)];
++    const merged = [];
++    for (const { rows, dists } of parts) {
++        for (let p = 0; p < rows.length && rows[p] >= 0; p++)
++            merged.push({ row: rows[p], distance: dists[p] });
++    }
++    merged.sort((a, b) => a.distance - b.distance || a.row - b.row);
++    return merged.slice(0, k).map(({ row, distance }) => ({
++        hash_seq: `${m.hashes[m.hashOf[row]]}_${m.seqOf[row]}`,
++        distance,
++    }));
++}

@@ -265,15 +265,51 @@ overhead rather than by content. Chunking is close to 1:1 for logbook
 micro-documents (2,000 documents produced 2,001 chunks), so the index grows with
 entry count rather than with entry length.
 
+Memory footprint
+----------------
+
+The image carries a small set of patches on top of the pinned qmd release
+(``patches/README.md`` in the service template lists them and the upstream
+changes they mirror). One of them makes the daemon hold every stored vector in
+RAM and score a query with an exact scan instead of a sqlite-vec lookup, which is
+what keeps a search well under a second on a large index. The cost is memory:
+4 bytes per dimension per chunk, so about 3 KiB per chunk at the embedder's 768
+dimensions. Each corpus runs its own sidecar, so budget it per corpus:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 60 40
+
+   * - Index
+     - Resident vectors
+   * - 135,000 logbook entries (~135,000 chunks)
+     - ~0.4 GB
+   * - 62,797 papers (791,230 chunks)
+     - 2.3 GB
+
+The matrix loads in the background after the daemon starts (about 13 s for the
+papers index); until it is ready, and after any change to the index until it
+reloads, searches go to sqlite-vec, so a result is never served from stale
+vectors. ``QMD_VEC_SCAN=vec0`` turns the in-memory scan off and searches
+sqlite-vec directly, as the plain release does: export it on the host and name
+it under ``services.qmd.env`` to hand it to every qmd sidecar.
+
+.. code-block:: yaml
+
+   services:
+     qmd:
+       env: [QMD_VEC_SCAN]
+
 .. _qmd-where-the-sidecar-listens:
 
 Where the sidecar listens
 -------------------------
 
-The sidecar publishes **10060**, its slot in the deployment's port layout
-(:ref:`reference-ports`); the block's ``port`` key pins it somewhere else if you
-need that. qmd's own daemon runs on **8181** on the container's internal
-loopback and is fronted by a small forwarder. That split is
+The sidecars publish **10060--10069**, the ``qmd`` band of the deployment's
+port layout (:ref:`reference-ports`), one port per corpus as listed in `One
+sidecar per corpus`_; the block's ``port`` key moves the whole band if you need
+that. qmd's own daemon runs on **8181** on the container's internal loopback
+and is fronted by a small forwarder. That split is
 not cosmetic: qmd hardcodes a loopback-only bind with no option to change it,
 which makes it unreachable from any other container. Only the forwarder owns a
 routable port.
