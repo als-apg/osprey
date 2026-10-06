@@ -13,13 +13,17 @@ rendered view, on every served channel:
   family-wise false-alarm rate of 1e-4 allows;
 * **across a scenario switch**, every paired texture setpoint and its readback
   return to their seed in both;
+* **under a scenario the physics model cannot solve**, every channel reads
+  with the alarm severity the composite gives it;
 * **at nominal**, the served values are the captured
   ``tests/facility/golden/nominal_va.json``, every difference declared below
   by cause;
-* **on every string channel**, :func:`decode_char_waveform` reads the wire
-  value as the text the composite holds.
+* **on every string channel**, the synthetic one the directory conftest adds
+  among them, :func:`decode_char_waveform` reads the wire value as the text
+  the composite holds.
 
-**Two containers.** The held, nominal, scenario-switch and string checks use
+**Two containers.** The held, nominal, scenario-switch, failed-scenario and
+string checks use
 this directory's session container (``conftest.va_container``), which serves
 its monitors without their declared motion so a monitor reading is the solved
 orbit. The noise statistics need the declared motion, so they run against a
@@ -143,6 +147,7 @@ from statistics import NormalDist  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+from osprey_connectors.control_system.mock_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
@@ -220,7 +225,11 @@ NOMINAL_ADDITIONS: dict[str, frozenset[str]] = {
         {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
     ),
     "the physics model's status channel": frozenset({"ca:SIM:SR:STATUS"}),
+    "the suite's synthetic string channel": frozenset({e2e_conftest.STRING_CHANNEL}),
 }
+#: The physics model's status channel: ``ok`` while it solves, its error text
+#: once it fails.
+SR_STATUS = "ca:SIM:SR:STATUS"
 
 #: Container-name prefix of the noise container; the pid follows, as for the
 #: session container (see the directory conftest for why).
@@ -579,8 +588,46 @@ def test_every_string_channel_decodes_to_the_text_the_composite_holds(
         address: decode_char_waveform(nominal_reads[address]["value"]) for address in strings
     }
 
-    assert strings
+    assert e2e_conftest.STRING_CHANNEL in strings
     assert decoded == mock
+    assert decoded[e2e_conftest.STRING_CHANNEL] == e2e_conftest.STRING_NOMINAL
+
+
+def _sr_status() -> str:
+    return decode_char_waveform(_read(e2e_conftest.CA_PORT, [SR_STATUS])[SR_STATUS]["value"])
+
+
+def test_a_failed_scenario_reads_with_the_composites_severity(
+    va_container: e2e_conftest.VaProject, session_view: View
+) -> None:
+    """A channel of the failed model reads ``udf``'s severity on the wire and
+    in process alike; every other channel reads none."""
+    _to_nominal(va_container)
+    applied = va_container.sim_apply(e2e_conftest.UNSTABLE_SCENARIO_NAME)
+    assert applied.returncode == 0, applied.stdout + applied.stderr
+    try:
+        deadline = time.monotonic() + SWITCH_BOUND_S
+        while _sr_status() == "ok":
+            assert time.monotonic() < deadline, "the container never failed the physics model"
+            time.sleep(0.2)
+        wire = _read(e2e_conftest.CA_PORT, session_view.addresses)
+        mock = _composite(session_view, va_container.state_dir)
+        failed = mock.output_severity(session_view.addresses)
+        mock_status = mock.status("SR")
+    finally:
+        _to_nominal(va_container)
+
+    expected = {
+        address: UDF_SEVERITY if address in failed else 0 for address in session_view.addresses
+    }
+    differing = {
+        address: (expected[address], wire[address]["severity"])
+        for address in session_view.addresses
+        if wire[address]["severity"] != expected[address]
+    }
+
+    assert failed and mock_status != "ok"
+    assert differing == {}
 
 
 # ---------------------------------------------------------------------------
