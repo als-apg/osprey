@@ -28,6 +28,7 @@ __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
     "OVERLAP_EVENT",
     "Overlap",
+    "composed_set",
     "format_overlap_record",
     "overlap_record",
     "parse_active_state",
@@ -174,6 +175,31 @@ def validate_composition(
             else:
                 owner[target] = name
     return overlaps
+
+
+def composed_set(
+    scenarios_view: Mapping[str, Collection[str]], names: Sequence[str]
+) -> tuple[list[str], list[Overlap]]:
+    """The set a reader serves for ``names``: the set itself, or ``nominal`` alone.
+
+    A set whose scenarios write one target twice does not compose, and a
+    reader serves the machine without its scenarios rather than in an
+    order-dependent state.
+
+    Args:
+        scenarios_view: Each scenario's name mapped to the targets it writes.
+        names: The resolved set, ``nominal`` first.
+
+    Returns:
+        The set to serve, and the overlaps that kept its scenarios out.
+
+    Raises:
+        ValueError: If a name is not in ``scenarios_view``.
+    """
+    overlaps = validate_composition(scenarios_view, names)
+    if overlaps:
+        return resolve_active_scenarios([]), overlaps
+    return list(names), []
 
 
 def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, Any]:

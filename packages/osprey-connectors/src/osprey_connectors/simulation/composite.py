@@ -72,11 +72,11 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
+    composed_set,
     overlap_record,
     parse_active_state,
     resolve_active_scenarios,
     scenario_targets,
-    validate_composition,
 )
 from osprey_connectors.simulation.texture import (
     TEXTURE_OWNER,
@@ -451,15 +451,11 @@ class Composite(LUMEModel):
     def _rebuild(self, active: Sequence[str]) -> None:
         """Start every child at the composed state of the ``active`` scenarios."""
         view = {name: scenario_targets(scenario) for name, scenario in self._scenarios.items()}
-        overlaps = validate_composition(view, list(active))
-        if overlaps:
-            for overlap in overlaps:
-                logger.error(str(overlap))
-                for name in self._children:
-                    self._log(
-                        name, overlap_record(overlap, instance=self._instance, pid=os.getpid())
-                    )
-            active = resolve_active_scenarios([])
+        active, overlaps = composed_set(view, list(active))
+        for overlap in overlaps:
+            logger.error(str(overlap))
+            for name in self._children:
+                self._log(name, overlap_record(overlap, instance=self._instance, pid=os.getpid()))
         self._active = list(active)
 
         overrides: dict[str, Any] = {}
