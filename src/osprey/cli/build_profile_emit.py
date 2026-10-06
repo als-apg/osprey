@@ -42,7 +42,7 @@ from osprey.profiles.providers import compute_providers_hash, packaged_catalog_p
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
-from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, _load_preset_raw
+from .build_profile_presets import PRESET_ONLY_KEYS, _load_preset_raw
 from .build_profile_resolve import apply_cli_edits
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 from .profile_root import PERSONA_DIRNAME
@@ -1403,11 +1403,12 @@ def emit_standalone_profile_yaml(
     if doc is None:  # pragma: no cover - _load_preset_raw already validated
         doc = CommentedMap()
 
-    # `app_template:` is preset-side only: it names the packaged data tree
-    # `osprey init` copies, and is not a profile key (a profile spelling it is
-    # refused). Its comment goes with it — left behind, it would read as the
-    # introduction to whichever key followed.
-    _drop_key_and_pre_comment(doc, PRESET_DATA_BUNDLE_KEY)
+    # `app_template:` and `facility:` are preset-side only: they name the
+    # packaged data tree `osprey init` copies, and are not profile keys (a
+    # profile spelling one is refused). Each comment goes with its key — left
+    # behind, it would read as the introduction to whichever key followed.
+    for key in PRESET_ONLY_KEYS:
+        _drop_key_and_pre_comment(doc, key)
 
     _sync_to_resolved(doc, resolved)
 

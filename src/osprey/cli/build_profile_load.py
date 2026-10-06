@@ -46,7 +46,7 @@ from .build_profile_document import (
 )
 from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
-from .build_profile_presets import PRESET_DATA_BUNDLE_KEY
+from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY
 from .build_profile_schema import (
     DEFAULT_DEVIATION_MARKER,
     BlueskyConfig,
@@ -469,6 +469,14 @@ _RETIRED_APP_TEMPLATE_REFUSAL = (
     "drop the key."
 )
 
+#: What a profile that spells the preset-side ``facility:`` key is told. The
+#: key only names which bundled facility ``osprey init`` copies into
+#: ``data/facility/``; a profile's facility is the tree under its own ``data:``.
+_PRESET_FACILITY_REFUSAL = (
+    "facility is a preset key, not a profile key — this profile's facility is "
+    "the data/facility/ tree under its own `data:`. Drop the key."
+)
+
 
 #: A profile key that selects nothing: the ``in_context`` tag on a channel
 #: record is what puts it in the in_context index, and ``channel_finder_mode``
@@ -612,6 +620,8 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
     """
     if PRESET_DATA_BUNDLE_KEY in raw:
         raise BuildProfileError(_RETIRED_APP_TEMPLATE_REFUSAL)
+    if PRESET_FACILITY_KEY in raw:
+        raise BuildProfileError(_PRESET_FACILITY_REFUSAL)
     if _RETIRED_TIER_KEY in raw:
         raise _retired_tier_refusal()
     _reject_unknown_block_keys(raw.keys(), _KNOWN_PROFILE_KEYS, "profile")

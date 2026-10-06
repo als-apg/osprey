@@ -19,7 +19,7 @@ from osprey.errors import BuildProfileError
 
 from .build_profile_document import _read_profile_document
 from .build_profile_presets import (
-    PRESET_DATA_BUNDLE_KEY,
+    PRESET_ONLY_KEYS,
     _load_preset_raw,
     _preset_exists,
     list_presets,
@@ -439,12 +439,14 @@ def _resolve_extends(
     if preset_path is not None:
         # A bundled preset reached as a base is consumed exactly as one reached
         # by name is (:func:`~.build_profile_presets._load_preset_raw`), so an
-        # inherited ``app_template:`` never becomes part of what the child
-        # resolves to. Confined to the preset branch: the same key in a
-        # hand-written parent profile is a profile key, and is refused as one.
-        base_raw.pop(PRESET_DATA_BUNDLE_KEY, None)
-        # Consuming the key would otherwise lose the one fact it carried: which
-        # packaged data bundle this profile's tree came from. Record the preset
+        # inherited ``app_template:`` or ``facility:`` never becomes part of
+        # what the child resolves to. Confined to the preset branch: the same
+        # key in a hand-written parent profile is a profile key, and is refused
+        # as one.
+        for key in PRESET_ONLY_KEYS:
+            base_raw.pop(key, None)
+        # Consuming the keys would otherwise lose the one fact they carried:
+        # which packaged data this profile's tree came from. Record the preset
         # instead, so a reader can ask
         # :func:`~.build_profile_presets.preset_data_bundle` the same question
         # the deep merge used to answer. Recorded before the recursion, so the
