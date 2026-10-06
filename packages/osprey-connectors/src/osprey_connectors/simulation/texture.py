@@ -124,7 +124,7 @@ def channel_variable(channel: Mapping[str, Any], nominal: Any) -> Variable:
     value_type = channel_value_type(channel)
     unit = channel.get("unit")
     if value_type in ("bool", "enum"):
-        options = list(channel.get("options") or values.DEFAULT_BOOL_OPTIONS)
+        options = values.channel_labels(channel)
         return EnumVariable(
             name=address, options=options, default_value=nominal, read_only=read_only
         )

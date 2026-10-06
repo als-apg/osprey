@@ -451,8 +451,7 @@ class ArchiveComposite:
         """A stored value as the wire carries it: a label as its option index."""
         value_type = channel.get("value_type")
         if value_type in ("bool", "enum"):
-            options = channel.get("options") or channel_values.DEFAULT_BOOL_OPTIONS
-            return list(options).index(value)
+            return channel_values.channel_labels(channel).index(value)
         return value
 
 
