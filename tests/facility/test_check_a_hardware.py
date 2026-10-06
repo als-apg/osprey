@@ -38,8 +38,7 @@ the file writes (``CONVERSION_RTOL``); the chromaticity response alone is held
 to the band its two unit runs leave (``CHROMATICITY_RTOL``). The export samples
 each stepped device's conversion at its nominal and one ``DeltaRespMat`` above
 it, so a response device's build calibration over that step is the file's
-``k_per_amp`` to ``CONVERSION_RTOL``; a member of a series string whose
-members state different nominals is held to ``SERIES_SHARE_RTOL``.
+``k_per_amp`` to ``CONVERSION_RTOL``.
 """
 
 from __future__ import annotations
@@ -96,14 +95,6 @@ Built = Callable[[str, str], BuiltModel]
 #: momentum, which scales tune roundoff by 1e8: a 1e-14 change in the sextupole
 #: strengths moves its horizontal chromaticity by 1e-7.
 CHROMATICITY_RTOL = {"spear3.storagering": 2e-8, "nsls2.storagering": 2e-7}
-
-#: INTERIM: how far a response device's secant may sit from its ``k_per_amp``
-#: where the device is one member of a series string whose members state
-#: different nominals. Such a member is served as a fixed share of its
-#: supply's curve, not through its own curve at its own nominal, which leaves
-#: up to 6.9e-3. The follow-up item string-members-follow-their-own-curve
-#: serves each member through its own curve and deletes this band.
-SERIES_SHARE_RTOL = 1e-2
 
 #: How near an energy knob's start value keeps to the nominal currents the
 #: export states. No model file records a hardware answer for the knob, so
@@ -671,23 +662,6 @@ def test_response_hardware_is_the_physics_one_through_k_per_amp(
         )
 
 
-def _string_nominals(
-    calibrations: Calibrations, exported: dict[str, Any], entry: dict[str, Any]
-) -> set[float]:
-    """The distinct ``Setpoint`` nominals the export states for the devices an entry's slices name.
-
-    An entry with no slices, or slices on one device, names at most one.
-    """
-    owners = {piece["device"] for piece in entry.get("slices") or [] if piece.get("device")}
-    nominals = exported["nominals"]["Setpoint"]["values"]
-    rows = [check_a._row(row) for row in exported["device_list"]]
-    stated: set[float] = set()
-    for owner in owners:
-        index = rows.index(calibrations.wiring.rows[str(owner)])
-        stated.add(float(nominals[index] if isinstance(nominals, list) else nominals))
-    return stated
-
-
 @RINGS
 @RESPONSES
 def test_response_k_per_amp_is_the_build_calibration_over_the_step(
@@ -700,13 +674,11 @@ def test_response_k_per_amp_is_the_build_calibration_over_the_step(
     start value over the family's ``delta_resp_mat``, times its slice's weight.
     A device no write entry binds fails naming its family and row. The
     export samples the conversion at both ends of that step, so the two agree
-    to ``CONVERSION_RTOL``; a member of a series string whose members state
-    different nominals is held to ``SERIES_SHARE_RTOL``.
+    to ``CONVERSION_RTOL``.
     """
     reference = model_reference(tree, stem)
     block = section(reference, name)
     calibrations = _calibrations(mml_built(tree, stem))
-    va = json.loads((FIXTURES / tree / f"{stem}.va.json").read_text(encoding="utf-8"))
     offenders: list[str] = []
     for family, facts in check_a._answered(block).items():
         recorded = check_a._flat(facts, "k_per_amp")
@@ -715,9 +687,7 @@ def test_response_k_per_amp_is_the_build_calibration_over_the_step(
             entry, weight, curve = calibrations.binding(family, "write", row)
             start = calibrations.start(family, row)
             built = weight * _secant(curve, start, float(width))
-            mixed = len(_string_nominals(calibrations, va["families"][family], entry)) > 1
-            rtol = SERIES_SHARE_RTOL if mixed else CONVERSION_RTOL
-            if not abs(built - k_per_amp) <= rtol * abs(k_per_amp):
+            if not abs(built - k_per_amp) <= CONVERSION_RTOL * abs(k_per_amp):
                 offenders.append(
                     f"{family}{check_a._row(row)} ({entry['address']}): "
                     f"{built!r} vs k_per_amp {float(k_per_amp)!r}"
