@@ -5477,7 +5477,7 @@ jobs:
     #   - the virtual accelerator image build, which target-switch-e2e
     #     measured at 226 s cold on a host where the image is emulated, and
     #     which is amd64-native on a GitHub runner;
-    #   - six modules sharing one session-scoped container, whose boot is
+    #   - seven modules sharing one session-scoped container, whose boot is
     #     bounded by the directory conftest's `CONTAINER_BOOT_TIMEOUT_S` of
     #     120 s (tests/va/e2e/conftest.py), followed by channel reads;
     #   - test_substrate_parity.py, one module-scoped boot of its own under
@@ -5491,7 +5491,7 @@ jobs:
     # a laptop. It is larger than va-substrate-equivalence-e2e and
     # archiver-world-e2e, and than the switch lane's 30, because that lane
     # runs four modules against containers two of its own images serve, while
-    # this one runs eight and boots six. Tighten once there are observed green
+    # this one runs nine and boots five. Tighten once there are observed green
     # timings on a runner.
     timeout-minutes: 60
 
@@ -5558,7 +5558,7 @@ jobs:
       # asserted by its final test), so a file that survives a refactor while
       # losing tests to it reds the step rather than passing on what is left.
       #
-      # Ordered cheapest first — the six that share the session container, then
+      # Ordered cheapest first — the seven that share the session container, then
       # the parity module with its own boot, then the harvested-tree module
       # which installs a facility export from scratch before each of its own
       # boots — so a failure in the cheap set is reported before the expensive
@@ -5567,6 +5567,7 @@ jobs:
         uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
           tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
           tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
+          tests/va/e2e/test_sim_apply_va.py \
           tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_mml_trees_boot.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
