@@ -46,8 +46,8 @@ may touch.
        shipped preset sets ``1.0``. A value at or below ``0`` stops the build
        with a ``profile-invalid`` line naming the key.
    * - ``simulation.default_scenarios``
-     - The scenarios a deployment that has never chosen a set starts in,
-       named as ``osprey sim apply`` accepts them. ``osprey up`` activates them
+     - The scenarios a deployment that has never chosen a set starts in, by
+       name from the facility's scenarios. ``osprey up`` activates them
        the way ``osprey sim apply`` would, before it seeds the archive and the
        logbook, and only while no set has been chosen. Absent, ``null`` or
        ``[]`` starts in ``nominal`` alone. The control-assistant preset sets

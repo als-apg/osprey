@@ -18,6 +18,7 @@ import pytest
 import yaml
 
 from osprey.simulation.apply import apply_scenarios
+from tests._simulator_view import facility_scenarios, write_scenarios_view
 
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
@@ -27,10 +28,10 @@ from osprey.simulation.apply import apply_scenarios
 # would otherwise collide on migrations/seed/truncate.
 pytestmark = [pytest.mark.xdist_group("docker")]
 
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[3]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
+TEMPLATE_DATA = (
+    Path(__file__).resolve().parents[3] / "src/osprey/templates/apps/control_assistant/data"
 )
+TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
 # Fixed apply-time anchor T0 so resolved timestamps are deterministic.
 T0 = datetime(2026, 6, 13, 12, 0, 0, tzinfo=UTC)
 
@@ -64,10 +65,9 @@ def _restore_schema_after(integration_ariel_config, database_url):
 
 
 def _make_project(tmp_path: Path, database_url: str) -> Path:
-    """Stage a minimal sim-backed project pointing ARIEL at the test DB."""
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
+    """Stage a sim-backed project's simulator view, pointing ARIEL at the test DB."""
+    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
         "control_system": {
             "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}

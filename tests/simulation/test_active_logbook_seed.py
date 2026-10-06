@@ -172,6 +172,53 @@ def test_a_persisted_set_that_does_not_compose_narrates_only_nominal(tmp_path):
     assert [entry["entry_id"] for entry in entries] == ["NOMINAL-1"]
 
 
+def _apply_seeding(project: Path, monkeypatch, names: list[str]) -> list[dict]:
+    """``osprey sim apply`` with its logbook seed captured instead of written."""
+    seeded: list[dict] = []
+
+    async def _capture(_ariel_config, entries, _pictures):
+        seeded.extend(entries)
+        return len(entries), True
+
+    monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _capture)
+    apply_scenarios(project, names, seed_archive=False)
+    return seeded
+
+
+def test_a_scenario_only_the_facility_states_is_applied_and_narrates(tmp_path, monkeypatch):
+    """A scenario the simulator view lists, and no machine model does, is one
+    ``osprey sim apply`` activates and seeds."""
+    # Arrange
+    project = _make_project(tmp_path)
+    write_scenarios_view(project, {"nominal": {}, "facility-only": {"logbook": [_entry("FAC-1")]}})
+
+    # Act
+    seeded = _apply_seeding(project, monkeypatch, ["facility-only"])
+
+    # Assert
+    assert [entry["entry_id"] for entry in seeded] == ["FAC-1"]
+    assert _state_file(project).read_text().splitlines()[1:] == ["facility-only"]
+
+
+def test_sim_apply_seeds_a_facility_scenario_s_edited_logbook_text(tmp_path, monkeypatch):
+    """The narrative ``osprey sim apply`` seeds is the view's, so an edit to a
+    scenario's story is what the next apply writes."""
+    # Arrange
+    project = _make_project(tmp_path)
+    edited = {**_entry("DEMO-026"), "text": "Edited: the cavity warmed after the RF trip."}
+    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    view = facility_scenarios(scenarios)
+    view["rf-thermal"] = {**view["rf-thermal"], "logbook": [edited]}
+    write_scenarios_view(project, view)
+
+    # Act
+    seeded = _apply_seeding(project, monkeypatch, ["rf-thermal"])
+
+    # Assert
+    texts = {entry["entry_id"]: entry["raw_text"] for entry in seeded}
+    assert texts["DEMO-026"].endswith("Edited: the cavity warmed after the RF trip.")
+
+
 def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch):
     """The deploy's own seed: a first bring-up finds no entries and writes the
     narrative that matches the archive it just seeded."""

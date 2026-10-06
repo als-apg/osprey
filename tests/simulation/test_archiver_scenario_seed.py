@@ -27,7 +27,6 @@ the config resolution carry their own weight without one.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -185,9 +184,7 @@ def mongo_store():
 
 
 def _write_model(root: Path, machine: dict) -> None:
-    """Write the machine model and the simulator view from one source."""
-    (root / "data" / "simulation").mkdir(parents=True, exist_ok=True)
-    (root / "data" / "simulation" / "machine.json").write_text(json.dumps(machine))
+    """Write the simulator view: the channels and the machine's scenarios."""
     write_texture_view(root, CHANNELS, machine["scenarios"])
 
 
@@ -198,10 +195,7 @@ def _write_project(root: Path, store: dict | None, *, password: str | None) -> P
     config: dict = {
         "project_name": "rewrite-project",
         "project_root": str(root),
-        "control_system": {
-            "type": "mock",
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
-        },
+        "control_system": {"type": "mock"},
         "va_archiver": {
             "retention_days": KNOBS.retention_days,
             "hot_span_hours": KNOBS.hot_span_hours,
@@ -1245,9 +1239,6 @@ class TestPreflight:
     feature exists to close, arrived at by a different route.
     """
 
-    def _machine_path(self, root: Path) -> Path:
-        return root / "data" / "simulation" / "machine.json"
-
     def _config(self, root: Path) -> dict:
         return yaml.safe_load((root / "config.yml").read_text())
 
@@ -1261,7 +1252,7 @@ class TestPreflight:
 
     def test_a_window_fraction_event_is_refused_before_anything_is_written(self, tmp_path):
         root = _write_project(tmp_path / "plain", None, password=None)
-        machine = json.loads(self._machine_path(root).read_text())
+        machine = _machine()
         machine["scenarios"]["burst"]["archiver"][0]["events"] = [
             {"shape": "step", "at": 0.5, "to": 5.0}
         ]

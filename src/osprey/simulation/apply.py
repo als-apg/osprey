@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.simulation.engine import DEFAULT_SCENARIO, SimulationEngine
+from osprey.simulation.engine import DEFAULT_SCENARIO
 from osprey.simulation.machine import load_narratives, parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
@@ -40,6 +40,7 @@ from osprey_connectors.simulation.state import (
     parse_active_state,
     resolve_active_scenarios,
     scenario_targets,
+    write_active_state,
 )
 from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 
@@ -195,14 +196,19 @@ def apply_scenarios(
 ) -> ApplyResult:
     """Compose and activate scenarios for a built project; optionally seed its logbook.
 
+    The set is judged against the scenarios of the render's simulator view and
+    written to the scenario state file (see
+    :func:`~osprey_connectors.simulation.state.write_active_state`).
+
     Args:
-        project_dir: The deployment repo root — it anchors the ``data/simulation/``
-            model and the scenario state under ``var/agent_data/simulation/``,
-            and its render supplies ``config.yml`` (see :func:`_config_file`).
+        project_dir: The deployment repo root — it anchors the scenario state
+            under ``var/agent_data/simulation/``, and its render supplies
+            ``config.yml`` (see :func:`_config_file`) and the simulator view.
         names: Scenario names to activate (``nominal`` is always implicit).
         seed_logbook: When True (and the project has an ``ariel`` config),
             purge and reseed the ARIEL logbook from the active scenarios'
-            entries so the narrative matches the telemetry.
+            ``logbook`` blocks in the simulator view, so the narrative matches
+            the telemetry.
         seed_archive: When True (and the project has a stored archive), rewrite
             the event windows of that archive so its history matches the
             telemetry too. A project whose history is synthesized at read time
@@ -215,40 +221,47 @@ def apply_scenarios(
         :class:`ApplyResult` with the resolved active set and seed/purge status.
 
     Raises:
-        ValueError: If the project is not simulation-backed, a scenario name is
+        ValueError: If the render carries no simulator view, a scenario name is
             unknown, or the requested set does not compose (channel collision).
     """
+    from osprey.facility.views.simulator import SCENARIOS_DIR
+
     project_dir = Path(project_dir)
     config = load_config(str(_config_file(project_dir)))
 
-    machine_path = _require_simulation_file(
-        config,
-        project_dir,
-        "`sim apply` only applies to simulation-backed projects (guards a real DB).",
-    )
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_simulation_state_dir(config, project_dir)
-    )
+    scenarios = _view_scenarios(project_dir)
+    if scenarios is None:
+        raise ValueError(
+            f"Project {project_dir} has no simulator view in {_simulator_view(project_dir)}; "
+            "`sim apply` only applies to simulation-backed projects (guards a real DB). "
+            "Run 'osprey build'."
+        )
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
     # zone each seeded logbook entry's relative time-of-day resolves into, and it
-    # must match where the simulation engine places the telemetry it narrates
-    # (daily ``at_time`` events are facility-local). A UTC default silently shifts
-    # the narrative hours away from its archiver evidence on a non-UTC facility.
+    # must match where the simulator places the telemetry it narrates (daily
+    # ``at_time`` events are facility-local). A UTC default silently shifts the
+    # narrative hours away from its archiver evidence on a non-UTC facility.
     t0 = now or datetime.now(get_facility_timezone())
-    # set_active_scenarios validates composition and raises on collisions/unknowns.
-    # Not announced here. Both callers already say it: `osprey sim apply` echoes
-    # `✓ Active scenarios: …`, and the deploy-time reseed closes with a step
-    # naming the same scenarios. The anchor is internal -- the reseed reuses the
-    # persisted one precisely so nothing slides.
-    active = engine.set_active_scenarios(names, anchor=t0)
+    # The writer validates composition and raises on collisions/unknowns before
+    # anything is written. Not announced here. Both callers already say it:
+    # `osprey sim apply` echoes `✓ Active scenarios: …`, and the deploy-time
+    # reseed closes with a step naming the same scenarios. The anchor is
+    # internal -- the reseed reuses the persisted one precisely so nothing slides.
+    active = write_active_state(
+        resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME,
+        {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
+        names,
+        anchor=t0,
+    )
 
     seeded = 0
     purged = False
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            with seed_payload(engine.active_logbook(), t0) as (entries, pictures):
+            logbook = _view_logbook(scenarios, active, _simulator_view(project_dir) / SCENARIOS_DIR)
+            with seed_payload(logbook, t0) as (entries, pictures):
                 seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
@@ -260,7 +273,9 @@ def apply_scenarios(
     if seed_archive:
         archiver = seed_archiver(project_dir, config, list(names), t0)
 
-    return ApplyResult(active=active, logbook_seeded=seeded, purged=purged, archiver=archiver)
+    return ApplyResult(
+        active=tuple(active), logbook_seeded=seeded, purged=purged, archiver=archiver
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +399,7 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
 
     Raises:
         ValueError: If the key is malformed, a default names a scenario the
-            project does not define, or the defaults do not compose -- the
+            simulator view does not list, or the defaults do not compose -- the
             refusals ``osprey sim apply`` gives the same set.
     """
     project_dir = Path(project_dir)
@@ -433,10 +448,9 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
     See :func:`active_logbook_entries`; the entries are empty when the render
     carries no simulator view.
     """
-    from osprey.facility.scenarios import scenario_logbook
     from osprey.facility.views.simulator import SCENARIOS_DIR
 
-    # Read in the facility zone, as the engine reads the same anchor: a logbook
+    # Read in the facility zone, as the simulator reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
     zone = get_facility_timezone()
     persisted = persisted_scenario_anchor(config, project_dir)
@@ -457,14 +471,28 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
         {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
         resolve_active_scenarios(names),
     )
-    files = _simulator_view(project_dir) / SCENARIOS_DIR
-    logbook = [
+    return _view_logbook(scenarios, served, _simulator_view(project_dir) / SCENARIOS_DIR), anchor
+
+
+def _view_logbook(
+    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str], files: Path
+) -> list[ScenarioLogEntry]:
+    """The ``logbook`` entries of a scenario set, in set order.
+
+    Args:
+        scenarios: The simulator view's scenarios, by name.
+        names: The set's scenario names; a name the view does not list narrates nothing.
+        files: The view's scenario files directory; an entry's pictures resolve
+            against ``files / <name>``.
+    """
+    from osprey.facility.scenarios import scenario_logbook
+
+    return [
         entry
-        for name in served
+        for name in names
         if name in scenarios
         for entry in scenario_logbook(scenarios[name], files / name)
     ]
-    return logbook, anchor
 
 
 async def _export_qmd_mirror(ariel_config: dict) -> None:
