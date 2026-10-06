@@ -904,20 +904,18 @@ control system's own data. The fields are listed in
 
 .. _config-ariel-demo-narrative:
 
-``ariel.demo_narrative`` — a demo logbook for a deployment with no simulation
------------------------------------------------------------------------------
+``ariel.demo_narrative`` — a demo logbook from the facility's scenarios
+----------------------------------------------------------------------
 
-``ariel.demo_narrative`` names a directory of scenario narratives: one
-subdirectory per scenario, each holding a ``logbook.json`` in the
-scenario-bundle format (:ref:`simulation-bundle-logbook`) and the pictures its
-entries attach. A relative path resolves against the project root. On a
-deployment with no simulation, ``osprey up`` seeds every narrative in it
-(``nominal`` first, then the rest by name) into an empty logbook, pictures
-included, and ``osprey ariel quickstart`` does the same and then runs the
-enhancement modules. A logbook that already holds entries is never touched.
-The ``ariel-standalone`` preset sets it to ``data/logbook_seed``, which
-``osprey init`` fills from the control-assistant scenario bundles. Unset, no
-demo logbook is seeded.
+``ariel.demo_narrative`` is ``all`` or a list of scenario names. The logbook
+entries of those scenarios are read from the built simulator view, with the
+pictures they attach. ``osprey up`` seeds them (``nominal`` first, then the
+rest by name) into an empty logbook in place of the active scenarios' entries,
+and ``osprey ariel quickstart`` does the same and then runs the enhancement
+modules. A logbook that already holds entries is never touched. A name the
+simulator view does not list is refused, and so is a directory. The
+``ariel-standalone`` preset sets it to ``all``. Unset, a deploy seeds the
+active scenarios' entries.
 
 .. _config-ariel-entry-url:
 

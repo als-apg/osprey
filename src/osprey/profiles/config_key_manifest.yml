@@ -1895,11 +1895,11 @@ keys:
   ariel.demo_narrative:
     evidence: 'DEMO_NARRATIVE_KEY = "demo_narrative"'
     note: >-
-      A directory of scenario narratives (one subdirectory per scenario, each a
-      logbook.json and the pictures it attaches) that `osprey up` seeds into an
-      empty logbook of a deployment with no simulation, and `osprey ariel
-      quickstart` seeds and enhances. Live in ariel-standalone, whose init
-      materializes it from the control-assistant scenario bundles.
+      `all` or a list of scenario names whose logbook entries, read from the
+      built simulator view with the pictures they attach, `osprey up` seeds into
+      an empty logbook in place of the active set's, and `osprey ariel
+      quickstart` seeds and enhances. A directory value is refused. Live in
+      ariel-standalone as `all`.
     default: null
   ariel.ingestion:
     rendered: false

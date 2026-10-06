@@ -251,7 +251,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # before. A rebuilt project starts in the same set, from its profile; the
     # five `extends` children inherit the line, and the other three presets
     # state no start set and stand still.
-    "ariel-standalone": ("sha256:f77debeb01c502cfbc55bf0d7d7d11e1993fc5ef555e88cafe19b6482aaf83a7"),
+    # The thirty-fourth move, and ariel-standalone alone: it states
+    # `ariel.demo_narrative: all`, the scenario names whose logbook entries the
+    # deploy reads from the built simulator view, in place of a directory the
+    # init filled. A rebuilt project seeds the same entries from its facility,
+    # but the profile states a different value, so the staleness advisory
+    # firing on already-deployed projects is the correct signal. Every other
+    # preset stands still.
+    "ariel-standalone": ("sha256:31c1eace09974cac6b8dbfc744685b7d8e6f5b9cd58431b04659c79c93d3bb23"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
