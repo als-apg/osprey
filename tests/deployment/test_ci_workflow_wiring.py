@@ -6108,7 +6108,7 @@ def test_va_live_suite_discovery_has_a_floor() -> None:
     partition rather than whichever part happens to be largest."""
     found = _va_live_suites_on_disk()
     assert f"{VA_LIVE_SUITE_DIR}/test_target_switch.py" in found, found
-    assert f"{VA_LIVE_SUITE_DIR}/test_serving_parity.py" in found, found
+    assert f"{VA_LIVE_SUITE_DIR}/test_substrate_parity.py" in found, found
     assert f"{VA_LIVE_SUITE_DIR}/test_bluesky_lanes.py" in found, found
 
 

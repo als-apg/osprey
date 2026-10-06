@@ -89,14 +89,14 @@ Ports, names and 5064
 Each container binds an ephemeral Channel Access port and an ephemeral
 pvAccess port and publishes both unchanged: a search reply carries the server's
 own port, so a remap would hand every client an address nothing answers on. That port also *names* the container, for
-the reason ``test_serving_parity.py`` states at length — a fixed name is
-mutually destructive between concurrent runs. Nothing here goes near 5064.
+the reason ``test_target_switch.py`` gives — a fixed name is mutually
+destructive between concurrent runs. Nothing here goes near 5064.
 
 The container helpers (``_free_port``, ``_docker``, ``_require_image``,
 ``_served``, ``_serving``) are copied from ``test_target_switch.py`` rather than
-imported from it, as ``test_serving_parity.py`` copies them too: that module
-defines fixtures and imports the Bluesky queueserver stack at import time, and a
-test module is not an importable helper library. The copies are small, and each
+imported from it: that module defines fixtures and imports the Bluesky
+queueserver stack at import time, and a test module is not an importable helper
+library. The copies are small, and each
 suite's ``_serving`` differs in what it seeds.
 
 Every Channel Access operation in this file happens in **another process**: in
