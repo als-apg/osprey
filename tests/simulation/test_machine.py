@@ -15,8 +15,6 @@ from osprey.simulation.machine import (
     DEFAULT_SCENARIO,
     BpmErrorSpec,
     ParsedMachine,
-    PlotSeries,
-    PlotSpec,
     Scenario,
     SimChannel,
     TextureSpec,
@@ -26,9 +24,9 @@ from osprey.simulation.machine import (
     load_narratives,
     load_scenario_bundles,
     parse_machine,
-    parse_plot_spec,
     read_machine_json,
 )
+from osprey_connectors.simulation.logbook import PlotSeries, PlotSpec, parse_plot_spec
 
 _PATH = Path("machine.json")
 

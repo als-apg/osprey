@@ -35,12 +35,12 @@ import numpy as np
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.expressions import ExpressionError, evaluate_channel
+from osprey_connectors.simulation.logbook import ScenarioLogEntry
 from osprey_connectors.simulation.machine import (
     DEFAULT_SCENARIO,
     DriverCoupling,
     NoiseOverride,
     Scenario,
-    ScenarioLogEntry,
     SimChannel,
     TextureSpec,
     parse_machine,

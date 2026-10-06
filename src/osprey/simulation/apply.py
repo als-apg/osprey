@@ -49,8 +49,9 @@ if TYPE_CHECKING:
     from zoneinfo import ZoneInfo
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
-    from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario, ScenarioLogEntry
+    from osprey.simulation.machine import BpmErrorSpec, Scenario
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
+    from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
 
 logger = get_logger("simulation_apply")
 
