@@ -304,7 +304,7 @@ def draw_bump_test(test: BumpTest, path: Path) -> None:
 
 def write_spec(spec: dict, path: Path) -> None:
     """Write ``spec`` as JSON: one key per line, each array on one line."""
-    from osprey.simulation.machine import parse_plot_spec
+    from osprey_connectors.simulation.logbook import parse_plot_spec
 
     parse_plot_spec(spec, str(path))
     lines = []

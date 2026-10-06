@@ -32,7 +32,7 @@ from typing import Any
 
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey_connectors.relative_time import RelativeTimestamp
-from osprey_connectors.simulation.machine import ScenarioLogEntry, _parse_log_attachments
+from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
 
 __all__ = [
     "FaultRoster",
@@ -116,7 +116,7 @@ def _log_entry(scenario: str, raw: Any, directory: Path | None) -> ScenarioLogEn
         loto_tag=loto_tag,
         extra=dict(extra),
         attachments=(
-            _parse_log_attachments(prefix, attachments, directory) if directory is not None else ()
+            parse_log_attachments(prefix, attachments, directory) if directory is not None else ()
         ),
     )
 
@@ -374,10 +374,10 @@ def _attachment_errors(
     name: str, files: list[str], slot: str, root: Path, item: Any
 ) -> Iterator[FacilityBuildError]:
     """The stops of one attachment item of a scenario's logbook entry."""
-    from osprey_connectors.simulation.machine import (
-        _IMAGE_SIGNATURES,
-        _SIGNATURE_BYTES,
-        _matches_signature,
+    from osprey_connectors.simulation.logbook import (
+        IMAGE_SIGNATURES,
+        SIGNATURE_BYTES,
+        matches_signature,
         parse_plot_spec,
     )
 
@@ -420,9 +420,9 @@ def _attachment_errors(
             "name a .json plot spec, or attach the picture as `path`",
         )
         return
-    signatures = _IMAGE_SIGNATURES.get(path.suffix.lower()) if key == "path" else None
+    signatures = IMAGE_SIGNATURES.get(path.suffix.lower()) if key == "path" else None
     if key == "path" and signatures is None:
-        accepted = ", ".join(sorted(_IMAGE_SIGNATURES))
+        accepted = ", ".join(sorted(IMAGE_SIGNATURES))
         yield _error(
             "value-invalid",
             name,
@@ -442,8 +442,8 @@ def _attachment_errors(
         return
     if signatures is not None:
         with path.open("rb") as handle:
-            head = handle.read(_SIGNATURE_BYTES)
-        if not any(_matches_signature(head, signature) for signature in signatures):
+            head = handle.read(SIGNATURE_BYTES)
+        if not any(matches_signature(head, signature) for signature in signatures):
             yield _error(
                 "value-invalid",
                 name,
