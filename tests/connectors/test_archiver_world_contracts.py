@@ -47,7 +47,6 @@ those stores out from under their assertions.
 
 from __future__ import annotations
 
-import json
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -393,33 +392,13 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     test's seeder writes.
     """
     root = tmp_path / "world"
-    scenarios = root / "data" / "simulation" / "scenarios"
-    scenarios.mkdir(parents=True)
-    (root / "data" / "simulation" / "machine.json").write_text(
-        json.dumps(
-            {
-                "name": "Archiver world rig",
-                "channels": {
-                    address: {"value": CHANNELS[address]["nominal"], "noise": 0.0}
-                    for address in (CAVITY_TEMP, CAVITY_POWER)
-                },
-            }
-        )
-    )
-    bundles = {"rf-thermal": _rf_thermal(), "cavity-trip": _cavity_trip()}
-    for name, bundle in bundles.items():
-        (scenarios / name).mkdir()
-        (scenarios / name / "scenario.json").write_text(json.dumps(bundle))
-    write_texture_view(root, CHANNELS, bundles)
+    write_texture_view(root, CHANNELS, {"rf-thermal": _rf_thermal(), "cavity-trip": _cavity_trip()})
 
     password_env = "ARCHIVER_WORLD_MONGO_PASSWORD"
     config = {
         "project_name": "archiver-world-contracts",
         "project_root": str(root),
-        "control_system": {
-            "type": "mock",
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
-        },
+        "control_system": {"type": "mock"},
         "archiver": {
             "type": "mongodb_archiver",
             "mongodb_archiver": {
@@ -626,9 +605,6 @@ class TestRetention:
         # standing between those documents and the sweeper.
         expired_offset = -(KNOBS.retention_s - self.AGE_S // 2)
         aged = _aged_rf_thermal(expired_offset)
-        world.root.joinpath("data/simulation/scenarios/rf-thermal/scenario.json").write_text(
-            json.dumps(aged)
-        )
         write_scenarios_view(world.root, {"rf-thermal": aged, "cavity-trip": _cavity_trip()})
         result = world.apply(["rf-thermal"], at=anchor)
         assert result.archiver.skipped is None

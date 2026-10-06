@@ -1,9 +1,9 @@
 """Type-aware simulation-file lookup for `osprey sim apply`.
 
 ``osprey_connectors.simulation.engine.resolve_simulation_file`` resolves the
-simulation-model file for the active ``control_system.type``, and
-``apply_scenarios`` (simulation/apply.py) resolves it through that helper.
-This file pins:
+simulation-model file for the active ``control_system.type``;
+``apply_scenarios`` (simulation/apply.py) reads the render's simulator view
+instead, whatever the type. This file pins:
 
 - mock resolution reads ``connector.mock.simulation_file``, and a missing key
   is refused with the mock wording.
@@ -12,6 +12,8 @@ This file pins:
   a real key, not an informational one).
 - an unknown/unsupported ``control_system.type`` fails cleanly, naming both
   the type-specific key and the mock fallback key that were tried.
+- ``apply_scenarios`` activates a set the simulator view lists under every
+  type, and refuses a render without a view.
 """
 
 from __future__ import annotations
@@ -19,10 +21,12 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey.simulation.apply import apply_scenarios
 from osprey_connectors.simulation.engine import resolve_simulation_file
+from tests._simulator_view import write_scenarios_view
 
 TEMPLATE_SIM = (
     Path(__file__).resolve().parents[2]
@@ -146,35 +150,25 @@ class TestResolveSimulationFile:
 # ---------------------------------------------------------------------------
 
 
-class TestApplyScenariosTypeAwareness:
-    def test_mock_missing_key_error_unchanged(self, tmp_path):
-        project = _stage_project(tmp_path, MOCK_MISSING_CS)
-        try:
-            apply_scenarios(project, ["rf-thermal"], seed_logbook=False)
-            raised = None
-        except ValueError as exc:
-            raised = exc
-        assert raised is not None
-        assert str(raised) == (
-            f"Project {project} has no mock 'simulation_file' configured; "
-            f"`sim apply` only applies to simulation-backed projects (guards a real DB)."
-        )
+class TestApplyScenariosReadsTheSimulatorView:
+    @pytest.mark.parametrize("control_system", [MOCK_CS, MOCK_MISSING_CS, VA_CS, UNKNOWN_CS])
+    def test_a_set_the_view_lists_is_applied_under_every_type(self, tmp_path, control_system):
+        project = _stage_project(tmp_path, control_system)
+        write_scenarios_view(project, {"nominal": {}, "rf-thermal": {}})
 
-    def test_va_mode_applies_scenario(self, tmp_path):
-        project = _stage_project(tmp_path, VA_CS)
         result = apply_scenarios(project, ["rf-thermal"], seed_logbook=False)
-        assert "rf-thermal" in result.active
-        assert "nominal" in result.active
 
-    def test_unknown_type_error_names_both_keys(self, tmp_path):
-        project = _stage_project(tmp_path, UNKNOWN_CS)
-        try:
+        assert result.active == ("nominal", "rf-thermal")
+
+    @pytest.mark.parametrize("control_system", [MOCK_CS, UNKNOWN_CS])
+    def test_a_render_without_a_simulator_view_is_refused(self, tmp_path, control_system):
+        project = _stage_project(tmp_path, control_system)
+
+        with pytest.raises(ValueError) as raised:
             apply_scenarios(project, ["rf-thermal"], seed_logbook=False)
-            raised = None
-        except ValueError as exc:
-            raised = exc
-        assert raised is not None
-        message = str(raised)
-        assert "control_system.connector.bogus.simulation_file" in message
-        assert MOCK_TYPE_KEY in message
-        assert str(project) in message
+
+        assert str(raised.value) == (
+            f"Project {project} has no simulator view in {project / 'data' / 'simulator'}; "
+            "`sim apply` only applies to simulation-backed projects (guards a real DB). "
+            "Run 'osprey build'."
+        )

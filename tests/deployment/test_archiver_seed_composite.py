@@ -10,6 +10,7 @@ at the persisted anchor whenever the seed happens to run.
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -190,3 +191,196 @@ def test_the_archive_composite_places_the_event_from_the_anchor_it_is_given(
     assert build(view, ["burst"], anchor_s=T0.timestamp()).series(PRESSURE, at) == [
         pytest.approx(6e-9)
     ]
+
+
+# -- the rewrite, against a real store -------------------------------------------
+
+TEMPERATURE = "SR:RF:CAV01:TEMP:BODY"
+FLAG = "SR:VAC:IP07:STATUS:FAULT"
+SETPOINT = "SR:MAG:HCM:01:CURRENT:SP"
+
+STORE_CHANNELS = {
+    PRESSURE: {"nominal": 1e-9},
+    TEMPERATURE: {"nominal": 25.0},
+    FLAG: {"value_type": "bool", "nominal": "FALSE"},
+    SETPOINT: {"role": "setpoint", "nominal": 5.0},
+}
+#: What a spike of amplitude 3 still adds at four sigmas, where the rewrite cuts its window.
+CUT = 3.0 * math.exp(-8.0)
+
+STORE_SCENARIOS = {
+    "burst": {"archiver": [{"channel": PRESSURE, "events": [SPIKE]}]},
+    "warm": {
+        "archiver": [
+            {
+                "channel": TEMPERATURE,
+                "events": [{**SPIKE, "at_offset": -900.0, "amplitude": 3.0}],
+            }
+        ]
+    },
+    "trip": {
+        "archiver": [
+            {"channel": FLAG, "events": [{"shape": "step", "at_offset": -1800.0, "to": "TRUE"}]}
+        ]
+    },
+}
+
+
+@pytest.fixture(scope="module")
+def mongo_store():
+    from tests._container_support import is_docker_available
+    from tests._mongo_container import started_mongo
+
+    if not is_docker_available():
+        pytest.skip("Docker not available — needed to rewrite a real store.")
+    username, password = "composeuser", "composepass123"
+    with started_mongo("mongodb-seed-composite", username=username, password=password) as (
+        host,
+        port,
+    ):
+        yield {"host": host, "port": port, "username": username, "password": password}
+
+
+@pytest.fixture
+def store(tmp_path: Path, mongo_store: dict[str, Any]):
+    """A project whose texture view is seeded into an empty collection."""
+    import yaml
+    from pymongo import MongoClient
+
+    root = tmp_path / "proj"
+    write_texture_view(root, STORE_CHANNELS, STORE_SCENARIOS)
+    config = {
+        "project_name": "seed-composite",
+        "project_root": str(root),
+        "archiver": {
+            "type": "mongodb_archiver",
+            "mongodb_archiver": {
+                "host": mongo_store["host"],
+                "port": mongo_store["port"],
+                "name": "seed_composite_db",
+                "collection": "pv_history",
+                "auth": {
+                    "source": "admin",
+                    "username": mongo_store["username"],
+                    "password_env": "MONGO_ROOT_PASSWORD",
+                },
+                "timeout_s": 10,
+            },
+        },
+        "va_archiver": {
+            "retention_days": KNOBS.retention_days,
+            "hot_span_hours": KNOBS.hot_span_hours,
+            "hot_cadence_sec": KNOBS.hot_cadence_sec,
+            "tail_cadence_sec": KNOBS.tail_cadence_sec,
+        },
+    }
+    (root / "config.yml").write_text(yaml.safe_dump(config))
+    (root / ".env").write_text(f"MONGO_ROOT_PASSWORD={mongo_store['password']}\n")
+    client: Any = MongoClient(
+        host=mongo_store["host"],
+        port=mongo_store["port"],
+        username=mongo_store["username"],
+        password=mongo_store["password"],
+        authSource="admin",
+    )
+    collection = client["seed_composite_db"]["pv_history"]
+    collection.drop()
+    seed_base(collection, build(root / "data" / "simulator", []), KNOBS, t0=ANCHOR, chunk_size=256)
+    try:
+        yield root, config, collection
+    finally:
+        collection.drop()
+        client.close()
+
+
+def _apply(root: Path, names: list[str]):
+    from osprey.simulation.apply import apply_scenarios
+
+    return apply_scenarios(root, names, seed_logbook=False, now=ANCHOR)
+
+
+def _stored(collection) -> dict[datetime, dict[str, Any]]:
+    return {
+        document[DATE_FIELD]: {
+            key: value for key, value in document.items() if key not in ("_id", DATE_FIELD)
+        }
+        for document in collection.find({DATE_FIELD: {"$exists": True}})
+    }
+
+
+def _reseed(root: Path, collection) -> None:
+    collection.drop()
+    seed_base(collection, build(root / "data" / "simulator", []), KNOBS, t0=ANCHOR, chunk_size=256)
+
+
+def test_a_writes_journal_planted_before_a_rewrite_changes_no_sample(store) -> None:
+    from osprey_connectors.control_system.mock_connector import (
+        JOURNAL_DIR,
+        JOURNAL_FILE,
+        active_set_sha256,
+    )
+
+    root, config, collection = store
+    _apply(root, ["burst"])
+    clean = _stored(collection)
+    _reseed(root, collection)
+    journal = resolve_simulation_state_dir(config, root) / JOURNAL_DIR / JOURNAL_FILE
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    journal.write_text(
+        json.dumps(
+            {
+                "active_set_sha256": active_set_sha256(["nominal", "burst"]),
+                "seq": 1,
+                "writes": [[1, SETPOINT, 1.0]],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = _apply(root, ["burst"])
+
+    assert result.archiver.updated > 0
+    assert _stored(collection) == clean
+    assert {sample[SETPOINT] for sample in clean.values() if SETPOINT in sample} == {5.0}
+
+
+def test_a_rewritten_window_over_a_stored_flag_keeps_its_false_samples(store) -> None:
+    root, _config, collection = store
+    collection.update_many({FLAG: 0}, {"$set": {FLAG: False}})
+
+    _apply(root, ["trip"])
+
+    step = ANCHOR.timestamp() - 1800.0
+    samples = [
+        (document[DATE_FIELD].replace(tzinfo=UTC).timestamp(), document[FLAG])
+        for document in collection.find({FLAG: {"$exists": True}})
+    ]
+    before = [value for moment, value in samples if moment < step]
+    after = [value for moment, value in samples if moment >= step]
+    assert before and after
+    assert all(value is False for value in before)
+    assert all(value is True for value in after)
+
+
+def test_applying_one_set_then_another_leaves_none_of_the_first_s_events(store) -> None:
+    """Every sample is the second set's, to the spike's four-sigma cut; the first
+    set's channel is back on its held value everywhere."""
+    from osprey.simulation.apply import DENSIFIED_FIELD
+
+    root, _config, collection = store
+    _apply(root, ["burst"])
+
+    _apply(root, ["warm"])
+
+    stored = _stored(collection)
+    archive = build(root / "data" / "simulator", ["warm"], anchor_s=ANCHOR.timestamp())
+    moments = sorted(stored)
+    expected = archive.samples(
+        archive.addresses, [moment.replace(tzinfo=UTC).timestamp() for moment in moments]
+    )
+    for index, moment in enumerate(moments):
+        for address, value in stored[moment].items():
+            if address in expected:
+                assert value == pytest.approx(expected[address][index], abs=CUT), address
+    assert {sample[PRESSURE] for sample in stored.values() if PRESSURE in sample} == {1e-9}
+    assert not collection.count_documents({DENSIFIED_FIELD: True, PRESSURE: {"$exists": True}})

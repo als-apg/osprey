@@ -19,6 +19,7 @@ import yaml
 from osprey.simulation.apply import apply_scenarios
 from osprey.simulation.engine import SimulationEngine, default_state_dir, resolve_state_dir
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests._simulator_view import write_scenarios_view
 
 TEMPLATE_SIM = (
     Path(__file__).resolve().parents[2]
@@ -29,6 +30,7 @@ TEMPLATE_SIM = (
 def _make_project(tmp_path: Path, **config_extra) -> Path:
     """A sim-backed project: build-owned ``data/simulation/`` plus config.yml."""
     shutil.copytree(TEMPLATE_SIM, tmp_path / "data" / "simulation")
+    write_scenarios_view(tmp_path, {"nominal": {}, "vacuum-burst": {}})
     config = {
         "control_system": {
             "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
