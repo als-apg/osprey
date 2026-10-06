@@ -604,17 +604,49 @@ class Composite(LUMEModel):
         truth = self._plain_get(child, sorted(set(names) | set(readbacks)))
         if truth is None:
             return self._failed_values(child, names)
+        moved = self._moving_readbacks(
+            child,
+            {address: np.array([float(truth[address])]) for address in readbacks},
+            np.array([t_s], dtype=np.float64),
+        )
+        for address in readbacks:
+            truth[address] = float(moved[address][0])
+        return {name: truth[name] for name in names}
+
+    def _moving_readbacks(
+        self, child: _Child, levels: Mapping[str, np.ndarray], times: np.ndarray
+    ) -> dict[str, np.ndarray]:
+        """A built physics child's moving readbacks: motion, then readout, then clamp.
+
+        Args:
+            child: A physics child whose model is built.
+            levels: One float64 array shaped like ``times`` per readback, a
+                monitor plane with every channel of its readout group.
+            times: Epoch seconds, one-dimensional.
+
+        Returns:
+            One float64 array shaped like ``times`` per address of ``levels``.
+        """
         moved = {
-            address: float(truth[address])
-            + float(self._texture.motion(address, t_s, base=float(truth[address])))
-            for address in readbacks
+            name: level + self._texture.motion(name, times, base=level)
+            for name, level in levels.items()
         }
         readout = getattr(child.engine, "readout", None)
         if moved and callable(readout):
-            moved = readout(child.model, moved, int(round(t_s * _MS_PER_S)))
-        for address in readbacks:
-            truth[address] = self._texture.clamp(address, float(moved[address]))
-        return {name: truth[name] for name in names}
+            for index, instant in enumerate(times):
+                read = readout(
+                    child.model,
+                    {name: float(series_[index]) for name, series_ in moved.items()},
+                    int(round(float(instant) * _MS_PER_S)),
+                )
+                for name, series_ in moved.items():
+                    series_[index] = float(read[name])
+        return {
+            name: np.array(
+                [self._texture.clamp(name, float(value)) for value in series_], dtype=np.float64
+            )
+            for name, series_ in moved.items()
+        }
 
     def _plain_get(self, child: _Child, names: list[str]) -> dict[str, Any] | None:
         """A built child's plain reads, or ``None`` once a read fails the child."""
@@ -693,43 +725,27 @@ class Composite(LUMEModel):
         self._refresh()
         times = np.asarray(t_s, dtype=np.float64).reshape(-1)
         out: dict[str, np.ndarray] = {}
-        readbacks: dict[str, list[str]] = {}
-        unread: set[str] = set()
+        readbacks: dict[str, dict[str, np.ndarray]] = {}
         for name in names:
             level = np.broadcast_to(np.asarray(levels[name], dtype=np.float64), times.shape)
             owner = self._owner[name]
-            if owner != TEXTURE_OWNER and not self._is_moving_readback(name):
+            if owner == TEXTURE_OWNER:
+                moved = level + self._texture.motion(name, times, base=level)
+                out[name] = np.array(
+                    [self._texture.clamp(name, float(value)) for value in moved],
+                    dtype=np.float64,
+                )
+            elif self._is_moving_readback(name):
+                readbacks.setdefault(owner, {})[name] = level
+            else:
                 out[name] = np.array(level, dtype=np.float64)
-                unread.add(name)
-                continue
-            out[name] = level + self._texture.motion(name, times, base=level)
-            if owner != TEXTURE_OWNER:
-                readbacks.setdefault(owner, []).append(name)
         for model, owned in readbacks.items():
             child = self._children[model]
             if child.model is None:
-                for name in owned:
-                    out[name] = np.full(times.shape, math.nan)
-                unread.update(owned)
-                continue
-            readout = getattr(child.engine, "readout", None)
-            if not callable(readout):
-                continue
-            for index, instant in enumerate(times):
-                read = readout(
-                    child.model,
-                    {name: float(out[name][index]) for name in owned},
-                    int(round(float(instant) * _MS_PER_S)),
-                )
-                for name in owned:
-                    out[name][index] = float(read[name])
-        for name in names:
-            if name not in unread:
-                out[name] = np.array(
-                    [self._texture.clamp(name, float(value)) for value in out[name]],
-                    dtype=np.float64,
-                )
-        return out
+                out.update({name: np.full(times.shape, math.nan) for name in owned})
+            else:
+                out.update(self._moving_readbacks(child, owned, times))
+        return {name: out[name] for name in names}
 
     def held(self, names: Sequence[str]) -> dict[str, Any]:
         """Each channel's held value: no motion, no readout, no clamp.
