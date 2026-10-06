@@ -2,7 +2,8 @@
 
 Every reader of the active set — the engine, ``sim apply``, the archive
 composite and the stand-in — resolves it and checks it here, so they cannot
-disagree on which scenarios run or on which sets compose.
+disagree on which scenarios run or on which sets compose; ``sim apply`` writes
+it here too, with :func:`write_active_state`.
 
 Scenarios compose only when they write disjoint targets: two scenarios writing
 one target would apply in an order-dependent way, so such a set is refused as
@@ -15,9 +16,11 @@ The module imports neither numpy nor lume.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from osprey_connectors.config import get_facility_timezone
@@ -35,6 +38,7 @@ __all__ = [
     "resolve_active_scenarios",
     "scenario_targets",
     "validate_composition",
+    "write_active_state",
 ]
 
 #: Name of the plain-text file holding the active scenario set.
@@ -80,6 +84,50 @@ def parse_active_state(text: str) -> tuple[list[str], float | None]:
             continue
         names.append(stripped)
     return names, anchor_epoch
+
+
+def write_active_state(
+    path: Path,
+    scenarios_view: Mapping[str, Collection[str]],
+    names: Sequence[str],
+    *,
+    anchor: datetime | None = None,
+) -> list[str]:
+    """Activate a scenario set by writing the ``active_scenarios`` file.
+
+    The file holds an ``anchor=<ISO 8601>`` line when ``anchor`` is given, then
+    the set's scenarios other than ``nominal``, or ``nominal`` alone. It is
+    written to a sibling ``.tmp`` file and renamed into place, so a reader
+    polling it never reads a half-written set.
+
+    Args:
+        path: The state file.
+        scenarios_view: Each scenario's name mapped to the targets it writes.
+        names: The requested scenario names; ``nominal`` is always active.
+        anchor: The instant the set is applied at.
+
+    Returns:
+        The resolved set, ``nominal`` first.
+
+    Raises:
+        ValueError: If a name is unknown or the set does not compose; nothing
+            is written.
+    """
+    resolved = resolve_active_scenarios(names)
+    try:
+        overlaps = validate_composition(scenarios_view, resolved)
+    except ValueError as exc:
+        raise ValueError(f"Cannot activate scenarios: {exc}") from None
+    if overlaps:
+        raise ValueError("Cannot activate scenarios: " + "; ".join(map(str, overlaps)))
+
+    body = [] if anchor is None else [f"anchor={anchor.isoformat()}"]
+    body.extend([name for name in resolved if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(f"{path.name}.tmp")
+    staged.write_text("\n".join(body) + "\n", encoding="utf-8")
+    os.replace(staged, path)
+    return resolved
 
 
 def resolve_active_scenarios(names: Sequence[str]) -> list[str]:
