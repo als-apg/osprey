@@ -22,10 +22,10 @@ __all__ = ["packaged_facility_dir", "render_limits", "validator_under"]
 
 
 def packaged_facility_dir(bundle: str) -> Path:
-    """The ``data/facility`` tree an app bundle packages."""
-    from osprey.cli.templates.manager import TemplateManager
+    """The packaged facility tree an app bundle's preset lands at ``data/facility``."""
+    from tests._preset_data import packaged_facility_dir as composed_facility_dir
 
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data" / "facility"
+    return composed_facility_dir(bundle)
 
 
 def render_limits(

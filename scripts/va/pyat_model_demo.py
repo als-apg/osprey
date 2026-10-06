@@ -57,6 +57,7 @@ def main() -> int:
     import tempfile
     from pathlib import Path
 
+    import osprey.templates
     from osprey.facility.build import build_facility
     from osprey.facility.views.limits import limits_document
     from osprey.services.virtual_accelerator.bindings import load_bindings
@@ -85,7 +86,8 @@ def main() -> int:
             PACKAGE_PATHS.data_root / "simulation", target_is_directory=True
         )
         facility = build_facility(
-            PACKAGE_PATHS.data_root / "facility", project_name="control_assistant"
+            Path(osprey.templates.__file__).parent / "facilities" / "example",
+            project_name="control_assistant",
         )
         (served / "channel_limits.json").write_text(
             json.dumps(limits_document(facility), indent=2), encoding="utf-8"

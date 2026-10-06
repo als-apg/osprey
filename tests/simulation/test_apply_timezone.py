@@ -29,6 +29,7 @@ TEMPLATE_DATA = (
     Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
 )
 TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
+TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 LA = ZoneInfo("America/Los_Angeles")  # non-UTC facility; -7h (PDT) / -8h (PST)
 
 
@@ -37,7 +38,7 @@ def _make_project(tmp_path: Path) -> Path:
     sim_dst = tmp_path / "data" / "simulation"
     sim_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(TEMPLATE_SIM, sim_dst)
-    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
         "control_system": {

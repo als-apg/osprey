@@ -101,7 +101,9 @@ PACKAGED_DATA = (
     / "control_assistant"
     / "data"
 )
-PACKAGED_KNOWLEDGE = PACKAGED_DATA / "facility" / "knowledge"
+PACKAGED_KNOWLEDGE = (
+    Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example/knowledge"
+)
 PACKAGED_TIERS = PACKAGED_DATA / "channel_databases" / "tiers"
 
 DEMO_TIER_SIBLINGS = (

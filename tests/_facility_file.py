@@ -99,16 +99,13 @@ def write_demo_facility_file(render: Path | str) -> Path:
     from osprey.facility.render import FACILITY_FILE
 
     if _DEMO_BYTES is None:
-        from importlib.resources import as_file, files
-
         from osprey.facility.build import build_facility
         from osprey.facility.render import facility_bytes
+        from tests._preset_data import packaged_facility_dir
 
-        resource = files("osprey.templates").joinpath(
-            "apps", "control_assistant", "data", "facility"
+        _DEMO_BYTES = facility_bytes(
+            build_facility(packaged_facility_dir("control_assistant"), project_name="demo")
         )
-        with as_file(resource) as facility_dir:
-            _DEMO_BYTES = facility_bytes(build_facility(facility_dir, project_name="demo"))
     target = Path(render) / FACILITY_FILE
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(_DEMO_BYTES)
@@ -130,20 +127,18 @@ def write_facility_views(render: Path | str, bundle: str = "control_assistant") 
     Returns:
         The files written, sorted.
     """
-    from importlib.resources import as_file, files
-
     import yaml
 
     from osprey.facility.build import build_facility
     from osprey.facility.render import render_facility_outputs
+    from tests._preset_data import packaged_facility_dir
 
     render = Path(render)
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8")) or {}
-    resource = files("osprey.templates").joinpath("apps", bundle, "data", "facility")
-    with as_file(resource) as facility_dir:
-        if not facility_dir.is_dir():
-            return []
-        document = build_facility(
-            facility_dir, project_name=str(config.get("project_name", render.name))
-        )
-        return render_facility_outputs(render, document, config, facility_dir)
+    facility_dir = packaged_facility_dir(bundle)
+    if not facility_dir.is_dir():
+        return []
+    document = build_facility(
+        facility_dir, project_name=str(config.get("project_name", render.name))
+    )
+    return render_facility_outputs(render, document, config, facility_dir)

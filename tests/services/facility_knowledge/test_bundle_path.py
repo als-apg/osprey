@@ -15,6 +15,7 @@ import yaml
 from osprey.deployment.web_terminals.personas import config_needs_facility_bundle
 from osprey.deployment.web_terminals.render import _container_bundle_dir
 from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+from tests._preset_data import bundle_data_root
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "osprey"
 _PRESET = _SRC / "profiles" / "presets" / "control-assistant.yml"
@@ -33,7 +34,7 @@ def test_the_preset_names_the_bundle_in_the_facility_tree() -> None:
 
 
 def test_the_packaged_pages_sit_where_the_preset_points() -> None:
-    bundle = _PACKAGED_DATA.parent / _preset_bundle_path()
+    bundle = bundle_data_root().parent / _preset_bundle_path()
     assert (bundle / "index.md").is_file()
     assert sorted(path.name for path in bundle.iterdir() if path.is_dir()) == [
         "devices",

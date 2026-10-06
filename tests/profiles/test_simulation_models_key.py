@@ -21,10 +21,7 @@ from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.served import resolve_served
 
-_DEMO_FACILITY = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/facility"
-)
+_DEMO_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 #: The four shipped presets every all-templates key must appear in.
 _PRESETS = ("hello-world", "ariel-standalone", "channel-finder-standalone", "control-assistant")

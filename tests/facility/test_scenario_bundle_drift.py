@@ -18,7 +18,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 BUNDLES = DATA / "simulation" / "scenarios"
-SCENARIOS = DATA / "facility" / "scenarios"
+SCENARIOS = REPO_ROOT / "src/osprey/templates/facilities/example/scenarios"
 
 NAMES = sorted(path.name for path in BUNDLES.iterdir() if path.is_dir())
 

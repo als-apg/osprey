@@ -688,9 +688,9 @@ def _check_mapping(path: Path, ao: dict, ad: dict, votes: dict, *, no_derived: b
     report(f"{path} passes the check.")
 
 
-#: The packaged control-assistant data tree the demo refusals compare against.
-_PACKAGED_DATA = (
-    Path(__file__).resolve().parents[1] / "templates" / "apps" / "control_assistant" / "data"
+#: The packaged example facility's knowledge base the demo refusals compare against.
+_PACKAGED_KNOWLEDGE = (
+    Path(__file__).resolve().parents[1] / "templates" / "facilities" / "example" / "knowledge"
 )
 
 #: The one tier database emit owns; every other file under ``tiers/`` refuses.
@@ -1686,7 +1686,7 @@ def _demo_offenders(root: Path, tiers: Path, bundle: Path) -> str | None:
     dirs: list[Path] = []
     singles: list[Path] = []
 
-    packaged = _PACKAGED_DATA / "facility" / "knowledge"
+    packaged = _PACKAGED_KNOWLEDGE
     if bundle.is_dir() and packaged.is_dir():
         files = sorted(path for path in bundle.rglob("*") if path.is_file())
 

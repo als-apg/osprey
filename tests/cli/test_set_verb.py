@@ -574,13 +574,9 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     # limits validator reads `channel_limits.json` out of it and the Reach
     # Contract refuses a render whose source zone is not there, so the packaged
     # tree is copied whole rather than stubbed.
-    import shutil
+    from tests._preset_data import copy_bundle_data
 
-    from osprey.cli.templates.manager import TemplateManager
-
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / "control_assistant" / "data", repo / "data"
-    )
+    copy_bundle_data(repo / "data")
     (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 

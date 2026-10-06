@@ -19,18 +19,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.views.facts import zero_source_facts
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures give ``create_project`` as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the same content the render used to
-    reach for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -82,7 +71,7 @@ class TestAgentModelLine:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"default_provider": "anthropic", "channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         agents = sorted((project_dir / ".claude" / "agents").glob("*.md"))
@@ -99,7 +88,7 @@ class TestAgentModelLine:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         agents = sorted((project_dir / ".claude" / "agents").glob("*.md"))
@@ -122,7 +111,7 @@ class TestClaudeCodeIntegrationDefault:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         # All core files should exist
@@ -145,7 +134,7 @@ class TestClaudeCodeIntegrationDefault:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -165,7 +154,7 @@ class TestClaudeCodeFileContents:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
     def test_mcp_json_is_valid_json(self, project_dir):
@@ -381,7 +370,7 @@ class TestClaudeCodeAcrossTemplates:
             output_dir=tmp_path,
             data_bundle=data_bundle,
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root(data_bundle),
+            data_root=bundle_data_root(data_bundle),
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -407,7 +396,7 @@ class TestClaudeCodeGitignore:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -488,7 +477,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
@@ -505,7 +494,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -528,7 +517,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -546,7 +535,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "middle_layer"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -564,7 +553,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "in_context"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -583,7 +572,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "submit_response" in content
@@ -600,7 +589,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -619,7 +608,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".mcp.json").read_text())
@@ -634,7 +623,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         assert not (project_dir / ".claude" / "rules" / "channel_finding.md").exists()
@@ -726,7 +715,7 @@ class TestGraphParadigmRender:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "graph"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
     def test_graph_render_tools_are_backed_by_permissions(self, tmp_path):
@@ -765,7 +754,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-search.md"
         assert agent_path.exists()
@@ -781,7 +770,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
@@ -799,7 +788,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "submit_response" in content
@@ -814,7 +803,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
@@ -831,7 +820,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-search" in content
@@ -850,7 +839,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-deep-research.md"
         assert agent_path.exists()
@@ -866,7 +855,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
@@ -885,7 +874,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "submit_response" in content
@@ -900,7 +889,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-deep-research)" in data["permissions"]["allow"]
@@ -914,7 +903,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-deep-research" in content
@@ -935,7 +924,7 @@ class TestNeverFabricateDataRule:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -952,7 +941,7 @@ class TestNeverFabricateDataRule:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -971,7 +960,7 @@ class TestChannelFinderAwareness:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -988,7 +977,7 @@ class TestChannelFinderAwareness:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -1007,7 +996,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         # Customize safety.md and add to user_owned
@@ -1036,7 +1025,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         custom_content = "# My Custom CLAUDE.md\nFacility-specific content."
@@ -1063,7 +1052,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         custom_content = '{"mcpServers": {"custom": {}}}'
@@ -1090,7 +1079,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         assert (project_dir / "CLAUDE.md").exists()
@@ -1106,7 +1095,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         assert not (project_dir / "CLAUDE-project.md").exists()
@@ -1120,7 +1109,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         assert not (project_dir / "overrides").exists()
@@ -1145,7 +1134,7 @@ class TestProviderEnvBlock:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1164,7 +1153,7 @@ class TestProviderEnvBlock:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1184,7 +1173,7 @@ class TestProviderEnvBlock:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"default_provider": "als-apg", "channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1204,7 +1193,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         # Set control_system.type to epics and regenerate
@@ -1239,7 +1228,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1272,7 +1261,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1306,7 +1295,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1338,7 +1327,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1372,7 +1361,7 @@ class TestProtocolAwareSafetyRules:
                 output_dir=tmp_path / protocol,
                 data_bundle="control_assistant",
                 context={"channel_finder_mode": "hierarchical"},
-                data_root=_bundle_data_root("control_assistant"),
+                data_root=bundle_data_root("control_assistant"),
             )
             config = yaml.safe_load((project_dir / "config.yml").read_text())
             config.setdefault("control_system", {})["type"] = protocol
@@ -1404,7 +1393,7 @@ class TestControlSystemTypeContext:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1426,7 +1415,7 @@ class TestControlSystemTypeContext:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1452,7 +1441,7 @@ class TestGeneralizedRulesContent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -1476,7 +1465,7 @@ class TestGeneralizedRulesContent:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
@@ -1513,7 +1502,7 @@ class TestFacilityPermissions:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1573,7 +1562,7 @@ class TestFacilityPermissions:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1600,7 +1589,7 @@ class TestDataVisualizationRuleGating:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1627,7 +1616,7 @@ class TestDataVisualizationRuleGating:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1671,7 +1660,7 @@ class TestDataVisualizerInteractiveDefault:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         agent_path = project_dir / ".claude" / "agents" / "data-visualizer.md"
@@ -1720,7 +1709,7 @@ class TestRenderContextDoesNotFork:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         expected = claude_code.config_derived_context({}, tmp_path)
@@ -1780,7 +1769,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         monkeypatch.setattr(registry_mcp, "FRAMEWORK_SERVERS", self._framework_servers_with_probe())
@@ -1816,7 +1805,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         assert captured["control_system_type"]
@@ -1885,7 +1874,7 @@ class TestGraphdbConfiguredContextKey:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1908,7 +1897,7 @@ class TestGraphdbConfiguredContextKey:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 
@@ -1961,7 +1950,7 @@ class TestGraphdbConfiguredContextKey:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context=context,
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         if has_store:
             config_update_fields(
@@ -1979,7 +1968,7 @@ class TestGraphdbConfiguredContextKey:
                     yaml.safe_load((project_dir / "config.yml").read_text()), project_dir
                 ),
             },
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
             force=True,
         )
 
@@ -2025,7 +2014,7 @@ class TestPhoebusBridgeDefaultContextKey:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 
@@ -2086,7 +2075,7 @@ class TestPhoebusAgentAccessContextKey:
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=_bundle_data_root("control_assistant"),
+            data_root=bundle_data_root("control_assistant"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 

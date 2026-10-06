@@ -38,7 +38,7 @@ _DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 #: The bundles this module translates.
 BUNDLES = _DATA / "simulation" / "scenarios"
 #: The facility tree the translations are written into.
-FACILITY = _DATA / "facility"
+FACILITY = REPO_ROOT / "src/osprey/templates/facilities/example"
 
 #: The Scenario record's slots, in the order a file states them.
 SLOTS = ("description", "overrides", "faults", "archiver", "logbook", "drivers", "couple", "noise")

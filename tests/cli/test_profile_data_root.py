@@ -25,24 +25,19 @@ from jinja2 import Environment, FileSystemLoader
 from osprey.cli.templates.scaffolding import copy_template_data
 from osprey.facility.build import build_facility
 from osprey.facility.views.limits import limits_document
-
-
-def _bundle_data_dir() -> Path:
-    """Path to the bundled control_assistant data tree."""
-    import osprey
-
-    return Path(osprey.__file__).parent / "templates" / "apps" / "control_assistant" / "data"
+from tests._preset_data import copy_bundle_data
 
 
 def _write_profile(profile_dir: Path, **extra) -> Path:
     """Materialize a profile directory carrying its own copy of the bundle data.
 
-    The copy starts byte-identical to ``apps/control_assistant/data/`` so the
+    The copy starts byte-identical to the control-assistant preset's packaged
+    data (app template ``data/`` plus its facility) so the
     benchmark query sources the build copies from are present; individual tests
     then mutate it to make the replacement observable.
     """
     profile_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(_bundle_data_dir(), profile_dir / "data")
+    copy_bundle_data(profile_dir / "data")
 
     profile: dict = {
         "name": "Data Root Test",

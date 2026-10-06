@@ -38,6 +38,7 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
+from tests._preset_data import bundle_data_root
 
 _HOOK_CONFIG_TEMPLATE = "claude_code/claude/hooks/hook_config.json.j2"
 
@@ -53,18 +54,6 @@ _EXPECTED_KEYS = {
     "mixed_read_write_tools",
     "lane_addressed_tools",
 }
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree this fixture hands the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. This fixture
-    renders straight from a bundle rather than from a profile, so it names the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(tmp_path):
@@ -97,7 +86,7 @@ def _create_project(tmp_path):
             project_name=name,
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            data_root=_bundle_data_root(),
+            data_root=bundle_data_root(),
             context={"channel_finder_mode": "hierarchical", **(context or {})},
             force=True,
         )

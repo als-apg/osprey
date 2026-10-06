@@ -1,10 +1,9 @@
-"""The presets' committed ``data/facility/`` trees.
+"""The committed facility trees the presets show.
 
-The control-assistant preset and the two standalone presets commit one demo
-tree each. The three committed trees are byte-equal except the
-standalones' ``identity.yaml``, which adds the facility name, and the files
-only the control-assistant preset carries. Hello-world's tree is hand-authored
-and holds the channels its tutorial names.
+The bundled example facility and the two standalone app templates' copies of it
+are byte-equal except the files only the example facility carries.
+Hello-world's facility is hand-authored and holds the channels its tutorial
+names.
 """
 
 from __future__ import annotations
@@ -21,12 +20,13 @@ from osprey.facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APPS = REPO_ROOT / "src/osprey/templates/apps"
-CONTROL_ASSISTANT = APPS / "control_assistant/data/facility"
+FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
+CONTROL_ASSISTANT = FACILITIES / "example"
 STANDALONES = {
     "ariel_standalone": APPS / "ariel_standalone/data/facility",
     "channel_finder_standalone": APPS / "channel_finder_standalone/data/facility",
 }
-HELLO_WORLD = APPS / "hello_world/data/facility"
+HELLO_WORLD = FACILITIES / "hello_world"
 VA_BINDINGS = APPS / "control_assistant/data/simulation/va_bindings.json"
 CF_STANDALONE_ADDRESSES = REPO_ROOT / "tests/facility/golden/cf_standalone_addresses.json"
 
@@ -79,12 +79,10 @@ def test_standalone_tree_equals_the_control_assistant_tree_but_identity(name: st
 
 
 @pytest.mark.parametrize("name", sorted(STANDALONES))
-def test_standalone_identity_adds_only_the_facility_name(name: str) -> None:
-    ca_lines = (CONTROL_ASSISTANT / "identity.yaml").read_text(encoding="utf-8").splitlines()
-    lines = (STANDALONES[name] / "identity.yaml").read_text(encoding="utf-8").splitlines()
-    assert [line for line in lines if line not in ca_lines] == ["name: Example Research Facility"]
-    assert [line for line in lines if line in ca_lines] == ca_lines
-    assert "name" not in read_yaml((CONTROL_ASSISTANT / "identity.yaml").read_text())
+def test_standalone_identity_equals_the_example_identity(name: str) -> None:
+    assert (STANDALONES[name] / "identity.yaml").read_bytes() == (
+        CONTROL_ASSISTANT / "identity.yaml"
+    ).read_bytes()
 
 
 def test_channel_finder_standalone_keeps_every_address_it_served() -> None:

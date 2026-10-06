@@ -98,7 +98,7 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
 
     assert facts["identity"] == {
         "code": facility["identity"]["code"],
-        "name": built_control_assistant.repo.name,
+        "name": "Example Research Facility",
         "description": None,
     }
     assert facts["place_levels"] == ["machine", "sector"]

@@ -75,7 +75,8 @@ pytest.importorskip("linkml_runtime")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = _REPO_ROOT / "tests" / "fixtures" / "mml"
 PACKAGED_DATA = _REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data"
-PACKAGED_KNOWLEDGE = PACKAGED_DATA / "facility" / "knowledge"
+PACKAGED_FACILITY = _REPO_ROOT / "src/osprey/templates/facilities/example"
+PACKAGED_KNOWLEDGE = PACKAGED_FACILITY / "knowledge"
 
 #: The export every recipe harvests: a paired ``ao``/``ad`` synthetic machine.
 SOURCE = FIXTURES / "paired"
@@ -190,7 +191,7 @@ def _resolving_scenarios() -> tuple[str, ...]:
     files follows its file, as the import lists it.
     """
     found: list[str] = []
-    for path in sorted((PACKAGED_DATA / "facility" / "scenarios").glob("*.yaml")):
+    for path in sorted((PACKAGED_FACILITY / "scenarios").glob("*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         if any(slot in document for slot in _RESOLVING_SLOTS):
             found.append(f"data/facility/scenarios/{path.name}")
@@ -1059,7 +1060,7 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert f"{FACILITY_DIR}/records/channels.yaml" in cleared
         assert all(path.startswith(f"{FACILITY_DIR}/") for path in cleared)
         assert [path for path in cleared if path.startswith(f"{FACILITY_DIR}/scenarios/")] == []
-        assert not (PACKAGED_DATA / "facility" / "classes.yaml").exists()
+        assert not (PACKAGED_FACILITY / "classes.yaml").exists()
         assert (facility / "classes.yaml").is_file()
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
 

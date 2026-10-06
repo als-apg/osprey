@@ -171,7 +171,7 @@ OVER_DRIVE="20.0"
 # reads it out of the serving stack's own constant, in the container, so the
 # check cannot drift into testing a name the stack no longer uses.
 
-PRESET_FACILITY="${WORKTREE_ROOT}/src/osprey/templates/apps/control_assistant/data/facility"
+PRESET_FACILITY="${WORKTREE_ROOT}/src/osprey/templates/facilities/example"
 DATA_ROOT=""
 if [[ $# -gt 0 ]]; then
     if [[ ! -d "${1}" ]]; then

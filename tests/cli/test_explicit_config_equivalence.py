@@ -1028,9 +1028,9 @@ def _default_scenarios_deltas() -> tuple[Delta, ...]:
 def _dispatcher_name_deltas() -> tuple[Delta, ...]:
     """The facility name the dispatcher dashboard shows.
 
-    The dispatcher shows the facility identity's name, and a project that
-    authors no identity is named by its project name. The fixtures were frozen
-    while the dashboard name was a profile key every preset left empty.
+    The dispatcher shows the facility identity's name, which the example
+    facility states. The fixtures were frozen while the dashboard name was a
+    profile key every preset left empty.
 
     Returns:
         One delta, on the root document.
@@ -1040,7 +1040,7 @@ def _dispatcher_name_deltas() -> tuple[Delta, ...]:
             document="root",
             path="services.event_dispatcher.facility_name",
             fixture="",
-            live=PROJECT_NAME,
+            live="Example Research Facility",
         ),
     )
 

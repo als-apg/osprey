@@ -19,10 +19,7 @@ import pytest
 from osprey.facility.build import FacilityDocument, build_facility
 from osprey.facility.views.simulator import simulator_wiring
 
-DEMO_FACILITY = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/facility"
-)
+DEMO_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 ENTRY_KEYS = {
     "id",
