@@ -89,10 +89,10 @@ from osprey.deployment.web_terminals.provision import _provision_terminal_secret
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PREFIX
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 from tests.cli.test_persona_presets import _build_persona_stack
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 pytestmark = [

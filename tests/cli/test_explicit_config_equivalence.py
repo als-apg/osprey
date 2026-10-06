@@ -96,7 +96,6 @@ and no ``xdist_group`` is needed.
 from __future__ import annotations
 
 import json
-import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -1346,6 +1345,9 @@ class CellRenderer:
         # the whole point of this test. _cli_env still drops every *_API_KEY, so
         # the environment matches the one the fixtures were frozen under.
         env = _cli_env([])
+        # --skip-deps on the live side only: the venv install renders nothing
+        # the comparison reads (the masked documents are identical either way),
+        # so the freeze can keep its full build.
 
         init_args = ["init", PROJECT_NAME, "--preset", cell.preset, "--no-git"]
         if cell.mode is not None:
@@ -1355,10 +1357,7 @@ class CellRenderer:
             return Refused("init", _failure_reason(result))
 
         project = scratch / PROJECT_NAME
-        result = _run_cli(["build"], cwd=project, env=env)
-        # The comparison reads only rendered documents, never the venv, and a
-        # refused build has no reader at all.
-        shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
+        result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
         if result.returncode != 0:
             return Refused("build", _failure_reason(result))
 
