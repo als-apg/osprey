@@ -475,6 +475,12 @@ classes:
         description: Absent means 1.
       device:
         description: Absent means the channel's device.
+      curve:
+        range: Curve
+        inlined: true
+        description: >-
+          This slice's own hardware-to-physics conversion; absent means the
+          record's `calibration.curve`. The first slice states none.
 
   Calibration:
     attributes:

@@ -1369,6 +1369,18 @@ class _Records:
                     "give every slice a finite, non-zero weight",
                 )
                 continue
+            # The first slice is the one read back through `calibration.inverse`,
+            # so it converts through `calibration.curve` and states no curve of its own.
+            if slices and isinstance(slices[0], dict) and slices[0].get("curve") is not None:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    stating_files(entry, "slices"),
+                    "the first slice states a `curve`",
+                    "drop `curve` from the first slice; it converts through `calibration.curve`",
+                )
+                continue
             channel = self.index.channels.get(str(entry.get("address")), {})
             endpoints = channel.get("endpoint_of") or []
             # A record naming no element drives a property of the whole deck,
