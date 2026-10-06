@@ -5480,8 +5480,8 @@ jobs:
     #   - six modules sharing one session-scoped container, whose boot is
     #     bounded by the directory conftest's `CONTAINER_BOOT_TIMEOUT_S` of
     #     120 s (tests/va/e2e/conftest.py), followed by channel reads;
-    #   - test_serving_parity.py, two module-scoped boots under that same
-    #     bound plus its 28 tests;
+    #   - test_substrate_parity.py, one module-scoped boot of its own under
+    #     that same bound, then a minute of noise reads from it;
     #   - test_mml_trees_boot.py, which installs a facility export from
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under
@@ -5559,7 +5559,7 @@ jobs:
       # losing tests to it reds the step rather than passing on what is left.
       #
       # Ordered cheapest first — the six that share the session container, then
-      # the parity module with its own two boots, then the harvested-tree module
+      # the parity module with its own boot, then the harvested-tree module
       # which installs a facility export from scratch before each of its own
       # boots — so a failure in the cheap set is reported before the expensive
       # work starts.
@@ -5567,7 +5567,7 @@ jobs:
         uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
           tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
           tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
-          tests/va/e2e/test_serving_parity.py tests/va/e2e/test_mml_trees_boot.py \
+          tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_mml_trees_boot.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
     - name: Fail the lane on any skipped test

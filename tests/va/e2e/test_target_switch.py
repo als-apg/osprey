@@ -36,10 +36,11 @@ Ports, names and 5064
 ---------------------
 Each container binds an ephemeral port and publishes it unchanged: a Channel
 Access search reply carries the server's own port, so a remap would hand every
-client an address nothing answers on. That port also *names* the container, for
-the reason ``test_serving_parity.py`` states at length — a fixed name is
-mutually destructive between concurrent runs. Nothing here goes near 5064, which
-belongs to whatever the operator is running.
+client an address nothing answers on. That port also *names* the container: a
+fixed name is mutually destructive between concurrent runs, since each boot
+force-removes its name first as stale-cleanup, and against a live peer that
+kills it mid-test. Nothing here goes near 5064, which belongs to whatever the
+operator is running.
 
 Every Channel Access operation in this file happens in **another process**: in a
 connector-host child, in the readiness probe, or in the sandbox-side subprocess
@@ -194,13 +195,12 @@ def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
 def _require_image() -> None:
     """Fail loudly unless the image can serve on a port other than 5064.
 
-    A precondition, not a nicety, and the same one ``test_serving_parity.py``
-    states: the Channel Access *server* library reads ``EPICS_CAS_SERVER_PORT``
-    and does not fall back to the client-side variable, so an image whose entry
-    point does not derive one from the other keeps binding its build-time
-    default while telling this suite's clients some other port. The symptom
-    would be an unexplained boot timeout; this turns it into a sentence naming
-    the fix.
+    A precondition, not a nicety: the Channel Access *server* library reads
+    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
+    variable, so an image whose entry point does not derive one from the other
+    keeps binding its build-time default while telling this suite's clients
+    some other port. The symptom would be an unexplained boot timeout; this
+    turns it into a sentence naming the fix.
     """
     inspected = _docker(
         "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
