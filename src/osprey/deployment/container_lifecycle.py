@@ -5415,7 +5415,7 @@ def _seed_progress_reporter():
 def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
     """Connection parameters for the store this deploy is bringing up.
 
-    Delegates to :func:`~osprey.simulation.apply.archiver_store_config` so the
+    Delegates to :func:`~osprey.simulation.apply.archiver_store_connection` so the
     deploy-time seeder and ``osprey sim apply`` open one store the same way, then
     fills in the one difference between the two callers. ``sim apply`` reads the
     password from the project ``.env`` and never from the ambient environment,
@@ -5429,9 +5429,9 @@ def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
         block for the store it deploys — nothing can be seeded, and saying so is
         better than guessing a host.
     """
-    from osprey.simulation.apply import archiver_store_config
+    from osprey.simulation.apply import archiver_store_connection
 
-    store = archiver_store_config(config, project_dir)
+    store = archiver_store_connection(config, project_dir)
     if store is None:
         return None
     if not store["password"]:
