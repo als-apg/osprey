@@ -27,7 +27,6 @@ from tests.facility.test_cf_view_parity import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CA_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 FACILITY_TREE = REPO_ROOT / "src/osprey/templates/facilities/example"
-STANDALONE_TREE = REPO_ROOT / "src/osprey/templates/apps/channel_finder_standalone/data/facility"
 TIER1_IN_CONTEXT = CA_DATA / "channel_databases/tiers/tier1/in_context.json"
 TIER3_HIERARCHICAL = CA_DATA / "channel_databases/tiers/tier3/hierarchical.json"
 VA_BINDINGS = CA_DATA / "simulation/va_bindings.json"
@@ -55,19 +54,15 @@ NEW_ROLES = frozenset(
 
 
 @cache
-def committed_files(standalone: bool = False) -> dict[str, str]:
+def committed_files() -> dict[str, str]:
     """Relative path -> text of every YAML source of the committed tree.
-
-    Args:
-        standalone: Read a standalone preset's tree instead.
 
     Returns:
         Each file's path relative to ``data/facility`` and its text.
     """
-    root = STANDALONE_TREE if standalone else FACILITY_TREE
     return {
-        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
-        for path in sorted(root.rglob("*.yaml"))
+        path.relative_to(FACILITY_TREE).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted(FACILITY_TREE.rglob("*.yaml"))
     }
 
 
@@ -157,13 +152,6 @@ def test_committed_tree_loads_without_a_stop() -> None:
     assert result.errors == []
     assert result.sources.identity == {"code": "ca", "name": "Example Research Facility"}
     assert result.sources.classes == []
-
-
-def test_standalone_identity_adds_the_facility_name() -> None:
-    assert read_yaml(committed_files(standalone=True)["identity.yaml"]) == {
-        "code": "ca",
-        "name": "Example Research Facility",
-    }
 
 
 def test_joined_channels_equal_the_fingerprint_and_its_additions() -> None:

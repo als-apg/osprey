@@ -1,9 +1,8 @@
 """The committed facility trees the presets show.
 
-The bundled example facility and the two standalone app templates' copies of it
-are byte-equal except the files only the example facility carries.
-Hello-world's facility is hand-authored and holds the channels its tutorial
-names.
+The bundled example facility is the one tree every demo preset shows, the
+standalone presets included. Hello-world's facility is hand-authored and holds
+the channels its tutorial names.
 """
 
 from __future__ import annotations
@@ -13,8 +12,6 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from osprey.facility.build import build_facility
 from osprey.facility.sources import read_yaml
 
@@ -22,17 +19,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 APPS = REPO_ROOT / "src/osprey/templates/apps"
 FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
 CONTROL_ASSISTANT = FACILITIES / "example"
-STANDALONES = {
-    "ariel_standalone": APPS / "ariel_standalone/data/facility",
-    "channel_finder_standalone": APPS / "channel_finder_standalone/data/facility",
-}
 HELLO_WORLD = FACILITIES / "hello_world"
 VA_BINDINGS = APPS / "control_assistant/data/simulation/va_bindings.json"
 CF_STANDALONE_ADDRESSES = REPO_ROOT / "tests/facility/golden/cf_standalone_addresses.json"
-
-#: The directories only the control-assistant tree carries: its hand-authored
-#: knowledge pages, the measurement file and the scenarios.
-OMITTED = ("knowledge/", "measurement/", "scenarios/")
 
 #: The addresses the hello-world tutorial names.
 HELLO_WORLD_ADDRESSES = [
@@ -44,19 +33,6 @@ HELLO_WORLD_ADDRESSES = [
 ]
 
 
-def tree(root: Path) -> dict[str, bytes]:
-    """Relative path -> bytes of every file under ``root``."""
-    return {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in sorted(root.rglob("*"))
-        if path.is_file()
-    }
-
-
-def _omitted(rel: str) -> bool:
-    return rel.startswith(OMITTED)
-
-
 @cache
 def built_control_assistant_facility() -> dict[str, Any]:
     """The control-assistant tree's facility file."""
@@ -64,34 +40,9 @@ def built_control_assistant_facility() -> dict[str, Any]:
     return document
 
 
-@pytest.mark.parametrize("name", sorted(STANDALONES))
-def test_standalone_tree_equals_the_control_assistant_tree_but_identity(name: str) -> None:
-    standalone = tree(STANDALONES[name])
-    control_assistant = tree(CONTROL_ASSISTANT)
-    assert any(_omitted(rel) for rel in control_assistant)
-    expected = {
-        rel: data
-        for rel, data in control_assistant.items()
-        if rel != "identity.yaml" and not _omitted(rel)
-    }
-    assert {rel: data for rel, data in standalone.items() if rel != "identity.yaml"} == expected
-    assert len(expected) == 8
-
-
-@pytest.mark.parametrize("name", sorted(STANDALONES))
-def test_standalone_identity_equals_the_example_identity(name: str) -> None:
-    assert (STANDALONES[name] / "identity.yaml").read_bytes() == (
-        CONTROL_ASSISTANT / "identity.yaml"
-    ).read_bytes()
-
-
 def test_channel_finder_standalone_keeps_every_address_it_served() -> None:
     served = json.loads(CF_STANDALONE_ADDRESSES.read_text(encoding="utf-8"))["addresses"]
-    channels = read_yaml(
-        (STANDALONES["channel_finder_standalone"] / "records/channels.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
+    channels = read_yaml((CONTROL_ASSISTANT / "records/channels.yaml").read_text(encoding="utf-8"))
     assert set(served) <= {channel["id"] for channel in channels}
 
 

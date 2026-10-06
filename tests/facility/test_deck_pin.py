@@ -1,9 +1,8 @@
-"""Byte identity of the demo's SR deck across the preset trees.
+"""Byte identity of the demo's SR deck and the simulation lattice.
 
 The simulation lattice under ``control_assistant/data/simulation/`` and the
-facility deck ``data/facility/decks/SR.json`` in each preset tree are the same
-pyAT JSON file; every generator mode reads the committed deck, so a change to
-one must land in all of them.
+example facility's deck ``decks/SR.json`` are the same pyAT JSON file; every
+generator mode reads the committed deck, so a change to one must land in both.
 """
 
 from __future__ import annotations
@@ -20,8 +19,6 @@ SOURCE_LATTICE = APPS_DIR / "control_assistant/data/simulation/lattice.json"
 #: The facility trees that ship the SR deck.
 FACILITY_TREES = {
     "example": APPS_DIR.parent / "facilities/example",
-    "ariel_standalone": APPS_DIR / "ariel_standalone/data/facility",
-    "channel_finder_standalone": APPS_DIR / "channel_finder_standalone/data/facility",
 }
 
 
