@@ -340,6 +340,16 @@ class _StubCollection:
         return None
 
 
+class _EmptyArchive:
+    """An archive composite with no channels: every document carries only its date."""
+
+    addresses: list[str] = []
+
+    def samples(self, addresses: list[str], t_s: Any) -> dict[str, list[Any]]:
+        del t_s
+        return {address: [] for address in addresses}
+
+
 class TestLoggerArchiverSeedQuiet:
     """The seeder's own report line, off the deploy's INFO stream."""
 
@@ -358,7 +368,7 @@ class TestLoggerArchiverSeedQuiet:
         with caplog.at_level(logging.DEBUG):
             report = seed_base(
                 _StubCollection(),  # type: ignore[arg-type]
-                [],
+                _EmptyArchive(),  # type: ignore[arg-type]
                 knobs,
                 t0=datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC),
             )

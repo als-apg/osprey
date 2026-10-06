@@ -174,14 +174,6 @@ def test_the_composite_is_built_and_read_once_per_active_set(
     assert engine.models[0].reads == 1
 
 
-def test_an_instance_other_than_the_virtual_accelerator_is_refused(
-    tmp_path: Path, engine: SimpleNamespace
-) -> None:
-    del engine
-    with pytest.raises(ValueError, match="virtual_accelerator"):
-        build(_view(tmp_path), [], instance="live_standin")
-
-
 def test_an_address_outside_the_view_is_refused(tmp_path: Path, engine: SimpleNamespace) -> None:
     del engine
     archive = build(_view(tmp_path), [])

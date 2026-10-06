@@ -5147,116 +5147,53 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
 
 
 def _archiver_seed_inputs(config: dict, project_dir: Path):
-    """The channel set, engine and boot values one base seed is built from.
+    """The archive composite one base seed is built from.
 
     Every import here is function-local. The seeder pulls in numpy and the
     simulation package, and hoisting either into this module's import path would
     put a scientific-stack import on every deploy-verb invocation, archiver
     or not.
 
-    The channel set is the build-generated manifest the Virtual Accelerator and
-    the recorder both read, resolved exactly as they resolve it
-    (``VA_CHANNELS_FILE``, relative names against ``data/simulation/``), so the
-    seeded history covers precisely the channels the live half serves. It is read
-    from the project's own ``.env`` first, because that is where the build wrote
-    it; the ambient value is the fallback for a deploy whose environment carries
-    it instead. Neither naming a manifest is a refusal, never the framework's
-    bundled channel set: a seed of another facility's namespace under this
-    deployment's name is indistinguishable, in the archive, from history.
+    The channel set and every value come from the render's simulator view, the
+    same view the Virtual Accelerator serves, so the seeded history covers
+    precisely the channels the live half serves and holds what it serves at
+    each instant. The composite is built at the active set and anchor the
+    scenario state file records. A render with no simulator view is a refusal:
+    a seed of a namespace the deployment does not serve is indistinguishable,
+    in the archive, from history.
 
-    The value transform rides along because it is decided from the same two
-    things this already has in hand — the config and the project's env chain —
-    and because a seed built without it would describe a different machine than
-    the recorder is sampling (see :func:`_standin_seed_transform`).
+    The archive is the same whichever machine it belongs to: a stand-in serves
+    the shared active set exactly as the sandbox does.
 
-    A monitor reading the served lattice computes is centred on the orbit that
-    lattice solves (:func:`_solved_monitor_baselines`) rather than on the level
-    ``machine.json`` declares for it: the engine is built with those levels as
-    its baselines, and the boot values carry them for a reading the machine
-    file does not describe. The file itself is never rewritten. Because the
-    rebased values are different stored values, the fingerprint says so.
-
-    :returns: ``(channels, engine, boot_values, value_transform,
-        transform_fingerprint)``. ``engine`` is ``None`` and ``boot_values``
-        empty for a project with no machine model — every channel is then
-        procedural, which is a valid configuration, not a fault. The transform
-        is ``None`` unless this deployment's archive is its stand-in's; the
-        fingerprint is ``None`` unless it is, or the seed is rebased on a
-        solved orbit.
-    :raises RuntimeError: Nothing names a manifest to seed from.
+    :returns: The archive composite
+        (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`).
+    :raises RuntimeError: The render carries no simulator view.
     """
-    from osprey.services.virtual_accelerator.manifest.loaders import (
-        load_machine_json_channels,
-        load_manifest_file,
-    )
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey.simulation.machine import read_machine_json
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey.simulation.apply import _active_state, _simulator_view, persisted_scenario_anchor
+    from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.composite import ADDRESSES_FILE
 
-    env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
-    named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
-    if named:
-        manifest_path = Path(named)
-        if not manifest_path.is_absolute():
-            # The render's data dir, not the source zone: the build generates
-            # the manifest into `build/data/simulation` only, and that is the
-            # directory the VA and recorder containers mount as /data/simulation
-            # — so it is the one place a relative VA_CHANNELS_FILE can name the
-            # same channel set the live half serves.
-            manifest_path = project_dir / BUILD_DIRNAME / "data" / "simulation" / manifest_path
-        channels = load_manifest_file(manifest_path)
-    else:
+    view = _simulator_view(project_dir)
+    if not (view / ADDRESSES_FILE).is_file():
         raise RuntimeError(
-            "The archiver seed has no channel set to build from: VA_CHANNELS_FILE is unset "
-            f"in {project_dir / '.env'} and in the environment. `osprey build` writes it "
-            "whenever it generates the channel manifest; the seed never falls back to the "
-            "framework's bundled channel set."
+            f"The archiver seed has no channel set to build from: no simulator view in {view}. "
+            "Run `osprey build`; the seed never invents a namespace."
         )
-
-    transform, transform_fingerprint = _standin_seed_transform(
-        config, project_dir, [str(channel["address"]) for channel in channels]
-    )
-
-    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
-    if machine_path is None or not machine_path.is_file():
-        return channels, None, {}, transform, transform_fingerprint
-
-    state_dir = resolve_state_dir(config, project_dir)
-    baselines = _solved_monitor_baselines(project_dir, channels)
-    if baselines:
-        # Built directly rather than through the engine cache: this engine's
-        # machine is not the file's as written, and a cached one would hand
-        # the rebased levels to every other reader of the same file.
-        resolved = machine_path.expanduser().resolve()
-        engine = SimulationEngine(
-            read_machine_json(resolved),
-            resolved,
-            state_dir=Path(state_dir).expanduser().resolve(),
-            baselines=baselines,
-        )
-        transform_fingerprint = _baselines_fingerprint(baselines, transform_fingerprint)
-    else:
-        engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
-    # The same map the Virtual Accelerator boots its records from: machine.json's
-    # static channel values, skipping the handful of derived channels that carry
-    # an expression instead. Anchoring the procedural generator on it is what
-    # makes a seeded sample and a recorded one describe the same machine.
-    boot_values = {
-        address: entry["value"]
-        for address, entry in load_machine_json_channels(machine_path).items()
-        if "value" in entry
-    }
-    boot_values.update(baselines)
-    return channels, engine, boot_values, transform, transform_fingerprint
+    names, _ = _active_state(config, project_dir)
+    anchor = persisted_scenario_anchor(config, project_dir)
+    return build(view, names, anchor_s=None if anchor is None else anchor.timestamp())
 
 
-def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
+def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
     """Re-apply the active scenario set onto a freshly rebuilt base.
 
     A reseed rewrites the whole base series, which erases the event windows the
     active scenarios had written into it. Without this the deployment would come
     back up claiming a fault is active while its history showed a clean machine —
     precisely the divergence the stored archiver exists to remove.
+
+    The set is the one the scenario state file records, re-applied at the anchor
+    it records. A render with no simulator view has no scenarios to re-apply.
 
     The logbook is deliberately left alone: a knob change rebuilds the archive,
     not the narrative, and purging ARIEL's entries here would destroy history
@@ -5272,14 +5209,19 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
 
     :raises RuntimeError: if the re-apply fails, naming the command that fixes it.
     """
-    from osprey.simulation.apply import apply_scenarios, persisted_scenario_anchor
-    from osprey.simulation.engine import DEFAULT_SCENARIO
+    from osprey.simulation.apply import (
+        _active_state,
+        _view_scenarios,
+        apply_scenarios,
+        persisted_scenario_anchor,
+    )
+    from osprey_connectors.simulation.state import resolve_active_scenarios
 
-    if engine is None:
-        logger.debug("No machine model in this project; no scenarios to re-apply after the reseed")
+    if _view_scenarios(project_dir) is None:
+        logger.debug("No simulator view in this project; no scenarios to re-apply after the reseed")
         return
 
-    names = engine.active_scenarios()
+    names = resolve_active_scenarios(_active_state(config, project_dir)[0])
     # The anchor the running world is already on: re-anchoring here would slide
     # the live VA's events, the logbook and the archive's windows to a T0 nobody
     # asked for, as a side effect of a deploy meant to rebuild only the store.
@@ -5287,9 +5229,11 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
     try:
         result = apply_scenarios(project_dir, names, seed_logbook=False, now=anchor)
     except Exception as exc:
-        # `nominal` is implicit, so the recovery command names the faults — which
-        # is what the operator activated and what `sim apply` expects back.
-        faults = [name for name in names if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO]
+        # `nominal` leads the set and is implicit, so the recovery command names
+        # the faults — which is what the operator activated and what `sim apply`
+        # expects back.
+        nominal, *faults = names
+        faults = faults or [nominal]
         raise RuntimeError(
             "The base series was rebuilt but the active scenarios could not be "
             "re-applied, so the archive currently shows a clean machine while the "
@@ -5538,18 +5482,11 @@ def _stage_archiver_store(
     _report_step("archiver store started")
 
     # Assembled while the store boots, and before the health budget starts: this
-    # reads a manifest and a machine model off disk, and charging that time
-    # against the store's start-up allowance would make a slow disk look like an
-    # unreachable server.
-    channels, engine, boot_values, value_transform, transform_fingerprint = _archiver_seed_inputs(
-        config, project_dir
-    )
-    fingerprint = seed_fingerprint(
-        knobs,
-        (str(channel["address"]) for channel in channels),
-        compression=compression,
-        transform_fingerprint=transform_fingerprint,
-    )
+    # builds the archive composite, one solve per physics model, and charging
+    # that time against the store's start-up allowance would make a slow solve
+    # look like an unreachable server.
+    archive = _archiver_seed_inputs(config, project_dir)
+    fingerprint = seed_fingerprint(knobs, archive.addresses, compression=compression)
 
     store_hint = f"{store['username']}@{store['host']}:{store['port']}"
     with archiver_collection(store) as collection:
@@ -5563,7 +5500,7 @@ def _stage_archiver_store(
             if scenarios_activated:
                 # Rare enough (once per deployment) that holding this idle
                 # client across the rewrite costs nothing worth restructuring for.
-                _reapply_active_scenarios(config, project_dir, engine)
+                _reapply_active_scenarios(config, project_dir)
             return
 
         if comparison.state is SeedState.MISMATCH:
@@ -5608,26 +5545,22 @@ def _stage_archiver_store(
         # Before the work, not after it: this is the only warning an operator
         # gets that the next thing to happen is measured in minutes.
         _report_step(
-            f"seeding the archive base: {len(channels):,} channels over "
+            f"seeding the archive base: {len(archive.addresses):,} channels over "
             f"{knobs.retention_days} days (minutes on a first deploy)"
         )
         report = seed_base(
             collection,
-            channels,
+            archive,
             knobs,
             t0=datetime.now(UTC),
-            engine=engine,
-            boot_values=boot_values,
             compression=compression,
             progress=_seed_progress_reporter(),
-            value_transform=value_transform,
-            transform_fingerprint=transform_fingerprint,
         )
         _report_step(f"archive base: {report.describe()}")
 
     # Outside the store connection: re-applying opens its own, and holding this
     # one across it would keep an idle client alive for the whole rewrite.
-    _reapply_active_scenarios(config, project_dir, engine)
+    _reapply_active_scenarios(config, project_dir)
 
 
 # ---------------------------------------------------------------------------

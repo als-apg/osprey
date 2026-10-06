@@ -281,7 +281,7 @@ def archiver_stubs(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: ([], None, {}, None, None),
+        lambda config, project_dir: SimpleNamespace(addresses=[]),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)

@@ -50,3 +50,61 @@ def facility_scenarios(directory: Path) -> dict[str, dict[str, Any]]:
         path.stem: read_yaml(path.read_text(encoding="utf-8")) or {}
         for path in sorted(directory.glob("*.yaml"))
     }
+
+
+#: The fields of a :func:`write_texture_view` channel that go to ``seeds.json``.
+_SEED_FIELDS = ("nominal", "noise", "drift", "clamp")
+
+
+def write_texture_view(
+    render: Path,
+    channels: Mapping[str, Mapping[str, Any]],
+    scenarios: Mapping[str, Mapping[str, Any]] | None = None,
+) -> Path:
+    """Write a whole simulator view whose every channel the texture serves.
+
+    Args:
+        render: The render's root.
+        channels: Address -> its ``value_type`` (``float`` when absent),
+            ``options`` and ``role`` (``readback`` when absent), plus the seed
+            fields ``nominal``, ``noise``, ``drift`` and ``clamp``.
+        scenarios: Scenario name -> its blocks, as :func:`write_scenarios_view`
+            takes them.
+
+    Returns:
+        The view directory, ``<render>/data/simulator``.
+    """
+    records = []
+    seeds: dict[str, dict[str, Any]] = {}
+    for address in sorted(channels):
+        spec = dict(channels[address])
+        role = spec.get("role", "readback")
+        records.append(
+            {
+                "address": address,
+                "role": role,
+                "pair": address if role == "setpoint" else None,
+                "value_type": spec.get("value_type", "float"),
+                "unit": None,
+                "description": None,
+                "writable": role == "setpoint",
+                "value_range": None,
+                "owner": "texture",
+                **({"options": spec["options"]} if "options" in spec else {}),
+            }
+        )
+        seed = {field: spec[field] for field in _SEED_FIELDS if field in spec}
+        if seed:
+            seeds[address] = seed
+    view = render / "data" / "simulator"
+    documents = {
+        "served_models.json": {"models": ["texture"]},
+        "addresses.json": {"channels": sorted(channels), "status": []},
+        "variables.json": {"code": "T", "models": [], "channels": records},
+        "seeds.json": {"seeds": seeds},
+    }
+    view.mkdir(parents=True, exist_ok=True)
+    for name, document in documents.items():
+        (view / name).write_bytes(view_bytes(document))
+    write_scenarios_view(render, {"nominal": {}, **(scenarios or {})})
+    return view

@@ -51,11 +51,12 @@ from osprey_connectors.simulation.archive import (
     EXPIRE_FIELD,
     MANIFEST_ID,
     SeedKnobs,
+    build,
     seed_base,
 )
 from tests._container_support import is_docker_available
 from tests._mongo_container import started_mongo
-from tests._simulator_view import write_scenarios_view
+from tests._simulator_view import write_scenarios_view, write_texture_view
 
 PRESSURE = "SR:VAC:IP07:PRESSURE"
 TEMPERATURE = "SR:RF:CAV01:TEMP:BODY"
@@ -74,11 +75,12 @@ SPIKE_WIDTH_S = 120.0
 # Four sigmas either side, matching the rewrite's own cut (see ``event_window``).
 SPIKE_REACH_S = 4 * SPIKE_WIDTH_S
 
-CHANNELS = [
-    {"address": PRESSURE, "record_type": "ai"},
-    {"address": TEMPERATURE, "record_type": "ai"},
-    {"address": FAULT, "record_type": "bi"},
-]
+#: The simulator view's channels, held still so only an event moves them.
+CHANNELS = {
+    PRESSURE: {"nominal": 1e-9},
+    TEMPERATURE: {"nominal": 25.0},
+    FAULT: {"value_type": "bool", "nominal": "FALSE"},
+}
 
 
 def _spike(offset: float, amplitude: float = 5e-9) -> dict:
@@ -136,8 +138,13 @@ def _machine() -> dict:
                 ],
             },
             "flagged": {
-                "description": "A flag channel raised for a while.",
-                "archiver": [{"channel": FAULT, "events": [_spike(SPIKE_OFFSET_S, amplitude=1.0)]}],
+                "description": "A flag channel raised two hours ago.",
+                "archiver": [
+                    {
+                        "channel": FAULT,
+                        "events": [{"shape": "step", "at_offset": SPIKE_OFFSET_S, "to": 1}],
+                    }
+                ],
             },
             "nightly": {
                 "description": "A disturbance that recurs at the same time every day.",
@@ -178,10 +185,10 @@ def mongo_store():
 
 
 def _write_model(root: Path, machine: dict) -> None:
-    """Write the machine model and the simulator view's scenarios from one source."""
+    """Write the machine model and the simulator view from one source."""
     (root / "data" / "simulation").mkdir(parents=True, exist_ok=True)
     (root / "data" / "simulation" / "machine.json").write_text(json.dumps(machine))
-    write_scenarios_view(root, machine["scenarios"])
+    write_texture_view(root, CHANNELS, machine["scenarios"])
 
 
 def _write_project(root: Path, store: dict | None, *, password: str | None) -> Path:
@@ -224,17 +231,6 @@ def _write_project(root: Path, store: dict | None, *, password: str | None) -> P
     return root
 
 
-def _engine(root: Path):
-    """The project's engine, resolved exactly as the product resolves it."""
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-
-    config = yaml.safe_load((root / "config.yml").read_text())
-    return SimulationEngine.from_file(
-        root / "data" / "simulation" / "machine.json",
-        state_dir=resolve_state_dir(config, root),
-    )
-
-
 @pytest.fixture
 def project(tmp_path, mongo_store):
     """A built project wired to a freshly seeded archive.
@@ -255,12 +251,13 @@ def project(tmp_path, mongo_store):
     )
     collection = client[mongo_store["database"]][mongo_store["collection"]]
     collection.drop()
-    # Seeded through the same engine the rewrite will use. This is what a
+    # Seeded from the same archive composite the rewrite reads. This is what a
     # deployment does, and it is load-bearing rather than incidental: a base
-    # seeded procedurally for a channel the machine model describes would
-    # disagree with every later recompute, and the disagreement would look
-    # exactly like a scenario that failed to restore.
-    seed_base(collection, CHANNELS, KNOBS, t0=T0, chunk_size=256, engine=_engine(root))
+    # seeded from any other source would disagree with every later recompute,
+    # and the disagreement would look exactly like a scenario that failed to
+    # restore.
+    archive = build(root / "data" / "simulator", [], anchor_s=T0.timestamp())
+    seed_base(collection, archive, KNOBS, t0=T0, chunk_size=256)
     try:
         yield root, collection
     finally:
@@ -1184,11 +1181,12 @@ class TestStoredTypes:
         """A flag channel's history must not change type part way through.
 
         The updates already coerce to the stored type; an insert has no document
-        of its own to read that from, and writing the engine's raw float would
-        leave a boolean channel holding ``0.7`` beside its ``True`` — which reads
-        as a different instrument rather than a different value.
+        of its own to read that from, so it takes the type of the channel's
+        stored history — a flag's option index — rather than whatever the
+        recompute happened to return.
         """
         root, collection = project
+        stored = type(collection.find_one({FAULT: {"$exists": True}})[FAULT])
 
         _apply(root, ["flagged"])
 
@@ -1196,7 +1194,9 @@ class TestStoredTypes:
             document for document in collection.find({DENSIFIED_FIELD: True}) if FAULT in document
         ]
         assert inserted, "the flag channel's window was not densified"
-        assert all(isinstance(document[FAULT], bool) for document in inserted)
+        assert stored is int
+        assert all(type(document[FAULT]) is stored for document in inserted)
+        assert {document[FAULT] for document in inserted} == {1}
 
     def test_the_archive_is_not_rewritten_when_the_caller_opts_out(self, project):
         root, collection = project
