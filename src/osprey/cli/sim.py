@@ -147,19 +147,35 @@ def _served_physics_models(view: Path) -> list[str]:
     )
 
 
-async def _model_statuses(section: dict, target: str | None, models: list[str]) -> dict[str, str]:
-    """Each model's status, read from a mock connector built for ``target``."""
+async def _model_statuses(
+    section: dict, target: str | None, models: list[str], addresses: dict[str, str] | None
+) -> dict[str, str]:
+    """Each model's status, read through the connector built for ``target``.
+
+    A mock connector answers from the composite it serves in process; any
+    other connector reads each model's status channel, ``addresses[model]``.
+    """
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
-    from osprey_connectors.simulation import model_status
+    from osprey_connectors.simulation import model_status, read_model_status
 
     register_builtin_connectors()
     connector = await ConnectorFactory.create_control_system_connector(
         section, control_target=target
     )
     try:
-        return {model: model_status(connector, model) for model in models}
+        if addresses is None:
+            return {model: model_status(connector, model) for model in models}
+        return {model: await read_model_status(connector, addresses[model]) for model in models}
     finally:
         await connector.disconnect()
+
+
+def _status_addresses(view: Path, models: list[str]) -> dict[str, str]:
+    """Each model's status address, from the facility code the view records."""
+    from osprey.facility.views.simulator import VARIABLES_FILE, status_address
+
+    code = str(_read_view_file(view, VARIABLES_FILE)["code"])
+    return {model: status_address(code, model) for model in models}
 
 
 def _overlap_records(log: Path) -> list[dict[str, Any]]:
@@ -270,14 +286,10 @@ def status_command(repo: Path | None, target: str | None) -> None:
         except ValueError as exc:
             output.fail(f"The {target} target is not configured", str(exc))
             raise SystemExit(1) from None
-    if connector_type != MOCK:
-        output.fail(
-            f"sim status: {connector_type} targets do not report model status yet", mark=False
-        )
-        raise SystemExit(1)
-
-    models = _served_physics_models(_require_simulator_view(repo_root))
-    statuses = asyncio.run(_model_statuses(section, target, models))
+    view = _require_simulator_view(repo_root)
+    models = _served_physics_models(view)
+    addresses = None if connector_type == MOCK else _status_addresses(view, models)
+    statuses = asyncio.run(_model_statuses(section, target, models, addresses))
     for model in models:
         output.report(f"{model}: {statuses[model]}")
 

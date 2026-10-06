@@ -7,7 +7,8 @@ the build wrote, prints ``<model>: <status>`` per served physics model, then
 ``log: <absolute path>`` per model, the path being the file the composite
 appends to. Overlap records from a model's log follow its ``log:`` line,
 prefixed ``(log, …)`` so they never read as the model's status; every other
-log record stays out. A target served by any other connector is refused.
+log record stays out. On a target served by any other connector, each model's
+status is read from its status channel through that target's connector.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
@@ -134,6 +136,24 @@ def test_an_overlap_record_prints_on_its_own_line_and_nothing_else_from_the_log(
     assert "not writable" not in result.output
 
 
+class _StatusChannels:
+    """A connected connector serving status channels as char waveforms."""
+
+    def __init__(self, values: dict[str, str]) -> None:
+        self.values = values
+        self.read: list[str] = []
+        self.disconnected = False
+
+    async def read_channel(self, address: str, timeout: float | None = None):
+        del timeout
+        self.read.append(address)
+        codes = [*self.values[address].encode("utf-8"), 0, 0]
+        return SimpleNamespace(value=codes)
+
+    async def disconnect(self) -> None:
+        self.disconnected = True
+
+
 @pytest.mark.parametrize(
     ("config", "args"),
     [
@@ -149,17 +169,29 @@ def test_an_overlap_record_prints_on_its_own_line_and_nothing_else_from_the_log(
     ],
     ids=["baseline", "flag"],
 )
-def test_a_virtual_accelerator_target_is_refused(
-    lifecycle_repo: Path, config: str, args: tuple[str, ...]
+def test_a_virtual_accelerator_target_reports_each_models_status_channel(
+    lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch, config: str, args: tuple[str, ...]
 ) -> None:
+    from osprey_connectors.factory import ConnectorFactory
+
     write_simulator_view(stub_build(lifecycle_repo, config=config))
+    connector = _StatusChannels({"ca:SIM:SR:STATUS": SR_ERROR})
+    asked: list[str | None] = []
+
+    async def create(section: dict, control_target: str | None = None) -> _StatusChannels:
+        del section
+        asked.append(control_target)
+        return connector
+
+    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", create)
 
     result = _status(lifecycle_repo, *args)
 
-    assert result.exit_code == 1
-    assert result.output == (
-        "sim status: virtual_accelerator targets do not report model status yet\n"
-    )
+    assert result.exit_code == 0, result.output
+    assert f"SR: {SR_ERROR}" in result.output.splitlines()
+    assert connector.read == ["ca:SIM:SR:STATUS"]
+    assert connector.disconnected
+    assert asked == [args[1] if args else None]
 
 
 def test_a_render_without_a_view_is_refused(lifecycle_repo: Path) -> None:

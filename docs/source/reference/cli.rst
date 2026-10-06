@@ -1203,9 +1203,10 @@ at or above the current directory is used.
    simulator appends to under ``var/simulator/``, each followed by any
    scenario-overlap records from that log. ``--target`` selects the control
    target to report on and defaults to the deployment's own; a target the
-   deployment does not configure exits 1. A target served by anything but the
-   mock connector exits 1 with
-   ``sim status: <type> targets do not report model status yet``.
+   deployment does not configure exits 1. On a mock target the status comes
+   from the simulator the connector serves in process; on any other target it
+   is read from the model's status channel, ``<code>:SIM:<model>:STATUS``,
+   through that target's connector.
 
 ``osprey sim apply NAMES... [--no-seed] [--no-seed-logbook] [--no-seed-archiver] [--yes] [--now ISO8601] [--repo DIRECTORY]``
    Make ``NAMES`` the active scenario set, with ``nominal`` always included,

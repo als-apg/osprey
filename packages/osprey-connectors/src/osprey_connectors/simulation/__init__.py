@@ -2,7 +2,7 @@
 
 The package root holds only what every reader needs without loading a model:
 the tick period, value coercion, char-waveform decoding, the active-scenario
-state helpers and the model status lookup. It imports neither numpy nor lume;
+state helpers and the model status lookups. It imports neither numpy nor lume;
 the engine, machine and expression names are imported from their own modules
 (:mod:`.engine`, :mod:`.machine`, :mod:`.expressions`).
 """
@@ -24,7 +24,7 @@ from osprey_connectors.simulation.state import (
     validate_composition,
     write_active_state,
 )
-from osprey_connectors.simulation.status import model_status
+from osprey_connectors.simulation.status import model_status, read_model_status
 from osprey_connectors.simulation.values import coerce
 
 __all__ = [
@@ -41,6 +41,7 @@ __all__ = [
     "overlap_record",
     "parse_active_state",
     "read_active_state",
+    "read_model_status",
     "resolve_active_scenarios",
     "resolve_tick_s",
     "scenario_targets",
