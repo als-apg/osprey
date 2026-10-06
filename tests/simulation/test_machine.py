@@ -572,38 +572,6 @@ class TestParsePhysicsFault:
             parse_machine(machine, _PATH)
 
 
-_TEMPLATE_SIM = (
-    Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
-
-
-class TestSeededDiscoveryScenarioBundles:
-    """The shipped bpm-polarity bundle parses under the physics schema.
-
-    Loads the real ``control_assistant`` machine.json + scenarios/ tree (not the
-    inline fixture) so a malformed bundle is caught here, not only downstream in
-    the render step or the agentic-discovery e2e.
-    """
-
-    @staticmethod
-    def _load() -> ParsedMachine:
-        machine_path = _TEMPLATE_SIM / "machine.json"
-        machine = json.loads(machine_path.read_text())
-        return parse_machine(machine, machine_path)
-
-    def test_bpm_polarity_bundle_parses(self):
-        scenario = self._load().scenarios["bpm-polarity"]
-        assert scenario.physics is not None
-        assert scenario.physics.corrector_gain == {}
-        assert set(scenario.physics.bpm_errors) == {"BPM17"}
-        assert scenario.physics.bpm_errors["BPM17"].polarity == -1
-        # No rest symptom: no mock-channel overrides or archiver telemetry --
-        # only the real ORM measurement reveals it.
-        assert scenario.overrides == {}
-        assert scenario.archiver == {}
-        assert [e.entry_id for e in scenario.logbook] == ["DEMO-031"]
-
-
 _EVENT_SUBJECT = "event key 'at_time'"
 
 

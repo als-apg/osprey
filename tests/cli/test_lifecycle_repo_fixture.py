@@ -80,7 +80,6 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         "data/machine_state_channels.json",
         "data/channel_databases/tiers/tier3/hierarchical.json",
         "data/facility/knowledge/index.md",
-        "data/simulation/scenarios/nominal/scenario.json",
         "web-terminal-context/alice/.gitkeep",
         "web-terminal-context/bob/.gitkeep",
     ],

@@ -2888,7 +2888,7 @@ DATA_README_MD = """\
 # Data
 
 Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, facility knowledge, and simulation scenarios. These are your files.
+query sets, facility knowledge, and the simulation model. These are your files.
 They are tracked, and `osprey build` only ever reads them.
 
 ```
@@ -2900,7 +2900,7 @@ data/
 ├── machine_state_channels.json           # address list reconciled against the VA manifest
 ├── facility/                             # the facility's authored sources
 │   └── knowledge/                        # markdown knowledge bundle
-└── simulation/                           # mock-connector scenarios
+└── simulation/                           # mock-connector machine model
 ```
 
 The build collapses the staged sets down to the ones `channel_finder_mode` and
@@ -3134,21 +3134,6 @@ SIMULATION_MACHINE_JSON = """\
 }
 """
 
-SIMULATION_NOMINAL_SCENARIO_JSON = """\
-{
-  "description": "All systems nominal."
-}
-"""
-
-SIMULATION_VACUUM_BURST_SCENARIO_JSON = """\
-{
-  "description": "A vacuum excursion in sector 1 costs beam lifetime; stored current falls.",
-  "overrides": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": 380.0
-  }
-}
-"""
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # The exemplar, assembled
@@ -3185,8 +3170,6 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
     "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
     "data/simulation/machine.json": SIMULATION_MACHINE_JSON,
-    "data/simulation/scenarios/nominal/scenario.json": SIMULATION_NOMINAL_SCENARIO_JSON,
-    "data/simulation/scenarios/vacuum-burst/scenario.json": SIMULATION_VACUUM_BURST_SCENARIO_JSON,
 }
 
 #: The scaffolded CI pipeline. Emitted only where the profile names deploy

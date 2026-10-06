@@ -380,8 +380,8 @@ the machine model (rebuilt from your profile on every build) and
 runs). Both are automatic for the deployed service; if you launched the
 container by hand, see the warning under `Running from a source checkout`_.
 
-What a scenario bundle may contain, how bundles compose, and what ``osprey sim
-apply`` refuses is the :doc:`/reference/contracts/simulation-bundle`.
+What a scenario may contain, how scenarios compose, and what ``osprey sim
+apply`` refuses is in :doc:`/how-to/run-scenarios`.
 
 Write limits
 ============

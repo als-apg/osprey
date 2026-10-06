@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-# Shipped control_assistant simulation: shared channels + scenario bundle tree.
+# Shipped control_assistant simulation model.
 TEMPLATE_SIM = (
     Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
 )
@@ -149,19 +149,16 @@ def machine_file(machine_dict, make_machine_file):
 def engine_factory(tmp_path, state_dir):
     """Build the shipped control_assistant engine under given scenario(s).
 
-    Copies the shipped ``machine.json`` and its ``scenarios/`` bundle tree into
-    a temp dir, and seeds the ``active_scenarios`` state file in the separate
-    state directory; the engine re-reads the state file on mtime change, so the
-    returned engine is already pinned to the requested set (``nominal`` is
-    always implicitly active). Variadic, so composition can be exercised:
-    ``make('vacuum-burst', 'rf-thermal')``.
+    Copies the shipped ``machine.json`` into a temp dir, and seeds the
+    ``active_scenarios`` state file in the separate state directory; the engine
+    re-reads the state file on mtime change, so the returned engine is already
+    pinned to the requested set (``nominal`` is always implicitly active).
     """
     from osprey.simulation import SimulationEngine
 
     def make(*names: str) -> "SimulationEngine":
         machine = tmp_path / "machine.json"
         shutil.copy(TEMPLATE_SIM / "machine.json", machine)
-        shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "scenarios")
         active = names or ("nominal",)
         (state_dir / "active_scenarios").write_text("\n".join(active) + "\n")
         return SimulationEngine.from_file(machine, state_dir=state_dir)

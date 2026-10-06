@@ -75,17 +75,6 @@ class TestDisjointComposition:
         assert not _vacuum_spike_present(engine)
         assert not _rf_excursion_present(engine)
 
-    def test_composed_pair_shows_both_faults(self, engine_factory):
-        engine = engine_factory("vacuum-burst", "rf-thermal")
-        assert engine.active_scenarios() == ("nominal", "vacuum-burst", "rf-thermal")
-        # Both overlays are live at once on their disjoint channels.
-        assert _vacuum_spike_present(engine), "vacuum burst signature missing under composition"
-        assert _rf_excursion_present(engine), "rf-thermal signature missing under composition"
-
-    def test_validate_composition_accepts_disjoint_trio(self, engine_factory):
-        engine = engine_factory("nominal")
-        assert engine.validate_composition(["nominal", "vacuum-burst", "rf-thermal"]) == []
-
 
 class TestCollisionRejected:
     """A hand-built machine where two scenarios touch one channel must be rejected."""

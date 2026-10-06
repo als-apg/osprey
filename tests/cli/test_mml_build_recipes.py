@@ -22,8 +22,7 @@ makes:
   databases, and this recipe removes exactly what that line names and nothing
   else. The ring the preset shipped is not refused but taken: a 1.0 export
   describes no machine, so the tree is left serving none, while the preset
-  nobody harvested onto keeps and serves its own. Its demo scenarios stay,
-  because the machine that resolves them stays too. Afterwards the flat database,
+  nobody harvested onto keeps and serves its own. Afterwards the flat database,
   the tier-3 copy and the built copy are one file -- the assertion that goes
   red if the build's tier materializer ever overwrites the emitted database
   with preset material -- and the demo knowledge pages are gone from the
@@ -156,27 +155,6 @@ SIMULATOR_VIEW = "build/data/simulator"
 ADDRESSES_FILE = "addresses.json"
 SERVED_MODELS_FILE = "served_models.json"
 
-
-def _packaged_scenarios() -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """The preset's scenario bundles, split by whether they name a channel.
-
-    Read off the packaged preset through the command's own reading of a
-    bundle, so a demo scenario added later lands on the right side of the split
-    without a name being typed here. A bundle naming channels is one a harvest
-    leaves nothing to resolve; a bundle naming none has nothing to go stale.
-    """
-    from osprey.cli.mml_cmd import _scenario_channels
-
-    named: list[str] = []
-    plain: list[str] = []
-    for bundle in sorted((PACKAGED_DATA / "simulation" / "scenarios").iterdir()):
-        if not bundle.is_dir():
-            continue
-        (named if _scenario_channels(bundle) else plain).append(bundle.name)
-    return tuple(named), tuple(plain)
-
-
-DEMO_CHANNELLED_SCENARIOS, DEMO_PLAIN_SCENARIOS = _packaged_scenarios()
 
 #: The slots a facility scenario names a channel or a model in.
 _RESOLVING_SLOTS = ("overrides", "faults", "archiver", "couple", "noise")
@@ -914,26 +892,6 @@ class TestControlAssistant:
 
         assert "VA_LATTICE=none: no model to displace" in printed
 
-    def test_the_demo_scenarios_survive_because_the_demo_machine_does(
-        self, control_assistant_repo: dict
-    ) -> None:
-        """A scenario is judged by the machine that will resolve it, not by the database.
-
-        This harvest writes no machine -- a 1.0 export describes none -- so the
-        deployment goes on serving the preset's own ``machine.json``, and every
-        demo scenario still resolves against it. The channel database beside it
-        is the facility's now, and says nothing about whether a scenario boots.
-        So the recipe is refused once, over the pages and tier databases, and
-        every demo bundle is still in the tree.
-        """
-        repo = control_assistant_repo["repo"]
-        scenarios = repo / "data" / "simulation" / "scenarios"
-
-        assert control_assistant_repo["rounds"] == ()
-        assert {path.name for path in scenarios.iterdir() if path.is_dir()} == set(
-            DEMO_CHANNELLED_SCENARIOS + DEMO_PLAIN_SCENARIOS
-        )
-
 
 class TestTheDemoNobodyHarvestedOnto:
     """The preset built as it ships: its ring is its own, and it keeps it."""
@@ -948,13 +906,6 @@ class TestTheDemoNobodyHarvestedOnto:
                 packaged / name
             ).read_bytes(), name
         assert served_physics_models(repo)
-
-    def test_the_demo_scenarios_are_all_still_there(self, demo_repo: dict) -> None:
-        scenarios = demo_repo["repo"] / "data" / "simulation" / "scenarios"
-
-        assert {path.name for path in scenarios.iterdir() if path.is_dir()} == set(
-            DEMO_CHANNELLED_SCENARIOS + DEMO_PLAIN_SCENARIOS
-        )
 
 
 class TestServedFromATwoZeroExport:
@@ -974,31 +925,24 @@ class TestServedFromATwoZeroExport:
         # rather than fail.
         assert TWO_ZERO_TREES, "no fixture export carries a *.va.json sibling"
 
-    def test_the_recipe_passes_through_three_refusals(self, served_repo: dict) -> None:
-        """The demo's machine and its scenarios are refused, each on its own terms.
+    def test_the_recipe_passes_through_two_refusals(self, served_repo: dict) -> None:
+        """The demo's machine is refused on its own terms.
 
         The pages and tier databases go in the first ``rm`` line. The demo's
         own machine description and machine-state list go in the second,
         because they are found by a different pre-flight -- the one that asks
         what the virtual-accelerator lane can vouch for on this tree -- and
         what it asks of them is this command's provenance stamp. The demo's
-        scenarios go in the third, and one at a time: a scenario is refused for
-        naming a channel this harvest does not serve, which is a question about
-        the channel set and can only be asked once that set is built. The
-        demo's bindings carry the stamp (they were emitted), so they are
-        replaced without being named, and the saved ring never carries one at
-        all: it is a plain pyAT document, vouched for by the digest the
-        bindings record.
+        bindings carry the stamp (they were emitted), so they are replaced
+        without being named, and the saved ring never carries one at all: it is
+        a plain pyAT document, vouched for by the digest the bindings record.
         """
         rounds = served_repo["rounds"]
 
-        assert len(rounds) == 3, rounds
+        assert len(rounds) == 2, rounds
         assert set(rounds[1]) == {
             "data/simulation/machine.json",
             "data/machine_state_channels.json",
-        }
-        assert set(rounds[2]) == {
-            f"data/simulation/scenarios/{name}" for name in DEMO_CHANNELLED_SCENARIOS
         }
 
     def test_the_ring_and_the_bindings_reach_the_served_tree_byte_for_byte(

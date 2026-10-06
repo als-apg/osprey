@@ -372,15 +372,12 @@ served over your own channel names. ``osprey build`` then reports
 ``VA_LATTICE=none``. A demo deployment you never harvested onto keeps its ring
 and goes on serving it.
 
-Scenarios are held against the machine that resolves them. A scenario under
+Scenarios are held against the machine that resolves them. A scenario bundle under
 ``data/simulation/scenarios/`` names channels in its overrides and its archiver
 events, and the simulation will not boot on one naming a channel
 ``data/simulation/machine.json`` does not carry. Emit asks that question of the
 machine your deployment will serve: the one this run writes, when the export
-carries a virtual accelerator, and otherwise the one already on the tree. So a
-2.0 harvest refuses the demo's scenarios --- your machine has replaced the
-demo's and their channels are gone with it --- while a 1.0 harvest leaves them
-alone, because the machine they were written for is still the one being served.
+carries a virtual accelerator, and otherwise the one already on the tree.
 Refused scenarios are named with the channels they ask for, in one ``rm`` line,
 and so is a bundle the simulation could not read at all. Your own scenarios are
 left alone as long as the served machine can resolve them.

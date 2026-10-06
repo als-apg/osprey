@@ -1,7 +1,7 @@
 """Standing drift guard for the harmonized ARIEL seed-logbook prose.
 
-The three shipped seed logbooks (the control_assistant scenario bundles, which the
-ariel_standalone template seeds too) narrate device activity in prose. Phase 3 harmonized
+The three shipped seed logbooks (the ``logbook`` blocks of the example facility's
+scenarios, which the standalone templates seed too) narrate device activity in prose. Phase 3 harmonized
 that prose onto the flat ``^{FAM}{NN}$`` naming of the one ring
 (:data:`osprey.simulation.facility_spec.ALS_U_AR`): ``DIPOLE-07`` became
 ``DIPOLE07``, ``cavity C1`` became ``CAVITY01``, ``PS-QF-08`` became a ``QF08``
@@ -9,12 +9,13 @@ prose reference, and channel-less legacy designators (``ID-07``, ``BLM-09C``,
 ``HCM-TL04`` …) were rewritten as generic prose.
 
 This module is the *standing guard* that keeps that harmonization from silently
-regressing. It is hermetic: it reads only committed repo files (the seed globs
+regressing. It is hermetic: it reads only committed repo files (the scenario files
 and the committed tier-3 channel DB), never a database or the network. Every
 assertion is a deterministic, case-insensitive regex scan:
 
-* the glob resolves to exactly the three known seed files (an empty or shrunken
-  glob fails loudly, so a moved/renamed seed cannot slip the guard);
+* the scenario files carrying a ``logbook`` block are exactly the three known
+  seed files (an empty or shrunken set fails loudly, so a moved/renamed seed
+  cannot slip the guard);
 * every family-token + designator reference (over the spec families *and* the
   non-spec tier-3 families) is the canonical ``FAM`` + two-digit id, with the id
   in range;
@@ -34,26 +35,26 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from osprey.simulation.facility_spec import ALS_U_AR
 
 # Repo root: tests/simulation/<this file> -> parents[2].
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The seed location the guard sweeps (glob, relative to the repo root).
-_SEED_GLOBS = (
-    "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/*/logbook.json",
-)
+# The scenario files the guard sweeps (glob, relative to the repo root); a file
+# is a seed when its YAML carries a ``logbook`` block.
+_SEED_GLOBS = ("src/osprey/templates/facilities/example/scenarios/*.yaml",)
 
 # The exact seed set the sweep MUST resolve to. Pinned by name so an empty or
-# shrunken glob (a moved/renamed/deleted seed) fails loudly instead of vacuously
-# passing. Note: scenarios/vacuum-burst and scenarios/orm-dual-fault are
-# telemetry-only (no logbook.json) and are intentionally absent.
+# shrunken set (a moved/renamed/deleted seed) fails loudly instead of vacuously
+# passing. The scenarios without a ``logbook`` block are telemetry-only and are
+# intentionally absent.
 _EXPECTED_SEEDS = frozenset(
     {
-        "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/bpm-polarity/logbook.json",
-        "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/nominal/logbook.json",
-        "src/osprey/templates/apps/control_assistant/data/simulation/scenarios/rf-thermal/logbook.json",
+        "src/osprey/templates/facilities/example/scenarios/bpm-polarity.yaml",
+        "src/osprey/templates/facilities/example/scenarios/nominal.yaml",
+        "src/osprey/templates/facilities/example/scenarios/rf-thermal.yaml",
     }
 )
 
@@ -149,12 +150,22 @@ def _family_designator_violations(text: str, family_valid_ids: dict[str, set[int
     return violations
 
 
+def _logbook(path: Path) -> object:
+    """The ``logbook`` block of one scenario file, or ``None`` when it states none."""
+    return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("logbook")
+
+
 def _seed_files() -> list[Path]:
-    """Return the seed logbook files the two globs resolve to, sorted."""
+    """Return the scenario files the globs resolve to that carry a logbook, sorted."""
     found: list[Path] = []
     for pattern in _SEED_GLOBS:
-        found.extend(_REPO_ROOT.glob(pattern))
+        found.extend(path for path in _REPO_ROOT.glob(pattern) if _logbook(path))
     return sorted(found)
+
+
+def _seed_text(path: Path) -> str:
+    """The prose of one seed: its ``logbook`` block, as JSON text."""
+    return json.dumps(_logbook(path), ensure_ascii=False)
 
 
 def _relative(path: Path) -> str:
@@ -190,7 +201,7 @@ def test_family_designators_are_canonical(seed_files: list[Path]) -> None:
     """Every family-token+designator reference is canonical and in range."""
     offenders: dict[str, list[str]] = {}
     for path in seed_files:
-        violations = _family_designator_violations(path.read_text(), _FAMILY_VALID_IDS)
+        violations = _family_designator_violations(_seed_text(path), _FAMILY_VALID_IDS)
         if violations:
             offenders[_relative(path)] = sorted(set(violations))
     assert not offenders, (
@@ -203,7 +214,7 @@ def test_no_bare_cavity_device_token(seed_files: list[Path]) -> None:
     """No bare ``C\\d+`` cavity device token survives harmonization."""
     offenders: dict[str, list[str]] = {}
     for path in seed_files:
-        hits = sorted({m.group(0) for m in _BARE_C_RE.finditer(path.read_text())})
+        hits = sorted({m.group(0) for m in _BARE_C_RE.finditer(_seed_text(path))})
         if hits:
             offenders[_relative(path)] = hits
     assert not offenders, f"bare C-number cavity tokens remain: {offenders}"
@@ -213,7 +224,7 @@ def test_no_legacy_designator(seed_files: list[Path]) -> None:
     """No legacy ``XXX-\\d+`` channel-less designator survives harmonization."""
     offenders: dict[str, list[str]] = {}
     for path in seed_files:
-        hits = sorted({m.group(0) for m in _LEGACY_RE.finditer(path.read_text())})
+        hits = sorted({m.group(0) for m in _LEGACY_RE.finditer(_seed_text(path))})
         if hits:
             offenders[_relative(path)] = hits
     assert not offenders, f"legacy device designators remain: {offenders}"

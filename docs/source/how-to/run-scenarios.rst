@@ -98,9 +98,13 @@ name. Every key is optional:
        ``{<fault field>: <value>}`` such as ``{polarity: -1}``.
    * - ``archiver``
      - ``[{channel, events}]``, the history each channel's archive shows.
-       Event shapes and positions are those of
-       :ref:`simulation-bundle-events`; ``at_when`` (``{days_ago, time}``)
-       places an event at the instant a logbook entry's ``when`` names.
+       Each event has a ``shape``, ``step`` (``to``), ``ramp`` (``to``) or
+       ``spike`` (``amplitude`` and ``width``, a Gaussian sigma in seconds),
+       and one position: ``at_offset`` (seconds from the apply-time anchor; a
+       ramp ends at ``until_offset``), ``at_time`` (a daily ``HH:MM:SS`` in the
+       facility time zone) or ``at_when`` (``{days_ago, time}``), which places
+       an event at the instant a logbook entry's ``when`` names. ``at_time``
+       and ``at_when`` take ``step`` and ``spike`` only.
    * - ``logbook``
      - The entries the scenario narrates, each with ``entry_id``, ``when``
        (``{days_ago, time}``), ``author``, ``title`` and ``text``, and

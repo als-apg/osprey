@@ -141,23 +141,18 @@ relevant service via the OSPREY ``docker-compose`` services tree
 The control_assistant scenario tests (``test_vacuum_burst_scenario.py`` and
 ``test_rf_cavity_correlation_scenario.py``) get
 their archiver ground truth from the **data-driven simulation engine**, not from
-hard-coded connector code. Scenarios are **self-contained bundles** under
-``data/simulation/scenarios/<name>/`` — each owns its telemetry overlay
-(``scenario.json``) and, optionally, its logbook narrative (``logbook.json``).
+hard-coded connector code. Scenarios are the facility's scenario files under
+``data/facility/scenarios/<name>.yaml`` — each owns its telemetry overlay and,
+optionally, its logbook narrative (its ``logbook`` block).
 Each test builds a project from the ``control_assistant`` preset and calls
 ``activate_scenarios(project, "<name>"...)`` to compose and apply one or more
 fault bundles (``vacuum-burst`` / ``rf-thermal``) before running the operator
 prompt. They build at **tier 3** so every simulated channel is discoverable
 through the channel finder — the vacuum gauges live only in tier 2+.
 
-The scenarios' statistical signatures (SR07/DCCT anti-correlation, the C1
-excursion positions, derived-channel consistency) are pinned deterministically
-and cheaply — no LLM — by ``tests/simulation/test_control_assistant_scenarios.py``
-and ``test_scenario_composition.py``. Run those first when a scenario e2e
-regresses: if the contract tests pass, the data substrate is sound and the miss
-is the agent's (the scenario tests are ``flaky(reruns=2)`` to absorb the rare
-stochastic bail-out); if they fail, fix the scenario bundle — never the e2e
-prompts.
+The scenario tests are ``flaky(reruns=2)`` to absorb the rare stochastic
+bail-out. When one regresses on the data rather than the agent, fix the
+scenario file — never the e2e prompts.
 
 **Logbook seeding (automatic).** ``activate_scenarios`` calls
 ``apply_scenarios(seed_logbook=True)``: it composes the active scenarios, writes

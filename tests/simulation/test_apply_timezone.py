@@ -16,7 +16,6 @@ contract is pinned without a Postgres dependency and runs in the fast suite.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -25,25 +24,15 @@ import yaml
 from osprey.simulation.apply import apply_scenarios
 from tests._simulator_view import facility_scenarios, write_scenarios_view
 
-TEMPLATE_DATA = (
-    Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
-)
-TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 LA = ZoneInfo("America/Los_Angeles")  # non-UTC facility; -7h (PDT) / -8h (PST)
 
 
 def _make_project(tmp_path: Path) -> Path:
-    """Stage a minimal sim-backed project, and its simulator view, with a non-UTC facility timezone."""
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
+    """Stage a project whose render holds a simulator view, with a non-UTC facility timezone."""
     scenarios = TEMPLATE_FACILITY / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
         # URI is never dialed: _seed_logbook is stubbed below.
         "ariel": {"database": {"uri": "postgresql://unused-mocked/none"}},
         "system": {"timezone": "America/Los_Angeles"},
