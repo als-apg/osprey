@@ -1,11 +1,13 @@
-"""Still the declared motion of the monitor readings a test machine serves.
+"""Still the declared motion of the monitor readings a test facility serves.
 
-The virtual accelerator serves a lattice-bound monitor as the solved orbit plus
-the drift and noise its ``machine.json`` entry declares. A suite whose oracle is
+A served monitor reading is the model's solved orbit plus the noise and drift
+its record in the facility's ``seeds.yaml`` declares. A suite whose oracle is
 the noiseless model -- a measured response equal to the in-process solve, a
 served reading equal to the model's truth -- needs readings that are the orbit
-and nothing else, so it stills them in the data tree it deploys, before that
-tree is staged or mounted. Every other channel keeps what the file declares.
+and nothing else, so it stills them in the facility tree it deploys, before
+that tree is built or mounted. A monitor reading is an address whose wiring
+record in ``models.yaml`` reads an ``axis``; every other seed keeps what the
+file declares.
 
 Shared by the deploy-backed lanes (``tests/e2e``) and the live-container suite
 (``tests/va/e2e``). Imports nothing that serves Channel Access.
@@ -13,45 +15,45 @@ Shared by the deploy-backed lanes (``tests/e2e``) and the live-container suite
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from osprey.services.virtual_accelerator.bindings import load_bindings
-from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+import yaml
 
-#: The machine-file keys that move a reading on its own: slow drift, relative
-#: noise, absolute noise.
-MOTION_KEYS = ("texture", "noise", "noise_abs")
+#: The seed keys that move a reading on its own: white noise and slow drift.
+MOTION_KEYS = ("noise", "drift")
 
 
 def still_monitor_motion(data_root: Path) -> frozenset[str]:
     """Remove the declared motion from every monitor reading ``data_root`` serves.
 
     Args:
-        data_root: The facility data root: the directory whose
-            ``simulation/`` holds ``machine.json`` and ``va_bindings.json``.
+        data_root: The data root: the directory whose ``facility/`` holds
+            ``seeds.yaml`` and ``models.yaml``.
 
     Returns:
         The monitor addresses whose declared motion was removed.
     """
-    paths = ManifestPaths(data_root)
-    assert paths.machine_json.is_file(), f"no machine file at {paths.machine_json}"
-    assert paths.va_bindings.is_file(), f"no bindings document at {paths.va_bindings}"
+    facility = data_root / "facility"
+    seeds_yaml = facility / "seeds.yaml"
+    models_yaml = facility / "models.yaml"
+    assert seeds_yaml.is_file(), f"no seeds file at {seeds_yaml}"
+    assert models_yaml.is_file(), f"no models file at {models_yaml}"
+    models = yaml.safe_load(models_yaml.read_text(encoding="utf-8")) or []
     monitors = {
-        address
-        for binding in load_bindings(paths.va_bindings).bindings
-        if binding.kind == "monitor"
-        for address in (binding.setpoint_address, binding.readback_address)
-        if address is not None
+        str(record["address"])
+        for model in models
+        for record in model.get("wiring") or []
+        if "axis" in (record.get("engine") or {})
     }
-    machine = json.loads(paths.machine_json.read_text(encoding="utf-8"))
+    seeds = yaml.safe_load(seeds_yaml.read_text(encoding="utf-8")) or {}
     stilled: set[str] = set()
     for address in monitors:
-        entry = machine["channels"].get(address)
-        if not isinstance(entry, dict):
+        seed = seeds.get(address)
+        if not isinstance(seed, dict):
             continue
         for key in MOTION_KEYS:
-            if entry.pop(key, None):
+            if key in seed:
+                del seed[key]
                 stilled.add(address)
-    paths.machine_json.write_text(json.dumps(machine, indent=2) + "\n", encoding="utf-8")
+    seeds_yaml.write_text(yaml.safe_dump(seeds, sort_keys=True), encoding="utf-8")
     return frozenset(stilled)

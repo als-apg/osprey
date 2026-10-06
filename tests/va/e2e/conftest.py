@@ -164,7 +164,7 @@ INSTANCE = "virtual_accelerator"
 DEMO_NAMESPACE_RUN_ARGS = ("-e", f"VA_INSTANCE={INSTANCE}")
 
 
-def stage_demo_data_dir(root: Path) -> Path:
+def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
     """Render, under *root*, the data root a demo container mounts; return *root*.
 
     The layout the IOC reads is the one ``osprey build`` writes for a project:
@@ -172,6 +172,10 @@ def stage_demo_data_dir(root: Path) -> Path:
     of the preset's ``data/facility`` that also carries this suite's synthetic
     scenario (:data:`BURST_SCENARIO_NAME`), so the scenario is one the
     container's composite and ``osprey sim apply`` both know.
+
+    The shared container serves monitors without their declared motion, so a
+    suite whose oracle is the noiseless model reads the solved orbit; a caller
+    that needs the declared motion renders with ``still_monitors=False``.
 
     Rendered rather than layered on with extra bind mounts because a bind
     mount INTO a read-only mount cannot create its own mountpoint: the runtime
@@ -181,6 +185,7 @@ def stage_demo_data_dir(root: Path) -> Path:
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from tests.e2e._monitor_motion import still_monitor_motion
 
     with tempfile.TemporaryDirectory(prefix="osprey-va-e2e-facility-") as scratch:
         facility = Path(scratch) / "facility"
@@ -197,6 +202,8 @@ def stage_demo_data_dir(root: Path) -> Path:
             ),
             encoding="utf-8",
         )
+        if still_monitors:
+            still_monitor_motion(Path(scratch))
         doc = build_facility(facility, project_name="control_assistant")
         write_simulator_view(
             root / "simulator",
