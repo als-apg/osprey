@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 06, 2026"/>
   </head>
   
   
@@ -484,9 +484,9 @@ its own embedder inside the image, and the channel finder uses no embeddings
 anywhere — it ranks with BM25 and lets the agent walk a hierarchy.</p>
 <p><strong>The qmd sidecar is the one cross-stack component.</strong> It answers ARIEL’s
 <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> mode and backs <a class="reference internal" href="../how-to/facility-knowledge/index.html"><span class="doc">facility-knowledge</span></a>
-search, indexing both corpora — the markdown mirror ARIEL exports and the OKF
-bundle — in one process. Its internals, and the <code class="docutils literal notranslate"><span class="pre">rerank</span></code> tradeoff, are covered
-under <a class="reference internal" href="../how-to/ariel/search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
+search, from one sidecar per corpus — one for the markdown mirror ARIEL exports,
+one for the OKF bundle, one for each corpus a deployment declares. Its internals,
+and the <code class="docutils literal notranslate"><span class="pre">rerank</span></code> tradeoff, are covered under <a class="reference internal" href="../how-to/ariel/search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
 <p><strong>Every stack degrades rather than fails.</strong> The dashed edges are fallbacks: OKF
 search drops to a substring scan when the sidecar is absent, and ARIEL’s
 <code class="docutils literal notranslate"><span class="pre">semantic</span></code> mode is the one path that hard-depends on a reachable provider.</p>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 05, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 06, 2026"/>
   </head>
   
   
@@ -522,9 +522,9 @@
                   
   <section id="the-search-sidecar-qmd">
 <span id="qmd-search-sidecar"></span><h1>The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)<a class="headerlink" href="#the-search-sidecar-qmd" title="Link to this heading">#</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is a service that indexes the deployment’s <strong>markdown corpora</strong> and
-answers hybrid keyword-plus-semantic queries over HTTP. Two parts of OSPREY
-use it:</p>
+<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is a service that indexes a <strong>markdown corpus</strong> and answers hybrid
+keyword-plus-semantic queries over HTTP. A deployment runs one <code class="docutils literal notranslate"><span class="pre">qmd</span></code> sidecar
+per corpus. Two parts of OSPREY use them:</p>
 <ul class="simple">
 <li><p>ARIEL’s logbook mirror — the <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> <a class="reference internal" href="search-modes.html"><span class="doc">search mode</span></a> and the <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> MCP tool;</p></li>
 <li><p>the <a class="reference internal" href="../facility-knowledge/okf-bundle.html"><span class="doc">facility-knowledge (OKF) bundle</span></a>
@@ -576,9 +576,10 @@ the internet can supply the models itself — see <a class="reference internal" 
 </pre></div>
 </div>
 <p>Those four keys are the whole schema for a host that can reach the internet;
-a fifth, <code class="docutils literal notranslate"><span class="pre">models_dir</span></code>, covers one that cannot (see <a class="reference internal" href="#building-without-egress">Building without
-egress</a>). Notably <strong>there is no ``bind_address`` here</strong> — see <a class="reference internal" href="#where-the-sidecar-listens">Where the
-sidecar listens</a> below.</p>
+<code class="docutils literal notranslate"><span class="pre">models_dir</span></code> covers one that cannot (see <a class="reference internal" href="#building-without-egress">Building without egress</a>), and
+<code class="docutils literal notranslate"><span class="pre">corpora</span></code> adds corpora of your own (see <a class="reference internal" href="#declaring-more-corpora">Declaring more corpora</a>). Notably
+<strong>there is no ``bind_address`` here</strong> — see <a class="reference internal" href="#where-the-sidecar-listens">Where the sidecar listens</a>
+below.</p>
 <p>Neither consumer strictly needs the sidecar — OKF search falls back to
 substring matching and hybrid logbook search reports an outage — so a
 deployment that does not want a second index can switch it off. That is three
@@ -615,46 +616,97 @@ start. A missing or misnamed file is refused before compose runs, by a
 deploy-time check that looks for the three expected filenames — rather than
 surfacing an hour later as a container that never became healthy.</p>
 </section>
-<section id="what-gets-mounted">
-<h2>What gets mounted<a class="headerlink" href="#what-gets-mounted" title="Link to this heading">#</a></h2>
-<p>Each corpus is bind-mounted <strong>read-only</strong> into the sidecar at
-<code class="docutils literal notranslate"><span class="pre">/corpus/&lt;collection&gt;</span></code>, and the same list generates the sidecar’s collection
-config — so a corpus can never end up mounted without a collection, or
-declared without a mount. Read-only is deliberate: the sidecar indexes these
-trees, and everything that <em>writes</em> them lives outside the container.</p>
+<section id="one-sidecar-per-corpus">
+<h2>One sidecar per corpus<a class="headerlink" href="#one-sidecar-per-corpus" title="Link to this heading">#</a></h2>
+<p>Every corpus gets its own sidecar: its own container, its own index and its own
+port. A small corpus therefore never shares a vector scan, an update sweep or a
+rebuild with a large one, and a search restricted to one corpus returns that
+corpus’s nearest neighbours no matter how large the others grow. Two corpora are
+derived from configuration you already have:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
-<col style="width: 20.0%" />
+<col style="width: 14.0%" />
+<col style="width: 14.0%" />
 <col style="width: 40.0%" />
-<col style="width: 40.0%" />
+<col style="width: 32.0%" />
 </colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>Collection</p></th>
+<tr class="row-odd"><th class="head"><p>Corpus</p></th>
+<th class="head"><p>Port</p></th>
 <th class="head"><p>Source</p></th>
 <th class="head"><p>Present when</p></th>
 </tr>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">okf</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">port</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code></p></td>
 <td><p>the bundle path is set</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">port</span></code> + 1</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.qmd_export</span></code> → <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code></p></td>
 <td><p>the export is enabled and names a path</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The index itself lives in a named volume rather than a bind mount. It is
-derived data the sidecar owns end to end, it is large, and rebuilding it costs
-a full index build — long on a large corpus — which is precisely why it
-must survive a container recreate. The service’s health check waits out that
-build for the same reason: the sidecar refuses to open its port until the index
-is built and provably non-empty, so until then a container that is working
-correctly would be reported unhealthy. <code class="docutils literal notranslate"><span class="pre">first_index_grace</span></code> is how long it
-waits, in seconds, and it defaults to an hour. Scale it with your corpus:
-shorter than the build and the first boot is reported as a failure.</p>
+<p>Each sidecar is the compose service <code class="docutils literal notranslate"><span class="pre">qmd-&lt;corpus&gt;</span></code> (<code class="docutils literal notranslate"><span class="pre">qmd-okf</span></code>,
+<code class="docutils literal notranslate"><span class="pre">qmd-ariel</span></code>, …), all running the one image. Its corpus is bind-mounted
+<strong>read-only</strong> at <code class="docutils literal notranslate"><span class="pre">/corpus/&lt;corpus&gt;</span></code> and indexed as a collection of the same
+name, which is the name clients query it by. Read-only is deliberate: the
+sidecar indexes the tree, and everything that <em>writes</em> it lives outside the
+container.</p>
+<p>Each index lives in its own named volume, <code class="docutils literal notranslate"><span class="pre">qmd_index_&lt;corpus&gt;</span></code>, rather than a
+bind mount. It is derived data the sidecar owns end to end, it is large, and
+rebuilding it costs a full index build — long on a large corpus — which is
+precisely why it must survive a container recreate. The service’s health check
+waits out that build for the same reason: the sidecar refuses to open its port
+until the index is built and provably non-empty, so until then a container that
+is working correctly would be reported unhealthy. <code class="docutils literal notranslate"><span class="pre">first_index_grace</span></code> is how
+long it waits, in seconds, and it defaults to an hour. Scale it with your
+largest corpus: shorter than the build and the first boot is reported as a
+failure.</p>
+<p>Embedding a large corpus takes several passes. <code class="docutils literal notranslate"><span class="pre">qmd</span> <span class="pre">embed</span></code> stops after a fixed
+session (30 minutes) and still reports success, so the sidecar repeats it until
+no document is left without vectors, or until a pass embeds nothing — some
+chunks fail on every retry. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> shows each sidecar as one row of
+the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> category, with a warning when documents still have no vectors and
+are found by keyword search only.</p>
+</section>
+<section id="declaring-more-corpora">
+<h2>Declaring more corpora<a class="headerlink" href="#declaring-more-corpora" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">corpora</span></code> adds corpora beyond those two, each served by its own sidecar at
+<code class="docutils literal notranslate"><span class="pre">port</span></code> + 2 onwards, in list order; the family has room for eight.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">qmd</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/qmd</span>
+<span class="w">    </span><span class="nt">corpora</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">textbooks</span>
+<span class="w">        </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/library/textbooks</span><span class="w">    </span><span class="c1"># a markdown tree, indexed here</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">papers</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prebuilt</span>
+<span class="w">        </span><span class="nt">index_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/qmd/papers-index</span><span class="w">  </span><span class="c1"># built elsewhere, served here</span>
+</pre></div>
+</div>
+<p>A corpus’s index comes to exist in one of two ways:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">managed</span></code> (the default)</dt><dd><p>The sidecar indexes <code class="docutils literal notranslate"><span class="pre">source</span></code>, a directory of markdown, and keeps the
+index current itself, exactly as it does for <code class="docutils literal notranslate"><span class="pre">okf</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel</span></code>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">prebuilt</span></code></dt><dd><p>The index was built elsewhere — typically on a GPU host, where embedding
+runs several times faster than on a CPU — and <code class="docutils literal notranslate"><span class="pre">index_dir</span></code> is the
+directory holding it (its <code class="docutils literal notranslate"><span class="pre">.qmd/index.sqlite</span></code> and <code class="docutils literal notranslate"><span class="pre">.qmd/index.yml</span></code>,
+which is the state directory of the sidecar that built it). The sidecar
+mounts that directory as its state directory and only serves it: it never
+re-indexes. It refuses to start if the index was built with a different
+embedder from the one its image queries with, or holds no collection named
+after the corpus.</p>
+</dd>
+</dl>
+<p>A relative <code class="docutils literal notranslate"><span class="pre">source</span></code> or <code class="docutils literal notranslate"><span class="pre">index_dir</span></code> resolves against the deployment repo.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses a declared corpus whose path holds nothing to index or
+serve, before anything is built.</p>
 </section>
 <section id="sharing-the-knowledge-bundle">
 <h2>Sharing the knowledge bundle<a class="headerlink" href="#sharing-the-knowledge-bundle" title="Link to this heading">#</a></h2>
@@ -725,12 +777,54 @@ overhead rather than by content. Chunking is close to 1:1 for logbook
 micro-documents (2,000 documents produced 2,001 chunks), so the index grows with
 entry count rather than with entry length.</p>
 </section>
+<section id="memory-footprint">
+<h2>Memory footprint<a class="headerlink" href="#memory-footprint" title="Link to this heading">#</a></h2>
+<p>The image carries a small set of patches on top of the pinned qmd release
+(<code class="docutils literal notranslate"><span class="pre">patches/README.md</span></code> in the service template lists them and the upstream
+changes they mirror). One of them makes the daemon hold every stored vector in
+RAM and score a query with an exact scan instead of a sqlite-vec lookup, which is
+what keeps a search well under a second on a large index. The cost is memory:
+4 bytes per dimension per chunk, so about 3 KiB per chunk at the embedder’s 768
+dimensions. Each corpus runs its own sidecar, so budget it per corpus:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 60.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Index</p></th>
+<th class="head"><p>Resident vectors</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>135,000 logbook entries (~135,000 chunks)</p></td>
+<td><p>~0.4 GB</p></td>
+</tr>
+<tr class="row-odd"><td><p>62,797 papers (791,230 chunks)</p></td>
+<td><p>2.3 GB</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The matrix loads in the background after the daemon starts (about 13 s for the
+papers index); until it is ready, and after any change to the index until it
+reloads, searches go to sqlite-vec, so a result is never served from stale
+vectors. <code class="docutils literal notranslate"><span class="pre">QMD_VEC_SCAN=vec0</span></code> turns the in-memory scan off and searches
+sqlite-vec directly, as the plain release does: export it on the host and name
+it under <code class="docutils literal notranslate"><span class="pre">services.qmd.env</span></code> to hand it to every qmd sidecar.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">qmd</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">QMD_VEC_SCAN</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
 <section id="where-the-sidecar-listens">
 <span id="qmd-where-the-sidecar-listens"></span><h2>Where the sidecar listens<a class="headerlink" href="#where-the-sidecar-listens" title="Link to this heading">#</a></h2>
-<p>The sidecar publishes <strong>10060</strong>, its slot in the deployment’s port layout
-(<a class="reference internal" href="../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>); the block’s <code class="docutils literal notranslate"><span class="pre">port</span></code> key pins it somewhere else if you
-need that. qmd’s own daemon runs on <strong>8181</strong> on the container’s internal
-loopback and is fronted by a small forwarder. That split is
+<p>The sidecars publish <strong>10060–10069</strong>, the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> band of the deployment’s
+port layout (<a class="reference internal" href="../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>), one port per corpus as listed in <a class="reference internal" href="#one-sidecar-per-corpus">One
+sidecar per corpus</a>; the block’s <code class="docutils literal notranslate"><span class="pre">port</span></code> key moves the whole band if you need
+that. qmd’s own daemon runs on <strong>8181</strong> on the container’s internal loopback
+and is fronted by a small forwarder. That split is
 not cosmetic: qmd hardcodes a loopback-only bind with no option to change it,
 which makes it unreachable from any other container. Only the forwarder owns a
 routable port.</p>
@@ -806,9 +900,11 @@ build/up lifecycle, image overrides, network binding, and the
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building-without-egress">Building without egress</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-mounted">What gets mounted</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-sidecar-per-corpus">One sidecar per corpus</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#declaring-more-corpora">Declaring more corpora</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sharing-the-knowledge-bundle">Sharing the knowledge bundle</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#disk-footprint">Disk footprint</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-footprint">Memory footprint</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-sidecar-listens">Where the sidecar listens</a></li>
 </ul>
   </nav></div>
