@@ -137,6 +137,41 @@ def test_active_logbook_entries_are_the_view_s_logbook_blocks(tmp_path, monkeypa
     assert [e["entry_id"] for e in entries] == ["VIEW-1"]
 
 
+def _entry(entry_id: str) -> dict:
+    return {
+        "entry_id": entry_id,
+        "when": {"days_ago": 1, "time": "02:00:00"},
+        "author": "View",
+        "title": entry_id,
+        "text": f"{entry_id} narrates its scenario.",
+    }
+
+
+def test_a_persisted_set_that_does_not_compose_narrates_only_nominal(tmp_path):
+    """Two active scenarios writing one channel are served as nominal alone, and
+    the narrative says what is served."""
+    # Arrange
+    project = _make_project(tmp_path)
+    burst = {"channel": "SR:VAC:PRESSURE", "events": []}
+    write_scenarios_view(
+        project,
+        {
+            "nominal": {"logbook": [_entry("NOMINAL-1")]},
+            "burst": {"archiver": [burst], "logbook": [_entry("BURST-1")]},
+            "leak": {"archiver": [burst], "logbook": [_entry("LEAK-1")]},
+        },
+    )
+    _state_file(project).parent.mkdir(parents=True, exist_ok=True)
+    _state_file(project).write_text("burst\nleak\n", encoding="utf-8")
+    config = yaml.safe_load((project / "config.yml").read_text())
+
+    # Act
+    entries = active_logbook_entries(config, project)
+
+    # Assert
+    assert [entry["entry_id"] for entry in entries] == ["NOMINAL-1"]
+
+
 def test_seed_active_logbook_writes_into_an_empty_logbook(tmp_path, monkeypatch):
     """The deploy's own seed: a first bring-up finds no entries and writes the
     narrative that matches the archive it just seeded."""

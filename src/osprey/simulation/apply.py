@@ -36,8 +36,10 @@ from osprey.utils.relative_time import resolve_relative_timestamp
 from osprey_connectors.simulation.engine import resolve_simulation_file
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
+    composed_set,
     parse_active_state,
     resolve_active_scenarios,
+    scenario_targets,
 )
 from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 
@@ -450,10 +452,15 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
             names.append(name)
         else:
             logger.warning(f"Unknown scenario {name!r} in the active set; ignoring")
+    # A set that does not compose is served as nominal alone, so that is what it narrates.
+    served, _ = composed_set(
+        {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
+        resolve_active_scenarios(names),
+    )
     files = _simulator_view(project_dir) / SCENARIOS_DIR
     logbook = [
         entry
-        for name in resolve_active_scenarios(names)
+        for name in served
         if name in scenarios
         for entry in scenario_logbook(scenarios[name], files / name)
     ]
