@@ -1220,8 +1220,6 @@ at or above the current directory is used.
    freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
    dates are reproducible; a naive value takes the facility timezone, and the
    ``OSPREY_SIM_NOW`` environment variable is read when the option is absent.
-   A scenario's physics faults are written into the repo's ``.env`` for the
-   virtual accelerator to read at its next boot.
 
 .. code-block:: bash
 

@@ -601,8 +601,8 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 
     Takes the REPO ROOT — that is what
     :func:`osprey.simulation.apply.apply_scenarios` anchors on: the
-    ``data/simulation/`` model and the ``var/agent_data/simulation/`` state both
-    hang off it, and it reads the render's ``config.yml`` itself.
+    ``var/agent_data/simulation/`` state hangs off it, and it reads the render's
+    ``config.yml`` and simulator view itself.
 
     Calls :func:`osprey.simulation.apply.apply_scenarios` with
     ``seed_logbook=True``: it writes the active-scenario state (with a shared
@@ -623,10 +623,11 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 # Agentic-scenario benchmark integrity
 #
 # A scenario benchmark asks the agent to *derive* a fault from instrument data.
-# Its ground truth ships inside the deployment repo as
-# ``data/simulation/scenarios/<name>/scenario.json``, whose ``description``
-# names the seeded fault outright — and the agent's cwd IS the render, which
-# carries its own copy of that tree. Left alone, the cheapest route to a correct
+# Its ground truth ships inside the deployment repo as the facility's
+# ``data/facility/scenarios/<name>.yaml``, whose ``description`` names the
+# seeded fault outright — and the agent's cwd IS the render, whose simulator
+# view lists every scenario with its blocks in ``data/simulator/scenarios.json``
+# and copies its attached files under ``data/simulator/scenarios/<name>/``. Left alone, the cheapest route to a correct
 # answer is to search the tree and read the answer key, which produces a right
 # answer by a route that proves nothing about the capability under test. The two
 # helpers below close that route from both ends.
@@ -651,52 +652,57 @@ SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
 
 
 def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
-    """Delete the named scenarios' definition bundles from the deployment repo.
+    """Delete the named scenarios' definitions from the deployment repo.
 
-    Takes the REPO ROOT and scrubs BOTH simulation trees: the operator-owned
-    source at ``<repo>/data/simulation`` (what the host-side engine resolves via
-    ``project_root``) and the render's copy at ``<repo>/build/data/simulation``
-    (which sits inside the agent's own working directory). Leaving either would
-    leave the answer key one ``Read`` away.
+    Takes the REPO ROOT and scrubs every copy of a scenario's answer key: the
+    facility's ``<name>.yaml`` and ``<name>/`` under ``<repo>/data/facility/
+    scenarios`` and the render's ``build/data/facility/scenarios``, the
+    simulator view's ``build/data/simulator/scenarios/<name>/`` files, and the
+    scenario's entry in the view's ``scenarios.json``. Leaving any would leave
+    the answer key one ``Read`` away.
 
-    Call AFTER every setup step that consumes the bundle (``activate_scenarios``
-    for logbook seeding, ``render_scenario_physics_env`` + ``osprey up`` for a
-    VA stack's boot-time physics) and BEFORE the agent session starts. Also drops
-    the names from the live ``var/agent_data/simulation/active_scenarios`` state
+    Call AFTER every setup step that consumes the scenario (``activate_scenarios``
+    for logbook seeding, ``osprey up`` for a stack whose containers carry their
+    own copy of the view) and BEFORE the agent session starts. Also drops the
+    names from the live ``var/agent_data/simulation/active_scenarios`` state
     file (the location :func:`activate_scenario` writes), since the name itself
-    ("orm-dual-fault") is a hint, and leaving an active name whose bundle is gone
-    would only earn an "Unknown scenario ... ignoring" warning from the engine.
+    is a hint.
 
     ONLY valid for a scenario whose runtime effect is already materialized
-    somewhere the host-side :class:`~osprey.simulation.engine.SimulationEngine`
-    is not: a VA-backed physics fault lives in the container's ``VA_BPM_ERRORS``/
-    ``VA_CORR_GAIN`` environment from boot, so the bundle is inert once the stack
-    is up. A mock-connector telemetry/archiver scenario (``rf-thermal``,
-    ``vacuum-burst``) is the opposite — its bundle IS the live overlay, so
-    deleting it would delete the symptom. Those suites rely on
+    somewhere the host's render is not, such as a running container's own view.
+    A mock-connector scenario reads the host's view on every tick, so deleting
+    it would delete the symptom. Those suites rely on
     :data:`SCENARIO_INTEGRITY_DISALLOWED_TOOLS` alone.
 
     Raises:
-        AssertionError: if a named bundle is not present in either tree
-            (template drift — the caller believes it concealed something it did
-            not).
+        AssertionError: if a named scenario is not listed in the view (template
+            drift — the caller believes it concealed something it did not).
     """
-    source_sim = Path(repo) / "data" / "simulation"
-    render_sim = render_dir(repo) / "data" / "simulation"
-    sim_dirs = (source_sim, render_sim)
+    facility_dirs = (
+        Path(repo) / "data" / "facility" / "scenarios",
+        render_dir(repo) / "data" / "facility" / "scenarios",
+    )
+    view = render_dir(repo) / "data" / "simulator"
+    listing = view / "scenarios.json"
+    document = json.loads(listing.read_text(encoding="utf-8"))
+    listed = {str(entry["name"]) for entry in document["scenarios"]}
     for name in scenarios:
-        for sim_dir in sim_dirs:
-            bundle = sim_dir / "scenarios" / name
-            assert bundle.is_dir(), (
-                f"no scenario bundle at {bundle} to conceal — template layout may have "
-                "changed; the benchmark's answer key would stay readable by the agent"
-            )
-            shutil.rmtree(bundle)
+        assert name in listed, (
+            f"no scenario {name!r} in {listing} to conceal — the view layout may have "
+            "changed; the benchmark's answer key would stay readable by the agent"
+        )
+    document["scenarios"] = [
+        entry for entry in document["scenarios"] if str(entry["name"]) not in scenarios
+    ]
+    listing.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for name in scenarios:
+        for directory in (*facility_dirs, view / "scenarios"):
+            (directory / f"{name}.yaml").unlink(missing_ok=True)
+            shutil.rmtree(directory / name, ignore_errors=True)
 
-    # The live state file activate_scenario writes; a stray copy beside either
-    # machine model is scrubbed too if present. The live file must EXIST —
-    # a silent skip here is how a state-file relocation once left the answer
-    # key agent-readable while this helper reported success.
+    # The live state file activate_scenario writes. It must EXIST — a silent
+    # skip here is how a state-file relocation once left the answer key
+    # agent-readable while this helper reported success.
     state_dir = agent_data_dir(repo) / "simulation"
     live_state = state_dir / "active_scenarios"
     assert live_state.is_file(), (
@@ -704,23 +710,20 @@ def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
         "location moved again; update this helper or the answer key stays "
         "readable by the agent"
     )
-    for state_file in (live_state, *(d / "active_scenarios" for d in sim_dirs)):
-        if not state_file.is_file():
-            continue
-        kept = [
-            line
-            for line in state_file.read_text(encoding="utf-8").splitlines()
-            if line.strip() not in scenarios
-        ]
-        state_file.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
+    kept = [
+        line
+        for line in live_state.read_text(encoding="utf-8").splitlines()
+        if line.strip() not in scenarios
+    ]
+    live_state.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
 
-    # Self-check: prove the concealment rather than assume it. Cheap — all three
-    # trees are a handful of small JSON/text files. The state dir is included
-    # because Read is deliberately allowed for agent-data artifacts.
+    # Self-check: prove the concealment rather than assume it. The state dir is
+    # included because Read is deliberately allowed for agent-data artifacts.
+    trees = [tree for tree in (*facility_dirs, view, state_dir) if tree.is_dir()]
     for name in scenarios:
         leaked = [
             p
-            for tree in (*sim_dirs, state_dir)
+            for tree in trees
             for p in tree.rglob("*")
             if p.is_file() and name in p.read_text(encoding="utf-8", errors="ignore")
         ]
