@@ -986,7 +986,9 @@ def quickstart_command(source: str | None) -> None:
 
     config_dict = _load_ariel_config()
     try:
-        asyncio.run(run_quickstart(config_dict, source, progress=output.report))
+        asyncio.run(
+            run_quickstart(config_dict, source, progress=output.report, project_dir=_config_dir())
+        )
     except Exception as e:
         _handle_db_error(e)
         raise

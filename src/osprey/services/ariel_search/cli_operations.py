@@ -2665,8 +2665,18 @@ async def run_quickstart(
     config_dict: dict,
     source: str | None,
     progress: _ProgressCb = None,
+    *,
+    project_dir: Path | None = None,
 ) -> QuickstartResult:
-    """Run the complete ARIEL quickstart sequence."""
+    """Run the complete ARIEL quickstart sequence.
+
+    Args:
+        config_dict: The ``ariel:`` config section.
+        source: A logbook file or URL to ingest in place of the configured source.
+        progress: Receives each progress line.
+        project_dir: The built project the config belongs to; its simulator
+            view supplies ``ariel.demo_narrative``.
+    """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.connection import create_connection_pool
     from osprey.services.ariel_search.database.migrations import run_migrations
@@ -2713,7 +2723,7 @@ async def run_quickstart(
         if (not config.ingestion or not config.ingestion.source_url) and config_dict.get(
             "demo_narrative"
         ):
-            count, enhanced_count = await _quickstart_narrative(config_dict, progress)
+            count, enhanced_count = await _quickstart_narrative(config_dict, project_dir, progress)
         elif not config.ingestion or not config.ingestion.source_url:
             if progress:
                 progress("\nNo ingestion source configured. Skipping data ingestion.")
@@ -2779,7 +2789,9 @@ async def run_quickstart(
     )
 
 
-async def _quickstart_narrative(config_dict: dict, progress: _ProgressCb) -> tuple[int, int]:
+async def _quickstart_narrative(
+    config_dict: dict, project_dir: Path | None, progress: _ProgressCb
+) -> tuple[int, int]:
     """Seed ``ariel.demo_narrative`` into an empty logbook, then enhance what it holds.
 
     The narrative is written the way a deploy writes it -- rows and pictures,
@@ -2789,17 +2801,25 @@ async def _quickstart_narrative(config_dict: dict, progress: _ProgressCb) -> tup
     the quickstart adds over the deploy: embeddings for semantic and hybrid
     search, and captions where a vision model answers.
 
+    The scenarios are read from *project_dir*'s simulator view
+    (:func:`~osprey.simulation.apply.demo_narrative_logbook`).
+
     Returns:
         ``(entries seeded, entries the enhancement pass processed)``.
     """
     from datetime import datetime
 
-    from osprey.simulation.apply import demo_narrative_logbook, seed_narrative_if_empty
+    from osprey.simulation.apply import (
+        demo_narrative_logbook,
+        demo_narrative_scenarios,
+        seed_narrative_if_empty,
+    )
     from osprey.utils.config import get_facility_timezone
 
-    logbook = demo_narrative_logbook(config_dict)
+    logbook = demo_narrative_logbook(config_dict, project_dir)
     if progress:
-        progress(f"Seeding the demo narrative from: {config_dict['demo_narrative']}")
+        names = demo_narrative_scenarios(config_dict, project_dir)
+        progress(f"Seeding the demo narrative of: {', '.join(names)}")
     seeded = await seed_narrative_if_empty(
         config_dict, logbook, datetime.now(get_facility_timezone())
     )

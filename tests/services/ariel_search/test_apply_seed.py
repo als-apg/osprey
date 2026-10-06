@@ -10,7 +10,6 @@ entries with timestamps pinned to the documented time-of-day. Uses the shared
 from __future__ import annotations
 
 import asyncio
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -281,12 +280,13 @@ def test_reapply_replaces_pictures_rather_than_piling_them_up(tmp_path, database
 
 
 def test_a_demo_narrative_seeds_every_scenario_with_its_pictures(tmp_path, database_url):
-    """The standalone path: no simulation, every bundle's narrative, viewable pictures."""
+    """The standalone path: no simulation, every scenario's story, viewable pictures."""
     from osprey.services.ariel_search.cli_operations import run_migrate
     from osprey.simulation.apply import seed_active_logbook
 
-    shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "data" / "logbook_seed")
-    ariel = {"database": {"uri": database_url}, "demo_narrative": "data/logbook_seed"}
+    scenarios = TEMPLATE_FACILITY / "scenarios"
+    write_scenarios_view(tmp_path, facility_scenarios(scenarios), files=scenarios)
+    ariel = {"database": {"uri": database_url}, "demo_narrative": "all"}
     config = {"ariel": ariel}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     asyncio.run(run_migrate(ariel))

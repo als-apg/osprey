@@ -15,7 +15,7 @@ approval:
     entry_create: always
 ariel:
   default_search_mode: hybrid
-  demo_narrative: data/logbook_seed
+  demo_narrative: all
   embedding:
     provider: ollama
   enhancement_modules:

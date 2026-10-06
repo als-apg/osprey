@@ -190,30 +190,23 @@ def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_
     assert manifest["creation"]["claude_md_template"] == "CLAUDE.ariel.md.j2"
 
 
-def test_ariel_standalone_narrates_every_control_assistant_scenario(
+def test_ariel_standalone_narrates_every_scenario_of_its_facility(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """The standalone logbook is the control-assistant scenarios' narrative, by construction.
+    """The standalone logbook is every scenario story of the facility it shows.
 
-    The packaged ariel_standalone template ships no logbook of its own (its
-    data/ holds only a README beside its facility/ tree); its ``shared_data.yml``
-    takes the logbook from the control-assistant template. So what a standalone deploy seeds is read off
-    the same files the control-assistant scenarios carry, and this pins that
-    it is ALL of them: every scenario's entries, in nominal-first order, each
-    with the very picture bytes the scenario attaches.
+    ``ariel.demo_narrative: all`` reads the built simulator view, so what a
+    standalone deploy seeds is ALL of the example facility's scenario entries,
+    in nominal-first order, each with the very picture bytes the scenario
+    attaches.
     """
     import osprey
+    from osprey.facility.scenarios import scenario_logbook
     from osprey.simulation.apply import demo_narrative_logbook
-    from osprey.simulation.machine import parse_machine, read_machine_json
+    from tests._simulator_view import facility_scenarios
 
-    templates = pathlib.Path(osprey.__file__).parent / "templates" / "apps"
-    own = sorted(
-        p.relative_to(templates / "ariel_standalone" / "data").as_posix()
-        for p in (templates / "ariel_standalone" / "data").rglob("*")
-    )
-    assert [p for p in own if p != "facility" and not p.startswith("facility/")] == ["README.md"], (
-        "ariel_standalone ships data of its own again -- one copy of each file lives "
-        "in control_assistant and is taken through shared_data.yml"
+    facility_scenarios_dir = (
+        pathlib.Path(osprey.__file__).parent / "templates" / "facilities" / "example" / "scenarios"
     )
 
     result = _materialize(runner, str(tmp_path), "smoke", "ariel-standalone")
@@ -221,12 +214,18 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
     render = _project(tmp_path, "smoke")
     ariel = _config_yaml(render)["ariel"]
     assert "ingestion" not in ariel, "the demo narrative replaces the demo ingest"
+    assert ariel["demo_narrative"] == "all"
     seeded = demo_narrative_logbook(ariel, render)
 
-    machine_path = templates / "control_assistant" / "data" / "simulation" / "machine.json"
-    scenarios = parse_machine(read_machine_json(machine_path), machine_path).scenarios
+    scenarios = facility_scenarios(facility_scenarios_dir)
     order = sorted(scenarios, key=lambda name: (name != "nominal", name))
-    expected = [entry for name in order for entry in scenarios[name].logbook]
+    expected = [
+        entry
+        for name in order
+        for entry in scenario_logbook(
+            {"name": name, **scenarios[name]}, facility_scenarios_dir / name
+        )
+    ]
 
     assert [e.entry_id for e in seeded] == [e.entry_id for e in expected]
     assert [(e.title, e.text, e.when) for e in seeded] == [

@@ -320,16 +320,17 @@ def test_seed_active_logbook_is_a_no_op_without_a_simulator_view(tmp_path, monke
     assert seen["seeded"] is None
 
 
-def _narrative_project(tmp_path: Path) -> tuple[dict, Path]:
-    """A project with no simulation whose ``ariel.demo_narrative`` names the bundles."""
-    shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "data" / "narratives")
-    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": "data/narratives"}}
+def _narrative_project(tmp_path: Path, narrative: object = "all") -> tuple[dict, Path]:
+    """A project with no simulation whose simulator view lists the example scenarios."""
+    scenarios = TEMPLATE_FACILITY / "scenarios"
+    write_scenarios_view(tmp_path, facility_scenarios(scenarios), files=scenarios)
+    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": narrative}}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     return config, tmp_path
 
 
 def test_a_project_without_a_simulation_seeds_its_demo_narrative(tmp_path, monkeypatch):
-    """Every narrative in the named directory, nominal first, pictures handed over."""
+    """Every scenario the view lists, nominal first, pictures handed over."""
     config, project = _narrative_project(tmp_path)
     seen = _stub_ariel(monkeypatch, existing=0)
 
@@ -351,13 +352,51 @@ def test_a_demo_narrative_is_never_seeded_over_existing_entries(tmp_path, monkey
     assert seen["seeded"] is None
 
 
-def test_a_missing_demo_narrative_directory_is_named(tmp_path):
-    import pytest
+def test_a_demo_narrative_of_named_scenarios_seeds_those_nominal_first(tmp_path, monkeypatch):
+    config, project = _narrative_project(tmp_path, ["rf-thermal", "nominal"])
+    seen = _stub_ariel(monkeypatch, existing=0)
 
+    assert seed_active_logbook(config, project, config["ariel"]) == 28
+
+    ids = [entry["entry_id"] for entry in seen["seeded"]]
+    assert ids == [f"DEMO-{i:03d}" for i in range(1, 29)]
+
+
+def test_a_demo_narrative_beats_an_active_nominal(tmp_path, monkeypatch):
+    """A set demo narrative is what the deploy seeds, whatever set is active."""
+    project = _make_project(tmp_path)
+    _activate(project, monkeypatch, ["nominal", "rf-thermal"])
+    config = yaml.safe_load((project / "config.yml").read_text())
+    ariel = {**ARIEL_CONFIG, "demo_narrative": ["bpm-polarity"]}
+    seen = _stub_ariel(monkeypatch, existing=0)
+
+    assert seed_active_logbook(config, project, ariel) == 1
+    assert [entry["entry_id"] for entry in seen["seeded"]] == ["DEMO-031"]
+
+
+def test_a_demo_narrative_naming_an_unknown_scenario_is_refused(tmp_path):
     from osprey.simulation.apply import demo_narrative_logbook
 
-    with pytest.raises(ValueError, match="not a directory"):
-        demo_narrative_logbook({"demo_narrative": "data/nowhere"}, tmp_path)
+    config, project = _narrative_project(tmp_path, ["nominal", "no-such-story"])
+
+    with pytest.raises(ValueError, match="'no-such-story'"):
+        demo_narrative_logbook(config["ariel"], project)
+
+
+def test_a_demo_narrative_naming_a_directory_is_refused_naming_the_form(tmp_path):
+    from osprey.simulation.apply import demo_narrative_logbook
+
+    config, project = _narrative_project(tmp_path, "data/logbook_seed")
+
+    with pytest.raises(ValueError, match="'all' or a list of scenario names"):
+        demo_narrative_logbook(config["ariel"], project)
+
+
+def test_a_demo_narrative_without_a_project_is_refused_naming_the_view() -> None:
+    from osprey.simulation.apply import demo_narrative_logbook
+
+    with pytest.raises(ValueError, match="simulator view"):
+        demo_narrative_logbook({"demo_narrative": "all"}, None)
 
 
 def _state_file(project: Path) -> Path:
@@ -476,7 +515,8 @@ _PNG_1X1 = (
 
 def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
     """A demo narrative of one entry carrying a plot spec and a shipped picture."""
-    bundle = tmp_path / "data" / "narratives" / "drift"
+    files = tmp_path / "facility-scenarios"
+    bundle = files / "drift"
     (bundle / "plots").mkdir(parents=True)
     (bundle / "plots" / "shipped.png").write_bytes(_PNG_1X1)
     spec = {
@@ -495,8 +535,8 @@ def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
         "text": "Attached: orbit RMS X, past two days.",
         "attachments": [{"plot": "plots/orbit_rms.json"}, {"path": "plots/shipped.png"}],
     }
-    (bundle / "logbook.json").write_text(json.dumps([entry]))
-    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": "data/narratives"}}
+    write_scenarios_view(tmp_path, {"drift": {"logbook": [entry]}}, files=files)
+    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": "all"}}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     return config, tmp_path
 
@@ -504,7 +544,8 @@ def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
 def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeypatch):
     """The drawn picture shows the dates of the entry it is attached to: the spec
     drawn at the seeded row's timestamp, handed over in the entry's own order."""
-    from osprey.simulation.machine import load_narratives
+    from osprey.facility.scenarios import scenario_logbook
+    from osprey.facility.views.simulator import SCENARIOS_DIR
     from osprey.simulation.plots import render_plot_spec
 
     config, project = _plot_spec_project(tmp_path)
@@ -513,7 +554,9 @@ def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeyp
     assert seed_active_logbook(config, project, config["ariel"]) == 1
 
     (row,) = seen["seeded"]
-    (entry,) = load_narratives(project / "data" / "narratives")["drift"]
+    view = json.loads((project / "data" / "simulator" / "scenarios.json").read_text())
+    (scenario,) = view["scenarios"]
+    (entry,) = scenario_logbook(scenario, project / "data" / "simulator" / SCENARIOS_DIR / "drift")
     spec, shipped = entry.attachments
     drawn_path, shipped_path = seen["pictures"]["E1"]
     assert (drawn_path.name, shipped_path) == ("orbit_rms.png", shipped)

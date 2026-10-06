@@ -33,6 +33,7 @@ stays covered by the container tests in ``test_apply_seed.py``.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -822,7 +823,18 @@ class TestRunQuickstart:
         _patch_adapter(monkeypatch, AssertionError("adapter must not be built"))
         calls: dict = {}
 
-        monkeypatch.setattr(apply_mod, "demo_narrative_logbook", lambda config: ["E1", "E2", "E3"])
+        read: list = []
+
+        def _logbook(_config, project_dir):
+            read.append(project_dir)
+            return ["E1", "E2", "E3"]
+
+        monkeypatch.setattr(apply_mod, "demo_narrative_logbook", _logbook)
+        monkeypatch.setattr(
+            apply_mod,
+            "demo_narrative_scenarios",
+            lambda config, project_dir: ["nominal", "rf-thermal"],
+        )
 
         async def _seed(config, logbook, anchor):
             calls["seeded"] = (config["demo_narrative"], list(logbook), anchor.tzinfo)
@@ -837,10 +849,15 @@ class TestRunQuickstart:
 
         messages: list[str] = []
         result = await ops.run_quickstart(
-            {**_DB, "demo_narrative": "data/logbook_seed"}, source=None, progress=messages.append
+            {**_DB, "demo_narrative": "all"},
+            source=None,
+            progress=messages.append,
+            project_dir=Path("/repo"),
         )
 
-        assert calls["seeded"][:2] == ("data/logbook_seed", ["E1", "E2", "E3"])
+        assert read == [Path("/repo")]
+        assert "Seeding the demo narrative of: nominal, rf-thermal" in messages
+        assert calls["seeded"][:2] == ("all", ["E1", "E2", "E3"])
         assert calls["seeded"][2] is not None
         assert calls["enhance"] == (None, False, 3)
         assert (result.count, result.enhanced_count) == (3, 3)
@@ -863,7 +880,7 @@ class TestRunQuickstart:
         monkeypatch.setattr(apply_mod, "seed_narrative_if_empty", _never)
 
         result = await ops.run_quickstart(
-            {**_DB, "demo_narrative": "data/logbook_seed"}, source="file:///entries.json"
+            {**_DB, "demo_narrative": "all"}, source="file:///entries.json"
         )
 
         assert result.count == 1
