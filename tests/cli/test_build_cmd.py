@@ -21,23 +21,11 @@ from osprey.cli.build_profile import (
 )
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey.errors import BuildProfileError
+from tests._preset_data import bundle_data_root
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The packaged data tree ``osprey init`` copies for *bundle*.
-
-    A build sources ``data/`` from the profile's own ``data:`` tree and from
-    nowhere else, so a test that drives ``TemplateManager.create_project``
-    directly — without a profile — hands it the packaged tree the materialized
-    profile would have pointed at.
-    """
-    import osprey
-
-    return Path(osprey.__file__).parent / "templates" / "apps" / bundle / "data"
 
 
 def _create_project(manager, **kwargs) -> Path:

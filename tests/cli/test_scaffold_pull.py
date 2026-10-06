@@ -72,6 +72,32 @@ def test_app_template_root_resolver_rejects_an_absent_bundle(manager: TemplateMa
     assert "reinstall" in message
 
 
+def test_preset_data_composes_the_app_template_and_its_facility(
+    manager: TemplateManager,
+) -> None:
+    """The packaged data is the app template's ``data/`` plus the named facility."""
+    composed = _preset_data(manager, "control-assistant")
+
+    assert composed.app_root == _app_template_root(manager, "control_assistant")
+    assert composed.app_data == composed.app_root / "data"
+    assert composed.facility_root == Path(manager.template_root) / "facilities" / "example"
+    assert not (composed.app_data / "facility").exists()
+    assert composed.placed_files()["facility/identity.yaml"] == (
+        composed.facility_root / "identity.yaml"
+    )
+
+
+def test_preset_data_composes_an_app_template_with_no_data_of_its_own(
+    manager: TemplateManager,
+) -> None:
+    """hello-world's app template ships no ``data/``; its facility is all of it."""
+    composed = _preset_data(manager, "hello-world")
+
+    assert not composed.app_data.exists()
+    assert composed.facility_root == Path(manager.template_root) / "facilities" / "hello_world"
+    assert all(relative.startswith("facility/") for relative in composed.placed_files())
+
+
 # ---------------------------------------------------------------------------
 # Preset -> app template
 # ---------------------------------------------------------------------------

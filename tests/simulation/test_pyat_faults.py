@@ -36,10 +36,7 @@ from osprey.simulation.engines.pyat_variables import (  # noqa: E402
 )
 
 #: The committed demo's facility tree.
-DEMO = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/facility"
-)
+DEMO = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 MONITOR = "BPM03"
 X_ADDRESS = "SR:DIAG:BPM:03:POSITION:X"

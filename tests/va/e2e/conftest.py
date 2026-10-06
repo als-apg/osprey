@@ -121,7 +121,7 @@ CA_PORT = _reserve_free_port()
 CONTAINER_BOOT_TIMEOUT_S = 120.0
 
 PRESET_SIM_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
-PRESET_FACILITY_DIR = PRESET_SIM_DIR.parent / "facility"
+PRESET_FACILITY_DIR = REPO_ROOT / "src/osprey/templates/facilities/example"
 
 #: The config a demo view is rendered with: the preset's control-system type
 #: and limits posture, every model served.

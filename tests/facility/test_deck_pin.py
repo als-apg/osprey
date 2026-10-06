@@ -17,12 +17,16 @@ APPS_DIR = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps"
 #: The pyAT JSON lattice the deck copies are pinned to.
 SOURCE_LATTICE = APPS_DIR / "control_assistant/data/simulation/lattice.json"
 
-#: The preset trees that ship the SR deck.
-PRESET_TREES = ("control_assistant", "ariel_standalone", "channel_finder_standalone")
+#: The facility trees that ship the SR deck.
+FACILITY_TREES = {
+    "example": APPS_DIR.parent / "facilities/example",
+    "ariel_standalone": APPS_DIR / "ariel_standalone/data/facility",
+    "channel_finder_standalone": APPS_DIR / "channel_finder_standalone/data/facility",
+}
 
 
-@pytest.mark.parametrize("tree", PRESET_TREES)
+@pytest.mark.parametrize("tree", sorted(FACILITY_TREES))
 def test_sr_deck_is_the_simulation_lattice_byte_for_byte(tree: str) -> None:
-    deck = APPS_DIR / tree / "data/facility/decks/SR.json"
+    deck = FACILITY_TREES[tree] / "decks/SR.json"
     assert deck.is_file(), f"{deck} is missing"
     assert deck.read_bytes() == SOURCE_LATTICE.read_bytes()

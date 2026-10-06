@@ -16,6 +16,10 @@ name: Control Assistant
 # files are copied into data/, and that copy is what the build uses from then on.
 app_template: control_assistant
 
+# Which bundled facility this shows. Its files are copied into data/facility/,
+# and that copy is what the build reads from then on.
+facility: example
+
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic

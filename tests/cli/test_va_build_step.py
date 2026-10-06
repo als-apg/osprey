@@ -11,20 +11,13 @@ boot.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
 import yaml
 
 from osprey.facility.views.simulator import ADDRESSES_FILE
-
-
-def _bundle_data_dir() -> Path:
-    import osprey
-
-    return Path(osprey.__file__).parent / "templates" / "apps" / "control_assistant" / "data"
-
+from tests._preset_data import copy_bundle_data
 
 #: What a hand-written profile has to state to build at all.
 #:
@@ -79,7 +72,7 @@ def _write_profile(
     implies ``deploy_va``.
     """
     repo_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(_bundle_data_dir(), repo_dir / "data")
+    copy_bundle_data(repo_dir / "data")
 
     profile: dict = {
         "name": "VA Build Step Test",

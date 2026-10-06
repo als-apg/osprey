@@ -15,7 +15,7 @@ from osprey.facility.build import build_facility
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TUTORIAL = REPO_ROOT / "docs/source/getting-started/hello-world-tutorial.rst"
-HELLO_WORLD = REPO_ROOT / "src/osprey/templates/apps/hello_world/data/facility"
+HELLO_WORLD = REPO_ROOT / "src/osprey/templates/facilities/hello_world"
 
 #: A colon-separated channel address, as the tutorial spells one.
 ADDRESS = re.compile(r"\b[A-Z][A-Z0-9_]*(?::[A-Z0-9_]+)+\b")

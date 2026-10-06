@@ -14,6 +14,7 @@ from osprey.facility.sources import read_yaml
 from osprey_connectors.relative_time import RelativeTimestamp
 
 DATA = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
+FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 
 def _entry(**fields) -> dict:
@@ -100,9 +101,9 @@ def test_the_demo_translations_narrate_what_their_bundles_narrate():
         logbook_file = bundle / "logbook.json"
         if not logbook_file.is_file():
             continue
-        directory = DATA / "facility" / "scenarios" / bundle.name
+        directory = FACILITY / "scenarios" / bundle.name
         translation = read_yaml(
-            (DATA / "facility" / "scenarios" / f"{bundle.name}.yaml").read_text(encoding="utf-8")
+            (FACILITY / "scenarios" / f"{bundle.name}.yaml").read_text(encoding="utf-8")
         )
         bundled = json.loads(logbook_file.read_text(encoding="utf-8"))
 

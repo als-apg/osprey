@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import logging
 import pathlib
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,6 +32,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.errors import BuildProfileError
+from tests._preset_data import copy_bundle_data
 
 
 @pytest.fixture
@@ -49,15 +49,7 @@ def _facility_data(root: Path, bundle: str = "hello_world") -> Path:
     directory, and a preset that reads a channel-limits database or a knowledge
     zone out of it needs the packaged content, not an empty directory.
     """
-    from osprey.cli.templates.manager import TemplateManager
-
-    destination = root / "data"
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / bundle / "data",
-        destination,
-        dirs_exist_ok=True,
-    )
-    return destination
+    return copy_bundle_data(root / "data", bundle)
 
 
 #: The keys every deployment must state, for fixtures that build a profile of
@@ -1290,15 +1282,9 @@ def test_persona_delta_build_resolves_from_the_profile_root(
 ) -> None:
     """FR-10 anchoring: a delta under `personas/` inherits the root profile and
     everything it names anchors at the ROOT, not at the delta's own parent."""
-    from osprey.cli.templates.manager import TemplateManager
-
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
-    import shutil
-
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / "hello_world" / "data", root / "data"
-    )
+    copy_bundle_data(root / "data", "hello_world")
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
         "name: RootProfile\nextends: hello-world\nprovider: anthropic\nmodel: claude-sonnet-5\ndata: data\n"
@@ -1343,15 +1329,11 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     (`commands/osprey/scan`, not `commands/scan`): a basename rule would pass
     the flat case and silently miss the namespaced one.
     """
-    from osprey.cli.templates.manager import TemplateManager
-
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     (root / "agents").mkdir()
     (root / "commands" / "osprey").mkdir(parents=True)
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / "hello_world" / "data", root / "data"
-    )
+    copy_bundle_data(root / "data", "hello_world")
     (root / "agents" / "orbit-writer.md").write_text(
         "---\nname: orbit-writer\ndescription: profile-shipped agent\n---\n\nBody.\n"
     )

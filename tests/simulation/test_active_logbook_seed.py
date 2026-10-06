@@ -35,6 +35,7 @@ TEMPLATE_DATA = (
     Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
 )
 TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
+TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 ARIEL_CONFIG = {"database": {"uri": "postgresql://unused-mocked/none"}}
 
@@ -44,7 +45,7 @@ def _make_project(tmp_path: Path) -> Path:
     sim_dst = tmp_path / "data" / "simulation"
     sim_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(TEMPLATE_SIM, sim_dst)
-    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
         "control_system": {
@@ -206,7 +207,7 @@ def test_sim_apply_seeds_a_facility_scenario_s_edited_logbook_text(tmp_path, mon
     # Arrange
     project = _make_project(tmp_path)
     edited = {**_entry("DEMO-026"), "text": "Edited: the cavity warmed after the RF trip."}
-    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "scenarios"
     view = facility_scenarios(scenarios)
     view["rf-thermal"] = {**view["rf-thermal"], "logbook": [edited]}
     write_scenarios_view(project, view)
@@ -278,7 +279,7 @@ def test_seed_active_logbook_hands_over_a_shipped_picture_from_the_view(tmp_path
     (path,) = seen["pictures"]["DEMO-031"]
     view = project / "data" / "simulator" / "scenarios" / "bpm-polarity"
     assert path == (view / "plots" / "corrector_bump_test.png").resolve()
-    source = TEMPLATE_DATA / "facility" / "scenarios" / "bpm-polarity"
+    source = TEMPLATE_FACILITY / "scenarios" / "bpm-polarity"
     assert seen["bytes"]["DEMO-031"] == [
         (source / "plots" / "corrector_bump_test.png").read_bytes()
     ]

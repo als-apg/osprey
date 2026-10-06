@@ -22,7 +22,7 @@ from tests.facility._synthetic_trees import plain_tree, write_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
-FACILITY = DATA / "facility"
+FACILITY = REPO_ROOT / "src/osprey/templates/facilities/example"
 BUNDLES = DATA / "simulation" / "scenarios"
 
 #: The demo's physics model.

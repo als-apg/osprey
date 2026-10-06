@@ -219,7 +219,11 @@ print(MANIFEST_OUTPUT)')"
     # reinterpretation it is: this is the demo branch asking THIS directory to
     # look like the preset, not a missing piece of the framework's own demo
     # assets.
-    PRESET_FACILITY="$(cd "${DATA_DIR}/.." && pwd)/facility"
+    if [[ "${DATA_DIR_GIVEN}" == "yes" ]]; then
+        PRESET_FACILITY="$(cd "${DATA_DIR}/.." && pwd)/facility"
+    else
+        PRESET_FACILITY="${WORKTREE_ROOT}/src/osprey/templates/facilities/example"
+    fi
     if [[ ! -f "${PRESET_FACILITY}/limits.yaml" ]]; then
         echo "FATAL: serving ${DATA_DIR} as a demo data tree needs a facility" >&2
         echo "       tree with a limits.yaml at its data root (${PRESET_FACILITY})," >&2

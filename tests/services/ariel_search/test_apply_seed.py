@@ -32,6 +32,7 @@ TEMPLATE_DATA = (
     Path(__file__).resolve().parents[3] / "src/osprey/templates/apps/control_assistant/data"
 )
 TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
+TEMPLATE_FACILITY = Path(__file__).resolve().parents[3] / "src/osprey/templates/facilities/example"
 # Fixed apply-time anchor T0 so resolved timestamps are deterministic.
 T0 = datetime(2026, 6, 13, 12, 0, 0, tzinfo=UTC)
 
@@ -66,7 +67,7 @@ def _restore_schema_after(integration_ariel_config, database_url):
 
 def _make_project(tmp_path: Path, database_url: str) -> Path:
     """Stage a sim-backed project's simulator view, pointing ARIEL at the test DB."""
-    scenarios = TEMPLATE_DATA / "facility" / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
         "control_system": {

@@ -19,13 +19,12 @@ import yaml
 
 from osprey.facility.sources import load_sources, read_yaml
 from tests.facility.test_generator_records import (
-    CA_DATA,
     FACILITY_TREE,
     VA_BINDINGS,
     committed,
 )
 
-SR_DECK = CA_DATA / "facility/decks/SR.json"
+SR_DECK = FACILITY_TREE / "decks/SR.json"
 
 OPTICS = {
     "SR:DIAG:CHROM:X": {"attribute": "chromaticity", "axis": "x"},

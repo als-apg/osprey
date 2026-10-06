@@ -26,7 +26,7 @@ from tests.facility.test_cf_view_parity import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CA_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
-FACILITY_TREE = CA_DATA / "facility"
+FACILITY_TREE = REPO_ROOT / "src/osprey/templates/facilities/example"
 STANDALONE_TREE = REPO_ROOT / "src/osprey/templates/apps/channel_finder_standalone/data/facility"
 TIER1_IN_CONTEXT = CA_DATA / "channel_databases/tiers/tier1/in_context.json"
 TIER3_HIERARCHICAL = CA_DATA / "channel_databases/tiers/tier3/hierarchical.json"
@@ -155,7 +155,7 @@ def _joined_rows() -> list[dict[str, Any]]:
 def test_committed_tree_loads_without_a_stop() -> None:
     result = load_sources(FACILITY_TREE)
     assert result.errors == []
-    assert result.sources.identity == {"code": "ca"}
+    assert result.sources.identity == {"code": "ca", "name": "Example Research Facility"}
     assert result.sources.classes == []
 
 

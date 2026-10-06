@@ -81,10 +81,7 @@ KICK_CURRENT = 3.5
 RF_SETPOINT = 499.68
 
 #: The committed demo's facility tree.
-DEMO = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/facility"
-)
+DEMO = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 
 def brho(energy_gev: float) -> float:

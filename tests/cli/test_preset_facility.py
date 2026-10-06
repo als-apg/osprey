@@ -18,11 +18,14 @@ import yaml
 
 from osprey.cli import build_profile_presets
 from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
+from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 from osprey.cli.build_profile_presets import PRESET_FACILITY_KEY, list_presets, preset_facility
 from osprey.cli.profile_cmd import _preset_data, _preset_data_names
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.preset_data import compose_preset_data
 from osprey.errors import BuildProfileError
+
+FACILITIES = Path(TemplateManager().template_root) / "facilities"
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
@@ -46,6 +49,32 @@ def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 # ---------------------------------------------------------------------------
 # Resolver
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("preset", "facility"),
+    [
+        ("control-assistant", "example"),
+        ("control_assistant", "example"),
+        ("control-assistant-readonly", "example"),
+        ("hello-world", "hello_world"),
+        ("ariel-standalone", None),
+        ("channel-finder-standalone", None),
+        (None, None),
+        ("no-such-preset", None),
+    ],
+)
+def test_the_resolver_names_each_shipped_preset_s_facility(
+    preset: str | None, facility: str | None
+) -> None:
+    assert preset_facility(preset) == facility
+
+
+def test_every_facility_a_shipped_preset_names_is_shipped() -> None:
+    named = {preset_facility(preset) for preset in list_presets()} - {None}
+
+    assert named == {"example", "hello_world"}
+    assert all((FACILITIES / name).is_dir() for name in named)
 
 
 def test_the_resolver_follows_extends(fake_presets: Path) -> None:
@@ -110,9 +139,35 @@ def test_a_profile_naming_a_facility_is_refused(tmp_path: Path) -> None:
         resolve_build_profile(profile, None)
 
 
+@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+def test_the_emitted_profile_carries_neither_the_key_nor_its_comment(preset: str) -> None:
+    text = emit_standalone_profile_yaml(preset, (), "Emitted")
+
+    assert PRESET_FACILITY_KEY not in (yaml.safe_load(text) or {})
+    assert "Which bundled facility this shows" not in text
+
+
 # ---------------------------------------------------------------------------
 # The composition: app template data/ + facility at data/facility/
 # ---------------------------------------------------------------------------
+
+
+def test_the_composition_lands_the_facility_under_facility(tmp_path: Path) -> None:
+    composed = _preset_data(TemplateManager(), "control-assistant")
+    target = tmp_path / "data"
+
+    composed.copy_into(target)
+
+    assert (target / "facility" / "identity.yaml").read_bytes() == (
+        FACILITIES / "example" / "identity.yaml"
+    ).read_bytes()
+    assert (target / "simulation" / "machine.json").is_file()
+
+
+def test_the_example_facility_states_its_display_name() -> None:
+    identity = yaml.safe_load((FACILITIES / "example" / "identity.yaml").read_text())
+
+    assert identity == {"code": "ca", "name": "Example Research Facility"}
 
 
 def test_a_preset_naming_no_facility_composes_the_app_template_alone() -> None:

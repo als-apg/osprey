@@ -39,18 +39,8 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import FACILITY_FILE
 from osprey.facility.views.channel_finder import middle_layer_families
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
+from tests._preset_data import bundle_data_root
 from tests._vocabulary import PROTOCOL_WORDS
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(manager: TemplateManager, facts: Path | None, **kwargs) -> Path:
@@ -70,7 +60,7 @@ def _create_project(manager: TemplateManager, facts: Path | None, **kwargs) -> P
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)

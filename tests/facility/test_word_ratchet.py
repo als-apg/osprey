@@ -42,6 +42,7 @@ OUTSIDE_FORMAT_FILES: tuple[str, ...] = ("src/osprey/facility/layers/mml/mml_exp
 EXCLUDED: tuple[str, ...] = (
     *OUTSIDE_FORMAT_FILES,
     "**/templates/apps/*/data/**",
+    "**/templates/facilities/**",
     "**/data/facility/**",
     "**/static/**/vendor/**",
     "**/*.min.js",

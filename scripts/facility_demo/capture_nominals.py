@@ -62,7 +62,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PRESET_DATA = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"
 PRESET_SIM_DIR = PRESET_DATA / "simulation"
 MACHINE_JSON = PRESET_SIM_DIR / "machine.json"
-PRESET_FACILITY = PRESET_DATA / "facility"
+PRESET_FACILITY = REPO_ROOT / "src/osprey/templates/facilities/example"
 MANIFEST_JSON = REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
 
 #: The mock connector's noise level when the preset sets none, which the

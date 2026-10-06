@@ -26,7 +26,7 @@ from osprey.facility.validate import need, run_stages
 pytestmark = pytest.mark.slow
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEMO_FACILITY = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/facility"
+DEMO_FACILITY = REPO_ROOT / "src/osprey/templates/facilities/example"
 
 TUNE_X = "SR:DIAG:TUNE:X"
 SPARE = "SR:DIAG:SPARE:01"
