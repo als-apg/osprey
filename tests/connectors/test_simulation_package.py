@@ -172,6 +172,31 @@ def test_an_int_array_decodes_to_the_first_nul():
     assert decode_char_waveform(np.array([-61, -87], dtype=np.int8)) == "é"
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["closed orbit lost", [*b"closed orbit lost", 0, 0]],
+    ids=["string", "char-waveform"],
+)
+def test_a_status_channel_is_read_through_the_connector_and_decoded(value):
+    import asyncio
+    from types import SimpleNamespace
+
+    from osprey_connectors.simulation import read_model_status
+
+    read: list[str] = []
+
+    class _Connector:
+        async def read_channel(self, address, timeout=None):
+            del timeout
+            read.append(address)
+            return SimpleNamespace(value=value)
+
+    status = asyncio.run(read_model_status(_Connector(), "ca:SIM:SR:STATUS"))
+
+    assert status == "closed orbit lost"
+    assert read == ["ca:SIM:SR:STATUS"]
+
+
 def _lume_base_pins(pyproject) -> list[str]:
     import tomllib
 
