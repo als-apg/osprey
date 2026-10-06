@@ -5568,6 +5568,7 @@ jobs:
           tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
           tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
           tests/va/e2e/test_sim_apply_va.py \
+          tests/va/e2e/test_va_put_surface.py \
           tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_mml_trees_boot.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
