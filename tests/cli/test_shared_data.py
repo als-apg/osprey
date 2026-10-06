@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.scaffold_pull import list_pullable_paths, plan_pull
+from osprey.cli.templates.preset_data import PresetData
 from osprey.cli.templates.shared_data import SHARED_DATA_FILENAME, shared_data_files
 
 
@@ -93,8 +94,8 @@ def test_scaffold_pull_lists_and_copies_shared_files_like_its_own(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    listing = list_pullable_paths(taker)
-    actions = plan_pull(taker, repo, "data/seed", force=False, with_content=False)
+    listing = list_pullable_paths(PresetData(taker))
+    actions = plan_pull(PresetData(taker), repo, "data/seed", force=False, with_content=False)
 
     assert SHARED_DATA_FILENAME not in listing
     assert {"data/", "data/seed/", "data/seed/a/", "data/seed/a/plots/"} <= set(listing)
@@ -110,7 +111,7 @@ def test_the_standalone_template_offers_the_control_assistant_narrative():
     import osprey
 
     apps = Path(osprey.__file__).parent / "templates" / "apps"
-    listing = list_pullable_paths(apps / "ariel_standalone")
+    listing = list_pullable_paths(PresetData(apps / "ariel_standalone"))
 
     narratives = sorted(entry for entry in listing if entry.endswith("logbook.json"))
     scenarios = apps / "control_assistant" / "data" / "simulation" / "scenarios"

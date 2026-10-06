@@ -980,10 +980,11 @@ def personas(repo: Path | None, from_preset: str | None, force: bool) -> None:
     help="Include the knowledge base documents, not only its structure.",
 )
 def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_content: bool) -> None:
-    """Copy content out of a packaged app template into this repo.
+    """Copy a preset's packaged content into this repo.
 
-    PRESET[:PATH] names what to copy: 'control-assistant' is the whole
-    template, 'control-assistant:data/facility/knowledge' one subtree of it.
+    PRESET[:PATH] names what to copy: 'control-assistant' is the whole app
+    template with its facility under data/facility/,
+    'control-assistant:data/facility/knowledge' one subtree of it.
     Each file lands at the same path under this repo, where you edit it and
     commit it. Run --list first to see every path a preset offers.
 
@@ -1007,7 +1008,7 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     # Imported here for the same reason `ci` and `personas` do it: the
     # build-profile chain behind a preset is not loaded for any of the
     # ownership verbs in this group.
-    from .profile_cmd import _app_template_root, _resolve_preset_bundle
+    from .profile_cmd import _preset_data, _resolve_preset_bundle
     from .scaffold_pull import (
         PullAction,
         apply_pull,
@@ -1031,15 +1032,15 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     # Shared with the init path rather than re-derived: an unknown preset is a
     # usage error there, listing every preset that exists, and it is the same
     # mistake here.
-    _preset_name, data_bundle = _resolve_preset_bundle(preset)
+    preset_name, _data_bundle = _resolve_preset_bundle(preset)
     try:
-        app_root = _app_template_root(TemplateManager(), data_bundle)
+        source = _preset_data(TemplateManager(), preset_name)
     except ConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
 
     if list_only:
         try:
-            entries = list_pullable_paths(app_root, rel_path)
+            entries = list_pullable_paths(source, rel_path)
         except ValueError as exc:
             raise click.UsageError(str(exc)) from None
         for entry in entries:
@@ -1047,7 +1048,7 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
         return
 
     try:
-        actions = plan_pull(app_root, repo_root, rel_path, force=force, with_content=with_content)
+        actions = plan_pull(source, repo_root, rel_path, force=force, with_content=with_content)
     except ValueError as exc:
         raise click.UsageError(str(exc)) from None
 

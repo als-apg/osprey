@@ -7,7 +7,7 @@ directory on disk, before there is anything to copy out of the installation.
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import click
 import pytest
@@ -17,7 +17,7 @@ from osprey.cli.build_profile import list_presets
 from osprey.cli.main import cli
 from osprey.cli.profile_cmd import (
     _app_template_root,
-    _packaged_data_source,
+    _preset_data,
     _resolve_preset_bundle,
 )
 from osprey.cli.scaffold_cmd import scaffold
@@ -28,6 +28,7 @@ from osprey.cli.scaffold_pull import (
     plan_pull,
 )
 from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.preset_data import PresetData
 from osprey.errors import BuildProfileError
 from osprey.services.facility_knowledge.okf.index import check_indexes
 
@@ -69,26 +70,6 @@ def test_app_template_root_resolver_rejects_an_absent_bundle(manager: TemplateMa
     message = str(excinfo.value)
     assert "no_such_app_template" in message
     assert "reinstall" in message
-
-
-def test_packaged_data_source_resolver_returns_the_data_subtree(
-    manager: TemplateManager,
-) -> None:
-    """The data tree is still the ``data/`` directory inside the app template."""
-    _name, data_bundle = _resolve_preset_bundle("control-assistant")
-
-    data_source = _packaged_data_source(manager, data_bundle)
-
-    assert data_source == _app_template_root(manager, data_bundle) / "data"
-    assert data_source.is_dir()
-
-
-def test_packaged_data_source_resolver_shares_the_absent_bundle_check(
-    manager: TemplateManager,
-) -> None:
-    """One check, so the data tree fails on a missing template like everything else."""
-    with pytest.raises(BuildProfileError, match="reinstall"):
-        _packaged_data_source(manager, "no_such_app_template")
 
 
 # ---------------------------------------------------------------------------
@@ -267,10 +248,17 @@ CONTROL_ASSISTANT_PULLABLE = [
 
 
 @pytest.fixture
-def control_assistant_root(manager: TemplateManager) -> Path:
-    """The installed control-assistant app template."""
-    _name, data_bundle = _resolve_preset_bundle("control-assistant")
-    return _app_template_root(manager, data_bundle)
+def control_assistant(manager: TemplateManager) -> PresetData:
+    """The control-assistant preset's packaged content: app template + facility."""
+    return _preset_data(manager, "control-assistant")
+
+
+def packaged(source: PresetData, relative: str | Path) -> Path:
+    """Where the template-relative *relative* is read from in the installation."""
+    parts = PurePosixPath(Path(relative).as_posix()).parts
+    if source.facility_root is not None and parts[:2] == ("data", "facility"):
+        return source.facility_root.joinpath(*parts[2:])
+    return source.app_root.joinpath(*parts)
 
 
 def _stage_template(root: Path, relative_paths: list[str]) -> None:
@@ -282,17 +270,17 @@ def _stage_template(root: Path, relative_paths: list[str]) -> None:
 
 
 def test_list_pullable_paths_pins_the_control_assistant_catalog(
-    control_assistant_root: Path,
+    control_assistant: PresetData,
 ) -> None:
     """The whole listing, directories first and each group sorted."""
-    assert list_pullable_paths(control_assistant_root) == CONTROL_ASSISTANT_PULLABLE
+    assert list_pullable_paths(control_assistant) == CONTROL_ASSISTANT_PULLABLE
 
 
 def test_list_pullable_paths_offers_the_content_an_operator_edits(
-    control_assistant_root: Path,
+    control_assistant: PresetData,
 ) -> None:
     """The two trees a facility rewrites first are both named, machinery is not."""
-    listed = list_pullable_paths(control_assistant_root)
+    listed = list_pullable_paths(control_assistant)
 
     assert "data/facility/knowledge/" in listed
     assert "web-terminal-context/" in listed
@@ -302,9 +290,7 @@ def test_list_pullable_paths_offers_the_content_an_operator_edits(
 
 def test_list_pullable_paths_keeps_a_nested_package_marker(manager: TemplateManager) -> None:
     """A bundled MCP server is content, so its own ``__init__.py`` survives."""
-    _name, data_bundle = _resolve_preset_bundle("hello-world")
-
-    listed = list_pullable_paths(_app_template_root(manager, data_bundle))
+    listed = list_pullable_paths(_preset_data(manager, "hello-world"))
 
     assert "mcp_servers/example_server/__init__.py" in listed
     assert "__init__.py" not in listed
@@ -324,7 +310,7 @@ def test_list_pullable_paths_drops_what_the_packaged_data_copy_drops(tmp_path: P
         ],
     )
 
-    listed = list_pullable_paths(root)
+    listed = list_pullable_paths(PresetData(root))
 
     assert "data/benchmarks/results/" not in listed
     assert "data/benchmarks/results/x.json" not in listed
@@ -341,9 +327,9 @@ def test_list_pullable_paths_drops_what_the_packaged_data_copy_drops(tmp_path: P
     ]
 
 
-def test_list_pullable_paths_restricts_to_a_subtree(control_assistant_root: Path) -> None:
+def test_list_pullable_paths_restricts_to_a_subtree(control_assistant: PresetData) -> None:
     """A directory subtree yields itself and everything below it, and nothing else."""
-    listed = list_pullable_paths(control_assistant_root, "data/facility/knowledge")
+    listed = list_pullable_paths(control_assistant, "data/facility/knowledge")
 
     assert "data/facility/knowledge/" in listed
     assert "data/facility/knowledge/procedures/orbit-correction.md" in listed
@@ -355,15 +341,15 @@ def test_list_pullable_paths_restricts_to_a_subtree(control_assistant_root: Path
     ]
 
 
-def test_list_pullable_paths_restricts_to_a_single_file(control_assistant_root: Path) -> None:
+def test_list_pullable_paths_restricts_to_a_single_file(control_assistant: PresetData) -> None:
     """A file subtree is just that file."""
-    assert list_pullable_paths(control_assistant_root, "data/README.md") == ["data/README.md"]
+    assert list_pullable_paths(control_assistant, "data/README.md") == ["data/README.md"]
 
 
-def test_list_pullable_paths_rejects_an_unknown_subtree(control_assistant_root: Path) -> None:
+def test_list_pullable_paths_rejects_an_unknown_subtree(control_assistant: PresetData) -> None:
     """A miss names the top-level entries, which is what corrects the path."""
     with pytest.raises(ValueError) as excinfo:
-        list_pullable_paths(control_assistant_root, "data/facility_knowlege")
+        list_pullable_paths(control_assistant, "data/facility_knowlege")
 
     message = str(excinfo.value)
     assert "data/facility_knowlege" in message
@@ -392,10 +378,10 @@ def _by_action(actions: list[PullAction]) -> dict[str, list[PullAction]]:
 
 
 def test_plan_pull_counts_match_the_packaged_knowledge_base(
-    control_assistant_root: Path,
+    control_assistant: PresetData,
 ) -> None:
     """The pinned totals above are what the template actually ships."""
-    listed = list_pullable_paths(control_assistant_root, "data/facility/knowledge")
+    listed = list_pullable_paths(control_assistant, "data/facility/knowledge")
     markdown = [entry for entry in listed if entry.endswith(".md")]
 
     assert len(markdown) == KNOWLEDGE_MARKDOWN_FILES
@@ -407,11 +393,11 @@ def test_plan_pull_counts_match_the_packaged_knowledge_base(
 
 
 def test_plan_pull_of_the_knowledge_base_writes_only_the_indexes(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """A plain pull produces the structure and leaves the demo documents behind."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -427,11 +413,11 @@ def test_plan_pull_of_the_knowledge_base_writes_only_the_indexes(
 
 
 def test_plan_pull_with_content_writes_every_knowledge_document(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """The flag turns the skeleton into the whole worked example."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -444,11 +430,11 @@ def test_plan_pull_with_content_writes_every_knowledge_document(
 
 
 def test_plan_pull_mirrors_the_template_relative_path_under_the_repo(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """Targets are the source path again, rooted at the repo."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge/index.md",
         force=False,
@@ -458,15 +444,15 @@ def test_plan_pull_mirrors_the_template_relative_path_under_the_repo(
     assert [action.target for action in plan] == [
         tmp_path / "data" / "facility" / "knowledge" / "index.md"
     ]
-    assert plan[0].source == control_assistant_root / "data/facility/knowledge/index.md"
+    assert plan[0].source == packaged(control_assistant, "data/facility/knowledge/index.md")
 
 
 def test_plan_pull_refuses_a_single_filtered_knowledge_file(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """Skipping the only file asked for would do nothing, so it is refused instead."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge/devices/bpm.md",
         force=False,
@@ -479,13 +465,13 @@ def test_plan_pull_refuses_a_single_filtered_knowledge_file(
 
 
 def test_plan_pull_refuses_an_existing_destination(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """A file already in the repo stops the pull and the reason names the flag."""
     _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -500,13 +486,13 @@ def test_plan_pull_refuses_an_existing_destination(
 
 
 def test_plan_pull_updates_an_existing_destination_under_force(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """With the flag, a differing file is an update rather than a refusal."""
     _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=True,
@@ -522,16 +508,16 @@ def test_plan_pull_updates_an_existing_destination_under_force(
 
 
 def test_plan_pull_reports_an_identical_destination_as_unchanged(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """Re-pulling what is already there is a no-op, reported as one."""
-    source = control_assistant_root / "data/facility/knowledge/index.md"
+    source = packaged(control_assistant, "data/facility/knowledge/index.md")
     target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge/index.md",
         force=True,
@@ -542,7 +528,7 @@ def test_plan_pull_reports_an_identical_destination_as_unchanged(
 
 
 def test_plan_pull_refuses_a_symlinked_target_directory(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """A link on the way to the target would land the copy somewhere else."""
     elsewhere = tmp_path / "elsewhere"
@@ -552,7 +538,7 @@ def test_plan_pull_refuses_a_symlinked_target_directory(
     (repo_root / "data" / "facility" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         repo_root,
         "data/facility/knowledge",
         force=True,
@@ -567,13 +553,13 @@ def test_plan_pull_refuses_a_symlinked_target_directory(
 
 
 def test_plan_pull_refuses_a_directory_where_the_file_goes(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """A kind mismatch is never resolved on the facility's behalf."""
     (tmp_path / "data" / "facility" / "knowledge" / "index.md").mkdir(parents=True)
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge/index.md",
         force=True,
@@ -585,13 +571,13 @@ def test_plan_pull_refuses_a_directory_where_the_file_goes(
 
 
 def test_plan_pull_refuses_a_file_where_a_directory_is_needed(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """The mismatch counts anywhere between the repo root and the target."""
     _stage_template(tmp_path, ["data/facility/knowledge/devices"])
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge/devices/bpm.md",
         force=True,
@@ -604,10 +590,8 @@ def test_plan_pull_refuses_a_file_where_a_directory_is_needed(
 
 def test_plan_pull_keeps_a_nested_package_marker(manager: TemplateManager, tmp_path: Path) -> None:
     """A bundled MCP server pulls with its own ``__init__.py``."""
-    _name, data_bundle = _resolve_preset_bundle("hello-world")
-
     plan = plan_pull(
-        _app_template_root(manager, data_bundle),
+        _preset_data(manager, "hello-world"),
         tmp_path,
         "mcp_servers/example_server",
         force=False,
@@ -618,11 +602,11 @@ def test_plan_pull_keeps_a_nested_package_marker(manager: TemplateManager, tmp_p
     assert [action.action for action in plan if action.target == marker] == ["written"]
 
 
-def test_plan_pull_rejects_an_unknown_path(control_assistant_root: Path, tmp_path: Path) -> None:
+def test_plan_pull_rejects_an_unknown_path(control_assistant: PresetData, tmp_path: Path) -> None:
     """An unknown path fails the same way the listing does, with the same message."""
     with pytest.raises(ValueError, match="data/facility_knowlege"):
         plan_pull(
-            control_assistant_root,
+            control_assistant,
             tmp_path,
             "data/facility_knowlege",
             force=False,
@@ -667,11 +651,11 @@ def _packaged_demo_titles(knowledge_root: Path) -> set[str]:
 
 
 def test_apply_pull_of_the_knowledge_base_writes_only_the_indexes(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """A skeleton pull lands the structure and not one demo document."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -687,15 +671,15 @@ def test_apply_pull_of_the_knowledge_base_writes_only_the_indexes(
 
 
 def test_apply_pull_leaves_no_demo_document_title_in_a_pulled_index(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """The rebuilt indexes name what is on disk, so the demo concepts are gone."""
-    knowledge_source = control_assistant_root / "data" / "facility" / "knowledge"
+    knowledge_source = packaged(control_assistant, "data/facility/knowledge")
     demo_titles = _packaged_demo_titles(knowledge_source)
     assert "Beam Position Monitor (BPM)" in demo_titles
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -718,11 +702,11 @@ def test_apply_pull_leaves_no_demo_document_title_in_a_pulled_index(
 
 
 def test_a_skeleton_pull_leaves_indexes_that_validate(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """A skeleton pull leaves every index as regen-index would write it."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -735,11 +719,11 @@ def test_a_skeleton_pull_leaves_indexes_that_validate(
 
 
 def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """With the documents in hand the packaged indexes are already true, so they stand."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -753,19 +737,19 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     assert len(written) == KNOWLEDGE_MARKDOWN_FILES
     for path in written:
         relative = path.relative_to(tmp_path)
-        assert path.read_bytes() == (control_assistant_root / relative).read_bytes()
+        assert path.read_bytes() == packaged(control_assistant, relative).read_bytes()
     assert check_indexes(tmp_path / "data" / "facility" / "knowledge") == []
 
 
 def test_apply_pull_writes_nothing_when_the_plan_holds_a_refusal(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """One refusal stops the whole pull, so there is no half-applied copy to undo."""
     _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
     before = _tree(tmp_path)
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -780,7 +764,7 @@ def test_apply_pull_writes_nothing_when_the_plan_holds_a_refusal(
 
 
 def test_apply_pull_overwrites_under_force_and_keeps_a_file_the_template_lacks(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """A pull replaces what it names and removes nothing it does not."""
     _stage_template(
@@ -789,7 +773,7 @@ def test_apply_pull_overwrites_under_force_and_keeps_a_file_the_template_lacks(
     )
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=True,
@@ -800,7 +784,7 @@ def test_apply_pull_overwrites_under_force_and_keeps_a_file_the_template_lacks(
     target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
     assert (
         target.read_bytes()
-        == (control_assistant_root / "data/facility/knowledge/index.md").read_bytes()
+        == (packaged(control_assistant, "data/facility/knowledge/index.md")).read_bytes()
     )
     assert (tmp_path / "data" / "facility" / "knowledge" / "devices" / "local-note.md").is_file()
 
@@ -809,25 +793,27 @@ def test_apply_pull_writes_a_nested_package_marker(
     manager: TemplateManager, tmp_path: Path
 ) -> None:
     """A bundled MCP server lands importable, marker and all."""
-    _name, data_bundle = _resolve_preset_bundle("hello-world")
-    app_root = _app_template_root(manager, data_bundle)
+    source = _preset_data(manager, "hello-world")
 
     plan = plan_pull(
-        app_root, tmp_path, "mcp_servers/example_server", force=False, with_content=False
+        source, tmp_path, "mcp_servers/example_server", force=False, with_content=False
     )
     apply_pull(plan, repo_root=tmp_path, with_content=False)
 
     marker = tmp_path / "mcp_servers" / "example_server" / "__init__.py"
     assert marker.is_file()
-    assert marker.read_bytes() == (app_root / "mcp_servers/example_server/__init__.py").read_bytes()
+    assert (
+        marker.read_bytes()
+        == (source.app_root / "mcp_servers/example_server/__init__.py").read_bytes()
+    )
 
 
 def test_apply_pull_returns_the_actions_it_applied(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """The command reports from what came back, and those are the planned objects."""
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge",
         force=False,
@@ -842,16 +828,16 @@ def test_apply_pull_returns_the_actions_it_applied(
 
 
 def test_apply_pull_leaves_an_unchanged_target_alone(
-    control_assistant_root: Path, tmp_path: Path
+    control_assistant: PresetData, tmp_path: Path
 ) -> None:
     """Re-pulling an identical file writes nothing and rebuilds nothing."""
-    source = control_assistant_root / "data/facility/knowledge/index.md"
+    source = packaged(control_assistant, "data/facility/knowledge/index.md")
     target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
     plan = plan_pull(
-        control_assistant_root,
+        control_assistant,
         tmp_path,
         "data/facility/knowledge/index.md",
         force=True,
@@ -992,7 +978,7 @@ def test_an_existing_destination_stops_the_whole_pull(runner: CliRunner, repo: P
 
 
 def test_force_overwrites_and_keeps_a_file_the_template_lacks(
-    runner: CliRunner, repo: Path, control_assistant_root: Path
+    runner: CliRunner, repo: Path, control_assistant: PresetData
 ) -> None:
     """A pull replaces what it names and removes nothing it does not."""
     knowledge = repo / "data" / "facility" / "knowledge"
@@ -1007,16 +993,16 @@ def test_force_overwrites_and_keeps_a_file_the_template_lacks(
     assert result.exit_code == 0, result.output
     assert "(updated)" in result.output
     assert (knowledge / _INDEX_NAME).read_bytes() == (
-        control_assistant_root / "data/facility/knowledge/index.md"
+        packaged(control_assistant, "data/facility/knowledge/index.md")
     ).read_bytes()
     assert (knowledge / "devices" / "local-note.md").read_text(encoding="utf-8") == "kept"
 
 
 def test_an_identical_file_is_reported_as_unchanged(
-    runner: CliRunner, repo: Path, control_assistant_root: Path
+    runner: CliRunner, repo: Path, control_assistant: PresetData
 ) -> None:
     """Re-pulling what is already there says so rather than claiming a write."""
-    source = control_assistant_root / "data/facility/knowledge/index.md"
+    source = packaged(control_assistant, "data/facility/knowledge/index.md")
     target = repo / "data" / "facility" / "knowledge" / _INDEX_NAME
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())

@@ -207,14 +207,19 @@ def test_a_cyclic_extends_chain_terminates(fake_presets: Path) -> None:
 
 
 def test_every_bundled_preset_names_a_packaged_bundle() -> None:
-    """The shipped presets must resolve to a data tree that exists on disk."""
+    """The shipped presets must resolve to packaged data that exists on disk.
+
+    The app template's ``data/`` and the facility together are the data tree:
+    an app template with no ``data/`` of its own ships its data as a facility.
+    """
     from osprey.cli.build_profile import list_presets
+    from osprey.cli.profile_cmd import _preset_data
     from osprey.cli.templates.manager import TemplateManager
 
-    template_root = Path(TemplateManager().template_root)
+    manager = TemplateManager()
     for name in build_profile_presets.list_presets():
-        bundle = preset_data_bundle(name)
-        assert (template_root / "apps" / bundle / "data").is_dir(), f"{name} -> {bundle}"
+        composed = _preset_data(manager, name)
+        assert composed.app_data.is_dir() or composed.facility_root is not None, name
     assert list_presets()
 
 
