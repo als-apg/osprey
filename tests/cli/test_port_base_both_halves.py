@@ -47,6 +47,7 @@ from osprey.port_layout import (
     BLOCK_SIZE,
     DEFAULT_PORT_BASE,
     PORT_BASE_CONFIG_KEY,
+    QMD_CORPUS_MAX,
     default_port,
     resolve_port_base,
 )
@@ -447,6 +448,11 @@ class TestTheComposeHalfAgrees:
             for _, key in SERVICE_PORT_KEYS
             if _dotted(dotted_render.config, key) is not None
         }
+        # The qmd key names the first port of a family: corpus i's sidecar is
+        # at that port + i.
+        qmd_port = _dotted(dotted_render.config, "services.qmd.port")
+        if qmd_port is not None:
+            named |= {qmd_port + index for index in range(QMD_CORPUS_MAX + 1)}
         published = dotted_render.published(service_dir)
         assert published, f"{service_dir} publishes nothing"
         assert set(published) <= named, (

@@ -21,7 +21,7 @@ Three properties of the client are deliberate rather than incidental:
 Typical use, with the caller gating on availability and taking its own fallback
 path when the sidecar is absent::
 
-    client = QMDClient(resolve_qmd_service_config(config))
+    client = QMDClient(resolve_qmd_corpus_config(config, "okf"))
     if client.is_available():
         results = client.query("okf", "quadrupole calibration", limit=5)
 """
@@ -111,6 +111,20 @@ class QMDSearchResult:
     line: int
     snippet: str
     context: str | None = None
+
+
+@dataclass(frozen=True)
+class QMDIndexStatus:
+    """Counts a sidecar reports for its index.
+
+    Attributes:
+        documents: Documents indexed.
+        pending: Documents that have no vectors yet, and so are found by
+            keyword search only.
+    """
+
+    documents: int
+    pending: int
 
 
 @dataclass(frozen=True)
@@ -361,9 +375,9 @@ class QMDClient:
         """Run one search and return its ranked hits.
 
         Args:
-            collection: Collection to restrict the search to — this is how a
-                single sidecar serves several corpora side by side. ``None``
-                searches every collection the daemon has indexed.
+            collection: Collection to restrict the search to. Each corpus's
+                sidecar holds its own one collection, so this names it;
+                ``None`` searches every collection the daemon has indexed.
             text: The query text, applied to each kind in ``search_types``.
             limit: Maximum number of hits to return.
             search_types: Sub-query kinds to run, in order. qmd weights the
@@ -417,6 +431,29 @@ class QMDClient:
 
         result = self._call_tool("query", arguments)
         return _parse_results(result)
+
+    def status(self) -> QMDIndexStatus:
+        """Report the size of the sidecar's index and how much of it is embedded.
+
+        Returns:
+            Document counts from the daemon's ``status`` tool.
+
+        Raises:
+            QMDUnavailableError: If the client is unconfigured or the sidecar
+                cannot be reached.
+            QMDClientError: If the daemon answered with an error or without the
+                counts.
+        """
+        if self._config is None:
+            raise QMDUnavailableError("no qmd sidecar is configured for this deployment")
+        result = self._call_tool("status", {})
+        counts = result.get("structuredContent")
+        if not isinstance(counts, Mapping) or "totalDocuments" not in counts:
+            raise QMDClientError("qmd's status tool returned no document counts")
+        return QMDIndexStatus(
+            documents=_as_int(counts.get("totalDocuments")),
+            pending=_as_int(counts.get("needsEmbedding")),
+        )
 
     # -- MCP protocol ------------------------------------------------------
 

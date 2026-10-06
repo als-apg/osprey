@@ -85,6 +85,7 @@ from test_render_defaults_golden import (
     _PROJECT_NAME,
     TEMPLATES,
     _pinned_context,
+    _raw_default_config,
     _render_templates,
     _service_keys,
 )
@@ -495,13 +496,11 @@ def _scenario_context(scenario: Scenario, repo_root: Path) -> dict:
     default blocks are empty, so there is nothing to merge, and a replace makes
     the scenario's own declaration the whole truth about that service.
     """
+    default = _raw_default_config(repo_root)
     return _pinned_context(
-        {
-            "project_name": _PROJECT_NAME,
-            "project_root": str(repo_root),
-            "services": {key: {} for key in _service_keys()} | scenario.services,
-            "deployment": {},
-            "system": {"timezone": "UTC"},
+        default
+        | {
+            "services": default["services"] | scenario.services,
             "deployed_services": list(scenario.deployed),
         }
         | scenario.overrides
@@ -1010,14 +1009,8 @@ def test_every_service_template_hands_the_axis_to_every_container_it_renders() -
 
     with _probe_repo(_LOCAL_ENV_CHAIN) as repo_root:
         context = _pinned_context(
-            {
-                "project_name": _PROJECT_NAME,
-                "project_root": str(repo_root),
-                "services": services,
-                "deployment": {},
-                "system": {"timezone": "UTC"},
-                "deployed_services": list(services),
-            }
+            _raw_default_config(repo_root)
+            | {"services": services, "deployed_services": list(services)}
         )
         renders = _render_templates(context, TEMPLATES)
 
