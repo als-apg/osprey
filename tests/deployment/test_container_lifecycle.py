@@ -8,12 +8,12 @@ without a container runtime.
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -3573,17 +3573,17 @@ def staged_archiver(monkeypatch, tmp_path):
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
-    # The seed inputs are a manifest read plus a machine-model load; both are
-    # exercised by their own module's tests, and neither belongs in an argv test.
+    # The seed input is the archive composite of the render's simulator view,
+    # exercised by its own module's tests; it does not belong in an argv test.
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: ([{"address": "SR:BPM1:X"}], None, {}, None, None),
+        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X"]),
     )
     monkeypatch.setattr(
         container_lifecycle,
         "_reapply_active_scenarios",
-        lambda config, project_dir, engine: state["reapplied"].append(project_dir),
+        lambda config, project_dir: state["reapplied"].append(project_dir),
     )
 
     @contextmanager
@@ -3602,11 +3602,12 @@ def staged_archiver(monkeypatch, tmp_path):
 
     def _fake_seed_base(
         collection,  # noqa: ARG001 - seed_base's collection handle, the rest in **kwargs
-        channels,
+        seeded,
         knobs,
         **kwargs,
     ):
-        state["seeded"].append({"channels": list(channels), "knobs": knobs, "kwargs": kwargs})
+        channels = list(seeded.addresses)
+        state["seeded"].append({"channels": channels, "knobs": knobs, "kwargs": kwargs})
         # The staged step reports on what it wrote, so hand back a real report.
         return archive.SeedReport(documents=10, channels=len(channels))
 
@@ -3895,74 +3896,50 @@ def test_reapply_anchors_on_the_persisted_t0_not_a_fresh_one(monkeypatch, tmp_pa
 
     monkeypatch.setattr(apply_mod, "persisted_scenario_anchor", lambda config, project_dir: anchor)
     monkeypatch.setattr(apply_mod, "apply_scenarios", _record)
-    engine = type("_Engine", (), {"active_scenarios": lambda self: ("nominal", "rf-thermal")})()
+    _active_in_the_view(monkeypatch, ["rf-thermal"])
 
-    container_lifecycle._reapply_active_scenarios({}, tmp_path, engine)
+    container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
+    assert forwarded["names"] == ["nominal", "rf-thermal"]
     assert forwarded["now"] == anchor
     # The logbook is a knob change's business only if the narrative changed, and
     # it did not — purging ARIEL here would destroy history nobody asked to touch.
     assert forwarded["seed_logbook"] is False
 
 
-def _manifest_channel(address: str) -> dict:
-    """One manifest entry carrying the full per-channel schema the loader demands."""
-    return {
-        "address": address,
-        "ring": "SR",
-        "system": "diagnostics",
-        "family": "BPM",
-        "device": "1",
-        "field": "X",
-        "subfield": "",
-        "partition": "static-noisy",
-        "record_type": "ai",
-        "noise": 0.01,
-    }
+def _active_in_the_view(monkeypatch, names: list[str]) -> None:
+    """A render whose simulator view exists and whose state file records ``names``."""
+    from osprey.simulation import apply as apply_mod
+
+    monkeypatch.setattr(apply_mod, "_view_scenarios", lambda project_dir: {})
+    monkeypatch.setattr(apply_mod, "_active_state", lambda config, project_dir: (names, None))
 
 
-def test_seed_inputs_read_the_manifest_the_project_env_names(tmp_path):
-    """The seeded channel set is the manifest the VA and the recorder read, found
-    the way they find it — so seeded history covers exactly what the live half
-    serves rather than another facility's namespace.
+def test_seed_inputs_are_the_archive_composite_of_the_render_s_simulator_view(tmp_path):
+    """The seeded channel set is the view the Virtual Accelerator serves, read
+    from the RENDER (``build/data/simulator``) at the active set and anchor the
+    state file records."""
+    from tests._simulator_view import write_texture_view
 
-    The manifest lives in the RENDER's data dir (``build/data/simulation``):
-    the build generates it only there, and that is the directory the containers
-    mount as ``/data/simulation`` — the source ``data/`` zone never holds it."""
-    simulation_dir = tmp_path / "build" / "data" / "simulation"
-    simulation_dir.mkdir(parents=True)
-    (simulation_dir / "channel_manifest.json").write_text(
-        json.dumps({"channels": [_manifest_channel("SR:BPM1:X")]})
-    )
-    (tmp_path / ".env").write_text("VA_CHANNELS_FILE=channel_manifest.json\n")
+    write_texture_view(tmp_path / "build", {"SR:BPM1:X": {"nominal": 0.5}})
+    (tmp_path / "build" / "config.yml").write_text("{}\n")
 
-    channels, engine, boot_values, _, _ = container_lifecycle._archiver_seed_inputs({}, tmp_path)
+    archive = container_lifecycle._archiver_seed_inputs({}, tmp_path)
 
-    assert [c["address"] for c in channels] == ["SR:BPM1:X"]
-    # No machine model in this project: every channel is procedural, which is a
-    # valid configuration rather than a fault.
-    assert engine is None
-    assert boot_values == {}
+    assert archive.addresses == ["SR:BPM1:X"]
+    assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
 
 
-def test_seed_inputs_refuse_when_nothing_names_a_manifest(tmp_path, monkeypatch):
-    """No pointer, no seed — never the framework's bundled channel set.
-
-    The bundled manifest is the demo namespace, and an archive seeded with it
-    under a facility's name is indistinguishable from that facility's history.
-    Every other reader of the channel roster dropped this fallback; the seed is
-    the last one, and it goes the same way.
-    """
-    monkeypatch.delenv("VA_CHANNELS_FILE", raising=False)
-    (tmp_path / ".env").write_text("OTHER=x\n")
-
-    with pytest.raises(RuntimeError, match="VA_CHANNELS_FILE"):
+def test_seed_inputs_refuse_a_render_without_a_simulator_view(tmp_path):
+    """No view, no seed: an archive seeded with a namespace the deployment does
+    not serve is indistinguishable from that deployment's history."""
+    with pytest.raises(RuntimeError, match="no simulator view"):
         container_lifecycle._archiver_seed_inputs({}, tmp_path)
 
 
-def test_reapply_without_a_machine_model_is_a_no_op(tmp_path):
-    """A store-only project has no scenarios to restore onto the rebuilt base."""
-    container_lifecycle._reapply_active_scenarios({}, tmp_path, None)
+def test_reapply_without_a_simulator_view_is_a_no_op(tmp_path):
+    """A render with no simulated scenarios has nothing to restore onto the rebuilt base."""
+    container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
 
 def test_exported_password_is_used_when_the_dotenv_has_none(staged_archiver, monkeypatch, tmp_path):
@@ -4096,10 +4073,10 @@ def test_a_failed_reapply_names_the_command_that_fixes_it(monkeypatch, tmp_path)
         raise RuntimeError("store went away")
 
     monkeypatch.setattr(apply_mod, "apply_scenarios", _boom)
-    engine = type("_Engine", (), {"active_scenarios": lambda self: ("nominal", "rf-thermal")})()
+    _active_in_the_view(monkeypatch, ["rf-thermal"])
 
     with pytest.raises(RuntimeError, match=r"osprey sim apply rf-thermal") as caught:
-        container_lifecycle._reapply_active_scenarios({}, tmp_path, engine)
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
     assert "shows a clean machine" in str(caught.value)
     # The cause is chained rather than replaced — the original failure is what a

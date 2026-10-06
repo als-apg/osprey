@@ -6,14 +6,13 @@ history and writes it: one document per timestamp carrying every channel, over
 a two-tier grid reaching back the configured retention, in the schema
 ``MongoDBArchiverConnector`` already reads.
 
-The values are not this module's invention. Every channel is synthesized by the
-same code that answers a live archiver query — ``SimulationEngine`` for the
-channels a machine model describes, :mod:`osprey_connectors.simulation.procedural` for the
-rest — evaluated at each document's own absolute timestamp. That is the whole
-reason those generators are pure functions of ``(channel, epoch seconds)``: a
-document written here at time T holds exactly what a query for T would compute,
-so seeded history and synthesized history are one world rather than two
-plausible ones.
+The values are not this module's invention. Every channel is read from the
+archive composite (:func:`build`), the simulator view's composite at the start
+state of the active scenario set, evaluated at each document's own absolute
+timestamp. Every sample is a pure function of ``(channel, epoch seconds)``
+under that set, so a document written here at time T holds exactly what the
+composite serves at T: seeded history and the served machine are one world
+rather than two plausible ones.
 
 Three pieces of the design are worth stating outright:
 
@@ -70,12 +69,6 @@ import numpy as np
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values as channel_values
-from osprey_connectors.simulation.engine import SimulationEngine, engine_serves
-from osprey_connectors.simulation.procedural import (
-    DEFAULT_NOISE_LEVEL,
-    baseline_value,
-    generate_series,
-)
 from osprey_connectors.simulation.series import (
     apply_events,
     epoch_seconds_array,
@@ -96,7 +89,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = get_logger("archive")
 
 __all__ = [
-    "ARCHIVE_INSTANCES",
     "MANIFEST_ID",
     "SEED_SCHEMA_VERSION",
     "ArchiveComposite",
@@ -124,7 +116,7 @@ MANIFEST_ID = "osprey:seed_manifest"
 #: Bumped when the meaning of a stored document changes in a way that makes an
 #: existing store wrong rather than merely differently configured. It is part of
 #: the fingerprint, so a bump reseeds every deployment on upgrade.
-SEED_SCHEMA_VERSION = 1
+SEED_SCHEMA_VERSION = 2
 
 #: Field naming the instant a document's sample was taken. The connector queries
 #: and sorts on it; the manifest document deliberately has none, which is what
@@ -133,16 +125,6 @@ DATE_FIELD = "date"
 
 #: Field the TTL index acts on. A document without it never expires.
 EXPIRE_FIELD = "expireAt"
-
-#: Manifest record types, restated rather than imported: this module belongs to
-#: the simulation package and the names live in the Virtual Accelerator service
-#: package, which a host-side seeder must not need installed. They are a wire
-#: vocabulary — the strings appear verbatim in every generated
-#: ``channel_manifest.json`` — so restating them costs no coupling.
-RECORD_TYPE_ANALOG = "ai"
-RECORD_TYPE_BINARY = "bi"
-RECORD_TYPE_MBB = "mbbi"
-_TEXT_RECORD_TYPES = ("stringin", "longstringin")
 
 #: Timestamps synthesized in one pass. Sized so the value matrix of a full
 #: channel set stays in the tens of megabytes: the whole point of chunking is
@@ -303,8 +285,8 @@ class SeedReport:
 # The archive composite
 # ---------------------------------------------------------------------------
 
-#: The serving instances an archive composite is built for.
-ARCHIVE_INSTANCES = ("virtual_accelerator",)
+#: The serving instance the archive composite's log lines name.
+_ARCHIVE_INSTANCE = "virtual_accelerator"
 
 _STEP = "step"
 
@@ -382,22 +364,53 @@ class ArchiveComposite:
         Raises:
             KeyError: ``address`` is not a channel of the view.
         """
-        self._require(address)
+        return self.samples([address], t_s)[address]
+
+    def samples(
+        self, addresses: Sequence[str], t_s: Sequence[float] | np.ndarray
+    ) -> dict[str, list[Any]]:
+        """Several channels' samples at absolute epoch seconds, as :meth:`series` gives each.
+
+        The float channels are read together, so a physics model's readout
+        runs once per timestamp for all of them rather than once per channel.
+
+        Args:
+            addresses: Channel addresses of the view.
+            t_s: Epoch seconds, ascending.
+
+        Returns:
+            One sample per timestamp, by address.
+
+        Raises:
+            KeyError: An address is not a channel of the view.
+        """
+        for address in addresses:
+            self._require(address)
         times = np.asarray(t_s, dtype=np.float64).reshape(-1)
-        count = len(times)
-        if count == 0:
-            return []
+        if len(times) == 0:
+            return {address: [] for address in addresses}
+        floats = [address for address in addresses if self._is_float(address)]
+        levels = {
+            name: self._level(name, times)
+            for address in floats
+            for name in self._composite.readout_group(address)
+        }
+        read = self._composite.readings(levels, times) if levels else {}
+        out: dict[str, list[Any]] = {}
+        for address in addresses:
+            if address in read:
+                out[address] = [float(value) for value in read[address]]
+                continue
+            channel = self._channels[address]
+            stored = self._stepped(
+                channel, self._held[address], self._events.get(address, []), times
+            )
+            out[address] = [self._wire(channel, value) for value in stored]
+        return out
+
+    def _is_float(self, address: str) -> bool:
         channel = self._channels[address]
-        value_type = channel.get("value_type") or channel_values.DEFAULT_VALUE_TYPE
-        events = self._events.get(address, [])
-        if value_type == "float":
-            levels = {
-                name: self._level(name, times) for name in self._composite.readout_group(address)
-            }
-            read = self._composite.readings(levels, times)[address]
-            return [float(value) for value in read]
-        stored = self._stepped(channel, self._held[address], events, times)
-        return [self._wire(channel, value) for value in stored]
+        return (channel.get("value_type") or channel_values.DEFAULT_VALUE_TYPE) == "float"
 
     def _require(self, address: str) -> None:
         if address not in self._channels:
@@ -468,7 +481,6 @@ def build(
     view: Path | str,
     active_set: Sequence[str],
     *,
-    instance: str = "virtual_accelerator",
     anchor_s: float | None = None,
 ) -> ArchiveComposite:
     """Build the archive composite of a simulator view at one active set's start state.
@@ -481,8 +493,6 @@ def build(
     Args:
         view: The simulator view, ``<render>/data/simulator``.
         active_set: The active scenario names; ``nominal`` is always active.
-        instance: The serving instance the archive stands for, one of
-            :data:`ARCHIVE_INSTANCES`.
         anchor_s: The epoch seconds the set was applied at, from which an
             ``at_offset`` event is placed; ``None`` is the time of the build.
 
@@ -490,12 +500,9 @@ def build(
         The archive composite.
 
     Raises:
-        ValueError: ``instance`` is not one of :data:`ARCHIVE_INSTANCES`.
         RuntimeError: A physics model fails to build or read at the start
             state; the message names it and its engine's error.
     """
-    if instance not in ARCHIVE_INSTANCES:
-        raise ValueError(f"instance is {instance!r}; use one of {list(ARCHIVE_INSTANCES)}")
     from osprey_connectors.config import get_facility_timezone
     from osprey_connectors.simulation.composite import (
         ADDRESSES_FILE,
@@ -522,7 +529,9 @@ def build(
     (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
         "".join(f"{name}\n" for name in names), encoding="utf-8"
     )
-    composite = Composite(view_dir, state_dir=state.name, instance=instance, model_log=False)
+    composite = Composite(
+        view_dir, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False
+    )
     held = composite.held(archived)
     failed = {
         model: status
@@ -643,60 +652,17 @@ def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
 # ---------------------------------------------------------------------------
 
 
-def synthesize_documents(
-    channels: Sequence[Mapping[str, Any]],
-    epoch_s: np.ndarray,
-    *,
-    engine: SimulationEngine | None = None,
-    boot_values: Mapping[str, float] | None = None,
-    noise_level: float = DEFAULT_NOISE_LEVEL,
-    value_transform: Callable[[str, Sequence[Any]], Sequence[Any]] | None = None,
-) -> list[dict[str, Any]]:
-    """One document per timestamp, carrying every channel's value at it.
+def synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list[dict[str, Any]]:
+    """One document per timestamp, carrying every archived channel's value at it.
 
     This is the single definition of "what the archive holds at time T", and it
-    is deliberately exported: the base seed writes it, a scenario rewrite
-    restores to it, and an equivalence test compares a live query against it.
-    A second implementation of this arithmetic anywhere would be a second
-    opinion about the machine's past.
-
-    ``value_transform`` is the one seam in that: the arithmetic stays here, and
-    a caller may only *declare* a transform over its result — never compute the
-    values itself. It exists for the deployment whose ``live`` target is a
-    stand-in, whose readout carries systematic offsets the machine this module
-    models does not have. Because a transform changes what the store contains,
-    a caller applying one must describe it to :func:`seed_fingerprint` through
-    ``transform_fingerprint``; a store seeded with offsets would otherwise
-    compare MATCH against one seeded without them.
-
-    Channel values come from three places, matching what the deployment's live
-    half serves:
-
-    * a channel the machine model describes goes through the engine, events and
-      all;
-    * an analog channel it does not goes through the procedural generator,
-      anchored on the value the Virtual Accelerator boots it at;
-    * a channel served as a flag, an enumeration or text carries a *constant* —
-      the live machine holds those still, and noise on a status flag would be
-      history no operator could read as anything but a fault.
+    is deliberately exported: the base seed writes it and an equivalence test
+    compares a served read against it. Every value is the archive composite's
+    sample (:meth:`ArchiveComposite.samples`), in the wire representation.
 
     Args:
-        channels: Manifest channel entries. Each needs ``address``; ``record_type``
-            selects the constant path when present (absent is read as analog).
+        archive: The archive composite of the active set.
         epoch_s: Absolute epoch seconds, one per document.
-        engine: The machine model's engine, or ``None`` when the project has
-            none and every channel is procedural.
-        boot_values: ``{address: value}`` from the machine model, threaded into
-            :func:`~osprey_connectors.simulation.procedural.baseline_value` so procedural
-            channels anchor where the VA boots them.
-        noise_level: Relative noise for the procedural channels.
-        value_transform: Called once per channel with ``(address, values)``
-            after the values are synthesized and before they are scattered into
-            the documents, returning the values to store. It must return one
-            value per timestamp, in the same order; a shorter or longer sequence
-            raises rather than silently shifting a channel's history. ``None``
-            stores what this module computed, which is the only behaviour a
-            deployment without a stand-in ever sees.
 
     Returns:
         A list of ``{date: datetime, <address>: value}`` documents, ascending in
@@ -708,90 +674,19 @@ def synthesize_documents(
     if not documents:
         return documents
 
-    # Synthesize at the epoch seconds a *reader* of these documents derives from
+    # Sampled at the epoch seconds a *reader* of these documents derives from
     # their stored dates, not at the ones the grid was built from. Datetimes
     # carry microseconds, so a grid time with finer resolution than that would
-    # otherwise be stored as one instant and valued as another — a discrepancy
-    # no test of the shipped whole-second cadences would ever surface, and one
-    # that would break bit-equality for any caller that seeds a finer grid.
+    # otherwise be stored as one instant and valued as another.
     reader_epoch_s = epoch_seconds_array(stamps)
     assert reader_epoch_s is not None  # datetimes always convert
 
-    for channel in channels:
-        address = str(channel["address"])
-        values = _channel_values(
-            channel,
-            address,
-            stamps,
-            reader_epoch_s,
-            engine=engine,
-            boot_values=boot_values,
-            noise_level=noise_level,
-        )
-        if value_transform is not None:
-            values = value_transform(address, values)
-        # ``strict`` is the length contract: a transform that returned the wrong
-        # number of values would otherwise leave the tail of a channel's window
-        # unwritten, which reads back as a channel that simply stops.
+    addresses = archive.addresses
+    for address, values in archive.samples(addresses, reader_epoch_s).items():
         for document, value in zip(documents, values, strict=True):
             document[address] = value
 
     return documents
-
-
-def _channel_values(
-    channel: Mapping[str, Any],
-    address: str,
-    stamps: list[datetime],
-    epoch_s: np.ndarray,
-    *,
-    engine: SimulationEngine | None,
-    boot_values: Mapping[str, float] | None,
-    noise_level: float,
-) -> Sequence[Any]:
-    """One channel's values across the chunk, by the rules above."""
-    record_type = str(channel.get("record_type", RECORD_TYPE_ANALOG))
-
-    if engine_serves(engine, address) and engine is not None:
-        # Even a flag goes through synthesis when the model describes it: a
-        # scenario is entitled to step STATUS:FAULT true partway through the
-        # window, and a constant would erase exactly the event worth archiving.
-        return [_coerce(record_type, value) for value in engine.synthesize_series(address, stamps)]
-
-    if record_type == RECORD_TYPE_ANALOG:
-        return [
-            float(value)
-            for value in generate_series(
-                address,
-                epoch_s,
-                noise_level=noise_level,
-                baseline=baseline_value(address, boot_values),
-            )
-        ]
-
-    # A discrete or textual channel with no model entry: nothing moves it. The
-    # manifest forbids declaring these record types noisy, and the VA serves
-    # them as a bare coerced baseline on every poll tick — so one value covers
-    # the window, and computing a noisy series to round it away would be both
-    # slower and a claim about motion that never happens.
-    return [_coerce(record_type, baseline_value(address, boot_values))] * len(stamps)
-
-
-def _coerce(record_type: str, value: Any) -> Any:
-    """One value in the type the channel is served as.
-
-    Mirrors the serving layer's own coercion table. The machine model stores
-    every channel as a number, even the ones served as flags, and a raw float
-    on a flag channel would be archived as a value no client could ever have
-    read back.
-    """
-    if record_type == RECORD_TYPE_BINARY:
-        return bool(value)
-    if record_type == RECORD_TYPE_MBB:
-        return int(value)
-    if record_type in _TEXT_RECORD_TYPES:
-        return str(value)
-    return float(value)
 
 
 # ---------------------------------------------------------------------------
@@ -804,34 +699,19 @@ def seed_fingerprint(
     channel_addresses: Iterable[str],
     *,
     compression: str,
-    transform_fingerprint: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The knobs a store's coverage depends on, as a comparable dict.
 
     Everything here changes what the store *contains*: the window's depth and
-    density, which channels are in it, how it is compressed on disk, the
-    document schema itself, and any transform the caller applied to the values.
-    Nothing here is an instant or a count — those move on every deploy and would
-    make the comparison a coin flip.
-
-    The transform belongs here for the same reason the channel set does: a store
-    seeded with a stand-in's systematic offsets holds different numbers than one
-    seeded without them, and a fingerprint blind to that would report MATCH
-    across the very change that makes the stored past belong to another machine.
+    density, which channels are in it, how it is compressed on disk, and the
+    document schema itself. Nothing here is an instant or a count — those move
+    on every deploy and would make the comparison a coin flip.
 
     Args:
         knobs: The archive's shape.
         channel_addresses: The seeded channel set. Order does not matter; the
             hash is taken over the sorted, deduplicated names.
         compression: The collection's block compressor.
-        transform_fingerprint: A JSON-able description of the value transform
-            passed to :func:`synthesize_documents`, or ``None`` when the values
-            are stored as this module computed them. It is folded in as
-            canonical JSON — key order and tuple-versus-list spelling therefore
-            do not move the fingerprint — under the ``value_transform`` field,
-            whose ``None`` is also what a manifest predating the field reads as,
-            so an untransformed store seeded by an older version still compares
-            MATCH rather than reseeding for a knob nobody changed.
 
     Returns:
         The fingerprint, JSON-serializable and safe to store verbatim.
@@ -847,11 +727,6 @@ def seed_fingerprint(
         "compression": compression,
         "channel_count": len(names),
         "channel_set_sha256": digest,
-        "value_transform": (
-            None
-            if transform_fingerprint is None
-            else json.dumps(transform_fingerprint, sort_keys=True, separators=(",", ":"))
-        ),
     }
 
 
@@ -949,19 +824,14 @@ def prepare_collection(collection: Collection) -> None:
 
 def seed_base(
     collection: Collection,
-    channels: Sequence[Mapping[str, Any]],
+    archive: ArchiveComposite,
     knobs: SeedKnobs,
     *,
     t0: datetime,
-    engine: SimulationEngine | None = None,
-    boot_values: Mapping[str, float] | None = None,
-    noise_level: float = DEFAULT_NOISE_LEVEL,
     compression: str = "zstd",
     workers: int = DEFAULT_WORKERS,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     progress: Callable[[SeedReport], None] | None = None,
-    value_transform: Callable[[str, Sequence[Any]], Sequence[Any]] | None = None,
-    transform_fingerprint: Mapping[str, Any] | None = None,
 ) -> SeedReport:
     """Build the store: indexes, the whole base series, then the manifest.
 
@@ -972,35 +842,24 @@ def seed_base(
     would make a half-seeded store indistinguishable from a complete one.
 
     Synthesis runs on the calling thread and inserts overlap it on a small pool.
-    That split is deliberate: the arithmetic is numpy and the engine is not
-    contractually thread-safe, while the round trip to the store is the part
-    worth overlapping. Submission blocks once the pool is saturated, so memory
+    That split is deliberate: the composite is not contractually thread-safe,
+    while the round trip to the store is the part worth overlapping. Submission blocks once the pool is saturated, so memory
     stays bounded at a few chunks rather than the whole window.
 
     Args:
         collection: The sample collection. Existing samples are not removed —
             a caller reseeding is expected to drop first, and one that is
             extending a store deliberately is not second-guessed here.
-        channels: Manifest channel entries to seed.
+        archive: The archive composite of the active set; every one of its
+            channels is seeded.
         knobs: The archive's shape.
         t0: The seed anchor; the window ends here.
-        engine: The machine model's engine, or ``None``.
-        boot_values: Machine-model values, for procedural baseline anchoring.
-        noise_level: Relative noise for the procedural channels.
         compression: The collection's block compressor, recorded in the
             manifest because changing it changes the store's size on disk.
         workers: Concurrent insert workers.
         chunk_size: Timestamps synthesized and inserted per batch.
         progress: Called after each chunk with the running report, for a
             deploy-time progress line.
-        value_transform: Applied per channel to every chunk's values (see
-            :func:`synthesize_documents`), or ``None`` to store the synthesized
-            values unchanged.
-        transform_fingerprint: The transform's declared identity, recorded in
-            the manifest so a store built with it does not compare MATCH against
-            one built without. Passing a ``value_transform`` and leaving this
-            ``None`` is how a reseed would silently be skipped, so a caller
-            applying one is expected to describe it.
 
     Returns:
         The completed report.
@@ -1015,7 +874,7 @@ def seed_base(
         raise ValueError(f"workers must be >= 1 (got {workers})")
 
     times, expiry = seed_grid(knobs, t0)
-    addresses = [str(channel["address"]) for channel in channels]
+    addresses = archive.addresses
     started = time.monotonic()
 
     report = SeedReport(channels=len(addresses))
@@ -1028,14 +887,7 @@ def seed_base(
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="archiver-seed") as pool:
         pending: set[Future[None]] = set()
         for chunk_times, chunk_expiry in _chunks(times, expiry, chunk_size):
-            documents = synthesize_documents(
-                channels,
-                chunk_times,
-                engine=engine,
-                boot_values=boot_values,
-                noise_level=noise_level,
-                value_transform=value_transform,
-            )
+            documents = synthesize_documents(archive, chunk_times)
             for document, expire_at in zip(documents, _as_utc_datetimes(chunk_expiry), strict=True):
                 document[EXPIRE_FIELD] = expire_at
 
@@ -1053,12 +905,7 @@ def seed_base(
     report.elapsed_s = time.monotonic() - started
     write_manifest(
         collection,
-        seed_fingerprint(
-            knobs,
-            addresses,
-            compression=compression,
-            transform_fingerprint=transform_fingerprint,
-        ),
+        seed_fingerprint(knobs, addresses, compression=compression),
         seeded_at=t0,
         report=report,
     )

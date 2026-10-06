@@ -500,9 +500,7 @@ class TestSubStepRows:
         _stub_reapply(monkeypatch, active=("nominal", "bpm_dropout"), archiver_describe="rewrote 3")
         printed.open_phase()
 
-        container_lifecycle._reapply_active_scenarios(
-            {}, tmp_path, _engine("nominal", "bpm_dropout")
-        )
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert_sub_step(printed, "scenarios re-applied: nominal, bpm_dropout")
         assert "(rewrote 3)" in printed.flowed
@@ -519,7 +517,7 @@ class TestSubStepRows:
         _stub_reapply(monkeypatch, active=("nominal",), archiver_describe=None)
         printed.open_phase()
 
-        container_lifecycle._reapply_active_scenarios({}, tmp_path, _engine("nominal"))
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert_sub_step(printed, "scenarios re-applied: nominal")
         assert "(" not in printed.flowed.split("scenarios re-applied")[-1]
@@ -529,7 +527,7 @@ class TestSubStepRows:
         _stub_reapply(monkeypatch, active=("nominal",), archiver=None)
         printed.open_phase()
 
-        container_lifecycle._reapply_active_scenarios({}, tmp_path, _engine("nominal"))
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert_sub_step(printed, "scenarios re-applied: nominal")
         assert "(" not in printed.flowed.split("scenarios re-applied")[-1]
@@ -560,9 +558,9 @@ class TestDemotedRows:
 
         assert _levels_for(caplog, "already present") == {logging.DEBUG}
 
-    def test_having_no_machine_model_to_reseed_is_a_debug_line(self, tmp_path, caplog):
+    def test_having_no_simulator_view_to_reseed_is_a_debug_line(self, tmp_path, caplog):
         with caplog.at_level(logging.DEBUG):
-            container_lifecycle._reapply_active_scenarios({}, tmp_path, None)
+            container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert _levels_for(caplog, "no scenarios to re-apply") == {logging.DEBUG}
 
@@ -764,13 +762,7 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: (
-            [{"address": "SR:BPM1:X"}, {"address": "SR:BPM2:X"}],
-            None,
-            {},
-            None,
-            None,
-        ),
+        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"]),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
@@ -837,13 +829,12 @@ def _stub_reapply(
         )
     result = SimpleNamespace(active=active, archiver=archiver)
 
+    monkeypatch.setattr(apply_mod, "_view_scenarios", lambda project_dir: {})
+    monkeypatch.setattr(
+        apply_mod, "_active_state", lambda config, project_dir: (list(active), None)
+    )
     monkeypatch.setattr(apply_mod, "apply_scenarios", lambda *a, **k: result)
     monkeypatch.setattr(apply_mod, "persisted_scenario_anchor", lambda config, project_dir: None)
-
-
-def _engine(*active: str) -> SimpleNamespace:
-    """A machine model that reports ``active`` as its live scenario set."""
-    return SimpleNamespace(active_scenarios=lambda: list(active))
 
 
 def _stub_ariel_stage(monkeypatch: pytest.MonkeyPatch, *, seeded: int) -> None:

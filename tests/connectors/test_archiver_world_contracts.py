@@ -1,7 +1,7 @@
 """Four contracts that decide whether a deployment has one archive or two.
 
 A project that serves simulated channels has a live half and a stored half, and
-the whole point of seeding the store from the same generators the live half uses
+the whole point of seeding the store from the same composite the live half serves
 is that the two are one world. That claim is easy to state and easy to lose: a
 second epoch conversion, a grid anchored on the seed instant, a scenario rewrite
 that forgets a stretch of history — each of them leaves a store that is merely
@@ -64,7 +64,6 @@ from osprey.simulation.apply import (
     event_subwindows,
     event_window,
 )
-from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL
 from osprey.simulation.series import epoch_seconds_array
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -72,6 +71,7 @@ from osprey_connectors.simulation.archive import (
     MANIFEST_ID,
     SeedKnobs,
     SeedState,
+    build,
     compare_fingerprint,
     oldest_sample,
     seed_base,
@@ -81,7 +81,7 @@ from osprey_connectors.simulation.archive import (
 )
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
-from tests._simulator_view import write_scenarios_view
+from tests._simulator_view import write_scenarios_view, write_texture_view
 
 # ---------------------------------------------------------------------------
 # The world under test
@@ -101,39 +101,26 @@ KNOBS = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_c
 #: the build renders into ``services.mongodb.compression``.
 COMPRESSION = "zstd"
 
-#: One noise level for both halves of the world. A deployment renders a single
-#: value into the live connector and the seeder alike; stating it once here is
-#: what makes the equivalence assertion about the *generators* rather than about
-#: two differently-tuned copies of them.
-NOISE = DEFAULT_NOISE_LEVEL
-
-# Channels the machine model describes: the seeder synthesizes these through the
-# engine.
 CAVITY_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"
 CAVITY_POWER = "SR:RF:CAVITY:01:POWER:REV"
 CAVITY_VALID = "SR:RF:CAVITY:01:STATUS:VALID"
-
-# Channels it does not: the seeder falls back to the procedural generator on the
-# taxonomy baseline.
 BPM_X = "SR:DIAG:BPM:12:POSITION:X"
 VAC_PRESSURE = "SR:VAC:IP07:PRESSURE"
 READY = "SR:STATUS:READY"
 
-ENGINE_ANALOG = (CAVITY_TEMP, CAVITY_POWER)
-PROCEDURAL_ANALOG = (BPM_X, VAC_PRESSURE)
-ANALOG = ENGINE_ANALOG + PROCEDURAL_ANALOG
+ANALOG = (CAVITY_TEMP, CAVITY_POWER, BPM_X, VAC_PRESSURE)
 DISCRETE = (CAVITY_VALID, READY)
 
-#: The build-generated channel manifest, in the shape the seeder reads.
-CHANNELS: list[dict[str, Any]] = [
-    {"address": CAVITY_TEMP, "record_type": "ai"},
-    {"address": CAVITY_POWER, "record_type": "ai"},
-    {"address": CAVITY_VALID, "record_type": "bi"},
-    {"address": BPM_X, "record_type": "ai"},
-    {"address": VAC_PRESSURE, "record_type": "ai"},
-    {"address": READY, "record_type": "bi"},
-]
-ADDRESSES = [str(channel["address"]) for channel in CHANNELS]
+#: The simulator view's channels: moving floats and two flags.
+CHANNELS: dict[str, dict[str, Any]] = {
+    CAVITY_TEMP: {"nominal": 23.0, "noise": 0.01},
+    CAVITY_POWER: {"nominal": 12.0, "noise": 0.02},
+    CAVITY_VALID: {"value_type": "bool", "nominal": "TRUE"},
+    BPM_X: {"nominal": 0.0, "noise": 0.001},
+    VAC_PRESSURE: {"nominal": 1e-9, "noise": 1e-11},
+    READY: {"value_type": "bool", "nominal": "TRUE"},
+}
+ADDRESSES = sorted(CHANNELS)
 
 # The excursions, positioned to make three geometries testable at once. The
 # temperature spike sits on the hot/tail boundary, so its window has a coarse
@@ -147,34 +134,6 @@ SPIKE_WIDTH_S = 120.0
 SPIKE_OFFSET_S = -KNOBS.hot_span_s
 POWER_OFFSET_S = SPIKE_OFFSET_S + 300
 TRIP_OFFSET_S = SPIKE_OFFSET_S + 2400
-
-
-def _machine() -> dict:
-    """A machine model whose channels are the engine-served half of the world."""
-    return {
-        "name": "Archiver world rig",
-        "description": "Three modelled channels; everything else is procedural",
-        "channels": {
-            CAVITY_TEMP: {
-                "value": 23.0,
-                "units": "degC",
-                "noise": 0.01,
-                "description": "Cavity 1 body temperature",
-            },
-            CAVITY_POWER: {
-                "value": 12.0,
-                "units": "kW",
-                "noise": 0.02,
-                "description": "Cavity 1 reflected power",
-            },
-            CAVITY_VALID: {
-                "value": 1.0,
-                "units": "",
-                "noise": 0.0,
-                "description": "Cavity 1 interlock valid",
-            },
-        },
-    }
 
 
 def _rf_thermal() -> dict:
@@ -333,10 +292,6 @@ class World:
 
     # -- the project on disk -------------------------------------------------
 
-    @property
-    def machine_path(self) -> Path:
-        return self.root / "data" / "simulation" / "machine.json"
-
     def config(self) -> dict:
         """The rendered config, read off disk every time.
 
@@ -358,48 +313,17 @@ class World:
         config["va_archiver"]["retention_days"] = days
         (self.root / "config.yml").write_text(yaml.safe_dump(config))
 
-    # -- the engines ---------------------------------------------------------
-
-    def _engine(self, state_dir: Path):
-        from osprey.simulation.engine import SimulationEngine
-
-        return SimulationEngine.from_file(self.machine_path, state_dir=state_dir)
-
-    def seed_engine(self):
-        """The engine a deploy seeds with: the project's own scenario state."""
-        from osprey.simulation.engine import resolve_state_dir
-
-        return self._engine(resolve_state_dir(self.config(), self.root))
-
-    def boot_values(self) -> dict[str, float]:
-        """The map the Virtual Accelerator boots its records from.
-
-        Read through the loader ``osprey up`` uses, so the seeded
-        procedural baselines are anchored by the same rule the live half applies
-        rather than by this test's reading of the machine file.
-        """
-        from osprey.services.virtual_accelerator.manifest.loaders import (
-            load_machine_json_channels,
-        )
-
-        return {
-            address: entry["value"]
-            for address, entry in load_machine_json_channels(self.machine_path).items()
-            if "value" in entry
-        }
-
     # -- writing the store ---------------------------------------------------
 
     def seed(self, t0: datetime, knobs: SeedKnobs | None = None):
         """Build the base archive, exactly as the deploy step builds it."""
+        from osprey.deployment.container_lifecycle import _archiver_seed_inputs
+
         return seed_base(
             self.collection,
-            CHANNELS,
+            _archiver_seed_inputs(self.config(), self.root),
             knobs or self.knobs(),
             t0=t0,
-            engine=self.seed_engine(),
-            boot_values=self.boot_values(),
-            noise_level=NOISE,
             compression=COMPRESSION,
             chunk_size=512,
         )
@@ -449,21 +373,14 @@ class World:
         """What the archive holds at these instants with no scenario active.
 
         Computed through :func:`synthesize_documents`, the single definition of
-        an archived value at time T, on an engine that has never had a scenario
-        activated — so "clean" here means what the base seed wrote, not what
-        this test thinks it wrote.
+        an archived value at time T, on the archive composite of ``nominal``
+        alone — so "clean" here means what the base seed wrote, not what this
+        test thinks it wrote.
         """
-        nominal_state = self.root / "_nominal_state"
-        nominal_state.mkdir(exist_ok=True)
         epochs = epoch_seconds_array(stamps)
         assert epochs is not None
-        documents = synthesize_documents(
-            CHANNELS,
-            epochs,
-            engine=self._engine(nominal_state),
-            boot_values=self.boot_values(),
-            noise_level=NOISE,
-        )
+        archive = build(self.root / "data" / "simulator", [], anchor_s=T0.timestamp())
+        documents = synthesize_documents(archive, epochs)
         return {pv: [document[pv] for document in documents] for pv in channels}
 
 
@@ -478,12 +395,22 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     root = tmp_path / "world"
     scenarios = root / "data" / "simulation" / "scenarios"
     scenarios.mkdir(parents=True)
-    (root / "data" / "simulation" / "machine.json").write_text(json.dumps(_machine()))
+    (root / "data" / "simulation" / "machine.json").write_text(
+        json.dumps(
+            {
+                "name": "Archiver world rig",
+                "channels": {
+                    address: {"value": CHANNELS[address]["nominal"], "noise": 0.0}
+                    for address in (CAVITY_TEMP, CAVITY_POWER)
+                },
+            }
+        )
+    )
     bundles = {"rf-thermal": _rf_thermal(), "cavity-trip": _cavity_trip()}
     for name, bundle in bundles.items():
         (scenarios / name).mkdir()
         (scenarios / name / "scenario.json").write_text(json.dumps(bundle))
-    write_scenarios_view(root, bundles)
+    write_texture_view(root, CHANNELS, bundles)
 
     password_env = "ARCHIVER_WORLD_MONGO_PASSWORD"
     config = {
@@ -635,8 +562,8 @@ class TestEventWindowRewrite:
 
 
 class TestServedTypes:
-    """Discrete channels: a ``bi`` record is served, and therefore stored, as a
-    boolean, and the manifest is what says so."""
+    """Discrete channels: a flag is served, and therefore stored, as its option
+    index, and the simulator view is what says so."""
 
     @pytest.mark.asyncio
     async def test_discrete_channels_are_stored_as_the_type_they_are_served_as(self, world):
@@ -645,10 +572,26 @@ class TestServedTypes:
         document = world.collection.find_one({DATE_FIELD: {"$exists": True}})
 
         for channel in DISCRETE:
-            assert isinstance(document[channel], bool), (
-                f"{channel} is served as a flag; a float here is a value no client "
-                f"could ever have read back"
+            assert type(document[channel]) is int, (
+                f"{channel} is served as an option index; a float here is a value no "
+                f"client could ever have read back"
             )
+            assert document[channel] == 1
+
+
+class TestSeededStore:
+    """The seed: every stored sample is what the archive composite holds."""
+
+    def test_the_seeded_store_equals_the_archive_composite(self, world):
+        world.seed(T0)
+
+        documents = list(world.collection.find({DATE_FIELD: {"$exists": True}}).sort(DATE_FIELD))
+        stamps = [document[DATE_FIELD].replace(tzinfo=UTC) for document in documents]
+        base = world.base_values(ADDRESSES, stamps)
+
+        assert documents
+        for channel in ADDRESSES:
+            assert [document[channel] for document in documents] == base[channel], channel
 
 
 # ---------------------------------------------------------------------------

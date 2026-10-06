@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario, ScenarioLogEntry
-    from osprey_connectors.simulation.archive import SeedKnobs
+    from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
 
 logger = get_logger("simulation_apply")
 
@@ -254,11 +254,11 @@ def apply_scenarios(
         else:
             logger.info("No 'ariel' config in project; skipped logbook seeding")
 
-    # After activation, never before: the rewrite synthesizes from the composed
-    # event scripts the engine now holds (see :func:`seed_archiver`).
+    # After activation, never before: the rewrite reads the set and the anchor
+    # the state file now records (see :func:`seed_archiver`).
     archiver = None
     if seed_archive:
-        archiver = seed_archiver(project_dir, config, engine, list(names), t0)
+        archiver = seed_archiver(project_dir, config, list(names), t0)
 
     return ApplyResult(active=active, logbook_seeded=seeded, purged=purged, archiver=archiver)
 
@@ -928,15 +928,15 @@ def _inside(windows: Sequence[tuple[float, float]] | None, moment: float) -> boo
 def seed_archiver(
     project_dir: Path,
     config: dict,
-    engine: SimulationEngine,
     names: Sequence[str],
     anchor: datetime,
 ) -> ArchiverSeedResult:
     """Rewrite the stored archive so it tells the newly active set's story.
 
-    Call this *after* the set has been activated: the engine's composed event
-    scripts are what the rewrite synthesizes from, and one recompute under the
-    new set is both the restore and the apply.
+    Call this *after* the set has been activated: the archive composite of the
+    new set (:func:`~osprey_connectors.simulation.archive.build`), at the
+    anchor the state file records, is what the rewrite reads its values from,
+    and one recompute under the new set is both the restore and the apply.
 
     That collapse is the design, and it is worth being explicit about. A
     previous set's events left their marks on some windows, and the naive
@@ -967,16 +967,16 @@ def seed_archiver(
     a window no ledger names is one no later apply ever comes back for.
 
     Args:
-        project_dir: Root of the built project; supplies ``.env`` and the store.
+        project_dir: Root of the built project; supplies ``.env``, the store
+            and the simulator view.
         config: The project's loaded ``config.yml``.
-        engine: The engine, already activated on the new set.
         names: The requested scenario names.
         anchor: The apply-time anchor T0 — the *same* instant that was written
-            into the scenario state file. It has to be: the engine resolves
-            ``at_offset`` against the state file, so a window computed against
-            any other clock would describe a stretch of history the engine is
-            not writing its events into. One clock for the telemetry, the
-            narrative and the archive is the whole invariant.
+            into the scenario state file. It has to be: the archive composite
+            places ``at_offset`` events from the state file's anchor, so a
+            window computed against any other clock would describe a stretch of
+            history the composite is not writing its events into. One clock for
+            the telemetry, the narrative and the archive is the whole invariant.
 
     Returns:
         What changed, or a result carrying ``skipped`` when the project has no
@@ -988,7 +988,7 @@ def seed_archiver(
         ValueError: If an active scenario positions an archiver event by window
             fraction, which stored history cannot represent.
     """
-    from osprey_connectors.simulation.archive import MANIFEST_ID, SeedKnobs
+    from osprey_connectors.simulation.archive import MANIFEST_ID, SeedKnobs, build
 
     store = archiver_store_config(config, project_dir)
     if store is None:
@@ -1011,6 +1011,16 @@ def seed_archiver(
             return ArchiverSeedResult(
                 skipped="the archive has not been seeded yet — run 'osprey up'"
             )
+
+        persisted = persisted_scenario_anchor(config, project_dir)
+        archive = build(
+            _simulator_view(project_dir),
+            names,
+            anchor_s=None if persisted is None else persisted.timestamp(),
+        )
+        # A channel the view does not archive has no stored history to rewrite.
+        archived = set(archive.addresses)
+        events = {pv: script for pv, script in events.items() if pv in archived}
 
         anchor_s = anchor.timestamp()
         horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
@@ -1055,8 +1065,10 @@ def seed_archiver(
         regions = _merge_intervals(list(spans.values()))
         result.removed = _drop_densified(collection, regions)
 
-        result.updated, result.restored = _rewrite_documents(collection, engine, knobs, spans, live)
-        result.inserted, result.uncovered = _densify(collection, engine, live, knobs)
+        result.updated, result.restored = _rewrite_documents(
+            collection, archive, knobs, spans, live
+        )
+        result.inserted, result.uncovered = _densify(collection, archive, live, knobs)
 
         _write_ledger(collection, current, anchor_s)
 
@@ -1245,7 +1257,7 @@ def _match_stored_type(existing, value):
 
 def _rewrite_documents(
     collection,
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     knobs: SeedKnobs,
     spans: dict[str, tuple[float, float]],
     live: dict[str, list[tuple[float, float]]],
@@ -1253,9 +1265,10 @@ def _rewrite_documents(
     """Recompute every document the old and the new set between them reach.
 
     One pass over the union of the spans, and every document visited exactly
-    once. Values come from the engine at each document's *own* timestamp, so the
-    rewrite lands on exactly what a query for that instant would synthesize —
-    the same property the base seed relies on, applied to a narrower window.
+    once. Values come from the archive composite at each document's *own*
+    timestamp, so the rewrite lands on exactly what the simulator serves at that
+    instant — the same property the base seed relies on, applied to a narrower
+    window.
 
     Expiry is decided **per document**, from whether that document's own
     timestamp falls inside a live event window of a channel it actually carries.
@@ -1287,7 +1300,7 @@ def _rewrite_documents(
 
     stamps = _stamps(documents)
     epochs = [stamp.timestamp() for stamp in stamps]
-    values = _recomputed_values(engine, spans, channels, stamps, epochs)
+    values = _recomputed_values(archive, spans, channels, epochs)
     expiry = tier_expiry(knobs, _np_array(epochs))
 
     from pymongo import UpdateOne
@@ -1330,27 +1343,27 @@ def _rewrite_documents(
 
 
 def _recomputed_values(
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     spans: dict[str, tuple[float, float]],
     channels: Sequence[str],
-    stamps: Sequence[datetime],
     epochs: Sequence[float],
-) -> dict[str, dict[int, float]]:
+) -> dict[str, dict[int, Any]]:
     """Each channel's recomputed values, by document index, over its own span.
 
-    Synthesized over the channel's own span rather than over the union of every
+    Read over the channel's own span rather than over the union of every
     channel's: a daily event's occurrences are placed inside the window it is
     asked for, so widening that window to accommodate an unrelated channel would
     make one channel's history depend on which other channels the active set
-    happens to touch.
+    happens to touch. A channel the archive does not carry is left as stored.
     """
-    values: dict[str, dict[int, float]] = {}
+    archived = set(archive.addresses)
+    values: dict[str, dict[int, Any]] = {}
     for pv in channels:
         low, high = spans[pv]
         indices = [index for index, epoch in enumerate(epochs) if low <= epoch <= high]
-        if not indices:
+        if not indices or pv not in archived:
             continue
-        series = engine.synthesize_series(pv, [stamps[index] for index in indices])
+        series = archive.series(pv, [epochs[index] for index in indices])
         values[pv] = dict(zip(indices, series, strict=True))
     return values
 
@@ -1372,7 +1385,7 @@ def _expiry_update(document: Mapping[str, Any], protected: bool, expiry_s: float
 
 def _densify(
     collection,
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     live: dict[str, list[tuple[float, float]]],
     knobs: SeedKnobs,
 ) -> tuple[int, int]:
@@ -1409,7 +1422,7 @@ def _densify(
     types = _stored_types(collection, sorted(live))
     inserted = uncovered = 0
     for start, end in intervals:
-        added, missed = _densify_interval(collection, engine, live, knobs, types, start, end)
+        added, missed = _densify_interval(collection, archive, live, knobs, types, start, end)
         inserted += added
         uncovered += missed
     return inserted, uncovered
@@ -1417,7 +1430,7 @@ def _densify(
 
 def _densify_interval(
     collection,
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     live: dict[str, list[tuple[float, float]]],
     knobs: SeedKnobs,
     types: Mapping[str, Any],
@@ -1468,7 +1481,7 @@ def _densify_interval(
     if not wanted:
         return 0, uncovered
 
-    documents = _dense_documents(engine, types, wanted)
+    documents = _dense_documents(archive, types, wanted)
     for batch in _chunked(documents, _WRITE_CHUNK):
         collection.insert_many(batch, ordered=False)
     return len(documents), uncovered
@@ -1485,17 +1498,17 @@ def _bracketed(neighbours: Sequence[float], moment: float, reach: float) -> bool
 
 
 def _dense_documents(
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     types: Mapping[str, Any],
     wanted: Mapping[float, tuple[str, ...]],
 ) -> list[dict]:
     """The documents to insert: one per instant, carrying the channels live at it."""
     moments = sorted(wanted)
     stamps = [datetime.fromtimestamp(moment, UTC) for moment in moments]
-    columns: dict[str, dict[int, float]] = {}
+    columns: dict[str, dict[int, Any]] = {}
     for pv in sorted({pv for channels in wanted.values() for pv in channels}):
         indices = [index for index, moment in enumerate(moments) if pv in wanted[moment]]
-        series = engine.synthesize_series(pv, [stamps[index] for index in indices])
+        series = archive.series(pv, [moments[index] for index in indices])
         columns[pv] = dict(zip(indices, series, strict=True))
 
     documents = []
