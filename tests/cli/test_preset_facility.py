@@ -18,7 +18,10 @@ import yaml
 
 from osprey.cli import build_profile_presets
 from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
-from osprey.cli.build_profile_presets import PRESET_FACILITY_KEY, preset_facility
+from osprey.cli.build_profile_presets import PRESET_FACILITY_KEY, list_presets, preset_facility
+from osprey.cli.profile_cmd import _preset_data, _preset_data_names
+from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.preset_data import compose_preset_data
 from osprey.errors import BuildProfileError
 
 
@@ -105,3 +108,62 @@ def test_a_profile_naming_a_facility_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(BuildProfileError, match="facility is a preset key"):
         resolve_build_profile(profile, None)
+
+
+# ---------------------------------------------------------------------------
+# The composition: app template data/ + facility at data/facility/
+# ---------------------------------------------------------------------------
+
+
+def test_a_preset_naming_no_facility_composes_the_app_template_alone() -> None:
+    composed = _preset_data(TemplateManager(), "ariel-standalone")
+
+    assert composed.facility_root is None
+    assert not any(relative.startswith("facility/") for relative in composed.placed_files())
+
+
+def _template_root(tmp_path: Path, *, app_ships_facility: bool) -> Path:
+    root = tmp_path / "templates"
+    (root / "apps" / "app" / "data").mkdir(parents=True)
+    if app_ships_facility:
+        (root / "apps" / "app" / "data" / "facility").mkdir()
+    (root / "facilities" / "plant").mkdir(parents=True)
+    (root / "facilities" / "plant" / "identity.yaml").write_text("code: plant\n")
+    return root
+
+
+def test_an_app_template_shipping_a_facility_beside_a_named_one_is_refused(
+    tmp_path: Path,
+) -> None:
+    root = _template_root(tmp_path, app_ships_facility=True)
+
+    with pytest.raises(BuildProfileError, match="ships data/facility/"):
+        compose_preset_data(root, "app", "plant")
+
+
+def test_an_app_template_shipping_a_facility_composes_when_none_is_named(
+    tmp_path: Path,
+) -> None:
+    root = _template_root(tmp_path, app_ships_facility=True)
+
+    assert compose_preset_data(root, "app", None).facility_root is None
+
+
+def test_an_absent_facility_is_a_packaging_fault(tmp_path: Path) -> None:
+    root = _template_root(tmp_path, app_ships_facility=False)
+
+    with pytest.raises(BuildProfileError, match="reinstall"):
+        compose_preset_data(root, "app", "no_such_facility")
+
+
+# ---------------------------------------------------------------------------
+# Personas share the host's one data tree
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "persona",
+    [preset for preset in list_presets() if preset.startswith("control-assistant-")],
+)
+def test_every_persona_preset_composes_the_host_s_data(persona: str) -> None:
+    assert _preset_data_names(persona) == _preset_data_names("control-assistant")
