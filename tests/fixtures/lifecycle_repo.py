@@ -267,8 +267,8 @@ virtual_accelerator:
   # set). Like `port`, it is outside this deployment's port block, so a second
   # deployment on this host that also runs the simulator sets its own.
   # pva_port: 5075
-  # A second copy of the simulator with a small fixed offset on its readouts,
-  # stood up as this deployment's own third control target: `standin`. From
+  # A second copy of the simulator, with no errors of its own, stood up as
+  # this deployment's own third control target: `standin`. From
   # this key alone the build derives the target's connector block,
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
@@ -283,8 +283,8 @@ virtual_accelerator:
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
   # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The archiver records the stand-in, and its seeded history carries
-  # the same offsets: the archive belongs to the machine.
+  # one lane. The archiver records the stand-in: the archive belongs to the
+  # machine.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.

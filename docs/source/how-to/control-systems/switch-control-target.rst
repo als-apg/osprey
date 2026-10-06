@@ -686,14 +686,10 @@ the technical label kept on its ⓘ tooltip. It carries a real machine's posture
 same limits, the same approval prompts — because it is operated as one, not
 because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.
 
-**Telling the two machines apart.** Both run one image over one lattice, so the
-stand-in ships a small fixed offset on its BPM readouts: a read that comes back
-different is how you know which machine answered. That perturbation needs the
-shipped built-in lattice behind it. A deployment whose environment pins
-``VA_LATTICE=none``, or points the IOC at a facility channel file, serves that
-manifest unperturbed instead — and the stand-in then reads identically to the
-virtual accelerator beside it. The labels still tell them apart; the readings do
-not.
+**Telling the two machines apart.** Both run one image over one simulator view,
+and the stand-in carries no errors of its own. The two machines are told apart
+by a write to the sandbox not showing on the stand-in and by the model RPC
+status naming its instance (``virtual_accelerator`` or ``live_standin``).
 
 **The archive belongs to the machine.** The recorder records the stand-in, and
 the history seeded on the first deploy carries the same offsets the stand-in
