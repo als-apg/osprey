@@ -9,14 +9,13 @@ from ``--repo`` — so they work from any subdirectory of the repo rather than
 only from its root. Three directories come out of that one decision and they
 are genuinely different files:
 
-- the render (``build/``) holds ``config.yml``, the simulator view
-  ``data/simulator/`` that ``list`` and ``status`` read, and the build-owned
-  ``data/simulation/`` model ``apply`` loads;
+- the render (``build/``) holds ``config.yml`` and the simulator view
+  ``data/simulator/`` that every command reads;
 - the repo root anchors ``var/agent_data/simulation/``, where the mutable
   active-scenario state lives, because a scenario switch has to survive
   ``osprey build`` wiping the render;
-- the repo root also holds the single ``.env`` a scenario's ``physics`` block
-  is rendered into, for the virtual accelerator to read at its next boot.
+- the repo root also holds the ``.env`` the stored archive's password is read
+  from.
 """
 
 from __future__ import annotations
@@ -182,31 +181,6 @@ def _overlap_records(log: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
-    """Tell the user a changed physics fault needs a container recreate.
-
-    Called only when the ``.env``'s physics block actually changed -- in either
-    direction, since a *cleared* fault is still live in the running container
-    until it is recreated.
-
-    Gated on the virtual accelerator being deployed rather than on
-    ``control_system.type``: the reference preset's default shape is mock-type
-    *with* the VA deployed and bridge-driven, and it is the container, not the
-    connector, that consumes these vars at boot. A project that deploys no VA
-    has nothing reading them, so the notice stays silent there.
-    """
-    if "virtual_accelerator" not in (config.get("deployed_services") or []):
-        return
-    if rendered:
-        output.report("Physics fault written to .env: " + ", ".join(sorted(rendered)) + ".")
-    else:
-        output.report("Cleared the previous scenario's physics fault from .env.")
-    output.note("The virtual accelerator reads this only when its container is created.")
-    output.note(
-        "Run 'osprey up' to recreate it. Restarting the container reuses the old environment."
-    )
-
-
 def _confirm_archive_rewrite(store: dict) -> None:
     """Warn before overwriting stored history, and let the user back out.
 
@@ -239,9 +213,9 @@ def _confirm_archive_rewrite(store: dict) -> None:
 def sim_group() -> None:
     """Simulation scenario commands.
 
-    List, inspect, and apply the self-contained scenario bundles that drive the
-    mock control system and mock archiver. Applying a set composes their
-    telemetry overlays and seeds their logbook entries into ARIEL.
+    List, inspect, and apply the scenarios of the build's simulator view.
+    Applying a set composes their telemetry overlays and seeds their logbook
+    entries into ARIEL.
     """
 
 
@@ -356,18 +330,12 @@ def apply_command(
     archive, so the narrative and the history both match the active telemetry.
     Use --no-seed-logbook or --no-seed-archiver to leave one of them alone, or
     --no-seed for both.
-
-    A scenario's physics block is rendered into the deployment's .env for the
-    virtual accelerator to pick up at its next container boot.
     """
     from osprey.simulation.apply import (
         apply_scenarios,
-        compute_scenario_physics_env,
         preflight_archive_rewrite,
         require_view_scenarios,
-        write_scenario_physics_env,
     )
-    from osprey_connectors.simulation.engine import resolve_simulation_file
     from osprey_connectors.simulation.state import (
         resolve_active_scenarios,
         scenario_targets,
@@ -377,6 +345,7 @@ def apply_command(
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)
     repo_root, config = _resolve_deployment(repo)
+    _require_simulator_view(repo_root)
     # After the deployment resolves, never before: a naive --now is stamped with
     # the facility timezone, and that zone is only knowable once this repo's
     # render is the config being read.
@@ -386,45 +355,34 @@ def apply_command(
     # Validate pure, write last: every check that can reject the requested set
     # runs here, ahead of the purge prompt and of the first write, so a
     # collision or an aborted prompt leaves the project completely untouched.
-    # A project with no simulation file has neither a composition to judge nor
-    # physics to render -- apply_scenarios below raises the canonical
-    # "not simulation-backed" error for it, which the handler turns into exit 1.
-    machine_path, *_ = resolve_simulation_file(config, repo_root)
-    physics: dict[str, str] | None = None
-    store: dict | None = None
-    if machine_path is not None:
-        # The set is judged on the build's simulator view, by the rule the
-        # serving composite applies, so the command refuses exactly the sets the
-        # simulator would refuse to serve.
-        try:
-            scenarios = require_view_scenarios(repo_root)
-            overlaps = validate_composition(
-                {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
-                resolve_active_scenarios(names),
-            )
-        except ValueError as exc:
-            output.fail("Cannot activate these scenarios", str(exc))
-            raise SystemExit(1) from None
-        if overlaps:
-            output.fail("Cannot activate these scenarios", "; ".join(map(str, overlaps)))
-            raise SystemExit(1)
-        try:
-            physics = compute_scenario_physics_env(repo_root, list(names))
-        except ValueError as exc:
-            output.fail("Cannot activate these scenarios", str(exc))
-            raise SystemExit(1) from None
+    # The set is judged on the build's simulator view, by the rule the serving
+    # composite applies, so the command refuses exactly the sets the simulator
+    # would refuse to serve.
+    try:
+        scenarios = require_view_scenarios(repo_root)
+        overlaps = validate_composition(
+            {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
+            resolve_active_scenarios(names),
+        )
+    except ValueError as exc:
+        output.fail("Cannot activate these scenarios", str(exc))
+        raise SystemExit(1) from None
+    if overlaps:
+        output.fail("Cannot activate these scenarios", "; ".join(map(str, overlaps)))
+        raise SystemExit(1)
 
-        # The archive rewrite's own refusals belong here too, not inside it: a
-        # store whose password the project's .env does not carry, or an event
-        # positioned by window fraction, would otherwise be discovered after
-        # the scenario is live and the logbook reseeded -- leaving telemetry
-        # and narrative saying one thing and the untouched history another.
-        if seed_archive:
-            try:
-                store = preflight_archive_rewrite(repo_root, config, list(names))
-            except (ValueError, RuntimeError) as exc:
-                output.fail("The stored archive cannot be rewritten", str(exc))
-                raise SystemExit(1) from None
+    # The archive rewrite's own refusals belong here too, not inside it: a
+    # store whose password the project's .env does not carry, or an event
+    # positioned by window fraction, would otherwise be discovered after
+    # the scenario is live and the logbook reseeded -- leaving telemetry
+    # and narrative saying one thing and the untouched history another.
+    store: dict | None = None
+    if seed_archive:
+        try:
+            store = preflight_archive_rewrite(repo_root, config, list(names))
+        except (ValueError, RuntimeError) as exc:
+            output.fail("The stored archive cannot be rewritten", str(exc))
+            raise SystemExit(1) from None
 
     if seed_logbook and not yes and ariel_config:
         from osprey.services.ariel_search.cli_operations import get_purge_info
@@ -443,12 +401,6 @@ def apply_command(
 
     if seed_archive and not yes and store is not None:
         _confirm_archive_rewrite(store)
-
-    # Past the last abort point: write the physics vars, then say so immediately.
-    # Emitting the notice here rather than after apply_scenarios means a failed
-    # logbook seed can never swallow it.
-    if physics is not None and write_scenario_physics_env(repo_root, physics):
-        _echo_physics_notice(config, physics)
 
     try:
         result = apply_scenarios(

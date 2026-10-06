@@ -1,8 +1,8 @@
-"""The scenario readers of ``osprey.simulation.apply`` read the simulator view.
+"""``osprey.simulation.apply`` reads the simulator view, never the engine or machine model.
 
-The logbook, the anchor and the archiver events of the active set come from the
-render's ``data/simulator/`` view and the active-scenarios state file, never
-from the simulation engine or its machine model.
+The module imports nothing from the simulation engine or its machine model, and
+the logbook, the anchor and the archiver events of the active set come from the
+render's ``data/simulator/`` view and the active-scenarios state file.
 """
 
 from __future__ import annotations
@@ -47,6 +47,16 @@ def _forbidden_names(tree: ast.Module) -> set[str]:
             for alias in node.names:
                 names.add((alias.asname or alias.name).split(".")[0])
     return names
+
+
+def test_the_module_imports_nothing_from_an_engine_or_machine_module():
+    offences = [
+        f"line {node.lineno} imports an engine or machine module"
+        for node in ast.walk(_tree())
+        if _imports_forbidden(node)
+    ]
+
+    assert offences == []
 
 
 def test_logbook_anchor_and_archiver_events_bodies_call_no_engine_or_machine():

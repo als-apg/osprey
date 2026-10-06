@@ -18,7 +18,6 @@ Postgres dependency and runs in the fast suite.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -31,28 +30,16 @@ from osprey.simulation.apply import (
 )
 from tests._simulator_view import facility_scenarios, write_scenarios_view
 
-TEMPLATE_DATA = (
-    Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
-)
-TEMPLATE_SIM = TEMPLATE_DATA / "simulation"
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 ARIEL_CONFIG = {"database": {"uri": "postgresql://unused-mocked/none"}}
 
 
 def _make_project(tmp_path: Path) -> Path:
-    """Stage a sim-backed project and its simulator view."""
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
+    """Stage a project whose render holds the example facility's simulator view."""
     scenarios = TEMPLATE_FACILITY / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
-        "ariel": ARIEL_CONFIG,
-    }
+    config = {"ariel": ARIEL_CONFIG}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     return tmp_path
 
@@ -433,6 +420,23 @@ def test_a_deployment_that_never_chose_starts_in_the_configured_default_set(tmp_
     assert "DEMO-031" not in ids
 
 
+def test_a_default_naming_a_scenario_only_the_facility_states_is_activated_and_narrates(
+    tmp_path,
+):
+    from osprey.simulation.apply import activate_default_scenarios
+
+    project = _make_project(tmp_path)
+    write_scenarios_view(project, {"nominal": {}, "facility-only": {"logbook": [_entry("FAC-1")]}})
+    config = _start_in(project, ["facility-only"])
+
+    active = activate_default_scenarios(config, project)
+
+    assert active == ("nominal", "facility-only")
+    assert _state_file(project).read_text().splitlines()[1:] == ["facility-only"]
+    ids = [entry["entry_id"] for entry in active_logbook_entries(config, project)]
+    assert ids == ["FAC-1"]
+
+
 def test_a_chosen_set_is_never_replaced_by_the_default(tmp_path, monkeypatch):
     """`osprey sim apply` means exactly the set it names, nominal alone included."""
     from osprey.simulation.apply import activate_default_scenarios
@@ -457,8 +461,8 @@ def test_a_config_without_defaults_activates_nothing(tmp_path, names):
     assert not _state_file(project).exists()
 
 
-def test_the_shipped_machine_names_no_default_set(tmp_path):
-    """The start set is the profile's to state; the machine model no longer carries one."""
+def test_a_config_without_a_simulation_section_activates_nothing(tmp_path):
+    """The start set is the profile's to state."""
     from osprey.simulation.apply import activate_default_scenarios
 
     project = _make_project(tmp_path)
@@ -500,10 +504,14 @@ def test_each_default_is_activated_once_in_order(tmp_path):
     assert activate_default_scenarios(config, project) == ("nominal", "rf-thermal")
 
 
-def test_a_project_without_a_machine_model_activates_nothing(tmp_path):
+def test_a_project_without_a_simulator_view_activates_nothing(tmp_path):
     from osprey.simulation.apply import activate_default_scenarios
 
-    assert activate_default_scenarios({"ariel": ARIEL_CONFIG}, tmp_path) == ()
+    config = {"ariel": ARIEL_CONFIG, "simulation": {"default_scenarios": ["rf-thermal"]}}
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
+
+    assert activate_default_scenarios(config, tmp_path) == ()
+    assert not _state_file(tmp_path).exists()
 
 
 _PNG_1X1 = (

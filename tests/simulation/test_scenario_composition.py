@@ -270,5 +270,5 @@ class TestApplyStopsOnTheView:
 
         assert result.exit_code == 1, result.output
         assert "No simulator view in" in result.output
-        assert "osprey build" in result.output
+        assert "run 'osprey build' first" in result.output
         assert _wrote_nothing(repo, apply_mock)

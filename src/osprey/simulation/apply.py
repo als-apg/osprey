@@ -1,7 +1,7 @@
 """Apply simulation scenarios: make telemetry and logbook live, deterministically.
 
-:func:`apply_scenarios` is the one entry point that composes a set of
-self-contained scenario bundles and makes everything live at once. It computes a
+:func:`apply_scenarios` is the one entry point that composes a set of the
+render's scenarios and makes everything live at once. It computes a
 single apply-time anchor T0 and uses it for both the simulator state (so
 ``at_offset`` telemetry anchors against it) and logbook timestamp resolution, so
 the narrative the agent searches always matches the telemetry it reads, against
@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -26,16 +25,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from osprey.connectors.types import MOCK
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.simulation.engine import DEFAULT_SCENARIO
-from osprey.simulation.machine import parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
-from osprey_connectors.simulation.engine import resolve_simulation_file
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
+    DEFAULT_SCENARIO,
     composed_set,
     read_active_state,
     resolve_active_scenarios,
@@ -49,7 +45,6 @@ if TYPE_CHECKING:
     from zoneinfo import ZoneInfo
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
-    from osprey.simulation.machine import BpmErrorSpec, Scenario
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
 
@@ -71,8 +66,7 @@ def _config_file(project_dir: Path) -> Path:
 
     A deployment repo keeps its render under ``build/``, so the config sits at
     ``<repo>/build/config.yml`` while everything else this module resolves — the
-    ``data/simulation/`` model, the mutable state under ``var/agent_data/`` —
-    anchors at the repo root. A container's project directory *is* the render
+    mutable state under ``var/agent_data/`` — anchors at the repo root. A container's project directory *is* the render
     and holds ``config.yml`` at its own root. One directory still identifies the
     deployment either way; only the config moved, so only the config lookup
     needs to know.
@@ -81,28 +75,6 @@ def _config_file(project_dir: Path) -> Path:
 
     rendered = rendered_config_path(project_dir)
     return rendered if rendered.is_file() else project_dir / "config.yml"
-
-
-def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Path:
-    """Resolve the simulation-model file, or raise the not-simulation-backed error.
-
-    Both entry points into a built project -- :func:`apply_scenarios` and
-    :func:`compute_scenario_physics_env` -- refuse the same way on the same two
-    branches (the mock type, whose one key is simply unset, versus a non-mock
-    type, whose own key and the mock fallback were both tried). ``scope`` is the
-    trailing clause naming what is refusing, so each caller keeps its own wording.
-    """
-    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
-    if machine_path is None:
-        if active_type == MOCK:
-            raise ValueError(
-                f"Project {project_dir} has no mock 'simulation_file' configured; {scope}"
-            )
-        raise ValueError(
-            f"Project {project_dir} has no simulation_file configured for "
-            f"control_system.type '{active_type}' (tried {type_key} and {mock_key}); {scope}"
-        )
-    return machine_path
 
 
 def _run_coro(make_coro: Callable[[], Coroutine[Any, Any, _T]]) -> _T:
@@ -373,8 +345,8 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
 
     A deployment with no scenario state has never been told which world to run,
     and its profile names the one it should start in. That set is activated
-    exactly as ``osprey sim apply`` would, physics block and anchor included,
-    but without seeding: the deploy seeds the archive and the logbook in their
+    exactly as ``osprey sim apply`` would, anchor included, but without
+    seeding: the deploy seeds the archive and the logbook in their
     own stages, each of which reads the set written here. Once any set has been
     activated -- by this, or by ``osprey sim apply`` naming any set at all --
     the state file exists and this does nothing again.
@@ -385,7 +357,7 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
 
     Returns:
         The activated set (``nominal`` first), or ``()`` when nothing was
-        activated: the project is not simulation-backed, a set is already
+        activated: the render carries no simulator view, a set is already
         active, or the config names no defaults.
 
     Raises:
@@ -394,15 +366,13 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
             refusals ``osprey sim apply`` gives the same set.
     """
     project_dir = Path(project_dir)
-    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
-    if machine_path is None or not machine_path.is_file():
+    if view_scenarios(project_dir) is None:
         return ()
     if (resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
         return ()
     defaults = resolve_default_scenarios(config)
     if not defaults:
         return ()
-    render_scenario_physics_env(project_dir, defaults)
     result = apply_scenarios(project_dir, defaults, seed_logbook=False, seed_archive=False)
     return result.active
 
@@ -1643,334 +1613,6 @@ def _drop_densified(collection, windows: Sequence[tuple[float, float]]) -> int:
         )
         removed += outcome.deleted_count
     return removed
-
-
-# BpmErrorSpec field -> VA_BPM_ERRORS sub-field(s) it fans out to, at the
-# entrypoint's per-transverse-plane granularity (see
-# `virtual_accelerator/entrypoint.py::_BPM_ERROR_FIELDS`). A scenario
-# author states one isotropic value per BPM; the render step applies it to
-# both planes. `roll` has no axis split on either side, so it maps 1:1.
-_BPM_ERROR_AXIS_FIELDS: dict[str, tuple[str, ...]] = {
-    "offset": ("offset_x", "offset_y"),
-    "gain": ("gain_x", "gain_y"),
-    "polarity": ("polarity_x", "polarity_y"),
-    "roll": ("roll",),
-    "noise": ("noise_x", "noise_y"),
-}
-# Identity value per BpmErrorSpec field -- mirrors PhysicsBridge's own
-# `_IDENTITY_BPM_ERROR` defaults, so an unset field never renders.
-_BPM_ERROR_IDENTITY: dict[str, float] = {
-    "offset": 0.0,
-    "gain": 1.0,
-    "polarity": 1,
-    "roll": 0.0,
-    "noise": 0.0,
-}
-# Emission order within one device's field list, matching the entrypoint's own
-# `_BPM_ERROR_FIELDS` ordering -- deterministic, readable .env output.
-_BPM_ERROR_FIELD_ORDER = (
-    "offset_x",
-    "offset_y",
-    "gain_x",
-    "gain_y",
-    "polarity_x",
-    "polarity_y",
-    "roll",
-    "noise_x",
-    "noise_y",
-)
-
-
-def compute_scenario_physics_env(
-    project_dir: Path | str,
-    names: Sequence[str],
-) -> dict[str, str]:
-    """Resolve the active scenarios' ``physics`` faults into VA_* env vars -- pure.
-
-    The compute/validate half of :func:`render_scenario_physics_env`: it reads
-    the project's config and machine description, resolves the active set, and
-    renders the ``VA_*`` values, but has *no* filesystem effect. Every way this
-    step can fail -- non-simulation-backed project, unknown scenario name, two
-    active scenarios faulting the same device -- raises here, before anything
-    is written, so a caller that validates first (``osprey sim apply``) can
-    abort with zero writes anywhere (FR1).
-
-    Args:
-        project_dir: The deployment repo root — it anchors the
-            ``data/simulation/`` model, and its render supplies ``config.yml``
-            (see :func:`_config_file`).
-        names: Scenario names to activate (``nominal`` is always implicit),
-            resolved the same nominal-first, deduped way
-            :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
-            resolves them.
-
-    Returns:
-        The ``VA_*`` vars the active set calls for, empty if no active scenario
-        declares a ``physics`` block. Hand this to
-        :func:`write_scenario_physics_env` to make it live.
-
-    Raises:
-        ValueError: If the project is not simulation-backed (mirrors
-            :func:`apply_scenarios`), a requested scenario name is unknown, or
-            two active scenarios declare a physics fault on the same device.
-    """
-    project_dir = Path(project_dir)
-    config = load_config(str(_config_file(project_dir)))
-
-    machine_path = _require_simulation_file(
-        config,
-        project_dir,
-        "physics-fault rendering only applies to simulation-backed projects.",
-    )
-    model = parse_machine(read_machine_json(machine_path), machine_path)
-
-    resolved = resolve_active_scenarios(names)
-    unknown = [n for n in resolved if n not in model.scenarios]
-    if unknown:
-        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(model.scenarios)}")
-
-    return _render_physics_vars(model.scenarios, resolved)
-
-
-def write_scenario_physics_env(
-    project_dir: Path | str,
-    rendered: dict[str, str],
-    *,
-    env_path: Path | None = None,
-) -> bool:
-    """Write :func:`compute_scenario_physics_env`'s result into the repo's ``.env``.
-
-    The write half of :func:`render_scenario_physics_env`, callable on its own
-    so a caller can put every prompt and validation ahead of the first
-    filesystem effect.
-
-    Args:
-        project_dir: The deployment repo root — it supplies the default
-            ``.env``, which is the file ``osprey up``'s compose reads as
-            ``--env-file``. Pointing this at the render writes the faults into
-            a file nothing interpolates, and the VA boots fault-free.
-        rendered: The ``VA_*`` vars to reconcile the ``.env`` to, as returned
-            by :func:`compute_scenario_physics_env`.
-        env_path: ``.env`` path to write into (defaults to
-            ``project_dir/.env``, injectable for tests).
-
-    Returns:
-        Whether the ``.env``'s physics block actually *changed* -- rendering a
-        new fault, or clearing a prior render's stale one, both count; a
-        rewrite that reproduces the existing content byte for byte does not.
-        Callers use this to decide whether the running VA is now out of date
-        with the file and needs an ``osprey up`` (FR2).
-    """
-    if env_path is None:
-        env_path = Path(project_dir) / ".env"
-    return _write_physics_env(env_path, rendered)
-
-
-def render_scenario_physics_env(
-    project_dir: Path | str,
-    names: Sequence[str],
-    *,
-    env_path: Path | None = None,
-) -> dict[str, str]:
-    """Resolve the active scenario's ``physics`` fault into VA_* env vars in ``.env``.
-
-    The deploy-time counterpart to :func:`apply_scenarios`'s telemetry/logbook
-    half (FR5). A scenario's optional ``physics`` block (see
-    :class:`~osprey.simulation.machine.PhysicsFault`) is deploy-time-only -- a
-    physics fault applies once at VA container boot, and hot-swapping it needs
-    a restart, unlike ``overrides``/``archiver`` -- so it is rendered here into
-    the repo's ``.env`` as ``VA_BPM_ERRORS``/
-    ``VA_CORR_GAIN``, the exact env vars
-    ``virtual_accelerator/entrypoint.py`` parses, rather than applied live.
-    Call this before ``osprey up`` so the VA container picks up the rendered
-    values at boot.
-
-    Composes :func:`compute_scenario_physics_env` and
-    :func:`write_scenario_physics_env` back to back; call those two directly
-    instead when something has to happen between validating and writing.
-
-    Args:
-        project_dir: The deployment repo root — it anchors the build-owned
-            ``data/simulation/`` model, the scenario state under the agent-data
-            root (``agent_data.base_dir``), and the ``.env`` written here; its
-            render supplies ``config.yml``.
-        names: Scenario names to activate (``nominal`` is always implicit),
-            resolved the same nominal-first, deduped way
-            :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
-            resolves them.
-        env_path: ``.env`` path to write into (defaults to
-            ``project_dir/.env``, injectable for tests).
-
-    Returns:
-        The ``VA_*`` vars written. Empty if no active scenario declares a
-        ``physics`` block -- backward compatible: a project whose ``.env``
-        never had a rendered fault gets no ``.env`` write at all. Every call
-        reconciles the full ``VA_BPM_ERRORS``/
-        ``VA_CORR_GAIN`` block to exactly the active set, so switching to a
-        scenario with no (or a different) ``physics`` block clears a prior
-        render's stale values rather than leaving them to leak into the next
-        VA boot.
-
-    Raises:
-        ValueError: If the project is not simulation-backed (mirrors
-            :func:`apply_scenarios`), a requested scenario name is unknown, or
-            two active scenarios declare a physics fault on the same device.
-    """
-    rendered = compute_scenario_physics_env(project_dir, names)
-    write_scenario_physics_env(project_dir, rendered, env_path=env_path)
-    return rendered
-
-
-def _render_physics_vars(scenarios: dict[str, Scenario], active: list[str]) -> dict[str, str]:
-    """Merge the active scenarios' ``physics`` blocks and render them to VA_* strings.
-
-    Active scenarios must declare *disjoint* devices per physics field,
-    mirroring ``SimulationEngine.validate_composition``'s disjointness rule
-    for ``overrides``/``archiver`` -- a device faulted by two active scenarios
-    at once would compose order-dependently and silently wrong.
-    """
-    corrector_gain: dict[str, float] = {}
-    bpm_errors: dict[str, BpmErrorSpec] = {}
-    owner: dict[tuple[str, str], str] = {}  # (field, device) -> owning scenario name
-
-    def claim(field: str, device: str, name: str) -> None:
-        key = (field, device)
-        prior = owner.get(key)
-        if prior is not None and prior != name:
-            raise ValueError(
-                f"physics.{field}[{device!r}] is declared by both {prior!r} and {name!r}; "
-                f"active scenarios must declare disjoint physics-fault devices"
-            )
-        owner[key] = name
-
-    for name in active:
-        physics = scenarios[name].physics
-        if physics is None:
-            continue
-        for device, factor in physics.corrector_gain.items():
-            claim("corrector_gain", device, name)
-            corrector_gain[device] = factor
-        for device, spec in physics.bpm_errors.items():
-            claim("bpm_errors", device, name)
-            bpm_errors[device] = spec
-
-    # Guard on the rendered string being non-empty, not the source dict: an
-    # all-identity BpmErrorSpec (every field at its default) renders "" even
-    # though its device is present in `bpm_errors`, and that empty string must
-    # not become a `VA_BPM_ERRORS=` line -- "empty" must mean "nothing to
-    # render" all the way through, matching the docstring's "empty if no
-    # active scenario declares a physics block" contract.
-    rendered: dict[str, str] = {}
-    corrector_gain_str = _render_device_value_map(corrector_gain)
-    if corrector_gain_str:
-        rendered["VA_CORR_GAIN"] = corrector_gain_str
-    bpm_errors_str = _render_bpm_errors(bpm_errors)
-    if bpm_errors_str:
-        rendered["VA_BPM_ERRORS"] = bpm_errors_str
-    return rendered
-
-
-def _render_device_value_map(values: dict[str, float]) -> str:
-    """Render ``{device: value}`` as the `VA_STUCK_SETPOINTS`-shaped ``"DEVICE=value,..."``."""
-    return ",".join(f"{device}={value}" for device, value in sorted(values.items()))
-
-
-def _render_bpm_errors(specs: dict[str, BpmErrorSpec]) -> str:
-    """Render ``{device: BpmErrorSpec}`` as ``"DEVICE:field=value[,field=value...];..."``.
-
-    Only non-identity fields are emitted, mirroring ``PhysicsBridge``'s own
-    sparse-override idiom ("fault dicts... only need to name the fields they
-    perturb"). An isotropic scenario-authored value fans out to both
-    transverse-plane fields the entrypoint parses (``offset`` ->
-    ``offset_x``/``offset_y``, etc.); ``roll`` has no axis split on either side.
-    """
-    parts: list[str] = []
-    for device, spec in sorted(specs.items()):
-        fields = _bpm_error_env_fields(spec)
-        if not fields:
-            continue
-        field_str = ",".join(
-            f"{key}={fields[key]}" for key in _BPM_ERROR_FIELD_ORDER if key in fields
-        )
-        parts.append(f"{device}:{field_str}")
-    return ";".join(parts)
-
-
-def _bpm_error_env_fields(spec: BpmErrorSpec) -> dict[str, float]:
-    """Expand one BPM's isotropic error spec into its non-identity env fields."""
-    fields: dict[str, float] = {}
-    for attr, axis_fields in _BPM_ERROR_AXIS_FIELDS.items():
-        value = getattr(spec, attr)
-        if value == _BPM_ERROR_IDENTITY[attr]:
-            continue
-        for env_field in axis_fields:
-            fields[env_field] = float(value)
-    return fields
-
-
-# The full set of keys `_write_physics_env` owns -- reconciled on every call
-# (set if rendered, removed if not), never left stale from a prior scenario.
-_PHYSICS_ENV_VARS = ("VA_BPM_ERRORS", "VA_CORR_GAIN")
-# The block's header line, owned and reconciled exactly like the keys under it:
-# dropped on the way in and re-emitted only alongside a rendered value, so a
-# re-render reproduces the file byte for byte instead of stacking a fresh
-# header each time (which would make every rewrite look like a change).
-_PHYSICS_ENV_HEADER = "# Scenario physics fault (osprey sim apply / osprey up)"
-
-
-def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> bool:
-    """Reconcile the physics-fault block in ``.env`` to exactly ``rendered``.
-
-    Unlike ``_ensure_service_tokens``'s append-only idiom (an existing token is
-    a deliberate value, never overwritten), a scenario's physics vars ARE the
-    single source of truth for "what physics fault is active": this function
-    owns all of ``_PHYSICS_ENV_VARS`` unconditionally, replacing an existing
-    line for a key ``rendered`` sets and removing one it doesn't, so switching
-    the active scenario never leaves a stale fault from a previous scenario
-    alongside (or instead of) the new one. Every other line (comments,
-    unrelated vars) is left untouched. A no-op (no write at all) when there is
-    nothing to render and no ``.env`` yet exists to clean up.
-
-    Returns whether the *physics block* changed -- the vars this function owns,
-    before versus after -- not whether bytes moved. The rewrite is
-    unconditional, so "a write happened" is not the signal a caller wants; nor
-    is a whole-file comparison, which would report a change for incidental
-    normalization (a hand-edited ``.env`` with no final newline, say) and make
-    ``osprey sim apply`` announce a physics change that never happened.
-    Re-applying the same scenario reports False; clearing a stale ``VA_*`` line
-    reports True even though ``rendered`` is empty.
-    """
-    if not rendered and not env_path.is_file():
-        return False
-
-    before = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
-    lines = before.splitlines()
-    kept: list[str] = []
-    before_block: dict[str, str] = {}
-    for line in lines:
-        stripped = line.strip()
-        if stripped == _PHYSICS_ENV_HEADER:
-            continue  # dropped here; re-added below if still active
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            key, value = stripped.split("=", 1)  # values contain '=' (DEVICE=factor)
-            key = key.strip()
-            if key in _PHYSICS_ENV_VARS:
-                before_block[key] = value.strip()
-                continue  # dropped here; re-added below if still active
-        kept.append(line)
-    while kept and kept[-1] == "":
-        kept.pop()
-
-    if rendered:
-        if kept:
-            kept.append("")
-        kept.append(_PHYSICS_ENV_HEADER)
-        kept.extend(f"{k}={rendered[k]}" for k in _PHYSICS_ENV_VARS if k in rendered)
-
-    text = "\n".join(kept) + ("\n" if kept else "")
-    env_path.write_text(text, encoding="utf-8")
-    os.chmod(env_path, 0o600)
-    return before_block != rendered
 
 
 def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogbookEntry:

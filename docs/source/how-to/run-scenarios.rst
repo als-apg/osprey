@@ -45,12 +45,10 @@ The control-assistant preset ships six scenarios in
    * - ``bpm-polarity``
      - BPM 17 reports an inverted reading in both planes. No single channel
        is out of range; the fault shows only as an orbit correction that does
-       not converge. The physics fault applies at the virtual accelerator's
-       next boot.
+       not converge.
    * - ``orm-dual-fault``
      - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
-       once, both visible only through an orbit-response measurement. The
-       physics faults apply at the virtual accelerator's next boot.
+       once, both visible only through an orbit-response measurement.
 
 The preset starts a fresh deployment in ``rf-thermal``, as the profile key
 ``simulation.default_scenarios`` names (see
