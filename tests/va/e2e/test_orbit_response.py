@@ -1,24 +1,28 @@
-"""SC3 acceptance: a real SR corrector write moves a real downstream BPM,
-through the real connector, against the real container.
+"""A real SR corrector write moves a real downstream BPM, through the real
+connector, against the real container.
 
 Uses device 01 (``SR:MAG:HCM:01`` <-> ``SR:DIAG:BPM:01``) -- no other test in
 this suite touches device 01's correctors, so its lattice state is exclusively
 owned here for the life of the session container.
 
-The physics bridge (osprey.services.virtual_accelerator.ioc.physics_bridge) applies
-a linear kick-angle map and AT's find_orbit4 closed-orbit solve on the real
-ALS-U AR ring; sextupoles sit at their baked strengths, so the response is
-linear to feed-down accuracy (relative deviation well inside LINEAR_REL_TOL
-at these amplitudes) and antisymmetric about zero current, not merely "moves
-in the same direction as the raw local kick" (that naive assumption is wrong
-for a periodic ring; see findings #8). This asserts the antisymmetric-linear
-shape directly: +I and -I give opposite shifts, 2x I doubles the shift, and
-the shift is nonzero at the paired BPM -- never same-sign or magnitude alone.
+The container serves the demo facility's ``SR`` model through the pyat engine:
+a corrector write sets the element's kick and the served BPM reading is the
+closed-orbit solve at that monitor. Sextupoles sit at their deck strengths, so
+the response is linear to feed-down accuracy (relative deviation well inside
+LINEAR_REL_TOL at these amplitudes) and antisymmetric about zero current, not
+merely "moves in the same direction as the raw local kick", which is wrong for
+a periodic lattice. This asserts the antisymmetric-linear shape directly: +I
+and -I give opposite shifts, 2x I doubles the shift, and the shift is nonzero
+at the paired BPM -- never same-sign or magnitude alone.
 
-Sweep currents stay inside the committed +/-12 A corrector band: the records
-layer enforces channel_limits.json bands as DRVL/DRVH, so an out-of-band
-write (e.g. 20 A) is silently clamped at the record and would corrupt the
-linearity measurement rather than fail loudly.
+The shared container serves its monitors without their declared noise and
+drift (``conftest.stage_demo_data_dir``), so a reading is the solved orbit and
+nothing else, and every cycle reproduces the first.
+
+Sweep currents stay inside the +/-12 A band ``limits.yaml`` gives this
+corrector: the view carries it as the setpoint's ``value_range`` and the runner
+clamps an out-of-band write into it, so a 20 A write would read back as 12 A
+and corrupt the linearity measurement rather than fail loudly.
 """
 
 from __future__ import annotations
@@ -36,7 +40,10 @@ BPM_Y = "SR:DIAG:BPM:01:POSITION:Y"  # HCM steers x only; y should stay ~put (pl
 
 SETTLE_BOUND_S = 1.0
 NONZERO_FLOOR_M = 1e-5  # 10 microns -- comfortably below the documented mm-scale shift
-LINEAR_REL_TOL = 0.02  # 2%: exact in theory (linear lattice), generous for cross-process fp noise
+LINEAR_REL_TOL = 0.02  # 2%: sextupole feed-down at these amplitudes stays far inside it
+#: Two solves at one corrector setting agree to this, in metres: the readings
+#: carry no motion, so only the solver's own rounding separates them.
+REPRODUCE_ABS_M = 1e-12
 
 #: Floor for this module's own test count -- a guard against a refactor that
 #: leaves the file importable but empty, which would otherwise pass silently.
@@ -58,9 +65,9 @@ async def _write_current(connector, value: float) -> None:
 
 async def _read_bpm(connector, address: str, *, retries: int = 10, delay: float = 0.1) -> float:
     """Poll for up to SETTLE_BOUND_S for the BPM readback (should already be
-    current by the time write_channel() returns -- the physics recompute is
-    synchronous in the record's write handler -- but a short poll absorbs any
-    CA propagation latency to this separate PV)."""
+    current by the time write_channel() returns -- the write's own runner pass
+    solves the orbit and publishes the readings before put-completion -- but a
+    short poll absorbs any CA propagation latency to this separate PV)."""
     last = None
     for _ in range(retries):
         last = (await connector.read_channel(address)).value
@@ -90,9 +97,8 @@ class TestOrbitResponse:
         with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
             connector = await e2e_conftest.connect_va()
 
-            # N=5 repeats for determinism -- the physics recompute is exactly
-            # deterministic (no noise applied to pyat-coupled BPM readbacks),
-            # so every cycle should reproduce the same deltas.
+            # N=5 repeats: the solve is deterministic and the monitors carry
+            # no motion, so every cycle reproduces the first.
             cycles = []
             start = time.monotonic()
             for _ in range(5):
@@ -104,6 +110,14 @@ class TestOrbitResponse:
             await _write_current(connector, 0.0)
 
         for i, readings in enumerate(cycles):
+            for label, (x, y) in readings.items():
+                first_x, first_y = cycles[0][label]
+                assert x == pytest.approx(first_x, abs=REPRODUCE_ABS_M), (
+                    f"cycle {i}: BPM01 x at {label} read {x}, cycle 0 read {first_x}"
+                )
+                assert y == pytest.approx(first_y, abs=REPRODUCE_ABS_M), (
+                    f"cycle {i}: BPM01 y at {label} read {y}, cycle 0 read {first_y}"
+                )
             x0, y0 = readings["zero"]
             x_p5, y_p5 = readings["plus5"]
             x_m5, _ = readings["minus5"]
