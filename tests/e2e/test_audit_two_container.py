@@ -146,7 +146,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 
 #: Escape hatch for local diagnosis on a non-Linux host. Deliberately named as
 #: a diagnostic: a Docker Desktop run remaps bind-mount ownership, so it can
@@ -164,7 +164,7 @@ LINUX_ONLY_REASON = (
 )
 
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 def _linux_enough() -> bool:

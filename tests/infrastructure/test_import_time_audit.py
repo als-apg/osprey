@@ -17,8 +17,11 @@ mutation itself explaining why a fixture cannot do the job.
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Iterator
 from pathlib import Path
+
+import pytest
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,6 +71,23 @@ _LIST_MUTATORS = frozenset(
 )
 _SOCKET_OPENERS = frozenset({"socket", "create_connection", "create_server", "socketpair"})
 _PORT_HELPERS = frozenset({"free_port", "_free_port"})
+
+#: Identifiers at least one of which every write the checks below detect has to
+#: spell in the source: an ``os.environ`` write names ``environ`` (or
+#: ``putenv``/``unsetenv``), a socket opens through ``socket`` or a port helper,
+#: and ``sys.path``/``sys.modules`` need ``sys`` plus the attribute. A module
+#: that spells none of them is skipped unparsed -- most of the tree, and
+#: parsing it is what the audit spends its time on.
+_ANY_KIND_TOKEN = re.compile(r"\b(?:environ|putenv|unsetenv|socket|_?free_port)\b")
+_SYS_TOKEN = re.compile(r"\bsys\b")
+_SYS_ATTR_TOKEN = re.compile(r"\b(?:path|modules)\b")
+
+
+def _could_mutate(source: str) -> bool:
+    """False only for a module that cannot contain any write the audit detects."""
+    if _ANY_KIND_TOKEN.search(source):
+        return True
+    return bool(_SYS_TOKEN.search(source) and _SYS_ATTR_TOKEN.search(source))
 
 
 def _dotted(node: ast.AST) -> str:
@@ -165,6 +185,8 @@ def import_time_mutations(source: str) -> set[str]:
     one at import time executes its body then (this is how
     ``test_matrix_dashboard.py`` registers its ``sys.modules`` entry).
     """
+    if not _could_mutate(source):
+        return set()
     tree = ast.parse(source)
     local_functions = {
         node.name: node
@@ -223,3 +245,32 @@ def test_whitelisted_sites_carry_justification():
         "Add the comment directly above the mutation, saying what forces it to run at "
         "import time rather than in a fixture."
     )
+
+
+#: One import-time write per way the audit can see one.
+_ONE_OF_EACH = {
+    "os.environ assignment": ('import os\nos.environ["A"] = "1"\n', "os.environ"),
+    "os.environ delete": ('import os\ndel os.environ["A"]\n', "os.environ"),
+    "os.environ mutator": ('import os\nos.environ.setdefault("A", "1")\n', "os.environ"),
+    "os.putenv": ('import os\nos.putenv("A", "1")\n', "os.environ"),
+    "os.unsetenv": ('import os\nos.unsetenv("A")\n', "os.environ"),
+    "sys.path assignment": ("import sys\nsys.path = []\n", "sys.path"),
+    "sys.path mutator": ('import sys\nsys.path.insert(0, "x")\n', "sys.path"),
+    "sys.modules assignment": ('import sys\nsys.modules["m"] = None\n', "sys.modules"),
+    "sys.modules mutator": ('import sys\nsys.modules.pop("m")\n', "sys.modules"),
+    "socket opener": ("import socket\nsocket.socket()\n", "socket"),
+    "port helper": ("free_port()\n", "socket"),
+    "private port helper": ("_free_port()\n", "socket"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_ONE_OF_EACH))
+def test_the_unparsed_skip_never_hides_a_detectable_write(case: str) -> None:
+    """Every kind the AST check detects survives the token pre-filter.
+
+    The whitelist test only parses modules that spell one of
+    :data:`_ANY_KIND_TOKEN`'s identifiers; a detection added without its
+    identifier would silently never run. This pins the two together.
+    """
+    source, kind = _ONE_OF_EACH[case]
+    assert kind in import_time_mutations(source)

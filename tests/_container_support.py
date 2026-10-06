@@ -22,6 +22,7 @@ missing extra into a collection error for every test package that imports from
 here. ``requests`` is a base dependency and is safe at module scope.
 """
 
+import functools
 import logging
 import shutil
 import subprocess
@@ -94,6 +95,18 @@ def docker_cli_unavailable_reason(*, timeout: float = DOCKER_CLI_PROBE_TIMEOUT) 
         detail = lines[-1].strip() if lines else f"exit {probe.returncode}"
         return f"docker daemon not reachable: {detail}"
     return None
+
+
+@functools.cache
+def docker_cli_unavailable_reason_once() -> str | None:
+    """:func:`docker_cli_unavailable_reason`, asked once per process.
+
+    For the module-scope ``skipif`` guards: collection imports every one of
+    them in every xdist worker, and each would otherwise run its own
+    ``docker info`` for the same answer. A probe made at collection time
+    describes the whole session, so the first answer stands for the rest.
+    """
+    return docker_cli_unavailable_reason()
 
 
 def is_image_present(reference: str) -> bool:

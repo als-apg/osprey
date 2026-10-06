@@ -32,7 +32,7 @@ template that stopped emitting the auth surface would otherwise still "pass"
 `nginx -t` and report a vacuous green.
 
 Skipped entirely when docker (or openssl) is unavailable, with the docker half
-probed through the shared ``docker_cli_unavailable_reason`` helper.
+probed through the shared ``docker_cli_unavailable_reason_once`` helper.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from osprey.deployment.web_terminals.render import (
     terminal_secret_env_var,
 )
 from osprey.port_layout import default_port
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -90,7 +90,7 @@ _ENVSUBST_OUTPUT_MODE = "0700"
 _DEFAULT_CONF_PATH = "/etc/nginx/conf.d/default.conf"
 
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 pytestmark = [

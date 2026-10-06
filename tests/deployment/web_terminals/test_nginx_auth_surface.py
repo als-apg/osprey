@@ -69,7 +69,7 @@ from osprey.services.auth_sidecar.identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
 )
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -757,7 +757,7 @@ def _nginx_t(conf: str, secret_snippets: dict[str, str]) -> subprocess.Completed
         )
 
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 @pytest.mark.dockerbuild

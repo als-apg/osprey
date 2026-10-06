@@ -94,9 +94,9 @@ from osprey.deployment import control_identity
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 #: The port the project image serves on INSIDE the container: the ``web`` slot
