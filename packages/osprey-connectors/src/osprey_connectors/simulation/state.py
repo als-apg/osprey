@@ -35,6 +35,7 @@ __all__ = [
     "format_overlap_record",
     "overlap_record",
     "parse_active_state",
+    "read_active_state",
     "resolve_active_scenarios",
     "scenario_targets",
     "validate_composition",
@@ -84,6 +85,22 @@ def parse_active_state(text: str) -> tuple[list[str], float | None]:
             continue
         names.append(stripped)
     return names, anchor_epoch
+
+
+def read_active_state(state_dir: Path) -> tuple[list[str], float | None]:
+    """The scenario names and the anchor the ``active_scenarios`` file in *state_dir* records.
+
+    Args:
+        state_dir: The directory holding the file.
+
+    Returns:
+        What :func:`parse_active_state` reads from the file, or ``([], None)``
+        when the file is absent.
+    """
+    path = state_dir / ACTIVE_SCENARIOS_FILENAME
+    if not path.is_file():
+        return [], None
+    return parse_active_state(path.read_text(encoding="utf-8"))
 
 
 def write_active_state(

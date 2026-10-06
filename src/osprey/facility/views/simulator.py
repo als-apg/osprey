@@ -78,6 +78,7 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
+    "simulator_view",
     "simulator_wiring",
     "status_address",
     "write_simulator_view",
@@ -97,6 +98,23 @@ SCENARIOS_FILE = "scenarios.json"
 #: under the facility tree and under the view alike.
 SCENARIOS_DIR = "scenarios"
 SCENARIOS_SCHEMA = "osprey.facility.scenarios/1"
+
+#: The view's directory under a render.
+_VIEW_RELPATH = Path("data") / "simulator"
+
+
+def simulator_view(project_dir: Path) -> Path:
+    """The simulator view of *project_dir*'s render, ``<render>/data/simulator``.
+
+    A deployment repo keeps its render under ``build/``, beside the rendered
+    ``config.yml``; a container's project directory is the render itself.
+    """
+    from osprey_connectors.workspace import rendered_config_path
+
+    rendered = rendered_config_path(project_dir)
+    render = rendered.parent if rendered.is_file() else project_dir
+    return render / _VIEW_RELPATH
+
 
 #: The mark a scenario's faults carry for a model the render does not serve.
 INACTIVE_UNSERVED = "model not served"

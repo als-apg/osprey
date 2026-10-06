@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey.simulation.apply import _simulator_view
+from osprey.facility.views.simulator import simulator_view
 from osprey_connectors.simulation import archive as archive_module
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.archive import (
@@ -81,7 +81,7 @@ class _Collection:
 
 def _activate(root: Path, config: dict[str, Any], names: list[str], anchor: datetime) -> None:
     """Record ``names`` and ``anchor`` in the project's scenario state file, as `sim apply` does."""
-    view = json.loads((_simulator_view(root) / "scenarios.json").read_text())
+    view = json.loads((simulator_view(root) / "scenarios.json").read_text())
     targets = {scenario["name"]: set() for scenario in view["scenarios"]}
     path = resolve_simulation_state_dir(config, root) / "active_scenarios"
     write_active_state(path, targets, names, anchor=anchor)
