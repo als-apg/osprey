@@ -557,7 +557,7 @@ class MockConnector(ControlSystemConnector):
         if value_type in _LABELLED:
             from osprey_connectors.simulation import values
 
-            options = list(record.get("options") or values.DEFAULT_BOOL_OPTIONS)
+            options = values.channel_labels(record)
             return options.index(value) if value in options else value
         if value_type == "waveform":
             import numpy as np
@@ -576,7 +576,7 @@ class MockConnector(ControlSystemConnector):
         if record.get("value_type") in _LABELLED:
             from osprey_connectors.simulation import values
 
-            labels = list(record.get("options") or values.DEFAULT_BOOL_OPTIONS)
+            labels = values.channel_labels(record)
         return ChannelMetadata(
             units=str(unit),
             timestamp=datetime.now(get_facility_timezone()),

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 import numbers
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
@@ -28,6 +28,7 @@ __all__ = [
     "DEFAULT_BOOL_OPTIONS",
     "DEFAULT_VALUE_TYPE",
     "VALUE_TYPES",
+    "channel_labels",
     "coerce",
     "zero",
 ]
@@ -51,6 +52,18 @@ def _labels(value_type: str, options: Sequence[str] | None) -> list[str]:
             return list(DEFAULT_BOOL_OPTIONS)
         raise ValueError(f"value_type {value_type} needs options (its labels)")
     return [str(label) for label in options]
+
+
+def channel_labels(channel: Mapping[str, Any]) -> list[str]:
+    """The labels of a bool or enum channel record.
+
+    Args:
+        channel: The channel record.
+
+    Returns:
+        The record's ``options``, or :data:`DEFAULT_BOOL_OPTIONS` without them.
+    """
+    return list(channel.get("options") or DEFAULT_BOOL_OPTIONS)
 
 
 def _size(shape: Sequence[int] | None) -> int:
