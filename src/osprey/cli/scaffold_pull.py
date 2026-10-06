@@ -20,7 +20,6 @@ from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from .templates.preset_data import PresetData
-from .templates.shared_data import SHARED_DATA_FILENAME
 
 # ---------------------------------------------------------------------------
 # Catalog: what a template offers
@@ -32,7 +31,7 @@ from .templates.shared_data import SHARED_DATA_FILENAME
 #: bundled MCP server ships its own ``__init__.py`` and is content — so these
 #: names are dropped at the root only.
 _ROOT_ONLY_EXCLUDED_SUFFIXES: tuple[str, ...] = (".j2",)
-_ROOT_ONLY_EXCLUDED_NAMES: frozenset[str] = frozenset({"__init__.py", SHARED_DATA_FILENAME})
+_ROOT_ONLY_EXCLUDED_NAMES: frozenset[str] = frozenset({"__init__.py"})
 
 
 def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[str]:
