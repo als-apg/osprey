@@ -818,7 +818,7 @@ def _stub_reapply(
         )
     result = SimpleNamespace(active=active, archiver=archiver)
 
-    monkeypatch.setattr(apply_mod, "_view_scenarios", lambda project_dir: {})
+    monkeypatch.setattr(apply_mod, "view_scenarios", lambda project_dir: {})
     monkeypatch.setattr(
         apply_mod, "_active_state", lambda config, project_dir: (list(active), None)
     )

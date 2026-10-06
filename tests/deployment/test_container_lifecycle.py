@@ -3911,7 +3911,7 @@ def _active_in_the_view(monkeypatch, names: list[str]) -> None:
     """A render whose simulator view exists and whose state file records ``names``."""
     from osprey.simulation import apply as apply_mod
 
-    monkeypatch.setattr(apply_mod, "_view_scenarios", lambda project_dir: {})
+    monkeypatch.setattr(apply_mod, "view_scenarios", lambda project_dir: {})
     monkeypatch.setattr(apply_mod, "_active_state", lambda config, project_dir: (names, None))
 
 

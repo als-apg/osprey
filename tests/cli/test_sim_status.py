@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -181,3 +183,21 @@ def test_list_names_the_views_scenarios_and_marks_the_active_set(deployment: Pat
         "* sr-broken  (logbook: no)",
         "    SR cannot find a closed orbit.",
     ]
+
+
+def test_list_loads_no_scenario_apply_code(deployment: Path) -> None:
+    code = (
+        "import sys\n"
+        "from click.testing import CliRunner\n"
+        "from osprey.cli.sim import sim_group\n"
+        f"result = CliRunner().invoke(sim_group, ['list', '--repo', {str(deployment)!r}])\n"
+        "assert result.exit_code == 0, result.output\n"
+        "print('osprey.simulation.apply' in sys.modules)\n"
+    )
+
+    run = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "False"

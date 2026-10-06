@@ -114,10 +114,9 @@ def _require_simulator_view(repo_root: Path) -> Path:
 
     Exits with a clear message when the render carries none.
     """
-    from osprey.facility.views.simulator import SCENARIOS_FILE
-    from osprey.utils.workspace import rendered_config_path
+    from osprey.facility.views.simulator import SCENARIOS_FILE, simulator_view
 
-    view = rendered_config_path(repo_root).parent / "data" / "simulator"
+    view = simulator_view(repo_root)
     if not (view / SCENARIOS_FILE).is_file():
         output.fail(
             f"No simulator view in {view}",
@@ -256,17 +255,12 @@ def sim_group() -> None:
 def list_command(repo: Path | None) -> None:
     """List available scenarios (the active set is marked with *)."""
     from osprey.facility.views.simulator import SCENARIOS_FILE
-    from osprey_connectors.simulation import (
-        ACTIVE_SCENARIOS_FILENAME,
-        parse_active_state,
-        resolve_active_scenarios,
-    )
+    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
     from osprey_connectors.workspace import resolve_simulation_state_dir
 
     repo_root, config = _resolve_deployment(repo)
     view = _require_simulator_view(repo_root)
-    state = resolve_simulation_state_dir(config, repo_root) / ACTIVE_SCENARIOS_FILENAME
-    names = parse_active_state(state.read_text(encoding="utf-8"))[0] if state.is_file() else []
+    names, _ = read_active_state(resolve_simulation_state_dir(config, repo_root))
     active = set(resolve_active_scenarios(names))
     for scenario in _read_view_file(view, SCENARIOS_FILE)["scenarios"]:
         name = str(scenario["name"])
@@ -367,15 +361,18 @@ def apply_command(
     virtual accelerator to pick up at its next container boot.
     """
     from osprey.simulation.apply import (
-        _require_view_scenarios,
         apply_scenarios,
         compute_scenario_physics_env,
         preflight_archive_rewrite,
+        require_view_scenarios,
         write_scenario_physics_env,
     )
-    from osprey.simulation.engine import resolve_active_scenarios
     from osprey_connectors.simulation.engine import resolve_simulation_file
-    from osprey_connectors.simulation.state import scenario_targets, validate_composition
+    from osprey_connectors.simulation.state import (
+        resolve_active_scenarios,
+        scenario_targets,
+        validate_composition,
+    )
 
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)
@@ -400,7 +397,7 @@ def apply_command(
         # serving composite applies, so the command refuses exactly the sets the
         # simulator would refuse to serve.
         try:
-            scenarios = _require_view_scenarios(repo_root)
+            scenarios = require_view_scenarios(repo_root)
             overlaps = validate_composition(
                 {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
                 resolve_active_scenarios(names),
