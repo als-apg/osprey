@@ -58,8 +58,8 @@ def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         ("control_assistant", "example"),
         ("control-assistant-readonly", "example"),
         ("hello-world", "hello_world"),
-        ("ariel-standalone", None),
-        ("channel-finder-standalone", None),
+        ("ariel-standalone", "example"),
+        ("channel-finder-standalone", "example"),
         (None, None),
         ("no-such-preset", None),
     ],
@@ -170,8 +170,10 @@ def test_the_example_facility_states_its_display_name() -> None:
     assert identity == {"code": "ca", "name": "Example Research Facility"}
 
 
-def test_a_preset_naming_no_facility_composes_the_app_template_alone() -> None:
-    composed = _preset_data(TemplateManager(), "ariel-standalone")
+def test_a_preset_naming_no_facility_composes_the_app_template_alone(tmp_path: Path) -> None:
+    root = _template_root(tmp_path, app_ships_facility=False)
+
+    composed = compose_preset_data(root, "app", None)
 
     assert composed.facility_root is None
     assert not any(relative.startswith("facility/") for relative in composed.placed_files())
