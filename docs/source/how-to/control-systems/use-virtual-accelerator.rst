@@ -186,13 +186,13 @@ runs beside it. ``control_target_set standin`` moves the deployment onto the sta
 ``control_target_set live`` from there walks the real go-live path, gates and
 all.
 
-The two simulated machines are told apart by reading them: one image over one
-lattice, but a small fixed offset on the stand-in's BPM readouts. (Where the
-environment pins ``VA_LATTICE=none`` or a facility channel file, there is no
-lattice to displace — the stand-in serves that manifest unperturbed, and reads
-identically to the Virtual Accelerator beside it.) The label stays honest either
-way: the banner reads ``LIVE MACHINE (stand-in)`` and the Web Terminal's
-header chip reads ``STAND-IN``.
+The two simulated machines run one image over one simulator view, and the
+stand-in carries no errors of its own: it exists to rehearse the live safety
+posture, not different physics. The two machines are told apart by a write to
+the sandbox not showing on the stand-in and by the model RPC status naming its
+instance (``virtual_accelerator`` or ``live_standin``). The label stays honest:
+the banner reads ``LIVE MACHINE (stand-in)`` and the Web Terminal's header chip
+reads ``STAND-IN``.
 :doc:`switch-control-target` has the ritual itself.
 
 **Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file
@@ -201,12 +201,8 @@ lane. There is no scenario that applies to the simulator but not to the stand-in
 and switching targets does not undo one.
 
 **The archive belongs to the machine.** The recorder records the stand-in when
-one is deployed, and the history seeded on the first deploy carries the same BPM
-offsets the stand-in reads — so its past and its present describe one machine,
-the way a real machine's do. What the two halves share is the systematic error,
-not the individual samples: the seeded past carries the same systematic offsets
-as the stand-in's readout, not the same numbers, because the seed's values are
-generated rather than read off the running IOC. While that store is being
+one is deployed, so the store's past and the stand-in's present describe one
+machine, the way a real machine's do. While that store is being
 recorded, the ``live`` target is refused — a real machine's readings must not
 land in a stand-in's archive. :doc:`switch-control-target` says how to clear
 that.

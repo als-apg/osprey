@@ -1016,9 +1016,9 @@ The live stand-in
 ``live_standin`` deploys a second simulator container on its own Channel Access
 port and gives the deployment a third control target, ``standin``, dialled
 through its own ``control_system.connector.live_standin`` block. Both containers
-run one image over the same lattice and the same active scenarios; what differs
-is a small fixed offset on the stand-in's BPM readouts, which is what lets you
-tell the two apart by reading them.
+run one image over the same simulator view and the same active scenarios. The
+two machines are told apart by a write to the sandbox not showing on the
+stand-in and by the model RPC status naming its instance.
 
 The stand-in is a machine of its own, **not** a rewrite of ``live``. The build
 never writes a key under ``control_system.connector.epics``, so ``live`` means
