@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -352,6 +353,38 @@ def test_a_journal_planted_before_a_replay_gives_identical_samples(
 
     assert planted
     assert after == before == [5.0] * 20
+
+
+@pytest.mark.slow
+def test_a_real_readout_fault_archives_the_monitor_the_composite_serves(
+    demo_view: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    planes = ["SR:DIAG:BPM:17:POSITION:X", "SR:DIAG:BPM:17:POSITION:Y"]
+    times = HOUR[:5]
+    state = tmp_path / "state"
+    _activate(state, "bpm-polarity")
+    now = [float(times[0])]
+    served = Composite(demo_view, state_dir=state, clock=lambda: now[0])
+
+    archive = build(demo_view, ["bpm-polarity"])
+    archived = {plane: archive.series(plane, times) for plane in planes}
+    reads = []
+    for t_s in times:
+        now[0] = float(t_s)
+        reads.append(served.get(planes))
+
+    assert served.status("SR") == "ok"
+    for plane in planes:
+        assert archived[plane] == [read[plane] for read in reads]
+
+
+def _activate(state: Path, *names: str) -> None:
+    state.mkdir(parents=True, exist_ok=True)
+    target = state / "active_scenarios"
+    before = target.stat().st_mtime_ns if target.exists() else 0
+    target.write_text("\n".join(names or ("nominal",)) + "\n", encoding="utf-8")
+    os.utime(target, ns=(before + 1_000_000_000, before + 1_000_000_000))
 
 
 # -- what the served composite reads -------------------------------------------
