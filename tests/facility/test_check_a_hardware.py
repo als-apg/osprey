@@ -23,8 +23,8 @@ fails naming its family and ``DeviceList`` row.
   ``k_per_amp * Leff / mean(Leff)`` for the tune response, ``k_per_amp /
   (-RF0 * MCF)`` for the chromaticity response. ``k_per_amp`` is the model
   file's own record of each device's conversion over its step, and each
-  device's write entry in the build, a string supply's slice included, meets
-  it as a secant from the build's start value over that step.
+  device's write entry in the build meets it through its slice's own
+  conversion, as a secant from the build's start value over that step.
   ``meastuneresp`` answers the sum of its per-device columns, and its physics
   answer carries ``measrespmat``'s units quirk (:func:`_units_quirk`).
 
@@ -145,20 +145,24 @@ class Calibrations:
 
     def binding(
         self, family: str, direction: str, device: Sequence[float]
-    ) -> tuple[dict[str, Any], float]:
-        """The one ``direction`` entry of ``family`` binding the listed device, and its weight.
+    ) -> tuple[dict[str, Any], float, Any]:
+        """The one ``direction`` entry of ``family`` binding the listed device, its weight and curve.
 
         The weight is the one the entry's first slice on the device states,
         the share of the entry's physics value the device takes; an entry with
-        no slices, or a slice stating none, weighs 1.
+        no slices, or a slice stating none, weighs 1. The curve is the
+        device's hardware-to-physics conversion: that slice's own ``curve``
+        where it states one, else the entry's ``calibration.curve``.
         """
+        from osprey.simulation.engines.calibration import curve_from_record, field
+
         row = check_a._row(device)
         words = self.wiring.engine(family)
         members = self.wiring.groups[self.wiring.mapping.mapped(family)]
         owners = [name for name in sorted(members) if self.wiring.rows.get(name) == row]
         assert len(owners) == 1, f"{self.built.name} {family} lists {len(owners)} devices {row}"
         (owner,) = owners
-        found: list[tuple[dict[str, Any], float]] = []
+        found: list[tuple[dict[str, Any], float, Any]] = []
         for entry in self.built.wiring:
             if entry.get("direction") != direction or dict(entry.get("engine") or {}) != words:
                 continue
@@ -168,7 +172,11 @@ class Calibrations:
             ]
             if pieces:
                 weight = pieces[0].get("weight")
-                found.append((entry, 1.0 if weight is None else float(weight)))
+                stated = pieces[0].get("curve")
+                if stated is None:
+                    stated = field(field(entry, "calibration"), "curve")
+                curve = curve_from_record(stated)
+                found.append((entry, 1.0 if weight is None else float(weight), curve))
         assert len(found) == 1, (
             f"{self.built.name} wires {len(found)} {direction} entries for {family} {row} ({owner})"
         )
@@ -179,11 +187,8 @@ class Calibrations:
         return self.binding(family, direction, device)[0]
 
     def curve(self, family: str, direction: str, device: Sequence[float]) -> Any:
-        """The hardware-to-physics curve of one device's entry."""
-        from osprey.simulation.engines.calibration import curve_from_record, field
-
-        entry = self.entry(family, direction, device)
-        curve = curve_from_record(field(field(entry, "calibration"), "curve"))
+        """The hardware-to-physics conversion one device's entry writes it through."""
+        entry, _weight, curve = self.binding(family, direction, device)
         assert curve is not None, f"{entry['address']} carries no calibration"
         return curve
 
@@ -691,8 +696,8 @@ def test_response_k_per_amp_is_the_build_calibration_over_the_step(
     """Each answered device's write entry, as a secant over its step, is its ``k_per_amp``.
 
     A device's change per ampere in the build is its entry's calibration
-    taken as a secant from the build's start value over the family's
-    ``delta_resp_mat``, times the share its slice takes of a string supply.
+    taken through its slice's own conversion as a secant from the build's
+    start value over the family's ``delta_resp_mat``, times its slice's weight.
     A device no write entry binds fails naming its family and row. The
     export samples the conversion at both ends of that step, so the two agree
     to ``CONVERSION_RTOL``; a member of a series string whose members state
@@ -707,8 +712,7 @@ def test_response_k_per_amp_is_the_build_calibration_over_the_step(
         recorded = check_a._flat(facts, "k_per_amp")
         widths = check_a._flat(facts, "delta_resp_mat")
         for row, k_per_amp, width in zip(facts["device_list"], recorded, widths, strict=True):
-            entry, weight = calibrations.binding(family, "write", row)
-            curve = calibrations.curve(family, "write", row)
+            entry, weight, curve = calibrations.binding(family, "write", row)
             start = calibrations.start(family, row)
             built = weight * _secant(curve, start, float(width))
             mixed = len(_string_nominals(calibrations, va["families"][family], entry)) > 1
@@ -790,7 +794,7 @@ def test_a_device_of_a_string_binds_through_its_slice_of_the_supply(mml_built: B
     supplies = {
         (str(entry["address"]), weight)
         for row in ([3, 1], [3, 2], [4, 1])
-        for entry, weight in [calibrations.binding("SF", "write", row)]
+        for entry, weight, _curve in [calibrations.binding("SF", "write", row)]
     }
     assert len(supplies) == 1, supplies
     ((address, weight),) = supplies

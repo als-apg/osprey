@@ -77,7 +77,8 @@ runs at. It sets the synchrotron tune and never the orbit, which is why the expo
 not stating it costs the orbit-response comparison nothing.
 
 85 supplies feed their magnets in series, two to six magnets each; every string is
-one knob with a fixed share per magnet.
+one knob; each magnet converts the supply's change through its own exported curve
+from its own nominal.
 
 The deck marks each girder's start and end with a zero-length element the facility
 built with the beam-position-monitor type: 180 named `GE` and 180 named `GS`. No

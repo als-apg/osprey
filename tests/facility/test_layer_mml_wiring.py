@@ -171,15 +171,21 @@ def test_every_wiring_record_equals_the_emitted_binding_for_its_address(
     for address, binding in emitted.items():
         record = wiring[address]
         engine, calibration = record["engine"], record["calibration"]
+        expected = [(piece["element"], piece["weight"]) for piece in binding["slices"]]
         assert _slices(record)[0][0] == binding["element"], address
         assert engine.get("attribute", engine.get("axis")) == binding["attribute"], address
         assert engine.get("index") == binding["index"], address
-        assert _curve(calibration["curve"]) == binding["calibration"], address
         assert calibration["energy_scaling"] == binding["energy_scaling"], address
+        assert [name for name, _ in _slices(record)] == [name for name, _ in expected], address
+        # A string whose devices convert through rows of their own states a slice
+        # curve; the chain serves every device of it through the first device's
+        # row scaled by a constant, so only its elements, engine words and
+        # energy scaling are the chain's.
+        if any("curve" in piece for piece in record.get("slices", ())):
+            continue
+        assert _curve(calibration["curve"]) == binding["calibration"], address
         if binding["monitor_inverse"] is not None:
             assert _curve(calibration["inverse"]) == binding["monitor_inverse"], address
-        expected = [(piece["element"], piece["weight"]) for piece in binding["slices"]]
-        assert [name for name, _ in _slices(record)] == [name for name, _ in expected], address
         assert [weight for _, weight in _slices(record)] == pytest.approx(
             [weight for _, weight in expected], rel=1e-12
         ), address
@@ -248,6 +254,45 @@ def test_every_member_s_readback_of_a_shared_supply_follows_it(tmp_path: Path) -
     assert len(supply["slices"]) == 2
     for readback in ("11G-QSS1:Curr1", "11G-QSS2:Curr1"):
         assert wiring[readback] == {**supply, "address": readback}
+
+
+def _spear3_wiring(tmp_path: Path) -> dict[str, dict[str, Any]]:
+    facility = _facility(tmp_path, "spear3")
+    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
+    return {record["address"]: record for record in _models(facility)[STORAGE]["wiring"]}
+
+
+def test_a_series_member_follows_its_own_row_from_its_own_nominal(tmp_path: Path) -> None:
+    from osprey.simulation.engines.calibration import curve_from_record, evaluate, to_hardware
+
+    record = _spear3_wiring(tmp_path)["MS1-QDZ:CurrSetpt"]
+    va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))
+    family = va["families"]["QDZ"]
+    nominals = family["nominals"]["Setpoint"]["values"]
+    rows = family["Setpoint"]["calibration"]
+    first, fourth = (Table(tuple(rows["grid"][i]), tuple(rows["values"][i])) for i in (0, 3))
+    start = (nominals[0] + nominals[3]) / 2.0
+
+    curve = curve_from_record(record["calibration"]["curve"])
+    inverse = curve_from_record(record["calibration"]["inverse"])
+    at_nominal = evaluate(first, nominals[0])
+    assert to_hardware(curve, inverse, at_nominal) == pytest.approx(start, rel=1e-9)
+    assert "curve" not in record["slices"][0]
+    own = curve_from_record(record["slices"][1]["curve"])
+    for step in (0.0, 0.5, -0.5):
+        assert evaluate(curve, start + step) == pytest.approx(
+            evaluate(first, nominals[0] + step), rel=1e-12
+        )
+        assert evaluate(own, start + step) == pytest.approx(
+            evaluate(fourth, nominals[3] + step), rel=1e-12
+        )
+
+
+def test_a_string_of_one_nominal_and_one_row_is_written_as_one_curve(tmp_path: Path) -> None:
+    record = _spear3_wiring(tmp_path)["MS1-QF:CurrSetpt"]
+    assert len(record["slices"]) > 1
+    assert not any("curve" in piece for piece in record["slices"])
+    assert {abs(piece.get("weight", 1.0)) for piece in record["slices"]} == {1.0}
 
 
 def test_every_wired_element_is_in_the_written_deck_exactly_once(imported: Path) -> None:
