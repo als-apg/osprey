@@ -1,0 +1,1 @@
+The translation proxy now asks OpenAI-protocol servers for token usage on streamed answers and passes it on, so agents running on open models report real input and output token counts instead of zero.

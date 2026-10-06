@@ -145,6 +145,34 @@ class TestStreaming:
         deltas = [d for e, d in events if e == "message_delta"]
         assert deltas and deltas[-1]["usage"]["output_tokens"] == 2
 
+    def test_usage_after_the_finish_chunk_reaches_the_message_delta(self, monkeypatch):
+        """With ``include_usage`` the upstream sends usage in a final chunk with no
+        choices, after the one carrying ``finish_reason``; it must still be counted."""
+        lines = [
+            _sse_line({"choices": [{"delta": {"content": "ok"}, "finish_reason": None}]}),
+            _sse_line({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
+            _sse_line({"choices": [], "usage": {"prompt_tokens": 120, "completion_tokens": 7}}),
+            "data: [DONE]",
+        ]
+        captured = _install_fake_stream_client(
+            monkeypatch, stream_resp=_FakeStreamResp(200, lines=lines)
+        )
+        app = create_proxy_app("https://up.example/v1", upstream_api_key="k")
+        resp = TestClient(app).post(
+            "/v1/messages",
+            json={"model": "m", "stream": True, "messages": [{"role": "user", "content": "hi"}]},
+        )
+        events = _parse_sse(resp.text)
+        names = [e for e, _ in events]
+
+        assert captured["stream_json"]["stream_options"] == {"include_usage": True}
+        deltas = [d for e, d in events if e == "message_delta"]
+        assert len(deltas) == 1
+        assert deltas[0]["delta"]["stop_reason"] == "end_turn"
+        assert deltas[0]["usage"] == {"input_tokens": 120, "output_tokens": 7}
+        assert names[-1] == "message_stop"
+        assert names.count("message_stop") == 1
+
     def test_tool_call_stream_emits_tool_use_block(self, monkeypatch):
         lines = [
             _sse_line(

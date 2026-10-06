@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -845,6 +846,36 @@ def read_audit_events(repo: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _log_query_timing(workflow: SDKWorkflowResult) -> None:
+    """Append one timing record per agent query to ``OSPREY_E2E_QUERY_LOG``.
+
+    The benchmark matrix points the variable at
+    ``results/<model>__seed<seed>.queries.jsonl``; the dashboard reads it to show
+    how long each model takes and how much of that time is spent waiting on the
+    model rather than in OSPREY's tools. The figures are the agent SDK's own
+    accounting on the final ``ResultMessage``. Off unless the variable is set.
+    """
+    path = os.environ.get("OSPREY_E2E_QUERY_LOG")
+    result = workflow.result
+    if not path or result is None:
+        return
+    usage = getattr(result, "usage", None) or {}
+    record = {
+        "test": os.environ.get("PYTEST_CURRENT_TEST", "").rsplit(" (", 1)[0],
+        "duration_ms": getattr(result, "duration_ms", None),
+        "duration_api_ms": getattr(result, "duration_api_ms", None),
+        "num_turns": getattr(result, "num_turns", None),
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "is_error": getattr(result, "is_error", None),
+    }
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError:
+        pass  # instrumentation must never fail a test
+
+
 def _persist_mcp_sidecar(workflow: SDKWorkflowResult, repo: Path) -> None:
     """Write the MCP-status snapshot to a per-test sidecar when
     ``OSPREY_E2E_INIT_SIDECAR`` is set. Off by default, so ordinary CI/local runs
@@ -968,12 +999,27 @@ def e2e_budget_scale() -> float:
     (``scripts/benchmark/run_e2e_for_model.sh``) sets ``OSPREY_E2E_BUDGET_SCALE``
     per model so the cap **and** the cost-ceiling assertions scale together.
     Unset, the scale is 1.0 and each call site's cap applies as written.
+
+    ``inf`` lifts both: the runner sets it for a model reached through the
+    OpenAI-protocol proxy, whose tokens the SDK prices at Claude rates, so any
+    dollar figure for it is fiction. The turn limit and the timeout still bound
+    such a query.
     """
     try:
         scale = float(os.environ.get("OSPREY_E2E_BUDGET_SCALE", "1.0"))
     except ValueError:
         return 1.0
     return scale if scale > 0 else 1.0
+
+
+def e2e_budget_cap(max_budget_usd: float) -> float | None:
+    """The ``max_budget_usd`` to hand the SDK for a call site's base cap.
+
+    ``None`` when :func:`e2e_budget_scale` is infinite: the SDK then sets no
+    dollar cap at all, rather than being handed an infinity it cannot parse.
+    """
+    cap = max_budget_usd * e2e_budget_scale()
+    return None if math.isinf(cap) else cap
 
 
 # ---------------------------------------------------------------------------
@@ -1021,7 +1067,7 @@ async def run_sdk_query(
         cwd=str(render),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd * e2e_budget_scale(),
+        max_budget_usd=e2e_budget_cap(max_budget_usd),
         env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -1078,6 +1124,7 @@ async def run_sdk_query(
     # them from the on-disk transcripts so delegation tests can observe them.
     _harvest_subagent_traces(workflow, pending_tools, render)
 
+    _log_query_timing(workflow)
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 
@@ -1249,7 +1296,7 @@ async def run_sdk_query_with_hooks(
         cwd=str(render),
         permission_mode="default",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd * e2e_budget_scale(),
+        max_budget_usd=e2e_budget_cap(max_budget_usd),
         env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -1307,6 +1354,7 @@ async def run_sdk_query_with_hooks(
     _harvest_subagent_traces(workflow, pending_tools, render)
 
     workflow.hook_events = hook_events
+    _log_query_timing(workflow)
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 

@@ -253,6 +253,8 @@ async def _stream_proxy(
     in_text = False
     tool_blocks: dict[int, dict] = {}  # openai tool_call index → {block_index, id, name}
     output_tokens = 0
+    input_tokens: int | None = None
+    stop_reason: str | None = None
 
     try:
         async with client.stream("POST", url, json=openai_body, headers=headers) as resp:
@@ -290,10 +292,13 @@ async def _stream_proxy(
                 delta = choice.get("delta", {})
                 finish = choice.get("finish_reason")
 
-                # Track usage if provided
+                # Usage may ride on any chunk, including a trailing one with no
+                # choices that arrives after the finish_reason.
                 usage = chunk.get("usage")
                 if usage and "completion_tokens" in usage:
                     output_tokens = usage["completion_tokens"]
+                if usage and "prompt_tokens" in usage:
+                    input_tokens = usage["prompt_tokens"]
 
                 # Text content
                 text = delta.get("content")
@@ -336,26 +341,24 @@ async def _stream_proxy(
                         tb = tool_blocks[tc_idx]
                         yield make_tool_input_delta(tb["block_index"], args_fragment)
 
-                # Finish reason
-                if finish:
-                    # Close any open blocks
+                # Finish reason: close the open blocks now, but keep reading —
+                # the usage report can still follow.
+                if finish and stop_reason is None:
                     if in_text:
                         yield make_content_block_stop(block_index)
                         in_text = False
                     for tb in tool_blocks.values():
                         yield make_content_block_stop(tb["block_index"])
-
                     stop_reason = _FINISH_REASON_MAP.get(finish, "end_turn")
-                    yield make_message_delta(stop_reason, output_tokens)
-                    yield make_message_stop()
-                    return
 
-            # Stream ended without explicit finish_reason
-            if in_text:
-                yield make_content_block_stop(block_index)
-            for tb in tool_blocks.values():
-                yield make_content_block_stop(tb["block_index"])
-            yield make_message_delta("end_turn", output_tokens)
+            if stop_reason is None:
+                # Stream ended without an explicit finish_reason
+                if in_text:
+                    yield make_content_block_stop(block_index)
+                for tb in tool_blocks.values():
+                    yield make_content_block_stop(tb["block_index"])
+                stop_reason = "end_turn"
+            yield make_message_delta(stop_reason, output_tokens, input_tokens)
             yield make_message_stop()
 
     except httpx.RequestError as exc:
