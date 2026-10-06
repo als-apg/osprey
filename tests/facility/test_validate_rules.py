@@ -667,6 +667,26 @@ class TestPairRules:
         files = _tree(**{"models.yaml": [_wired("Q1:SP", slices=slices)]})
         assert "zero or not finite" in _rule(tmp_path, files, "pair-invalid").detail
 
+    def test_a_first_slice_curve(self, tmp_path: Path) -> None:
+        slices = [
+            {"element": "Q1", "curve": {"linear": {"gain": 1.0, "offset": 0.0}}},
+            {"element": "Q2"},
+        ]
+        files = _tree(**{"models.yaml": [_wired("Q1:SP", slices=slices)]})
+        error = _rule(tmp_path, files, "pair-invalid")
+        assert error.detail == "the first slice states a `curve`"
+        assert error.remedy == (
+            "drop `curve` from the first slice; it converts through `calibration.curve`"
+        )
+
+    def test_a_later_slice_curve_passes(self, tmp_path: Path) -> None:
+        slices = [
+            {"element": "Q1"},
+            {"element": "Q2", "curve": {"linear": {"gain": 1.0, "offset": 0.0}}},
+        ]
+        files = _tree(**{"models.yaml": [_wired("Q1:SP", slices=slices)]})
+        assert _run(tmp_path, files).ok
+
     def test_a_wired_endpoint_device_is_named_by_a_slice(self, tmp_path: Path) -> None:
         channel = {"id": "PS", "endpoint_of": ["SR/Q1", "SR/BPM1"]}
         slices = [{"element": "Q1", "device": "SR/Q1"}]

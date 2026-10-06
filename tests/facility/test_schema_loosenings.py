@@ -215,7 +215,7 @@ def test_wiring_drives_element_or_slices_with_an_engine_block(core: dict) -> Non
         assert slot in wiring
     for computed in ("direction", "unit", "default", "value_range"):
         assert not wiring[computed].get("required")
-    assert set(_attrs(core, "Slice")) == {"element", "weight", "device"}
+    assert set(_attrs(core, "Slice")) == {"element", "weight", "device", "curve"}
     assert set(_attrs(core, "Calibration")) == {"curve", "inverse", "energy_scaling"}
 
 

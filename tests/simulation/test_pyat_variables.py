@@ -184,6 +184,28 @@ def sextupole_record(**slots: Any) -> dict[str, Any]:
     )
 
 
+#: The second magnet of a two-magnet series string converts the shared
+#: current through a line of its own.
+OWN_GAIN, OWN_OFFSET = 0.6, -0.1
+
+
+def series_record(**slots: Any) -> dict[str, Any]:
+    """One supply over two magnets in series, the second on its own curve."""
+    return _record(
+        "MAG:SERIES:SP",
+        **{
+            "slices": [
+                {"element": SEXTUPOLE_SLICES[0]},
+                {"element": SEXTUPOLE_SLICES[1], "curve": _linear(OWN_GAIN, OWN_OFFSET)},
+            ],
+            "engine": {"attribute": "PolynomB", "index": 2},
+            "calibration": {"curve": _linear(SEXT_GAIN, SEXT_OFFSET), "energy_scaling": "brho"},
+            "default": 0.0,
+            **slots,
+        },
+    )
+
+
 def corrector_record(**slots: Any) -> dict[str, Any]:
     """A split corrector setpoint: half the kick on each piece."""
     return _record(
@@ -339,6 +361,36 @@ class TestCalibrationModule:
             cal.to_hardware(cal.Linear(0.0, 1.0), None, 1.0)
         assert caught.value.reason == "zero-gain"
 
+    def test_shifting_a_table_moves_its_grid(self) -> None:
+        table = cal.Table((0.0, 10.0, 30.0), (1.0, 2.0, 5.0))
+        moved = cal.shifted(table, 2.5)
+        assert moved == cal.Table((2.5, 12.5, 32.5), (1.0, 2.0, 5.0))
+        for x in (-4.0, 0.0, 7.0, 30.0, 41.0):
+            assert cal.evaluate(moved, x + 2.5) == pytest.approx(cal.evaluate(table, x), rel=1e-15)
+
+    def test_shifting_a_linear_curve_moves_its_offset(self) -> None:
+        line = cal.Linear(gain=0.4, offset=1.5)
+        moved = cal.shifted(line, -3.0)
+        assert moved == cal.Linear(gain=0.4, offset=1.5 + 0.4 * 3.0)
+        for x in (-2.0, 0.0, 9.0):
+            assert cal.evaluate(moved, x - 3.0) == pytest.approx(cal.evaluate(line, x), rel=1e-15)
+
+    def test_shifting_an_inverse_moves_its_values(self) -> None:
+        table = cal.Table((1.0, 2.0, 5.0), (0.0, 10.0, 30.0))
+        assert cal.shifted(table, 2.5, on_values=True) == cal.Table(
+            (1.0, 2.0, 5.0), (2.5, 12.5, 32.5)
+        )
+        line = cal.Linear(gain=2.0, offset=1.0)
+        moved = cal.shifted(line, -3.0, on_values=True)
+        assert moved == cal.Linear(gain=2.0, offset=-2.0)
+        assert cal.evaluate(moved, 4.0) == cal.evaluate(line, 4.0) - 3.0
+
+    def test_a_zero_shift_is_the_curve_itself(self) -> None:
+        table = cal.Table((0.0, 1.0), (0.0, 2.0))
+        line = cal.Linear(gain=2.0, offset=1.0)
+        assert cal.shifted(table, 0.0) is table
+        assert cal.shifted(line, 0.0, on_values=True) is line
+
     def test_the_rigidity_is_the_massive_form(self) -> None:
         assert cal.brho(3.0) == pytest.approx(brho(3.0), rel=1e-15)
         assert cal.energy_factor(RAISED_ENERGY_GEV, DECK_ENERGY_GEV) == pytest.approx(
@@ -399,6 +451,41 @@ class TestFromWiring:
     def test_the_energy_knob_takes_its_nominal_from_the_default(self) -> None:
         assert build(energy_record()).nominal == BEND_NOMINAL
 
+    def test_a_slice_curve_is_read_beside_its_binding(self) -> None:
+        variable = build(series_record())
+        assert variable.slice_curves == (None, cal.Linear(gain=OWN_GAIN, offset=OWN_OFFSET))
+
+    def test_a_record_with_no_slice_curve_states_none(self) -> None:
+        assert build(sextupole_record()).slice_curves == ()
+
+    def test_a_curve_on_the_first_slice_is_refused(self) -> None:
+        slices = [
+            {"element": SEXTUPOLE_SLICES[0], "curve": _linear(OWN_GAIN)},
+            {"element": SEXTUPOLE_SLICES[1]},
+        ]
+        with pytest.raises(ValidationError, match="the first slice converts through"):
+            build(sextupole_record(slices=slices))
+
+    def test_a_slice_curve_of_neither_shape_is_refused(self) -> None:
+        slices = [
+            {"element": SEXTUPOLE_SLICES[0]},
+            {"element": SEXTUPOLE_SLICES[1], "curve": {"spline": {}}},
+        ]
+        with pytest.raises(ValueError, match="SR/MAG:SEXTUPOLE:SP"):
+            build(sextupole_record(slices=slices))
+
+    def test_slice_curves_not_aligned_with_the_bindings_are_refused(self) -> None:
+        variable = build(series_record())
+        with pytest.raises(ValidationError, match="slice curve"):
+            StrengthVariable(
+                name="MAG:SERIES:SP",
+                bindings=variable.bindings,
+                calibration=variable.calibration,
+                slice_curves=(None,),
+                deck_energy_gev=DECK_ENERGY_GEV,
+                default_value=0.0,
+            )
+
 
 class TestStrengthVariable:
     def test_writes_the_value_the_calibration_converts_it_to(self, simulator) -> None:
@@ -457,6 +544,70 @@ class TestStrengthVariable:
 
         assert element(simulator.lattice, QUADRUPOLE).PolynomB[1] == 0.7
         assert variable._get(simulator) == 0.7
+
+
+class TestSeriesMembersOwnCurves:
+    def test_each_slice_converts_the_current_through_its_own_curve(self, simulator) -> None:
+        build(series_record())._set(simulator, SEXT_CURRENT)
+
+        held = [element(simulator.lattice, name).PolynomB[2] for name in SEXTUPOLE_SLICES]
+        assert held == pytest.approx(
+            [SEXT_GAIN * SEXT_CURRENT + SEXT_OFFSET, OWN_GAIN * SEXT_CURRENT + OWN_OFFSET],
+            rel=1e-15,
+        )
+
+    def test_a_slice_weight_scales_its_own_conversion(self, simulator) -> None:
+        record = series_record()
+        record["slices"][1]["weight"] = -1.0
+        build(record)._set(simulator, SEXT_CURRENT)
+
+        held = element(simulator.lattice, SEXTUPOLE_SLICES[1]).PolynomB[2]
+        assert held == pytest.approx(-(OWN_GAIN * SEXT_CURRENT + OWN_OFFSET), rel=1e-15)
+
+    def test_the_read_comes_back_from_the_first_slice(self, simulator) -> None:
+        variable = build(series_record())
+        variable._set(simulator, SEXT_CURRENT)
+
+        assert variable._get(simulator) == pytest.approx(SEXT_CURRENT, rel=1e-12)
+
+    def test_an_energy_rescale_keeps_both_conversions(self, simulator) -> None:
+        variable = build(series_record())
+        variable._set(simulator, SEXT_CURRENT)
+        factor = rigidity_factor(RAISED_ENERGY_GEV)
+        elements = {name: element(simulator.lattice, name) for name in SEXTUPOLE_SLICES}
+
+        variable.rescale(elements, factor)
+
+        held = [elements[name].PolynomB[2] for name in SEXTUPOLE_SLICES]
+        assert held == pytest.approx(
+            [
+                factor * (SEXT_GAIN * SEXT_CURRENT + SEXT_OFFSET),
+                factor * (OWN_GAIN * SEXT_CURRENT + OWN_OFFSET),
+            ],
+            rel=1e-15,
+        )
+
+    def test_a_scaled_write_takes_the_factor_on_every_slice(self, simulator) -> None:
+        simulator.lattice.energy = RAISED_ENERGY_GEV * EV_PER_GEV
+        build(series_record())._set(simulator, SEXT_CURRENT)
+
+        factor = rigidity_factor(RAISED_ENERGY_GEV)
+        held = element(simulator.lattice, SEXTUPOLE_SLICES[1]).PolynomB[2]
+        assert held == pytest.approx(factor * (OWN_GAIN * SEXT_CURRENT + OWN_OFFSET))
+
+    def test_a_missing_attribute_on_a_later_slice_leaves_the_first_unwritten(
+        self, simulator
+    ) -> None:
+        record = series_record()
+        record["slices"][1]["element"] = MONITOR
+        variable = build(record)
+        first = element(simulator.lattice, SEXTUPOLE_SLICES[0])
+        before = float(first.PolynomB[2])
+
+        with pytest.raises(AttributeError, match="PolynomB"):
+            variable._set(simulator, SEXT_CURRENT)
+
+        assert float(first.PolynomB[2]) == before
 
 
 class TestReadback:

@@ -1386,12 +1386,13 @@ class Slice(ConfiguredBaseModel):
     element: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring', 'Slice']} })
     weight: Optional[float] = Field(default=None, description="""Absent means 1.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Slice']} })
     device: Optional[str] = Field(default=None, description="""Absent means the channel's device.""", json_schema_extra = { "linkml_meta": {'domain_of': ['OnTarget', 'Slice']} })
+    curve: Optional[Curve] = Field(default=None, description="""This slice's own hardware-to-physics conversion; absent means the record's `calibration.curve`. The first slice states none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Slice', 'Calibration']} })
 
 
 class Calibration(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    curve: Curve = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Calibration']} })
+    curve: Curve = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Slice', 'Calibration']} })
     inverse: Optional[Curve] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Calibration']} })
     energy_scaling: Optional[EnergyScalingEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Calibration']} })
 

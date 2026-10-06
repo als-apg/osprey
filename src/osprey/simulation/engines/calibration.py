@@ -5,7 +5,8 @@ inverse maps back. Either direction is a straight line (:class:`Linear`) or a
 sampled table (:class:`Table`). A wiring record states its curves in the
 facility file's shape, ``{linear: {gain, offset}}`` or ``{table: {grid,
 values}}``, read by attribute or by key; :func:`curve_from_record` turns one
-into these dataclasses and :func:`evaluate` applies it.
+into these dataclasses, :func:`evaluate` applies it and :func:`shifted` moves
+it along its hardware axis.
 
 The way back from a physics value to hardware units is one rule,
 :func:`to_hardware`: the record's ``inverse`` when it states one, else the
@@ -36,6 +37,7 @@ __all__ = [
     "energy_factor",
     "evaluate",
     "field",
+    "shifted",
     "to_hardware",
     "to_physics",
 ]
@@ -140,6 +142,32 @@ def evaluate(curve: Calibration, x: float) -> float:
     x0, x1 = grid[segment], grid[segment + 1]
     y0, y1 = values[segment], values[segment + 1]
     return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+
+
+def shifted(curve: Calibration, by: float, *, on_values: bool = False) -> Calibration:
+    """Move a curve along its hardware axis.
+
+    A forward curve (hardware in) answers at ``x + by`` what ``curve``
+    answers at ``x``. A way back (hardware out, ``on_values``) answers
+    ``by`` more than ``curve`` at every input.
+
+    Args:
+        curve: The conversion to move.
+        by: How far, in hardware units.
+        on_values: Whether the hardware axis is the curve's output.
+
+    Returns:
+        The moved curve; ``curve`` itself when ``by`` is 0.
+    """
+    if by == 0.0:
+        return curve
+    if isinstance(curve, Linear):
+        if on_values:
+            return Linear(gain=curve.gain, offset=curve.offset + by)
+        return Linear(gain=curve.gain, offset=curve.offset - curve.gain * by)
+    if on_values:
+        return Table(grid=curve.grid, values=tuple(value + by for value in curve.values))
+    return Table(grid=tuple(point + by for point in curve.grid), values=curve.values)
 
 
 class NoInverse(ValueError):

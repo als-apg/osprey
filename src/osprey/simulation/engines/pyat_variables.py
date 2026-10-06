@@ -26,8 +26,9 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
 Each slice share is one reading of the same arithmetic: a write puts the
 physics value times the slice's weight on the element, and a read divides the
 first slice's reading by the first weight. A supply feeding several magnets in
-series is the third reading of it, each magnet weighing the fixed factor its
-own strength stands in to the string's.
+series is the third reading of it: every magnet converts the one current the
+supply delivers through its own curve, the slice's ``curve`` where it states
+one, and its weight is the split share and the polarity.
 
 Two kinds sit beside them, bound to no channel and declared by the model
 rather than by a wiring record. :class:`PyATWritableEnumVariable` is the enum
@@ -137,6 +138,29 @@ def _energy_scaling(record: Any) -> EnergyScaling:
     raise ValueError(f"wiring {_record_id(record)}: energy_scaling is {word!r}; use brho or none")
 
 
+def _slice_curves(record: Any) -> tuple[Calibration | None, ...]:
+    """Each slice's own ``curve``, aligned with the bindings; empty where none states one.
+
+    Raises:
+        ValueError: a slice states a curve that is neither ``linear`` nor
+            ``table``.
+    """
+    slices = field(record, "slices") or ()
+    curves: list[Calibration | None] = []
+    for piece in slices:
+        stated = field(piece, "curve")
+        curve = curve_from_record(stated)
+        if stated is not None and curve is None:
+            raise ValueError(
+                f"wiring {_record_id(record)}: slice {field(piece, 'element')} states a curve "
+                "that is neither linear nor table"
+            )
+        curves.append(curve)
+    if all(curve is None for curve in curves):
+        return ()
+    return tuple(curves)
+
+
 def _element_bindings(record: Any) -> list[ElementBinding]:
     """One element binding per slice of a record, on its engine attribute.
 
@@ -195,9 +219,14 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
     times the slice's own weight on each bound element, and a read divides the
     first slice's reading by that first weight. A weight is therefore any
     finite non-zero number: one for a piece that carries the whole value,
-    ``1/n`` for a piece that takes an equal share of a divisible one, and the
-    fixed factor its own strength stands in to the string's for a magnet a
-    supply feeds in series.
+    ``1/n`` for a piece that takes an equal share of a divisible one, and
+    negative for a magnet wound the other way.
+
+    **What a slice curve means.** A magnet a supply feeds in series converts
+    the current the supply delivers through its own curve, which its slice
+    states; a slice stating none converts through ``calibration``. The first
+    slice states none: it is the one a read comes back from, through
+    ``inverse``.
 
     Attributes:
         calibration: Hardware to physics, as the facility states it at the
@@ -212,6 +241,9 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
             leaves it fixed.
         deck_energy_gev: The beam energy the calibration is stated at, which
             is the energy the deck is built for.
+        slice_curves: Each binding's own hardware-to-physics conversion, in
+            binding order, ``None`` for one converting through
+            ``calibration``; empty when every binding does.
     """
 
     # A misspelled field is a mistake, not an extra to ignore: a dropped
@@ -224,11 +256,28 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
     inverse: Calibration | None = None
     energy_scaling: EnergyScaling = "none"
     deck_energy_gev: float
+    slice_curves: tuple[Calibration | None, ...] = ()
 
     @model_validator(mode="after")
     def _require_a_way_back(self) -> CalibratedSetpoint:
         """Refuse a calibration with no way back to hardware units."""
         check_inverse(self.calibration, self.inverse)
+        return self
+
+    @model_validator(mode="after")
+    def _read_back_through_the_record(self) -> CalibratedSetpoint:
+        """Refuse slice curves that do not line up with the bindings or convert the read."""
+        if not self.slice_curves:
+            return self
+        if len(self.slice_curves) != len(self.bindings):
+            raise ValueError(
+                f"{self.name}: {len(self.slice_curves)} slice curves for "
+                f"{len(self.bindings)} bindings"
+            )
+        if self.slice_curves[0] is not None:
+            raise ValueError(
+                f"{self.name}: the first slice converts through the record's calibration"
+            )
         return self
 
     @classmethod
@@ -239,7 +288,8 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
 
         Args:
             record: The wiring record, read by key or by attribute: ``address``,
-                ``element`` or ``slices`` (each ``element``, ``weight``), the
+                ``element`` or ``slices`` (each ``element``, ``weight``,
+                ``curve``), the
                 engine block's ``attribute`` and ``index``, ``calibration``
                 (``curve``, ``inverse``, ``energy_scaling``) and the computed
                 ``default`` and ``unit``.
@@ -252,8 +302,9 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
 
         Raises:
             ValueError: the record names no element, no slices or no engine
-                attribute, states an unknown ``energy_scaling``, or its
-                calibration has no way back to hardware units.
+                attribute, states an unknown ``energy_scaling``, a slice
+                states a curve of neither shape or the first slice states one,
+                or its calibration has no way back to hardware units.
         """
         curve, inverse = _curves(record)
         return cls(
@@ -262,6 +313,7 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
             inverse=inverse,
             energy_scaling=_energy_scaling(record),
             deck_energy_gev=deck_energy_gev,
+            slice_curves=_slice_curves(record),
             **_scalar_fields(record, scalar_fields, writable=True),
         )
 
@@ -270,9 +322,33 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
 
         The rigidity factor is taken from the energy the lattice is at when the
         write happens, not from the deck energy, so a setpoint written after
-        an energy move lands where that move left the record.
+        an energy move lands where that move left the record. Every slice
+        converts the one delivered value through its own curve; every element
+        is checked before any is written, so a bad binding leaves the lattice
+        untouched.
+
+        Raises:
+            AttributeError: an element has no such attribute.
         """
-        super()._set(simulator, self._physics(simulator, value))
+        if not self.slice_curves:
+            super()._set(simulator, self._physics(simulator, value))
+            return
+        delivered = self._delivered(simulator, value)
+        factor = self._rigidity_factor(simulator)
+        elements = [simulator.element(binding.element_name) for binding in self.bindings]
+        for binding, element in zip(self.bindings, elements, strict=True):
+            if not hasattr(element, binding.attribute):
+                raise AttributeError(
+                    f"element {binding.element_name!r} has no attribute "
+                    f"{binding.attribute!r} to write"
+                )
+        for binding, element, own in zip(self.bindings, elements, self.slice_curves, strict=True):
+            curve = self.calibration if own is None else own
+            weighted = to_physics(curve, delivered) * factor * binding.weight
+            if binding.index is None:
+                setattr(element, binding.attribute, weighted)
+            else:
+                getattr(element, binding.attribute)[binding.index] = weighted
 
     def _get(self, simulator: PyATSimulator) -> float:
         """Return the hardware value the lattice is presently holding.
@@ -332,9 +408,13 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
         calibration then converts. A setpoint whose element carries none
         delivers what was commanded.
         """
-        element = simulator.element(self.bindings[0].element_name)
-        delivered = magnet_cal(value, **supply_calibration(element, self.name))
+        delivered = self._delivered(simulator, value)
         return to_physics(self.calibration, delivered) * self._rigidity_factor(simulator)
+
+    def _delivered(self, simulator: PyATSimulator, value: float) -> float:
+        """The hardware value the supply delivers when ``value`` is commanded."""
+        element = simulator.element(self.bindings[0].element_name)
+        return magnet_cal(value, **supply_calibration(element, self.name))
 
     def _rigidity_factor(self, simulator: PyATSimulator) -> float:
         """What a rigidity-scaled value is worth at the lattice's present energy."""
@@ -352,11 +432,10 @@ class StrengthVariable(CalibratedSetpoint):
     """One magnet setpoint, onto a polynomial coefficient of every slice.
 
     The slices of a strength are the pieces a split magnet is modelled as and
-    the magnets a supply feeds in series, and each carries the setpoint's
-    physics value times its own weight. A split magnet's pieces each carry the
-    whole strength, because the control system sets a strength rather than a
-    strength to divide up; a series magnet carries the fixed factor its own
-    strength stands in to the string's.
+    the magnets a supply feeds in series. A split magnet's pieces each carry
+    the whole strength, because the control system sets a strength rather than
+    a strength to divide up; a series magnet converts the supply's current
+    through its own curve, its weight carrying only its polarity.
     """
 
 
@@ -367,7 +446,8 @@ class KickVariable(CalibratedSetpoint):
     by the sum of what its pieces do, so each piece takes ``1/n`` of the kick
     and reading the first slice back multiplies by ``n`` again, which is the
     value the control system reads. Where one supply bends several correctors
-    in series, that share is multiplied by the magnet's own fixed factor.
+    in series, each converts the supply's current through its own curve and
+    takes that share of it.
     """
 
 
